@@ -110,6 +110,7 @@ import type {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  ConfigPricingGetResult,
 } from './rpc/rpc-config.types';
 
 import type {
@@ -456,12 +457,18 @@ import type {
 // `harness:` namespace with the setup builder above but not its types: these
 // describe propagation health, not a wizard step.
 import type {
+  HarnessGetSkillSelectionParams,
+  HarnessGetSkillSelectionResult,
   HarnessHealthParams,
   HarnessHealthResult,
   HarnessReconcileParams,
   HarnessReconcileResult,
   HarnessRemoveParams,
   HarnessRemoveResult,
+  HarnessRepairBlockedParams,
+  HarnessRepairBlockedResult,
+  HarnessSetSkillSelectionParams,
+  HarnessSetSkillSelectionResult,
 } from './harness-sync.types';
 
 import type {
@@ -705,6 +712,10 @@ export interface RpcMethodRegistry {
   'config:effort-set': {
     params: ConfigEffortSetParams;
     result: ConfigEffortSetResult;
+  };
+  'config:pricing-get': {
+    params: Record<string, never>;
+    result: ConfigPricingGetResult;
   };
   'auth:getHealth': {
     params: AuthGetHealthParams;
@@ -1551,6 +1562,32 @@ export interface RpcMethodRegistry {
     params: HarnessRemoveParams;
     result: HarnessRemoveResult;
   };
+  /**
+   * The consent-gated repair of a blocked path (TASK_2026_306 Batch 8).
+   *
+   * Per-path only. Nothing proves Ptah wrote the directories that occupy these
+   * paths, so the user's explicit selection IS the ownership claim and there is
+   * deliberately no bulk shape to weaken it.
+   */
+  'harness:repairBlocked': {
+    params: HarnessRepairBlockedParams;
+    result: HarnessRepairBlockedResult;
+  };
+  /**
+   * The per-workspace skill selection (TASK_2026_316 Batch 3).
+   *
+   * `get` is READ-ONLY — it resolves the gate and never persists the derived
+   * answer, so a surface that polls cannot record a decision for the user.
+   * `set` writes the choice and then propagates it.
+   */
+  'harness:get-skill-selection': {
+    params: HarnessGetSkillSelectionParams;
+    result: HarnessGetSkillSelectionResult;
+  };
+  'harness:set-skill-selection': {
+    params: HarnessSetSkillSelectionParams;
+    result: HarnessSetSkillSelectionResult;
+  };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
   'memory:get': { params: MemoryGetParams; result: MemoryGetResult };
@@ -2162,6 +2199,13 @@ export interface SkillSynthesisCandidateSummary {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  /**
+   * The workspace this candidate was captured in, or `null` when its origin is
+   * unknown (captured before the column existed and not resolvable from the
+   * synthesis queue). `null` is NOT "cross-project" and must not be rendered as
+   * one — the honest label is "unknown project".
+   */
+  workspaceRoot: string | null;
   // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
   /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
   displayName: string | null;
@@ -2231,9 +2275,33 @@ export interface SkillSynthesisInvocationEntry {
   notes: string | null;
 }
 
+/**
+ * How wide the candidate list reaches across projects.
+ *
+ * `'workspace'` — the current workspace, PLUS every candidate whose origin is
+ * unknown (`workspaceRoot: null`: captured before the origin column existed).
+ * Unknown rows are included rather than hidden, because hiding them would make
+ * pre-existing candidates unreachable in every project.
+ *
+ * `'all'` — every candidate in `~/.ptah/state/ptah.sqlite`, which is shared by
+ * every workspace on the machine.
+ */
+export type SkillSynthesisCandidateScope = 'workspace' | 'all';
+
 export interface SkillSynthesisListCandidatesParams {
   status?: 'candidate' | 'promoted' | 'rejected' | 'all';
   limit?: number;
+  /**
+   * Defaults to `'workspace'`. The default is deliberately the NARROW one: a
+   * candidate is unreviewed work captured from one session in one project, and
+   * before this existed a freshly opened project's review queue was every
+   * other project's backlog.
+   *
+   * This scopes the LIST only. Promotion, clustering, dedup, the residency
+   * budget and the empirical gates all read the candidate set across projects
+   * on purpose — a promoted skill is propagated into every workspace.
+   */
+  scope?: SkillSynthesisCandidateScope;
 }
 export interface SkillSynthesisListCandidatesResult {
   candidates: SkillSynthesisCandidateSummary[];
@@ -3300,6 +3368,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'config:models-list': true,
   'config:effort-get': true,
   'config:effort-set': true,
+  'config:pricing-get': true,
   'auth:getHealth': true,
   'auth:saveSettings': true,
   'auth:testConnection': true,
@@ -3484,6 +3553,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:health': true,
   'harness:reconcile': true,
   'harness:remove': true,
+  'harness:repairBlocked': true,
+  'harness:get-skill-selection': true,
+  'harness:set-skill-selection': true,
 
   'memory:list': true,
   'memory:search': true,

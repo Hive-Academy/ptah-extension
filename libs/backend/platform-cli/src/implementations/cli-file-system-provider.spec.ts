@@ -191,7 +191,8 @@ describe('CliFileSystemProvider — CLI-specific behaviour', () => {
     const chokidar = jest.requireMock<{ watch: jest.Mock }>('chokidar');
     chokidar.watch = mockWatch;
 
-    const watcher = provider.createFileWatcher('**/*.ts');
+    const projectRoot = path.resolve('/project');
+    const watcher = provider.createFileWatcher('**/*.ts', { cwd: projectRoot });
 
     const changedFiles: string[] = [];
     const createdFiles: string[] = [];
@@ -205,14 +206,22 @@ describe('CliFileSystemProvider — CLI-specific behaviour', () => {
     // event handlers with the mock watcher.
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    // Trigger each chokidar event
-    handlers['change']?.[0]?.('/project/foo.ts');
-    handlers['add']?.[0]?.('/project/bar.ts');
-    handlers['unlink']?.[0]?.('/project/baz.ts');
+    // chokidar is handed a DIRECTORY, never the glob — it has not understood
+    // globs since v4, and passing one through produced a watcher on a literal
+    // path named `**` that silently never fired.
+    expect(mockWatch.mock.calls[0][0]).toBe(projectRoot.replace(/\\/g, '/'));
 
-    expect(changedFiles).toEqual(['/project/foo.ts']);
-    expect(createdFiles).toEqual(['/project/bar.ts']);
-    expect(deletedFiles).toEqual(['/project/baz.ts']);
+    // Trigger each chokidar event
+    handlers['change']?.[0]?.(path.join(projectRoot, 'foo.ts'));
+    handlers['add']?.[0]?.(path.join(projectRoot, 'bar.ts'));
+    handlers['unlink']?.[0]?.(path.join(projectRoot, 'baz.ts'));
+    // Not a `.ts` file: chokidar reports everything under the watched
+    // directory, so the glob is now applied on this side before emitting.
+    handlers['add']?.[0]?.(path.join(projectRoot, 'notes.md'));
+
+    expect(changedFiles).toEqual([path.join(projectRoot, 'foo.ts')]);
+    expect(createdFiles).toEqual([path.join(projectRoot, 'bar.ts')]);
+    expect(deletedFiles).toEqual([path.join(projectRoot, 'baz.ts')]);
 
     watcher.dispose();
   });

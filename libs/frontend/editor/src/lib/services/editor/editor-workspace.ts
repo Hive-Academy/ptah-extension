@@ -368,14 +368,41 @@ export class EditorWorkspaceHelper {
 
   /**
    * Begin acting on `file:tree-changed`, `file:content-changed` and
-   * `editor:reread-open-tabs` pushes.
+   * `editor:reread-open-tabs` pushes, and reconcile what was missed while
+   * the gate was shut.
    *
    * Registration itself lives on `EditorService`, which implements
-   * `MessageHandler` and delegates to the three `on*` methods below. This
-   * method is now purely the enable half of the timer/gate lifecycle.
+   * `MessageHandler` and delegates to the three `on*` methods below.
+   *
+   * THE CATCH-UP IS THE POINT, not an optimisation. `EditorService` is
+   * `providedIn: 'root'` but `EditorPanelComponent` is not — leaving the
+   * editor surface destroys the panel, `stopFileTreeWatcher` shuts the gate,
+   * and every `file:tree-changed` push that arrives while the user is in
+   * chat / harness / marketplace is DROPPED against a tree that survives in
+   * the root service. Re-opening the panel only re-armed the gate, so those
+   * files stayed invisible until some unrelated later write happened to fire
+   * another push — and if nothing else changed, forever. Observed against a
+   * scaffolded workspace: the explorer kept a snapshot from before the
+   * generator ran while `README.md`, `apps/` and `libs/` sat on disk.
+   *
+   * `GitStatusService.startListening` already had exactly this shape (gate +
+   * eager `fetchGitInfo`), which is why git decorations stayed correct across
+   * the same navigation that stranded the tree. This makes the two agree.
+   *
+   * Idempotent, as the git twin is: a second call while already watching is a
+   * no-op rather than a duplicate fetch. The first mount is also free — the
+   * workspace-binding effect has not run yet, so there is no active workspace
+   * and {@link loadFileTree} early-returns; `switchWorkspace` does the initial
+   * load moments later.
    */
   public startFileTreeWatcher(): void {
+    if (this.watching) return;
     this.watching = true;
+    void this.loadFileTree();
+    // Content pushes were dropped by the same closed gate, so an open tab can
+    // be as stale as the tree. This re-reads only non-dirty, non-diff tabs
+    // whose disk content actually differs (see `handleFileContentChanged`).
+    this.onRereadOpenTabs();
   }
 
   /** Stop acting on pushes and clear both pending debounce timers. */

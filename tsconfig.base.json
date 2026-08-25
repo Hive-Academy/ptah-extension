@@ -160,6 +160,9 @@
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"
       ],
+      "@ptah-extension/marketplace/harness": [
+        "./libs/frontend/marketplace/src/harness.ts"
+      ],
       "@ptah-extension/marketplace/services": [
         "./libs/frontend/marketplace/src/services.ts"
       ],

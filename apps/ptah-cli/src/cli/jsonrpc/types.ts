@@ -151,6 +151,10 @@ export type PtahNotification =
   | 'skill.removed'
   | 'skill.popular'
   | 'skill.recommended'
+  // The per-workspace skill selection (TASK_2026_316): `selection` is the
+  // read, `selected` the write, matching `installed` / `removed` above.
+  | 'skill.selection'
+  | 'skill.selected'
   | 'skill.created'
   | 'mcp.search'
   | 'mcp.details'

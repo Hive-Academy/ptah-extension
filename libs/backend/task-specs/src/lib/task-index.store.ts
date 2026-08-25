@@ -72,6 +72,24 @@ export interface TaskIndexMeta {
  */
 export interface ITaskIndexStore {
   /**
+   * Can this store accept a write RIGHT NOW?
+   *
+   * TASK_2026_306 task 4.4. Registration and opening are separate events for the
+   * SQLite impl: both Electron and the CLI register the store in the same DI
+   * pass as the activation warm-up but call `openAndMigrate` hundreds of log
+   * lines later. The warm-up's write therefore used to be attempted against a
+   * connection that was guaranteed to reject it, and the resulting
+   * `Persistence is offline` failure was reported as a WARN on every clean boot
+   * — a predicted outcome in a channel that exists for unpredicted ones.
+   *
+   * `TaskIndexService.rebuild` asks first and skips only the write. It is a
+   * point-in-time answer, not a promise: a store may report `true` and still
+   * fail (disk full, a page corrupted, the connection closed underneath us), and
+   * THAT failure is genuine and still warns. This predicate removes one known
+   * case from the warn channel; it does not replace the channel.
+   */
+  isReady(): boolean;
+  /**
    * Replace an entire workspace's rows in ONE transaction: delete every row
    * for the workspace, re-insert `tasks`, and record the `excluded` folders.
    * This is the "rebuild equivalent to fresh" guarantee (R3.2) by construction.
@@ -236,6 +254,15 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
 
   private get db(): SqliteDatabase {
     return this.connection.db;
+  }
+
+  /**
+   * Open connection = writable store. The connection owns this fact already
+   * (`SqliteConnectionService.isOpen`); this method only forwards it, so the two
+   * cannot drift.
+   */
+  isReady(): boolean {
+    return this.connection.isOpen;
   }
 
   replaceWorkspace(
@@ -443,6 +470,15 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
   private readonly meta = new Map<string, TaskIndexMeta>();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+
+  /**
+   * Always. A Map is writable from the moment it is constructed — there is no
+   * open/closed transition for this impl, and reporting anything else would make
+   * the no-SQLite fallback skip writes it can perform perfectly well.
+   */
+  isReady(): boolean {
+    return true;
+  }
 
   replaceWorkspace(
     workspaceRoot: string,

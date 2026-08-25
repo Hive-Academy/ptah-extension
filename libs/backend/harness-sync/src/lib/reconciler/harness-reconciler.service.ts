@@ -27,10 +27,11 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import EventEmitter from 'eventemitter3';
-import type {
-  HarnessHealth,
-  HarnessTargetHealth,
-  HarnessTargetId,
+import {
+  blockedTargetPaths,
+  type HarnessHealth,
+  type HarnessTargetHealth,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
@@ -58,6 +59,10 @@ import {
 } from '../health/harness-health';
 import type { HarnessGitignoreWriter } from '../gitignore/gitignore-writer';
 import { AgentSyncGate } from '../state/agent-sync-gate';
+import {
+  SkillSyncGate,
+  type SkillSyncSelection,
+} from '../state/skill-sync-gate';
 
 export interface HarnessReconcileOptions {
   mode: 'full' | 'preflight';
@@ -102,6 +107,16 @@ export class HarnessReconcilerService {
      * close. Every construction gets one.
      */
     private readonly agentSync: AgentSyncGate = new AgentSyncGate(
+      manifestStore,
+    ),
+    /**
+     * DEFAULTED, not nullable, for the same reason `agentSync` above is — and
+     * with more at stake. An absent skill gate would mean every skill on the
+     * machine propagates into every workspace ungated in any host that forgot
+     * to wire it, which is the defect this gate exists to close. Every
+     * construction gets one.
+     */
+    private readonly skillSync: SkillSyncGate = new SkillSyncGate(
       manifestStore,
     ),
   ) {}
@@ -149,12 +164,14 @@ export class HarnessReconcilerService {
    */
   async verify(cwd: string, reason = 'harness:health'): Promise<HarnessHealth> {
     const workspaceRoot = resolveHarnessWorkspaceRoot(cwd);
-    // Resolved but NOT persisted. A derived decision is a write, and `verify()`
-    // writes nothing — a badge that polls must not be able to record a consent
-    // decision on the user's behalf.
+    // BOTH gates are resolved and NEITHER is persisted. A derived decision is a
+    // write, and `verify()` writes nothing — a badge that polls must not be
+    // able to record a consent or selection decision on the user's behalf.
+    const skillSync = this.skillSync.resolve(workspaceRoot);
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: false,
       agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
+      skillSync,
     });
 
     const targetHealth: HarnessTargetHealth[] = [];
@@ -318,9 +335,11 @@ export class HarnessReconcilerService {
     options: HarnessReconcileOptions,
   ): Promise<HarnessHealth> {
     const agentSync = this.agentSync.resolve(workspaceRoot);
+    const skillSync = this.skillSync.resolve(workspaceRoot);
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: options.downloadPending === true,
       agentSyncEnabled: agentSync.enabled,
+      skillSync,
     });
 
     const selected = this.selectTargets(options.targets);
@@ -340,6 +359,9 @@ export class HarnessReconcilerService {
       // is never overwritten by a reconcile.
       if (agentSync.derived) {
         this.persistAgentSyncDecision(workspaceRoot, agentSync.enabled);
+      }
+      if (skillSync.derived) {
+        this.persistSkillSyncDecision(workspaceRoot, skillSync);
       }
       for (const target of selected) {
         targetHealth.push(
@@ -387,6 +409,35 @@ export class HarnessReconcilerService {
     } catch (error: unknown) {
       this.logger.warn(
         '[harness-sync] Recording the agent-sync decision threw',
+        {
+          workspaceRoot,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * Record the skill-selection migration's answer so the manifest evidence walk
+   * runs once and cannot be re-answered after a reap has emptied the manifests.
+   *
+   * Non-fatal for the same reason its agent twin is: a state file that could
+   * not be written means the next pass re-derives the same answer from the same
+   * manifests, which is a repeated read and never a different decision.
+   */
+  private persistSkillSyncDecision(
+    workspaceRoot: string,
+    decision: SkillSyncSelection,
+  ): void {
+    try {
+      if (this.skillSync.persist(workspaceRoot, decision)) return;
+      this.logger.warn(
+        '[harness-sync] Could not record the skill-selection decision; it will be re-derived next pass',
+        { workspaceRoot, skillSyncMode: decision.mode },
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[harness-sync] Recording the skill-selection decision threw',
         {
           workspaceRoot,
           error: error instanceof Error ? error.message : String(error),
@@ -643,15 +694,138 @@ export class HarnessReconcilerService {
       mode: health.mode,
       sources: health.sources,
       collisions: health.collisions.length,
+      // `scope` and `targetCount` exist so the six counters below cannot be
+      // read as a single target's numbers. They are SUMS over every target in
+      // this pass, and a host that prints one target's slice with the same
+      // field names produces a second line that can never agree with this one
+      // (`apps/ptah-electron/.../plugin-activation.ts` printed `found=14/27`
+      // beside this line's `found=106/119` for exactly that reason).
+      scope: 'all-targets',
+      targetCount: health.targets.length,
       ...totals,
+      // The breakdown the aggregate hides. A pass whose every gap sits on ONE
+      // target reads identically, in the summed counters, to a pass with the
+      // same number of gaps spread evenly — and which target owns the gaps is
+      // the first question anybody asks of this line.
+      perTarget: health.targets.map((target) => ({
+        target: target.target,
+        detected: target.detected,
+        expected: target.expected,
+        found: target.found,
+        missing: target.missing.length,
+        foreign: target.foreign.length,
+        removed: target.removed.length,
+        writeFailed: target.writeFailed.length,
+      })),
     };
 
     if (totals.writeFailed > 0 || totals.missing > 0) {
       this.logger.warn('[harness-sync] Reconcile finished with gaps', detail);
-      return;
+    } else {
+      this.logger.debug('[harness-sync] Reconcile complete', detail);
     }
-    this.logger.debug('[harness-sync] Reconcile complete', detail);
+
+    // A SECOND line, deliberately. The summary above is unchanged so nothing
+    // that parses it regresses; the shortfall it reports is explained here.
+    this.logBlocked(health);
   }
+
+  /**
+   * The blocked set, as its own line, because `missing` alone cannot say why.
+   *
+   * `missing=13` beside `writeFailed=0` on a real cold start
+   * (`tmp/logs/coldstart-306.log:844`) is the state this exists to explain, and
+   * it is not the contradiction it reads as. A blocked path is filtered out
+   * BEFORE `plan.writes` is built (`targets/claude-target.ts:189-194` does
+   * `scanned.push(relPath); continue;` on a foreign outcome), so the failure
+   * counter is STRUCTURALLY incapable of ever counting one. `writeFailed: 0`
+   * was never evidence that the writes succeeded — those writes were never
+   * attempted, on purpose, because an unowned file occupies the path and Ptah
+   * does not overwrite what it cannot prove it wrote (E9).
+   *
+   * What this line does NOT do: it does not close the gap. The harness really
+   * is incomplete, so `summarizeHarnessHealth` still reads `degraded` and the
+   * badge stays amber. It stops spelling a refusal as a gap of unknown cause.
+   *
+   * Emitted only when the set is non-empty — silence stays silent when correct
+   * — and labelled with the same `scope` the summary carries, so the two lines
+   * cannot be read as one target's numbers beside another's.
+   *
+   * **`full` passes only, and `verify()` never.** Three surfaces could emit
+   * this and only one should:
+   *
+   *   - `full` — activation, workspace change, content download, a plugin
+   *     toggle, `harness:reconcile`, `ptah harness doctor --fix`. Bounded, and
+   *     each one is either once per boot or something the user just asked for.
+   *     This is the surface that logs.
+   *   - `preflight` — every session start, throttled to 60 s per workspace
+   *     root. The blocked set is a permanent steady state, so a session-start
+   *     pass would repeat the identical multi-path object for every one of the
+   *     skill-synthesis drain's nightly one-shot sessions and bury the
+   *     activation line this one exists to accompany. Same rule, and the same
+   *     reasoning, as `maintainGitignore` being `full`-only.
+   *   - `verify()` — never reaches `log()` at all. It is what the health badge
+   *     polls and what `ptah harness doctor` (without `--fix`) calls, and the
+   *     doctor already prints these paths grouped by kind.
+   *
+   * Nothing is lost by the restriction: every host's boot line comes from an
+   * activation `full` pass, and the manual repair path defaults to `full`.
+   */
+  private logBlocked(health: HarnessHealth): void {
+    if (health.mode !== 'full') return;
+
+    const paths = health.targets.flatMap((target) =>
+      blockedTargetPaths(target).map((relPath) => ({
+        target: target.target,
+        relPath,
+        reason: blockedReason(relPath),
+      })),
+    );
+    if (paths.length === 0) return;
+
+    this.logger.warn(
+      '[harness-sync] Blocked: desired paths an unowned file occupies — refused, not failed',
+      {
+        reason: health.reason,
+        mode: health.mode,
+        scope: 'all-targets',
+        targetCount: health.targets.length,
+        blocked: paths.length,
+        note: 'Counted in `missing` because the artifact is not installed, and in `foreign` because Ptah will not touch a file it cannot prove it wrote. A blocked path never enters the write plan, so `writeFailed` can never report one.',
+        // Leads with MOVE, on purpose. Nothing about these paths proves Ptah
+        // wrote them — see the blocked-path condition in this lib's CLAUDE.md —
+        // so telling a user to delete them is telling them to destroy work that
+        // may be their own, and `--fix` then writes Ptah's version over the
+        // gap. Move is reversible; delete is not. The same framing — move
+        // first, "may be your own work", never a destructive verb — is carried
+        // by the Marketplace popover and the Dashboard card word for word.
+        // Only the middle clause, the one naming WHERE to go, differs between
+        // the three, because the three are read in three different places.
+        //
+        // The Dashboard card is named because a log line cannot be clicked and
+        // this one is otherwise a dead end for anyone not holding a terminal.
+        // It is named as a place to READ the same list, which is all that card
+        // does: it has no repair control, and it must not be described as one
+        // while the provenance of these paths is unknown.
+        action:
+          'Move the occupant aside — the file or directory at each path, or the conflicting key in each config file — then re-run `ptah harness doctor --fix`. The same list is on the Dashboard home, in the "Your harness is short" card. Nothing here proves Ptah wrote these, so they may be your own work: keep what you move, and read it before you discard anything.',
+        paths,
+      },
+    );
+  }
+}
+
+/**
+ * Why one blocked path could not be written, in words a user can act on.
+ *
+ * Two shapes, because a blocked MCP entry is not a file at all: it is a server
+ * key inside a config file the user also writes, so telling them to move or
+ * delete a path would name something that does not exist.
+ */
+function blockedReason(relPath: string): string {
+  return isMcpFragmentKey(relPath)
+    ? 'the config file already defines this server key, and Ptah did not write it'
+    : 'occupied by a file or directory Ptah does not own';
 }
 
 function sortKeys(entries: ManagedEntries): ManagedEntries {

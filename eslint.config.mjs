@@ -96,14 +96,23 @@ export default [
           // -126,834 B (tasks-ui) and -40,694 B (harness-builder) of initial
           // bundle. Nx's check is project-granular and cannot see that.
           //
-          // Only the `/services` subpaths are exempt. A static import of the
-          // BARE barrel (`@ptah-extension/tasks-ui`) still errors, which is
-          // exactly the regression guard we want: it is how an eager consumer
-          // would silently pull the whole lib back into the initial bundle.
+          // Only NARROW subpaths are exempt. A static import of the BARE
+          // barrel (`@ptah-extension/tasks-ui`) still errors, which is exactly
+          // the regression guard we want: it is how an eager consumer would
+          // silently pull the whole lib back into the initial bundle.
+          //
+          // `@ptah-extension/marketplace/harness` (TASK_2026_306 Batch 11) is
+          // the one exemption that is not a `/services` barrel. It exports one
+          // leaf presentational component and one pure function so the eager
+          // `DashboardGridComponent` can render the blocked-paths disclosure
+          // without re-implementing it — same rule, same measurement
+          // discipline, different kind of export. It exports no surface and no
+          // hub, so it does not defeat the split either.
           checkDynamicDependenciesExceptions: [
             '@ptah-extension/tasks-ui/services',
             '@ptah-extension/harness-builder/services',
             '@ptah-extension/marketplace/services',
+            '@ptah-extension/marketplace/harness',
           ],
           depConstraints: [
             {

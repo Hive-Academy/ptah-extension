@@ -147,7 +147,11 @@ describe('McpRegistryProvider response shape handling', () => {
     expect(result.servers[0]?.name).toBe('io.github.acme/only-one');
   });
 
-  it('forwards query and cursor as URL params', async () => {
+  it('sends the query as `search`, never `q`, and asks for latest versions only', async () => {
+    // The registry ignores an unrecognized parameter instead of rejecting it,
+    // so `q=` returned 200 with the alphabetical head of the entire catalogue —
+    // a search that looked like it worked and matched nothing the caller asked
+    // for. `version=latest` is what stops one server occupying four rows.
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -164,8 +168,30 @@ describe('McpRegistryProvider response shape handling', () => {
 
     const url = (fetchMock.mock.calls[0]?.[0] ?? '') as string;
     expect(url).toContain('limit=5');
-    expect(url).toContain('q=github');
+    expect(url).toContain('search=github');
+    expect(url).not.toContain('q=github');
+    expect(url).toContain('version=latest');
     expect(url).toContain('cursor=abc123');
+  });
+
+  it('keeps one row per server name when the registry repeats a name', async () => {
+    mockFetchOnce({
+      servers: [
+        { server: { name: 'ac.inference.sh/mcp', description: 'Run AI apps' } },
+        {
+          server: { name: 'ac.inference.sh/mcp', description: 'run any model' },
+        },
+        { server: { name: 'ac.tandem/docs-mcp', description: 'Docs' } },
+      ],
+    });
+
+    const result = await provider.listServers({ query: 'ai' });
+
+    expect(result.servers.map((entry) => entry.name)).toEqual([
+      'ac.inference.sh/mcp',
+      'ac.tandem/docs-mcp',
+    ]);
+    expect(result.servers[0]?.description).toBe('Run AI apps');
   });
 
   it('throws when registry returns a non-OK, non-404 status', async () => {

@@ -779,6 +779,14 @@ export class SkillSynthesisService {
       trajectoryHash: trajectory.hash,
       embedding,
       createdAt: Date.now(),
+      // The ORIGIN of this capture, and the reason the Skills tab can scope its
+      // review queue to one project. `|| null` and never `|| ''`: a session
+      // with no known root is UNKNOWN origin, which a scoped read includes,
+      // whereas `''` would claim the capture is deliberately cross-project.
+      // This is the same root the `contextId` above is hashed from — that hash
+      // is a generality COUNT (`countDistinctContexts`) and cannot be reversed
+      // to a path, which is why the path is stored as well as hashed.
+      workspaceRoot: workspaceRoot || null,
     });
     if (!result.reused && contextId) {
       this.store.recordInvocation({

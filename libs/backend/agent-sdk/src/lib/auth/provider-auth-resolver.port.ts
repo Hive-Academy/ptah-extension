@@ -29,6 +29,13 @@ import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
  * unusable; how to treat that is the caller's decision and the two current
  * callers deliberately disagree (the memory curator falls back to the active
  * provider; a background lane stalls rather than spend foreground quota).
+ *
+ * `ProviderQuotaError` (thrown) means the provider that would actually be
+ * dialled is still cooling down from an upstream 429; it carries
+ * `retryAfterMs`. Both callers agree on this one: NOBODY falls back, because
+ * the provider being gated is very often the active one — `''` resolves to it —
+ * and falling back would aim background work at the exhausted quota. Matched by
+ * `name`, never `instanceof`; the implementation lives in `auth-providers`.
  */
 export interface IProviderAuthResolver {
   /**

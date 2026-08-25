@@ -16,7 +16,7 @@ import {
   inject,
   DestroyRef,
 } from '@angular/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, lastPathSegment } from '@ptah-extension/shared';
 import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
@@ -688,7 +688,17 @@ export class ElectronLayoutService implements MessageHandler {
     }
   }
 
+  /**
+   * The display name for a workspace folder.
+   *
+   * Delegates to the shared helper rather than keeping its own
+   * `split(sep).pop() || path`, which is what this was. That form returns `''`
+   * for a path with a trailing separator and the `|| folderPath` guard then put
+   * the ENTIRE path in the sidebar's folder-name slot; `lastPathSegment` drops
+   * empty segments instead. Kept as a method so the four call sites read the
+   * same as before.
+   */
   private folderName(folderPath: string): string {
-    return folderPath.split(/[\\/]/).pop() || folderPath;
+    return lastPathSegment(folderPath);
   }
 }

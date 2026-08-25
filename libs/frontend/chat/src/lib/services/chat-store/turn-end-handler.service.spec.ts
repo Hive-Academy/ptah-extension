@@ -26,7 +26,10 @@
 import { TestBed } from '@angular/core/testing';
 import {
   BackgroundAgentId,
+  ConversationRegistry,
+  SurfaceId,
   TabManagerService,
+  TabSessionBinding,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
@@ -190,6 +193,19 @@ describe('TurnEndHandlerService', () => {
     service = TestBed.inject(TurnEndHandlerService);
   });
 
+  /**
+   * Register `sessionId` the way a workflow surface does: a conversation in the
+   * registry with a surface — and no tab — bound to it.
+   */
+  function bindSessionToSurface(sessionId: string): void {
+    const registry = TestBed.inject(ConversationRegistry);
+    const binding = TestBed.inject(TabSessionBinding);
+    binding.bindSurface(
+      SurfaceId.create(),
+      registry.create(sessionId as ClaudeSessionId),
+    );
+  }
+
   afterEach(() => {
     warn.mockRestore();
     TestBed.resetTestingModule();
@@ -320,6 +336,23 @@ describe('TurnEndHandlerService', () => {
           sessionCronCount: 0,
         }),
       );
+    });
+
+    it('stays silent when the session belongs to a surface, not a tab', () => {
+      tabs = [];
+      bindSessionToSurface(SESS_UNKNOWN);
+
+      service.handleTurnEnded(
+        makeTurnEndedPayload({ sessionId: SESS_UNKNOWN }),
+      );
+
+      // The harness / New Project workflow runs on a surface and never owns a
+      // TabState. Its turn-end effects are already applied by the surface path,
+      // so "no tab bound" here is not a defect — it is the normal shape.
+      expect(warn).not.toHaveBeenCalled();
+      expect(setTurnEndedFieldsMock).not.toHaveBeenCalled();
+      expect(finalizeCurrentMessageMock).not.toHaveBeenCalled();
+      expect(markTabIdleMock).not.toHaveBeenCalled();
     });
 
     it('produces distinct mutator calls for back-to-back invocations (no aliasing)', () => {

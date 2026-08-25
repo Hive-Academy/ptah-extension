@@ -435,6 +435,37 @@ describe('PermissionHandlerService', () => {
 
       expect(service.targetTabsFor('p-1')).toEqual([]);
     });
+
+    // The backend broadcasts the record's TAB id, while a prompt now carries
+    // the resolved SDK session id — the two differ for a surface workflow, and
+    // matching on `sessionId` alone stranded its cards on screen after the
+    // session was gone (TASK_2026_317).
+    it('also matches on tabId, so an aborted workflow leaves no answerable cards', () => {
+      service.handlePermissionRequest(
+        makePermissionRequest({
+          id: 'p-corr',
+          sessionId: 'real-session-uuid',
+          tabId: 'correlation-id',
+        }),
+      );
+      service.handleQuestionRequest(
+        makeQuestionRequest({
+          id: 'q-corr',
+          sessionId: 'real-session-uuid',
+          tabId: 'correlation-id',
+        }),
+      );
+      service.handlePermissionRequest(
+        makePermissionRequest({ id: 'p-other', sessionId: 'sess-B' }),
+      );
+
+      service.cleanupSession('correlation-id');
+
+      expect(service.permissionRequests().map((r) => r.id)).toEqual([
+        'p-other',
+      ]);
+      expect(service.questionRequests()).toEqual([]);
+    });
   });
 
   describe('TASK_2026_106 Phase 6a — fan-out target tracking', () => {

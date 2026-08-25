@@ -25,13 +25,16 @@ import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { createRivalTargets } from './rival-targets';
 
 /**
- * Agents are gated per workspace since TASK_2026_286. This spec is about
- * DETECTION, so it records consent up front rather than re-testing the gate.
+ * Agents are gated per workspace since TASK_2026_286 and skills since
+ * TASK_2026_316; a fresh temp workspace has no manifest evidence for either, so
+ * both migrations correctly gate it. This spec is about DETECTION, so it
+ * records both up front rather than re-testing either gate.
  */
 function grantAgentSync(workspaceRoot: string): void {
   new HarnessStateStore().save(workspaceRoot, {
     version: 1,
     agentSyncEnabled: true,
+    skillSyncMode: 'all',
   });
 }
 

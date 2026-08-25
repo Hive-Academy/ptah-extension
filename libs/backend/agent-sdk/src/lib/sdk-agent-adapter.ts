@@ -108,6 +108,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private initialized = false;
 
+  /**
+   * The in-flight `initialize()` pass, or `null` when none is running.
+   *
+   * `initialized` is a LATCH, not a flight marker: it is only assigned after
+   * `configureAuthentication` and `findExecutable()` have both returned, so
+   * the whole expensive window used to be re-entrant. Four call sites can
+   * re-enter it — the config-change and auth-file watchers, `reset()`, and
+   * host activation — and the boot OAuth token refresh writes `~/.codex/auth.json`
+   * while the first pass is still running, so the adapter raced itself on
+   * every cold start with an expired token.
+   *
+   * Same shape as `AuthManager.configureAuthentication`: hold the promise,
+   * hand it to the second caller, clear it in a `finally` so a FAILED init
+   * does not latch permanently.
+   */
+  private initInFlight: Promise<boolean> | null = null;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -227,6 +244,61 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       return;
     }
+
+    // TASK_2026_315 (A1) — ZERO FOLDERS OPEN IS NOT A PROVIDER CHANGE.
+    //
+    // `resolveActiveAuth()` reads the workspace scope. With no folder open
+    // there is no scope to read, so it falls through to the GLOBAL default
+    // provider — a value nobody chose for this moment. That fallback differs
+    // from the workspace-scoped provider that was active, which defeats the
+    // equality early-return in `reconfigureAuthIfChanged`, runs a full
+    // reconfigure, burns an OAuth token refresh, and binds a translation proxy
+    // on 127.0.0.1 that no session can ever reach. What binds it is the
+    // process-global `OAuthProxyStrategy` singleton, which is a DIFFERENT
+    // registry from `ProviderProxyPool` — so the `disposeForScope(path)` that
+    // `workspace:removeFolder` runs alongside this was never wired to reach it
+    // under any key, and the socket outlives the workspace for the session.
+    //
+    // CHOSEN: freeze. Skip the reconfigure and leave `lastConfiguredAuth`
+    // exactly where it is. That field records WHICH PROVIDER THE AUTH ENV IS
+    // CURRENTLY CONFIGURED FOR, not which workspace is open — and freezing is
+    // what keeps that invariant true, because closing a folder changes nothing
+    // about the env. Consequences, deliberately:
+    //   (a) Re-adding a folder fires this handler again with a real scope. Same
+    //       provider → the equality early-return is CORRECT, the env already
+    //       holds those credentials. Different provider → a reconfigure runs,
+    //       identical to any other switch. Nothing is deferred or lost.
+    //   (b) The `cliDetector` / `modelService` caches are deliberately NOT
+    //       cleared here. They are keyed to the provider the env still holds,
+    //       so on the way to zero folders they are still accurate; the re-add
+    //       path clears them itself, below, whenever the provider actually
+    //       changes.
+    //   (c) Same rule in shape as the sibling subscriber in the Electron host's
+    //       `wire-runtime.ts` (`const active = ...; if (active) { ... }`):
+    //       workspace-derived work is skipped when there is no workspace. It
+    //       asks for a ROOT because it needs a path to boot services for; this
+    //       asks for a COUNT because it only needs "is there any scope at all".
+    //
+    // REJECTED: tear the previous auth down (`clearAuthentication()` plus
+    // `lastConfiguredAuth = null`). It buys nothing and costs three things.
+    // It makes `lastConfiguredAuth` lie in the other direction — null while the
+    // env still holds live credentials — so re-adding the SAME folder would
+    // force a pointless reconfigure and the very OAuth refresh this guard
+    // exists to avoid, merely deferred. It leaves the adapter unauthenticated
+    // while sessions started under the closed folder are still resumable, which
+    // is exactly the unhealthy state the `onAuthFileChanged` recovery above
+    // exists to climb out of. And it would be a HALF teardown: the leaked
+    // socket belongs to the `OAuthProxyStrategy` singleton behind the
+    // `IAuthEnvProvider` port, which exposes no proxy-teardown call and must
+    // not grow one for this lib's benefit (hexagonal — `agent-sdk` gets ports
+    // only). The fix is to never start one here, not to chase it afterwards.
+    if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+      this.logger.debug(
+        '[SdkAgentAdapter] Workspace change with no folders open — keeping the current auth configuration',
+      );
+      return;
+    }
+
     this.reconfigureAuthIfChanged().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
@@ -267,6 +339,30 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   async initialize(): Promise<boolean> {
+    if (this.initInFlight) {
+      this.logger.debug(
+        '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
+      );
+      return this.initInFlight;
+    }
+
+    this.initInFlight = this.doInitialize();
+    try {
+      return await this.initInFlight;
+    } finally {
+      this.initInFlight = null;
+    }
+  }
+
+  /**
+   * The real initialization pass, guarded by the in-flight mutex above.
+   *
+   * The guard de-duplicates CONCURRENT callers only; it never memoizes a
+   * result, so every sequential call runs a real pass. `reset()` additionally
+   * drains any in-flight pass before disposing, so it can never be answered by
+   * the guard.
+   */
+  private async doInitialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -455,6 +551,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async reset(): Promise<void> {
     this.logger.info('[SdkAgentAdapter] Resetting adapter...');
+    // A reset must produce a genuinely fresh pass, so it must never be
+    // ANSWERED by the in-flight guard. Let a running pass settle first (its
+    // result is discarded), then dispose and initialize from a clean slate.
+    if (this.initInFlight) {
+      await this.initInFlight.catch(() => false);
+    }
     this.dispose();
     await this.initialize();
   }

@@ -58,6 +58,34 @@ export interface HarnessSourceState {
    * workspace. The user layer wins every collision.
    */
   overlayPluginPaths: string[];
+  /**
+   * Whether {@link overlayPluginPaths} is a TRUTHFUL picture of what this
+   * workspace has enabled — as opposed to whatever a failed read left behind.
+   *
+   * **Absent is NOT an empty enabled set.** Absent means "I have no opinion
+   * about the plugin overlay", and the manifest builder answers that by
+   * filtering NOTHING. Only `true` licenses the builder to read an id's absence
+   * from the overlay as "that plugin is off here".
+   *
+   * The distinction did not matter while the overlay was purely ADDITIVE: an
+   * empty one cost nothing the user layer did not already carry. Since
+   * TASK_2026_316 the overlay is also the plugin FILTER over the user-layer
+   * base, so an empty one asserts "every clone with a plugin origin is
+   * disabled". Skills are manifest-owned, which makes that assertion a
+   * REAP — `.claude/skills/*`, `.agents/skills/*`, `.github/skills/*` and
+   * `.cursor/skills/*` deleted wholesale, silently, and reported as an ordinary
+   * clean pass. `PluginConfigSourceResolver` has three separate failure paths
+   * that all return an empty overlay, so that is a live transient, not a
+   * hypothetical.
+   *
+   * Optional in the same spirit as {@link HarnessSourceLayout.legacyLinkRoots},
+   * with the safe direction reversed: there, a resolver built by hand opts into
+   * STRICT behaviour by saying nothing; here it opts into UNFILTERED behaviour,
+   * because here the strict answer is the one that deletes files. A spec, a
+   * preflight assembled by hand, or a host that has not been taught about the
+   * gate all get the pre-gate behaviour rather than an accidental reap.
+   */
+  overlayPluginPathsKnown?: boolean;
   /** Skill slugs the user (or the residency budget) switched off. */
   disabledSkillIds: string[];
   /** Plugin ids whose overlay directories must be ignored entirely. */

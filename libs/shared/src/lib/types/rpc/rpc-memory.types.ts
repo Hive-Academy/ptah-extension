@@ -90,8 +90,26 @@ export interface MemoryRebuildIndexResult {
   readonly rebuiltFts: boolean;
   readonly rebuiltVec: boolean;
 }
+/**
+ * Which workspaces a read-scoped memory query covers.
+ *
+ * Exists because `workspaceRoot` alone could not carry the distinction. An
+ * absent key meant BOTH "no folder is open" and "the user ticked All
+ * workspaces", and an explicit `null` meant BOTH "global/unscoped rows only"
+ * (the dashboard tile) and "All workspaces" (the Memory tab's scope toggle).
+ * One field carrying four meanings is what let TASK_2026_315 A4 hide.
+ *
+ * - `'workspace'` (default) — `workspaceRoot` decides: a string scopes to that
+ *   workspace, `null` means global/unscoped rows only, an absent key resolves
+ *   to the host's current workspace root (or global/unscoped when none is open).
+ * - `'all'` — every workspace in the shared database. `workspaceRoot` is
+ *   ignored. This is the ONLY way to ask for a cross-workspace union.
+ */
+export type MemoryQueryScope = 'all' | 'workspace';
+
 export interface MemoryStatsParams {
   readonly workspaceRoot?: string | null;
+  readonly scope?: MemoryQueryScope;
 }
 export interface MemoryStatsResult {
   readonly core: number;
@@ -127,6 +145,8 @@ export interface CodeSymbolListItem {
 }
 export interface MemorySearchSymbolsParams {
   readonly workspaceRoot?: string | null;
+  /** See {@link MemoryQueryScope}. Defaults to `'workspace'`. */
+  readonly scope?: MemoryQueryScope;
   readonly query?: string;
   readonly kinds?: readonly string[];
   readonly limit?: number;

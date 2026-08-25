@@ -95,6 +95,25 @@ function unwrapRegistryEntry(
   return parsed.data as unknown as McpRegistryEntry;
 }
 
+/**
+ * Keep the first entry per server name.
+ *
+ * `version=latest` is the primary defence against the same server occupying
+ * several rows; this is the second, because the registry has shipped more than
+ * one row for a name before (differing descriptions, same id) and a caller
+ * asking for 10 results should get 10 distinct servers.
+ */
+function dedupeByName(entries: McpRegistryEntry[]): McpRegistryEntry[] {
+  const seen = new Set<string>();
+  const unique: McpRegistryEntry[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    unique.push(entry);
+  }
+  return unique;
+}
+
 export class McpRegistryProvider implements IMcpRegistrySource {
   /** Source id for the registry-source registry. */
   readonly id = 'official' as const;
@@ -122,12 +141,19 @@ export class McpRegistryProvider implements IMcpRegistrySource {
   }): Promise<McpRegistryListResponse> {
     const params = new URLSearchParams();
     params.set('limit', String(options?.limit ?? DEFAULT_PAGE_SIZE));
+    // Without this the registry returns EVERY published version of every
+    // server, so one server occupies four rows of a scarce result window.
+    params.set('version', 'latest');
 
     if (options?.cursor) {
       params.set('cursor', options.cursor);
     }
     if (options?.query) {
-      params.set('q', options.query);
+      // `search`, not `q`. An unrecognized parameter is ignored rather than
+      // rejected, so the wrong name does not fail — it silently returns the
+      // alphabetical head of the whole catalogue, which reads like a working
+      // search returning irrelevant results. Pinned by the spec.
+      params.set('search', options.query);
     }
 
     const url = `${REGISTRY_BASE_URL}/servers?${params.toString()}`;
@@ -136,9 +162,11 @@ export class McpRegistryProvider implements IMcpRegistrySource {
     const body = (await response.json()) as Record<string, unknown>;
 
     const servers: McpRegistryEntry[] = Array.isArray(body['servers'])
-      ? (body['servers'] as unknown[])
-          .map((item) => unwrapRegistryEntry(item, this.logger))
-          .filter((entry): entry is McpRegistryEntry => entry !== null)
+      ? dedupeByName(
+          (body['servers'] as unknown[])
+            .map((item) => unwrapRegistryEntry(item, this.logger))
+            .filter((entry): entry is McpRegistryEntry => entry !== null),
+        )
       : [];
 
     const nextCursor =

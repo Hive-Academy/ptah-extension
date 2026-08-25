@@ -37,6 +37,27 @@ export {
   type IUserLayerRefresher,
 } from './lib/sources/user-layer-refresher.port';
 
+// The consent-gated repair of a blocked path, and the quarantine convention it
+// writes into (TASK_2026_306 Batch 8). The repair is exported for the
+// `harness:repairBlocked` RPC and for nothing else — no activation path holds
+// it, which is what makes "never runs without an explicit user action"
+// structural. `isQuarantineEntry` is exported because the ignore rule is a
+// documented convention other readers of these directories must honour.
+export {
+  HarnessBlockedRepairService,
+  REPAIR_REASON,
+  type HarnessBlockedRepairReport,
+} from './lib/repair/blocked-repair.service';
+export {
+  formatQuarantineTimestamp,
+  isQuarantineEntry,
+  moveToQuarantine,
+  quarantineDirFor,
+  restoreFromQuarantine,
+  QUARANTINE_DIR_NAME,
+  type QuarantinedOccupant,
+} from './lib/quarantine/quarantine';
+
 // Desired state.
 export {
   HarnessManifestBuilder,
@@ -50,6 +71,15 @@ export type {
   HarnessDesiredState,
 } from './lib/manifest/desired-state.types';
 export { canonicalSlug, isReservedSlug } from './lib/manifest/slug-rules';
+// The `.ptah-origin.json` reader, exported for the skill-selection surface in
+// `rpc-handlers`, which must name each candidate's origin plugin. The gate that
+// consumes it stays internal — a caller outside this lib has no business
+// re-deciding whether a clone survives a plugin toggle, and a second reader of
+// the sidecar is exactly how the two would come to disagree.
+export {
+  readUserLayerOrigin,
+  type UserLayerOrigin,
+} from './lib/manifest/plugin-origin-gate';
 
 // Workspace root normalization (E14) — every target writes at the ROOT.
 export {
@@ -196,6 +226,9 @@ export {
 } from './lib/sources/plugin-config-source-resolver';
 
 // Health.
+// `blockedTargetPaths` (the `missing ∩ foreign` derivation) is NOT re-exported
+// here — it lives in `@ptah-extension/shared` with `summarizeHarnessHealth`,
+// and a second export path would be a second place to import it from.
 export {
   appliedTargetHealth,
   undetectedTargetHealth,
@@ -226,6 +259,15 @@ export {
   AgentSyncGate,
   type AgentSyncDecision,
 } from './lib/state/agent-sync-gate';
+
+// The per-workspace selection gate for the `skills` facet, and its migration.
+// Exported because the selection surface RECORDS the choice from `rpc-handlers`.
+export {
+  SkillSyncGate,
+  type SkillSyncDecision,
+  type SkillSyncMode,
+  type SkillSyncSelection,
+} from './lib/state/skill-sync-gate';
 
 // Durable writes — every file this lib owns lands through these, atomically and
 // with the Windows sharing-violation retry (E21).

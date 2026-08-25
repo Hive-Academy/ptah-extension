@@ -51,3 +51,8 @@ export {
   SessionLivenessRegistry,
   type LivenessStatus,
 } from './lib/session-liveness.registry';
+export {
+  SurfaceSessionStatsRegistry,
+  type SurfaceModelUsage,
+  type SurfaceSessionStats,
+} from './lib/surface-session-stats.registry';

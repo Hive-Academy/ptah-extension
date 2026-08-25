@@ -224,6 +224,79 @@ describe('MemoryStore write-counter bumps', () => {
 });
 
 // ---------------------------------------------------------------------------
+// stats — the workspaceRoot tri-state (TASK_2026_315 A4)
+//
+// These three states are genuinely different queries and the fix at the RPC
+// boundary depends on them staying that way. Pinned here so nobody collapses
+// `null` into `undefined` (or the reverse) while "simplifying" the signature.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore.stats — workspaceRoot tri-state', () => {
+  function makeSqlCapturingDb(): {
+    stub: SqliteConnectionService;
+    prepared: string[];
+    boundArgs: unknown[][];
+  } {
+    const prepared: string[] = [];
+    const boundArgs: unknown[][] = [];
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn((sql: string) => {
+          prepared.push(sql);
+          return {
+            all: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return [];
+            }),
+            get: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return { m: null };
+            }),
+            run: jest.fn(() => ({ changes: 0 })),
+          };
+        }),
+        exec: jest.fn(),
+        transaction: jest.fn(),
+      },
+    } as unknown as SqliteConnectionService;
+    return { stub, prepared, boundArgs };
+  }
+
+  it('a string workspaceRoot filters to that workspace', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats('/ws/A');
+
+    expect(prepared).toHaveLength(2);
+    for (const sql of prepared) {
+      expect(sql).toContain('WHERE workspace_root IS ?');
+    }
+    expect(boundArgs).toEqual([['/ws/A'], ['/ws/A']]);
+  });
+
+  it('null means global/unscoped memories — WHERE workspace_root IS NULL', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats(null);
+
+    for (const sql of prepared) {
+      expect(sql).toContain('WHERE workspace_root IS ?');
+    }
+    // `IS ?` bound to null is `IS NULL` in SQLite — distinct from "no filter".
+    expect(boundArgs).toEqual([[null], [null]]);
+  });
+
+  it('undefined drops the predicate entirely (whole-database sweep)', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats();
+
+    for (const sql of prepared) {
+      expect(sql).not.toContain('WHERE');
+    }
+    expect(boundArgs).toEqual([[], []]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleFatalWriteError wiring
 // ---------------------------------------------------------------------------
 

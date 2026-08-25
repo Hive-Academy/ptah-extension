@@ -29,6 +29,19 @@
  * background work onto the foreground quota — the exact defect phase 1 exists
  * to remove.
  *
+ * ## An exhausted provider quota stalls too, on the PROVIDER's clock
+ *
+ * The same `resolve()` also throws when the provider that would actually be
+ * dialled is cooling down from an upstream 429; that becomes
+ * `{ok: false, kind: 'quota-exhausted'}` with the backoff read off the error
+ * rather than from a constant, so an honoured `retry-after` survives. It is a
+ * sibling of the auth stall and not a variant of it — auth is a fault the user
+ * fixes, quota is a clock — and the no-fallback rule binds it harder: a lane
+ * that inherits (`provider: ''`) resolves TO the active provider, so the
+ * endpoint a fallback would aim at is usually the exhausted one. Before this
+ * gate the CLI subprocess absorbed the 429 and every row was recorded as a
+ * `timeout` after burning its full lane budget.
+ *
  * ## A lane NEVER mutates global auth state
  *
  * The resolver hands back a snapshot, which travels as `input.auth` and is
@@ -48,15 +61,45 @@ import { PROVIDER_AUTH_RESOLVER_TOKEN } from '../di/tokens';
 import { resolveJudgeModel } from '../model-resolver';
 import {
   PROVIDER_AUTH_ERROR_NAME,
+  PROVIDER_QUOTA_ERROR_NAME,
   type ILaneAuthResolver,
 } from './lane-auth-resolver.port';
 import {
   LANE_AUTH_RETRY_MS,
+  LANE_QUOTA_RETRY_MS,
   type SkillLaneConfig,
   type SkillLaneId,
   type SkillLaneResolution,
 } from './lane.types';
 import { readSkillLane, readSkillLanes } from './skill-lane-config';
+
+/**
+ * The honoured `retry-after` the resolver put on the error, or
+ * {@link LANE_QUOTA_RETRY_MS} when the upstream sent none.
+ *
+ * Read STRUCTURALLY because this library cannot import `ProviderQuotaError` —
+ * same rule as {@link PROVIDER_QUOTA_ERROR_NAME}. The default is a fallback,
+ * not the usual answer: preferring the constant unconditionally would throw
+ * away the one case where the provider told us exactly when to come back.
+ */
+function readQuotaRetryAfterMs(error: Error): number {
+  const raw = (error as { retryAfterMs?: unknown }).retryAfterMs;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0
+    ? raw
+    : LANE_QUOTA_RETRY_MS;
+}
+
+/**
+ * The resolved provider id the error carries, for the log line only.
+ *
+ * Taken from the error rather than looked up again: the lane's own
+ * `config.provider` is `''` whenever the lane inherits, which is precisely the
+ * case the gate exists for. `''` when the error carries nothing.
+ */
+function readQuotaProviderId(error: Error): string {
+  const raw = (error as { providerId?: unknown }).providerId;
+  return typeof raw === 'string' ? raw : '';
+}
 
 /** The one tier scope every lane reads. Q1: one shared scope, not four. */
 const LANE_TIER_SCOPE = 'lane' as const;
@@ -180,15 +223,46 @@ export class LaneResolverService {
       });
       return { ok: true, lane: { config, auth: auth ?? undefined, model } };
     } catch (error: unknown) {
-      // Only a provider-auth failure is a lane STALL. Anything else is a bug
-      // in this process, and swallowing it here would bury it in a queue row's
-      // `reason` field instead of surfacing it — the drain's own catch is
-      // where a genuine defect belongs.
+      // Only a provider-auth or provider-quota failure is a lane STALL.
+      // Anything else is a bug in this process, and swallowing it here would
+      // bury it in a queue row's `reason` field instead of surfacing it — the
+      // drain's own catch is where a genuine defect belongs.
       if (
         !(error instanceof Error) ||
-        error.name !== PROVIDER_AUTH_ERROR_NAME
+        (error.name !== PROVIDER_AUTH_ERROR_NAME &&
+          error.name !== PROVIDER_QUOTA_ERROR_NAME)
       ) {
         throw error;
+      }
+      if (error.name === PROVIDER_QUOTA_ERROR_NAME) {
+        // Quota is a sibling of the auth stall, not a variant of it: the
+        // provider is fine and its upstream is rate-limiting it, so the backoff
+        // is the PROVIDER's own — read off the error, which carries an honoured
+        // `retry-after` when the upstream sent one — and never the transport
+        // ladder. Falling back to the active provider would be worse here than
+        // for auth: `''` resolves TO the active provider, so the endpoint the
+        // fallback aims at is very often the exhausted one.
+        const retryAfterMs = readQuotaRetryAfterMs(error);
+        this.logger.warn(
+          '[skill-synthesis] lane provider is rate-limited; stalling until its quota refills',
+          {
+            lane: laneId,
+            // The RESOLVED id off the error, not `config.provider` — that is
+            // `''` for an inheriting lane, which is the case this whole gate
+            // exists for and the least diagnosable thing to log.
+            providerId: readQuotaProviderId(error) || '(active)',
+            retryAfterMs,
+            error: error.message,
+          },
+        );
+        return {
+          ok: false,
+          failure: {
+            kind: 'quota-exhausted',
+            reason: `Lane ${laneId}: ${error.message}`,
+            retryAfterMs,
+          },
+        };
       }
       this.logger.warn(
         '[skill-synthesis] lane auth unresolvable; stalling rather than spending foreground quota',

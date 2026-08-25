@@ -108,6 +108,16 @@ export class CustomOpenAiTranslationProxy extends TranslationProxyBase {
     return this.customConfig.providerId;
   }
 
+  /**
+   * One of the two DYNAMIC cases the base's abstract accessor exists for: this
+   * class serves whichever user-declared entry it was built for, so the id
+   * cannot be a constructor literal. It is already the registry id — the same
+   * string `ProviderAuthResolver` resolves — so the quota gate keys correctly.
+   */
+  protected getProviderId(): string {
+    return this.providerId;
+  }
+
   /** The normalized upstream API root this instance forwards to. */
   get apiEndpoint(): string {
     return this.apiRoot;

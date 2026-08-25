@@ -24,7 +24,10 @@ import {
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { TaskScannerService } from './task-scanner.service';
-import { InMemoryTaskIndexStore } from './task-index.store';
+import {
+  InMemoryTaskIndexStore,
+  type ITaskIndexStore,
+} from './task-index.store';
 import {
   TaskIndexService,
   type TaskIndexChangeEvent,
@@ -142,6 +145,24 @@ function buildService(fs: FakeFs): TaskIndexService {
   return buildServiceWithParts(fs).service;
 }
 
+/** Same wiring, but with a caller-owned logger + store so both can be asserted on. */
+function buildServiceWith(
+  fs: FakeFs,
+  logger: Logger,
+  store: ITaskIndexStore,
+): TaskIndexService {
+  const scanner = new TaskScannerService(
+    fs as unknown as IFileSystemProvider,
+    logger,
+  );
+  return new TaskIndexService(
+    logger,
+    fs as unknown as IFileSystemProvider,
+    scanner,
+    store,
+  );
+}
+
 function seedTwoValidOneExcluded(fs: FakeFs): void {
   fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
   fs.setFile(carrier('TASK_2026_002'), validTask('TASK_2026_002'));
@@ -246,6 +267,167 @@ describe('TaskIndexService.ensureStarted', () => {
     await service.ensureStarted(ROOT);
 
     expect(events).toHaveLength(0);
+    service.dispose();
+  });
+});
+
+/**
+ * TASK_2026_306 task 4.4 — the offline-store guard.
+ *
+ * Electron and the CLI both register the store in the same DI pass as the
+ * activation warm-up and open the SQLite connection hundreds of log lines later,
+ * so the first warm-up is GUARANTEED to be running against a store that cannot
+ * accept a write. Asking `isReady()` first turns that from a caught failure
+ * (WARN on every clean boot) into a skipped write (DEBUG), without touching the
+ * scan, the README, or the recovery latch — and without covering for a store
+ * that claimed readiness and failed anyway.
+ */
+describe('TaskIndexService rebuild — offline-store guard', () => {
+  function offlineStore(logger: Logger): {
+    store: InMemoryTaskIndexStore;
+    isReady: jest.SpyInstance<boolean, []>;
+    replace: jest.SpyInstance;
+  } {
+    const store = new InMemoryTaskIndexStore(logger);
+    return {
+      store,
+      isReady: jest.spyOn(store, 'isReady').mockReturnValue(false),
+      replace: jest.spyOn(store, 'replaceWorkspace'),
+    };
+  }
+
+  it('skips the write ENTIRELY when the store is not ready', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const { store, replace } = offlineStore(logger);
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect(replace).not.toHaveBeenCalled();
+    service.dispose();
+  });
+
+  /**
+   * The whole point of 4.4: `Persistence is offline` was a PREDICTED failure
+   * being reported in the channel reserved for unpredicted ones. Nothing on a
+   * clean boot may reach `logger.warn` any more.
+   */
+  it('emits no WARN at all on the too-early first warm-up', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const { store } = offlineStore(logger);
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('index rebuild write skipped'),
+    );
+    service.dispose();
+  });
+
+  /**
+   * The reason this fix was chosen over deferring the whole warm-up: on a host
+   * where the connection NEVER opens (ABI mismatch, missing native binary) the
+   * contract doc must still land. Skipping only the write keeps that free.
+   */
+  it('still writes the specs README when the store is not ready', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const { store } = offlineStore(logger);
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect(fs.writes).toEqual([norm(path.join(specsDir(), SPECS_README_FILE))]);
+    expect(await fs.readFile(path.join(specsDir(), SPECS_README_FILE))).toBe(
+      renderSpecsReadme(),
+    );
+    service.dispose();
+  });
+
+  /**
+   * `specsDirExists` is written by `rebuild` from the scan, and
+   * `ensureSpecsReadme` early-returns on it. A guard that skipped the scan too
+   * would silently take the README with it — this is the assertion that proves
+   * it did not.
+   */
+  it('still records specsDirExists from the scan when the store is not ready', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const { store } = offlineStore(logger);
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect((await service.list(ROOT)).specsDirExists).toBe(true);
+    service.dispose();
+  });
+
+  it('performs the real rebuild once the store reports ready', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const { store, isReady, replace } = offlineStore(logger);
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+    expect(replace).not.toHaveBeenCalled();
+
+    // What `startTaskSpecsIndex`'s `onDidOpen` subscription triggers.
+    isReady.mockReturnValue(true);
+    await service.ensureStarted(ROOT);
+
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect((await service.list(ROOT)).tasks).toHaveLength(2);
+    expect(logger.warn).not.toHaveBeenCalled();
+    service.dispose();
+  });
+
+  it('writes without a skip log when the store is ready from the start', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const store = new InMemoryTaskIndexStore(logger);
+    const replace = jest.spyOn(store, 'replaceWorkspace');
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(logger.debug).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect((await service.list(ROOT)).tasks).toHaveLength(2);
+    service.dispose();
+  });
+
+  /**
+   * The guard removes ONE predicted failure from the warn channel. A store that
+   * reported readiness and then failed — closed connection, full disk, corrupt
+   * page — is unpredicted and must still be loud.
+   */
+  it('still WARNs when a store that reported READY fails the write anyway', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const logger = makeLogger();
+    const store = new InMemoryTaskIndexStore(logger);
+    jest.spyOn(store, 'replaceWorkspace').mockImplementation(() => {
+      throw new Error('SQLITE_FULL: database or disk is full');
+    });
+    const service = buildServiceWith(fs, logger, store);
+
+    await service.ensureStarted(ROOT);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[task-specs] index rebuild write failed',
+      { error: 'SQLITE_FULL: database or disk is full' },
+    );
     service.dispose();
   });
 });

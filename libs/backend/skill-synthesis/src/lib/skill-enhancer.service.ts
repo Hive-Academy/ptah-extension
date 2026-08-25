@@ -933,6 +933,11 @@ export class SkillEnhancerService {
       rejectedReason: null,
       pinned: false,
       residency: 'resident',
+      // `null` = origin unknown, which is the truth here: this row is
+      // synthesised in memory to hand the judge a shape it recognises and was
+      // never captured from any workspace. `''` would claim it is deliberately
+      // cross-project.
+      workspaceRoot: null,
       ...unjudgedVerdictFields(),
       ...unmeasuredGateFields(),
     };

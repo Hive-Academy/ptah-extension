@@ -41,8 +41,58 @@ IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
+HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
 
 Use ptah.help('namespace') for details on any namespace.`,
+
+  harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
+
+Also exposed as MCP tools: ptah_harness_search_skills, ptah_harness_create_skill,
+ptah_harness_search_mcp_registry, ptah_harness_list_installed_mcp,
+ptah_harness_install_mcp_server, ptah_harness_propose_config. The two surfaces
+are the same six methods — neither has anything the other lacks.
+
+DISCOVERY:
+- searchSkills(query?, limit?, offset?) - Local plugin skills + the skills.sh
+    marketplace. Returns { skills, count, status, sources, offset, limit,
+    hasMore, total? }. offset/limit page the MARKETPLACE half only; local results
+    are a complete on-disk inventory and are never paged. 'total' appears only
+    when the whole marketplace result set was seen — it is never estimated — and
+    the skills.sh source entry sets limitedByUpstream when the marketplace's own
+    200-row-per-query ceiling is reached, at which point narrow the query rather
+    than paging further.
+- searchMcpRegistry(query, limit?) - Official registry + PulseMCP + Smithery.
+    Returns { servers, count, status, sources, next_cursor? }. 'limit' bounds the
+    MERGED list, drawn round-robin so no source starves the others.
+- listInstalledMcpServers() - Servers already in .vscode/mcp.json and .mcp.json.
+
+READING A SEARCH RESULT — three states, not two:
+  status 'ok'       + empty list -> the catalogue genuinely has nothing.
+  status 'degraded'              -> a source FAILED; the list is incomplete.
+  Per-source detail is in 'sources': [{ source, status, count, error? }],
+  where status is 'ok' | 'unavailable' (not configured here) | 'failed'.
+An empty list is a real answer ONLY while status is 'ok'. Never conclude "no such
+skill/server exists" from a degraded result.
+
+AUTHORING:
+- createSkill(name, description, content, allowedTools?, scope?) - Writes a
+    SKILL.md and returns { skillId, skillPath, scope, pluginId }.
+      scope 'user' (default) -> ~/.ptah/plugins, loads in EVERY workspace here.
+      scope 'workspace'      -> {ws}/.ptah/plugins, loads in THIS project only,
+                                sits beside .ptah/specs and can be committed so
+                                it travels with the repository.
+    Prefer 'workspace' for anything naming this codebase, its conventions or its
+    domain. The two scopes share one plugin id, so the same name in both is
+    refused rather than letting the workspace copy shadow the global one.
+
+HANDING BACK TO THE USER:
+- proposeConfig(configUpdates, isConfigComplete?) - The only way to give the user
+    a structured harness config to review. Call it repeatedly with partial
+    updates as decisions firm up, then once with isConfigComplete=true. Do NOT
+    write the proposal to a file instead — the surface never sees it there.
+
+- installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
+    config to the target files. Defaults to ['claude','vscode'].`,
 
   ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
 

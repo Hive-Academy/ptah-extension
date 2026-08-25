@@ -140,24 +140,31 @@ export class MemoryStateService {
    * Resolves the workspace root to scope an RPC call by, honoring the
    * current `_scopeFilter()`.
    *
-   * - `'all'` scope → `{ ok: true, workspaceRoot: undefined }` (global RPC).
-   * - `'workspace'` scope with a resolved workspace → `{ ok: true, workspaceRoot: path }`.
+   * - `'all'` scope → `{ ok: true, workspaceRoot: undefined, scope: 'all' }`.
+   * - `'workspace'` scope with a resolved workspace → `{ ok: true, workspaceRoot: path, scope: 'workspace' }`.
    * - `'workspace'` scope but `appState.workspaceInfo()` not yet resolved →
    *   `{ ok: false, error: ... }`. Callers must NOT fall through to a global
    *   RPC in this case (would silently leak cross-workspace results).
+   *
+   * `scope` is returned alongside the root and MUST be forwarded on every RPC
+   * this drives. It is the wire signal that says "all workspaces" out loud
+   * instead of implying it by an absent or null `workspaceRoot` — which the
+   * backend cannot tell apart from "no folder is open" (TASK_2026_315 A4).
+   * Encoding it here, once, is what keeps `refresh`, `search`, `loadStats` and
+   * `loadSymbols` from drifting into three different encodings again.
    */
   private resolveScopedWorkspaceRoot():
-    | { ok: true; workspaceRoot: string | undefined }
+    | { ok: true; workspaceRoot: string | undefined; scope: MemoryScopeFilter }
     | { ok: false; error: string } {
     const scope = this._scopeFilter();
     if (scope === 'all') {
-      return { ok: true, workspaceRoot: undefined };
+      return { ok: true, workspaceRoot: undefined, scope };
     }
     const root = this.getWorkspaceRoot();
     if (root === null) {
       return { ok: false, error: NO_WORKSPACE_FOR_SCOPED_RPC };
     }
-    return { ok: true, workspaceRoot: root };
+    return { ok: true, workspaceRoot: root, scope };
   }
 
   /** Refresh the entry list from `memory:list`, optionally restricted to a tier. */
@@ -289,7 +296,10 @@ export class MemoryStateService {
     this._error.set(null);
     try {
       const scopedRoot = scoped.workspaceRoot ?? null;
-      const stats = await this.rpcService.stats(scopedRoot);
+      // `scope` must go with it: in `'all'` mode `scopedRoot` is null, and null
+      // on its own means "global/unscoped rows only" to the backend, not "every
+      // workspace" — which silently zeroed the codeIndex tile.
+      const stats = await this.rpcService.stats(scopedRoot, scoped.scope);
       if (seq !== this.statsReqSeq) return;
       this._stats.set(stats);
     } catch (err) {
@@ -334,8 +344,12 @@ export class MemoryStateService {
       const offset = this._symbolOffset();
       const limit = this._symbolLimit();
       const { workspaceRoot } = scoped;
+      // Omitting `workspaceRoot` no longer implies "every workspace" — the
+      // backend reads an absent key as "use the current root". `scope` carries
+      // that intent now.
       const result = await this.rpcService.searchSymbols({
         ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+        scope: scoped.scope,
         ...(query.trim().length > 0 ? { query } : {}),
         limit,
         offset,

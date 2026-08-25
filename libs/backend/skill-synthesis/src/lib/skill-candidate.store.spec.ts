@@ -57,6 +57,21 @@ const SQL_0036 = MIGRATIONS.find((m) => m.version === 36)?.sql ?? '';
  * two honest.
  */
 const SQL_0037 = MIGRATIONS.find((m) => m.version === 37)?.sql ?? '';
+/**
+ * `skill_synthesis_queue`. Applied only because `0040`'s backfill JOINs it —
+ * the fixture never inserts a queue row, so the UPDATE is a no-op here. Without
+ * the table the migration would fail with "no such table" and the fixture would
+ * have to skip the backfill, which is exactly the drift these constants exist
+ * to prevent.
+ */
+const SQL_0032 = MIGRATIONS.find((m) => m.version === 32)?.sql ?? '';
+/**
+ * `workspace_root` on `skill_candidates` plus its index. From `MIGRATIONS` for
+ * the same reason as `0033`/`0036`/`0037`: `registerCandidate` writes a FIXED
+ * fifteen-column list, so a fixture that spelled this column itself could drift
+ * from the migration silently.
+ */
+const SQL_0040 = MIGRATIONS.find((m) => m.version === 40)?.sql ?? '';
 
 /**
  * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
@@ -144,6 +159,8 @@ function createInMemoryDb(): SpecDb {
   db.exec(SQL_0033);
   db.exec(SQL_0036);
   db.exec(SQL_0037);
+  db.exec(SQL_0032);
+  db.exec(SQL_0040);
   return db;
 }
 
@@ -305,6 +322,123 @@ describe('SkillCandidateStore', () => {
         // contextId omitted — defaults to null
       });
       expect(store.countDistinctContexts(candidate.id)).toBe(0);
+    });
+  });
+
+  describe('listByStatus — workspace scoping', () => {
+    /**
+     * `workspaceRoot` is optional on {@link NewCandidateInput} and the three
+     * cases below are three DIFFERENT facts, not one with defaults:
+     * a path is "captured there", `''` is "deliberately cross-project", and
+     * omitting it is "origin unknown".
+     */
+    function seedThreeOrigins(store: SkillCandidateStore): void {
+      store.registerCandidate({
+        ...candidateInput('mine'),
+        workspaceRoot: 'D:\\projects\\alpha',
+      });
+      store.registerCandidate({
+        ...candidateInput('theirs'),
+        workspaceRoot: 'D:\\projects\\beta',
+      });
+      store.registerCandidate({
+        ...candidateInput('cross'),
+        workspaceRoot: '',
+      });
+      // No `workspaceRoot` at all — the legacy row.
+      store.registerCandidate(candidateInput('legacy'));
+    }
+
+    maybe('round-trips all three origin values distinctly', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedThreeOrigins(store);
+
+      const byName = new Map(
+        store.listByStatus('candidate').map((r) => [r.name, r.workspaceRoot]),
+      );
+      // Stated in every direction: a reader that returns null for everything,
+      // or '' for everything, passes any single assertion here.
+      expect(byName.get('skill-mine')).toBe('D:\\projects\\alpha');
+      expect(byName.get('skill-cross')).toBe('');
+      expect(byName.get('skill-cross')).not.toBeNull();
+      expect(byName.get('skill-legacy')).toBeNull();
+      expect(byName.get('skill-legacy')).not.toBe('');
+    });
+
+    maybe('omitting the root reads back every candidate', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedThreeOrigins(store);
+
+      // The unscoped overload is what clustering, dedup, the residency budget
+      // and the gates use, and it must stay cross-project.
+      expect(
+        store
+          .listByStatus('candidate')
+          .map((r) => r.name)
+          .sort(),
+      ).toEqual(['skill-cross', 'skill-legacy', 'skill-mine', 'skill-theirs']);
+    });
+
+    maybe(
+      'a scoped read includes the unknown-origin row and excludes the cross-project one',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        seedThreeOrigins(store);
+
+        const names = store
+          .listByStatus('candidate', 'D:\\projects\\alpha')
+          .map((r) => r.name)
+          .sort();
+
+        // `skill-legacy` is IN — dropping NULL would make every candidate
+        // captured before `0040` unreachable in every workspace, which trades a
+        // display defect for silent data loss. `skill-cross` is OUT — `''` is a
+        // KNOWN value meaning "not this workspace". Asserting both is what
+        // pins the rule: matching everything passes the first half, matching
+        // only the exact path passes the second.
+        expect(names).toEqual(['skill-legacy', 'skill-mine']);
+      },
+    );
+
+    maybe(
+      'a workspace with no captures of its own still sees the legacy rows',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        seedThreeOrigins(store);
+
+        // The reported symptom, from the other side: a brand-new project must
+        // NOT see alpha's or beta's captures. It still sees the rows nobody can
+        // attribute, and that is why the UI keeps an "all projects" toggle.
+        expect(
+          store
+            .listByStatus('candidate', 'D:\\projects\\brand-new')
+            .map((r) => r.name),
+        ).toEqual(['skill-legacy']);
+      },
+    );
+
+    maybe('scoping is per status, not across statuses', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate({
+        ...candidateInput('promoted-elsewhere'),
+        workspaceRoot: 'D:\\projects\\beta',
+      });
+      store.updateStatus(candidate.id, 'promoted', { promotedAt: 1 });
+
+      expect(store.listByStatus('promoted', 'D:\\projects\\alpha')).toEqual([]);
+      expect(
+        store.listByStatus('promoted', 'D:\\projects\\beta').map((r) => r.name),
+      ).toEqual(['skill-promoted-elsewhere']);
+      // And the unscoped read — the one promotion, dedup and the curator use —
+      // still finds it from anywhere.
+      expect(store.listByStatus('promoted').map((r) => r.name)).toEqual([
+        'skill-promoted-elsewhere',
+      ]);
     });
   });
 

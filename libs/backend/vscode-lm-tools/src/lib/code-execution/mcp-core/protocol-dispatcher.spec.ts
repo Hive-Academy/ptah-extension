@@ -214,6 +214,245 @@ describe('protocol-handlers › tools/list', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Harness tools
+//
+// Two invariants: all six harness methods are reachable as MCP tools (an agent
+// that finished a build had nowhere to send the result because proposeConfig
+// was reachable only from execute_code), and a degraded search is reported as a
+// TOOL ERROR rather than as data an agent could read as a valid empty answer.
+// ---------------------------------------------------------------------------
+
+describe('harness tools', () => {
+  function harnessDeps(harness: Record<string, unknown>) {
+    return buildDeps({ ptahAPI: buildPtahAPIStub({ harness }) });
+  }
+
+  function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    deps: ProtocolHandlerDependencies,
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: `call-${name}`,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+      deps,
+    );
+  }
+
+  function toolResult(res: MCPResponse): {
+    isError?: boolean;
+    text: string;
+  } {
+    const result = res.result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    return { isError: result.isError, text: result.content[0].text };
+  }
+
+  it('lists all six harness methods as tools', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'list-harness', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+
+    for (const tool of [
+      'ptah_harness_search_skills',
+      'ptah_harness_create_skill',
+      'ptah_harness_search_mcp_registry',
+      'ptah_harness_list_installed_mcp',
+      'ptah_harness_install_mcp_server',
+      'ptah_harness_propose_config',
+    ]) {
+      expect(names).toContain(tool);
+    }
+  });
+
+  it('flags a degraded skill search as a tool error instead of a clean empty list', async () => {
+    const deps = harnessDeps({
+      searchSkills: jest.fn(async () => ({
+        skills: [],
+        count: 0,
+        status: 'degraded',
+        sources: [
+          {
+            source: 'skills.sh',
+            status: 'failed',
+            count: 0,
+            error: 'upstream 503',
+          },
+        ],
+        offset: 0,
+        limit: 50,
+        hasMore: false,
+      })),
+    });
+
+    const { isError, text } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'threejs' }, deps),
+    );
+
+    expect(isError).toBe(true);
+    expect(JSON.parse(text)).toMatchObject({ status: 'degraded' });
+  });
+
+  it('returns a genuinely empty skill search as a normal success', async () => {
+    const deps = harnessDeps({
+      searchSkills: jest.fn(async () => ({
+        skills: [],
+        count: 0,
+        status: 'ok',
+        sources: [{ source: 'skills.sh', status: 'ok', count: 0 }],
+        offset: 0,
+        limit: 50,
+        hasMore: false,
+      })),
+    });
+
+    const { isError } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'threejs' }, deps),
+    );
+
+    expect(isError).toBeUndefined();
+  });
+
+  it('forwards the paging window to searchSkills', async () => {
+    const searchSkills = jest.fn(async () => ({
+      skills: [],
+      count: 0,
+      status: 'ok',
+      sources: [],
+      offset: 25,
+      limit: 5,
+      hasMore: false,
+    }));
+    await callTool(
+      'ptah_harness_search_skills',
+      { query: 'react', limit: 5, offset: 25 },
+      harnessDeps({ searchSkills }),
+    );
+    expect(searchSkills).toHaveBeenCalledWith('react', 5, 25);
+  });
+
+  it('forwards the scope to createSkill and rejects an unknown one', async () => {
+    const createSkill = jest.fn(async () => ({
+      skillId: 'house-style',
+      skillPath:
+        '/ws/.ptah/plugins/ptah-harness-house-style/skills/house-style/SKILL.md',
+      scope: 'workspace',
+      pluginId: 'ptah-harness-house-style',
+    }));
+    const deps = harnessDeps({ createSkill });
+
+    await callTool(
+      'ptah_harness_create_skill',
+      {
+        name: 'House Style',
+        description: 'd',
+        content: 'c',
+        scope: 'workspace',
+      },
+      deps,
+    );
+    expect(createSkill).toHaveBeenCalledWith(
+      'House Style',
+      'd',
+      'c',
+      undefined,
+      'workspace',
+    );
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_create_skill',
+        { name: 'x', description: 'd', content: 'c', scope: 'global' },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(createSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it('flags a degraded registry search as a tool error', async () => {
+    const deps = harnessDeps({
+      searchMcpRegistry: jest.fn(async () => ({
+        servers: [],
+        count: 0,
+        status: 'degraded',
+        sources: [
+          {
+            source: 'official',
+            status: 'failed',
+            count: 0,
+            error: 'registry 503',
+          },
+        ],
+      })),
+    });
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_search_mcp_registry',
+        { query: 'postgres' },
+        deps,
+      ),
+    );
+
+    expect(isError).toBe(true);
+  });
+
+  it('reports an absent harness namespace as an error, not as an empty result', async () => {
+    const { isError, text } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'x' }, buildDeps()),
+    );
+
+    expect(isError).toBe(true);
+    expect(JSON.parse(text)).toMatchObject({ status: 'error', skills: [] });
+  });
+
+  it('routes propose_config to the namespace and echoes the completion flag', async () => {
+    const proposeConfig = jest.fn(async () => 'Configuration marked complete.');
+    const deps = harnessDeps({ proposeConfig });
+
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'My Harness' }, isConfigComplete: true },
+        deps,
+      ),
+    );
+
+    expect(isError).toBeUndefined();
+    expect(proposeConfig).toHaveBeenCalledWith({ name: 'My Harness' }, true);
+    expect(JSON.parse(text)).toMatchObject({
+      ok: true,
+      isConfigComplete: true,
+    });
+  });
+
+  it('rejects propose_config without an object configUpdates', async () => {
+    const proposeConfig = jest.fn();
+    const deps = harnessDeps({ proposeConfig });
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: 'nope' },
+        deps,
+      ),
+    );
+
+    expect(isError).toBe(true);
+    expect(proposeConfig).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Task specs namespace (TASK_2026_179, step 17)
 // ---------------------------------------------------------------------------
 

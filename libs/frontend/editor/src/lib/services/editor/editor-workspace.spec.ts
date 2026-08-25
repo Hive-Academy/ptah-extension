@@ -14,6 +14,7 @@
  *   - onFileContentChanged: forwards the routed path
  *   - onRereadOpenTabs: debounces at 250ms (unchanged) and skips dirty tabs
  *   - start/stopFileTreeWatcher: gate semantics + no timer pending (C1 AC3)
+ *   - startFileTreeWatcher: reconciles tree + open tabs missed while shut
  *   - loadFileTree: stale-response protection (concurrent calls)
  *
  * Post-C1 the helper no longer owns a `window.addEventListener`. Dispatch is
@@ -437,6 +438,10 @@ describe('EditorWorkspaceHelper.mergeLoadedSubtrees', () => {
 describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () => {
   beforeEach(() => {
     mockRpcCall.mockReset();
+    // `startFileTreeWatcher` now issues a catch-up `editor:getFileTree` (see
+    // the reconcile-on-arm tests below), so every test in here needs a
+    // resolvable default even when it asserts nothing about that call.
+    mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
     jest.useFakeTimers();
   });
 
@@ -464,6 +469,9 @@ describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () =>
     mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
 
     helper.startFileTreeWatcher();
+    // Arming reconciles once; the debounce assertions below are about the
+    // pushes that follow it.
+    mockRpcCall.mockClear();
 
     for (let i = 0; i < 5; i++) {
       helper.onFileTreeChanged();
@@ -574,6 +582,7 @@ describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () =>
 
     helper.startFileTreeWatcher();
     helper.stopFileTreeWatcher();
+    mockRpcCall.mockClear();
 
     helper.onFileTreeChanged();
     jest.advanceTimersByTime(2000);
@@ -586,6 +595,7 @@ describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () =>
     mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
 
     helper.startFileTreeWatcher();
+    mockRpcCall.mockClear();
     helper.onFileTreeChanged();
     helper.onRereadOpenTabs();
     expect(jest.getTimerCount()).toBe(2);
@@ -596,6 +606,76 @@ describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () =>
     jest.advanceTimersByTime(10_000);
     expect(mockRpcCall).not.toHaveBeenCalled();
     expect(handleFileContentChanged).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // Reconcile-on-arm. `EditorService` is `providedIn: 'root'` and the panel is
+  // not, so leaving the editor surface shuts this gate while the tree it
+  // guards stays alive. Without a catch-up read, every file written while the
+  // user was elsewhere is invisible until an unrelated later push happens to
+  // fire — and if nothing else changes, permanently.
+  // --------------------------------------------------------------------------
+
+  it('reloads the tree when the gate is armed, so files created while it was shut appear', () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: {
+        tree: [
+          makeNode({ name: 'README.md', path: '/ws/README.md', type: 'file' }),
+        ],
+      },
+    });
+
+    // First visit to the editor surface.
+    helper.startFileTreeWatcher();
+    // …user navigates away: the gate shuts and pushes are dropped.
+    helper.stopFileTreeWatcher();
+    ctx.fileTree.set([]);
+    mockRpcCall.mockClear();
+
+    // …and comes back.
+    helper.startFileTreeWatcher();
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:getFileTree',
+      { rootPath: '/ws' },
+    );
+  });
+
+  it('re-reads open tabs on arm, since content pushes were dropped by the same gate', () => {
+    const { helper, ctx, handleFileContentChanged } = makeHelper();
+    (ctx.state.openTabs as unknown as { set(v: unknown): void }).set([
+      { filePath: 'D:/ws/clean.ts', isDirty: false },
+    ]);
+
+    helper.startFileTreeWatcher();
+    jest.advanceTimersByTime(250);
+
+    expect(handleFileContentChanged).toHaveBeenCalledWith('D:/ws/clean.ts');
+  });
+
+  it('is idempotent — a second arm while already watching does not refetch', () => {
+    const { helper } = makeHelper();
+
+    helper.startFileTreeWatcher();
+    mockRpcCall.mockClear();
+
+    helper.startFileTreeWatcher();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('costs nothing on the very first mount, before a workspace is active', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.active.path = null;
+
+    helper.startFileTreeWatcher();
+
+    // `switchWorkspace` does the initial load moments later; arming must not
+    // fire a rootless RPC in the meantime.
+    expect(mockRpcCall).not.toHaveBeenCalled();
   });
 });
 

@@ -35,6 +35,15 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The registry id, taken from the provider entry rather than re-typed, so the
+   * quota gate keys on the same string `ProviderAuthResolver` resolves. The
+   * config's `name` above is a log label and would key nothing.
+   */
+  protected getProviderId(): string {
+    return COPILOT_PROVIDER_ENTRY.id;
+  }
+
+  /**
    * Get the Copilot API base URL from the current auth state.
    * Falls back to the default endpoint if no auth state or no override.
    */

@@ -371,6 +371,45 @@ export class WorkspaceProviderProfileResolver {
    * earlier fetch failed (offline at configure time), this snapshot derives
    * nothing and `resolveModel`'s backstop takes over. Retried on the next
    * activation, never on a timer.
+   *
+   * ---
+   *
+   * IF YOU ARE HERE BECAUSE OF `[claude-code:unrecognized_model]` WITH
+   * `"query_source":"generate_session_title"` — that is not a Ptah defect and
+   * the haiku value below is not the thing to change. Investigated in full and
+   * closed with no code change (TASK_2026_315 C1); do not re-open it without
+   * new evidence, because the obvious "fix" actively breaks a working path.
+   *
+   * What was measured, against `tmp/logs/log.log` (2026-08-23, provider
+   * `ollama-cloud`):
+   *
+   *  - The complaint comes from the Claude Code CLI subprocess's own stderr,
+   *    for an internal query Ptah neither issues nor consumes. There is no
+   *    `generate_session_title` producer anywhere in this repo.
+   *  - It is advisory. At `log.log:922` the subprocess emits it and proceeds to
+   *    an MCP `tools/list` on the very next line; nothing aborts, and no code
+   *    here reads the string.
+   *  - Ptah never displays a CLI-generated title on a live path. The session
+   *    name is `SessionMetadata.name`, set at SDK `init` from the user's name
+   *    or `Session <date>`. Imported sessions read `customTitle`/`summary` from
+   *    the CLI's `sessions-index.json`, which contributed zero entries in that
+   *    run, and Ptah actively PRUNES metadata backed by the CLI's `ai-title`
+   *    sidecars. So there is no user-visible symptom to fix.
+   *  - The same id served Ptah's OWN haiku-tier queries in the same session
+   *    without complaint (`log.log:614-624`, `:907-916`).
+   *
+   * Which is exactly why substituting a "recognised" Anthropic id here would be
+   * the wrong trade: the user has no Anthropic credentials, so a recognised id
+   * is one the configured endpoint cannot serve. We would silence a harmless
+   * line about a feature Ptah does not use by breaking the memory-curator and
+   * skill-synthesis queries that work today — and we would be shipping an
+   * invented id, which the derivation rule in this lib's CLAUDE.md forbids by
+   * construction. `ANTHROPIC_DEFAULT_HAIKU_MODEL` must keep naming a model the
+   * ACTIVE provider can actually serve.
+   *
+   * (Note for anyone reading the finding as originally written: Ptah sets no
+   * `ANTHROPIC_SMALL_FAST_MODEL` anywhere. The three writes below are the whole
+   * of the tier env surface.)
    */
   private applyProviderTiers(
     snapshot: AuthEnv,

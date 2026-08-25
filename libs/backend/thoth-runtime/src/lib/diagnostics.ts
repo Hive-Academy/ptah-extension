@@ -89,27 +89,56 @@ export function emitVecLoadDiagnostic(
   if (vecLoadDiagnosticEmitted) return;
   vecLoadDiagnosticEmitted = true;
 
-  const summary = {
-    ok: diagnostic.ok,
-    reason: diagnostic.reason,
-    attemptedPath: diagnostic.attemptedPath,
-    packageName: diagnostic.packageName,
-    fsExists: diagnostic.fsExists,
-    electronVersion: diagnostic.electronVersion,
-    processArch: diagnostic.processArch,
-    processPlatform: diagnostic.processPlatform,
-    error: diagnostic.error,
-    attempts: diagnostic.errorChain?.length ?? 0,
-    chain: diagnostic.errorChain,
-  };
+  const attempts = diagnostic.errorChain?.length ?? 0;
 
   if (diagnostic.ok) {
-    console.log('[persistence-sqlite] sqlite-vec diagnostic', summary);
+    // A LOADED extension is not a diagnostic. `SqliteConnectionService` walks
+    // its resolver strategies in order and stops at the first one that loads,
+    // so on Electron the `primary-resolver` miss is the EXPECTED opening move —
+    // it probes `app.asar.unpacked` and the packaged `dist` tree, neither of
+    // which exists under `nx serve`. Printing its `errorChain` here rendered
+    // that expected miss as a nineteen-line block naming two absent paths, on
+    // every single boot, for a subsystem that was working (TASK_2026_315 C7).
+    //
+    // So the success path keeps the FACTS a reader needs — which path won,
+    // from which package, and how many strategies were skipped to get there —
+    // and drops the per-strategy messages, which are only actionable when
+    // nothing loaded at all. `attempts` is retained precisely so a fallback
+    // load stays visible as a non-zero count rather than becoming invisible:
+    // silence here would hide a machine that has quietly stopped resolving via
+    // its primary path. The full chain is still on the `VecLoadDiagnostic`
+    // object and still reaches the renderer through
+    // `serializeVecDiagnosticForBridge`, so nothing is lost — only unasked-for.
+    //
+    // `libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts:592` already
+    // built its summary without `chain` for the same reason; this is the
+    // Electron/VS Code side catching up.
+    console.debug('[persistence-sqlite] sqlite-vec diagnostic', {
+      ok: true,
+      reason: diagnostic.reason,
+      attemptedPath: diagnostic.attemptedPath,
+      packageName: diagnostic.packageName,
+      fsExists: diagnostic.fsExists,
+      attempts,
+    });
   } else {
-    console.warn(
-      '[persistence-sqlite] sqlite-vec diagnostic (offline)',
-      summary,
-    );
+    // Nothing loaded. This is the case the block was written for: the chain is
+    // the only record of WHY each strategy was rejected, and it must survive
+    // intact — including the host facts, which are what make a bug report
+    // about a missing native binary reproducible.
+    console.warn('[persistence-sqlite] sqlite-vec diagnostic (offline)', {
+      ok: false,
+      reason: diagnostic.reason,
+      attemptedPath: diagnostic.attemptedPath,
+      packageName: diagnostic.packageName,
+      fsExists: diagnostic.fsExists,
+      electronVersion: diagnostic.electronVersion,
+      processArch: diagnostic.processArch,
+      processPlatform: diagnostic.processPlatform,
+      error: diagnostic.error,
+      attempts,
+      chain: diagnostic.errorChain,
+    });
   }
 
   if (!diagnostic.ok) {

@@ -14,6 +14,14 @@
  *   they are active the moment they appear on disk and stay active until their
  *   id lands in `disabledPluginIds`.
  *
+ * Harness plugins live in one of TWO roots and the difference is their scope:
+ * - `~/.ptah/plugins` — user-global, loads in every workspace on this machine;
+ * - `{ws}/.ptah/plugins` — workspace-scoped, loads only here and can be
+ *   committed with the project.
+ * Only the user-global root feeds each host's `buildMirrorSources`; see
+ * {@link PluginLoaderService.discoverWorkspaceHarnessPluginPaths} for why that
+ * asymmetry is what makes the scope real.
+ *
  * Design:
  * - Initialized from main.ts with pluginsBasePath and workspaceState (late initialization)
  * - All methods gracefully handle uninitialized state (null pluginsBasePath/workspaceState)
@@ -29,12 +37,19 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   buildSkillDescriptorId,
+  HARNESS_PLUGIN_ID_PREFIX,
+  SKILLS_SH_PLUGIN_ID_PREFIX,
+  workspacePluginsDir,
   type PluginInfo,
   type PluginConfigState,
   type PluginSkillEntry,
   type PluginSource,
 } from '@ptah-extension/shared';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   ExternalPluginStateStore,
   PLUGIN_MARKETPLACE_TOKENS,
@@ -194,8 +209,13 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  * are not part of AVAILABLE_PLUGINS and are not required to appear in
  * `enabledPluginIds`, so they can only be found by scanning the plugins base
  * directory.
+ *
+ * The literal moved to `@ptah-extension/shared` in TASK_2026_316 — it had
+ * already been spelled twice (here and in `agent-generation`'s sidecar types),
+ * and `harness-sync` needed a third to filter user-layer clones by origin
+ * plugin. This is a local alias over the one definition, not a fourth copy.
  */
-const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
+const HARNESS_PLUGIN_PREFIX = HARNESS_PLUGIN_ID_PREFIX;
 
 /**
  * Directory-name prefix used by skills.sh source roots.
@@ -211,8 +231,11 @@ const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
  * asked for this specific skill by clicking Install, which is the same
  * "authored on purpose" signal, so it is active on discovery and stays active
  * until its id lands in `disabledPluginIds`.
+ *
+ * Defined once in `@ptah-extension/shared`, alongside the harness prefix and the
+ * `isOptOutPluginId` predicate that spells out what the two have in common.
  */
-const SKILLS_SH_PLUGIN_PREFIX = 'ptah-skillssh-';
+const SKILLS_SH_PLUGIN_PREFIX = SKILLS_SH_PLUGIN_ID_PREFIX;
 
 /**
  * Fallback description for a harness plugin whose skills carry no frontmatter
@@ -274,10 +297,41 @@ export class PluginLoaderService {
   /** VS Code Memento for per-workspace persistent state */
   private workspaceState: IStateStorage | null = null;
 
+  /**
+   * `SKILL.md` paths already reported unreadable, mapped to the errno that was
+   * reported for them.
+   *
+   * `discoverSkillsForPlugins` runs on every `plugins:list-available`, and a
+   * skill directory with no `SKILL.md` fails identically every time. On the
+   * machine that produced `tmp/logs/log.log` one such directory
+   * (`ptah-skillssh-oso95-scroll-world/skills/scroll-world`) re-emitted the same
+   * ENOENT at lines 793, 844 and 1012 of a single session — a permanently
+   * broken root reported once per call, which is noise rather than news
+   * (TASK_2026_315 C4).
+   *
+   * Keyed by errno so a path that changes failure mode — ENOENT becoming EACCES
+   * after a permissions change — is reported again rather than hidden behind
+   * the first entry. The entry is dropped the moment the file reads
+   * successfully, so a root repaired and later broken again reports afresh.
+   *
+   * Only the LOG is memoised. The scan itself still runs every call, so a root
+   * that becomes readable is picked up immediately with no cache to invalidate.
+   */
+  private readonly reportedUnreadableSkills = new Map<string, string>();
+
+  /**
+   * @param workspace Optional, and asked at CALL time rather than captured at
+   *   `initialize()`, because the workspace-scoped plugin root moves when the
+   *   user changes folder. A host that has not registered a workspace provider
+   *   simply has no workspace scope — every workspace method returns empty and
+   *   the user-global half is unaffected.
+   */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLUGIN_MARKETPLACE_TOKENS.STATE_STORE)
     private readonly externalPlugins: ExternalPluginStateStore,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace?: IWorkspaceProvider,
   ) {}
 
   /**
@@ -443,7 +497,10 @@ export class PluginLoaderService {
    * call without any cache invalidation.
    */
   private describeHarnessPlugins(): PluginInfo[] {
-    return this.discoverHarnessPluginPaths().map((pluginPath) => {
+    // The merged view, so a workspace-scoped skill is listed — and therefore
+    // toggleable, since this list is also the allowlist `plugins:save-config`
+    // filters `disabledPluginIds` against.
+    return this.resolveHarnessOverlayPaths().map((pluginPath) => {
       const id = path.basename(pluginPath);
       const slug = id.slice(HARNESS_PLUGIN_PREFIX.length);
       const skills = this.discoverSkillsForPlugins([pluginPath]);
@@ -468,10 +525,27 @@ export class PluginLoaderService {
           ...slug.split('-').filter((word) => word.length > 0),
           'harness',
           'custom',
+          // The one visible difference between the two scopes. `PluginInfo` has
+          // no scope field and adding one would ripple through the frontend
+          // contract for a badge; a keyword is already how this list is
+          // filtered and searched.
+          ...(this.isWorkspaceScopedPluginPath(pluginPath)
+            ? ['workspace']
+            : ['global']),
         ],
         source: 'harness' as const,
       };
     });
+  }
+
+  /** True when `pluginPath` lives under `{ws}/.ptah/plugins`. */
+  private isWorkspaceScopedPluginPath(pluginPath: string): boolean {
+    const workspacePluginsPath = this.getWorkspacePluginsBasePath();
+    if (workspacePluginsPath === null) return false;
+    return (
+      path.resolve(path.dirname(pluginPath)) ===
+      path.resolve(workspacePluginsPath)
+    );
   }
 
   /**
@@ -638,19 +712,25 @@ export class PluginLoaderService {
     const pluginsBasePath = this.pluginsBasePath;
 
     // Only pay for the directory scan when a harness ID is actually requested —
-    // the hot path (session start with bundled IDs) stays a pure Set lookup.
-    const harnessIds = enabledPluginIds.some((id) =>
+    // the hot path (session start with bundled IDs) stays a pure Map lookup.
+    //
+    // A MAP of id -> absolute path, not a set of ids: a workspace-scoped
+    // harness plugin lives under `{ws}/.ptah/plugins`, so an id alone can no
+    // longer be joined onto the global base path to find it.
+    const harnessPaths = enabledPluginIds.some((id) =>
       id.startsWith(HARNESS_PLUGIN_PREFIX),
     )
-      ? new Set(this.discoverHarnessPluginPaths().map((p) => path.basename(p)))
-      : new Set<string>();
+      ? new Map(
+          this.resolveHarnessOverlayPaths().map((p) => [path.basename(p), p]),
+        )
+      : new Map<string, string>();
 
     const resolvable = new Map<string, string>();
     for (const id of enabledPluginIds) {
       const pluginPath = this.resolveSinglePluginPath(
         id,
         pluginsBasePath,
-        harnessIds,
+        harnessPaths,
       );
       if (pluginPath === null) {
         this.logger.warn(
@@ -695,13 +775,18 @@ export class PluginLoaderService {
    *   property the whole external-marketplace feature rests on. Widening this
    *   to "any id starting with `external:`", or to "any directory present under
    *   `external/`", would turn plugin loading into arbitrary code loading.
-   * - harness: must be a directory the scan actually found.
+   * - harness: must be a directory the scan actually found, and the SCAN
+   *   supplies the path. The id is never joined onto a base path, which is
+   *   what lets a workspace-scoped harness plugin resolve to
+   *   `{ws}/.ptah/plugins/{id}` without the caller knowing which scope it came
+   *   from — and keeps the "only ever a direct child of a root we scanned"
+   *   property intact for both roots.
    * - bundled: must be in the compile-time set.
    */
   private resolveSinglePluginPath(
     id: string,
     pluginsBasePath: string,
-    harnessIds: ReadonlySet<string>,
+    harnessPaths: ReadonlyMap<string, string>,
   ): string | null {
     if (isExternalPluginId(id)) {
       if (!this.externalPlugins.isInstalled(id)) return null;
@@ -710,7 +795,10 @@ export class PluginLoaderService {
       return externalPluginDir(pluginsBasePath, coordinate);
     }
 
-    if (KNOWN_PLUGIN_IDS.has(id) || harnessIds.has(id)) {
+    const harnessPath = harnessPaths.get(id);
+    if (harnessPath !== undefined) return harnessPath;
+
+    if (KNOWN_PLUGIN_IDS.has(id)) {
       return path.join(pluginsBasePath, id);
     }
 
@@ -766,20 +854,88 @@ export class PluginLoaderService {
     return this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);
   }
 
+  /**
+   * The workspace-scoped plugin root, `{ws}/.ptah/plugins`, or null when no
+   * folder is open (or no workspace provider is registered on this host).
+   *
+   * Public because `ptah.harness.createSkill` writes into it and must not
+   * re-derive the path — see `workspacePluginsDir` in shared.
+   */
+  getWorkspacePluginsBasePath(): string | null {
+    return workspacePluginsDir(this.workspace?.getWorkspaceRoot());
+  }
+
+  /**
+   * Discover harness plugin directories under `{ws}/.ptah/plugins`.
+   *
+   * DELIBERATELY separate from {@link discoverHarnessPluginPaths}, and the
+   * asymmetry is the same load-bearing one `discoverSkillsShPluginPaths`
+   * documents. Both reach `resolveCurrentPluginPaths` (the harness desired
+   * state); only the USER-GLOBAL one reaches `buildMirrorSources` in each host.
+   *
+   * That is what makes the scope real. The user-layer mirror CLONES a plugin's
+   * skills into `~/.ptah/user/skills` create-if-absent, and the user layer is
+   * the desired state's BASE — so a mirrored workspace skill would outlive its
+   * workspace and propagate into every other project forever, which is exactly
+   * the scoping the caller asked to avoid. Overlay-only means the skill is
+   * desired state HERE and nowhere else, and the reconciler's removal sweep
+   * clears its copies the moment the folder changes.
+   *
+   * Do not "fix" this by adding it to `buildMirrorSources`.
+   */
+  discoverWorkspaceHarnessPluginPaths(): string[] {
+    const workspacePluginsPath = this.getWorkspacePluginsBasePath();
+    if (workspacePluginsPath === null) return [];
+    return this.scanPrefixedPluginDirs(
+      workspacePluginsPath,
+      HARNESS_PLUGIN_PREFIX,
+    );
+  }
+
+  /**
+   * Every harness plugin backing the CURRENT desired state: the user-global
+   * roots plus the workspace ones, with the workspace winning a slug clash.
+   *
+   * Workspace-wins is the more-specific-scope rule, and a clash is reported
+   * rather than resolved in silence — the shadowed skill still exists on disk
+   * and its author is entitled to know why it stopped appearing here.
+   */
+  private resolveHarnessOverlayPaths(): string[] {
+    const byId = new Map<string, string>();
+    for (const pluginPath of this.discoverHarnessPluginPaths()) {
+      byId.set(path.basename(pluginPath), pluginPath);
+    }
+    for (const pluginPath of this.discoverWorkspaceHarnessPluginPaths()) {
+      const id = path.basename(pluginPath);
+      const shadowed = byId.get(id);
+      if (shadowed !== undefined) {
+        this.logger.warn(
+          '[PluginLoaderService] Workspace harness plugin shadows a user-global one of the same id',
+          { pluginId: id, using: pluginPath, shadowed },
+        );
+      }
+      byId.set(id, pluginPath);
+    }
+    return [...byId.values()];
+  }
+
   /** Direct child directories of the plugins base path matching `prefix`. */
   private discoverPrefixedPluginPaths(prefix: string): string[] {
     if (!this.pluginsBasePath) return [];
+    return this.scanPrefixedPluginDirs(this.pluginsBasePath, prefix);
+  }
 
-    const pluginsBasePath = this.pluginsBasePath;
+  /** Direct child directories of `baseDir` whose name starts with `prefix`. */
+  private scanPrefixedPluginDirs(baseDir: string, prefix: string): string[] {
     let entries: string[];
     try {
-      entries = fs.readdirSync(pluginsBasePath);
+      entries = fs.readdirSync(baseDir);
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.logger.warn(
           '[PluginLoaderService] Failed to read plugins directory',
           {
-            path: pluginsBasePath,
+            path: baseDir,
             error: error instanceof Error ? error.message : String(error),
           },
         );
@@ -790,7 +946,7 @@ export class PluginLoaderService {
     const paths: string[] = [];
     for (const entry of entries) {
       if (!entry.startsWith(prefix)) continue;
-      const pluginPath = path.join(pluginsBasePath, entry);
+      const pluginPath = path.join(baseDir, entry);
       try {
         if (fs.statSync(pluginPath).isDirectory()) {
           paths.push(pluginPath);
@@ -811,8 +967,9 @@ export class PluginLoaderService {
 
   /**
    * Resolve the plugin paths that currently back the harness desired state: the
-   * enabled bundled plugins PLUS every `ptah-harness-*` and `ptah-skillssh-*`
-   * directory the user has NOT explicitly disabled.
+   * enabled bundled plugins PLUS every `ptah-harness-*` (user-global AND
+   * workspace-scoped) and `ptah-skillssh-*` directory the user has NOT
+   * explicitly disabled.
    *
    * This is the single source of truth for the reconciler's overlay, and it
    * encodes both activation models:
@@ -839,7 +996,7 @@ export class PluginLoaderService {
       config.enabledPluginIds.filter((id) => !disabledIds.has(id)),
     );
     const optOutPaths = [
-      ...this.discoverHarnessPluginPaths(),
+      ...this.resolveHarnessOverlayPaths(),
       ...this.discoverSkillsShPluginPaths(),
     ].filter((pluginPath) => !disabledIds.has(path.basename(pluginPath)));
 
@@ -889,14 +1046,9 @@ export class PluginLoaderService {
         let content: string;
         try {
           content = fs.readFileSync(skillMdPath, 'utf-8');
+          this.reportedUnreadableSkills.delete(skillMdPath);
         } catch (error: unknown) {
-          this.logger.debug(
-            '[PluginLoaderService] Skipping skill without a readable SKILL.md',
-            {
-              path: skillMdPath,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
+          this.reportUnreadableSkill(skillMdPath, error);
           continue;
         }
 
@@ -919,6 +1071,37 @@ export class PluginLoaderService {
     }
 
     return skills;
+  }
+
+  /**
+   * Report a skill directory whose `SKILL.md` could not be read — once per
+   * path, per failure mode.
+   *
+   * Deliberately still DEBUG and still non-fatal. A half-written skill folder is
+   * a real condition this method must survive (see the comment at the read
+   * site), and the user cannot act on a log line either way; the defect being
+   * fixed is repetition, not level. Nothing else changes: the skill is skipped
+   * exactly as before and the rest of the plugin still lists.
+   */
+  private reportUnreadableSkill(skillMdPath: string, error: unknown): void {
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      typeof (error as NodeJS.ErrnoException).code === 'string'
+        ? ((error as NodeJS.ErrnoException).code as string)
+        : '';
+
+    if (this.reportedUnreadableSkills.get(skillMdPath) === code) return;
+    this.reportedUnreadableSkills.set(skillMdPath, code);
+
+    this.logger.debug(
+      '[PluginLoaderService] Skipping skill without a readable SKILL.md',
+      {
+        path: skillMdPath,
+        code: code === '' ? undefined : code,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
   }
 
   /**

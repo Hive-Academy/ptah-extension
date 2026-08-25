@@ -12,6 +12,7 @@ import 'reflect-metadata';
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
+  HarnessBlockedRepairService,
   HarnessPropagationService,
   HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
@@ -62,6 +63,7 @@ interface Harness {
     verify: jest.Mock;
   };
   propagation: { propagate: jest.Mock };
+  repairService: { repair: jest.Mock };
   broadcast: jest.Mock;
   /** Fires the reconciler's health stream, as a completed pass would. */
   emitHealth: (report: HarnessHealth) => void;
@@ -80,6 +82,13 @@ function build(options: { withMessenger?: boolean } = {}): Harness {
     verify: jest.fn().mockResolvedValue(health()),
   };
   const propagation = { propagate: jest.fn().mockResolvedValue(health()) };
+  const repairService = {
+    repair: jest.fn().mockResolvedValue({
+      paths: [],
+      repaired: 0,
+      health: null,
+    }),
+  };
   const broadcast = jest.fn().mockResolvedValue(undefined);
 
   let workspaceRoot: string | undefined = WS;
@@ -107,6 +116,7 @@ function build(options: { withMessenger?: boolean } = {}): Harness {
     logger,
     reconciler as unknown as HarnessReconcilerService,
     propagation as unknown as HarnessPropagationService,
+    repairService as unknown as HarnessBlockedRepairService,
     workspaceProvider,
     container,
   );
@@ -115,6 +125,7 @@ function build(options: { withMessenger?: boolean } = {}): Harness {
     service,
     reconciler,
     propagation,
+    repairService,
     broadcast,
     emitHealth: (report) => listeners.forEach((l) => l(report)),
     setWorkspaceRoot: (root) => {
@@ -262,6 +273,74 @@ describe('HarnessHealthRpcService', () => {
 
       expect(result.removed).toBe(0);
       expect(h.reconciler.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('harness:repairBlocked', () => {
+    it('hands the consent set straight through, unfiltered and unreordered', async () => {
+      const h = build();
+      const paths = [
+        { target: 'claude' as const, relPath: '.claude/skills/alpha' },
+        { target: 'codex' as const, relPath: '.agents/skills/beta' },
+      ];
+
+      await h.service.repairBlocked({ paths });
+
+      // The service must not second-guess the selection: the blocked-set gate
+      // lives in `HarnessBlockedRepairService`, in the lib that owns the disk,
+      // and a second copy of that rule here is how the two would drift.
+      expect(h.repairService.repair).toHaveBeenCalledWith(WS, paths);
+    });
+
+    it('reports the per-path outcomes and the quarantine destination back to the caller', async () => {
+      const h = build();
+      h.repairService.repair.mockResolvedValue({
+        paths: [
+          {
+            target: 'claude',
+            relPath: '.claude/skills/alpha',
+            outcome: 'repaired',
+            quarantinePath:
+              'D:/ws/alpha/.claude/skills/.ptah-quarantine/alpha-1',
+          },
+        ],
+        repaired: 1,
+        health: health(),
+      });
+
+      const result = await h.service.repairBlocked({
+        paths: [{ target: 'claude', relPath: '.claude/skills/alpha' }],
+      });
+
+      expect(result.repaired).toBe(1);
+      expect(result.paths[0].quarantinePath).toBe(
+        'D:/ws/alpha/.claude/skills/.ptah-quarantine/alpha-1',
+      );
+      expect(result.summary.level).toBe('ok');
+    });
+
+    it('summarises a null health as unknown rather than inventing a clean report', async () => {
+      const h = build();
+
+      const result = await h.service.repairBlocked({ paths: [] });
+
+      expect(result.health).toBeNull();
+      expect(result.summary.level).toBe('unknown');
+      expect(result.repaired).toBe(0);
+    });
+
+    it('never reaches the repair service with no workspace open', async () => {
+      const h = build();
+      h.setWorkspaceRoot(undefined);
+
+      const result = await h.service.repairBlocked({
+        paths: [{ target: 'claude', relPath: '.claude/skills/alpha' }],
+      });
+
+      expect(h.repairService.repair).not.toHaveBeenCalled();
+      expect(result).toEqual(
+        expect.objectContaining({ paths: [], repaired: 0, health: null }),
+      );
     });
   });
 

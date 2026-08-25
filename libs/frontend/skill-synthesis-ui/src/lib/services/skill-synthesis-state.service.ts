@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   SkillSuggestionDetail,
   SkillSuggestionSummary,
+  SkillSynthesisCandidateScope,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
   SkillSynthesisPromoteBulkResult,
@@ -85,6 +86,14 @@ export class SkillSynthesisStateService {
 
   public readonly candidates = signal<SkillSynthesisCandidateSummary[]>([]);
   public readonly statusFilter = signal<SkillStatusFilter>('all');
+  /**
+   * How wide the list reaches across projects. Defaults to `'workspace'`,
+   * matching the wire default — every project on this machine shares one
+   * `ptah.sqlite`, so an unscoped list showed a freshly opened project every
+   * other project's pending captures.
+   */
+  public readonly scopeFilter =
+    signal<SkillSynthesisCandidateScope>('workspace');
   public readonly selectedCandidateId = signal<string | null>(null);
   public readonly invocations = signal<SkillSynthesisInvocationEntry[]>([]);
   public readonly stats = signal<SkillSynthesisStatsResult | null>(null);
@@ -159,6 +168,7 @@ export class SkillSynthesisStateService {
     try {
       const list = await this.rpc.listCandidates({
         status: statusFilterToBackend(this.statusFilter()),
+        scope: this.scopeFilter(),
       });
       this.candidates.set(list);
     } catch (err) {
@@ -340,6 +350,14 @@ export class SkillSynthesisStateService {
   /** Update the status filter and reload the list. */
   public async setStatusFilter(filter: SkillStatusFilter): Promise<void> {
     this.statusFilter.set(filter);
+    await this.refreshCandidates();
+  }
+
+  /** Update the project scope and reload the list. */
+  public async setScopeFilter(
+    scope: SkillSynthesisCandidateScope,
+  ): Promise<void> {
+    this.scopeFilter.set(scope);
     await this.refreshCandidates();
   }
 

@@ -257,6 +257,18 @@ export class SessionQueryExecutor {
         mcpServersOverride,
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
         authEnvOverride,
+        // A turn parked on a permission prompt or an AskUserQuestion card emits
+        // no stream events by construction. Without this the watchdog below
+        // reads the user's own deliberation as a wedged provider and aborts the
+        // session — which is what killed New Project runs mid-question, three
+        // minutes into a prompt the UI advertises as untimed (TASK_2026_317).
+        activityHold: activityWatchdog,
+        // The routing ids the builder computes are pinned at build time, when a
+        // new session has no SDK UUID yet — so they fall back to the caller's
+        // tabId, which for a surface workflow is a correlation id no frontend
+        // registry knows. Reading the record live means a prompt raised after
+        // the SDK `init` message carries the id the UI actually routes on.
+        sessionIdResolver: () => rec.realSessionId ?? undefined,
       });
       const isResume = !!resumeSessionId;
       let effectivePrompt: string | AsyncIterable<SDKUserMessage>;

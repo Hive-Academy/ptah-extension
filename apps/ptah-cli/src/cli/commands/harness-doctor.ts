@@ -54,6 +54,7 @@ import {
   type HarnessHealthResult,
   type HarnessReconcileResult,
   type HarnessRemoveResult,
+  type HarnessSkillSyncMode,
 } from '@ptah-extension/shared';
 import type {
   CliMessageTransport,
@@ -128,16 +129,79 @@ export async function runHarnessDoctor(
       ? await reconcile(ctx.transport)
       : await measure(ctx.transport);
 
+    const selection = await readSkillSelection(ctx.transport);
     const summary = summarizeHarnessHealth(health);
 
     await formatter.writeNotification('harness.doctor', {
       fixed: fix,
       health,
+      selection,
       summary,
     });
 
     return exitCodeFor(summary.level);
   });
+}
+
+/**
+ * The workspace's skill-selection mode, for the sources line (TASK_2026_316).
+ *
+ * A `'selected'` workspace with a narrow allowlist propagates fewer skills than
+ * the user layer holds, and the report has no field that can say so: the
+ * selection is applied when the DESIRED state is built, so an unselected slug
+ * never enters `expected`, `missing` or `foreign`. Without this the doctor reads
+ * as a harness that found nothing, when it propagated exactly what it was told
+ * to.
+ *
+ * Strictly INFORMATIONAL. `summarizeHarnessHealth` remains the only source of
+ * the verdict and a narrow selection is `ok`, not degraded — so this must never
+ * move the exit code, and a failure to read it must not either. A backend too
+ * old to answer, or a malformed answer, degrades to `null` and the line simply
+ * omits the clause.
+ */
+interface DoctorSkillSelection {
+  mode: HarnessSkillSyncMode;
+  /** Size of the recorded allowlist. Always 0 under `'all'`. */
+  selected: number;
+  /** How many skills this workspace COULD propagate. */
+  available: number;
+  /** The mode was absent on disk and came from the migration's evidence walk. */
+  derived: boolean;
+}
+
+async function readSkillSelection(
+  transport: CliMessageTransport,
+): Promise<DoctorSkillSelection | null> {
+  try {
+    return toSelection(
+      await callRpc<unknown>(transport, 'harness:get-skill-selection', {}),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Narrow the RPC answer, keeping only the two counts the line needs.
+ *
+ * The candidate list is deliberately dropped: `available` can hold every skill
+ * on disk with its description, and folding that into `harness.doctor` would
+ * multiply the size of a `--json` document that exists to report drift.
+ * `ptah skill selection` is the verb that hands back the list itself.
+ */
+function toSelection(value: unknown): DoctorSkillSelection | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const obj = value as Record<string, unknown>;
+  const mode = obj['mode'];
+  if (mode !== 'all' && mode !== 'selected') return null;
+  const slugs = obj['slugs'];
+  const available = obj['available'];
+  return {
+    mode,
+    selected: Array.isArray(slugs) ? slugs.length : 0,
+    available: Array.isArray(available) ? available.length : 0,
+    derived: obj['derived'] === true,
+  };
 }
 
 async function reconcile(

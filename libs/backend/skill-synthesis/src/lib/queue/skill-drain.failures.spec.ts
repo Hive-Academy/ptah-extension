@@ -32,7 +32,7 @@ import * as path from 'node:path';
 import { SkillQueueStore } from './skill-queue.store';
 import { SkillDrainService, SKILL_DRAIN_KEYS } from './skill-drain.service';
 import type { SkillLaneFailure } from '../lanes/lane.types';
-import { LANE_AUTH_RETRY_MS } from '../lanes/lane.types';
+import { LANE_AUTH_RETRY_MS, LANE_QUOTA_RETRY_MS } from '../lanes/lane.types';
 import {
   asConnection,
   makeTempDbPath,
@@ -116,6 +116,21 @@ const AUTH_FAILURE: SkillLaneFailure = {
   kind: 'auth-unresolvable',
   reason: 'Lane judge: configured credentials could not be resolved',
   retryAfterMs: LANE_AUTH_RETRY_MS,
+};
+
+/**
+ * The quota sibling of `AUTH_FAILURE`.
+ *
+ * It exists because a new `SkillLaneFailureKind` used to fall through
+ * `applyLaneFailure`'s `kind !== 'timeout' && kind !== 'auth-unresolvable'`
+ * negation straight into `markUnscored` — compiling, type-checking, and landing
+ * a stall that never ran as a JUDGE VERDICT on the Activity surface. These
+ * cases are what makes that a test failure rather than a silent one.
+ */
+const QUOTA_FAILURE: SkillLaneFailure = {
+  kind: 'quota-exhausted',
+  reason: 'Lane judge: Provider quota exhausted; retrying in about 15 min.',
+  retryAfterMs: LANE_QUOTA_RETRY_MS,
 };
 
 const TIMEOUT_FAILURE: SkillLaneFailure = {
@@ -498,5 +513,104 @@ maybe('SkillDrainService — lane failures (P1-7)', () => {
     // And the backoff was not pushed out on a row we no longer held: the row is
     // eligible right now, not parked for half an hour.
     expect(store.listEligible(ROOT, 10, Date.now())).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // `quota-exhausted` (TASK_2026_306 defect B).
+  // -------------------------------------------------------------------------
+
+  it('stalls a quota-exhausted row rather than landing a judge verdict on it', async () => {
+    // The assertion that fails against the pre-fix `applyLaneFailure`: a new
+    // union member fell through the two-name negation into `markUnscored`, so
+    // the row came back `unscored` — the JUDGE's "we ran and we do not know" —
+    // for an endpoint that answered 429 and nothing else.
+    const drain = makeDrain();
+    drain.registerStageHandler(STAGE, async (ctx) => {
+      ran.push(ctx.row.sessionId);
+      return ctx.row.sessionId === STALLED
+        ? { outcome: 'lane-failed', failure: QUOTA_FAILURE }
+        : { outcome: 'done' };
+    });
+
+    const before = Date.now();
+    const summary = await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(summary.error).toBeUndefined();
+    expect(summary).toMatchObject({
+      skipped: false,
+      claimed: 2,
+      stalled: 1,
+      unscored: 0,
+      failed: 0,
+      done: 1,
+    });
+
+    const row = rowFor(STALLED);
+    expect(row?.status).toBe('queued');
+    expect(row?.status).not.toBe('unscored');
+    expect(row?.claimedBy).toBeNull();
+    expect(row?.reason).toBe(QUOTA_FAILURE.reason);
+    // The queue reason is user-facing and must be honest about what happened.
+    expect(row?.reason).not.toMatch(/timed out/i);
+
+    // The provider's own cooldown, not the transport ladder and not the
+    // 30-minute auth backoff.
+    expect(row?.notBefore).toBeGreaterThanOrEqual(before + LANE_QUOTA_RETRY_MS);
+    expect(row?.notBefore).toBeLessThan(before + LANE_AUTH_RETRY_MS);
+
+    // Still a whole tick.
+    expect(ran).toEqual([STALLED, FOLLOWER]);
+    expect(rowFor(FOLLOWER)?.status).toBe('done');
+  });
+
+  it('never marks a quota-exhausted row terminal, however many attempts it has burned', async () => {
+    // Exempt from the ceiling for `auth-unresolvable`'s reason, only more so:
+    // quota clears on a CLOCK with nobody acting, so a terminal mark would
+    // always land before the refill and destroy work that was about to run.
+    stampAttempts(STALLED, 20);
+    const drain = makeDrain({ [SKILL_DRAIN_KEYS.maxAttempts]: 1 });
+    drain.registerStageHandler(STAGE, async (ctx) => {
+      ran.push(ctx.row.sessionId);
+      return ctx.row.sessionId === STALLED
+        ? { outcome: 'lane-failed', failure: QUOTA_FAILURE }
+        : { outcome: 'done' };
+    });
+
+    const summary = await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(summary).toMatchObject({ stalled: 1, failed: 0, unscored: 0 });
+    const row = rowFor(STALLED);
+    expect(row?.attemptCount).toBe(21);
+    expect(row?.status).toBe('queued');
+    expect(row?.finishedAt).toBeNull();
+    expect(row?.lastError).toBeNull();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('re-opens the quota row once its cooldown passes', async () => {
+    const drain = makeDrain();
+    drain.registerStageHandler(STAGE, async () => ({
+      outcome: 'lane-failed',
+      failure: QUOTA_FAILURE,
+    }));
+
+    await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(store.listEligible(ROOT, 10, Date.now() + 1_000)).toHaveLength(0);
+    expect(
+      store.listEligible(ROOT, 10, Date.now() + LANE_QUOTA_RETRY_MS + 1_000),
+    ).toHaveLength(2);
   });
 });

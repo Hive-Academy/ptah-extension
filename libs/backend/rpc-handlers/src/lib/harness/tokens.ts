@@ -29,4 +29,12 @@ export const HARNESS_TOKENS = {
    * this one reports whether it reached disk.
    */
   HEALTH: Symbol.for('HarnessHealthRpcService'),
+  /**
+   * `HarnessSkillSelectionRpcService` — the per-workspace skill selection
+   * (TASK_2026_316). Separate from `HEALTH` for the same reason `HEALTH` is
+   * separate from the wizard services: those AUTHOR a harness, `HEALTH` reports
+   * whether it reached disk, and this one records which of it this project
+   * wants.
+   */
+  SKILL_SELECTION: Symbol.for('HarnessSkillSelectionRpcService'),
 } as const;

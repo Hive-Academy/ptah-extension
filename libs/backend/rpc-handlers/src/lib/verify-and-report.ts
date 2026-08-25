@@ -106,7 +106,12 @@ export function verifyAndReportRpcRegistration(
     process.env['NODE_ENV'] === 'development' ||
     process.env['PTAH_E2E'] === '1';
   if (assertInDevelopment && assertEnabled) {
-    assertRpcRegistration(rpcHandler, logger, excludeList);
+    // Hand the assert the result we just computed. Without it the assert
+    // re-runs `verifyRpcRegistration`, which LOGS — so a single pass that
+    // reached this branch printed `All N RPC methods correctly registered`
+    // twice. Same handler, same exclusion list, so the result is identical;
+    // only the duplicate work and the duplicate log are removed.
+    assertRpcRegistration(rpcHandler, logger, excludeList, verificationResult);
   }
 
   return verificationResult;

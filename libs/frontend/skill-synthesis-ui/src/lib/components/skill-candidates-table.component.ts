@@ -34,6 +34,7 @@ import {
   output,
 } from '@angular/core';
 import { NativeCardComponent, type NativeCardTone } from '@ptah-extension/ui';
+import { lastPathSegment } from '@ptah-extension/shared';
 import type {
   SkillJudgeCriteriaDto,
   SkillJudgeStatusDto,
@@ -105,6 +106,29 @@ interface CandidateRow {
   readonly metrics: readonly CandidateMetric[];
   readonly judge: CandidateJudge | null;
   readonly gates: readonly CandidateGate[];
+  /** Where this capture came from — see {@link buildOrigin}. */
+  readonly origin: CandidateOrigin;
+}
+
+/**
+ * The project a capture came from, as the card renders it.
+ *
+ * `full` is kept beside `label` because `label` is the trailing path segment
+ * and two projects can share a folder name; the whole path goes in the
+ * tooltip rather than into a card that has to stay one line.
+ */
+interface CandidateOrigin {
+  /** Folder name, or {@link UNKNOWN_ORIGIN}. */
+  readonly label: string;
+  /** Absolute path for the tooltip, or the same words as `label`. */
+  readonly full: string;
+  /**
+   * Colour for the line. A recorded project reads as data; an unrecorded one
+   * reads as an absence, so it is dimmer and italic. Carried as one class
+   * string rather than three `[class.x]` bindings because two of the utilities
+   * contain a `/`, which Angular's class-binding syntax cannot express.
+   */
+  readonly toneClass: string;
 }
 
 const STATUS_TONE: Record<CandidateStatus, NativeCardTone> = {
@@ -139,6 +163,12 @@ const CRITERION_LABELS: ReadonlyArray<{
 
 /** What a candidate with no title yet is called. */
 const UNTITLED_PREFIX = 'Captured workflow';
+
+/**
+ * What a capture with no recorded project says. Words, like
+ * {@link NOT_MEASURED}: an empty path or a bare dash would read as a project.
+ */
+const UNKNOWN_ORIGIN = 'project not recorded';
 
 /**
  * What an unmeasured gate says. Words, deliberately, and never a digit: `0`,
@@ -220,6 +250,16 @@ const GATE_TITLES = {
                     <p class="mt-0.5 text-xs text-base-content-muted">
                       {{ row.candidate.description }}
                     </p>
+                    @if (showOrigin()) {
+                      <p
+                        class="mt-1 truncate text-[10px] uppercase tracking-wide"
+                        data-testid="skills-candidate-origin"
+                        [class]="row.origin.toneClass"
+                        [attr.title]="row.origin.full"
+                      >
+                        {{ row.origin.label }}
+                      </p>
+                    }
                   </div>
 
                   <span class="inline-flex shrink-0 items-center gap-1.5">
@@ -440,6 +480,12 @@ export class SkillCandidatesTableComponent {
   public readonly selectedCandidateId = input<string | null>(null);
   public readonly loading = input<boolean>(false);
   public readonly selectedIds = input<ReadonlySet<string>>(new Set());
+  /**
+   * Render each card's originating project. Off by default: when the list is
+   * already scoped to one workspace the line would repeat the same path on
+   * every card and say nothing.
+   */
+  public readonly showOrigin = input<boolean>(false);
 
   public readonly selectRow = output<string>();
   public readonly promote = output<SkillCandidateAction>();
@@ -463,6 +509,7 @@ export class SkillCandidatesTableComponent {
       metrics: buildMetrics(candidate),
       judge: buildJudge(candidate),
       gates: buildGates(candidate),
+      origin: buildOrigin(candidate),
     })),
   );
 
@@ -496,6 +543,39 @@ function buildTitle(candidate: SkillSynthesisCandidateSummary): string {
   const displayName = candidate.displayName?.trim();
   if (displayName) return displayName;
   return `${UNTITLED_PREFIX} · ${formatCaptureDate(candidate.createdAt)}`;
+}
+
+/**
+ * Which project a capture came from.
+ *
+ * `workspaceRoot: null` means the origin was never recorded — every candidate
+ * captured before the column existed whose synthesis-queue row could not be
+ * traced. It is rendered with words ({@link UNKNOWN_ORIGIN}) and never as an
+ * empty path or as "all projects": those are claims, and the state being
+ * described is the absence of one. Same rule {@link NOT_MEASURED} follows for
+ * an unmeasured gate.
+ *
+ * The label is the trailing path segment because the card is one line and a
+ * full Windows path pushes everything else off it; the whole path stays
+ * reachable in the tooltip. `lastPathSegment` handles both separators and the
+ * trailing-separator case — see its own header.
+ */
+function buildOrigin(
+  candidate: SkillSynthesisCandidateSummary,
+): CandidateOrigin {
+  const root = candidate.workspaceRoot?.trim();
+  if (!root) {
+    return {
+      label: UNKNOWN_ORIGIN,
+      full: UNKNOWN_ORIGIN,
+      toneClass: 'italic text-base-content-muted',
+    };
+  }
+  return {
+    label: lastPathSegment(root),
+    full: root,
+    toneClass: 'text-base-content-muted',
+  };
 }
 
 function formatCaptureDate(epochMs: number): string {

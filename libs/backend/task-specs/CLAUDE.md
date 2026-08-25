@@ -55,6 +55,11 @@ DI: `TASK_SPECS_TOKENS`, `TaskSpecsDIToken`, `registerTaskSpecsServices`.
 - **Byte-preservation**: `updateFrontmatter` rewrites ONLY the frontmatter block; the body (CRLF, `---` in code fences, trailing bytes) is copied through untouched.
 - **Registry determinism**: no wall-clock in output — header freshness is `max(updated)` of included tasks.
 - **Windows-safe paths**: always `path.join` + `normalizeWorkspaceRoot`.
+- **The specs watcher is scoped to its root** — `createFileWatcher('.ptah/specs/**', { cwd: root })`,
+  one watcher per workspace. Not a bare cross-workspace glob: `extractFolder`
+  discards other roots' events anyway, and the `cwd` is what lets every adapter
+  resolve the pattern exactly (`RelativePattern` in VS Code, a concrete
+  directory in the chokidar-backed adapters).
 - `catch (error: unknown)`, narrow with `instanceof Error`.
 
 ## Cross-Lib Rules

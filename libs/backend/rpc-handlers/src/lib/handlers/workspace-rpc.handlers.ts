@@ -270,6 +270,25 @@ export class WorkspaceRpcHandlers {
           // Phase 3: tear down any per-workspace isolated provider proxies so a
           // removed/closed workspace does not leak its translation/OAuth proxy
           // servers. Never throws (disposeForScope swallows per-entry errors).
+          //
+          // TASK_2026_315 (A1) — this ORDER IS DELIBERATE, re-examined rather
+          // than left alone by omission. `removeFolder` above emits
+          // `onDidChangeWorkspaceFolders` synchronously and the leaked proxy in
+          // the captured log started between these two lines — but swapping
+          // them closes nothing, for two independent reasons. (1) The
+          // subscriber (`SdkAgentAdapter.handleWorkspaceChanged`) starts it
+          // from a fire-and-forget chain that can land after ANY point in this
+          // handler. (2) What starts is the process-global `OAuthProxyStrategy`
+          // singleton, never a `ProviderProxyPool` entry: that map is written
+          // only by `WorkspaceProviderProfileResolver.acquire()`, the opt-in
+          // per-workspace override path this adapter does not use. These are
+          // two disjoint registries, NOT one registry with a key the dispose
+          // fails to match — there is no "global" key to teach it about, and
+          // adding one would be the wrong fix. The right one is that no proxy
+          // starts on the way to zero folders at all; see the guard in
+          // `sdk-agent-adapter.ts`. Removing a NON-last folder still
+          // reconfigures, and any proxy starting then belongs to the workspace
+          // that REMAINS open, so disposing it here would be the bug.
           await this.providerProxyPool.disposeForScope(params.path);
 
           this.logger.info('[RPC] workspace:removeFolder', {

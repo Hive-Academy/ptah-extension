@@ -37,6 +37,75 @@ import {
   type ThothRuntimeRefs,
 } from '@ptah-extension/thoth-runtime';
 
+/**
+ * How much heap the embedder warmup may ADD to the Electron MAIN process.
+ *
+ * ### What the old check actually measured (C3, TASK_2026_315)
+ *
+ * This replaces an inline `200` that appeared twice — once in the comparison,
+ * once in the message it printed — under the label "Worker heap after warmup".
+ * That label was wrong in the way that matters: the embedder runs in a separate
+ * Electron `utilityProcess` (`build-embedder-worker` → `embedder-worker.mjs`),
+ * so `process.memoryUsage()` here reports the MAIN process and knows nothing
+ * about the worker's memory at all.
+ *
+ * Three captures of that ABSOLUTE figure:
+ *
+ * | capture                    | workspace                  | heap after warmup |
+ * | -------------------------- | -------------------------- | ----------------- |
+ * | `tmp/logs/b2-trace.log`    | small (few hundred files)  | 56.3 MB           |
+ * | `tmp/logs/log.log`         | property-hub (15 445 files)| 246.0 MB          |
+ * | `tmp/logs/coldstart-306.log` | large                    | 272.0 MB          |
+ *
+ * The spread tracks WORKSPACE SIZE — the file index and symbol index — not the
+ * embedder. So the old threshold fired on any ordinary large project and stayed
+ * quiet on any small one, which is a false alarm dressed as a budget: it could
+ * not be exceeded for the reason it named, and could not be raised to a number
+ * that meant anything, because the quantity is not attributable to warmup.
+ *
+ * The fix is to measure something the number can legitimately bound: the heap
+ * DELTA across `warmup()`. That is attributable — it is what the warmup call
+ * retained in main — and it is stable across workspace sizes, because whatever
+ * the index already cost is on both sides of the subtraction.
+ *
+ * ### What the budget is FOR
+ *
+ * It is an architectural assertion, not a capacity limit. The model, tokenizer
+ * and ONNX session are supposed to live entirely in the utilityProcess; main
+ * should retain only the client proxy and one round of `Float32Array` results.
+ * A delta in the tens of MB means that boundary holds. A delta above this
+ * budget means main is holding worker payloads — the failure this seam exists
+ * to catch, and the one the absolute-heap version could never distinguish from
+ * "the user opened a big repo".
+ *
+ * Measured at **+0.1 MB** on the verification boot (2026-08-23,
+ * `tmp/logs/b4-verify.log`: `main heap +0.1 MB, now 53.8 MB`) — i.e. the
+ * boundary holds today and the old check was reporting the 53.8 MB the rest of
+ * the process already owned. One capture, deliberately: the figure is expected
+ * to be workspace-independent by construction, because whatever the file and
+ * symbol indexes cost appears on both sides of the subtraction.
+ *
+ * 48 MB is chosen to sit far above sampling noise (GC timing moves `heapUsed`
+ * by single-digit MB between two adjacent reads) and below the in-heap
+ * footprint of any embedding model Ptah ships, so a model that landed in main
+ * cannot hide under the budget while ordinary variance cannot trip it.
+ *
+ * ### Why exceeding it only logs
+ *
+ * There is no reclaim lever at this seam: `EmbedderWorkerClient` exposes
+ * `embed`/`rerank`/`warmup`/`dispose` and nothing else, and disposing the
+ * worker is precisely what warmup exists to avoid. Acting on this would need
+ * the worker's own RSS reported back over `embedder-worker-protocol.ts`, which
+ * is a memory-curator change and not this file's to make. Recorded as the
+ * follow-up rather than faked here.
+ */
+const WARMUP_HEAP_DELTA_BUDGET_MB = 48;
+
+/** Current main-process V8 heap in MB. */
+function heapUsedMb(): number {
+  return process.memoryUsage().heapUsed / (1024 * 1024);
+}
+
 export interface WireRuntimeOptions {
   container: DependencyContainer;
   getMainWindow: () => BrowserWindow | null;
@@ -123,6 +192,34 @@ export async function wireRuntime(
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
+
+  // Autocomplete discovery watchers. `autocomplete:*` has no capability
+  // requirement in `RPC_HANDLER_MANIFEST`, so this host has always SERVED the
+  // `@` and `/` pickers — it just never armed their invalidation, which only
+  // the VS Code bootstrap did. Without it the per-workspace cache had no way to
+  // learn that `.claude/agents` or `.claude/commands` changed, and since it has
+  // no TTL the picker served the list captured at first use for the rest of the
+  // session. Each service arms one watcher per open folder and re-arms them on
+  // `onDidChangeWorkspaceFolders`, which is exactly what this host needs: the
+  // active workspace changes at runtime here, unlike in a VS Code window.
+  for (const [label, token] of [
+    ['agents', TOKENS.AGENT_DISCOVERY_SERVICE],
+    ['commands', TOKENS.COMMAND_DISCOVERY_SERVICE],
+  ] as const) {
+    try {
+      const service = container.resolve(token) as {
+        initializeWatchers: () => void;
+      };
+      service.initializeWatchers();
+    } catch (error) {
+      // A missing watcher degrades the pickers to "refreshes on workspace
+      // switch", never to a failed boot.
+      console.warn(
+        `[Ptah Electron] Could not arm ${label} discovery watcher:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   try {
     resolvedStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
@@ -134,11 +231,25 @@ export async function wireRuntime(
     );
   }
 
-  let hasBootedHeavyServices = false;
+  /**
+   * The in-flight (or settled) heavy-boot, or `null` before the first call.
+   *
+   * This is deliberately the PROMISE and not a boolean. A boolean latch is set
+   * on entry, so it answers "has one started" — but every caller here needs
+   * "has one finished". `onDidChangeWorkspaceFolders` (registered below) can
+   * fire while the startup boot is still awaiting, and under a boolean the
+   * second caller returns instantly; if that second caller is the awaited one,
+   * `wireRuntime` returns with every `refs.*` field still null, and `main.ts`'s
+   * `will-quit` LIFO chain has nothing to dispose while the services it should
+   * have stopped are running. Handing back the same promise makes the second
+   * caller WAIT, which is what "one-shot" has to mean when the body is async.
+   *
+   * A rejected boot is NOT retried, matching the previous boolean exactly: the
+   * latch is assigned before the body runs and is never cleared.
+   */
+  let heavyServicesBoot: Promise<void> | null = null;
 
-  const bootHeavyServices = async (workspaceRoot: string | undefined) => {
-    if (hasBootedHeavyServices) return;
-    hasBootedHeavyServices = true;
+  const bootHeavyServicesOnce = async (workspaceRoot: string | undefined) => {
     console.log(
       '[Ptah Electron] Booting deferred backend services for workspace...',
     );
@@ -326,8 +437,56 @@ export async function wireRuntime(
       logPrefix: '[Ptah Electron]',
     });
     refs.cronScheduler = thoth.cronScheduler;
-  }; // end of bootHeavyServices
+  }; // end of bootHeavyServicesOnce
+
+  /** One-shot entry point. See {@link heavyServicesBoot} for why it is a promise. */
+  const bootHeavyServices = (
+    workspaceRoot: string | undefined,
+  ): Promise<void> => {
+    heavyServicesBoot ??= bootHeavyServicesOnce(workspaceRoot);
+    return heavyServicesBoot;
+  };
+
   createApplicationMenu(container, getMainWindow);
+
+  // B1 (TASK_2026_315) — MCP comes up BEFORE the heavy boot, not after it.
+  //
+  // `bootHeavyServices` → `bootThothRuntime` starts the memory and skill boot
+  // scans, and the memory scan dials a real LLM query per unscanned session.
+  // With bring-up below that call those queries were issued against
+  // `mcpServerRunning: false` and ran tool-less (`[SdkQueryRunner] MCP disabled`
+  // in the captured log), while the identical query minutes later — after
+  // bring-up — got `mcpServerRunning: true, mcpPort: 51820`. Same work, two
+  // different tool surfaces, decided by activation ordering alone.
+  //
+  // Nothing in `bringUpSubsystems` depends on the Thoth boot: it resolves
+  // `CODE_EXECUTION_MCP`, binds a local port and writes the `ptah` entry into
+  // `{ws}/.mcp.json`. The dependency runs the other way, which is the bug.
+  //
+  // Placement is also what keeps the workspace-change listener honest. It is
+  // registered AFTER this await and immediately before the startup boot below,
+  // with no await between the two, so a folder-change event cannot interleave
+  // and win the one-shot latch out from under the awaited call.
+  try {
+    const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
+    await bringUpSubsystems({
+      container,
+      logger,
+      onMcpPortChange: (port) => {
+        setPtahMcpPort(port ?? 0);
+      },
+    });
+    console.log('[Ptah Electron] Subsystems brought up');
+  } catch (bringUpError: unknown) {
+    console.warn(
+      '[Ptah Electron] Subsystem bring-up failed (non-fatal):',
+      bringUpError instanceof Error
+        ? bringUpError.message
+        : String(bringUpError),
+    );
+  }
+
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
@@ -372,25 +531,6 @@ export async function wireRuntime(
   if (startupWorkspaceRoot) {
     await bootHeavyServices(startupWorkspaceRoot);
   }
-  try {
-    const logger = container.resolve<Logger>(TOKENS.LOGGER);
-
-    await bringUpSubsystems({
-      container,
-      logger,
-      onMcpPortChange: (port) => {
-        setPtahMcpPort(port ?? 0);
-      },
-    });
-    console.log('[Ptah Electron] Subsystems brought up');
-  } catch (bringUpError: unknown) {
-    console.warn(
-      '[Ptah Electron] Subsystem bring-up failed (non-fatal):',
-      bringUpError instanceof Error
-        ? bringUpError.message
-        : String(bringUpError),
-    );
-  }
 
   // Eagerly construct the Ptah CLI registry now that all subsystems (including
   // the SDK singletons it injects) are wired, and capture it for orderly
@@ -417,7 +557,7 @@ export async function wireRuntime(
    *
    * Called by post-window.ts AFTER mainWindow fires `did-finish-load` so
    * warmup I/O does not overlap with the renderer's first render burst.
-   * Fire-and-forget, non-fatal. Logs heap usage to detect budget overruns.
+   * Fire-and-forget, non-fatal.
    */
   function scheduleWarmup(): void {
     if (refs.memoryCurator === null) return;
@@ -427,15 +567,19 @@ export async function wireRuntime(
           const embedderClient = container.resolve<EmbedderWorkerClient>(
             PERSISTENCE_TOKENS.EMBEDDER,
           );
+          const heapBeforeMb = heapUsedMb();
           await embedderClient.warmup();
-          const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
-          if (heapMb > 200) {
+          const heapAfterMb = heapUsedMb();
+          const deltaMb = heapAfterMb - heapBeforeMb;
+          if (deltaMb > WARMUP_HEAP_DELTA_BUDGET_MB) {
             console.warn(
-              `[Ptah Electron] Worker heap after warmup: ${heapMb.toFixed(1)} MB (budget: 200 MB)`,
+              `[Ptah Electron] Embedder warmup added ${deltaMb.toFixed(1)} MB to the main-process heap ` +
+                `(budget: ${WARMUP_HEAP_DELTA_BUDGET_MB} MB; heap ${heapBeforeMb.toFixed(1)} → ${heapAfterMb.toFixed(1)} MB). ` +
+                'The model should live in the utilityProcess — this much retained in main means something is holding worker payloads.',
             );
           } else {
             console.log(
-              `[Ptah Electron] Embedder warmup complete (heap: ${heapMb.toFixed(1)} MB)`,
+              `[Ptah Electron] Embedder warmup complete (main heap +${deltaMb.toFixed(1)} MB, now ${heapAfterMb.toFixed(1)} MB)`,
             );
           }
         } catch (err: unknown) {

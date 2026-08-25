@@ -22,6 +22,7 @@ import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   HARNESS_SYNC_TOKENS,
+  type HarnessBlockedRepairService,
   type HarnessPropagationService,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
@@ -40,6 +41,8 @@ import {
   type HarnessReconcileResult,
   type HarnessRemoveParams,
   type HarnessRemoveResult,
+  type HarnessRepairBlockedParams,
+  type HarnessRepairBlockedResult,
 } from '@ptah-extension/shared';
 import type { WebviewBroadcaster } from '../streaming/harness-stream-broadcaster.service';
 
@@ -70,6 +73,8 @@ export class HarnessHealthRpcService {
     private readonly reconciler: HarnessReconcilerService,
     @inject(HARNESS_SYNC_TOKENS.PROPAGATION)
     private readonly propagation: HarnessPropagationService,
+    @inject(HARNESS_SYNC_TOKENS.BLOCKED_REPAIR)
+    private readonly repairService: HarnessBlockedRepairService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
@@ -201,6 +206,51 @@ export class HarnessHealthRpcService {
     );
 
     return { health, summary: summarizeHarnessHealth(health), removed };
+  }
+
+  /**
+   * `harness:repairBlocked` — the consent-gated repair (TASK_2026_306 Batch 8).
+   *
+   * A thin delegate on purpose. Every decision that matters — re-deriving the
+   * blocked set, refusing a path outside it, moving before writing, restoring
+   * on a failed write — is in `HarnessBlockedRepairService`, inside the lib that
+   * owns the filesystem. Splitting them would give the repair two places to
+   * decide what a valid path is, and the whole design turns on there being one.
+   *
+   * The `paths` list is the user's per-path consent (U3). An empty list is a
+   * complete no-op: the service runs no pass, so a declined dialog leaves the
+   * workspace byte-identical.
+   */
+  async repairBlocked(
+    params: HarnessRepairBlockedParams,
+  ): Promise<HarnessRepairBlockedResult> {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (
+      workspaceRoot === undefined ||
+      workspaceRoot === null ||
+      workspaceRoot === ''
+    ) {
+      return {
+        paths: [],
+        repaired: 0,
+        health: null,
+        summary: summarizeHarnessHealth(null),
+      };
+    }
+
+    const report = await this.repairService.repair(workspaceRoot, params.paths);
+    this.logger.info('[harness] Blocked-path repair finished', {
+      requested: params.paths.length,
+      repaired: report.repaired,
+      outcomes: report.paths.map((path) => path.outcome),
+    });
+
+    return {
+      paths: report.paths,
+      repaired: report.repaired,
+      health: report.health,
+      summary: summarizeHarnessHealth(report.health),
+    };
   }
 
   /**

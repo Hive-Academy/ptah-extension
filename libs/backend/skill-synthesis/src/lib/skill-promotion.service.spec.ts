@@ -70,6 +70,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    workspaceRoot: null,
     ...unjudgedVerdictFields(),
     ...unmeasuredGateFields(),
     ...overrides,

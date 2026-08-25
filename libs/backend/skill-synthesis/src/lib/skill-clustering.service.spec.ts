@@ -61,6 +61,7 @@ function row(id: string, embeddingRowid: number | null): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    workspaceRoot: null,
     ...unjudgedVerdictFields(),
     ...unmeasuredGateFields(),
   };

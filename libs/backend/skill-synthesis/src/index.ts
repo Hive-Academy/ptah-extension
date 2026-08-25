@@ -51,6 +51,9 @@ export {
 export {
   SKILL_LANE_IDS,
   LANE_AUTH_RETRY_MS,
+  LANE_QUOTA_RETRY_MS,
+  TRANSPORT_LANE_FAILURE_KINDS,
+  isTransportLaneFailure,
   type SkillLaneId,
   type SkillLaneTier,
   type SkillLaneConfig,
@@ -62,6 +65,7 @@ export {
 } from './lib/lanes/lane.types';
 export {
   PROVIDER_AUTH_ERROR_NAME,
+  PROVIDER_QUOTA_ERROR_NAME,
   type ILaneAuthResolver,
   type LaneTierScope,
 } from './lib/lanes/lane-auth-resolver.port';

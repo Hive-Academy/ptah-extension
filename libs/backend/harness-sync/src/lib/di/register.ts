@@ -32,6 +32,7 @@ import {
   type IUserLayerRefresher,
 } from '../sources/user-layer-refresher.port';
 import { HarnessPropagationService } from '../propagation/harness-propagation.service';
+import { HarnessBlockedRepairService } from '../repair/blocked-repair.service';
 import {
   HarnessPreflightService,
   type HarnessPreflightDeps,
@@ -42,6 +43,7 @@ import {
 } from '../gitignore/gitignore-writer';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { AgentSyncGate } from '../state/agent-sync-gate';
+import { SkillSyncGate } from '../state/skill-sync-gate';
 import { ClaudeTarget } from '../targets/claude-target';
 import type { IHarnessTarget } from '../targets/harness-target.port';
 import {
@@ -162,6 +164,11 @@ export function registerHarnessSyncServices(
     useValue: agentSyncGate,
   });
 
+  const skillSyncGate = new SkillSyncGate(manifestStore, stateStore);
+  container.register(HARNESS_SYNC_TOKENS.SKILL_SYNC_GATE, {
+    useValue: skillSyncGate,
+  });
+
   const reconciler = new HarnessReconcilerService(
     reconcilerLogger,
     builder,
@@ -170,6 +177,7 @@ export function registerHarnessSyncServices(
     targets,
     gitignore,
     agentSyncGate,
+    skillSyncGate,
   );
   container.register(HARNESS_SYNC_TOKENS.RECONCILER, { useValue: reconciler });
 
@@ -177,11 +185,22 @@ export function registerHarnessSyncServices(
   container.register(HARNESS_SYNC_TOKENS.USER_LAYER_REFRESHER, {
     useValue: refresher,
   });
+  const propagation = new HarnessPropagationService(
+    reconcilerLogger,
+    reconciler,
+    refresher,
+  );
   container.register(HARNESS_SYNC_TOKENS.PROPAGATION, {
-    useValue: new HarnessPropagationService(
+    useValue: propagation,
+  });
+  // Registered for every host, and reachable from none of them by accident:
+  // nothing on the activation path holds this token, and the repair depends on
+  // the reconciler rather than the other way round.
+  container.register(HARNESS_SYNC_TOKENS.BLOCKED_REPAIR, {
+    useValue: new HarnessBlockedRepairService(
       reconcilerLogger,
       reconciler,
-      refresher,
+      propagation,
     ),
   });
   container.register(HARNESS_SYNC_TOKENS.PREFLIGHT, {

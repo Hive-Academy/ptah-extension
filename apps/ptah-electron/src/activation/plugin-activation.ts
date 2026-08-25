@@ -16,6 +16,10 @@ import {
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
 import {
+  summarizeHarnessHealth,
+  type HarnessHealth,
+} from '@ptah-extension/shared';
+import {
   AGENT_GENERATION_TOKENS,
   type MirrorSources,
   type UserLayerMirrorService,
@@ -333,6 +337,61 @@ export function readDormantSkillSlugs(
 }
 
 /**
+ * The claude target's slice, rendered so an ABSENT target cannot read as a
+ * healthy empty pass.
+ *
+ * `claude?.found ?? 0` collapsed three different facts to `0/0`: a host that
+ * never registered the claude target, a claude that is registered but not
+ * detected, and a claude with genuinely nothing desired. Only the last is a
+ * clean pass; the first two are wiring and environment problems that the `0/0`
+ * spelling actively hid.
+ */
+function formatClaudeSlice(health: HarnessHealth): string {
+  const claude = health.targets.find((target) => target.target === 'claude');
+  if (claude === undefined) return 'claude=not-registered';
+  if (!claude.detected) return 'claude=undetected';
+  return `claude=${claude.found}/${claude.expected}`;
+}
+
+/**
+ * The one health line both harness call sites print.
+ *
+ * Shared rather than duplicated because the two sites previously carried the
+ * SAME defect and were fixed together: each narrowed to the claude target and
+ * printed `found`/`expected` under bare field names, while the reconciler's own
+ * warn (`harness-reconciler.service.ts`) sums all six targets under those same
+ * names. `found=14/27` beside `found=106/119` from one pass is not a
+ * disagreement anybody can debug — the two numbers were never measuring the
+ * same thing.
+ *
+ * The AGGREGATE is now the headline, so this line and the reconciler's warn
+ * report the same scope, and it comes from `summarizeHarnessHealth` — the one
+ * definition of these totals that `harness doctor`, the Marketplace badge and
+ * the health push already share — rather than from a fourth summation written
+ * here. The claude slice is kept beside it and explicitly LABELLED, because it
+ * is the target this host cares about most and dropping it would trade one
+ * legibility problem for an information loss.
+ */
+function formatHarnessLine(
+  verb: 'reconciled' | 'propagated',
+  reason: string,
+  health: HarnessHealth | null,
+): string {
+  if (health === null) {
+    return `[Ptah Electron] Harness ${verb} (${reason}): no health report produced`;
+  }
+  const summary = summarizeHarnessHealth(health);
+  return (
+    `[Ptah Electron] Harness ${verb} (${reason}): sources=${summary.sources}, ` +
+    `detectedTargets=${summary.detectedTargets}/${health.targets.length}, ` +
+    `found=${summary.found}/${summary.expected} (all targets), ` +
+    `${formatClaudeSlice(health)}, ` +
+    `missing=${summary.missing}, foreign=${summary.foreign}, ` +
+    `writeFailed=${summary.writeFailed}`
+  );
+}
+
+/**
  * Reconcile the workspace harness: copy every enabled skill and command from
  * the user layer into `{ws}/.claude/{skills,commands}` (TASK_2026_278).
  *
@@ -362,13 +421,7 @@ export async function reconcileHarness(
       reason,
       ...(options.downloadPending === true ? { downloadPending: true } : {}),
     });
-    const claude = health.targets.find((target) => target.target === 'claude');
-    console.log(
-      `[Ptah Electron] Harness reconciled (${reason}): sources=${health.sources}, ` +
-        `found=${claude?.found ?? 0}/${claude?.expected ?? 0}, ` +
-        `foreign=${claude?.foreign.length ?? 0}, ` +
-        `writeFailed=${claude?.writeFailed.length ?? 0}`,
-    );
+    console.log(formatHarnessLine('reconciled', reason, health));
   } catch (error) {
     console.warn(
       '[Ptah Electron] Harness reconcile failed (non-fatal):',
@@ -410,11 +463,7 @@ export async function propagateHarness(
       HARNESS_SYNC_TOKENS.PROPAGATION,
     );
     const health = await propagation.propagate(workspaceRoot, reason);
-    const claude = health?.targets.find((target) => target.target === 'claude');
-    console.log(
-      `[Ptah Electron] Harness propagated (${reason}): sources=${health?.sources ?? 'unknown'}, ` +
-        `found=${claude?.found ?? 0}/${claude?.expected ?? 0}`,
-    );
+    console.log(formatHarnessLine('propagated', reason, health));
   } catch (error) {
     console.warn(
       '[Ptah Electron] Harness propagation failed (non-fatal):',

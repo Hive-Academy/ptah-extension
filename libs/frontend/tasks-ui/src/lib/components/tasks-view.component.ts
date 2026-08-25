@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
@@ -13,6 +14,7 @@ import {
   EyeOff,
   FileText,
   FilterX,
+  FolderOpen,
   List,
   LucideAngularModule,
   Plus,
@@ -200,10 +202,19 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           <span class="text-xs">Commands</span>
         </button>
 
+        <!-- Every header action below writes into .ptah/specs through the tasks
+             RPC namespace, so with no folder open each one can only earn the
+             same WORKSPACE_NOT_OPEN refusal — as a red error banner over a
+             panel that has just explained, calmly, that no folder is open.
+             Disabling them is what makes "the no-workspace state offers no
+             create affordance" true of the whole screen rather than of one
+             block in the middle of it. The palette trigger is deliberately left
+             enabled: it acts on the board and the selection, both empty here,
+             and it is also how a user finds out what this surface can do. -->
         <button
           type="button"
           class="btn btn-ghost btn-xs gap-1"
-          [disabled]="store.busy()"
+          [disabled]="store.busy() || !store.canWriteSpecs()"
           title="Regenerate registry.md"
           (click)="store.generateRegistry()"
         >
@@ -217,7 +228,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         <button
           type="button"
           class="btn btn-ghost btn-xs gap-1"
-          [disabled]="store.busy() || store.sweeping()"
+          [disabled]="store.busy() || store.sweeping() || !store.canWriteSpecs()"
           data-testid="tasks-sweep-trigger"
           aria-haspopup="dialog"
           title="Preview which finished tasks would be deleted"
@@ -230,7 +241,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         <button
           type="button"
           class="btn btn-ghost btn-xs gap-1"
-          [disabled]="store.busy() || store.loading()"
+          [disabled]="store.busy() || store.loading() || !store.canWriteSpecs()"
           title="Reindex .ptah/specs"
           (click)="store.reindex()"
         >
@@ -245,6 +256,8 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         <button
           type="button"
           class="btn btn-primary btn-xs gap-1"
+          data-testid="tasks-create-trigger"
+          [disabled]="!store.canWriteSpecs()"
           (click)="openCreate()"
         >
           <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
@@ -378,6 +391,58 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         @if (store.loading() && !store.loaded()) {
           <div class="flex items-center justify-center flex-1">
             <span class="loading loading-spinner loading-md"></span>
+          </div>
+        } @else if (store.noWorkspace()) {
+          <!-- THE THIRD EMPTY CASE, and the reason it is not one of the other
+               two: the board reads .ptah/specs out of the open folder, and the
+               host refuses the whole tasks RPC namespace when there is no
+               folder to read it from (a typed WORKSPACE_NOT_OPEN, not a
+               failure). So this is neither "no tasks yet" nor "the filter hides
+               them" — nothing about it is fixed on this screen.
+
+               NO CREATE CTA, deliberately. A task is a folder under
+               .ptah/specs; with no workspace there is nowhere to put one, so a
+               "Create your first task" button here is a control that can only
+               produce the same refusal the user is already reading. The
+               filtered-empty block below makes the same call for the same
+               reason and is the shape this copies.
+
+               "Check again" is the one control, and it is not the recovery
+               path — opening a folder is, and that reloads the board by itself
+               (TasksStore.onWorkspaceSwitch, off the AppStateManager workspace
+               signal). It is here for the case the webview's view of the
+               workspace has drifted from the host's, which is exactly the case
+               this state cannot detect locally. One click, one request: it
+               re-asks, it does not resume polling. -->
+          <div
+            class="flex flex-col items-center justify-center flex-1 text-center gap-3 p-6"
+            data-testid="tasks-no-workspace"
+          >
+            <lucide-angular
+              [img]="FolderOpenIcon"
+              class="w-10 h-10 text-base-content-muted"
+              aria-hidden="true"
+            />
+            <div class="flex flex-col gap-1">
+              <p class="text-sm font-medium text-base-content">
+                No folder is open
+              </p>
+              <p class="text-xs text-base-content-muted max-w-xs">
+                The board reads tasks from
+                <span class="font-mono">{{ specRoot }}</span> inside the open
+                folder. Open one and its board loads here — nothing needs to be
+                created first.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline gap-1"
+              data-testid="tasks-no-workspace-retry"
+              [disabled]="store.loading()"
+              (click)="store.loadBoard()"
+            >
+              Check again
+            </button>
           </div>
         } @else if (store.isEmpty()) {
           <!-- Empty state with create CTA -->
@@ -822,6 +887,7 @@ export class TasksViewComponent {
   protected readonly taskStart = inject(TaskStartService);
   protected readonly views = inject(TaskViewsService);
   protected readonly viewMode = inject(TaskViewModeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly taskTypes = TASK_TYPES;
   protected readonly taskStatuses = TASK_STATUSES;
@@ -890,6 +956,11 @@ export class TasksViewComponent {
       selectionCount: this.store.selectionCount(),
       excludedCount: this.store.excludedCount(),
       busy: this.store.busy() || this.store.loading(),
+      // The SAME signal the header buttons are disabled from. The palette is a
+      // keyboard-driven second entry point to the same commands, and gating it
+      // separately is how "Create a task" and "Reindex" stayed reachable with
+      // no folder open after the header had been closed off.
+      canWriteSpecs: this.store.canWriteSpecs(),
     }),
   );
 
@@ -1015,6 +1086,7 @@ export class TasksViewComponent {
   protected readonly CommandIcon = Command;
   protected readonly EyeOffIcon = EyeOff;
   protected readonly FilterXIcon = FilterX;
+  protected readonly FolderOpenIcon = FolderOpen;
   protected readonly FileTextIcon = FileText;
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly PlusIcon = Plus;
@@ -1022,6 +1094,14 @@ export class TasksViewComponent {
   protected readonly XIcon = X;
 
   public constructor() {
+    // The store is root-provided and eagerly constructed (it joins
+    // `MESSAGE_HANDLERS`), so it cannot tell from its own lifetime whether a
+    // board is on screen. This pair is how it finds out: with nothing mounted,
+    // `tasks:changed` pushes and focus events stop buying board scans that
+    // nothing would render. The surface is destroyed and re-created on every
+    // view switch, so this runs on every visit — as does the load below.
+    this.store.attachSurface();
+    this.destroyRef.onDestroy(() => this.store.detachSurface());
     void this.store.loadBoard();
     // Independent of the board load, and deliberately not awaited behind it:
     // saved views live in `~/.ptah/settings.json`, not in the task index, so a

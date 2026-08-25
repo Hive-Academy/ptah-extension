@@ -52,6 +52,9 @@
  * CLI and the TUI's `/harness` all dispatch the identical verb.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { execute } from './harness.js';
 import type { HarnessExecuteHooks, HarnessOptions } from './harness.js';
 import { ExitCode } from '../jsonrpc/types.js';
@@ -794,8 +797,11 @@ describe('ptah harness doctor', () => {
     );
 
     expect(exit).toBe(ExitCode.Success);
+    // The selection read trails the measurement and is informational only
+    // (TASK_2026_316): it feeds the sources line and never the exit code.
     expect(engine.rpcCalls).toEqual([
       { method: 'harness:health', params: { refresh: true } },
+      { method: 'harness:get-skill-selection', params: {} },
     ]);
     expect(formatterTrace.notifications).toHaveLength(1);
     const evt = formatterTrace.notifications[0];
@@ -978,6 +984,119 @@ describe('ptah harness doctor', () => {
 });
 
 // ---------------------------------------------------------------------------
+// doctor's skill-selection sources-line clause (TASK_2026_316)
+//
+// `harness:get-skill-selection` feeds the doctor's sources line PURELY as
+// information — `summarizeHarnessHealth` remains the one verdict, and a
+// 'selected' workspace with an empty allowlist is `ok` (R4 / task 4.3), not
+// degraded. A failed or malformed read must degrade to no clause and must
+// never move the exit code either way.
+// ---------------------------------------------------------------------------
+describe('ptah harness doctor — skill-selection sources-line clause', () => {
+  it('an empty allowlist under mode:selected does not push the exit code to 1', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: {
+        mode: 'selected',
+        slugs: [],
+        available: [{ slug: 'a', name: 'A', description: '', pluginId: null }],
+        derived: false,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    // 'ok' health + a narrow allowlist is still 'ok' — an exit-1 here would
+    // break CI for every correctly-configured new workspace.
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: { mode: 'selected', selected: 0, available: 1 },
+      summary: { level: 'ok' },
+    });
+  });
+
+  it('a narrow selection does not mask an otherwise-degraded harness', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(
+        makeHealth({
+          targets: [
+            makeTarget({ found: 2, missing: ['.claude/skills/run-tests'] }),
+          ],
+        }),
+      ),
+    );
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: { mode: 'selected', slugs: [], available: [], derived: false },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    // The verdict comes from `summarizeHarnessHealth` alone — a clean
+    // selection read must not rescue a degraded target's exit code.
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: { mode: 'selected', selected: 0 },
+      summary: { level: 'degraded' },
+    });
+  });
+
+  it('a failed skill-selection read degrades to no clause and does not touch the exit code', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: false,
+      error: 'backend too old to answer',
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: null,
+      summary: { level: 'ok' },
+    });
+  });
+
+  it('a malformed skill-selection answer degrades to no clause and does not touch the exit code', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: { unexpected: 'shape' },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: null,
+      summary: { level: 'ok' },
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // boot contract for the two filesystem verbs
 //
 // `doctor` and `remove` walk `~/.ptah/user`, compare hashes and copy or unlink
@@ -1104,6 +1223,21 @@ describe('ptah harness remove', () => {
     const evt = formatterTrace.notifications[0];
     expect(evt?.method).toBe('harness.removed');
     expect(evt?.params).toMatchObject({ removed: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// harness-sync isolation — the doctor's skill-selection clause reads
+// `harness:get-skill-selection` over RPC, and must never resolve
+// `@ptah-extension/harness-sync` directly (TASK_2026_316 hard rule).
+// ---------------------------------------------------------------------------
+describe('ptah harness doctor — harness-sync isolation', () => {
+  it('harness-doctor.ts does not import @ptah-extension/harness-sync', () => {
+    const source = readFileSync(
+      path.resolve(__dirname, 'harness-doctor.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/from ['"]@ptah-extension\/harness-sync['"]/);
   });
 });
 

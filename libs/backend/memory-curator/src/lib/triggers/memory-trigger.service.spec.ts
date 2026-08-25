@@ -225,6 +225,7 @@ function makeWorkspace(
 function makeCurator(): MemoryCuratorService {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -1915,6 +1916,135 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     expect(unprocessed.length).toBeGreaterThan(0);
   });
 
+  /**
+   * TASK_2026_306 Batch 10 — finding F1, the whole point of this batch.
+   *
+   * The provider quota gate (Batch 2) stops the curator before it dials a
+   * rate-limited provider. Under the pre-fix code "stop" was `runQuery → ''` →
+   * `extract() → []`, which is byte-identical to a pass that ran and found
+   * nothing — and `invokeCurate` marked its drained rows processed on every
+   * resolve without inspecting anything. `drainForSession` filters
+   * `processed_at IS NULL`, so the discarded observations never came back.
+   * Observed live: 15 drain-and-discard passes in a few hundred lines of one
+   * cold start (`tmp/logs/coldstart-306.log:1232-1260`).
+   *
+   * ## Why these two cases and not one
+   *
+   * An assertion that the extraction is empty is worthless here — it holds
+   * before AND after the fix. The discriminating question is whether the ROWS
+   * SURVIVE, so the first case asserts `processedAt === null` and a successful
+   * re-drain. The second case is its inverse and is equally load-bearing:
+   * without it, "never mark anything processed" would satisfy the first, and
+   * every session that genuinely had nothing to learn would be re-fed forever.
+   * Either case alone can be passed by a wrong implementation. Together they
+   * pin the branch.
+   */
+  describe('a stalled curation pass keeps its input (TASK_2026_306 F1)', () => {
+    function makeStalledCurator(): MemoryCuratorService {
+      return {
+        curate: jest.fn().mockResolvedValue({
+          outcome: 'stalled',
+          extracted: 0,
+          merged: 0,
+          created: 0,
+          skipped: 0,
+        }),
+        pushEvent: jest.fn(),
+        recentEvents: jest.fn(() => []),
+        lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+        rekeySession: jest.fn(),
+      } as unknown as MemoryCuratorService;
+    }
+
+    it('leaves the drained observations processed_at IS NULL and re-drains them on the next pass', async () => {
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        curator: makeStalledCurator(),
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'work worth keeping' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // The pass DID drain — this is not a "nothing happened" assertion.
+      const drained = (queue.store.drainForSession as jest.Mock).mock.results[0]
+        .value as ObservationQueueRow[];
+      expect(drained.length).toBeGreaterThan(0);
+
+      // …and then left every row exactly where it found it.
+      expect(queue.markProcessed).not.toHaveBeenCalled();
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt === null)).toBe(true);
+
+      // The survival claim, stated as the next pass would ask it: a fresh
+      // drain still returns them, so the episodes outlive the cooldown.
+      const redrained = queue.store.drainForSession('s1', 500);
+      expect(redrained.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    });
+
+    it('a pass that RAN and found nothing still marks its rows processed', async () => {
+      // The inverse guard. `makeCurator()` returns `outcome: 'ran'` with zero
+      // counts — the "found nothing" case that used to be indistinguishable
+      // from a stall. It must keep its pre-fix behaviour exactly.
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'nothing memorable' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      expect(queue.markProcessed).toHaveBeenCalledTimes(1);
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt !== null)).toBe(true);
+      expect(queue.store.drainForSession('s1', 500)).toEqual([]);
+    });
+
+    it('restores the episode buffer that tryEpisodeCurate cleared before the pass', async () => {
+      // The second of the three pieces of state. `episodes.reset` fires before
+      // the curate resolves and cannot be deferred without swallowing turns
+      // that arrive mid-pass, so the stall path puts the buffer back. Proven
+      // through the transcript of the NEXT curate: the restored turn is
+      // counted again rather than lost.
+      const curator = makeStalledCurator();
+      const { service, stop } = buildService({
+        curator,
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'first turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+      expect(curator.curate).toHaveBeenCalledTimes(1);
+
+      // A second turn lands after the stall. Its episode summary must include
+      // the restored turn, not just the new one.
+      jest.advanceTimersByTime(10_000);
+      stop.fire(stopPayload({ lastAssistantMessage: 'second turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // `turns=2` is the discriminating token: the restored turn plus the new
+      // one. Drop the reattach and this reads `turns=1`. (The assistant text
+      // itself is NOT the discriminator — it rides the surviving
+      // `observation_queue` rows and would appear either way.)
+      expect(curator.curate).toHaveBeenCalledTimes(2);
+      const second = (curator.curate as jest.Mock).mock.calls[1][0];
+      expect(second.transcript).toEqual(expect.stringContaining('turns=2'));
+    });
+  });
+
   it('drain limit is honoured: large queue is capped by memory.triggers.maxObservationsPerCurate', async () => {
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
@@ -1936,7 +2066,13 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
     const blockingCurator = {
-      curate: jest.fn().mockResolvedValue(undefined),
+      curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      }),
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),

@@ -83,11 +83,24 @@ function providerOnA(): { getWorkspaceRoot: jest.Mock } {
   return { getWorkspaceRoot: jest.fn(() => ROOT_A) };
 }
 
+/**
+ * Both services report a failed directory scan through the injected logger
+ * rather than `console` (TASK_2026_315 C5), so every construction needs one.
+ */
+function stubLogger() {
+  return {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+}
+
 function makeAgentService(provider: { getWorkspaceRoot: jest.Mock }) {
   const ctor = AgentDiscoveryService as unknown as new (
     ...args: unknown[]
   ) => AgentDiscoveryService;
-  return new ctor(provider, { createFileWatcher: jest.fn() });
+  return new ctor(provider, { createFileWatcher: jest.fn() }, stubLogger());
 }
 
 function makeCommandService(provider: { getWorkspaceRoot: jest.Mock }) {
@@ -98,6 +111,7 @@ function makeCommandService(provider: { getWorkspaceRoot: jest.Mock }) {
     provider,
     { createFileWatcher: jest.fn() },
     { captureException: jest.fn() },
+    stubLogger(),
   );
 }
 

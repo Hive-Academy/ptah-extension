@@ -141,9 +141,18 @@ export class CodeOutputComponent {
     const str = typeof output === 'string' ? output : '';
     const trimmed = str.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      const parsed = JSON.parse(trimmed);
-      if (typeof parsed === 'object') {
-        language = 'json';
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (parsed !== null && typeof parsed === 'object') {
+          language = 'json';
+        }
+      } catch {
+        // Starting with { or [ does not make the whole output one JSON
+        // document: JSONL transcripts, a `[NX] ...` log line and truncated
+        // streams all land here. This runs inside the `formattedOutput`
+        // computed, so an escaping throw re-fires on every change detection —
+        // it spammed the console with "Unexpected non-whitespace character
+        // after JSON". Not JSON: keep the language detected from the tool.
       }
     }
 

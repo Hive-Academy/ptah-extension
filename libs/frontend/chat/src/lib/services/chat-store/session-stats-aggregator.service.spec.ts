@@ -17,7 +17,12 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ConversationRegistry,
+  SurfaceSessionStatsRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -68,6 +73,8 @@ describe('SessionStatsAggregatorService', () => {
   let loadSessionsMock: jest.Mock;
   let clearCompactionStateMock: jest.Mock;
   let sendQueuedMock: jest.Mock;
+  let surfacesForSessionMock: jest.Mock;
+  let surfaceStats: SurfaceSessionStatsRegistry;
   let warn: jest.SpyInstance;
 
   beforeEach(() => {
@@ -84,6 +91,7 @@ describe('SessionStatsAggregatorService', () => {
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
     clearCompactionStateMock = jest.fn();
     sendQueuedMock = jest.fn();
+    surfacesForSessionMock = jest.fn(() => []);
     warn = jest.spyOn(console, 'warn').mockImplementation();
 
     const tabManagerMock = {
@@ -109,7 +117,17 @@ describe('SessionStatsAggregatorService', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionStatsAggregatorService,
+        // Real registries — they are plain signal stores with no outbound deps,
+        // so stubbing them would only weaken the assertions.
+        SurfaceSessionStatsRegistry,
+        ConversationRegistry,
         { provide: TabManagerService, useValue: tabManagerMock },
+        {
+          provide: StreamRouter,
+          useValue: {
+            surfacesForSession: surfacesForSessionMock,
+          } as unknown as StreamRouter,
+        },
         { provide: StreamingHandlerService, useValue: streamingHandlerMock },
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
@@ -117,6 +135,7 @@ describe('SessionStatsAggregatorService', () => {
       ],
     });
     service = TestBed.inject(SessionStatsAggregatorService);
+    surfaceStats = TestBed.inject(SurfaceSessionStatsRegistry);
   });
 
   afterEach(() => {
@@ -146,6 +165,56 @@ describe('SessionStatsAggregatorService', () => {
     expect(streamHandleStatsMock).not.toHaveBeenCalled();
     expect(loadSessionsMock).not.toHaveBeenCalled();
     expect(clearCompactionStateMock).not.toHaveBeenCalled();
+  });
+
+  it('records to the surface registry instead of dropping, when a surface owns the session', () => {
+    // New Project / harness builder / wizard-phase sessions have no tab BY
+    // DESIGN, so every turn of theirs used to log "dropping event" and vanish.
+    // The per-tab writes really are inapplicable — but the stats are good.
+    findTabsBySessionIdMock.mockReturnValue([]);
+    surfacesForSessionMock.mockReturnValue(['surface-1']);
+
+    service.handleSessionStats({
+      ...baseStats,
+      sessionId: SESS_UNKNOWN,
+      modelUsage: [
+        {
+          model: 'claude-opus-5',
+          inputTokens: 100,
+          outputTokens: 50,
+          contextWindow: 1_000_000,
+          costUSD: 0.5,
+          cacheReadInputTokens: 10,
+          lastTurnContextTokens: 160,
+        },
+      ],
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
+
+    const stats = surfaceStats.peek(SESS_UNKNOWN);
+    expect(stats?.totals.totalCost).toBeCloseTo(0.5);
+    expect(stats?.live).toEqual({
+      model: 'claude-opus-5',
+      contextUsed: 160,
+      contextWindow: 1_000_000,
+      contextPercent: 0,
+    });
+  });
+
+  it('still warns when neither a tab nor a surface owns the session', () => {
+    // Nothing routed the event anywhere — that is a real drop and a real bug.
+    findTabsBySessionIdMock.mockReturnValue([]);
+    surfacesForSessionMock.mockReturnValue([]);
+
+    service.handleSessionStats({ ...baseStats, sessionId: SESS_UNKNOWN });
+
+    expect(warn).toHaveBeenCalledWith(
+      '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
+      { sessionId: SESS_UNKNOWN },
+    );
+    expect(surfaceStats.peek(SESS_UNKNOWN)).toBeNull();
   });
 
   describe('primary-model selection', () => {

@@ -55,6 +55,7 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly backgroundTaskToolUseIds: Set<string> = new Set();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
+  private readonly nonAgentTaskIds: Set<string> = new Set();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
   private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
     new Map();
@@ -278,6 +279,7 @@ export class SdkMessageTransformer implements TransformerState {
     this.activeSkillToolUseIds.clear();
     this.taskIdToParentToolUseId.clear();
     this.taskStartedEmitted.clear();
+    this.nonAgentTaskIds.clear();
     this.workflowRunByToolUseId.clear();
   }
 
@@ -303,6 +305,10 @@ export class SdkMessageTransformer implements TransformerState {
 
   isTaskStartedEmitted(toolUseId: string): boolean {
     return this.taskStartedEmitted.has(toolUseId);
+  }
+
+  isNonAgentTask(taskId: string): boolean {
+    return this.nonAgentTaskIds.has(taskId);
   }
 
   hasActiveSkillToolUseId(toolUseId: string): boolean {
@@ -367,6 +373,11 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearTaskParent(taskId: string): void {
     this.taskIdToParentToolUseId.delete(taskId);
+    this.nonAgentTaskIds.delete(taskId);
+  }
+
+  markNonAgentTask(taskId: string): void {
+    this.nonAgentTaskIds.add(taskId);
   }
 
   markTaskStartedEmitted(toolUseId: string): void {

@@ -61,6 +61,7 @@ import {
   buildHarnessSearchMcpRegistryTool,
   buildHarnessListInstalledMcpTool,
   buildHarnessInstallMcpTool,
+  buildHarnessProposeConfigTool,
   buildAstAnalyzeTool,
   buildContextEnrichFileTool,
   buildGetDependentsTool,
@@ -315,6 +316,7 @@ function handleToolsList(
           buildHarnessSearchMcpRegistryTool(),
           buildHarnessListInstalledMcpTool(),
           buildHarnessInstallMcpTool(),
+          buildHarnessProposeConfigTool(),
         ]
       : []),
     ...(!disabled.has('code')
@@ -1150,43 +1152,61 @@ async function handleIndividualTool(
       }
       case 'ptah_harness_search_skills': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              skills: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { skills: [] });
         }
-        const { query: skillQuery } = args as { query?: string };
-        const skills = await ptahAPI.harness.searchSkills(skillQuery);
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify({ skills, count: skills.length }),
-          deps,
+        const {
+          query: skillQuery,
+          limit: skillLimit,
+          offset: skillOffset,
+        } = args as {
+          query?: string;
+          limit?: number;
+          offset?: number;
+        };
+        const skillsResult = await ptahAPI.harness.searchSkills(
+          skillQuery,
+          skillLimit,
+          skillOffset,
         );
+        // A degraded search is surfaced as a TOOL ERROR, not as data. An empty
+        // list that reads like a valid negative is the one failure mode this
+        // whole contract exists to prevent.
+        return skillsResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(skillsResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(skillsResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_create_skill': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({ error: 'Harness namespace not available' }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, {});
         }
         const {
           name: skillName,
           description: skillDescription,
           content: skillContent,
           allowedTools,
+          scope: skillScope,
         } = args as {
           name: string;
           description: string;
           content: string;
           allowedTools?: string[];
+          scope?: 'user' | 'workspace';
         };
+
+        if (
+          skillScope !== undefined &&
+          !['user', 'workspace'].includes(skillScope)
+        ) {
+          return toolErrorResponse(
+            request,
+            `Error: "scope" must be "user" or "workspace" (got ${JSON.stringify(skillScope)}).`,
+          );
+        }
 
         if (!skillName || !skillDescription || !skillContent) {
           return {
@@ -1209,6 +1229,7 @@ async function handleIndividualTool(
           skillDescription,
           skillContent,
           allowedTools,
+          skillScope,
         );
         return createToolSuccessResponse(
           request,
@@ -1219,14 +1240,7 @@ async function handleIndividualTool(
 
       case 'ptah_harness_search_mcp_registry': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const { query: registryQuery, limit: registryLimit } = args as {
           query: string;
@@ -1253,23 +1267,18 @@ async function handleIndividualTool(
           registryQuery,
           registryLimit,
         );
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify(registryResult),
-          deps,
-        );
+        return registryResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(registryResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(registryResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_list_installed_mcp': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const installedServers =
           await ptahAPI.harness.listInstalledMcpServers();
@@ -1285,14 +1294,7 @@ async function handleIndividualTool(
 
       case 'ptah_harness_install_mcp_server': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              results: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { results: [] });
         }
         const {
           serverName: mcpServerName,
@@ -1343,6 +1345,45 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           JSON.stringify(installOutcome),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_propose_config': {
+        if (!ptahAPI.harness) {
+          return harnessUnavailableResponse(request, {});
+        }
+        const { configUpdates, isConfigComplete } = args as {
+          configUpdates?: unknown;
+          isConfigComplete?: boolean;
+        };
+
+        if (
+          configUpdates === null ||
+          typeof configUpdates !== 'object' ||
+          Array.isArray(configUpdates)
+        ) {
+          return toolErrorResponse(
+            request,
+            'Error: "configUpdates" is required and must be a partial harness config object.',
+          );
+        }
+
+        // Field-level shape is settled by zod inside the namespace; a rejection
+        // arrives here as a throw and is reported with the offending path.
+        const proposeAck = await ptahAPI.harness.proposeConfig(
+          configUpdates as Parameters<
+            NonNullable<typeof ptahAPI.harness>['proposeConfig']
+          >[0],
+          isConfigComplete,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            ok: true,
+            isConfigComplete: isConfigComplete ?? false,
+            message: proposeAck,
+          }),
           deps,
         );
       }
@@ -1562,6 +1603,48 @@ async function handleIndividualTool(
 /**
  * Build a JSON-RPC tool error for a missing/empty required string argument.
  */
+/**
+ * Report a tool failure as an MCP tool error.
+ *
+ * Per the MCP spec this is still a successful JSON-RPC response carrying
+ * `isError: true` — the distinction that matters is that the agent sees an
+ * error rather than data it could mistake for an answer.
+ */
+function toolErrorResponse(request: MCPRequest, text: string): MCPResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      content: [{ type: 'text', text }],
+      isError: true,
+    },
+  };
+}
+
+/**
+ * The harness namespace is absent on this host.
+ *
+ * Reported as an ERROR carrying an empty collection of the shape the caller
+ * expected, never as a successful empty result: "the harness tools are not
+ * wired here" and "there is nothing to find" are different answers and were
+ * previously indistinguishable.
+ */
+function harnessUnavailableResponse(
+  request: MCPRequest,
+  shape: Record<string, unknown>,
+): MCPResponse {
+  return toolErrorResponse(
+    request,
+    JSON.stringify({
+      ...shape,
+      count: 0,
+      status: 'error',
+      error:
+        'Harness namespace not available on this host — this is a tool failure, not an empty result.',
+    }),
+  );
+}
+
 function missingStringArgResponse(
   request: MCPRequest,
   field: string,

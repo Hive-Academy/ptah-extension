@@ -150,6 +150,43 @@ export type UpdateSkillSynthesisSettingsParams = z.infer<
   typeof UpdateSkillSynthesisSettingsParamsSchema
 >;
 
+/**
+ * `skillSynthesis:listCandidates` params (TASK_2026_322).
+ *
+ * THIS SCHEMA CLOSES A PRE-EXISTING GAP, IT DOES NOT ONLY COVER `scope`.
+ * `status` and `limit` reached the handler unvalidated since the method
+ * shipped, and `collectByStatus` casts the status with `as SkillStatus` — so a
+ * malformed value did not fail, it fell through to a `WHERE status = ?` that
+ * matched nothing and rendered as "no candidates". An empty review queue that
+ * is really a rejected request is the worst shape a validation gap can take
+ * here, because it is indistinguishable from the feature working.
+ *
+ * `.nullish()` because the method takes no required parameter and every
+ * existing caller may send `undefined`; the handler keeps reading through `?.`.
+ *
+ * NOT `.strict()`. `SkillGetTriggersParamsSchema` is strict because it accepts
+ * nothing at all, so any key is a caller error. This one has three optional
+ * keys and unknown-key stripping is the safer default for a method the CLI and
+ * the e2e harness also call.
+ *
+ * `limit` is typed but NOT range-checked, deliberately. `clampLimit` already
+ * owns the range (non-finite / `<= 0` → the caller's fallback, then a 1000
+ * ceiling), and adding `.int().positive()` here would turn `limit: 0` from a
+ * clamped request into a thrown one — a behaviour change wearing validation's
+ * clothes. Type-check at the boundary, clamp in the handler, one owner each.
+ */
+export const SkillListCandidatesParamsSchema = z
+  .object({
+    status: z.enum(['candidate', 'promoted', 'rejected', 'all']).optional(),
+    limit: z.number().optional(),
+    scope: z.enum(['workspace', 'all']).optional(),
+  })
+  .nullish();
+
+export type SkillListCandidatesParams = z.infer<
+  typeof SkillListCandidatesParamsSchema
+>;
+
 export const PinSkillParamsSchema = z.object({
   id: z.string().min(1),
 });

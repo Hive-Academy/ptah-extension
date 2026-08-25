@@ -1061,6 +1061,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       VALID_TAB_UUID,
       undefined,
       VALID_TAB_UUID,
+      undefined,
     );
   });
 
@@ -1085,6 +1086,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       undefined,
       undefined,
       LEGACY_TAB_ID,
+      undefined,
     );
 
     // The malformed id is logged at warn-level for observability.
@@ -1097,6 +1099,139 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     );
     expect(warnedAboutRouting).toBe(true);
     expect(warnedAboutTabId).toBe(true);
+  });
+
+  it('passes the session-id resolver through to createCallback', async () => {
+    const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+    const sessionIdResolver = () => VALID_SESSION_UUID;
+
+    await builder.build({
+      userMessageStream: (async function* () {
+        // Intentionally empty.
+      })(),
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4',
+        projectPath: 'D:/tmp/ws',
+        tabId: VALID_TAB_UUID,
+      } as AISessionConfig,
+      sessionIdResolver,
+    });
+
+    expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      VALID_TAB_UUID,
+      undefined,
+      VALID_TAB_UUID,
+      undefined,
+      VALID_TAB_UUID,
+      sessionIdResolver,
+    );
+  });
+
+  // A turn parked on `canUseTool` emits zero SDK messages, so the no-activity
+  // watchdog read a user reading an AskUserQuestion card as a wedged provider
+  // and aborted the session at 180s — inside the 5-minute window the prompt
+  // itself advertises. Wrapping the gate in hold/release is what stops the
+  // user's own deliberation being charged to the provider (TASK_2026_317).
+  describe('activityHold wrapping of canUseTool', () => {
+    function makeHoldSpy(): {
+      hold: jest.Mock;
+      release: jest.Mock;
+      order: string[];
+    } {
+      const order: string[] = [];
+      return {
+        hold: jest.fn(() => void order.push('hold')),
+        release: jest.fn(() => void order.push('release')),
+        order,
+      };
+    }
+
+    async function buildWithHold(
+      activityHold: { hold: jest.Mock; release: jest.Mock },
+      gate: jest.Mock,
+    ) {
+      const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+      permissionHandler.createCallback.mockReturnValue(gate);
+      return builder.build({
+        userMessageStream: (async function* () {
+          // Intentionally empty.
+        })(),
+        abortController: new AbortController(),
+        sessionConfig: {
+          model: 'claude-sonnet-4',
+          projectPath: 'D:/tmp/ws',
+          tabId: VALID_TAB_UUID,
+        } as AISessionConfig,
+        activityHold,
+      });
+    }
+
+    it('holds for the whole tool call and releases once it settles', async () => {
+      const activityHold = makeHoldSpy();
+      let unblock: (() => void) | undefined;
+      const gate = jest.fn(
+        async () =>
+          new Promise((resolve) => {
+            unblock = () => resolve({ behavior: 'allow' });
+          }),
+      );
+
+      const config = await buildWithHold(activityHold, gate);
+      const inFlight = (
+        config.options.canUseTool as unknown as (
+          ...a: unknown[]
+        ) => Promise<unknown>
+      )('AskUserQuestion', {}, { toolUseID: 't1' });
+
+      await Promise.resolve();
+      expect(activityHold.hold).toHaveBeenCalledTimes(1);
+      expect(activityHold.release).not.toHaveBeenCalled();
+
+      unblock?.();
+      await inFlight;
+      expect(activityHold.release).toHaveBeenCalledTimes(1);
+      expect(activityHold.order).toEqual(['hold', 'release']);
+    });
+
+    it('releases even when the gate rejects, so a throwing prompt cannot wedge the watchdog off', async () => {
+      const activityHold = makeHoldSpy();
+      const gate = jest.fn(async () => {
+        throw new Error('gate exploded');
+      });
+
+      const config = await buildWithHold(activityHold, gate);
+      await expect(
+        (
+          config.options.canUseTool as unknown as (
+            ...a: unknown[]
+          ) => Promise<unknown>
+        )('Bash', {}, { toolUseID: 't2' }),
+      ).rejects.toThrow('gate exploded');
+
+      expect(activityHold.hold).toHaveBeenCalledTimes(1);
+      expect(activityHold.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the callback untouched when no hold is supplied', async () => {
+      const gate = jest.fn(async () => ({ behavior: 'allow' }));
+      const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+      permissionHandler.createCallback.mockReturnValue(gate);
+
+      const config = await builder.build({
+        userMessageStream: (async function* () {
+          // Intentionally empty.
+        })(),
+        abortController: new AbortController(),
+        sessionConfig: {
+          model: 'claude-sonnet-4',
+          projectPath: 'D:/tmp/ws',
+          tabId: VALID_TAB_UUID,
+        } as AISessionConfig,
+      });
+
+      expect(config.options.canUseTool).toBe(gate);
+    });
   });
 });
 

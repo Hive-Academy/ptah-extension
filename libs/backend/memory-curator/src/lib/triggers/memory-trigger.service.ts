@@ -44,7 +44,7 @@ import {
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
-import { EpisodeTracker } from './episode-tracker';
+import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
 import {
   MEMORY_TRIGGER_DEFAULTS,
   MEMORY_TRIGGER_KEYS,
@@ -693,7 +693,12 @@ export class MemoryTriggerService {
       commits: snap.commits,
       hasCriticalLearning: snap.hasCriticalLearning,
     };
-    this.episodes.reset(sessionId);
+    // `detach`, not `reset`. Same effect when the pass runs — the buffer is
+    // cleared here and the returned handle dropped — but a pass the provider
+    // quota gate stalls never consumed this episode, and `invokeCurate` puts it
+    // back. The clear still happens BEFORE the curate, so turns arriving during
+    // the pass keep landing in a fresh buffer (TASK_2026_306 Batch 10, F1).
+    const detached = this.episodes.detach(sessionId);
     this.inFlightCurates.add(sessionId);
     this.lastCurateAt.set(sessionId, Date.now());
     void this.invokeCurate(
@@ -702,6 +707,7 @@ export class MemoryTriggerService {
       source,
       salienceBoost,
       episodeSnap,
+      detached,
     );
   }
 
@@ -712,12 +718,37 @@ export class MemoryTriggerService {
     return Date.now() - last < COALESCE_WINDOW_MS;
   }
 
+  /**
+   * Compose the transcript, run the curator, and advance the state the pass
+   * consumed — but only if it consumed anything.
+   *
+   * ## The three pieces of state, enumerated (TASK_2026_306 Batch 10, F1)
+   *
+   * F1 happened because only the first of these was ever considered.
+   *
+   *  1. **`observation_queue.processed_at`.** `drainForSession` is a pure
+   *     SELECT filtered on `processed_at IS NULL`, so *not* calling
+   *     `markProcessed` is the entire mechanism by which the rows survive: they
+   *     are still NULL and the next drain returns them.
+   *  2. **The episode buffer.** Cleared by `tryEpisodeCurate` before this
+   *     method is even entered, so it can only be restored, not deferred —
+   *     `detached` is that restore, and it merges rather than overwrites.
+   *  3. **The boot-scan watermark.** Not reachable from here; the boot scan
+   *     calls `curator.curate` directly. Handled in `runBootScan`, which maps
+   *     the same outcome onto `BootScanItemOutcome` so `BootScanRunner` leaves
+   *     the watermark where it is.
+   *
+   * A pass that RAN and found nothing keeps its old behaviour exactly: rows
+   * marked, buffer gone. Turning "found nothing" into a retry would be F1
+   * inverted — an episode that can never be curated, re-fed forever.
+   */
   private async invokeCurate(
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,
     salienceBoost?: number,
     episodeSnap?: EpisodeSummaryInput,
+    detachedEpisode?: EpisodeBuffer | null,
   ): Promise<void> {
     const limit = this.readMaxObservationsPerCurate();
     let jsonlText = '';
@@ -735,12 +766,22 @@ export class MemoryTriggerService {
     const drainedRows = this.observationQueue.drainForSession(sessionId, limit);
     const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
     try {
-      await this.curator.curate({
+      const stats = await this.curator.curate({
         sessionId,
         workspaceRoot,
         transcript,
         salienceBoost,
       });
+      if (stats.outcome === 'stalled') {
+        if (detachedEpisode) {
+          this.episodes.reattach(sessionId, detachedEpisode);
+        }
+        this.logger.info(
+          '[memory-curator] curation pass stalled; observations kept for the next pass',
+          { sessionId, source, observations: drainedRows.length },
+        );
+        return;
+      }
       const ids = drainedRows.map((r) => r.id);
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
@@ -777,6 +818,44 @@ export class MemoryTriggerService {
         logger: this.logger,
         signal,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          // The boot scan draws from the SAME hourly budget as the cue path
+          // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
+          // It did not until TASK_2026_319: this callback calls
+          // `curator.curate` directly, and `curate` holds no limiter of its own
+          // — its only internal gate is the provider QUOTA gate — so
+          // `maxCuratesPerHour` simply did not apply here. A cold boot could
+          // issue one LLM call per session with nothing but a 200 ms throttle
+          // in the way.
+          //
+          // Refusal returns `'stalled'`, never `'ran'`, and that is the whole
+          // point: `BootScanRunner` stops the scan, leaves the watermark below
+          // this session, and the next boot retries it. `'ran'` would record a
+          // session that was never read and lose it at the next
+          // `mtime > watermark` filter.
+          //
+          // The SKILLS boot scan deliberately does not do this. Its callback
+          // enqueues a local SQLite row and spends nothing upstream, so
+          // charging it to the curate budget would starve real curation to pay
+          // for free work — see `skill-trigger.service.ts`'s `runBootScan`.
+          const decision = this.rateLimiter.tryAcquire(
+            RATE_LIMIT_KEY,
+            this.readMaxCuratesPerHour(),
+          );
+          if (!decision.allowed) {
+            this.curator.pushEvent({
+              kind: 'rate-limited',
+              timestamp: Date.now(),
+              sessionId: scanSessionId,
+              stats: {
+                source: 'boot',
+                limit: decision.limit,
+                resetAt: decision.resetAt,
+                usedThisWindow: decision.usedThisWindow,
+              },
+            });
+            return 'stalled';
+          }
+
           let transcript = '';
           try {
             transcript = await this.transcriptReader.read(
@@ -792,12 +871,16 @@ export class MemoryTriggerService {
               },
             );
           }
-          return this.curator.curate({
+          const stats = await this.curator.curate({
             sessionId: scanSessionId,
             workspaceRoot: scanWorkspaceRoot,
             transcript,
             signal: runSignal,
           });
+          // The watermark's only input. A stalled pass read this session and
+          // curated nothing from it, so recording it as scanned would lose it
+          // the moment the next boot filters on `mtime > watermark`.
+          return stats.outcome === 'stalled' ? 'stalled' : 'ran';
         },
       });
       this.curator.pushEvent({
@@ -807,6 +890,7 @@ export class MemoryTriggerService {
           scanned: result.scanned,
           succeeded: result.succeeded,
           skipped: result.skipped,
+          stalled: result.stalled,
         },
       });
     } catch (err: unknown) {

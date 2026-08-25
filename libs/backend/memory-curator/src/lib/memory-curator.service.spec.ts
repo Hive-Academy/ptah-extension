@@ -65,7 +65,7 @@ function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
   const llm =
     opts?.llm ??
     ({
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM);
   return new MemoryCuratorService(
@@ -119,6 +119,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     const info = svc.lastRunInfo();
     expect(info.at).not.toBeNull();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -190,10 +191,10 @@ describe('MemoryCuratorService — event ring buffer', () => {
 
 describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', () => {
   it('concurrent curate calls for the same (workspaceRoot, sessionId) share a single llm.extract invocation', async () => {
-    const resolvers: ((value: unknown[]) => void)[] = [];
+    const resolvers: ((value: unknown) => void)[] = [];
     const extract = jest.fn(
       () =>
-        new Promise<unknown[]>((resolve) => {
+        new Promise<unknown>((resolve) => {
           resolvers.push(resolve);
         }),
     );
@@ -213,13 +214,15 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       transcript: 't',
     });
     expect(extract).toHaveBeenCalledTimes(1);
-    resolvers[0]([]);
+    resolvers[0]({ status: 'extracted', drafts: [] });
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
   });
 
   it('different sessions run in parallel', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -233,7 +236,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
   });
 
   it('in-flight map clears after run completes so a follow-up call runs fresh', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -247,7 +252,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
 
 describe('MemoryCuratorService — placeholder skip event', () => {
   it('curate() with empty transcript pushes curator-skipped-no-data and bypasses llm.extract', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const resolve = jest.fn().mockResolvedValue([]);
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const registry = {
@@ -273,7 +280,13 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       llm,
     );
     const stats = await svc.curate({ sessionId: 'sess-skip' });
-    expect(stats).toEqual({ extracted: 0, merged: 0, created: 0, skipped: 0 });
+    expect(stats).toEqual({
+      outcome: 'ran',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
     expect(extract).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
     const events = svc.recentEvents(5);
@@ -283,7 +296,9 @@ describe('MemoryCuratorService — placeholder skip event', () => {
   });
 
   it('curate() with whitespace-only transcript still skips (treated as placeholder)', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -327,7 +342,10 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
         'libs/backend/agent-sdk/src/lib/curator-llm-adapter/index.ts',
       ] as const,
     };
-    const extract = jest.fn().mockResolvedValue([populatedDraft]);
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [populatedDraft],
+    });
     const resolve = jest
       .fn()
       .mockResolvedValue([{ ...populatedDraft, mergeTargetId: null }]);
@@ -403,7 +421,9 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       files: [] as const,
     };
     const llm = {
-      extract: jest.fn().mockResolvedValue([draft]),
+      extract: jest
+        .fn()
+        .mockResolvedValue({ status: 'extracted', drafts: [draft] }),
       resolve: jest.fn().mockResolvedValue([{ ...draft, mergeTargetId: null }]),
     } as unknown as ICuratorLLM;
     const registry = {
@@ -555,6 +575,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -567,6 +588,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(typeof evt?.error).toBe('string');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -600,7 +622,10 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       concepts: ['x'] as const,
       files: [] as const,
     };
-    const extract = jest.fn().mockResolvedValue([draft, { ...draft }]);
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [draft, { ...draft }],
+    });
     const resolve = jest.fn().mockRejectedValue(new Error('transport down'));
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
@@ -611,6 +636,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -626,6 +652,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(evt?.error).toContain('transport down');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -655,7 +682,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
     const llm = {
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM;
     const svc = new MemoryCuratorService(
@@ -680,6 +707,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       transcript: 'real transcript content',
     });
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -718,7 +746,7 @@ describe('MemoryCuratorService — in-flight coalescing (TASK_2026_295)', () => 
       extract: jest.fn(async (transcript: string) => {
         transcripts.push(transcript);
         await gate;
-        return [];
+        return { status: 'extracted', drafts: [] };
       }),
       resolve: jest.fn(async () => []),
     } as unknown as ICuratorLLM;
@@ -828,7 +856,7 @@ describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
       extract: jest.fn(async (transcript: string) => {
         transcripts.push(transcript);
         await gate;
-        return [];
+        return { status: 'extracted', drafts: [] };
       }),
       resolve: jest.fn(async () => []),
     } as unknown as ICuratorLLM;

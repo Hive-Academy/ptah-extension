@@ -451,6 +451,195 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
   });
 });
 
+// The surface-workflow regression (TASK_2026_317). `SdkQueryOptionsBuilder`
+// pins the routing ids at build time, when a NEW session has no SDK UUID yet,
+// so it falls back to the caller's tabId. For a chat tab that is harmless. For
+// a New Project / harness surface that tabId is a CORRELATION id, and stamping
+// it on both fields left the prompt unroutable: the question surfaced on
+// whichever canvas tile was focused, and `chat:pending-questions` — which
+// looks up by real session id — could never replay it after a reload.
+describe('SdkPermissionHandler - live session id resolution', () => {
+  const CORRELATION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('stamps the resolved SDK session id on a permission request, keeping the correlation id as tabId', async () => {
+    const { handler, sent } = makeHandler();
+    // Stands in for the SessionRecord the real resolver closes over.
+    const record: { realSessionId: string | null } = { realSessionId: null };
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => record.realSessionId ?? undefined,
+    );
+
+    // The SDK `init` message lands between callback creation and the first
+    // tool call — which is the whole point of resolving live.
+    record.realSessionId = REAL_SESSION_UUID;
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-1' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+    expect(payload.tabId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('stamps the resolved SDK session id on an AskUserQuestion request', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => REAL_SESSION_UUID,
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Which audience?',
+            header: 'Audience',
+            multiSelect: false,
+            options: [
+              { label: 'Devs', description: 'developers' },
+              { label: 'Ops', description: 'operators' },
+            ],
+          },
+        ],
+      },
+      { signal: ac.signal, toolUseID: 'tool-use-live-2' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    )?.payload as unknown as AskUserQuestionPayload;
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+    expect(payload.tabId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('makes the question findable by REAL session id, which is what chat:pending-questions asks for', async () => {
+    const { handler } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => REAL_SESSION_UUID,
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Which stack?',
+            header: 'Stack',
+            multiSelect: false,
+            options: [
+              { label: 'Node', description: 'node' },
+              { label: 'Deno', description: 'deno' },
+            ],
+          },
+        ],
+      },
+      { signal: ac.signal, toolUseID: 'tool-use-live-3' },
+    );
+    await flushMicrotasks();
+
+    expect(handler.listPendingQuestions(REAL_SESSION_UUID)).toHaveLength(1);
+    // The correlation id still resolves it too — the registry matches on
+    // either field, so session teardown keyed on the tab id still works.
+    expect(handler.listPendingQuestions(CORRELATION_ID)).toHaveLength(1);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('falls back to the build-time id while the SDK session id is still unknown', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => undefined, // no `init` yet
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-4' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('ignores a resolver that returns a non-UUID rather than stamping garbage', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => 'not-a-uuid',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-5' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+});
+
 describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
   afterEach(() => {
     container.clearInstances();

@@ -10,6 +10,8 @@ export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
+  CuratorExtraction,
+  CuratorStallReason,
   MemoryType,
 } from './lib/curator-llm.port';
 export type {

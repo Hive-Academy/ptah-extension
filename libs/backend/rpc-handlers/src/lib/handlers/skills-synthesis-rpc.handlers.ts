@@ -88,6 +88,7 @@ import type {
   SkillSynthesisInvocationEntry,
   SkillSynthesisInvocationsParams,
   SkillSynthesisInvocationsResult,
+  SkillSynthesisCandidateScope,
   SkillSynthesisListCandidatesParams,
   SkillSynthesisListCandidatesResult,
   SkillSynthesisPinParams,
@@ -191,6 +192,7 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
   SkillDismissSuggestionParamsSchema,
@@ -394,9 +396,13 @@ export class SkillsSynthesisRpcHandlers {
       SkillSynthesisListCandidatesResult
     >('skillSynthesis:listCandidates', async (params) => {
       try {
-        const filter = params?.status ?? 'candidate';
-        const limit = clampLimit(params?.limit, 100);
-        const rows = this.collectByStatus(filter);
+        const parsed = SkillListCandidatesParamsSchema.parse(params);
+        const filter = parsed?.status ?? 'candidate';
+        const limit = clampLimit(parsed?.limit, 100);
+        const rows = this.collectByStatus(
+          filter,
+          this.listScope(parsed?.scope),
+        );
         const candidates = rows.slice(0, limit).map((r) => toSummary(r));
         return { candidates };
       } catch (error) {
@@ -1985,17 +1991,45 @@ export class SkillsSynthesisRpcHandlers {
     return null;
   }
 
+  /**
+   * Resolve the wire `scope` into the argument `SkillCandidateStore` takes:
+   * a workspace root to scope to, or `undefined` for every project.
+   *
+   * The default is `'workspace'` — the NARROW reading — because the list backs
+   * a review queue and a candidate is unreviewed work from one project. It is
+   * the only read in the subsystem that narrows; see `listByStatus`'s header
+   * for why the other six must not.
+   *
+   * A host with NO workspace open (the CLI, an unfolded window) resolves to
+   * `undefined` and sees everything. There is nothing to scope to there, and
+   * scoping to `''` would match only rows explicitly marked cross-project —
+   * which the candidate write path never produces — so the list would be
+   * permanently empty.
+   */
+  private listScope(
+    scope: SkillSynthesisCandidateScope | undefined,
+  ): string | undefined {
+    if (scope === 'all') return undefined;
+    return this.workspaceProvider.getWorkspaceRoot() ?? undefined;
+  }
+
   private collectByStatus(
     filter: 'candidate' | 'promoted' | 'rejected' | 'all',
+    workspaceRoot?: string,
   ): SkillCandidateRow[] {
     if (filter === 'all') {
       return [
-        ...this.store.listByStatus('candidate'),
-        ...this.store.listByStatus('promoted'),
-        ...this.store.listByStatus('rejected'),
+        ...this.store.listByStatus('candidate', workspaceRoot),
+        ...this.store.listByStatus('promoted', workspaceRoot),
+        ...this.store.listByStatus('rejected', workspaceRoot),
       ];
     }
-    return this.store.listByStatus(filter as SkillStatus);
+    // No cast. `filter` is narrowed to the three lifecycle values by the branch
+    // above, which IS `SkillStatus`. It used to carry `as SkillStatus` because
+    // the value arrived unvalidated from the wire; now that
+    // `SkillListCandidatesParamsSchema` rejects anything else at the boundary,
+    // the assertion has nothing left to assert.
+    return this.store.listByStatus(filter, workspaceRoot);
   }
 
   private report(error: unknown, errorSource: string): void {
@@ -2203,6 +2237,9 @@ function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
     rejectedAt: row.rejectedAt,
     rejectedReason: row.rejectedReason,
     pinned: row.pinned,
+    // `?? null` and NOT `?? ''`. `null` is "we do not know which project this
+    // came from"; `''` is the distinct claim "deliberately cross-project".
+    workspaceRoot: row.workspaceRoot ?? null,
     displayName: row.displayName ?? null,
     // `?? null` and NOT `?? 0`. `judgeScore: null` IS the `unscored` verdict —
     // "we do not know" — and a zero here would be indistinguishable from a

@@ -391,7 +391,7 @@ describe('startThothCron', () => {
       expect(powerMonitor.isOnBattery).toHaveBeenCalledTimes(3);
     });
 
-    it('reports a gated tick as a skipped run summary rather than throwing', async () => {
+    it('reports a gated tick as a skipped OUTCOME, not a success', async () => {
       const { container, handlers, drain } = makeDrainContainer();
       await startThothCron(container, refsWithSqlite());
       drain.drain.mockResolvedValue({
@@ -418,7 +418,11 @@ describe('startThothCron', () => {
           scheduledFor: 0,
           signal: new AbortController().signal,
         }),
-      ).resolves.toEqual({ summary: 'skipped: on-battery' });
+        // The reason travels as a first-class field so `JobRunner` can call
+        // `markSkipped`. It used to be prose inside `summary`, which the
+        // runner had no way to read — every gated tick was recorded as
+        // `succeeded` (TASK_2026_315 / C2).
+      ).resolves.toEqual({ outcome: 'skipped', reason: 'on-battery' });
     });
 
     it('registers no drain jobs when the host has no SkillDrainService', async () => {

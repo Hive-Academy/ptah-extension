@@ -13,7 +13,11 @@ import type {
   DirectoryEntry,
   IFileWatcher,
 } from '@ptah-extension/platform-core';
-import { FileType, createEvent } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  createEvent,
+  planGlobWatch,
+} from '@ptah-extension/platform-core';
 
 export class ElectronFileSystemProvider implements IFileSystemProvider {
   async readFile(filePath: string): Promise<string> {
@@ -130,30 +134,47 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     return maxResults ? results.slice(0, maxResults) : results;
   }
 
+  /**
+   * Watch a glob.
+   *
+   * chokidar has not understood globs since v4 — it takes DIRECTORIES. The
+   * pattern is therefore turned into a watchable directory plus two predicates
+   * by {@link planGlobWatch}, which owns that translation for this adapter and
+   * its CLI twin. Passing the glob through, as this did before, produced a
+   * watcher on a literal directory named `**` that never fired: see the header
+   * of `glob-watch-plan.ts`.
+   *
+   * `ignored` is given as a FUNCTION, not the caller's globs: chokidar v4+ does
+   * not glob there either, and a function is consulted for directories, so it
+   * prunes `node_modules` instead of walking it and discarding the events.
+   */
   createFileWatcher(
     pattern: string,
     options?: { exclude?: string[]; cwd?: string },
   ): IFileWatcher {
     const chokidar = require('chokidar');
-    const hasExcludes = !!options?.exclude && options.exclude.length > 0;
-    const cwd = options?.cwd;
-    const watcher = chokidar.watch(pattern, {
+    const plan = planGlobWatch(pattern, options);
+    const watcher = chokidar.watch(plan.watchRoot, {
       ignoreInitial: true,
       persistent: true,
-      ...(cwd ? { cwd } : {}),
-      ...(hasExcludes ? { ignored: options?.exclude } : {}),
+      ignored: (candidate: string) => plan.ignores(candidate),
     });
 
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
     const [onDidDelete, fireDelete] = createEvent<string>();
 
-    // With `cwd`, chokidar emits paths relative to it — resolve to absolute so
-    // consumers get the same absolute paths the VS Code adapter emits.
-    const toAbs = (p: string): string => (cwd ? path.resolve(cwd, p) : p);
-    watcher.on('change', (filePath: string) => fireChange(toAbs(filePath)));
-    watcher.on('add', (filePath: string) => fireCreate(toAbs(filePath)));
-    watcher.on('unlink', (filePath: string) => fireDelete(toAbs(filePath)));
+    // chokidar echoes back the absolute root it was given, so paths arrive
+    // absolute — the same shape the VS Code adapter emits (`uri.fsPath`).
+    const emit =
+      (fire: (p: string) => void) =>
+      (filePath: string): void => {
+        const absolute = path.resolve(filePath);
+        if (plan.matches(absolute)) fire(absolute);
+      };
+    watcher.on('change', emit(fireChange));
+    watcher.on('add', emit(fireCreate));
+    watcher.on('unlink', emit(fireDelete));
 
     return {
       onDidChange,

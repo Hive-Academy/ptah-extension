@@ -381,7 +381,27 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
      * their own conversations even when the id is not a routable surface.
      */
     routingHint?: string,
+    /**
+     * Resolves the session's REAL SDK id, read live on every prompt.
+     *
+     * `sessionId` above is a build-time value: for a new session the SDK UUID
+     * does not exist yet, so the options builder falls back to the caller's
+     * routing id (`sessionConfig.tabId ?? sessionId`). For a chat tab that is
+     * harmless — the frontend recognises the tab id anyway. For a workflow
+     * SURFACE it is fatal: the prompt then carries the harness's correlation
+     * id in BOTH fields and no consumer can map it to a conversation, which
+     * is how New Project questions ended up on an unrelated canvas tile and
+     * why `chat:pending-questions` could never replay them after a reload
+     * (TASK_2026_317). This resolver closes over the SessionRecord, so by the
+     * time a tool call happens the real id is known and travels with the
+     * prompt. Omitted by callers with no record; those behave as before.
+     */
+    sessionIdResolver?: () => string | undefined,
   ): CanUseTool {
+    const resolveSessionId = (): SessionId | undefined => {
+      const live = sessionIdResolver?.();
+      return (live ? SessionId.safeParse(live) : null) ?? sessionId;
+    };
     const requestUserPermission = (
       toolName: string,
       input: Record<string, unknown>,
@@ -391,7 +411,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         toolName,
         input,
         options.toolUseID,
-        sessionId,
+        resolveSessionId(),
         options.agentID,
         options.signal,
         cliAgentResolver,
@@ -455,7 +475,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.askUserQuestion.handleAskUserQuestion(
           input,
           options.toolUseID,
-          sessionId,
+          resolveSessionId(),
           options.signal,
           tabId,
         );
@@ -468,7 +488,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.exitPlanMode.handleExitPlanMode(
           input,
           options.toolUseID,
-          sessionId,
+          resolveSessionId(),
           options.signal,
           tabId,
         );
