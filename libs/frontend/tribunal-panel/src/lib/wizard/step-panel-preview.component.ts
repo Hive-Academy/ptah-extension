@@ -19,11 +19,13 @@ import {
   WebviewNavigationService,
   EffortStateService,
 } from '@ptah-extension/core';
-import type { ProviderModelInfo, EffortLevel } from '@ptah-extension/shared';
+import type { EffortLevel } from '@ptah-extension/shared';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
+  type TribunalModelOption,
 } from '../services/tribunal-discovery.service';
+import { estimateTurns } from '../services/tribunal-estimate';
 import {
   laneBaseKey,
   makeLaneId,
@@ -31,11 +33,12 @@ import {
   type VendorLane,
 } from '../types/tribunal-ui.types';
 
-const TURNS_PER_VENDOR: Record<TribunalMove, number> = {
-  council: 2,
-  forge: 3,
-  race: 3,
-};
+/**
+ * This step only ever edits a FLAT move's roster, and no flat move has a round
+ * cap. Passing zero is honest rather than a magic default: `estimateTurns`
+ * ignores the argument on every arm this component can reach.
+ */
+const NO_ROUND_CAP = 0;
 
 const EFFORT_LEVELS: readonly EffortLevel[] = [
   'low',
@@ -57,7 +60,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <h3 class="text-base font-semibold text-base-content">
             Assemble the panel
           </h3>
-          <p class="text-sm text-base-content/55">
+          <p class="text-sm text-base-content-muted">
             Add vendors and pick a model per lane. The same vendor can appear
             multiple times. Up to {{ maxVendors }} lanes.
           </p>
@@ -86,7 +89,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content">{{
             selectedCount()
           }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Lanes</span
           >
         </div>
@@ -95,7 +99,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content">{{
             availableCount()
           }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Available</span
           >
         </div>
@@ -104,7 +109,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content"
             >{{ selectedCount() }}/{{ maxVendors }}</span
           >
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Cap</span
           >
         </div>
@@ -113,13 +119,15 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content"
             >~{{ estimatedTurns() }}</span
           >
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Est. turns</span
           >
         </div>
 
         <label class="ml-auto flex flex-col gap-1">
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Effort</span
           >
           <select
@@ -128,16 +136,20 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
             [value]="currentEffort() ?? ''"
             (change)="onEffortChange($event)"
           >
-            <option value="">Default</option>
+            <option value="" [selected]="(currentEffort() ?? '') === ''">
+              Default
+            </option>
             @for (level of effortLevels; track level) {
-              <option [value]="level">{{ level }}</option>
+              <option [value]="level" [selected]="level === currentEffort()">
+                {{ level }}
+              </option>
             }
           </select>
         </label>
       </div>
 
       <div
-        class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content/60"
+        class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content-muted"
       >
         <lucide-angular
           [img]="InfoIcon"
@@ -176,7 +188,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
               @if (modelOptionsForLane(lane).length > 0) {
                 <label class="flex flex-col gap-1">
                   <span
-                    class="text-[10px] uppercase tracking-wide text-base-content/45"
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
                     >Model</span
                   >
                   <select
@@ -186,16 +198,21 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                     (change)="onModelChange(lane.laneId, $event)"
                   >
                     @for (model of modelOptionsForLane(lane); track model.id) {
-                      <option [value]="model.id">{{ model.name }}</option>
+                      <option
+                        [value]="model.id"
+                        [selected]="model.id === lane.model"
+                      >
+                        {{ model.name }}
+                      </option>
                     }
                   </select>
                 </label>
               } @else if (laneSupportsModel(lane)) {
-                <span class="text-[11px] text-base-content/50">
+                <span class="text-[11px] text-base-content-muted">
                   {{ lane.model ?? 'Provider default model' }}
                 </span>
               } @else {
-                <span class="text-[11px] text-base-content/50">
+                <span class="text-[11px] text-base-content-muted">
                   No model selection for this vendor.
                 </span>
               }
@@ -209,12 +226,13 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="loading loading-dots loading-md"></span>
         </div>
       } @else if (vendors().length === 0) {
-        <p class="py-6 text-center text-sm text-base-content/50">
+        <p class="py-6 text-center text-sm text-base-content-muted">
           No vendors discovered. Install a CLI agent to convene a panel.
         </p>
       } @else {
         <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Add a lane</span
           >
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -239,7 +257,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                     class="truncate text-sm font-medium text-base-content"
                     >{{ vendor.lane.displayName }}</span
                   >
-                  <span class="text-[11px] text-base-content/50">
+                  <span class="text-[11px] text-base-content-muted">
                     {{ statusText(vendor) }}
                   </span>
                 </span>
@@ -247,7 +265,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                   <span
                     role="link"
                     tabindex="0"
-                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/70 hover:border-primary hover:text-primary"
+                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content-muted hover:border-primary hover:text-primary"
                     [attr.aria-label]="'Configure ' + vendor.lane.displayName"
                     (click)="configure($event, vendor)"
                     (keydown.enter)="configure($event, vendor)"
@@ -262,7 +280,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                   </span>
                 } @else {
                   <span
-                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/60"
+                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content-muted"
                   >
                     <lucide-angular
                       [img]="AddIcon"
@@ -310,41 +328,54 @@ export class StepPanelPreviewComponent {
   protected readonly currentEffort = this.effortState.currentEffort;
   protected readonly maxVendors = this.discovery.maxVendors;
 
-  protected readonly estimatedTurns = computed(() => {
-    const count = Math.max(1, this.selectedLanes().length);
-    return count * TURNS_PER_VENDOR[this.move()] + 1;
-  });
+  protected readonly estimatedTurns = computed(() =>
+    estimateTurns(
+      this.move(),
+      Math.max(1, this.selectedLanes().length),
+      NO_ROUND_CAP,
+    ),
+  );
 
   protected onEffortChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     void this.effortState.setEffort(value ? (value as EffortLevel) : undefined);
   }
 
-  private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
   private readonly _loading = signal(false);
   private readonly _modelsByBase = signal<
-    ReadonlyMap<string, readonly ProviderModelInfo[]>
+    ReadonlyMap<string, readonly TribunalModelOption[]>
   >(new Map());
 
-  protected readonly vendors = this._vendors.asReadonly();
+  /**
+   * The SHARED discovery cache, not a private copy. The wizard mounts this step
+   * alongside the move picker and the role roster; three private caches meant
+   * three `agent:getConfig` round trips for one answer.
+   */
+  protected readonly vendors = this.discovery.vendors;
   protected readonly loading = this._loading.asReadonly();
 
   protected readonly selectedCount = computed(
     () => this.selectedLanes().length,
   );
   protected readonly availableCount = computed(
-    () => this._vendors().filter((v) => v.available).length,
+    () => this.vendors().filter((v) => v.available).length,
   );
 
   constructor() {
-    void this.refresh();
+    void this.load(() => this.discovery.ensureDiscovered());
   }
 
+  /** The explicit Refresh affordance — bypasses the cache on purpose. */
   async refresh(): Promise<void> {
+    await this.load(() => this.discovery.rediscover());
+  }
+
+  private async load(
+    source: () => Promise<readonly DiscoveredVendor[]>,
+  ): Promise<void> {
     this._loading.set(true);
     try {
-      const vendors = await this.discovery.discover();
-      this._vendors.set(vendors);
+      const vendors = await source();
       await Promise.all(
         vendors
           .filter((v) => v.available && v.supportsModelList)
@@ -376,7 +407,7 @@ export class StepPanelPreviewComponent {
 
   protected modelOptionsForLane(
     lane: VendorLane,
-  ): readonly ProviderModelInfo[] {
+  ): readonly TribunalModelOption[] {
     return this._modelsByBase().get(laneBaseKey(lane)) ?? [];
   }
 
@@ -437,15 +468,27 @@ export class StepPanelPreviewComponent {
     });
   }
 
+  /**
+   * Pick the model a freshly added lane starts on.
+   *
+   * The registry seed (`provider.defaultTiers.opus`) is only honoured when it is
+   * actually one of the models THIS vendor reports. Otherwise the `<select>`
+   * would render with a `[value]` matching no `<option>` — the browser silently
+   * shows the first option while the lane still carries the unmatched id into
+   * the Run step. Falling back to the first real option keeps what the user sees
+   * and what gets submitted identical, per lane.
+   */
   private defaultModelFor(vendor: DiscoveredVendor): string | undefined {
-    if (vendor.lane.model) return vendor.lane.model;
-    const models = this._modelsByBase().get(vendor.baseKey);
-    return models && models.length > 0 ? models[0].id : undefined;
+    const models = this._modelsByBase().get(vendor.baseKey) ?? [];
+    const seeded = vendor.lane.model;
+    if (seeded && models.some((m) => m.id === seeded)) return seeded;
+    if (models.length > 0) return models[0].id;
+    return seeded;
   }
 
   private findVendor(lane: VendorLane): DiscoveredVendor | undefined {
     const base = laneBaseKey(lane);
-    return this._vendors().find((v) => v.baseKey === base);
+    return this.vendors().find((v) => v.baseKey === base);
   }
 
   private instanceIndexOf(laneId: string): number {

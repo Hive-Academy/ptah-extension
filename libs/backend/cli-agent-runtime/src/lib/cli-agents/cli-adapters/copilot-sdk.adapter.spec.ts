@@ -13,8 +13,12 @@ interface FakeChildControls {
     stderr: PassThrough;
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
 }
+
+/** A stable fake PID so abort handlers route through killProcessTree(pid). */
+const FAKE_PID = 4242;
 
 function createFakeChild(): FakeChildControls {
   const stdout = new PassThrough();
@@ -27,9 +31,11 @@ function createFakeChild(): FakeChildControls {
     stderr: PassThrough;
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
+  emitter.pid = FAKE_PID;
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -55,6 +61,7 @@ let currentChild: FakeChildControls | null = null;
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -65,6 +72,9 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
+    // Abort handlers tree-kill the child by PID. Mock it so the test never
+    // issues a real process.kill(-pid) group-kill against the runner.
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });
 
@@ -612,13 +622,13 @@ describe('CopilotSdkAdapter', () => {
       expect(output.join('')).not.toContain('{bogus json line');
     });
 
-    it('propagates AbortSignal by sending SIGTERM to the child process', async () => {
+    it('tree-kills the child process group on abort', async () => {
       const handle = await adapter.runSdk(defaultOptions);
       handle.onOutput(() => {});
 
       handle.abort.abort();
 
-      expect(currentChild?.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
 
       currentChild?.emitClose(null, 'SIGTERM');
       const code = await handle.done;
@@ -835,7 +845,7 @@ describe('CopilotSdkAdapter', () => {
       const continuedChild = currentChild;
 
       handle.abort.abort();
-      expect(continuedChild?.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
 
       continuedChild?.emitClose(null, 'SIGTERM');
       const code = await outcome!.done;

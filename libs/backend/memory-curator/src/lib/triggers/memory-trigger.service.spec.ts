@@ -28,6 +28,8 @@ import type {
   PreToolUsePayload,
   SessionStartCallbackRegistry,
   SessionStartPayload,
+  SessionIdResolvedCallbackRegistry,
+  SessionIdResolvedPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
@@ -223,6 +225,7 @@ function makeWorkspace(
 function makeCurator(): MemoryCuratorService {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -231,6 +234,7 @@ function makeCurator(): MemoryCuratorService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    rekeySession: jest.fn(),
   } as unknown as MemoryCuratorService;
 }
 
@@ -305,6 +309,18 @@ function makeObservationQueue(): FakeQueueStore {
     markProcessed,
     purgeOlderThan: jest.fn(() => 0),
     countUnprocessed: jest.fn(() => 0),
+    backfillSessionId: jest.fn((fromId: string, toId: string) => {
+      const rows = rowsBySession.get(fromId);
+      if (!rows) return 0;
+      rowsBySession.delete(fromId);
+      const target = rowsBySession.get(toId) ?? [];
+      for (const r of rows) {
+        (r as unknown as { sessionId: string }).sessionId = toId;
+        target.push(r);
+      }
+      rowsBySession.set(toId, target);
+      return rows.length;
+    }),
   } as unknown as ObservationQueueStore;
   return { store, inserts, rowsBySession, markProcessed, nextId };
 }
@@ -341,6 +357,10 @@ function buildService(opts?: {
     SessionStartPayload,
     SessionStartCallbackRegistry
   >;
+  sessionIdResolved: SetRegistryHarness<
+    SessionIdResolvedPayload,
+    SessionIdResolvedCallbackRegistry
+  >;
   curator: MemoryCuratorService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
@@ -356,6 +376,7 @@ function buildService(opts?: {
   const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
   const preToolUse = makeSetRegistry<PreToolUsePayload>();
   const sessionStart = makeSetRegistry<SessionStartPayload>();
+  const sessionIdResolved = makeSetRegistry<SessionIdResolvedPayload>();
   const curator = opts?.curator ?? makeCurator();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
@@ -381,6 +402,7 @@ function buildService(opts?: {
     preToolUse.registry as unknown as PreToolUseCallbackRegistry,
     sessionStart.registry as unknown as SessionStartCallbackRegistry,
     transcriptReader,
+    sessionIdResolved.registry as unknown as SessionIdResolvedCallbackRegistry,
   );
   return {
     service,
@@ -407,6 +429,10 @@ function buildService(opts?: {
     sessionStart: sessionStart as unknown as SetRegistryHarness<
       SessionStartPayload,
       SessionStartCallbackRegistry
+    >,
+    sessionIdResolved: sessionIdResolved as unknown as SetRegistryHarness<
+      SessionIdResolvedPayload,
+      SessionIdResolvedCallbackRegistry
     >,
     curator,
     workspace,
@@ -546,6 +572,103 @@ describe('MemoryTriggerService', () => {
     jest.advanceTimersByTime(120);
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * TASK_2026_295 — `sessions` holds ONE idle timer per session id, so two
+   * sessions both reporting `''` used to share a single slot: the second
+   * `onActivity` cleared the first's timer and only one of the two was ever
+   * curated. An empty id is not a session, so no timer is armed for it at all.
+   */
+  it('arms no idle timer for activity with an empty sessionId', async () => {
+    const { service, activity, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 100,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/A',
+      role: 'user',
+      timestamp: 1,
+    });
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/B',
+      role: 'user',
+      timestamp: 2,
+    });
+    jest.advanceTimersByTime(150);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    // Before the fix exactly ONE curate fired here — for /ws/B, the session
+    // that happened to arrive second. /ws/A was lost with no error.
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * TASK_2026_296 (R12) — DELIBERATE BEHAVIOUR CHANGE, pinned so it is not
+   * silent. Every blank guard in this service used to be `!x || x.length === 0`,
+   * which does NOT trim: a session reporting `'   '` was a *valid* id, armed a
+   * timer under a whitespace key and was curated. The guards now route through
+   * the shared `blankToUndefined`, whose policy is trim-and-treat-whitespace-
+   * only-as-absent, so a whitespace-only id is refused exactly like `''` — and
+   * two sessions reporting `'   '` can no longer collide on one timer slot the
+   * way two reporting `''` did.
+   */
+  it('arms no idle timer for a whitespace-only sessionId (trim policy)', async () => {
+    const { service, activity, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 100,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    activity.registry.notifyAll({
+      sessionId: '   ',
+      workspaceRoot: '/ws/A',
+      role: 'user',
+      timestamp: 1,
+    });
+    activity.registry.notifyAll({
+      sessionId: '\t\n',
+      workspaceRoot: '/ws/B',
+      role: 'user',
+      timestamp: 2,
+    });
+    jest.advanceTimersByTime(150);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Paired isolation for the trim policy above: narrowing the accepted set must
+   * not narrow it onto real ids. A non-blank session id still arms the timer and
+   * still curates.
+   */
+  it('still arms the idle timer for a real sessionId after the trim tightening', async () => {
+    const { service, activity, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 100,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    activity.registry.notifyAll({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      role: 'user',
+      timestamp: 1,
+    });
+    jest.advanceTimersByTime(150);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', workspaceRoot: '/ws' }),
+    );
   });
 
   it('turn-complete fires at exactly N Stop hooks', async () => {
@@ -1793,6 +1916,135 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     expect(unprocessed.length).toBeGreaterThan(0);
   });
 
+  /**
+   * TASK_2026_306 Batch 10 — finding F1, the whole point of this batch.
+   *
+   * The provider quota gate (Batch 2) stops the curator before it dials a
+   * rate-limited provider. Under the pre-fix code "stop" was `runQuery → ''` →
+   * `extract() → []`, which is byte-identical to a pass that ran and found
+   * nothing — and `invokeCurate` marked its drained rows processed on every
+   * resolve without inspecting anything. `drainForSession` filters
+   * `processed_at IS NULL`, so the discarded observations never came back.
+   * Observed live: 15 drain-and-discard passes in a few hundred lines of one
+   * cold start (`tmp/logs/coldstart-306.log:1232-1260`).
+   *
+   * ## Why these two cases and not one
+   *
+   * An assertion that the extraction is empty is worthless here — it holds
+   * before AND after the fix. The discriminating question is whether the ROWS
+   * SURVIVE, so the first case asserts `processedAt === null` and a successful
+   * re-drain. The second case is its inverse and is equally load-bearing:
+   * without it, "never mark anything processed" would satisfy the first, and
+   * every session that genuinely had nothing to learn would be re-fed forever.
+   * Either case alone can be passed by a wrong implementation. Together they
+   * pin the branch.
+   */
+  describe('a stalled curation pass keeps its input (TASK_2026_306 F1)', () => {
+    function makeStalledCurator(): MemoryCuratorService {
+      return {
+        curate: jest.fn().mockResolvedValue({
+          outcome: 'stalled',
+          extracted: 0,
+          merged: 0,
+          created: 0,
+          skipped: 0,
+        }),
+        pushEvent: jest.fn(),
+        recentEvents: jest.fn(() => []),
+        lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+        rekeySession: jest.fn(),
+      } as unknown as MemoryCuratorService;
+    }
+
+    it('leaves the drained observations processed_at IS NULL and re-drains them on the next pass', async () => {
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        curator: makeStalledCurator(),
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'work worth keeping' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // The pass DID drain — this is not a "nothing happened" assertion.
+      const drained = (queue.store.drainForSession as jest.Mock).mock.results[0]
+        .value as ObservationQueueRow[];
+      expect(drained.length).toBeGreaterThan(0);
+
+      // …and then left every row exactly where it found it.
+      expect(queue.markProcessed).not.toHaveBeenCalled();
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt === null)).toBe(true);
+
+      // The survival claim, stated as the next pass would ask it: a fresh
+      // drain still returns them, so the episodes outlive the cooldown.
+      const redrained = queue.store.drainForSession('s1', 500);
+      expect(redrained.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    });
+
+    it('a pass that RAN and found nothing still marks its rows processed', async () => {
+      // The inverse guard. `makeCurator()` returns `outcome: 'ran'` with zero
+      // counts — the "found nothing" case that used to be indistinguishable
+      // from a stall. It must keep its pre-fix behaviour exactly.
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'nothing memorable' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      expect(queue.markProcessed).toHaveBeenCalledTimes(1);
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt !== null)).toBe(true);
+      expect(queue.store.drainForSession('s1', 500)).toEqual([]);
+    });
+
+    it('restores the episode buffer that tryEpisodeCurate cleared before the pass', async () => {
+      // The second of the three pieces of state. `episodes.reset` fires before
+      // the curate resolves and cannot be deferred without swallowing turns
+      // that arrive mid-pass, so the stall path puts the buffer back. Proven
+      // through the transcript of the NEXT curate: the restored turn is
+      // counted again rather than lost.
+      const curator = makeStalledCurator();
+      const { service, stop } = buildService({
+        curator,
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'first turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+      expect(curator.curate).toHaveBeenCalledTimes(1);
+
+      // A second turn lands after the stall. Its episode summary must include
+      // the restored turn, not just the new one.
+      jest.advanceTimersByTime(10_000);
+      stop.fire(stopPayload({ lastAssistantMessage: 'second turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // `turns=2` is the discriminating token: the restored turn plus the new
+      // one. Drop the reattach and this reads `turns=1`. (The assistant text
+      // itself is NOT the discriminator — it rides the surviving
+      // `observation_queue` rows and would appear either way.)
+      expect(curator.curate).toHaveBeenCalledTimes(2);
+      const second = (curator.curate as jest.Mock).mock.calls[1][0];
+      expect(second.transcript).toEqual(expect.stringContaining('turns=2'));
+    });
+  });
+
   it('drain limit is honoured: large queue is capped by memory.triggers.maxObservationsPerCurate', async () => {
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
@@ -1814,7 +2066,13 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
     const blockingCurator = {
-      curate: jest.fn().mockResolvedValue(undefined),
+      curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      }),
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -1833,5 +2091,241 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(drainSpy).toHaveBeenCalledTimes(1);
     expect(blockingCurator.curate).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * TASK_2026_296 item 6, Part B — the rekey signal.
+ *
+ * Before the SDK's system `init` message lands there is no canonical UUID, so a
+ * residual hook path (payload without `session_id`, falling back to the
+ * tabId-bearing closure) arms state under the **tabId**. `SessionEnd` always
+ * canonicalises to `realSessionId ?? tabId` (`session-control.service.ts:126`)
+ * and therefore arrives under the UUID — so the tabId-keyed idle timer is never
+ * cleared and fires against a session the drain cannot read.
+ *
+ * Both ids are real UUID v4 strings throughout. A tabId IS a UUID v4
+ * (`TabId.create()`), so using `tab_N` would make these pass for the wrong
+ * reason: it would imply a shape a consumer could detect, and no such shape
+ * exists.
+ */
+describe('MemoryTriggerService — rekeySession (TASK_2026_296)', () => {
+  const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+  const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function armed(idleMs = 100_000) {
+    const h = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': idleMs,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    h.service.start();
+    return h;
+  }
+
+  function arm(
+    h: ReturnType<typeof armed>,
+    sessionId: string,
+    workspaceRoot = '/ws',
+  ): void {
+    h.stop.fire(stopPayload({ sessionId, workspaceRoot }));
+    h.activity.registry.notifyAll({
+      sessionId,
+      workspaceRoot,
+      role: 'user',
+      timestamp: Date.now(),
+    });
+  }
+
+  it('subscribes on start() and disposes on stop()', () => {
+    const h = buildService();
+    h.service.start();
+    expect(h.sessionIdResolved.registry.register).toHaveBeenCalledTimes(1);
+    expect(h.sessionIdResolved.registry.size).toBe(1);
+    h.service.stop();
+    expect(h.sessionIdResolved.registry.size).toBe(0);
+  });
+
+  // The literal context.md acceptance criterion (plan §6e spec 2).
+  it('a SessionEnd under the UUID clears state registered under the tabId, timer included', async () => {
+    const h = armed();
+    arm(h, TAB_ID);
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    // Teardown arrives under the canonical id, exactly as
+    // `session-control.service.ts:126` would report it.
+    h.sessionEnd.endActive.current?.({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    (h.curator.curate as jest.Mock).mockClear();
+    (h.curator.pushEvent as jest.Mock).mockClear();
+
+    // The migrated timer is gone: advancing well past the idle window fires
+    // nothing. Before the rekey this is where the orphan curate happened.
+    jest.advanceTimersByTime(500_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.pushEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'idle-trigger' }),
+    );
+
+    // And nothing survives under EITHER key — a second SessionEnd under the
+    // tabId finds nothing left to flush.
+    h.sessionEnd.endActive.current?.({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('re-arms the idle timer under the new id with the REMAINING delay', async () => {
+    const h = armed(100_000);
+    arm(h, TAB_ID);
+
+    // Two thirds of the window elapse before the id resolves.
+    jest.advanceTimersByTime(66_000);
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    // A timer re-armed with the FULL window would still be pending here.
+    jest.advanceTimersByTime(35_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(h.curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'idle-trigger', sessionId: REAL_ID }),
+    );
+    // The episode buffer moved with it, so the curate is the real one.
+    expect(h.curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: REAL_ID }),
+    );
+  });
+
+  // R4 — never clobber.
+  it('keeps the destination entry and discards the tabId one when toId already exists', async () => {
+    const h = armed(100_000);
+    // The canonical entry is armed FIRST and is the live one.
+    arm(h, REAL_ID, '/ws-real');
+    jest.advanceTimersByTime(40_000);
+    // The residual path then arms a second entry under the tabId.
+    arm(h, TAB_ID, '/ws-tab');
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    // The destination's own timer is untouched: it still has 60s of its
+    // original 100s window left, and it fires with ITS workspace root, not the
+    // tabId entry's.
+    jest.advanceTimersByTime(59_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.pushEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'idle-trigger' }),
+    );
+
+    jest.advanceTimersByTime(2_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.curate).toHaveBeenCalledTimes(1);
+    expect(h.curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: REAL_ID,
+        workspaceRoot: '/ws-real',
+      }),
+    );
+
+    // The discarded entry's timer was cleared, not merely orphaned: nothing
+    // further fires however far the clock runs.
+    jest.advanceTimersByTime(500_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-points the observation queue rows and delegates the curator in-flight key', () => {
+    const h = armed();
+    arm(h, TAB_ID);
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    expect(h.queue.store.backfillSessionId).toHaveBeenCalledWith(
+      TAB_ID,
+      REAL_ID,
+    );
+    expect(h.curator.rekeySession).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+  });
+
+  // Paired-isolation siblings.
+  it('does nothing when the payload carries no tabId, or when the ids are blank or equal', () => {
+    const h = armed();
+    arm(h, TAB_ID);
+
+    h.sessionIdResolved.fire({
+      tabId: undefined,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: '   ',
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: '  ',
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: TAB_ID,
+      timestamp: Date.now(),
+    });
+
+    expect(h.queue.store.backfillSessionId).not.toHaveBeenCalled();
+    expect(h.curator.rekeySession).not.toHaveBeenCalled();
+  });
+
+  it('a session whose id never resolves is still torn down under its tabId', async () => {
+    // The Wave 1 paired-isolation rule: the legitimate no-resolve path must
+    // still arm and clear on the SAME key.
+    const h = armed();
+    arm(h, TAB_ID);
+
+    h.sessionEnd.endActive.current?.({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    // SessionEnd curates the buffered episode under the tabId...
+    expect(h.curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: TAB_ID }),
+    );
+    // ...and clears the timer, so the idle trigger never fires afterwards.
+    (h.curator.curate as jest.Mock).mockClear();
+    jest.advanceTimersByTime(500_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.curator.curate).not.toHaveBeenCalled();
   });
 });

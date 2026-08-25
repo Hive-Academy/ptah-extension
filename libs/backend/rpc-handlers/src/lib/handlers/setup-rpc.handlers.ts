@@ -15,8 +15,6 @@ import {
   RpcHandler,
   RpcUserError,
   TOKENS,
-  LicenseService,
-  type LicenseStatus,
 } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
@@ -124,10 +122,9 @@ export class SetupRpcHandlers {
   }
 
   /**
-   * Resolve plugin paths for premium users.
+   * Resolve plugin paths for the analysis run.
    */
-  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
-    if (!isPremium) return undefined;
+  private resolvePluginPaths(): string[] | undefined {
     try {
       const config = this.pluginLoader.getWorkspacePluginConfig();
       if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
@@ -279,22 +276,9 @@ export class SetupRpcHandlers {
         );
       }
 
-      let isPremium = false;
       let mcpServerRunning = false;
       let mcpPort: number | undefined;
       try {
-        const licenseService = this.resolveService<LicenseService>(
-          TOKENS.LICENSE_SERVICE,
-          'LicenseService',
-        );
-        const licenseStatus: LicenseStatus =
-          await licenseService.verifyLicense();
-        isPremium =
-          licenseStatus.valid &&
-          (licenseStatus.plan?.isPremium === true ||
-            licenseStatus.tier === 'pro' ||
-            licenseStatus.tier === 'trial_pro');
-
         const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
           TOKENS.CODE_EXECUTION_MCP,
           'CodeExecutionMCP',
@@ -303,31 +287,25 @@ export class SetupRpcHandlers {
         mcpServerRunning = actualPort !== null;
         mcpPort = actualPort ?? undefined;
       } catch (error) {
-        this.logger.debug(
-          'Could not resolve license/MCP services for analysis',
-          {
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
+        this.logger.debug('Could not resolve MCP service for analysis', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
-      if (!isPremium || !mcpServerRunning) {
-        throw new Error(
-          'Premium license and MCP server required for workspace analysis.',
-        );
+      if (!mcpServerRunning) {
+        throw new Error('MCP server required for workspace analysis.');
       }
 
       const currentModel =
         params?.model || this.modelSettings.selectedModel.get() || 'default';
 
-      const pluginPaths = this.resolvePluginPaths(isPremium);
+      const pluginPaths = this.resolvePluginPaths();
 
       const multiPhaseService = this.resolveService<{
         analyzeWorkspace: (
           workspacePath: string,
           options?: {
             model?: string;
-            isPremium?: boolean;
             mcpServerRunning?: boolean;
             mcpPort?: number;
             pluginPaths?: string[];
@@ -342,7 +320,6 @@ export class SetupRpcHandlers {
         workspaceRoot,
         {
           model: currentModel,
-          isPremium,
           mcpServerRunning,
           mcpPort,
           pluginPaths,

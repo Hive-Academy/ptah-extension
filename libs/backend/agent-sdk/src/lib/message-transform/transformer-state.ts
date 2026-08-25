@@ -6,6 +6,19 @@ import type {
 
 export type TransformerSessionId = SessionId | HarnessStreamId | WizardPhaseId;
 
+/**
+ * Correlation record for a single `Workflow` tool run.
+ *
+ * `runId` is the `Workflow` tool_use id (stable across the run root and every
+ * descendant agent). `name` is the SDK `workflow_name` — only known once the
+ * `local_workflow` task_started arrives, so it may be undefined for a run root
+ * that was first observed via its assistant tool_use block.
+ */
+export interface WorkflowRunInfo {
+  readonly runId: string;
+  readonly name?: string;
+}
+
 export interface TransformerState {
   getMessageId(contextKey: string): string | undefined;
   getCurrentModel(contextKey: string): string | undefined;
@@ -13,9 +26,17 @@ export interface TransformerState {
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
   getTaskParentToolUseId(taskId: string): string | undefined;
   isTaskStartedEmitted(toolUseId: string): boolean;
+  /**
+   * True for a task whose `task_started` was rejected as non-agent (see
+   * `isAgentTaskType`). Keyed by task id because the later lifecycle messages
+   * (`task_progress` / `task_updated` / `task_notification`) carry the task id
+   * and would otherwise upsert a phantom agent into the monitor store.
+   */
+  isNonAgentTask(taskId: string): boolean;
   hasActiveSkillToolUseId(toolUseId: string): boolean;
   activeSkillToolUseIdsCount(): number;
   snapshotActiveSkillToolUseIds(): string[];
+  getWorkflowRun(toolUseId: string): WorkflowRunInfo | undefined;
 
   setMessageId(contextKey: string, messageId: string): void;
   clearMessageId(contextKey: string): void;
@@ -30,9 +51,26 @@ export interface TransformerState {
   addBackgroundTaskToolUseId(toolUseId: string): void;
   removeBackgroundTaskToolUseId(toolUseId: string): void;
   setTaskParent(taskId: string, parentToolUseId: string): void;
+  /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */
   clearTaskParent(taskId: string): void;
+  markNonAgentTask(taskId: string): void;
   markTaskStartedEmitted(toolUseId: string): void;
   addActiveSkillToolUseId(toolUseId: string): void;
   clearActiveSkillToolUseIds(): void;
+  /**
+   * Register `toolUseId` as the root of a workflow run. `runId` is set to the
+   * tool_use id itself. If a `name` becomes known later (from the
+   * `local_workflow` task_started) a second call merges it in.
+   */
+  registerWorkflowRunRoot(toolUseId: string, name?: string): void;
+  /**
+   * Associate a child tool_use with an already-known workflow run so that a
+   * later `task_started` for the child inherits the parent's runId/name. No-op
+   * when the parent is not part of a workflow run.
+   */
+  associateWorkflowRunChild(
+    childToolUseId: string,
+    parentToolUseId: string,
+  ): void;
   clearStreamingState(): void;
 }

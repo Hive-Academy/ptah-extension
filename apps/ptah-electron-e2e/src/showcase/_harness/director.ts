@@ -331,9 +331,9 @@ export class Director {
   }
 
   /**
-   * Dismiss any blocking startup dialogs (e.g. the license / trial-ended modal)
-   * so they stay out of frame. Best-effort: clicks the first visible match from
-   * a list of known dismiss affordances, repeating until none remain.
+   * Dismiss any blocking startup dialogs so they stay out of frame. Best-effort:
+   * clicks the first visible match from a list of known dismiss affordances,
+   * repeating until none remain.
    */
   async dismissDialogs(): Promise<void> {
     const labels = ['Maybe Later', 'Dismiss', 'Not now', 'Close', 'close'];

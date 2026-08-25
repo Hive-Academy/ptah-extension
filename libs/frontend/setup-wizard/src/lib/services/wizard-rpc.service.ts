@@ -167,7 +167,7 @@ export class WizardRpcService {
    * Deep analyze the workspace project structure.
    * Calls wizard:deep-analyze backend handler (registered in RpcMethodRegistry).
    *
-   * Returns MultiPhaseAnalysisResponse (premium + MCP required).
+   * Returns MultiPhaseAnalysisResponse (MCP required).
    */
   public async deepAnalyze(): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(

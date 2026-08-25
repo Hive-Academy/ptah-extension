@@ -10,6 +10,48 @@ import { PatternMatcherService } from './pattern-matcher.service';
 import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileType } from '../types/workspace.types';
+import type { Logger } from '@ptah-extension/vscode-core';
+
+/**
+ * The libuv detail text each errno carries, so a fixture reads like the error
+ * Node actually raises. Only the `code` is load-bearing — the production
+ * narrowing never looks at the message — but a fixture that spelled every code
+ * "no such file or directory" would quietly teach the next reader that `EPERM`
+ * is an absence, which is the misreading TASK_2026_307 exists to correct.
+ */
+const ERRNO_DETAIL: Readonly<Record<string, string>> = {
+  ENOENT: 'no such file or directory',
+  ENOTDIR: 'not a directory',
+  ELOOP: 'too many symbolic links encountered',
+  EPERM: 'operation not permitted',
+  EBUSY: 'resource busy or locked',
+  EACCES: 'permission denied',
+  EMFILE: 'too many open files',
+  EIO: 'i/o error',
+};
+
+/**
+ * Build the `FileSystemError`-wrapped errno that `FileSystemService.stat()`
+ * actually throws (`services/file-system.service.ts:69-78`): a fixed
+ * `Failed to stat: <path>` message with the errno only on the wrapped cause.
+ * The production narrowing reads `cause.code`, so a test that threw a bare
+ * `Error('ENOENT')` would prove nothing.
+ */
+function statError(filePath: string, code: string): Error {
+  const detail = ERRNO_DETAIL[code] ?? 'unknown error';
+  const cause = new Error(`${code}: ${detail}, stat '${filePath}'`) as Error & {
+    code: string;
+    syscall: string;
+  };
+  cause.code = code;
+  cause.syscall = 'stat';
+  const wrapped = new Error(`Failed to stat: ${filePath}`) as Error & {
+    cause: Error;
+  };
+  wrapped.name = 'FileSystemError';
+  wrapped.cause = cause;
+  return wrapped;
+}
 
 // Mock VS Code API
 jest.mock('vscode', () => ({
@@ -40,6 +82,8 @@ jest.mock('vscode', () => ({
   },
 }));
 
+const WORKSPACE_ROOT = '/workspace';
+
 describe('WorkspaceIndexerService', () => {
   let service: WorkspaceIndexerService;
   let fileSystemService: jest.Mocked<FileSystemService>;
@@ -49,10 +93,15 @@ describe('WorkspaceIndexerService', () => {
   let fileClassifier: jest.Mocked<FileTypeClassifierService>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockFsProvider: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockWorkspaceProvider: any;
+  let logger: jest.Mocked<Logger>;
 
   beforeEach(() => {
+    logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    } as unknown as jest.Mocked<Logger>;
     // Create mock services
     fileSystemService = {
       readFile: jest.fn(),
@@ -97,14 +146,6 @@ describe('WorkspaceIndexerService', () => {
       createFileWatcher: jest.fn(),
     } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    mockWorkspaceProvider = {
-      getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-      getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-      getConfiguration: jest.fn(),
-      onDidChangeConfiguration: jest.fn(),
-      onDidChangeWorkspaceFolders: jest.fn(),
-    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
     service = new WorkspaceIndexerService(
       fileSystemService,
       patternMatcher,
@@ -112,7 +153,7 @@ describe('WorkspaceIndexerService', () => {
       fileClassifier,
       tokenCounter,
       mockFsProvider,
-      mockWorkspaceProvider,
+      logger,
     );
   });
 
@@ -151,7 +192,9 @@ describe('WorkspaceIndexerService', () => {
         };
       });
 
-      const result = await service.indexWorkspace();
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(result.files).toHaveLength(3);
       expect(result.totalFiles).toBe(3);
@@ -203,7 +246,9 @@ describe('WorkspaceIndexerService', () => {
         confidence: 1.0,
       });
 
-      const result = await service.indexWorkspace();
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(result.files).toHaveLength(2); // node_modules file excluded
       expect(result.files.some((f) => f.path.includes('node_modules'))).toBe(
@@ -233,6 +278,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         maxFileSize: 1024 * 1024, // 1MB limit
       });
 
@@ -262,6 +308,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         estimateTokens: true,
       });
 
@@ -297,7 +344,10 @@ describe('WorkspaceIndexerService', () => {
         progressCallbacks.push(progress.filesIndexed);
       });
 
-      await service.indexWorkspace({}, onProgress);
+      await service.indexWorkspace(
+        { workspaceFolder: WORKSPACE_ROOT },
+        onProgress,
+      );
 
       expect(onProgress).toHaveBeenCalledTimes(3);
       expect(progressCallbacks).toEqual([1, 2, 3]);
@@ -336,6 +386,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         excludePatterns: ['**/test/**'],
       });
 
@@ -343,9 +394,10 @@ describe('WorkspaceIndexerService', () => {
       expect(result.files[0].path).toBe('/workspace/src/app.ts');
     });
 
-    it('should throw error if no workspace folder available', async () => {
-      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
-
+    // TASK_2026_200 task 3.5: `workspaceFolder` no longer falls back to the
+    // process-global IWorkspaceProvider. Omitting it is now an explicit error
+    // rather than a silent index of whatever folder the IDE happens to show.
+    it('should throw error when no workspace folder is supplied', async () => {
       await expect(service.indexWorkspace()).rejects.toThrow(
         'No workspace folder available for indexing',
       );
@@ -375,7 +427,9 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const files = [];
-      for await (const file of service.indexWorkspaceStream()) {
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
         files.push(file);
       }
 
@@ -428,13 +482,333 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const files = [];
-      for await (const file of service.indexWorkspaceStream()) {
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
         files.push(file);
       }
 
       expect(files).toHaveLength(1);
       expect(files[0].path).toBe('/workspace/src/app.ts');
     });
+  });
+
+  /**
+   * TASK_2026_306 defect D. One unstatable entry used to abort
+   * `indexWorkspaceStream` for the ENTIRE workspace; the caller logged it as
+   * non-fatal, so the app ran with no file index and no further signal.
+   */
+  describe('per-entry stat failures (TASK_2026_306 defect D)', () => {
+    const OK_STAT = {
+      type: FileType.Source as unknown as number,
+      ctime: 0,
+      mtime: 0,
+      size: 1000,
+    };
+
+    beforeEach(() => {
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+    });
+
+    const collect = async (): Promise<string[]> => {
+      const paths: string[] = [];
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
+        paths.push(file.path);
+      }
+      return paths;
+    };
+
+    it('yields every other entry when one is unstatable', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/gone.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('gone')) {
+          throw statError(filePath, 'ENOENT');
+        }
+        return OK_STAT;
+      });
+
+      await expect(collect()).resolves.toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+    });
+
+    it('yields nothing, without throwing, when every entry is unstatable', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        throw statError(filePath, 'ENOENT');
+      });
+
+      await expect(collect()).resolves.toEqual([]);
+    });
+
+    it('counts the skips and surfaces them once per run', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/gone-1.ts',
+        '/workspace/gone-2.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('gone')) {
+          throw statError(filePath, 'ENOENT');
+        }
+        return OK_STAT;
+      });
+
+      await collect();
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('indexWorkspaceStream'),
+        expect.objectContaining({ skipped: 2, discovered: 3 }),
+      );
+    });
+
+    it('stays silent when nothing was skipped', async () => {
+      mockFsProvider.findFiles.mockResolvedValue(['/workspace/a.ts']);
+      fileSystemService.stat.mockResolvedValue(OK_STAT);
+
+      await collect();
+
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it.each(['ENOENT', 'ENOTDIR', 'ELOOP'])(
+      'treats a %s entry as a skip (broken link / deleted mid-scan)',
+      async (code) => {
+        mockFsProvider.findFiles.mockResolvedValue([
+          '/workspace/a.ts',
+          '/workspace/bad.ts',
+        ]);
+        fileSystemService.stat.mockImplementation(async (filePath: string) => {
+          if (filePath.includes('bad')) {
+            throw statError(filePath, code);
+          }
+          return OK_STAT;
+        });
+
+        await expect(collect()).resolves.toEqual(['/workspace/a.ts']);
+      },
+    );
+
+    it('narrows on the wrapped code, never on the message text', async () => {
+      // Same wording an ENOENT produces, but no errno anywhere in the chain —
+      // a substring check on the message would wrongly swallow this.
+      mockFsProvider.findFiles.mockResolvedValue(['/workspace/a.ts']);
+      fileSystemService.stat.mockImplementation(async () => {
+        throw new Error(
+          'Failed to stat: /workspace/a.ts (ENOENT mentioned in text only)',
+        );
+      });
+
+      await expect(collect()).rejects.toThrow('ENOENT mentioned in text only');
+    });
+
+    it('applies the same skip to the non-streaming indexWorkspace sibling', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/gone.ts',
+        '/workspace/b.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('gone')) {
+          throw statError(filePath, 'ENOENT');
+        }
+        return OK_STAT;
+      });
+
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
+
+      expect(result.files.map((f) => f.path)).toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+      ]);
+      expect(result.totalFiles).toBe(2);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('indexWorkspace:'),
+        expect.objectContaining({ skipped: 1, discovered: 3 }),
+      );
+    });
+  });
+
+  /**
+   * TASK_2026_307. `ENOENT` was the Unix-shaped assumption. On Windows — the
+   * platform Ptah primarily ships to — the common reason an entry cannot be
+   * statted is a LOCK, not an absence: a sharing violation surfaces as `EPERM`,
+   * and a file being written right now as `EBUSY`. Neither was in the absorb
+   * set, so one transiently locked file in the workspace the user has open in
+   * an editor emptied the whole index.
+   *
+   * These specs are the mutation guard on that set: remove `'EPERM'` or
+   * `'EBUSY'` from `UNREADABLE_ENTRY_CODES` and every case below goes red,
+   * because the pass rejects instead of yielding the surviving entries.
+   */
+  describe('Windows lock codes (TASK_2026_307)', () => {
+    const OK_STAT = {
+      type: FileType.Source as unknown as number,
+      ctime: 0,
+      mtime: 0,
+      size: 1000,
+    };
+
+    beforeEach(() => {
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+    });
+
+    const collect = async (): Promise<string[]> => {
+      const paths: string[] = [];
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
+        paths.push(file.path);
+      }
+      return paths;
+    };
+
+    /** The locked entry sits in the MIDDLE, so "continues past it" is proven. */
+    it.each([
+      ['EPERM', 'held open by an editor or antivirus scanner'],
+      ['EBUSY', 'being written at this moment'],
+    ])('absorbs a %s entry (%s) and keeps indexing past it', async (code) => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/locked.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('locked')) {
+          throw statError(filePath, code);
+        }
+        return OK_STAT;
+      });
+
+      await expect(collect()).resolves.toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+    });
+
+    it.each(['EPERM', 'EBUSY'])(
+      'does not reduce the indexed count of the others when one entry is %s',
+      async (code) => {
+        mockFsProvider.findFiles.mockResolvedValue([
+          '/workspace/a.ts',
+          '/workspace/locked.ts',
+          '/workspace/b.ts',
+        ]);
+        fileSystemService.stat.mockImplementation(async (filePath: string) => {
+          if (filePath.includes('locked')) {
+            throw statError(filePath, code);
+          }
+          return OK_STAT;
+        });
+
+        const result = await service.indexWorkspace({
+          workspaceFolder: WORKSPACE_ROOT,
+        });
+
+        expect(result.files.map((f) => f.path)).toEqual([
+          '/workspace/a.ts',
+          '/workspace/b.ts',
+        ]);
+        expect(result.totalFiles).toBe(2);
+      },
+    );
+
+    /**
+     * The realistic Windows shape: a scanner sweep locks several entries at
+     * once, with the two codes interleaved. The index must survive with every
+     * readable entry present, and the run must still say so exactly once.
+     */
+    it('survives a mixed EPERM/EBUSY sweep and reports the skips once', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/locked-perm.ts',
+        '/workspace/b.ts',
+        '/workspace/locked-busy.ts',
+        '/workspace/c.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('locked-perm')) {
+          throw statError(filePath, 'EPERM');
+        }
+        if (filePath.includes('locked-busy')) {
+          throw statError(filePath, 'EBUSY');
+        }
+        return OK_STAT;
+      });
+
+      await expect(collect()).resolves.toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('indexWorkspaceStream'),
+        expect.objectContaining({ skipped: 2, discovered: 5 }),
+      );
+    });
+
+    /**
+     * The absorb must not become a swallow-everything. `EACCES` is deliberately
+     * NOT in the set: on Windows a transient lock is `EPERM`/`EBUSY`, while
+     * `EACCES` is a durable ACL decision about a path this process may not read
+     * — it will be just as true for the next entry and on the next pass.
+     * Absorbing it would trade a permanent, actionable failure for a silently
+     * partial index, which is the defect this guard exists to prevent. `EMFILE`
+     * and `EIO` describe the process and the device for the same reason.
+     *
+     * `EACCES` is the one to watch: it is in `harness-sync`'s
+     * `RETRYABLE_ERROR_CODES`, and that set is a RETRY list on a destructive
+     * write, not an absorb list on a read-only pass.
+     */
+    it.each(['EACCES', 'EMFILE', 'EIO'])(
+      'still aborts the run on %s, which is about the environment not the entry',
+      async (code) => {
+        mockFsProvider.findFiles.mockResolvedValue([
+          '/workspace/a.ts',
+          '/workspace/denied.ts',
+          '/workspace/b.ts',
+        ]);
+        fileSystemService.stat.mockImplementation(async (filePath: string) => {
+          if (filePath.includes('denied')) {
+            throw statError(filePath, code);
+          }
+          return OK_STAT;
+        });
+
+        await expect(collect()).rejects.toThrow('Failed to stat');
+        await expect(
+          service.indexWorkspace({ workspaceFolder: WORKSPACE_ROOT }),
+        ).rejects.toThrow('Failed to stat');
+      },
+    );
   });
 
   describe('node_modules exclusion regression (TASK_2026_119)', () => {
@@ -452,14 +826,6 @@ describe('WorkspaceIndexerService', () => {
             '/workspace/node_modules/some-lib/index.js',
           ]),
         createFileWatcher: jest.fn(),
-      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-      const mockWorkspaceProvider = {
-        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-        getConfiguration: jest.fn(),
-        onDidChangeConfiguration: jest.fn(),
-        onDidChangeWorkspaceFolders: jest.fn(),
       } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
       fileSystemService.stat.mockResolvedValue({
@@ -482,10 +848,10 @@ describe('WorkspaceIndexerService', () => {
         fileClassifier,
         tokenCounter,
         mockFsProviderWithSpy,
-        mockWorkspaceProvider,
+        logger,
       );
 
-      await testService.indexWorkspace();
+      await testService.indexWorkspace({ workspaceFolder: WORKSPACE_ROOT });
 
       // The exclude argument must be an array, not a comma-joined string
       expect(mockFsProviderWithSpy.findFiles).toHaveBeenCalledWith(
@@ -519,14 +885,6 @@ describe('WorkspaceIndexerService', () => {
         createFileWatcher: jest.fn(),
       } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-      const mockWorkspaceProvider = {
-        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-        getConfiguration: jest.fn(),
-        onDidChangeConfiguration: jest.fn(),
-        onDidChangeWorkspaceFolders: jest.fn(),
-      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
       fileSystemService.stat.mockResolvedValue({
         type: FileType.Source as unknown as number,
         ctime: 0,
@@ -547,10 +905,12 @@ describe('WorkspaceIndexerService', () => {
         fileClassifier,
         tokenCounter,
         mockFsProviderFiltered,
-        mockWorkspaceProvider,
+        logger,
       );
 
-      const result = await testService.indexWorkspace();
+      const result = await testService.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       // No node_modules paths should appear in the indexed file list
       const hasNodeModules = result.files.some((f) =>
@@ -569,14 +929,14 @@ describe('WorkspaceIndexerService', () => {
         '/workspace/file3.ts',
       ]);
 
-      const count = await service.getFileCount();
+      const count = await service.getFileCount({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(count).toBe(3);
     });
 
-    it('should return 0 if no workspace folder', async () => {
-      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
-
+    it('should return 0 when no workspace folder is supplied', async () => {
       const count = await service.getFileCount();
 
       expect(count).toBe(0);

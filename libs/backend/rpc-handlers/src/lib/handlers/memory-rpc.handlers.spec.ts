@@ -86,6 +86,7 @@ function makeCodeSymbolStore() {
     deleteByFile: jest.fn().mockReturnValue(0),
     insertBatch: jest.fn().mockResolvedValue(undefined),
     purgeWorkspace: jest.fn().mockReturnValue(0),
+    search: jest.fn().mockReturnValue({ items: [], total: 0 }),
   };
 }
 
@@ -98,6 +99,7 @@ function makeMemorySearch() {
 function makeMemoryCurator() {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -669,6 +671,7 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
   it('calls curator.curate with sessionId+workspaceRoot and returns wire result', async () => {
     const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
     curator.curate.mockResolvedValue({
+      outcome: 'ran',
       extracted: 4,
       merged: 1,
       created: 3,
@@ -694,6 +697,85 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
         sessionId: 'sess-1',
       }),
     );
+  });
+
+  /**
+   * TASK_2026_306 Batch 10, F-1 — the one curate call site a HUMAN drives.
+   *
+   * Every count is zero both when the pass ran and learned nothing and when
+   * the provider quota gate stopped it before dispatch. Reporting counts alone
+   * hands the user `success: true, extracted: 0` during a cooldown — the exact
+   * "ran and found nothing" reading this batch exists to eliminate, at the
+   * surface where the user is actively waiting on the answer.
+   *
+   * The pair below is the discriminating one: identical counts, opposite
+   * `outcome`. Drop the field from the handler and the first case fails.
+   */
+  describe('the stall discriminator reaches the user-driven surface', () => {
+    it('reports outcome "stalled" on the response AND the manual-run event', async () => {
+      const { rpcHandler, curator, logger } = buildHandlers([
+        '/workspace/project',
+      ]);
+      curator.curate.mockResolvedValue({
+        outcome: 'stalled',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      });
+
+      const result = await rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-cooldown',
+        workspaceRoot: '/workspace/project',
+      });
+
+      expect(result).toMatchObject({
+        // The RPC itself succeeded — `success: false` is reserved for a thrown
+        // failure, and conflating the two would swap one ambiguity for another.
+        success: true,
+        stats: { outcome: 'stalled', extracted: 0 },
+      });
+      expect(curator.pushEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'manual-run',
+          sessionId: 'sess-cooldown',
+          stats: expect.objectContaining({ outcome: 'stalled' }),
+        }),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        '[memory] runNow — pass stalled before dispatch; nothing was consumed',
+        expect.objectContaining({ sessionId: 'sess-cooldown' }),
+      );
+    });
+
+    it('reports outcome "ran" for a pass that dispatched and found nothing', async () => {
+      // Byte-identical counts to the case above. `outcome` is the only thing
+      // that separates them, which is the whole point.
+      const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+      curator.curate.mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      });
+
+      const result = await rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-empty',
+        workspaceRoot: '/workspace/project',
+      });
+
+      expect(result).toMatchObject({
+        success: true,
+        stats: { outcome: 'ran', extracted: 0 },
+      });
+      expect(curator.pushEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'manual-run',
+          stats: expect.objectContaining({ outcome: 'ran' }),
+        }),
+      );
+    });
   });
 
   it('rejects empty sessionId with INVALID_PARAMS', async () => {
@@ -1086,6 +1168,203 @@ describe('MemoryRpcHandlers — nested triggers (userPromptSubmit / postToolUse 
         maxCuratesPerHour: 20,
       },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// workspaceRoot scoping at the RPC boundary — TASK_2026_315 A4
+//
+// The defect was `params?.workspaceRoot ?? undefined`: `??` treats null as
+// nullish, so the webview's explicit `null` ("global/unscoped memories")
+// collapsed into `undefined` ("no filter") and the store answered with the
+// union of every workspace in the shared database.
+// ---------------------------------------------------------------------------
+
+describe('MemoryRpcHandlers — memory:stats workspace scoping', () => {
+  it('never passes undefined to the stores when the param is omitted (no cross-workspace union)', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', {});
+
+    expect(store.stats).toHaveBeenCalledWith('/workspace/project');
+    expect(codeSymbols.count).toHaveBeenCalledWith('/workspace/project');
+    expect(store.stats).not.toHaveBeenCalledWith(undefined);
+    expect(codeSymbols.count).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('scopes an omitted param to null (global/unscoped) when no folder is open', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', {});
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('preserves an explicit null as null — global memories stay a distinct query', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', { workspaceRoot: null });
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('forwards an explicit workspaceRoot unchanged', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', { workspaceRoot: '/other/ws' });
+
+    expect(store.stats).toHaveBeenCalledWith('/other/ws');
+    expect(codeSymbols.count).toHaveBeenCalledWith('/other/ws');
+  });
+
+  // The Memory tab's "All workspaces" toggle. Passing `null` alone used to mean
+  // this by accident and now means "global/unscoped rows only" — `scope: 'all'`
+  // is the only way to ask for the cross-workspace total.
+  it("scope:'all' produces the cross-workspace union (undefined = no predicate)", async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', {
+      workspaceRoot: null,
+      scope: 'all',
+    });
+
+    expect(store.stats).toHaveBeenCalledWith(undefined);
+    expect(codeSymbols.count).toHaveBeenCalledWith(undefined);
+  });
+
+  it("scope:'all' ignores an explicit workspaceRoot rather than narrowing", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:stats', {
+      workspaceRoot: '/workspace/project',
+      scope: 'all',
+    });
+
+    expect(store.stats).toHaveBeenCalledWith(undefined);
+  });
+
+  it("scope:'workspace' with no folder open still means global/unscoped, not a union", async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', { scope: 'workspace' });
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('rejects an unknown scope value', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:stats', { scope: 'everything' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(store.stats).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
+  it('scopes an omitted workspaceRoot to the current root instead of every workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:searchSymbols', { query: 'login' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: '/workspace/project' }),
+    );
+  });
+
+  it('scopes to null when no folder is open', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:searchSymbols', { query: 'login' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: null }),
+    );
+  });
+
+  // The Memory tab's "All workspaces" toggle omits `workspaceRoot`. Without an
+  // explicit scope that is indistinguishable from "no folder open", and an
+  // all-workspaces symbol search silently narrowed to the active workspace.
+  it("scope:'all' spans every workspace (undefined = no predicate)", async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:searchSymbols', {
+      query: 'login',
+      scope: 'all',
+    });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: undefined }),
+    );
+  });
+
+  it("scope:'all' spans every workspace even with no folder open", async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:searchSymbols', { scope: 'all' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: undefined }),
+    );
+  });
+
+  it('rejects an unknown scope value', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:searchSymbols', { scope: 'everything' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(codeSymbols.search).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryRpcHandlers — memory:purgeJunk workspace refusal', () => {
+  it('refuses an omitted workspaceRoot (purgeBySubjectPattern precedent)', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(rpcHandler.call('memory:purgeJunk', {})).rejects.toMatchObject(
+      { errorCode: 'INVALID_PARAMS' },
+    );
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('refuses an explicit null workspaceRoot', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', { workspaceRoot: null }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('still refuses an unauthorized workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', { workspaceRoot: '/somewhere/else' }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('purges an authorized workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+    codeSymbols.purgeJunk.mockReturnValue(7);
+
+    const result = await rpcHandler.call('memory:purgeJunk', {
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(codeSymbols.purgeJunk).toHaveBeenCalledWith('/workspace/project');
+    expect(result).toEqual({ deleted: 7 });
   });
 });
 

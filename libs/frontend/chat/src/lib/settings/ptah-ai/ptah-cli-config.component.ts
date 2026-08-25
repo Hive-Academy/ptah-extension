@@ -139,7 +139,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     <div class="mt-3">
       <!-- Ptah CLI Agents sub-header -->
       <div class="flex items-center justify-between mb-2">
-        <div class="text-xs font-medium text-base-content/70">
+        <div class="text-xs font-medium text-base-content-muted">
           Ptah CLI Agents
         </div>
         <button
@@ -175,7 +175,9 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 
       <!-- Loading state -->
       @if (isLoading() && agents().length === 0) {
-        <div class="flex items-center gap-2 text-xs text-base-content/50 py-2">
+        <div
+          class="flex items-center gap-2 text-xs text-base-content-muted py-2"
+        >
           <span class="loading loading-spinner loading-xs"></span>
           <span>Loading Ptah CLI agents...</span>
         </div>
@@ -186,7 +188,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         <div
           class="border border-primary/20 rounded p-3 mb-3 bg-base-100 space-y-2"
         >
-          <div class="text-xs font-medium text-base-content/70 mb-1">
+          <div class="text-xs font-medium text-base-content-muted mb-1">
             New Ptah CLI Agent
           </div>
 
@@ -274,7 +276,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 
           <!-- Keyless provider hint (Claude subscription, Ollama, LM Studio) -->
           @if (isLocalProvider(newAgentProvider())) {
-            <div class="text-xs text-base-content/60 mt-2 px-1">
+            <div class="text-xs text-base-content-muted mt-2 px-1">
               @if (newAgentProvider() === 'claude-cli') {
                 No API key needed — uses your local Claude login / subscription.
               } @else {
@@ -283,7 +285,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             </div>
           }
           @if (isOptionalKeyProvider(newAgentProvider())) {
-            <div class="text-xs text-base-content/60 mt-2 px-1">
+            <div class="text-xs text-base-content-muted mt-2 px-1">
               Optional — run <code class="text-xs">ollama signin</code> to use
               Ollama Cloud, or paste an ollama.com API key above to enable live
               model discovery and pricing.
@@ -303,7 +305,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
                 </div>
               } @else if (copilotLoginStatus() === 'logging-in') {
                 <div
-                  class="flex items-center gap-2 text-xs text-base-content/60 py-1"
+                  class="flex items-center gap-2 text-xs text-base-content-muted py-1"
                 >
                   <span class="loading loading-spinner loading-xs"></span>
                   <span>Signing in with GitHub...</span>
@@ -334,7 +336,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
                   <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
                   <span>Login with GitHub</span>
                 </button>
-                <p class="text-[10px] text-base-content/50 mt-1">
+                <p class="text-[10px] text-base-content-muted mt-1">
                   Requires an active GitHub Copilot subscription.
                 </p>
               }
@@ -474,7 +476,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
                       Key set
                     </span>
                   } @else if (isOptionalKeyProvider(agent.providerId)) {
-                    <span class="text-[10px] text-base-content/50"
+                    <span class="text-[10px] text-base-content-muted"
                       >Cloud (signin)</span
                     >
                   } @else {
@@ -483,7 +485,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 
                   <!-- Model count -->
                   @if (agent.modelCount > 0) {
-                    <span class="text-[10px] text-base-content/50">
+                    <span class="text-[10px] text-base-content-muted">
                       {{ agent.modelCount }} models
                     </span>
                   }
@@ -615,7 +617,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
       <!-- Empty state -->
       @if (!isLoading() && agents().length === 0 && !showAddForm()) {
         <div
-          class="text-center py-4 text-xs text-base-content/50 border border-dashed border-base-300 rounded"
+          class="text-center py-4 text-xs text-base-content-muted border border-dashed border-base-300 rounded"
         >
           <lucide-angular
             [img]="BotIcon"

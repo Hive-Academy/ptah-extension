@@ -18,11 +18,13 @@ import {
   RunId,
   HarnessStreamId,
   WizardPhaseId,
+} from './branded.types';
+import {
   SessionIdSchema,
   MessageIdSchema,
   CorrelationIdSchema,
   BrandedTypeValidator,
-} from './branded.types';
+} from './branded.schemas';
 
 // Fixed fixtures so tests are deterministic
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
@@ -55,6 +57,12 @@ describe('SessionId', () => {
 
     it('rejects empty string', () => {
       expect(SessionId.validate('')).toBe(false);
+    });
+
+    // `validate` accepts `string | undefined` (SessionId only — the sibling
+    // brands are deliberately not widened). Absence is not a valid id.
+    it('rejects undefined', () => {
+      expect(SessionId.validate(undefined)).toBe(false);
     });
 
     it('rejects a ULID', () => {
@@ -92,6 +100,23 @@ describe('SessionId', () => {
 
     it('returns null for invalid input', () => {
       expect(SessionId.safeParse('garbage')).toBeNull();
+    });
+
+    // Widening the parameter to `string | undefined` does NOT make `''`
+    // unrepresentable — `''` is a `string`. This pins that it is still rejected.
+    it('returns null for empty string', () => {
+      expect(SessionId.safeParse('')).toBeNull();
+    });
+
+    it('returns null for undefined', () => {
+      expect(SessionId.safeParse(undefined)).toBeNull();
+    });
+
+    // Paired-isolation sibling: absence is rejected, presence still parses.
+    it('still returns the branded value for a valid UUID after widening', () => {
+      const parsed = SessionId.safeParse(VALID_UUID);
+      expect(parsed).toBe(VALID_UUID);
+      expect(parsed).not.toBeNull();
     });
 
     it('returns null for a ULID', () => {

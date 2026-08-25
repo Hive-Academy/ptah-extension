@@ -1,0 +1,95 @@
+{
+  "title": "Ptah Builders — membership launch (landscape)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "elevenlabs",
+  "stability": 0.4,
+  "similarity": 0.75,
+  "style": 0.2,
+  "speed": 1,
+  "music": "rising-dawn.mp3",
+  "musicVolume": 0.2,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "builders-hook",
+      "holdMs": 7000,
+      "vo": "You have finished the tutorials. You have watched the courses. And you still have not shipped the product that was supposed to change your year.",
+      "captions": ["You finished the tutorials.", "You still have not shipped."]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-promise",
+      "holdMs": 6000,
+      "vo": "Ptah Builders closes that gap. It is a cohort. Six to eight weeks, and at the end of it you have a real product running in production.",
+      "captions": [
+        "Ptah Builders closes that gap.",
+        "Six to eight weeks. One real product."
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-cohort",
+      "holdMs": 14000,
+      "vo": "Every week has one job. Foundation, then the domain, then authentication, then billing, then agents, then hardening, then deploy, then launch. You build alongside everyone else, live, and your work is reviewed before it ships. This is not a course project. It is a product in production.",
+      "captions": [
+        "Eight weeks, eight jobs",
+        "You build live, alongside the room",
+        "Reviewed before it ships",
+        "Not a course project"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-course",
+      "holdMs": 10000,
+      "vo": "Your membership includes the full foundation course. Nx, NestJS and Angular taught as one architecture, with boundaries the tooling enforces for you, instead of rules you are asked to remember.",
+      "captions": [
+        "The foundation course, included",
+        "Nx, NestJS, Angular as one architecture",
+        "Boundaries the tooling enforces"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-vault",
+      "holdMs": 10000,
+      "vo": "You also get the private source pack. A real repository with the API, the web app, the shared libraries, the migrations and the pipelines already wired. You start from working code, not a blank folder.",
+      "captions": [
+        "The private source pack",
+        "API, web, libs, migrations, CI",
+        "Start from working code"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-room",
+      "holdMs": 10000,
+      "vo": "Every week we meet live, and between sessions there is a private room for members only. Cohorts run in English and in Arabic, side by side, so you learn in the language you actually think in.",
+      "captions": [
+        "Weekly live sessions",
+        "A private room for members",
+        "English and Arabic, side by side"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-proof",
+      "holdMs": 8000,
+      "vo": "I am not teaching theory. Ptah itself is built this way. NestJS, Prisma and Paddle, a real licensed product in production, on the exact stack you will build on.",
+      "captions": ["I am not teaching theory.", "Ptah ships on this stack."]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-offer",
+      "holdMs": 10000,
+      "vo": "Membership is twenty nine dollars a month, or two hundred and ninety a year — and founding members get seventy percent off their first year. Early adopter seats are limited, and this is the cheapest it will ever be. Join the next cohort.",
+      "captions": [
+        "29 a month, or 290 a year",
+        "70% off your first year — seats limited",
+        "Join the next cohort"
+      ]
+    }
+  ]
+}

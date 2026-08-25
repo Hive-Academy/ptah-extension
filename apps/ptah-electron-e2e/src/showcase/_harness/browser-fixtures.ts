@@ -73,7 +73,7 @@ const RES_TABLE: Record<string, { width: number; height: number }> = {
 
 /**
  * Capture resolution for browser scenes. Defaults to 1440p (2560x1440) — the
- * landing page reads as a premium full-bleed dark canvas that far wide, and the
+ * landing page reads as a rich full-bleed dark canvas that far wide, and the
  * extra pixels keep camera punch-ins crisp after the 1080p supersample. Override
  * via PTAH_SHOWCASE_RES (1080p | 1440p | 4k).
  */

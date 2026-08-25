@@ -19,7 +19,7 @@ import { LucideAngularModule, Construction } from 'lucide-angular';
       >
         <lucide-angular
           [img]="ConstructionIcon"
-          class="w-7 h-7 text-base-content/40"
+          class="w-7 h-7 text-base-content-muted"
           aria-hidden="true"
         />
       </div>
@@ -27,14 +27,14 @@ import { LucideAngularModule, Construction } from 'lucide-angular';
         <h2 class="text-lg font-bold text-base-content">
           {{ providerName() }} is coming soon
         </h2>
-        <p class="text-sm text-base-content/50 mt-2 leading-relaxed">
+        <p class="text-sm text-base-content-muted mt-2 leading-relaxed">
           Integration for {{ providerName() }} is on the way. You'll be able to
           browse and install its servers directly from the Marketplace once it's
           available.
         </p>
       </div>
       <span
-        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-base-300/60 text-xs font-medium text-base-content/50"
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-base-300/60 text-xs font-medium text-base-content-muted"
       >
         Coming soon
       </span>

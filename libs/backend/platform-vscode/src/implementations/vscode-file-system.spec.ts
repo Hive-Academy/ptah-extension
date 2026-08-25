@@ -7,6 +7,9 @@
  */
 
 import 'reflect-metadata';
+import * as realFs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
 import { runFileSystemContract } from '@ptah-extension/platform-core/testing';
 import { VscodeFileSystemProvider } from './vscode-file-system-provider';
 import { __resetVscodeTestDouble, __vscodeState } from '../../__mocks__/vscode';
@@ -15,9 +18,36 @@ beforeEach(() => {
   __resetVscodeTestDouble();
 });
 
+// `createDirectoryExclusive` is the one method that does NOT go through
+// `vscode.workspace.fs` — it cannot, because that API is recursive and never
+// reports EEXIST. It uses `node:fs` instead, so its contract cases need a real
+// writable directory rather than the in-memory double's virtual `/fs` prefix
+// (which would resolve to an unwritable `C:\fs` on Windows).
+const realTmpDirs: string[] = [];
+
+async function makeRealTempDir(): Promise<string> {
+  const dir = await realFs.mkdtemp(
+    nodePath.join(os.tmpdir(), 'ptah-vscode-fs-'),
+  );
+  realTmpDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  while (realTmpDirs.length > 0) {
+    const dir = realTmpDirs.pop();
+    if (!dir) continue;
+    await realFs.rm(dir, { recursive: true, force: true }).catch(() => {
+      /* best-effort cleanup */
+    });
+  }
+});
+
 runFileSystemContract(
   'VscodeFileSystemProvider',
   () => new VscodeFileSystemProvider(),
+  undefined,
+  { exclusiveCreateRoot: makeRealTempDir },
 );
 
 describe('VscodeFileSystemProvider — VS Code-specific behaviour', () => {
@@ -58,6 +88,30 @@ describe('VscodeFileSystemProvider — VS Code-specific behaviour', () => {
     sub.dispose();
     watcher.dispose();
     expect(seen).toContain('/tmp/file.ts');
+  });
+
+  it('createDirectoryExclusive does NOT delegate to vscode.workspace.fs.createDirectory (R1)', async () => {
+    // Guard against the exact regression risk R1 names: that API is recursive
+    // and resolves on an existing directory, so routing through it would
+    // produce a fake compare-and-swap that silently never rejects.
+    const { workspace } = await import('vscode');
+    const spy = workspace.fs.createDirectory as jest.Mock;
+    spy.mockClear();
+
+    const root = await makeRealTempDir();
+    await provider.createDirectoryExclusive(`${root}/claimed`);
+
+    expect(spy).not.toHaveBeenCalled();
+    // Proves it really landed on disk rather than in the in-memory double.
+    await expect(
+      realFs.stat(nodePath.join(root, 'claimed')),
+    ).resolves.toBeDefined();
+  });
+
+  it('createDirectoryExclusive rejects for virtual (non-file) schemes rather than faking atomicity', async () => {
+    await expect(
+      provider.createDirectoryExclusive('vscode-vfs://github/user/repo/dir'),
+    ).rejects.toThrow(/requires a local file path/i);
   });
 
   it('readFile rejects with a vscode FileSystemError for missing paths', async () => {
@@ -151,5 +205,77 @@ describe('findFiles — exclude brace expansion (TASK_2026_119)', () => {
     await provider.findFiles('**/*.ts', [], 10);
 
     expect(capturedExclude).toBeUndefined();
+  });
+});
+
+describe('findFiles — cwd scoping via RelativePattern (TASK_2026_299 Task 2.5)', () => {
+  let provider: VscodeFileSystemProvider;
+
+  beforeEach(() => {
+    __resetVscodeTestDouble();
+    provider = new VscodeFileSystemProvider();
+  });
+
+  it('wraps the pattern in vscode.RelativePattern(cwd, pattern) when cwd is given', async () => {
+    const { workspace, RelativePattern } = await import('vscode');
+    let capturedInclude: unknown;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (include: unknown) => {
+        capturedInclude = include;
+        return [];
+      },
+    );
+
+    await provider.findFiles(
+      '**/*.ts',
+      undefined,
+      10,
+      'D:/projects/session-root',
+    );
+
+    expect(capturedInclude).toBeInstanceOf(RelativePattern);
+    expect((capturedInclude as InstanceType<typeof RelativePattern>).base).toBe(
+      'D:/projects/session-root',
+    );
+    expect(
+      (capturedInclude as InstanceType<typeof RelativePattern>).pattern,
+    ).toBe('**/*.ts');
+  });
+
+  it('passes the bare glob string (no RelativePattern) when cwd is undefined', async () => {
+    const { workspace } = await import('vscode');
+    let capturedInclude: unknown;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (include: unknown) => {
+        capturedInclude = include;
+        return [];
+      },
+    );
+
+    await provider.findFiles('**/*.ts', undefined, 10);
+
+    expect(capturedInclude).toBe('**/*.ts');
+  });
+
+  it('returns absolute fsPath values from matched URIs regardless of cwd scoping', async () => {
+    const { workspace } = await import('vscode');
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(async () => [
+      { fsPath: 'D:/projects/session-root/src/a.ts' },
+      { fsPath: 'D:/projects/session-root/src/b.ts' },
+    ]);
+
+    const results = await provider.findFiles(
+      '**/*.ts',
+      undefined,
+      10,
+      'D:/projects/session-root',
+    );
+
+    expect(results).toEqual([
+      'D:/projects/session-root/src/a.ts',
+      'D:/projects/session-root/src/b.ts',
+    ]);
   });
 });

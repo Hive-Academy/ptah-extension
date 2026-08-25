@@ -21,6 +21,12 @@ export function createMockPlatformCommands(
     focusChat: jest.fn(async (): Promise<void> => {
       /* noop */
     }),
+    executeCommand: jest.fn(
+      async (
+        _command: string,
+        _args?: readonly unknown[],
+      ): Promise<{ handled: boolean; error?: string }> => ({ handled: true }),
+    ),
   };
 
   if (overrides?.reloadWindow) {
@@ -31,6 +37,9 @@ export function createMockPlatformCommands(
   }
   if (overrides?.focusChat) {
     mock.focusChat = jest.fn(overrides.focusChat);
+  }
+  if (overrides?.executeCommand) {
+    mock.executeCommand = jest.fn(overrides.executeCommand);
   }
 
   return mock;

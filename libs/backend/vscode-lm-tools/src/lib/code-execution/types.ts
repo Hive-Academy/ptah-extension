@@ -23,6 +23,7 @@ import type { SkillNamespace } from './namespace-builders/skill-namespace.builde
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
+import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
@@ -45,6 +46,13 @@ export interface PtahAPI {
   browser: BrowserNamespace;
   skill: SkillNamespace;
   dependencies: DependenciesNamespace;
+  /**
+   * `.ptah/specs/` task carriers. NON-optional and never namespace-toggleable:
+   * the tools it backs are part of the always-on core set, because an agent
+   * that cannot rely on the task tools being present will write task metadata
+   * by hand — which is the failure mode this namespace exists to remove.
+   */
+  tasks: TasksNamespace;
   webSearch?: {
     search(
       query: string,
@@ -128,44 +136,39 @@ export interface SearchNamespace {
 }
 
 /**
- * Diagnostic (errors/warnings) capabilities
- * Uses VS Code's language diagnostics API
+ * Diagnostic (errors/warnings) capabilities.
+ *
+ * Each method returns a `DiagnosticsPayload` that carries status/source/reason
+ * alongside the flattened diagnostics, so the formatter can distinguish
+ * "unavailable" from "available with zero issues" (TASK_2026_299).
  */
 export interface DiagnosticsNamespace {
-  /**
-   * Get all error-level diagnostics in workspace
-   * @returns Array of error diagnostics
-   */
-  getErrors: () => Promise<DiagnosticInfo[]>;
+  getErrors: () => Promise<DiagnosticsPayload>;
+  getWarnings: () => Promise<DiagnosticsPayload>;
+  getAll: () => Promise<DiagnosticsPayload>;
+}
 
-  /**
-   * Get all warning-level diagnostics in workspace
-   * @returns Array of warning diagnostics
-   */
-  getWarnings: () => Promise<DiagnosticInfo[]>;
-
-  /**
-   * Get all diagnostics (errors, warnings, info, hints) in workspace
-   * @returns Array of all diagnostics with severity labels
-   */
-  getAll: () => Promise<DiagnosticInfo[]>;
+/**
+ * Payload returned by diagnostics namespace methods. Preserves the
+ * available/unavailable contract from `IDiagnosticsProvider`.
+ */
+export interface DiagnosticsPayload {
+  status: 'available' | 'unavailable';
+  source: string;
+  reason?: string;
+  diagnostics: DiagnosticInfo[];
 }
 
 /**
  * Diagnostic information structure
  */
 export interface DiagnosticInfo {
-  /** File path containing diagnostic */
   file: string;
-
-  /** Diagnostic message */
   message: string;
-
-  /** Line number (0-indexed) */
   line: number;
-
-  /** Severity level (error, warning, info, hint) - only in getAll() */
   severity?: string;
+  code?: string | number;
+  source?: string;
 }
 
 /**
@@ -728,15 +731,22 @@ export interface DependenciesNamespace {
 
   /**
    * Get exported symbols per file from the dependency graph
+   * @param workspaceRoot - Optional workspace root to scope the index to a
+   *   single workspace's graph; omit to use the sole graph (or a merged union
+   *   when several workspaces are open).
    * @returns Map entries of [filePath, exportedSymbolNames[]]
    */
-  getSymbolIndex: () => Promise<Array<{ file: string; symbols: string[] }>>;
+  getSymbolIndex: (
+    workspaceRoot?: string,
+  ) => Promise<Array<{ file: string; symbols: string[] }>>;
 
   /**
    * Check if the dependency graph has been built
+   * @param workspaceRoot - Optional workspace root; when provided, checks that
+   *   specific workspace's graph, otherwise true if any graph exists.
    * @returns true if buildGraph() has been called
    */
-  isBuilt: () => Promise<boolean>;
+  isBuilt: (workspaceRoot?: string) => Promise<boolean>;
 }
 
 /**
@@ -865,9 +875,15 @@ export interface AstNamespace {
   /**
    * Analyze a file and extract code insights (functions, classes, imports, exports)
    * @param filePath - Absolute or relative file path
+   * @param workspaceRoot - Optional absolute workspace root to resolve a relative
+   *   filePath against. Omit to use the active workspace. Disambiguates when
+   *   multiple workspaces are open (absolute filePaths ignore this).
    * @returns Code insights with structured information
    */
-  analyze: (filePath: string) => Promise<AstCodeInsights>;
+  analyze: (
+    filePath: string,
+    workspaceRoot?: string,
+  ) => Promise<AstCodeInsights>;
 
   /**
    * Parse a file and return the full AST structure

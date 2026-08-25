@@ -20,6 +20,13 @@
  * Abort: every run is wrapped in an `AbortController` linked to the optional
  * caller `signal`. Aborts are recorded as `skipped` with the reason carried
  * forward (`shutdown`, `runNow-cancelled`, …).
+ *
+ * Outcome: a handler that returns `{ outcome: 'skipped', reason }` is recorded
+ * as `skipped` too — it ran and deliberately did nothing (see
+ * {@link JobHandlerResult.outcome}). So `job_runs` carries three distinct
+ * terminal answers for a handler that was actually entered: `succeeded` (work
+ * happened), `skipped` (a gate closed, nothing to retry) and `failed` (it
+ * threw).
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -31,6 +38,11 @@ import { SlotAlreadyClaimedError } from './run.store';
 import type { RunId } from '@ptah-extension/shared';
 import type { IHandlerRegistry, JobHandlerResult, ScheduledJob } from './types';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import type {
   InternalQueryConfig,
   InternalQueryHandle,
@@ -82,6 +94,12 @@ export class JobRunner {
     private readonly handlers: IHandlerRegistry,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    /**
+     * Optional: a host with no in-process MCP server (the CLI) resolves
+     * nothing and every job runs exactly as it did before.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   /**
@@ -156,14 +174,41 @@ export class JobRunner {
 
     try {
       const result = await this.dispatch(job, scheduledFor, localCtl);
-      this.runs.markSucceeded(runId, result.summary);
+      // A handler that ran to completion and deliberately did nothing is not a
+      // success. `markSucceeded` used to be unconditional here, so a skill
+      // drain that stopped at its daily token budget wrote "succeeded" into
+      // `cron:runs` roughly once a minute (TASK_2026_315 / C2) — the history a
+      // user reads to find out why background work stopped was the one place
+      // that denied it had. `outcome` is the handler's own verdict; absent
+      // still means succeeded.
+      if (result.outcome === 'skipped') {
+        this.runs.markSkipped(
+          runId,
+          result.reason ?? result.summary ?? 'handler-skipped',
+        );
+      } else {
+        this.runs.markSucceeded(runId, result.summary);
+      }
+      // `lastRunAt` records that the HANDLER executed, which is true of both
+      // branches above and of the failure branch below — the job fired on
+      // schedule and reached a verdict. The runner's own two skips
+      // (concurrency cap, abort) deliberately leave it alone: there the
+      // handler never ran at all.
       if (!opts.suppressJobTimestamps) {
         this.jobs.update(job.id, { lastRunAt: Date.now() });
       }
-      this.logger.debug('[cron-scheduler] run succeeded', {
-        jobId: job.id,
-        runId,
-      });
+      if (result.outcome === 'skipped') {
+        this.logger.debug('[cron-scheduler] run skipped by handler', {
+          jobId: job.id,
+          runId,
+          reason: result.reason,
+        });
+      } else {
+        this.logger.debug('[cron-scheduler] run succeeded', {
+          jobId: job.id,
+          runId,
+        });
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (localCtl.signal.aborted) {
@@ -213,8 +258,10 @@ export class JobRunner {
       cwd: job.workspaceRoot ?? process.cwd(),
       model: '',
       prompt: job.prompt,
-      isPremium: false,
-      mcpServerRunning: false,
+      // A cron job used to run with MCP hard-disabled, so it could not call a
+      // single Ptah tool on a host where the server was listening the whole
+      // time (defect 13). Derived now, from the live port.
+      ...resolveMcpSessionWiring(this.mcpServerStatus),
       abortController: ctl,
     });
 

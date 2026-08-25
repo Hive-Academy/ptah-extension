@@ -42,6 +42,9 @@ const wasmFiles = [
   { src: grammarWasmSource, name: 'tree-sitter-typescript.wasm' },
   { src: grammarWasmSource, name: 'tree-sitter-python.wasm' },
   { src: grammarWasmSource, name: 'tree-sitter-go.wasm' },
+  // C# is the largest grammar by a wide margin (~4.9 MB raw, ~0.3 MB once the
+  // VSIX/asar zip compresses it). Keep it last so the size delta is obvious.
+  { src: grammarWasmSource, name: 'tree-sitter-c-sharp.wasm' },
 ];
 
 fs.mkdirSync(wasmDest, { recursive: true });

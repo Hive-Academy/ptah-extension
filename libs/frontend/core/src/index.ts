@@ -12,6 +12,7 @@ export {
 } from './lib/tokens/workspace-coordinator.token';
 
 export {
+  type LazyViewLoader,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,

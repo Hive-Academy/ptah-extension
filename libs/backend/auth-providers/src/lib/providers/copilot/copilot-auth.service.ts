@@ -23,6 +23,8 @@ import axios from 'axios';
 import { join } from 'node:path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
@@ -33,6 +35,7 @@ import type {
   ICopilotAuthService,
   CopilotAuthState,
   CopilotDeviceLoginInfo,
+  CopilotLoginOptions,
   CopilotPollLoginOptions,
   CopilotTokenResponse,
 } from './copilot-provider.types';
@@ -74,6 +77,32 @@ const DEFAULT_POLL_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Auto-prune in-flight device-code entries after this many milliseconds. */
 const PENDING_LOGIN_PRUNE_MS = 10 * 60 * 1000;
+
+/**
+ * Ptah-side logout tombstone key, persisted in the global settings store
+ * (`~/.ptah/settings.json` on every host).
+ *
+ * WHY A TOMBSTONE AND NOT A FILE DELETE (TASK_2026_172 Issue 2):
+ * `logout()` used to null only the in-memory `authState`, so the very next
+ * `configure()` called `tryRestoreAuth()`, re-read the still-present
+ * `~/.config/github-copilot/hosts.json`, and silently signed the user back in
+ * — logout did nothing durable.
+ *
+ * The obvious fix — delete `hosts.json` — is WRONG. That file is the shared,
+ * cross-editor GitHub Copilot credential store: VS Code's own Copilot
+ * extension, Neovim, JetBrains, and the Copilot CLI all read and write it.
+ * Ptah did not necessarily create it and cannot prove that it did, so deleting
+ * it would log the user out of Copilot in every editor on the machine as a
+ * side effect of a Ptah-local action. Copilot's own device-code flow offers no
+ * revoke endpoint we could scope to Ptah either.
+ *
+ * So Ptah records its OWN intent instead: a boolean in Ptah's settings that
+ * `tryRestoreAuth()` honors. Silent restore is the only path the tombstone
+ * blocks — an EXPLICIT login (`login()`, or `beginLogin()` + `pollLogin()`)
+ * clears it first, because the user asking to sign in supersedes their earlier
+ * request to sign out. `hosts.json` is never touched.
+ */
+const COPILOT_LOGOUT_TOMBSTONE_KEY = 'provider.github-copilot.loggedOut';
 
 /**
  * In-flight device-code login entry tracked by {@link CopilotAuthService}.
@@ -125,7 +154,70 @@ export class CopilotAuthService implements ICopilotAuthService {
     private readonly userInteraction: IUserInteraction,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SETTINGS_TOKENS.SETTINGS_STORE)
+    private readonly settingsStore: ISettingsStore,
   ) {}
+
+  /**
+   * True when the user explicitly logged out of Copilot in Ptah and has not
+   * explicitly logged back in. See {@link COPILOT_LOGOUT_TOMBSTONE_KEY}.
+   *
+   * Protected so `VscodeCopilotAuthService` can gate its own silent-restore
+   * path (VS Code's native GitHub session) on the same flag — that override
+   * runs BEFORE `super.tryRestoreAuth()`, so a base-class-only check would
+   * leave the VS Code host silently re-authenticating.
+   */
+  protected isLogoutTombstoneSet(): boolean {
+    try {
+      return (
+        this.settingsStore.readGlobal<boolean>(COPILOT_LOGOUT_TOMBSTONE_KEY) ===
+        true
+      );
+    } catch (error: unknown) {
+      // A settings-store read failure must never make auth *stricter* than the
+      // user asked for; treat it as "no tombstone" and log.
+      this.logger.warn(
+        `[CopilotAuth] Failed to read logout tombstone: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
+    }
+  }
+
+  /** Record the user's explicit intent to stay signed out. */
+  private async setLogoutTombstone(): Promise<void> {
+    try {
+      await this.settingsStore.writeGlobal(COPILOT_LOGOUT_TOMBSTONE_KEY, true);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[CopilotAuth] Failed to persist logout tombstone — logout will not survive a restart: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Drop the tombstone. Called at the top of every EXPLICIT login entry point
+   * (`login()`, `pollLogin()` on success) — an explicit sign-in supersedes an
+   * earlier sign-out. Never called from a silent-restore path.
+   */
+  protected async clearLogoutTombstone(): Promise<void> {
+    try {
+      if (!this.isLogoutTombstoneSet()) return;
+      await this.settingsStore.writeGlobal(COPILOT_LOGOUT_TOMBSTONE_KEY, false);
+      this.logger.info(
+        '[CopilotAuth] Cleared logout tombstone (explicit login requested)',
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[CopilotAuth] Failed to clear logout tombstone: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   /**
    * Get the extension version from package.json at the extension path.
@@ -157,11 +249,17 @@ export class CopilotAuthService implements ICopilotAuthService {
    *
    * The VscodeCopilotAuthService subclass adds VS Code native auth as highest priority.
    *
+   * @param opts - optional observer hooks. `onDeviceCode` fires as soon as the
+   *   device code is known, before this method blocks in `pollLogin`.
    * @returns true if authentication succeeded, false otherwise
    */
-  async login(): Promise<boolean> {
+  async login(opts: CopilotLoginOptions = {}): Promise<boolean> {
     try {
       this.logger.info('[CopilotAuth] Starting authentication...');
+      // Explicit login supersedes an earlier explicit logout. Cleared BEFORE
+      // the file-based attempt below, which is otherwise indistinguishable
+      // from the silent restore the tombstone exists to block.
+      await this.clearLogoutTombstone();
       const fileRestored = await this.tryFileBasedAuth();
       if (fileRestored) {
         return true;
@@ -171,6 +269,11 @@ export class CopilotAuthService implements ICopilotAuthService {
       );
 
       const deviceLogin = await this.beginLogin();
+      // Notify observers FIRST: `surfaceDeviceCodeToUser` awaits clipboard and
+      // browser-launch subprocesses that can stall on headless machines, and
+      // `pollLogin` then blocks for up to five minutes. A headless caller that
+      // learns the code only after those awaits has effectively learned nothing.
+      this.notifyDeviceCode(opts.onDeviceCode, deviceLogin);
       await this.surfaceDeviceCodeToUser(
         deviceLogin.userCode,
         deviceLogin.verificationUri,
@@ -181,6 +284,27 @@ export class CopilotAuthService implements ICopilotAuthService {
         `[CopilotAuth] Login failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
+    }
+  }
+
+  /**
+   * Invoke the caller-supplied device-code observer without letting a faulty
+   * observer abort the login flow. Protected so the VS Code subclass can reuse
+   * it if it ever grows its own device-code path.
+   */
+  protected notifyDeviceCode(
+    onDeviceCode: CopilotLoginOptions['onDeviceCode'],
+    info: CopilotDeviceLoginInfo,
+  ): void {
+    if (!onDeviceCode) return;
+    try {
+      onDeviceCode(info);
+    } catch (error) {
+      this.logger.warn(
+        `[CopilotAuth] Device-code observer threw (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
@@ -221,6 +345,12 @@ export class CopilotAuthService implements ICopilotAuthService {
    */
   async tryRestoreAuth(): Promise<boolean> {
     try {
+      if (this.isLogoutTombstoneSet()) {
+        this.logger.info(
+          '[CopilotAuth] Silent restore skipped — user logged out of Copilot in Ptah. Sign in again from Settings > Authentication to reconnect.',
+        );
+        return false;
+      }
       this.logger.info(
         '[CopilotAuth] Attempting silent auth restore from file...',
       );
@@ -377,6 +507,10 @@ export class CopilotAuthService implements ICopilotAuthService {
       if (!exchanged) {
         return false;
       }
+      // Headless callers (TUI / `ptah auth copilot login`) drive beginLogin +
+      // pollLogin directly and never reach `login()`, so the tombstone must be
+      // cleared here too or a CLI re-login would not stick.
+      await this.clearLogoutTombstone();
       try {
         await writeCopilotToken(githubToken);
         this.logger.info(
@@ -523,12 +657,23 @@ export class CopilotAuthService implements ICopilotAuthService {
   }
 
   /**
-   * Clear cached auth state (logout).
-   * Does not revoke the GitHub session â€” only clears the Copilot bearer token.
+   * Log out of Copilot *in Ptah*.
+   *
+   * Clears the cached bearer token AND persists a Ptah-side logout tombstone
+   * so `tryRestoreAuth()` stops silently signing the user back in from
+   * `~/.config/github-copilot/hosts.json` on the next `configure()`.
+   *
+   * Deliberately does NOT delete `hosts.json` and does NOT revoke the GitHub
+   * OAuth grant: that file is shared with the user's editor Copilot
+   * integrations, so removing it would sign them out of Copilot everywhere.
+   * See {@link COPILOT_LOGOUT_TOMBSTONE_KEY} for the full rationale.
    */
   async logout(): Promise<void> {
     this.authState = null;
-    this.logger.info('[CopilotAuth] Logged out, cached state cleared');
+    await this.setLogoutTombstone();
+    this.logger.info(
+      '[CopilotAuth] Logged out of Copilot in Ptah (cached token cleared, silent restore disabled). The editor Copilot session on this machine is untouched.',
+    );
   }
 
   /**

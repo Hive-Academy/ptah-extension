@@ -3,14 +3,126 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
   IDisposable,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type { Logger, SentryService } from '@ptah-extension/vscode-core';
+import { watchWorkspaceFolders } from './workspace-folder-watchers';
+
+/**
+ * Frontmatter block plus the markdown body that follows it.
+ *
+ * Values are narrowed to strings: every field this service consumes
+ * (`name`, `description`, `argument-hint`, `allowed-tools`, `model`) is a
+ * scalar string in practice, and the tolerant fallback below can only ever
+ * produce strings.
+ */
+interface ParsedFrontmatter {
+  readonly data: Record<string, string>;
+  readonly content: string;
+}
+
+/** `---\n…\n---\n<body>`, tolerating a BOM and CRLF line endings. */
+const FRONTMATTER_BLOCK =
+  /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
+
+const FRONTMATTER_ENTRY = /^([A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/;
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === '"' || first === "'") && first === last) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+/**
+ * Line-oriented frontmatter reader used when strict YAML parsing fails.
+ *
+ * Splits each entry on its FIRST colon and takes the remainder of the line
+ * verbatim, which is precisely what strict YAML refuses to do. Skill authors
+ * routinely write
+ *
+ *   description: Interactive designer. Use when users want to: (1) do a thing
+ *
+ * — legal for Claude Code's tolerant reader, but a hard parse error for
+ * js-yaml ("incomplete explicit mapping pair"). Indented lines continue the
+ * previous key so folded descriptions survive too.
+ */
+function parseFrontmatterTolerant(raw: string): ParsedFrontmatter {
+  const match = FRONTMATTER_BLOCK.exec(raw);
+  if (!match) return { data: {}, content: raw };
+
+  const [, block, body = ''] = match;
+  const data: Record<string, string> = {};
+  let currentKey: string | null = null;
+
+  for (const line of block.split(/\r?\n/)) {
+    if (line.trim().length === 0 || line.trimStart().startsWith('#')) continue;
+
+    const entry = FRONTMATTER_ENTRY.exec(line);
+    if (entry) {
+      currentKey = entry[1];
+      data[currentKey] = stripWrappingQuotes(entry[2]);
+      continue;
+    }
+    // Indented continuation of the previous key (folded scalar).
+    if (currentKey !== null && /^[ \t]/.test(line)) {
+      data[currentKey] = `${data[currentKey]} ${line.trim()}`.trim();
+    }
+  }
+
+  return { data, content: body };
+}
+
+/**
+ * Parse frontmatter, degrading to {@link parseFrontmatterTolerant} instead of
+ * throwing. A skill whose description merely contains an unquoted colon used
+ * to be dropped from discovery entirely in all three hosts.
+ */
+function parseFrontmatterLenient(
+  raw: string,
+  onFallback?: () => void,
+): ParsedFrontmatter {
+  try {
+    // The options argument is load-bearing, not decoration. gray-matter
+    // populates `matter.cache[content]` with the UNPARSED file object BEFORE
+    // it runs the YAML parser (index.js:47 then :50), so once a document
+    // throws, that poisoned entry — `data: {}` — is what every later call for
+    // the same content returns, silently and without throwing. Discovery
+    // re-scans on every file-watcher event, so a skill would parse-fail once
+    // and then be served with empty frontmatter forever, never reaching the
+    // fallback below. Passing any options object opts out of the cache
+    // entirely (index.js:37).
+    const parsed = matter(raw, {});
+    return {
+      data: parsed.data as Record<string, string>,
+      content: parsed.content,
+    };
+  } catch {
+    onFallback?.();
+    return parseFrontmatterTolerant(raw);
+  }
+}
+
+/** Node's errno shape, for distinguishing "no such file" from real failures. */
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
+}
 
 /**
  * Command information
@@ -41,6 +153,12 @@ export interface CommandDiscoveryResult {
 export interface CommandSearchRequest {
   query: string;
   maxResults?: number;
+  /**
+   * Answer for this workspace specifically, overriding the process-global
+   * `IWorkspaceProvider`. Omit for the active folder (pre-TASK_2026_200
+   * behaviour). Same contract as `AgentSearchRequest.workspaceRoot`.
+   */
+  workspaceRoot?: string;
 }
 
 /**
@@ -49,21 +167,46 @@ export interface CommandSearchRequest {
  * ARCHITECTURE:
  * - Hardcoded built-in commands (6 total)
  * - Scans .claude/commands/ directories (project + user)
- * - Scans .claude/skills/ directory (junctioned by SkillJunctionService)
+ * - Scans .claude/skills/ directory (populated by HarnessReconciler)
  * - Parses YAML frontmatter for command metadata
  * - Watches for file changes (real-time invalidation)
  *
  * Commands and skills are discovered from the workspace .claude/ directory
- * (the source of truth) — NOT from plugin source directories. The
- * SkillJunctionService copies commands to .claude/commands/ and junctions
- * skills to .claude/skills/ at activation time. This avoids plugin-namespaced
- * entries (e.g. ptah-core:orchestrate) that the SDK can't resolve since
- * plugins are not passed via the SDK query option.
+ * (the source of truth) — NOT from plugin source directories.
+ * `HarnessReconciler` (@ptah-extension/harness-sync) copies both surfaces
+ * there from the user layer at activation and on every harness trigger. This
+ * avoids plugin-namespaced entries (e.g. ptah-core:orchestrate) that the SDK
+ * can't resolve since plugins are not passed via the SDK query option.
  */
 @injectable()
 export class CommandDiscoveryService {
-  private cache: CommandInfo[] = [];
-  private watchers: IDisposable[] = [];
+  /**
+   * Discovered commands PER WORKSPACE, keyed by `normalizeWorkspaceRoot()`.
+   *
+   * TASK_2026_200 keyed a single slot, which killed the wrong-workspace answer
+   * (a request for a root the slot did not belong to rescans rather than
+   * serving another workspace's commands). What one slot cannot do is hold two
+   * workspaces — folders in alternating use evicted each other on every `/`
+   * keystroke — or be invalidated per folder, which is what the file watcher
+   * now needs. See `AgentDiscoveryService.caches`; the two are deliberately the
+   * same shape.
+   */
+  private readonly caches = new Map<string, CommandInfo[]>();
+
+  /** Retained workspaces before the least-recently-discovered is evicted. */
+  private static readonly CACHE_CAP = 8;
+
+  private folderWatchers: IDisposable | undefined;
+
+  /**
+   * Skills directories already reported ABSENT this process.
+   *
+   * Only the absent case is memoised — an unreadable directory keeps reporting,
+   * because it is a live fault the user needs to keep seeing. Cleared for a
+   * directory the moment it scans successfully, so one that appears and later
+   * disappears again is a fresh report. See the catch in `scanWorkspaceSkills`.
+   */
+  private readonly reportedSkillsDirFailures = new Set<string>();
 
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -72,23 +215,42 @@ export class CommandDiscoveryService {
     private readonly fsProvider: IFileSystemProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger,
   ) {}
 
   /**
    * Invalidate the command cache.
-   * Called when plugin configuration changes so the next search
-   * picks up newly junctioned skills and copied commands.
+   *
+   * With a root, only that workspace's entry goes — what the per-folder file
+   * watcher uses. Without one, everything goes, which is what the plugin
+   * handlers want: a plugin install or a harness reconcile rewrites
+   * `.claude/commands` and `.claude/skills` and is not attributable to a single
+   * folder, so over-invalidating (a rescan) beats under-invalidating (a stale
+   * list). The no-argument call is unchanged for those callers.
    */
-  invalidateCache(): void {
-    this.cache = [];
+  invalidateCache(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) {
+      this.caches.clear();
+      return;
+    }
+    this.caches.delete(normalizeWorkspaceRoot(workspaceRoot));
   }
 
   /**
-   * Discover all commands (built-in + custom + skills)
+   * Discover all commands (built-in + custom + skills).
+   *
+   * @param explicitRoot Scan this workspace instead of the process-global
+   * active folder. Omitted → `IWorkspaceProvider.getWorkspaceRoot()`, exactly
+   * as before TASK_2026_200.
    */
-  async discoverCommands(): Promise<CommandDiscoveryResult> {
+  async discoverCommands(
+    explicitRoot?: string,
+  ): Promise<CommandDiscoveryResult> {
     try {
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      // An explicit root ALWAYS wins over the provider — see discoverAgents.
+      const workspaceRoot =
+        explicitRoot ?? this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return { success: false, error: 'No workspace folder open' };
       }
@@ -109,7 +271,7 @@ export class CommandDiscoveryService {
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
         ...workspaceSkills,
       ];
-      this.cache = allCommands;
+      this.publish(normalizeWorkspaceRoot(workspaceRoot), allCommands);
 
       return { success: true, commands: allCommands };
     } catch (error) {
@@ -129,18 +291,38 @@ export class CommandDiscoveryService {
     request: CommandSearchRequest,
   ): Promise<CommandDiscoveryResult> {
     try {
-      if (this.cache.length === 0) {
-        await this.discoverCommands();
+      const { query, maxResults = 20, workspaceRoot } = request;
+      const root = workspaceRoot ?? this.workspaceProvider.getWorkspaceRoot();
+      const rootKey = root ? normalizeWorkspaceRoot(root) : undefined;
+
+      // Resolve into a LOCAL and filter that — never re-read the cache after an
+      // await. See `AgentDiscoveryService.searchAgents` for why: a concurrent
+      // discovery can publish or evict entries while we are suspended.
+      const cached =
+        rootKey === undefined ? undefined : this.caches.get(rootKey);
+      let commands: CommandInfo[];
+      if (cached !== undefined && cached.length > 0) {
+        // Lookup and read in one synchronous block.
+        commands = cached;
+      } else {
+        const discovered = await this.discoverCommands(root);
+        // The awaited call's OWN return value — immune to a later publish.
+        //
+        // A failed discovery degrades to an empty list rather than propagating
+        // `success: false`. That is deliberate bug-for-bug parity with the
+        // pre-TASK_2026_200 code, which ignored `discoverCommands()`'s return
+        // entirely and then sliced an empty `cache`. Propagating here would
+        // turn "no workspace folder open" from an empty `/` picker into an
+        // error toast — a UX regression outside this task's scope.
+        commands = discovered.commands ?? [];
       }
 
-      const { query, maxResults = 20 } = request;
-
       if (!query || query.trim() === '') {
-        return { success: true, commands: this.cache.slice(0, maxResults) };
+        return { success: true, commands: commands.slice(0, maxResults) };
       }
 
       const lowerQuery = query.toLowerCase();
-      const filtered = this.cache.filter(
+      const filtered = commands.filter(
         (cmd) =>
           cmd.name.toLowerCase().includes(lowerQuery) ||
           cmd.description.toLowerCase().includes(lowerQuery),
@@ -158,30 +340,28 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Initialize file watchers
+   * Initialize file watchers.
+   *
+   * One watcher PER OPEN FOLDER, invalidating the folder it was armed for —
+   * see `AgentDiscoveryService.initializeWatchers` for the full argument,
+   * including why this satisfies the old "do not root-parameterize" constraint
+   * rather than overruling it (nothing is pinned; the folder set is re-armed
+   * when it changes).
+   *
+   * Idempotent — a second call is a no-op rather than a second watcher set.
    */
   initializeWatchers(): void {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (!workspaceRoot) return;
-    const projectWatcher = this.fsProvider.createFileWatcher(
+    if (this.folderWatchers) return;
+    this.folderWatchers = watchWorkspaceFolders(
+      this.workspaceProvider,
+      this.fsProvider,
       '.claude/commands/**/*.md',
-    );
-
-    const refreshCache = () => {
-      this.discoverCommands().catch((error) => {
-        console.error('[CommandDiscovery] Failed to refresh cache:', error);
-      });
-    };
-
-    const createDisposable = projectWatcher.onDidCreate(refreshCache);
-    const changeDisposable = projectWatcher.onDidChange(refreshCache);
-    const deleteDisposable = projectWatcher.onDidDelete(refreshCache);
-
-    this.watchers.push(
-      projectWatcher,
-      createDisposable,
-      changeDisposable,
-      deleteDisposable,
+      (folder) => this.invalidateCache(folder),
+      (folder, error) =>
+        this.logger.warn('[CommandDiscovery] command watcher unavailable', {
+          folder,
+          error: error instanceof Error ? error.message : String(error),
+        }),
     );
   }
 
@@ -218,6 +398,12 @@ export class CommandDiscoveryService {
       {
         name: 'cost',
         description: 'Show API cost for current session',
+        scope: 'builtin',
+      },
+      {
+        name: 'deep-research',
+        description: 'Deep multi-source research workflow → cited report',
+        argumentHint: '<question>',
         scope: 'builtin',
       },
     ];
@@ -280,8 +466,14 @@ export class CommandDiscoveryService {
   ): Promise<CommandInfo | null> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
-      const { data: frontmatter, content: template } = matter(content);
-      let description = frontmatter['description'];
+      const { data: frontmatter, content: template } = parseFrontmatterLenient(
+        content,
+        () =>
+          console.debug(
+            `[CommandDiscovery] Strict YAML frontmatter failed for ${filePath}; using tolerant parse`,
+          ),
+      );
+      let description: string | null | undefined = frontmatter['description'];
       if (!description) {
         description = this.extractDescriptionFromMarkdown(template);
       }
@@ -338,12 +530,13 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Scan workspace .claude/skills/ directory for junctioned skill definitions.
+   * Scan workspace .claude/skills/ for skill definitions.
    *
-   * SkillJunctionService creates junctions/symlinks from .claude/skills/{name}/
-   * to the plugin's skills directory. Each skill directory contains a SKILL.md
-   * with YAML frontmatter (name, description). Skills are listed without a
-   * plugin namespace prefix so they resolve correctly when invoked as /skill-name.
+   * `HarnessReconciler` copies each enabled skill from the user layer into
+   * `.claude/skills/{name}/` — a real directory since TASK_2026_278, not the
+   * junction it used to be. Each contains a SKILL.md with YAML frontmatter
+   * (name, description). Skills are listed without a plugin namespace prefix so
+   * they resolve correctly when invoked as /skill-name.
    */
   private async scanWorkspaceSkills(skillsDir: string): Promise<CommandInfo[]> {
     const skills: CommandInfo[] = [];
@@ -357,7 +550,14 @@ export class CommandDiscoveryService {
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
         try {
           const content = await fs.readFile(skillMdPath, 'utf-8');
-          const { data: frontmatter } = matter(content);
+          // Tolerant parse: an unquoted colon in `description:` is legal for
+          // Claude Code's reader but a hard js-yaml error, and it used to drop
+          // the skill from discovery altogether.
+          const { data: frontmatter } = parseFrontmatterLenient(content, () =>
+            console.debug(
+              `[CommandDiscovery] Strict YAML frontmatter failed for ${skillMdPath}; using tolerant parse`,
+            ),
+          );
 
           const name = frontmatter['name'] || entry.name;
           const description = frontmatter['description'] || 'Skill';
@@ -372,17 +572,41 @@ export class CommandDiscoveryService {
             filePath: skillMdPath,
           });
         } catch (error) {
+          // A directory without a SKILL.md simply is not a skill (e.g. a
+          // stray `dist/`). That is not an error worth reporting.
+          if (isEnoent(error)) continue;
           console.debug(
             `[CommandDiscovery] Cannot read SKILL.md at ${skillMdPath}:`,
             error instanceof Error ? error.message : String(error),
           );
         }
       }
-    } catch (error) {
-      console.debug(
-        `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
-        error instanceof Error ? error.message : String(error),
-      );
+      this.reportedSkillsDirFailures.delete(skillsDir);
+    } catch (error: unknown) {
+      // A workspace with no `.claude/skills` is the ordinary state of a
+      // workspace nobody has run the reconciler in — and this scan runs on
+      // every `autocomplete:commands` call, so reporting it each time was pure
+      // per-keystroke noise. Worse, it also raised a Sentry exception for a
+      // directory that was never expected to exist, spending the error budget
+      // on the normal case (TASK_2026_315 C5).
+      //
+      // A directory that IS there and cannot be read is a different event:
+      // that one still warns and still reaches Sentry, because it means the
+      // user's skills silently stopped resolving and nothing else would say so.
+      if (isEnoent(error)) {
+        if (!this.reportedSkillsDirFailures.has(skillsDir)) {
+          this.reportedSkillsDirFailures.add(skillsDir);
+          this.logger.debug('[CommandDiscovery] No skills directory here', {
+            skillsDir,
+          });
+        }
+        return skills;
+      }
+
+      this.logger.warn('[CommandDiscovery] Skills directory unreadable', {
+        skillsDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         { errorSource: 'CommandDiscoveryService.scanWorkspaceSkills' },
@@ -393,10 +617,25 @@ export class CommandDiscoveryService {
   }
 
   /**
+   * Publish a workspace's command list, evicting the least recently discovered
+   * workspace once the map exceeds {@link CACHE_CAP}. Mirrors
+   * `AgentDiscoveryService.publish`.
+   */
+  private publish(rootKey: string, commands: CommandInfo[]): void {
+    this.caches.delete(rootKey);
+    this.caches.set(rootKey, commands);
+    while (this.caches.size > CommandDiscoveryService.CACHE_CAP) {
+      const oldest = this.caches.keys().next();
+      if (oldest.done) break;
+      this.caches.delete(oldest.value);
+    }
+  }
+
+  /**
    * Cleanup on disposal
    */
   dispose(): void {
-    this.watchers.forEach((w) => w.dispose());
-    this.watchers = [];
+    this.folderWatchers?.dispose();
+    this.folderWatchers = undefined;
   }
 }

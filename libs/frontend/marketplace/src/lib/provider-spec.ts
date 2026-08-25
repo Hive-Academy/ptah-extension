@@ -23,8 +23,6 @@ export interface MarketplaceProviderSpec {
   readonly kind: MarketplaceProviderKind;
   /** Optional short tagline for the provider list row. */
   readonly tagline?: string;
-  /** Whether selecting this provider requires Pro (drives in-view gate copy). */
-  readonly proGated?: boolean;
   /**
    * Content surface resolver. For 'live' providers, the component that renders
    * the provider's browse/install UI (already-OnPush standalone). For

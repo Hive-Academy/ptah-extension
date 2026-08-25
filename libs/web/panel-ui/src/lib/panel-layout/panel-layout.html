@@ -1,0 +1,187 @@
+<!--
+  Shared panel shell — daisyUI drawer.
+
+  Surface roles (see docs/design-system/panel-theme-spec.md): canvas =
+  base-100, chrome + cards = base-200, hover/active = surface-high, and every
+  boundary is border-hairline. base-300 is a fill, never a border — at 1.05:1
+  against a base-200 card it is invisible.
+-->
+<div
+  [attr.data-theme]="theme()"
+  class="drawer lg:drawer-open min-h-screen bg-base-100"
+>
+  <input [id]="drawerId()" type="checkbox" class="drawer-toggle" />
+
+  <!-- MAIN CONTENT -->
+  <div class="drawer-content flex flex-col">
+    <header
+      class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-hairline bg-base-200 px-4 py-3 lg:px-6"
+    >
+      <div class="flex items-center gap-3">
+        <label
+          [for]="drawerId()"
+          class="btn btn-ghost btn-sm lg:hidden"
+          [attr.aria-label]="menuLabel()"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </label>
+        <h1 class="text-xl font-bold lg:text-2xl">{{ title() }}</h1>
+        @if (badgeLabel(); as badge) {
+          <span class="badge badge-sm" [class]="badgeClass()">{{ badge }}</span>
+        }
+      </div>
+
+      <div class="flex items-center gap-2 text-sm text-base-content-muted">
+        <ng-content select="[panelTopBar]" />
+      </div>
+    </header>
+
+    <main class="flex-1 p-4 lg:p-6">
+      <router-outlet />
+    </main>
+  </div>
+
+  <!-- SIDEBAR -->
+  <aside class="drawer-side z-20">
+    <label
+      [for]="drawerId()"
+      aria-label="Close menu"
+      class="drawer-overlay"
+    ></label>
+    <nav
+      class="flex min-h-full w-64 flex-col gap-0.5 border-r border-hairline bg-base-200 p-3"
+    >
+      @for (group of navGroups(); track group.label; let first = $first) {
+        @if (group.flat) {
+          <!-- Flat group: a headerless standalone link (no group chrome) -->
+          <ul class="flex flex-col gap-0.5" [class.mt-3]="!first">
+            @for (item of group.items; track item.route) {
+              <ng-container
+                [ngTemplateOutlet]="navLink"
+                [ngTemplateOutletContext]="{ item: item, forcePrimary: true }"
+              />
+            }
+          </ul>
+        } @else {
+          <div class="mt-5 first:mt-0">
+            <button
+              type="button"
+              class="mb-1 flex w-full items-center gap-2 rounded px-2.5 py-1 hover:bg-surface-high"
+              (click)="toggleGroup(group.label)"
+              [attr.aria-expanded]="!isCollapsed(group.label)"
+            >
+              <span
+                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
+              >
+                {{ group.label }}
+              </span>
+              @if (hasSecondary(group)) {
+                <lucide-angular
+                  [img]="ChevronDownIcon"
+                  class="h-3.5 w-3.5 shrink-0 text-base-content-muted transition-transform"
+                  [class.-rotate-90]="isCollapsed(group.label)"
+                  aria-hidden="true"
+                />
+              }
+            </button>
+
+            <ul class="flex flex-col gap-0.5">
+              @for (item of group.items; track item.route) {
+                @if (item.primary || !isCollapsed(group.label)) {
+                  <ng-container
+                    [ngTemplateOutlet]="navLink"
+                    [ngTemplateOutletContext]="{
+                      item: item,
+                      forcePrimary: false,
+                    }"
+                  />
+                }
+              }
+            </ul>
+          </div>
+        }
+      }
+
+      <div class="mt-auto pt-4">
+        <ng-content select="[panelSidebarFooter]" />
+      </div>
+    </nav>
+  </aside>
+</div>
+
+<!--
+  Shared nav link. Inactive links stay calm (base-content/80 and /60); ONLY the
+  active route takes the primary highlight, so the current page is unambiguous.
+  Primary (or flat) items carry an icon + left rail; secondary items indent.
+-->
+<ng-template #navLink let-item="item" let-forcePrimary="forcePrimary">
+  @if (item.primary || forcePrimary) {
+    <li>
+      <a
+        [routerLink]="item.route"
+        [routerLinkActive]="primaryActiveClass"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-base-content-muted transition-colors hover:bg-surface-high hover:text-base-content"
+      >
+        @if (item.icon) {
+          <lucide-angular
+            [img]="item.icon"
+            class="h-[18px] w-[18px] shrink-0"
+            aria-hidden="true"
+          />
+        }
+        <span class="flex-1">{{ item.label }}</span>
+        @if (item.badgeCount) {
+          <span class="badge badge-primary badge-xs font-semibold">
+            {{ item.badgeCount }}
+          </span>
+        }
+        @if (item.readOnly) {
+          <span
+            class="badge badge-ghost badge-xs text-base-content-muted"
+            title="Read-only"
+          >
+            ro
+          </span>
+        }
+      </a>
+    </li>
+  } @else {
+    <li>
+      <a
+        [routerLink]="item.route"
+        [routerLinkActive]="secondaryActiveClass"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
+        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-base-content-muted transition-colors hover:bg-surface-high hover:text-base-content"
+      >
+        <span>{{ item.label }}</span>
+        @if (item.badgeCount) {
+          <span class="badge badge-primary badge-xs font-semibold">
+            {{ item.badgeCount }}
+          </span>
+        }
+        @if (item.readOnly) {
+          <span
+            class="badge badge-ghost badge-xs text-base-content-muted"
+            title="Read-only"
+          >
+            ro
+          </span>
+        }
+      </a>
+    </li>
+  }
+</ng-template>

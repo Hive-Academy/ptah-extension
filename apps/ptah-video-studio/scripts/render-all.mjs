@@ -33,6 +33,7 @@ import {
   APP_ROOT,
   WORKSPACE_ROOT,
 } from './paths.mjs';
+import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -785,6 +786,10 @@ function renderScene(scene, concurrency, outRes, opts) {
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
+
+  // Absolute-level master (see lib/master-audio.mjs) — Remotion only sets the
+  // mix balance, so without this the file plays ~8 dB under platform target.
+  console.log(`[render] ${scene} master: ${describeMasterResult(masterAudio(outFile))}`);
 }
 
 const HELP = `render-all.mjs — render one mp4 per captured scene.

@@ -12,7 +12,11 @@ import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 type StoreSlice = Pick<
   AgentMonitorStore,
-  'onAgentSpawned' | 'onAgentOutput' | 'onAgentExited' | 'onPermissionRequest'
+  | 'onAgentSpawned'
+  | 'onAgentOutput'
+  | 'onAgentExited'
+  | 'onAgentExpired'
+  | 'onPermissionRequest'
 >;
 
 describe('AgentMonitorMessageHandler', () => {
@@ -24,6 +28,7 @@ describe('AgentMonitorMessageHandler', () => {
       onAgentSpawned: jest.fn(),
       onAgentOutput: jest.fn(),
       onAgentExited: jest.fn(),
+      onAgentExpired: jest.fn(),
       onPermissionRequest: jest.fn(),
     } as jest.Mocked<StoreSlice>;
 
@@ -38,13 +43,22 @@ describe('AgentMonitorMessageHandler', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('declares the four AGENT_MONITOR_* message types', () => {
+  it('declares the five AGENT_MONITOR_* message types', () => {
     expect(handler.handledMessageTypes).toEqual([
       MESSAGE_TYPES.AGENT_MONITOR_SPAWNED,
       MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
       MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+      MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
       MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
     ]);
+  });
+
+  it('routes AGENT_MONITOR_EXPIRED → store.onAgentExpired with the id', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
+      payload: { agentId: 'a1' },
+    });
+    expect(store.onAgentExpired).toHaveBeenCalledWith('a1');
   });
 
   it('routes AGENT_MONITOR_SPAWNED → store.onAgentSpawned', () => {

@@ -4,13 +4,22 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type AskUserQuestionRequest,
+} from '@ptah-extension/shared';
 import {
   AskUserQuestionService,
   type AskUserQuestionResponse,
   type WebviewManagerLike,
 } from './ask-user-question.service';
 import { PendingResponseRegistry } from './pending-response-registry';
+
+/** The two-parameter registry the service now requires. */
+type QuestionRegistry = PendingResponseRegistry<
+  AskUserQuestionResponse,
+  AskUserQuestionRequest
+>;
 
 interface SentMessage {
   viewType: string;
@@ -30,11 +39,11 @@ function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
 
-function makeService(): {
+function makeService(delivered = true): {
   service: AskUserQuestionService;
   logger: MockLogger;
   sent: SentMessage[];
-  registry: PendingResponseRegistry<AskUserQuestionResponse>;
+  registry: QuestionRegistry;
 } {
   const logger = createMockLogger();
   const sent: SentMessage[] = [];
@@ -47,14 +56,15 @@ function makeService(): {
         payload: Record<string, unknown>,
       ) => {
         sent.push({ viewType, type, payload });
-        return true;
+        return delivered;
       },
     ),
   };
 
-  const registry = new PendingResponseRegistry<AskUserQuestionResponse>(
-    asLogger(logger),
-  );
+  const registry: QuestionRegistry = new PendingResponseRegistry<
+    AskUserQuestionResponse,
+    AskUserQuestionRequest
+  >(asLogger(logger));
   const service = new AskUserQuestionService(
     webviewManager as unknown as WebviewManagerLike,
     asLogger(logger),
@@ -321,9 +331,7 @@ describe('AskUserQuestionService - handleQuestionResponse', () => {
     // Find the request id from the registry
     const ids: string[] = [];
     for (const [id] of (
-      service as unknown as {
-        registry: PendingResponseRegistry<AskUserQuestionResponse>;
-      }
+      service as unknown as { registry: QuestionRegistry }
     ).registry.entries()) {
       ids.push(id);
     }
@@ -351,5 +359,229 @@ describe('AskUserQuestionService - handleQuestionResponse', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('unknown request: unknown'),
     );
+  });
+});
+
+describe('AskUserQuestionService - listPendingBySession (reload recovery)', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const SESSION_A = '11111111-2222-4333-8444-555555555555';
+  const SESSION_B = '99999999-8888-4777-8666-555555555555';
+  const TAB_A = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+  it('returns an empty array when nothing is pending for the session', () => {
+    const { service } = makeService();
+    expect(service.listPendingBySession(SESSION_A)).toEqual([]);
+  });
+
+  it('returns the original request object so a reloaded webview can re-render it', async () => {
+    const { service, sent } = makeService();
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-1',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+
+    const listed = service.listPendingBySession(SESSION_A);
+    expect(listed).toHaveLength(1);
+
+    // Identical to what was broadcast — same id, same questions, same routing.
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    );
+    expect(listed[0]).toEqual(broadcast!.payload);
+    expect(listed[0]?.toolName).toBe('AskUserQuestion');
+    expect(listed[0]?.questions).toHaveLength(1);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('matches on the explicit tabId as well as the sessionId', async () => {
+    const { service } = makeService();
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-2',
+      asSessionId(SESSION_A),
+      ac.signal,
+      asTabId(TAB_A),
+    );
+
+    await flushMicrotasks();
+
+    expect(service.listPendingBySession(TAB_A)).toHaveLength(1);
+    expect(service.listPendingBySession(SESSION_A)).toHaveLength(1);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('does not leak pending questions belonging to another session', async () => {
+    const { service } = makeService();
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-3',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+
+    expect(service.listPendingBySession(SESSION_B)).toEqual([]);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('lists every outstanding request for the session', async () => {
+    const { service } = makeService();
+
+    const ac = new AbortController();
+    const first = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-4a',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+    const second = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-4b',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+
+    const listed = service.listPendingBySession(SESSION_A);
+    expect(listed).toHaveLength(2);
+    expect(new Set(listed.map((q) => q.id)).size).toBe(2);
+
+    ac.abort();
+    await Promise.all([first, second]);
+  });
+
+  it('stops listing a request once it has been answered', async () => {
+    const { service } = makeService();
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-5',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+
+    const [outstanding] = service.listPendingBySession(SESSION_A);
+    expect(outstanding).toBeDefined();
+
+    service.handleQuestionResponse({
+      id: outstanding!.id,
+      answers: { 'Pick a strategy?': 'A' },
+    });
+    await pending;
+
+    expect(service.listPendingBySession(SESSION_A)).toEqual([]);
+  });
+
+  it('stops listing after cleanupBySession tears the session down', async () => {
+    const { service } = makeService();
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-list-6',
+      asSessionId(SESSION_A),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+    expect(service.listPendingBySession(SESSION_A)).toHaveLength(1);
+
+    service.cleanupBySession(SESSION_A);
+    await pending;
+
+    expect(service.listPendingBySession(SESSION_A)).toEqual([]);
+  });
+});
+
+describe('AskUserQuestionService - undelivered request (TASK_2026_263)', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('auto-picks the recommended options when the webview did not receive the request', async () => {
+    const { service, logger, registry } = makeService(false);
+
+    const ac = new AbortController();
+    const result = await service.handleAskUserQuestion(
+      {
+        questions: [
+          {
+            question: 'Which stack?',
+            header: 'Stack',
+            options: [{ label: 'Nx + NestJS' }, { label: 'Plain Node' }],
+            multiSelect: false,
+          },
+        ],
+      },
+      'tool-undelivered',
+      asSessionId('11111111-2222-4333-8444-555555555555'),
+      ac.signal,
+      undefined,
+    );
+
+    const permResult = result as unknown as {
+      behavior: string;
+      updatedInput?: { answers?: Record<string, string> };
+    };
+    expect(permResult.behavior).toBe('allow');
+    expect(permResult.updatedInput?.answers).toEqual({
+      'Which stack?': 'Nx + NestJS',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('NOT delivered'),
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+    // Idle timer cleared with the registry entry — nothing left pending.
+    expect(registry.size).toBe(0);
+  });
+
+  it('keeps waiting for the user when the request WAS delivered', async () => {
+    const { service, registry } = makeService(true);
+
+    const ac = new AbortController();
+    const pending = service.handleAskUserQuestion(
+      makeAskInput(),
+      'tool-delivered',
+      asSessionId('11111111-2222-4333-8444-555555555555'),
+      ac.signal,
+      undefined,
+    );
+
+    await flushMicrotasks();
+
+    expect(registry.size).toBe(1);
+
+    ac.abort();
+    await pending;
   });
 });

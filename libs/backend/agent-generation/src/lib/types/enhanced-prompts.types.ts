@@ -2,7 +2,7 @@
  * Enhanced Prompts Types
  *
  * Type definitions for the Enhanced Prompts feature.
- * This premium feature generates project-specific guidance that is appended
+ * This feature generates project-specific guidance that is appended
  * to Anthropic's built-in claude_code system prompt.
  *
  * Key concepts:

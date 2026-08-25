@@ -23,6 +23,7 @@ import {
   type ProviderProfile,
   type MessageAnchorHint,
   type PermissionLevel,
+  blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
@@ -47,6 +48,7 @@ import {
   SdkModelService,
   SessionForkService,
   SdkAdapterCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
@@ -78,6 +80,16 @@ const SDK_CAPABILITIES: ProviderCapabilities = {
   functionCalling: true,
 };
 
+/**
+ * A user activity reported before the session's SDK id was known. Held only
+ * between `startChatSession` and the system `init` message — see
+ * `SdkAgentAdapter.recordPendingUserActivity`.
+ */
+interface PendingUserActivity {
+  readonly workspaceRoot: string;
+  readonly timestamp: number;
+}
+
 const SDK_PROVIDER_INFO: ProviderInfo = {
   id: 'claude-cli' as ProviderId,
   name: 'Claude Agent SDK',
@@ -96,6 +108,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private initialized = false;
 
+  /**
+   * The in-flight `initialize()` pass, or `null` when none is running.
+   *
+   * `initialized` is a LATCH, not a flight marker: it is only assigned after
+   * `configureAuthentication` and `findExecutable()` have both returned, so
+   * the whole expensive window used to be re-entrant. Four call sites can
+   * re-enter it — the config-change and auth-file watchers, `reset()`, and
+   * host activation — and the boot OAuth token refresh writes `~/.codex/auth.json`
+   * while the first pass is still running, so the adapter raced itself on
+   * every cold start with an expired token.
+   *
+   * Same shape as `AuthManager.configureAuthentication`: hold the promise,
+   * hand it to the second caller, clear it in a `finally` so a FAILED init
+   * does not latch permanently.
+   */
+  private initInFlight: Promise<boolean> | null = null;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -104,6 +133,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
   } | null = null;
 
   private readonly callbacks: SdkAdapterCallbackRegistry;
+
+  /**
+   * First-turn user activity awaiting a canonical session id, keyed by tabId
+   * (the adapter's `trackingId`). Empty except during the window between a new
+   * session's first prompt and its system `init` message.
+   */
+  private readonly pendingUserActivity = new Map<string, PendingUserActivity>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -136,6 +172,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly activityRegistry: SessionActivityRegistry,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    /**
+     * Fan-out fired ALONGSIDE `this.callbacks.emitSessionIdResolved(...)`,
+     * never instead of it. The single-slot setter is part of the shared
+     * `IAgentAdapter` port and stays exactly as it was; this registry lets the
+     * memory / skill trigger services reconcile state that a residual
+     * tabId-bearing path armed before the UUID existed (TASK_2026_296).
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
+    private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
@@ -145,6 +190,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
       );
+      this.flushAllPendingUserActivity();
       await this.sessionLifecycle.disposeAllSessions();
       this.cliDetector.clearCache();
       this.modelService.clearCache();
@@ -198,6 +244,61 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       return;
     }
+
+    // TASK_2026_315 (A1) — ZERO FOLDERS OPEN IS NOT A PROVIDER CHANGE.
+    //
+    // `resolveActiveAuth()` reads the workspace scope. With no folder open
+    // there is no scope to read, so it falls through to the GLOBAL default
+    // provider — a value nobody chose for this moment. That fallback differs
+    // from the workspace-scoped provider that was active, which defeats the
+    // equality early-return in `reconfigureAuthIfChanged`, runs a full
+    // reconfigure, burns an OAuth token refresh, and binds a translation proxy
+    // on 127.0.0.1 that no session can ever reach. What binds it is the
+    // process-global `OAuthProxyStrategy` singleton, which is a DIFFERENT
+    // registry from `ProviderProxyPool` — so the `disposeForScope(path)` that
+    // `workspace:removeFolder` runs alongside this was never wired to reach it
+    // under any key, and the socket outlives the workspace for the session.
+    //
+    // CHOSEN: freeze. Skip the reconfigure and leave `lastConfiguredAuth`
+    // exactly where it is. That field records WHICH PROVIDER THE AUTH ENV IS
+    // CURRENTLY CONFIGURED FOR, not which workspace is open — and freezing is
+    // what keeps that invariant true, because closing a folder changes nothing
+    // about the env. Consequences, deliberately:
+    //   (a) Re-adding a folder fires this handler again with a real scope. Same
+    //       provider → the equality early-return is CORRECT, the env already
+    //       holds those credentials. Different provider → a reconfigure runs,
+    //       identical to any other switch. Nothing is deferred or lost.
+    //   (b) The `cliDetector` / `modelService` caches are deliberately NOT
+    //       cleared here. They are keyed to the provider the env still holds,
+    //       so on the way to zero folders they are still accurate; the re-add
+    //       path clears them itself, below, whenever the provider actually
+    //       changes.
+    //   (c) Same rule in shape as the sibling subscriber in the Electron host's
+    //       `wire-runtime.ts` (`const active = ...; if (active) { ... }`):
+    //       workspace-derived work is skipped when there is no workspace. It
+    //       asks for a ROOT because it needs a path to boot services for; this
+    //       asks for a COUNT because it only needs "is there any scope at all".
+    //
+    // REJECTED: tear the previous auth down (`clearAuthentication()` plus
+    // `lastConfiguredAuth = null`). It buys nothing and costs three things.
+    // It makes `lastConfiguredAuth` lie in the other direction — null while the
+    // env still holds live credentials — so re-adding the SAME folder would
+    // force a pointless reconfigure and the very OAuth refresh this guard
+    // exists to avoid, merely deferred. It leaves the adapter unauthenticated
+    // while sessions started under the closed folder are still resumable, which
+    // is exactly the unhealthy state the `onAuthFileChanged` recovery above
+    // exists to climb out of. And it would be a HALF teardown: the leaked
+    // socket belongs to the `OAuthProxyStrategy` singleton behind the
+    // `IAuthEnvProvider` port, which exposes no proxy-teardown call and must
+    // not grow one for this lib's benefit (hexagonal — `agent-sdk` gets ports
+    // only). The fix is to never start one here, not to chase it afterwards.
+    if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+      this.logger.debug(
+        '[SdkAgentAdapter] Workspace change with no folders open — keeping the current auth configuration',
+      );
+      return;
+    }
+
     this.reconfigureAuthIfChanged().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
@@ -238,6 +339,30 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   async initialize(): Promise<boolean> {
+    if (this.initInFlight) {
+      this.logger.debug(
+        '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
+      );
+      return this.initInFlight;
+    }
+
+    this.initInFlight = this.doInitialize();
+    try {
+      return await this.initInFlight;
+    } finally {
+      this.initInFlight = null;
+    }
+  }
+
+  /**
+   * The real initialization pass, guarded by the in-flight mutex above.
+   *
+   * The guard de-duplicates CONCURRENT callers only; it never memoizes a
+   * result, so every sequential call runs a real pass. `reset()` additionally
+   * drains any in-flight pass before disposing, so it can never be answered by
+   * the guard.
+   */
+  private async doInitialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -368,6 +493,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
+    this.flushAllPendingUserActivity();
     this.sessionLifecycle
       .disposeAllSessions()
       .catch((err) => {
@@ -406,6 +532,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.modelService.getSupportedModels();
   }
 
+  /**
+   * Models available under the host's ambient Claude login, regardless of which
+   * provider is currently active. Used by `nativeAuth` providers whose agents
+   * always spawn against that login.
+   */
+  async getNativeClaudeModels(): Promise<ModelInfo[]> {
+    return this.modelService.getNativeClaudeModels();
+  }
+
   async getDefaultModel(): Promise<string> {
     return this.modelService.getDefaultModel();
   }
@@ -416,6 +551,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async reset(): Promise<void> {
     this.logger.info('[SdkAgentAdapter] Resetting adapter...');
+    // A reset must produce a genuinely fresh pass, so it must never be
+    // ANSWERED by the in-flight guard. Let a running pass settle first (its
+    // result is discarded), then dispose and initialize from a clean slate.
+    if (this.initInFlight) {
+      await this.initInFlight.catch(() => false);
+    }
     this.dispose();
     await this.initialize();
   }
@@ -427,10 +568,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       prompt?: string;
       files?: string[];
       images?: { data: string; mediaType: string }[];
-      isPremium?: boolean;
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
-      pluginPaths?: string[];
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
@@ -443,10 +582,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     const {
       tabId,
-      isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionLevel,
       includePartialMessages,
       mcpServersOverride,
@@ -462,10 +599,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
+      { mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -481,10 +618,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
@@ -500,7 +635,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
 
     if (config.prompt) {
-      this.notifyActivity(trackingId, 'user', resolvedProjectPath);
+      this.recordPendingUserActivity(trackingId, resolvedProjectPath);
     }
 
     return this.streamTransformer.transform({
@@ -512,12 +647,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(trackingId),
       tabId: config?.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 
   endSession(sessionId: SessionId): void {
+    this.flushPendingUserActivityFor(sessionId);
     this.sessionLifecycle.endSession(sessionId).catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error ending session',
@@ -529,10 +666,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
-      isPremium?: boolean;
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
-      pluginPaths?: string[];
       tabId?: string;
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
@@ -557,14 +692,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
+        onTurnEnd: this.releaseTurnOnResult(sessionId),
         tabId: config?.tabId,
       });
     }
 
-    const isPremium = config?.isPremium ?? false;
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
-    const pluginPaths = config?.pluginPaths;
     const permissionLevel = config?.permissionLevel;
     const includePartialMessages = config?.includePartialMessages;
     const providerProfile = config?.providerProfile;
@@ -576,12 +710,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       : config;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
-      isPremium,
       mcpServerRunning,
       providerId: providerProfile?.providerId,
     });
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -589,10 +722,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
@@ -610,6 +741,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
+      // ALONGSIDE the single-slot setter above, never instead of it. Fired on
+      // the resume path too: a resume registers under `registerKey = tabId`,
+      // so a residual tabId-keyed consumer here needs the same reconciliation
+      // signal the new-session path gets (TASK_2026_296).
+      this.sessionIdResolvedRegistry.notifyAll({
+        tabId,
+        realSessionId,
+        timestamp: Date.now(),
+      });
     };
 
     return this.streamTransformer.transform({
@@ -621,8 +761,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(sessionId),
       tabId: config?.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 
@@ -639,6 +780,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
       _tabIdFromCallback: string | undefined,
       realSessionId: string,
     ) => {
+      // StreamTransformer forwards `sdkMessage.session_id` from the system
+      // 'init' message verbatim. A blank one must stop here: it is not a
+      // session id, and letting it through would poison the metadata store,
+      // be rejected by bindRealSessionId anyway, and tell the webview that a
+      // session resolved to '' (TASK_2026_295). This callback is invoked
+      // un-awaited, so a rejection here would surface as an unhandled one.
+      if (blankToUndefined(realSessionId) === undefined) {
+        this.logger.warn(
+          `[SdkAgentAdapter] SDK init reported an empty session id — skipping metadata create, bind and resolve notification (tabId: ${tabId})`,
+        );
+        return;
+      }
+
       this.logger.info(
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
@@ -647,9 +801,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
       if (tabId) {
         this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
+        // The bind above is what makes `resolveActivityIds` answer with the
+        // SDK UUID, so the first turn's buffered activity is published here —
+        // after the bind, under the canonical id.
+        this.flushPendingUserActivity(tabId);
       }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
+      // ALONGSIDE the single-slot setter above, never instead of it. Placed
+      // after the flush so the buffered first turn is already published under
+      // the canonical id; what this signal reconciles is the RESIDUAL — state
+      // armed by a hook payload that genuinely lacked `session_id` and fell
+      // back to the tabId-bearing closure (TASK_2026_296).
+      this.sessionIdResolvedRegistry.notifyAll({
+        tabId,
+        realSessionId,
+        timestamp: Date.now(),
+      });
     };
   }
 
@@ -701,13 +869,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { command: command.substring(0, 50) },
     );
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
         sessionConfig: config.sessionConfig,
-        isPremium: config.isPremium,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
-        pluginPaths: config.pluginPaths,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
@@ -726,8 +892,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(sessionId),
       tabId: config.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 
@@ -740,6 +907,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
+    this.flushPendingUserActivityFor(sessionId);
     await this.sessionLifecycle.endSession(sessionId);
   }
 
@@ -827,6 +995,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     role: 'user' | 'assistant',
     workspaceRootOverride?: string,
+    timestamp: number = Date.now(),
   ): void {
     try {
       const ids = this.resolveActivityIds(sessionId);
@@ -834,13 +1003,95 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId: ids.sessionId,
         workspaceRoot: workspaceRootOverride ?? ids.workspaceRoot,
         role,
-        timestamp: Date.now(),
+        timestamp,
       });
     } catch (err: unknown) {
       this.logger.warn(
         '[SdkAgentAdapter] activity notify failed',
         err instanceof Error ? err : new Error(String(err)),
       );
+    }
+  }
+
+  /**
+   * Hold a NEW session's first user activity instead of publishing it.
+   *
+   * `startChatSession` reports that activity before the SDK's system `init`
+   * message has arrived, so no real session id is bound yet and
+   * `resolveActivityIds` can only answer with the tabId. Publishing it there
+   * armed consumer state — memory/skill trigger timers and their SQLite work
+   * queues — under the tabId, while teardown always resolves
+   * `realSessionId ?? tabId` (`SessionControlService.endSession`) and so cleared
+   * under the SDK UUID. State was armed under one key and torn down under
+   * another, on the first turn only, which is why it presented as intermittent
+   * (TASK_2026_296).
+   *
+   * Note the two ids are shape-indistinguishable — a tabId is a UUID v4
+   * (`TabId.create()`), so `SessionId.validate(tabId)` is true and no consumer
+   * can detect the wrong id by inspection. Prevention at the emitter is the
+   * only fix available.
+   *
+   * Buffering changes ONLY the id: the role, the workspace root and the
+   * original timestamp are preserved, and the activity is published exactly
+   * once — by `flushPendingUserActivity` when the id resolves, or by the
+   * teardown flush under the tabId if it never does, which keeps both ends of
+   * the lifecycle on the same key.
+   */
+  private recordPendingUserActivity(
+    trackingId: SessionId,
+    workspaceRoot: string,
+  ): void {
+    // A second start on the same tab without an intervening teardown would
+    // otherwise drop the earlier turn's activity; publish it before the slot
+    // is replaced. Nothing is buffered in the common case, so this is a no-op.
+    this.flushPendingUserActivity(trackingId as string);
+    this.pendingUserActivity.set(trackingId as string, {
+      workspaceRoot,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Publish the activity buffered for `tabId`, if any, under whichever id is
+   * canonical now. The entry is removed BEFORE the notification so a
+   * re-entrant subscriber cannot trigger a second emission — this is the
+   * exactly-once guarantee the buffer exists to provide.
+   */
+  private flushPendingUserActivity(tabId: string): void {
+    const pending = this.pendingUserActivity.get(tabId);
+    if (!pending) {
+      return;
+    }
+    this.pendingUserActivity.delete(tabId);
+    this.notifyActivity(
+      tabId as SessionId,
+      'user',
+      pending.workspaceRoot,
+      pending.timestamp,
+    );
+  }
+
+  /**
+   * Teardown-side flush for a single session. Callers hold whichever id they
+   * were given — tabId or SDK UUID — so resolve the record back to its tabId,
+   * which is the key the buffer uses.
+   */
+  private flushPendingUserActivityFor(sessionId: SessionId): void {
+    if (this.pendingUserActivity.size === 0) {
+      return;
+    }
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    this.flushPendingUserActivity(rec?.tabId ?? (sessionId as string));
+  }
+
+  /**
+   * Teardown-side flush for the bulk paths, which end every live session at
+   * once. Runs BEFORE `disposeAllSessions` so each record is still present to
+   * canonicalise against.
+   */
+  private flushAllPendingUserActivity(): void {
+    for (const tabId of Array.from(this.pendingUserActivity.keys())) {
+      this.flushPendingUserActivity(tabId);
     }
   }
 
@@ -853,6 +1104,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
       if (inner) {
         inner(stats);
       }
+    };
+  }
+
+  /**
+   * Release the streaming pump's turn claim on the SDK `result` message, so a
+   * follow-up that arrived mid-turn — and was therefore HELD rather than handed
+   * to the SDK, where it would have been dropped — is sent now (TASK_2026_294).
+   */
+  private releaseTurnOnResult(sessionId: SessionId): () => void {
+    return () => {
+      this.sessionLifecycle.markTurnEnded(sessionId);
     };
   }
 }

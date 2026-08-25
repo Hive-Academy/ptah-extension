@@ -57,7 +57,7 @@ import type { SessionStatus } from '@ptah-extension/chat-types';
         </span>
       } @else {
         <span
-          class="inline-flex items-center gap-1 text-[10px] text-base-content/40"
+          class="inline-flex items-center gap-1 text-[10px] text-base-content-muted"
         >
           <lucide-angular [img]="CircleIcon" class="w-3 h-3" />
           Draft

@@ -1,9 +1,18 @@
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+
 /**
  * Behavioral system prompt for Ptah MCP Server
- * Appended to AI agent context for premium+MCP users
+ * Appended to AI agent context when the MCP server is running
  *
  * Design: Directive mandates (not passive docs) to ensure agents
  * actually call ptah_* tools instead of defaulting to Bash/Grep/Glob.
+ *
+ * The delegation section names NO vendor as available (TASK_2026_233). Adapters
+ * ship between releases and every machine configures a different provider set,
+ * so any roster written here is wrong on somebody's install — and this prompt
+ * is read by every agent before it picks a lane. The system-CLI family is
+ * interpolated from `SYSTEM_CLI_TYPES` so it cannot drift from the spawn enum;
+ * the Ptah CLI family is user data and is therefore only ever discovered.
  */
 export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Reference
 
@@ -13,10 +22,10 @@ export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Reference
 Full project analysis: type, frameworks, directory structure, architecture.
 
 ### ptah_search_files { pattern, limit? }
-Find files by glob pattern. Respects .gitignore, workspace-indexed.
+Find files by glob pattern. True filesystem glob — not a fuzzy index. Returns workspace-relative paths.
 
 ### ptah_get_diagnostics { severity? }
-Get TypeScript/JS errors and warnings. severity: "error" | "warning" | "all" (default: "all").
+Get TypeScript/JS errors and warnings. Returns status (available/unavailable), source, and diagnostics. severity: "error" | "warning" | "all" (default: "all").
 
 ### ptah_lsp_references { file, line, col } (VS Code only)
 Find all references to symbol at position. Essential before refactoring.
@@ -200,7 +209,7 @@ Understand file relationships via import-based dependency graph:
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
-You have access to **agent orchestration tools** that let you spawn background workers using Codex SDK, Copilot SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
+You have access to **agent orchestration tools** that let you spawn background workers on whichever CLI agents this machine has. Use these to delegate independent subtasks while you continue working.
 
 ### When to Delegate
 
@@ -222,11 +231,9 @@ You have access to **agent orchestration tools** that let you spawn background w
 
 ### Available Agents
 
-| Agent | Type | Requirements |
-|-------|------|--------------|
-| \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
-| \`copilot\` | SDK (in-process) | \`@github/copilot-sdk\` + VS Code GitHub auth |
-| \`ptah-cli\` | SDK (in-process) | User-configured Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.) |
+Two families. **System CLI agents** are the adapters this build ships — ${SYSTEM_CLI_TYPES.map((cli) => `\`${cli}\``).join(', ')} — each usable only if its binary or SDK is installed here. **Ptah CLI agents** are Anthropic-compatible providers the user configured themselves, addressed by \`ptahCliId\` rather than by name.
+
+Neither roster is knowable from this prompt: adapters ship between releases and every machine configures a different provider set. **Call \`ptah_agent_list\` and pick from what it returns.** A vendor named in any document — including this one — is an illustration, never a guarantee it exists here.
 
 ### Ptah CLI Agents
 
@@ -243,10 +250,11 @@ To discover available Ptah CLI agents:
 
 ### Workflow Example
 
-1. **Spawn 3 parallel agents**:
-   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "codex" }\`
-   - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
-   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "ca-..." }\`
+0. **Discover**: \`ptah_agent_list {}\` — take the cli / ptahCliId values from its output
+1. **Spawn 3 parallel agents**, using ids you just discovered:
+   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "<a cli from the list>" }\`
+   - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "<a cli from the list>" }\`
+   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "<a ptahCliId from the list>" }\`
 2. **Continue**: Work on your main task
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each

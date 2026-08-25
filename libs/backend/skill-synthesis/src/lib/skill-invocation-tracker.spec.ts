@@ -12,6 +12,7 @@ import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -61,6 +62,9 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    workspaceRoot: null,
+    ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
     ...overrides,
   };
 }

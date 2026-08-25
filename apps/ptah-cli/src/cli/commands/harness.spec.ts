@@ -32,8 +32,28 @@
  *   - generate-document:
  *       * UsageError when --kind not in {prd, spec}
  *       * dispatches harness:generate-document and emits start + complete
+ *   - doctor (exit code IS the feature — this doctor gates CI, unlike
+ *     `ptah spec doctor` which always exits 0):
+ *       * healthy report → exit 0 + harness.doctor
+ *       * detected target with missing[] → exit 1
+ *       * sources !== 'ok' → exit 1
+ *       * writeFailed → exit 1
+ *       * UNdetected target with missing[] → exit 0 (an uninstalled CLI is
+ *         not a gap)
+ *       * --fix calls harness:reconcile FIRST and reports its health
+ *       * subcommand --json overrides an earlier --human
+ *   - remove:
+ *       * UsageError without --yes, and NO rpc call is made
+ *       * --yes dispatches harness:remove { confirm: true }
  *   - unknown sub-command → exit 2
+ *
+ * The mock container's `resolve` THROWS on purpose: every harness sub-command
+ * must reach the backend over the RPC transport, so that VS Code, Electron, the
+ * CLI and the TUI's `/harness` all dispatch the identical verb.
  */
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { execute } from './harness.js';
 import type { HarnessExecuteHooks, HarnessOptions } from './harness.js';
@@ -41,6 +61,13 @@ import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import {
+  summarizeHarnessHealth,
+  type HarnessFacetMatrix,
+  type HarnessHealth,
+  type HarnessHealthSummary,
+  type HarnessTargetHealth,
+} from '@ptah-extension/shared';
 
 const baseGlobals: GlobalOptions = {
   json: true,
@@ -88,6 +115,18 @@ function makeStderr(): { stderr: { write: jest.Mock }; buffer: string } {
 interface MockEngine {
   withEngine: HarnessExecuteHooks['withEngine'];
   rpcCalls: Array<{ method: string; params: unknown }>;
+  /**
+   * Globals as they reached `withEngine`. This is the only observable proof
+   * that a subcommand-level `--json` rewrote them, since the tests inject a
+   * formatter and therefore never exercise `buildFormatter`.
+   */
+  engineGlobals: GlobalOptions[];
+  /**
+   * Options as they reached `withEngine`. `doctor` and `remove` are filesystem
+   * verbs, so `requireSdk: false` is part of their contract, not a detail —
+   * see the `boot contract` block below.
+   */
+  engineOpts: Array<{ mode: string; requireSdk?: boolean }>;
   scripted: Map<
     string,
     | { success: true; data?: unknown }
@@ -97,6 +136,8 @@ interface MockEngine {
 
 function makeEngine(): MockEngine {
   const rpcCalls: MockEngine['rpcCalls'] = [];
+  const engineGlobals: MockEngine['engineGlobals'] = [];
+  const engineOpts: MockEngine['engineOpts'] = [];
   const scripted: MockEngine['scripted'] = new Map();
   const transport = {
     call: jest.fn(async (method: string, params: unknown) => {
@@ -116,14 +157,16 @@ function makeEngine(): MockEngine {
   };
 
   const withEngine = (async (
-    _globals: unknown,
-    _opts: unknown,
+    globals: GlobalOptions,
+    opts: { mode: string; requireSdk?: boolean },
     fn: (ctx: {
       container: typeof container;
       transport: CliMessageTransport;
       pushAdapter: { removeAllListeners(): void };
     }) => Promise<unknown>,
   ): Promise<unknown> => {
+    engineGlobals.push(globals);
+    engineOpts.push(opts);
     return fn({
       container,
       transport,
@@ -131,7 +174,7 @@ function makeEngine(): MockEngine {
     });
   }) as unknown as HarnessExecuteHooks['withEngine'];
 
-  return { withEngine, rpcCalls, scripted };
+  return { withEngine, rpcCalls, engineGlobals, engineOpts, scripted };
 }
 
 interface MockFs {
@@ -173,6 +216,63 @@ function buildHooks(): {
     readFile: fs.readFile,
   };
   return { formatterTrace, stderrTrace, engine, fs, hooks };
+}
+
+// ---------------------------------------------------------------------------
+// harness health fixtures (doctor / remove)
+// ---------------------------------------------------------------------------
+const ALL_SUPPORTED: HarnessFacetMatrix = {
+  skills: 'supported',
+  commands: 'supported',
+  agents: 'supported',
+  mcp: 'supported',
+};
+
+function makeTarget(
+  overrides: Partial<HarnessTargetHealth> = {},
+): HarnessTargetHealth {
+  return {
+    target: 'claude',
+    detected: true,
+    facets: ALL_SUPPORTED,
+    expected: 3,
+    found: 3,
+    missing: [],
+    foreign: [],
+    writeFailed: [],
+    overwrittenLocalEdit: [],
+    removed: [],
+    durationMs: 4,
+    ...overrides,
+  };
+}
+
+function makeHealth(overrides: Partial<HarnessHealth> = {}): HarnessHealth {
+  return {
+    workspaceRoot: 'D:/test-workspace',
+    generatedAt: '2026-08-18T00:00:00.000Z',
+    mode: 'full',
+    reason: 'cli:doctor',
+    sources: 'ok',
+    targets: [makeTarget()],
+    collisions: [],
+    ...overrides,
+  };
+}
+
+/** A `harness:health` success payload built from a report. */
+function healthResponse(health: HarnessHealth): {
+  success: true;
+  data: {
+    health: HarnessHealth;
+    summary: HarnessHealthSummary;
+    cached: boolean;
+  };
+} {
+  return {
+    success: true,
+    data: { health, summary: summarizeHarnessHealth(health), cached: false },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -675,6 +775,469 @@ describe('ptah harness generate-document', () => {
       'harness.document.start',
       'harness.document.complete',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doctor
+//
+// The exit code is the whole point of this sub-command: unlike `ptah spec
+// doctor`, it goes non-zero on drift so it can gate CI. Every case below is an
+// exit-code case.
+// ---------------------------------------------------------------------------
+describe('ptah harness doctor', () => {
+  it('exits 0 and emits harness.doctor on a healthy report', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    // The selection read trails the measurement and is informational only
+    // (TASK_2026_316): it feeds the sources line and never the exit code.
+    expect(engine.rpcCalls).toEqual([
+      { method: 'harness:health', params: { refresh: true } },
+      { method: 'harness:get-skill-selection', params: {} },
+    ]);
+    expect(formatterTrace.notifications).toHaveLength(1);
+    const evt = formatterTrace.notifications[0];
+    expect(evt?.method).toBe('harness.doctor');
+    expect(evt?.params).toMatchObject({
+      fixed: false,
+      summary: { level: 'ok', missing: 0, detectedTargets: 1 },
+    });
+  });
+
+  it('exits 1 when a detected target is missing entries', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(
+        makeHealth({
+          targets: [
+            makeTarget({ found: 2, missing: ['.claude/skills/run-tests'] }),
+          ],
+        }),
+      ),
+    );
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      summary: { level: 'degraded', missing: 1 },
+    });
+  });
+
+  it('exits 1 when the sources themselves are unavailable', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(makeHealth({ sources: 'sources-missing' })),
+    );
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      summary: { level: 'degraded', sources: 'sources-missing' },
+    });
+  });
+
+  it('exits 0 when the only unhealthy target is not detected', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(
+        makeHealth({
+          targets: [
+            makeTarget(),
+            // An uninstalled CLI carries nothing — that is not a gap, and
+            // counting it would leave a single-CLI workspace permanently red.
+            makeTarget({
+              target: 'codex',
+              detected: false,
+              expected: 5,
+              found: 0,
+              missing: ['a', 'b', 'c', 'd', 'e'],
+            }),
+          ],
+        }),
+      ),
+    );
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      summary: { level: 'ok', missing: 0, detectedTargets: 1 },
+    });
+  });
+
+  it('exits 1 when a detected target could not be written', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(
+        makeHealth({
+          targets: [
+            makeTarget({
+              writeFailed: [
+                { relPath: '.claude/skills/locked', reason: 'EPERM' },
+              ],
+            }),
+          ],
+        }),
+      ),
+    );
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      summary: { level: 'error', writeFailed: 1 },
+    });
+  });
+
+  it('--fix reconciles first and reports on the post-fix health', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    const fixed = makeHealth({ reason: 'cli:doctor --fix' });
+    engine.scripted.set('harness:reconcile', {
+      success: true,
+      data: { health: fixed, summary: summarizeHarnessHealth(fixed) },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor', fix: true } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    // The reconcile is the FIRST call, and its result is what gets reported —
+    // a follow-up `harness:health` would only re-walk the tree it just wrote.
+    expect(engine.rpcCalls[0]).toEqual({
+      method: 'harness:reconcile',
+      params: { mode: 'full' },
+    });
+    expect(
+      engine.rpcCalls.findIndex((c) => c.method === 'harness:health'),
+    ).toBe(-1);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      fixed: true,
+      health: { reason: 'cli:doctor --fix' },
+    });
+  });
+
+  it('lets a subcommand-level --json override an earlier --human', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+
+    const exit = await execute(
+      { subcommand: 'doctor', json: true } satisfies HarnessOptions,
+      { ...baseGlobals, json: false, human: true },
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.engineGlobals[0]).toMatchObject({
+      json: true,
+      human: false,
+    });
+  });
+
+  it('leaves globals untouched when --json is absent', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+
+    await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      { ...baseGlobals, json: false, human: true },
+      hooks,
+    );
+
+    expect(engine.engineGlobals[0]).toMatchObject({
+      json: false,
+      human: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doctor's skill-selection sources-line clause (TASK_2026_316)
+//
+// `harness:get-skill-selection` feeds the doctor's sources line PURELY as
+// information — `summarizeHarnessHealth` remains the one verdict, and a
+// 'selected' workspace with an empty allowlist is `ok` (R4 / task 4.3), not
+// degraded. A failed or malformed read must degrade to no clause and must
+// never move the exit code either way.
+// ---------------------------------------------------------------------------
+describe('ptah harness doctor — skill-selection sources-line clause', () => {
+  it('an empty allowlist under mode:selected does not push the exit code to 1', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: {
+        mode: 'selected',
+        slugs: [],
+        available: [{ slug: 'a', name: 'A', description: '', pluginId: null }],
+        derived: false,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    // 'ok' health + a narrow allowlist is still 'ok' — an exit-1 here would
+    // break CI for every correctly-configured new workspace.
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: { mode: 'selected', selected: 0, available: 1 },
+      summary: { level: 'ok' },
+    });
+  });
+
+  it('a narrow selection does not mask an otherwise-degraded harness', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set(
+      'harness:health',
+      healthResponse(
+        makeHealth({
+          targets: [
+            makeTarget({ found: 2, missing: ['.claude/skills/run-tests'] }),
+          ],
+        }),
+      ),
+    );
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: { mode: 'selected', slugs: [], available: [], derived: false },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    // The verdict comes from `summarizeHarnessHealth` alone — a clean
+    // selection read must not rescue a degraded target's exit code.
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: { mode: 'selected', selected: 0 },
+      summary: { level: 'degraded' },
+    });
+  });
+
+  it('a failed skill-selection read degrades to no clause and does not touch the exit code', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: false,
+      error: 'backend too old to answer',
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: null,
+      summary: { level: 'ok' },
+    });
+  });
+
+  it('a malformed skill-selection answer degrades to no clause and does not touch the exit code', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: { unexpected: 'shape' },
+    });
+
+    const exit = await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      selection: null,
+      summary: { level: 'ok' },
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// boot contract for the two filesystem verbs
+//
+// `doctor` and `remove` walk `~/.ptah/user`, compare hashes and copy or unlink
+// files. Neither asks a model anything, so neither may sit behind the SDK
+// adapter's `initialize()` — booting them with the default `requireSdk` made
+// `ptah harness doctor` die with `sdk_init_failed` on every machine without an
+// API key, which is precisely the machine a CI gate on harness drift runs on.
+//
+// `mode` must nevertheless stay `'full'`: the three RPC methods live in DI
+// phase 4, and so do `PluginLoaderService.initialize()` and `bootHarness` — the
+// wiring that gives the reconciler its desired state. Under `'minimal'` the
+// doctor would answer over an empty plugin overlay and report a clean harness
+// for a workspace missing every plugin skill.
+// ---------------------------------------------------------------------------
+describe('harness filesystem verbs boot without the SDK', () => {
+  it('doctor boots mode=full with requireSdk:false', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:health', healthResponse(makeHealth()));
+
+    await execute(
+      { subcommand: 'doctor' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+  });
+
+  it('doctor --fix boots mode=full with requireSdk:false', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:reconcile', {
+      success: true,
+      data: { health: makeHealth() },
+    });
+
+    await execute(
+      { subcommand: 'doctor', fix: true } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+  });
+
+  it('remove --yes boots mode=full with requireSdk:false', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:remove', {
+      success: true,
+      data: { health: makeHealth(), removed: 0 },
+    });
+
+    await execute(
+      { subcommand: 'remove', yes: true } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+  });
+
+  // The counterexample that gives the assertion above its meaning: the verbs
+  // that DO reach a model keep the default.
+  it('analyze-intent still boots with the SDK required', async () => {
+    const { engine, hooks } = buildHooks();
+
+    await execute(
+      {
+        subcommand: 'analyze-intent',
+        intent: 'build me a backend harness',
+      } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// remove
+// ---------------------------------------------------------------------------
+describe('ptah harness remove', () => {
+  it('exits 2 without --yes and makes no RPC call at all', async () => {
+    const { stderrTrace, engine, formatterTrace, hooks } = buildHooks();
+
+    const exit = await execute(
+      { subcommand: 'remove' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toMatch(/--yes is required/);
+    expect(engine.rpcCalls).toHaveLength(0);
+    expect(formatterTrace.notifications).toHaveLength(0);
+  });
+
+  it('dispatches harness:remove with confirm:true and emits harness.removed', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    const after = makeHealth({
+      targets: [
+        makeTarget({ expected: 0, found: 0, removed: ['a', 'b', 'c'] }),
+      ],
+    });
+    engine.scripted.set('harness:remove', {
+      success: true,
+      data: {
+        health: after,
+        summary: summarizeHarnessHealth(after),
+        removed: 3,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'remove', yes: true } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([
+      { method: 'harness:remove', params: { confirm: true } },
+    ]);
+    const evt = formatterTrace.notifications[0];
+    expect(evt?.method).toBe('harness.removed');
+    expect(evt?.params).toMatchObject({ removed: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// harness-sync isolation — the doctor's skill-selection clause reads
+// `harness:get-skill-selection` over RPC, and must never resolve
+// `@ptah-extension/harness-sync` directly (TASK_2026_316 hard rule).
+// ---------------------------------------------------------------------------
+describe('ptah harness doctor — harness-sync isolation', () => {
+  it('harness-doctor.ts does not import @ptah-extension/harness-sync', () => {
+    const source = readFileSync(
+      path.resolve(__dirname, 'harness-doctor.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/from ['"]@ptah-extension\/harness-sync['"]/);
   });
 });
 

@@ -26,6 +26,8 @@ import {
   MemorySettings,
   SkillSynthesisSettings,
   CronSettings,
+  TasksSettings,
+  CustomProviderStore,
   MigrationRunner,
   SecretsFileStore,
   WorkspaceScopeResolver,
@@ -125,6 +127,15 @@ export function registerCliSettings(
   });
   container.register(SETTINGS_TOKENS.CRON_SETTINGS, {
     useValue: new CronSettings(reactiveStore),
+  });
+  container.register(SETTINGS_TOKENS.TASKS_SETTINGS, {
+    useValue: new TasksSettings(reactiveStore),
+  });
+  // User-defined provider entries (TASK_2026_236). Registering the token is NOT
+  // enough on its own — an app host must also call `load()` once at bootstrap,
+  // or `getAnthropicProvider()` never resolves a custom id.
+  container.register(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE, {
+    useValue: new CustomProviderStore(reactiveStore),
   });
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
   const boundV4 = (dir: string) => runV4Migration(dir, appPrefix);

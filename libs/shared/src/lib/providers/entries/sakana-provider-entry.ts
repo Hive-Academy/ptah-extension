@@ -47,9 +47,11 @@ const SAKANA_STATIC_MODELS: ProviderStaticModel[] = [
 
 /**
  * Default model tier mappings for Sakana.
- * Auto-applied on first provider selection so "Default (recommended)" resolves
- * to the provider's best model. `autoResolveDefaultTiers()` only matches
- * `claude.*(sonnet|opus|haiku)`, so Fugu falls back to these explicit mappings.
+ * Applied on provider selection so "Default (recommended)" resolves to the
+ * provider's best model. Fugu ids name no tier, so the derivation below the
+ * registry (`model-tier-derivation.ts`) can only reach them through its
+ * context-length ordinal pass; these explicit mappings are the verified
+ * statement that outranks it.
  */
 export const SAKANA_DEFAULT_TIERS = {
   sonnet: 'fugu',

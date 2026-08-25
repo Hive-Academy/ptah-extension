@@ -8,16 +8,20 @@
  *   - `libs/backend/rpc-handlers/src/lib/handlers/gateway-rpc.handlers.ts`
  *     (drives `gateway:*` RPC methods through the service).
  */
-export { GatewayService } from './lib/gateway.service';
+export { GatewayService, OutboundDeliveryError } from './lib/gateway.service';
 export type {
   GatewayInboundEvent,
   GatewayStatus,
   GatewayTestOverrides,
+  InterruptedInboundConversation,
 } from './lib/gateway.service';
+export { AdapterLifecycleService } from './lib/adapter-lifecycle.service';
+export { OutboundDeliveryService } from './lib/outbound-delivery.service';
 
 export { BindingStore } from './lib/binding.store';
 export { ConversationStore } from './lib/conversation.store';
 export { MessageStore } from './lib/message.store';
+export type { UnfinishedInboundTurn } from './lib/message.store';
 export { AttachedSessionRegistry } from './lib/attached-session-registry';
 export { JsonlSessionResumabilityChecker } from './lib/session-resumability';
 export type { ISessionResumabilityChecker } from './lib/session-resumability';
@@ -88,6 +92,7 @@ export type {
   GatewayConversationId,
   GatewayMessage,
   GatewayPlatform,
+  GatewayTurnState,
 } from './lib/types';
 
 export { GATEWAY_TOKENS } from './lib/di/tokens';

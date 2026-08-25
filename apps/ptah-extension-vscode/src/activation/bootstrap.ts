@@ -14,28 +14,30 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
+  type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
+import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import type { CommandManager } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
-import { handleLicenseBlocking } from './license-gate';
+import { registerSetupAgentsCommand } from '../commands/setup-agents-command';
+import { createVscodeRpcHostProfile } from '../rpc-host-profile';
 
 export interface BootstrapResult {
   logger: Logger;
   licenseStatus: LicenseStatus;
   authInitialized: boolean;
-  /** True if license was invalid and blocking path was taken — caller should return. */
-  blocked: boolean;
-  /** RPC registration verification result — undefined when blocked. */
+  /** RPC registration verification result. */
   rpcVerification?: RpcVerificationResult;
 }
 
 /**
- * Bootstraps the VS Code extension: minimal DI for the license gate,
- * Sentry initialization, blocking license verification (returns
- * `{ blocked: true }` when invalid), full DI setup for licensed users,
- * RPC method registration, autocomplete discovery watchers, and
- * fire-and-forget agent adapter initialization + SDK preload.
+ * Bootstraps the VS Code extension: minimal DI, Sentry initialization,
+ * membership status resolution (non-blocking), full DI setup, RPC method
+ * registration, autocomplete discovery watchers, and fire-and-forget agent
+ * adapter initialization + SDK preload. Activation always proceeds — Ptah's
+ * local features are available to everyone regardless of membership state.
  */
 export async function bootstrapVscode(
   context: vscode.ExtensionContext,
@@ -78,15 +80,6 @@ export async function bootstrapVscode(
     TOKENS.LICENSE_SERVICE,
   );
   const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
-  if (!licenseStatus.valid) {
-    await handleLicenseBlocking(context, licenseService, licenseStatus);
-    return {
-      logger: DIContainer.resolve<Logger>(TOKENS.LOGGER),
-      licenseStatus,
-      authInitialized: false,
-      blocked: true,
-    };
-  }
   DIContainer.setup(context);
   try {
     const diContainer = DIContainer.getContainer();
@@ -105,7 +98,23 @@ export async function bootstrapVscode(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    console.log('[Ptah VS Code] Settings registered and migrations applied');
+    // Publish user-defined providers to the shared registry cache BEFORE
+    // anything resolves a provider by id — until this runs,
+    // getAnthropicProvider() knows only the built-ins.
+    const customProviders = DIContainer.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah VS Code] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah VS Code] Settings registered and migrations applied (${entries.length} custom providers)`,
+    );
   } catch (settingsError) {
     console.warn(
       '[Ptah VS Code] Settings registration / migration failed (non-fatal):',
@@ -115,14 +124,20 @@ export async function bootstrapVscode(
     );
   }
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-  logger.info('Activating Ptah extension (licensed user)...', {
+  logger.info('Activating Ptah extension...', {
     tier: licenseStatus.tier,
     valid: licenseStatus.valid,
   });
-  const rpcMethodRegistration = DIContainer.resolve(
-    TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-  ) as { registerAll: () => RpcVerificationResult };
-  const rpcVerification = rpcMethodRegistration.registerAll();
+  const rootContainer = DIContainer.getContainer();
+  registerSetupAgentsCommand(
+    rootContainer,
+    DIContainer.resolve<CommandManager>(TOKENS.COMMAND_MANAGER),
+    logger,
+  );
+  const rpcVerification = registerRpcSurface(
+    rootContainer,
+    createVscodeRpcHostProfile(logger),
+  );
   const agentDiscovery = DIContainer.resolve(
     TOKENS.AGENT_DISCOVERY_SERVICE,
   ) as { initializeWatchers: () => void };
@@ -155,7 +170,6 @@ export async function bootstrapVscode(
     logger,
     licenseStatus,
     authInitialized,
-    blocked: false,
     rpcVerification,
   };
 }

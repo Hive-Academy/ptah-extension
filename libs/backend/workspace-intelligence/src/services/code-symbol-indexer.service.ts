@@ -14,6 +14,7 @@ import {
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import type { SupportedLanguage } from '../ast/ast.types';
+import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
 
 export interface CodeSymbolIndexerOptions {
   /** File extensions to index. Default: ['.ts', '.tsx', '.js', '.jsx'] */
@@ -58,6 +59,8 @@ const DEFAULT_EXTENSIONS = [
   '.jsx',
   '.py',
   '.go',
+  '.cs',
+  '.csx',
 ] as const;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_MAX_FILES = 2000;
@@ -95,6 +98,15 @@ const DEFAULT_SKIP_PATTERNS = [
   '*_test.py',
   'conftest.py',
   '__init__.py',
+  // C# generated output. Test files are deliberately NOT skipped here: the
+  // conventions (`*Test.cs`, `*Tests.cs`) collide with ordinary words such as
+  // `Latest.cs`, and wrongly dropping a source file loses symbols, while
+  // indexing a test file only adds noise.
+  '*.designer.cs',
+  '*.g.cs',
+  '*.generated.cs',
+  'AssemblyInfo.cs',
+  'GlobalUsings.cs',
 ];
 const SKIP_MATCHER = picomatch(DEFAULT_SKIP_PATTERNS, { nocase: true });
 function shouldSkipFile(absoluteFilePath: string): boolean {
@@ -103,22 +115,13 @@ function shouldSkipFile(absoluteFilePath: string): boolean {
 
 /**
  * Maps a file extension to the tree-sitter SupportedLanguage.
+ *
+ * Delegates to `EXTENSION_LANGUAGE_MAP` — this used to be a hand-maintained
+ * switch that duplicated it, which meant every new language had to be added in
+ * two places or the indexer silently skipped files the parser could handle.
  */
 function extensionToLanguage(ext: string): SupportedLanguage | null {
-  switch (ext) {
-    case '.ts':
-    case '.tsx':
-      return 'typescript';
-    case '.js':
-    case '.jsx':
-      return 'javascript';
-    case '.py':
-      return 'python';
-    case '.go':
-      return 'go';
-    default:
-      return null;
-  }
+  return EXTENSION_LANGUAGE_MAP[ext.toLowerCase()] ?? null;
 }
 
 /**

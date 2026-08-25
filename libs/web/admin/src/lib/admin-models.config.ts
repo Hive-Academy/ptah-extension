@@ -1,0 +1,601 @@
+/**
+ * Frontend UI metadata for the native admin dashboard.
+ *
+ * This file is a MIRROR of the backend security config at
+ * `apps/ptah-license-server/src/admin/admin-models.config.ts`. The backend
+ * file is authoritative for security (field allowlists for sort/search/edit);
+ * this one is authoritative for presentation (labels, input widgets, list
+ * columns, placeholders, bulk-email affordances).
+ *
+ * Sync discipline:
+ * - Every `editable: true` field here MUST also appear in backend
+ *   `editableFields` — otherwise the UI exposes an edit widget whose PATCH
+ *   is silently dropped server-side.
+ * - `readOnly: true` on a model here MUST match `readOnly: true` in backend.
+ * - Field `key` values MUST match the Prisma model attribute names.
+ */
+
+import type { BadgeVariant } from '@ptah-web/panel-ui';
+
+export type FieldType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'datetime'
+  | 'uuid'
+  | 'json';
+
+/**
+ * `BadgeVariant` — the semantic status palette (visual-design-specification
+ * §7.3) — now lives in `@ptah-web/panel-ui` alongside the `StatusBadge` that
+ * renders it, because the member panel resolves enum values through the same
+ * six names. Imported below for the `FieldSpec.badgeMap` declarations.
+ */
+
+export interface FieldSpec {
+  /** Prisma attribute name — MUST match backend model. */
+  key: string;
+  /** Human label shown in table header and detail view. */
+  label: string;
+  /** Drives input widget in detail view + cell rendering in list. */
+  type: FieldType;
+  /** Whether the detail view renders an editable input for this field. */
+  editable?: boolean;
+  /** Whether this field appears as a column on the list view. */
+  listColumn?: boolean;
+  /** Max pixel width for truncated cells (adds ellipsis). */
+  truncate?: number;
+  /**
+   * Optional enum-value → semantic-color map (design spec §7.3). When present,
+   * `StatusBadge` renders the field value as a colored `badge` instead of raw
+   * text. Keys MUST match the exact string the backend stores for this field
+   * (confirmed against `prisma/schema.prisma`); an unmatched value falls back
+   * to a neutral/ghost badge rather than an invented color.
+   *
+   * PRESENTATION-ONLY — this has no backend security counterpart, so it is
+   * exempt from the mirror-sync discipline in this file's header.
+   */
+  badgeMap?: Record<string, BadgeVariant>;
+}
+
+export interface AdminModelSpec {
+  /** URL slug — matches backend `AdminModelKey` EXACTLY. */
+  key: string;
+  /** Sidebar label. */
+  label: string;
+  /** Mirrors backend `readOnly` — hides Save button and edit widgets. */
+  readOnly: boolean;
+  /** Ordered field list — drives list columns AND detail view. */
+  fields: FieldSpec[];
+  /** Placeholder for the list-view search box. */
+  searchPlaceholder: string;
+  /**
+   * Enables the "Email Selected" bulk action on the list view — and, with it,
+   * row selection. It is the ONLY bulk action the generic list offers.
+   *
+   * ⚠️ TWO WAITLIST FLAGS USED TO LIVE HERE and TASK_2026_201 deleted both:
+   * one drove the withdrawn paid founding invite on this list; the other put an
+   * "Approve (grant Builders)" button on the waitlist detail page that issued a
+   * licence with NO cohort assignment — the half-approved state the
+   * founding-cohort flow exists to prevent. Waitlist approval now lives only on
+   * `/admin/waitlist`. Do not reintroduce either flag to add a shortcut here.
+   */
+  supportsBulkEmail?: boolean;
+}
+
+export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
+  {
+    key: 'users',
+    label: 'Users',
+    readOnly: false,
+    supportsBulkEmail: true,
+    searchPlaceholder: 'Search email, first/last name, WorkOS ID, Paddle ID…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'email', label: 'Email', type: 'string', listColumn: true },
+      {
+        key: 'firstName',
+        label: 'First Name',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'lastName',
+        label: 'Last Name',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'emailVerified',
+        label: 'Verified',
+        type: 'boolean',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'workosId',
+        label: 'WorkOS ID',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'paddleCustomerId',
+        label: 'Paddle Cust. ID',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'updatedAt',
+        label: 'Updated',
+        type: 'datetime',
+        listColumn: false,
+      },
+    ],
+  },
+  {
+    key: 'licenses',
+    label: 'Licenses',
+    readOnly: false,
+    searchPlaceholder: 'Search license key, user ID, plan, status…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      {
+        key: 'licenseKey',
+        label: 'License Key',
+        type: 'string',
+        listColumn: true,
+        truncate: 280,
+      },
+      { key: 'userId', label: 'User ID', type: 'uuid', listColumn: true },
+      {
+        key: 'plan',
+        label: 'Plan',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+        // License.status enum confirmed from prisma/schema.prisma:111.
+        badgeMap: {
+          active: 'success',
+          expired: 'error',
+          revoked: 'error',
+          paused: 'warning',
+        },
+      },
+      {
+        key: 'source',
+        label: 'Source',
+        type: 'string',
+        listColumn: true,
+        // Mirrors the (now-removed) hardcoded source branch from data-table.
+        // `paddle` is the ONLY value that asserts revenue — the reconciliation
+        // on the user profile treats it as a claim that a subscription exists.
+        badgeMap: {
+          complimentary: 'warning',
+          manual: 'info',
+          signup: 'ghost',
+          paddle: 'success',
+        },
+      },
+      {
+        key: 'expiresAt',
+        label: 'Expires',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'createdBy',
+        label: 'Created By',
+        type: 'string',
+        listColumn: false,
+      },
+    ],
+  },
+  {
+    key: 'subscriptions',
+    label: 'Subscriptions',
+    readOnly: true,
+    searchPlaceholder:
+      'Search Paddle sub ID, customer ID, user ID, status, price…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'userId', label: 'User ID', type: 'uuid', listColumn: true },
+      {
+        key: 'paddleSubscriptionId',
+        label: 'Paddle Sub ID',
+        type: 'string',
+        listColumn: true,
+      },
+      {
+        key: 'paddleCustomerId',
+        label: 'Paddle Customer',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'string',
+        listColumn: true,
+        // Subscription.status enum confirmed from prisma/schema.prisma:89.
+        badgeMap: {
+          active: 'success',
+          trialing: 'info',
+          past_due: 'warning',
+          paused: 'warning',
+          canceled: 'error',
+        },
+      },
+      { key: 'priceId', label: 'Price ID', type: 'string', listColumn: true },
+      {
+        key: 'currentPeriodEnd',
+        label: 'Period End',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'trialEnd',
+        label: 'Trial End',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'canceledAt',
+        label: 'Canceled At',
+        type: 'datetime',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+    ],
+  },
+  {
+    key: 'failed-webhooks',
+    label: 'Failed Webhooks',
+    readOnly: false,
+    searchPlaceholder: 'Search event ID, type, error message…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'eventId', label: 'Event ID', type: 'string', listColumn: true },
+      {
+        key: 'eventType',
+        label: 'Event Type',
+        type: 'string',
+        listColumn: true,
+      },
+      {
+        key: 'errorMessage',
+        label: 'Error',
+        type: 'string',
+        listColumn: true,
+        truncate: 280,
+      },
+      {
+        key: 'retryCount',
+        label: 'Retries',
+        type: 'number',
+        listColumn: true,
+      },
+      {
+        key: 'resolved',
+        label: 'Resolved',
+        type: 'boolean',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'resolvedAt',
+        label: 'Resolved At',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'attemptedAt',
+        label: 'Attempted',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'stackTrace',
+        label: 'Stack',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'rawPayload',
+        label: 'Payload',
+        type: 'json',
+        listColumn: false,
+      },
+    ],
+  },
+  {
+    key: 'session-requests',
+    label: 'Session Requests',
+    readOnly: false,
+    searchPlaceholder: 'Search user ID, topic, status, payment, Paddle txn…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'userId', label: 'User ID', type: 'uuid', listColumn: true },
+      {
+        key: 'sessionTopicId',
+        label: 'Topic',
+        type: 'string',
+        listColumn: true,
+      },
+      {
+        key: 'isFreeSession',
+        label: 'Free?',
+        type: 'boolean',
+        listColumn: true,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+        // SessionRequest.status enum confirmed from prisma/schema.prisma:157.
+        badgeMap: {
+          pending: 'warning',
+          scheduled: 'info',
+          completed: 'success',
+          canceled: 'error',
+        },
+      },
+      {
+        key: 'paymentStatus',
+        label: 'Payment',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+        // SessionRequest.paymentStatus enum confirmed from prisma/schema.prisma:158.
+        badgeMap: {
+          none: 'ghost',
+          pending: 'warning',
+          completed: 'success',
+        },
+      },
+      {
+        key: 'scheduledAt',
+        label: 'Scheduled',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'paddleTransactionId',
+        label: 'Paddle Txn',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'additionalNotes',
+        label: 'Notes',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+    ],
+  },
+  {
+    key: 'admin-audit-log',
+    label: 'Audit Log',
+    readOnly: true,
+    searchPlaceholder: 'Search actor email, action, target type/id…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'actorEmail', label: 'Actor', type: 'string', listColumn: true },
+      {
+        key: 'action',
+        label: 'Action',
+        type: 'string',
+        listColumn: true,
+        // TODO confirm enum: `action` is a free-form String in the Prisma
+        // schema (schema.prisma:174) with no CHECK/enum constraint. The
+        // create/update/delete mapping below follows design spec §5, but the
+        // actual logged values may be namespaced (e.g. 'user.delete',
+        // 'license.issue'). Verify the real distinct values with
+        // backend-developer before Batch 3 wires this into data-table.
+        badgeMap: {
+          create: 'success',
+          update: 'info',
+          delete: 'error',
+        },
+      },
+      {
+        key: 'targetType',
+        label: 'Target Type',
+        type: 'string',
+        listColumn: true,
+      },
+      { key: 'targetId', label: 'Target ID', type: 'uuid', listColumn: true },
+      {
+        key: 'targetSnapshot',
+        label: 'Snapshot',
+        type: 'json',
+        listColumn: false,
+      },
+      { key: 'metadata', label: 'Metadata', type: 'json', listColumn: false },
+      { key: 'ipAddress', label: 'IP', type: 'string', listColumn: false },
+      {
+        key: 'userAgent',
+        label: 'User Agent',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+    ],
+  },
+  {
+    key: 'marketing-campaigns',
+    label: 'Campaigns',
+    readOnly: true,
+    searchPlaceholder: 'Search campaign name, subject, segment, creator…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'name', label: 'Name', type: 'string', listColumn: true },
+      { key: 'subject', label: 'Subject', type: 'string', listColumn: true },
+      { key: 'segment', label: 'Segment', type: 'string', listColumn: true },
+      {
+        key: 'recipientCount',
+        label: 'Recipients',
+        type: 'number',
+        listColumn: true,
+      },
+      { key: 'sentCount', label: 'Sent', type: 'number', listColumn: true },
+      {
+        key: 'bouncedCount',
+        label: 'Bounced',
+        type: 'number',
+        listColumn: true,
+      },
+      {
+        key: 'complainedCount',
+        label: 'Complaints',
+        type: 'number',
+        listColumn: true,
+      },
+      {
+        key: 'createdBy',
+        label: 'Created By',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'completedAt',
+        label: 'Completed',
+        type: 'datetime',
+        listColumn: true,
+      },
+    ],
+  },
+  {
+    key: 'marketing-campaign-templates',
+    label: 'Templates',
+    readOnly: false,
+    searchPlaceholder: 'Search template name, subject…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      {
+        key: 'name',
+        label: 'Name',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'subject',
+        label: 'Subject',
+        type: 'string',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'htmlBody',
+        label: 'HTML Body',
+        type: 'string',
+        listColumn: false,
+        editable: true,
+      },
+      { key: 'variables', label: 'Variables', type: 'json', listColumn: true },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'updatedAt',
+        label: 'Updated',
+        type: 'datetime',
+        listColumn: false,
+      },
+    ],
+  },
+  {
+    key: 'waitlist',
+    label: 'Waitlist',
+    readOnly: false,
+    searchPlaceholder: 'Search email, source…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'string', listColumn: false },
+      { key: 'email', label: 'Email', type: 'string', listColumn: true },
+      { key: 'source', label: 'Source', type: 'string', listColumn: true },
+      {
+        key: 'createdAt',
+        label: 'Joined',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'notifiedAt',
+        label: 'Notified',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+      /**
+       * Deliberately NOT `editable`. Hand-stamping `approvedAt` would fake a
+       * grant: no licence, no cohort placement, no welcome email — and the
+       * approve endpoint's claim would then skip the row as already approved.
+       * Approval is only ever made by `POST /admin/waitlist/approve`.
+       */
+      {
+        key: 'approvedAt',
+        label: 'Approved',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'convertedAt',
+        label: 'Converted',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+    ],
+  },
+];

@@ -178,14 +178,31 @@ export function runHttpServerProviderContract(
   });
 }
 
+/**
+ * Issue a one-shot GET and resolve once the response has been fully consumed.
+ *
+ * `agent: false` is load-bearing, not stylistic. Since Node 19 `http.globalAgent`
+ * defaults to `keepAlive: true`, so a plain `http.get(url)` parks its client
+ * socket in the agent's free pool for up to `keepAliveMsecs` after the response
+ * ends. That socket is a REFERENCED libuv handle in this very process, so it
+ * keeps the Jest worker's event loop alive past the 500 ms force-exit window and
+ * produces "A worker process has failed to exit gracefully" under load.
+ * `agent: false` gives the request a throwaway agent with `keepAlive: false`, so
+ * the socket is destroyed as soon as the response completes.
+ */
 function sendRequest(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    http
-      .get(url, (res) => {
-        res.resume(); // consume the body
-        res.on('end', resolve);
-        res.on('error', reject);
-      })
-      .on('error', reject);
+    const req = http.get(url, { agent: false }, (res) => {
+      res.resume(); // consume the body
+      res.on('end', () => {
+        // Belt and braces: even a non-keep-alive socket lingers for a tick
+        // while Node decides whether to reuse it. Destroying it here makes
+        // teardown deterministic rather than timing-dependent.
+        res.socket?.destroy();
+        resolve();
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
   });
 }

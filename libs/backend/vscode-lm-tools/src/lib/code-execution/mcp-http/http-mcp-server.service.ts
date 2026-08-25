@@ -47,7 +47,24 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private port: number | null = null;
   private ptahAPI: PtahAPI;
   private toolResultCallback: ToolResultCallback | undefined;
-  private registeredInMcpJson = false;
+
+  /**
+   * The `.mcp.json` path we actually wrote a `ptah` entry into, or `null` when
+   * we currently own no entry anywhere.
+   *
+   * This replaces a `registeredInMcpJson` boolean, which was wrong twice over:
+   * it made registration one-shot (so the SECOND workspace of a session never
+   * got an entry and subagents spawned there could not discover this server),
+   * and it left `unregisterFromMcpJson` with no record of WHERE it had written
+   * — so it re-resolved the CURRENT workspace root and stranded a dead-port
+   * entry in the repository it had actually touched.
+   */
+  private registeredMcpJsonPath: string | null = null;
+
+  /** The port recorded in `registeredMcpJsonPath`, for re-write on port change. */
+  private registeredPort: number | null = null;
+
+  private readonly workspaceFoldersSubscription: IDisposable;
 
   private readonly hasIDECapabilities: boolean;
   private readonly hasSqliteLayer: boolean;
@@ -77,6 +94,10 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     this.hasIDECapabilities = ideCapabilities !== undefined;
     this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
+    this.workspaceFoldersSubscription =
+      this.workspaceProvider.onDidChangeWorkspaceFolders(() =>
+        this.syncMcpJsonRegistration(),
+      );
   }
 
   /**
@@ -121,15 +142,54 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
 
   /**
    * Register the Ptah MCP server in the workspace's .mcp.json for subagent discovery.
-   * Call this ONLY after confirming premium status — free/community users must not
-   * have Ptah MCP tools injected into their subagents.
+   * Callers gate this on the MCP server actually being up (`mcpServerRunning`) —
+   * Ptah's local features, including MCP tool access, are available to everyone.
    *
-   * Idempotent: safe to call multiple times (registers only once).
+   * Idempotent per (path, port): repeated calls against the same workspace and
+   * the same port write nothing. A call after the workspace root changed moves
+   * the entry — the old file's `ptah` key is removed before the new file gets
+   * one, so exactly one repository on disk ever advertises this server.
    */
   ensureRegisteredForSubagents(): void {
-    if (this.registeredInMcpJson || !this.port) return;
-    this.registerInMcpJson(this.port);
-    this.registeredInMcpJson = true;
+    if (!this.port) return;
+
+    const target = this.getMcpJsonPath();
+    if (!target) return;
+    if (
+      this.registeredMcpJsonPath === target &&
+      this.registeredPort === this.port
+    ) {
+      return;
+    }
+
+    if (this.registeredMcpJsonPath && this.registeredMcpJsonPath !== target) {
+      this.unregisterFromMcpJson();
+    }
+    this.registerInMcpJson(target, this.port);
+  }
+
+  /**
+   * Re-point the `.mcp.json` entry after the workspace folders changed.
+   *
+   * Only runs when we already own an entry: a host that never called
+   * `ensureRegisteredForSubagents` must not start touching the user's disk
+   * just because they opened a folder (the Bug #9 rule that
+   * `unregisterFromMcpJson` also enforces).
+   *
+   * Going to ZERO folders is a real case — `getMcpJsonPath()` returns null and
+   * we unregister without re-registering, which is what stops a dead-port entry
+   * outliving the workspace it was written into.
+   */
+  private syncMcpJsonRegistration(): void {
+    if (this.registeredMcpJsonPath === null) return;
+
+    const target = this.getMcpJsonPath();
+    if (target === this.registeredMcpJsonPath) return;
+
+    this.unregisterFromMcpJson();
+    if (target && this.port) {
+      this.registerInMcpJson(target, this.port);
+    }
   }
 
   /**
@@ -186,6 +246,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * shutdown to complete before proceeding (e.g., during app quit).
    */
   async disposeAsync(): Promise<void> {
+    this.workspaceFoldersSubscription.dispose();
     await this.stop();
   }
 
@@ -197,11 +258,11 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * Without this, only the parent SDK session has access to Ptah tools via
    * the programmatic `Options.mcpServers` config — subagents get nothing.
    */
-  private registerInMcpJson(port: number): void {
-    const mcpJsonPath = this.getMcpJsonPath();
-    if (!mcpJsonPath) return;
-
+  private registerInMcpJson(mcpJsonPath: string, port: number): void {
     try {
+      // Read-merge-write, deliberately. `.mcp.json` is a USER-OWNED file that
+      // may hold hand-authored servers; only the `ptah` key is ours to touch
+      // and a blocking writeFileSync over it has no undo.
       let config: Record<string, unknown> = {};
       if (fs.existsSync(mcpJsonPath)) {
         const content = fs.readFileSync(mcpJsonPath, 'utf-8');
@@ -216,6 +277,8 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
       config['mcpServers'] = servers;
 
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+      this.registeredMcpJsonPath = mcpJsonPath;
+      this.registeredPort = port;
       this.logger.info(
         `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
         'CodeExecutionMCP',
@@ -231,31 +294,42 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
-   * Remove the Ptah MCP server entry from .mcp.json on shutdown.
+   * Remove the Ptah MCP server entry from the `.mcp.json` we actually wrote.
    * Prevents stale entries pointing to a dead server.
+   *
+   * Targets `registeredMcpJsonPath`, NOT `getMcpJsonPath()`. Re-resolving the
+   * current workspace root here was the second half of the A3 defect: after a
+   * workspace switch (or after the last folder was removed) it either edited
+   * the wrong repository or gave up entirely, leaving the written entry behind.
    */
   private unregisterFromMcpJson(): void {
-    if (!this.registeredInMcpJson) return;
-
-    const mcpJsonPath = this.getMcpJsonPath();
+    const mcpJsonPath = this.registeredMcpJsonPath;
     if (!mcpJsonPath) return;
 
     try {
-      if (!fs.existsSync(mcpJsonPath)) return;
+      if (!fs.existsSync(mcpJsonPath)) {
+        this.clearRegistration();
+        return;
+      }
 
       const content = fs.readFileSync(mcpJsonPath, 'utf-8');
       const config = JSON.parse(content) as Record<string, unknown>;
       const servers = (config['mcpServers'] as Record<string, unknown>) || {};
 
-      if (!('ptah' in servers)) return;
+      if (!('ptah' in servers)) {
+        this.clearRegistration();
+        return;
+      }
 
+      // Same read-merge-write contract as registration: every other key in the
+      // user's file — their own servers included — is written back untouched.
       delete servers['ptah'];
       config['mcpServers'] = servers;
 
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
-      this.registeredInMcpJson = false;
+      this.clearRegistration();
       this.logger.info(
-        '[CodeExecutionMCP] Unregistered ptah from .mcp.json',
+        `[CodeExecutionMCP] Unregistered ptah from ${mcpJsonPath}`,
         'CodeExecutionMCP',
       );
     } catch (error) {
@@ -266,6 +340,16 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         'CodeExecutionMCP',
       );
     }
+  }
+
+  /**
+   * Forget the entry we own. Called only once the `ptah` key is provably gone
+   * from disk (removed, or the file/key was already absent). A write failure
+   * deliberately leaves the record intact so a later `stop()` retries.
+   */
+  private clearRegistration(): void {
+    this.registeredMcpJsonPath = null;
+    this.registeredPort = null;
   }
 
   /**

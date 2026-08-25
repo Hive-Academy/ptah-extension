@@ -41,12 +41,6 @@ function makeRpcResult<T>(success: boolean, data?: T) {
     isError(): boolean {
       return !success;
     },
-    isLicenseError(): boolean {
-      return false;
-    },
-    isProRequired(): boolean {
-      return false;
-    },
   };
 }
 

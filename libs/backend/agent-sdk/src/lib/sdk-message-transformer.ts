@@ -39,7 +39,11 @@ import {
   isSkillOrMetaContent,
   userMessageHasToolResult,
 } from './message-transform';
-import type { TransformerState, TransformerHelpers } from './message-transform';
+import type {
+  TransformerState,
+  TransformerHelpers,
+  WorkflowRunInfo,
+} from './message-transform';
 
 export { isResultMessage as isSDKResultMessage };
 
@@ -51,7 +55,10 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly backgroundTaskToolUseIds: Set<string> = new Set();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
+  private readonly nonAgentTaskIds: Set<string> = new Set();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
+  private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
+    new Map();
 
   private readonly assistantTransformer: AssistantMessageTransformer;
   private readonly userTransformer: UserMessageTransformer;
@@ -108,8 +115,28 @@ export class SdkMessageTransformer implements TransformerState {
 
   transform(
     sdkMessage: SDKMessage,
-    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
+    callerSessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
+    // The single session-id resolution for every sub-transformer. They now all
+    // spread this value straight onto `FlatStreamEvent.sessionId` (optional
+    // since TASK_2026_295 Wave 2), so "no id" travels as `undefined` and no
+    // emit site has to invent one.
+    //
+    // `||` not `??`: the caller can hand us `''` — the Ptah CLI agent path
+    // passes `this.effectiveSessionId || undefined` until the SDK reports the
+    // real id — and `''` is not an id, so it must fall through to the payload
+    // rather than suppress the fallback.
+    //
+    // The caller's id still wins where it exists: for harness and wizard
+    // streams it is a HarnessStreamId / WizardPhaseId, i.e. the routing key the
+    // frontend subscribed with, which no SDK payload carries.
+    const sessionId =
+      callerSessionId ||
+      ((sdkMessage as { session_id?: string }).session_id as
+        | SessionId
+        | undefined) ||
+      undefined;
+
     try {
       if (isAssistantMessage(sdkMessage)) {
         return this.assistantTransformer.transform(
@@ -252,6 +279,8 @@ export class SdkMessageTransformer implements TransformerState {
     this.activeSkillToolUseIds.clear();
     this.taskIdToParentToolUseId.clear();
     this.taskStartedEmitted.clear();
+    this.nonAgentTaskIds.clear();
+    this.workflowRunByToolUseId.clear();
   }
 
   getMessageId(contextKey: string): string | undefined {
@@ -276,6 +305,10 @@ export class SdkMessageTransformer implements TransformerState {
 
   isTaskStartedEmitted(toolUseId: string): boolean {
     return this.taskStartedEmitted.has(toolUseId);
+  }
+
+  isNonAgentTask(taskId: string): boolean {
+    return this.nonAgentTaskIds.has(taskId);
   }
 
   hasActiveSkillToolUseId(toolUseId: string): boolean {
@@ -340,6 +373,11 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearTaskParent(taskId: string): void {
     this.taskIdToParentToolUseId.delete(taskId);
+    this.nonAgentTaskIds.delete(taskId);
+  }
+
+  markNonAgentTask(taskId: string): void {
+    this.nonAgentTaskIds.add(taskId);
   }
 
   markTaskStartedEmitted(toolUseId: string): void {
@@ -352,5 +390,36 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearActiveSkillToolUseIds(): void {
     this.activeSkillToolUseIds.clear();
+  }
+
+  getWorkflowRun(toolUseId: string): WorkflowRunInfo | undefined {
+    return this.workflowRunByToolUseId.get(toolUseId);
+  }
+
+  registerWorkflowRunRoot(toolUseId: string, name?: string): void {
+    const existing = this.workflowRunByToolUseId.get(toolUseId);
+    this.workflowRunByToolUseId.set(toolUseId, {
+      runId: toolUseId,
+      name: name ?? existing?.name,
+    });
+  }
+
+  associateWorkflowRunChild(
+    childToolUseId: string,
+    parentToolUseId: string,
+  ): void {
+    const parent = this.workflowRunByToolUseId.get(parentToolUseId);
+    if (!parent) {
+      return;
+    }
+    // Never clobber an existing entry (e.g. a run root that is itself a child
+    // of another run) — first-writer wins keeps the runId stable.
+    if (this.workflowRunByToolUseId.has(childToolUseId)) {
+      return;
+    }
+    this.workflowRunByToolUseId.set(childToolUseId, {
+      runId: parent.runId,
+      name: parent.name,
+    });
   }
 }

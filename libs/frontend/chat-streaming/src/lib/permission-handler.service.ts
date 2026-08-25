@@ -533,6 +533,29 @@ export class PermissionHandlerService {
   }
 
   /**
+   * Question twin of `hasSurfaceTargets`. Returns `true` when the question
+   * has attached targets AND none of them is a live tab id — i.e. every
+   * target is a non-tab surface (harness workflow, tribunal conductor,
+   * wizard phase).
+   *
+   * Questions live in `_questionTargetTabs`, a different map from the
+   * permission `_promptTargetTabs`, so `hasSurfaceTargets` always returns
+   * false for a question id. Surface hosts that filtered questions with the
+   * permission predicate silently dropped every question card — and because
+   * the backend's `awaitQuestionResponse` runs with `timeoutAt: 0`, the
+   * agent then blocked until the 5-minute idle auto-pick. Surface hosts must
+   * use this method; the chat view uses it to suppress question cards that
+   * belong to a surface workflow.
+   */
+  hasSurfaceQuestionTargets(questionId: string): boolean {
+    const targets = this._questionTargetTabs.get(questionId);
+    if (!targets || targets.length === 0) return false;
+    return targets.every(
+      (id) => !this.tabManager.tabs().some((t) => t.id === id),
+    );
+  }
+
+  /**
    * Drop the per-question target tab list without removing the question
    * itself. Used by the router's compaction-complete / SESSION_ID_RESOLVED
    * re-route paths so a fresh `attachQuestionTargets` call is not blocked
@@ -597,22 +620,33 @@ export class PermissionHandlerService {
    * Remove all permission and question requests for a specific session.
    * Called when the backend notifies that a session has been aborted.
    * Prevents stale permission/question cards from lingering in the UI.
+   *
+   * Matches on `tabId` as well as `sessionId`, mirroring the backend's own
+   * `PendingResponseRegistry.cleanupBySession`. The broadcast carries the
+   * record's TAB id, while a prompt now carries the resolved SDK session id
+   * (see `SdkPermissionHandler.createCallback`'s `sessionIdResolver`) — so the
+   * two only coincide when the caller had no separate tab id. Filtering on
+   * `sessionId` alone left every prompt of an aborted surface workflow on
+   * screen, still answerable, against a session that no longer exists.
    */
   cleanupSession(sessionId: string): void {
+    const owns = (r: { sessionId?: string; tabId?: string }): boolean =>
+      r.sessionId === sessionId || r.tabId === sessionId;
+
     const removedIds = this._permissionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     const removedQuestionIds = this._questionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     this._questionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     for (const id of removedIds) {

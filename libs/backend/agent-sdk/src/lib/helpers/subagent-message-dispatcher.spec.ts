@@ -9,9 +9,25 @@
  *   - interruptSession wraps Query.interrupt failures in RpcUserError('SESSION_ENDED')
  *   - backgroundTask delegates to Query.backgroundTasks and surfaces
  *     SESSION_NOT_FOUND / SESSION_ENDED
+ *   - getSubagentTranscript dynamic-imports the SDK, normalizes raw
+ *     SessionMessage[] to {role,text,timestamp?} (user/assistant only, text
+ *     blocks concatenated, empty-text turns dropped), and defensively returns
+ *     [] — never throws — when the SDK export is missing or the call rejects
  */
 
 import 'reflect-metadata';
+
+// getSubagentTranscript dynamic-imports the SDK; mock it so the transcript read
+// can be swapped per test (missing export / resolves / rejects) without the
+// real ESM SDK. Matches session-fork.service.spec.ts's mocking of forkSession.
+jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  getSubagentMessages: jest.fn(),
+}));
+
+const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
+  getSubagentMessages: jest.Mock;
+};
+
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import { SubagentMessageDispatcher } from './subagent-message-dispatcher';
 import type { SessionLifecycleManager } from './session-lifecycle-manager';
@@ -316,5 +332,142 @@ describe('SubagentMessageDispatcher.interruptSession — Fix 3', () => {
     expect(err).toBeInstanceOf(RpcUserError);
     expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
     expect((err as RpcUserError).message).toContain('session already done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSubagentTranscript — SDK read + normalization
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.getSubagentTranscript', () => {
+  beforeEach(() => {
+    // Fresh mock per test — avoids bleed-through of resolved/rejected/deleted
+    // states between tests in this block.
+    sdkModuleMock.getSubagentMessages = jest.fn();
+  });
+
+  // The transcript read ignores the session/query, so any lifecycle mock works.
+  const dispatcher = (): SubagentMessageDispatcher =>
+    buildDispatcher(makeLifecycleWithQuery({}));
+
+  it('maps SDK SessionMessage[] to normalized {role,text,timestamp?} messages', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([
+      {
+        type: 'user',
+        message: { role: 'user', content: 'hello agent' },
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'part one' },
+            { type: 'text', text: 'part two' },
+          ],
+        },
+        // no timestamp on this line
+      },
+    ]);
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        text: 'hello agent',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      { role: 'assistant', text: 'part one\npart two' },
+    ]);
+    expect(sdkModuleMock.getSubagentMessages).toHaveBeenCalledWith(
+      'sess-abc',
+      'short-1',
+      { limit: undefined, offset: undefined },
+    );
+  });
+
+  it('passes limit/offset through to the SDK call', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([]);
+
+    await dispatcher().getSubagentTranscript('sess-abc', 'short-1', {
+      limit: 50,
+      offset: 10,
+    });
+
+    expect(sdkModuleMock.getSubagentMessages).toHaveBeenCalledWith(
+      'sess-abc',
+      'short-1',
+      { limit: 50, offset: 10 },
+    );
+  });
+
+  it('returns [] when the SDK getSubagentMessages export is unavailable', async () => {
+    // Simulate an SDK build that doesn't export this function.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sdkModuleMock as any).getSubagentMessages = undefined;
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it('returns [] (never throws) when the SDK call rejects', async () => {
+    sdkModuleMock.getSubagentMessages.mockRejectedValueOnce(
+      new Error('transcript file not found'),
+    );
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it('drops system turns, tool/thinking-only turns, and empty-text turns while concatenating surviving text blocks', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([
+      // System turn — filtered out entirely (not user/assistant).
+      { type: 'system', message: { content: 'system init' } },
+      // Assistant turn with ONLY a tool_use block — renders to '' and is dropped.
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} },
+          ],
+        },
+      },
+      // Assistant turn with ONLY a thinking block — renders to '' and is dropped.
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'thinking', thinking: 'pondering' }] },
+      },
+      // User turn with empty string content — dropped (empty after trim).
+      { type: 'user', message: { content: '' } },
+      // Assistant turn mixing tool_use + text — only the text block survives.
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'toolu_2', name: 'Grep', input: {} },
+            { type: 'text', text: 'final answer' },
+          ],
+        },
+      },
+    ]);
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([{ role: 'assistant', text: 'final answer' }]);
   });
 });

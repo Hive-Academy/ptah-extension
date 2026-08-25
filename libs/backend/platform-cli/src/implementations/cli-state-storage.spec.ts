@@ -77,7 +77,22 @@ describe('CliStateStorage — CLI-specific behaviour', () => {
 
     const raw = await fs.readFile(path.join(storage, 'state.json'), 'utf-8');
     expect(() => JSON.parse(raw)).not.toThrow();
-  });
+  }, // Explicit timeout, matching the precedent in
+  // `platform-core/src/file-settings-manager.cross-process.spec.ts`.
+  //
+  // `CliStateStorage.update` SERIALIZES through a promise chain, so twenty
+  // parallel calls become sixty sequential real-disk syscalls (mkdir +
+  // write + atomic rename, twenty times). That is the behaviour under test —
+  // it cannot be made faster without testing something else — and its
+  // wall-clock cost scales with whatever else is hitting the disk. Under the
+  // eleven-project `nx run-many` gate it exceeded Jest's 5s default and
+  // failed the whole gate, while passing in isolation; Nx then marked the
+  // task flaky.
+  //
+  // This is a load-sensitive DURATION, not a leaked handle: nothing here is
+  // left open, and a genuine serialization break still fails fast (wrong
+  // final value, or unparseable JSON) rather than waiting this out.
+  30_000);
 
   it('loadSync recovers from a missing file without throwing', () => {
     expect(

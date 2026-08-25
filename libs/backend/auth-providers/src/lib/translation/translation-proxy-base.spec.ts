@@ -36,12 +36,21 @@ import {
   TranslationProxyBase,
   type TranslationProxyConfig,
 } from './translation-proxy-base';
+import {
+  providerQuotaStore,
+  PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+} from '../auth/provider-quota.store';
 
 // ---------------------------------------------------------------------------
 // Concrete subclass — stubs the 4 abstract hooks.
 // ---------------------------------------------------------------------------
 
 class FakeTranslationProxy extends TranslationProxyBase {
+  /**
+   * The REGISTRY id the quota store is keyed on. Settable so the two dynamic
+   * subclasses' shape (id known only at construction) is exercised here too.
+   */
+  public providerId = 'fake-provider';
   public readonly getApiEndpointMock = jest.fn(
     async () => 'http://127.0.0.1:1', // intentionally-unreachable port for forwarding tests
   );
@@ -66,6 +75,9 @@ class FakeTranslationProxy extends TranslationProxyBase {
   }
   protected override getStaticModels(): Array<{ id: string }> {
     return this.getStaticModelsMock();
+  }
+  protected override getProviderId(): string {
+    return this.providerId;
   }
 }
 
@@ -260,5 +272,175 @@ describe('TranslationProxyBase — routing', () => {
     } finally {
       await h.stop();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The 429 side effect (TASK_2026_306 defect B, task 2.1).
+//
+// Two halves that have to hold together:
+//   * the RESPONSE is untouched — status, headers, body and message are exactly
+//     what they were before the quota store existed. `context.md` puts the 429
+//     response explicitly out of scope: it was already correct.
+//   * the SIDE EFFECT fires — a cooldown is recorded against the REGISTRY
+//     provider id (never the `name` display label), and cleared again the
+//     moment the upstream answers.
+//
+// A real upstream on loopback, because the branch under test reads
+// `proxyRes.statusCode` and `proxyRes.headers['retry-after']` off a live
+// response; a mocked `http.request` would assert only that the code calls what
+// it was written to call.
+// ---------------------------------------------------------------------------
+
+/** Minimal upstream that answers every POST with a scripted status. */
+async function startUpstream(handler: http.RequestListener): Promise<{
+  origin: string;
+  close: () => Promise<void>;
+}> {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') throw new Error('no upstream address');
+  return {
+    origin: `http://127.0.0.1:${addr.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      ),
+  };
+}
+
+const MESSAGES_BODY = JSON.stringify({
+  model: 'fake-model-a',
+  max_tokens: 16,
+  stream: false,
+  messages: [{ role: 'user', content: 'hi' }],
+});
+
+describe('TranslationProxyBase — 429 records a provider cooldown', () => {
+  beforeEach(() => providerQuotaStore.clear());
+  afterEach(() => providerQuotaStore.clear());
+
+  async function runAgainstUpstream(
+    handler: http.RequestListener,
+    providerId = 'fake-provider',
+  ): Promise<HttpResult> {
+    const upstream = await startUpstream(handler);
+    const h = await startProxy();
+    h.proxy.providerId = providerId;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      return await request(`${h.url}/v1/messages`, {
+        method: 'POST',
+        body: MESSAGES_BODY,
+      });
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  }
+
+  it('leaves the bare-429 response byte-identical while recording the cooldown', async () => {
+    const res = await runAgainstUpstream((_req, upRes) => {
+      upRes.writeHead(429, { 'Content-Type': 'application/json' });
+      upRes.end('{"error":"rate limited"}');
+    });
+
+    // The response, asserted exhaustively rather than by `toMatchObject`.
+    expect(res.status).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({
+      type: 'error',
+      error: {
+        type: 'rate_limit_error',
+        message: 'Fake API rate limit exceeded. Please wait and try again.',
+      },
+    });
+    // No header arrived, so none is forwarded. The gate still arms.
+    expect(res.headers['retry-after']).toBeUndefined();
+
+    const state = providerQuotaStore.cooldownFor('fake-provider');
+    expect(state).not.toBeNull();
+    expect(providerQuotaStore.retryAfterMs('fake-provider')).toBeGreaterThan(0);
+    expect(
+      providerQuotaStore.retryAfterMs('fake-provider'),
+    ).toBeLessThanOrEqual(PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS);
+  });
+
+  it('honours an upstream retry-after in BOTH the response and the cooldown', async () => {
+    const res = await runAgainstUpstream((_req, upRes) => {
+      upRes.writeHead(429, { 'retry-after': '120' });
+      upRes.end('{}');
+    });
+
+    // Response half: header forwarded, message carries the sentence. Unchanged.
+    expect(res.status).toBe(429);
+    expect(res.headers['retry-after']).toBe('120');
+    expect(JSON.parse(res.body)).toEqual({
+      type: 'error',
+      error: {
+        type: 'rate_limit_error',
+        message:
+          'Fake API rate limit exceeded. Retry after 120 seconds. Please wait and try again.',
+      },
+    });
+
+    // Side-effect half: the honoured delay, not the 15-minute default.
+    const ms = providerQuotaStore.retryAfterMs('fake-provider');
+    expect(ms).toBeGreaterThan(110_000);
+    expect(ms).toBeLessThanOrEqual(120_000);
+  });
+
+  it('keys on the REGISTRY id the subclass answers with, not the display name', async () => {
+    // `TranslationProxyConfig.name` is `'Fake'` here. A store keyed on that
+    // would record a cooldown `ProviderAuthResolver` can never match.
+    await runAgainstUpstream((_req, upRes) => {
+      upRes.writeHead(429);
+      upRes.end('{}');
+    }, 'dynamic-entry-id');
+
+    expect(providerQuotaStore.cooldownFor('dynamic-entry-id')).not.toBeNull();
+    expect(providerQuotaStore.cooldownFor('Fake')).toBeNull();
+  });
+
+  it('clears the cooldown on the next successful answer, not only on expiry', async () => {
+    // A subscription that refilled early must not stay gated for the rest of
+    // the cooldown.
+    providerQuotaStore.recordRateLimit('fake-provider');
+    expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
+
+    const res = await runAgainstUpstream((_req, upRes) => {
+      upRes.writeHead(200, { 'Content-Type': 'application/json' });
+      upRes.end(
+        JSON.stringify({
+          id: 'chatcmpl-1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'fake-model-a',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+      );
+    });
+
+    expect(res.status).toBe(200);
+    expect(providerQuotaStore.cooldownFor('fake-provider')).toBeNull();
+  });
+
+  it('does not clear the cooldown on a non-429 upstream error', async () => {
+    // Only an ANSWER clears it. A 500 is not evidence the quota refilled.
+    providerQuotaStore.recordRateLimit('fake-provider');
+
+    const res = await runAgainstUpstream((_req, upRes) => {
+      upRes.writeHead(500);
+      upRes.end('{"error":"boom"}');
+    });
+
+    expect(res.status).toBe(500);
+    expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
   });
 });

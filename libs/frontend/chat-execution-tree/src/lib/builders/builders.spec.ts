@@ -522,6 +522,42 @@ describe('builder fns (integration)', () => {
       consoleSpy.mockRestore();
     });
 
+    it('buildToolChildren nests a real agent_start but skips a local_bash one', () => {
+      const state = createEmptyStreamingState();
+      const toolCallId = 'toolu_bash';
+
+      setEvent(state, {
+        id: 'evt_agent_bash',
+        eventType: 'agent_start',
+        timestamp: 10,
+        sessionId: 's',
+        messageId: 'm',
+        parentToolUseId: toolCallId,
+        toolCallId,
+        agentType: 'local_bash',
+        agentDescription: 'Create Nx React+Vite workspace in temp dir',
+      } as AgentStartEvent);
+
+      const deps = makeDeps(agentStats, makeBackgroundAgentStub());
+      expect(buildToolChildren(deps, toolCallId, state, 0)).toEqual([]);
+
+      setEvent(state, {
+        id: 'evt_agent_real',
+        eventType: 'agent_start',
+        timestamp: 20,
+        sessionId: 's',
+        messageId: 'm',
+        parentToolUseId: toolCallId,
+        toolCallId,
+        agentType: 'general-purpose',
+        agentDescription: 'Research the codebase',
+      } as AgentStartEvent);
+
+      const children = buildToolChildren(deps, toolCallId, state, 0);
+      expect(children).toHaveLength(1);
+      expect(children[0].agentType).toBe('general-purpose');
+    });
+
     it('buildToolChildren returns [] at MAX_DEPTH (recursion guard)', () => {
       const state = createEmptyStreamingState();
       const deps = makeDeps(agentStats, makeBackgroundAgentStub());

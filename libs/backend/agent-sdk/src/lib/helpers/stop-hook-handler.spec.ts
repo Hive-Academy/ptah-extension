@@ -314,7 +314,10 @@ describe('StopHookHandler', () => {
       );
     });
 
-    it('skips bus emit when resolved sessionId is empty (closure empty + input absent)', async () => {
+    // TASK_2026_295: the guard used to sit BETWEEN the two fan-outs, so a Stop
+    // with no resolvable id skipped the bus but still pushed `sessionId: ''`
+    // into every StopCallbackRegistry subscriber. Both fan-outs are gated now.
+    it('skips BOTH the registry fan-out and the bus emit when resolved sessionId is empty (closure empty + input absent)', async () => {
       const logger = makeLogger();
       const registry = new StopCallbackRegistry(logger);
       const events = new SdkAdapterEvents(logger);
@@ -332,10 +335,10 @@ describe('StopHookHandler', () => {
 
       await fn(input, undefined, { signal: new AbortController().signal });
 
-      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(notifySpy).not.toHaveBeenCalled();
       expect(busListener).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
-        '[StopHookHandler] Stop missing sessionId or cwd, skipping bus emit',
+        '[StopHookHandler] Stop missing sessionId or cwd, skipping fan-out',
         expect.objectContaining({
           hasSessionId: false,
           hasCwd: true,
@@ -361,7 +364,7 @@ describe('StopHookHandler', () => {
 
       expect(busListener).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
-        '[StopHookHandler] Stop missing sessionId or cwd, skipping bus emit',
+        '[StopHookHandler] Stop missing sessionId or cwd, skipping fan-out',
         expect.objectContaining({
           hasSessionId: true,
           hasCwd: false,

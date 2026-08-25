@@ -303,6 +303,11 @@ export class SessionRpcHandlers {
           const total = allSessions.length;
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
+          // Metadata rows outlive their transcripts — the Claude CLI prunes
+          // ~/.claude/projects after `cleanupPeriodDays` (default 30) while
+          // this store is never pruned. Index the surviving transcripts once
+          // so the sidebar can mark the rows that will open empty.
+          const transcriptIds = await this.listTranscriptIds(workspacePath);
           const sessions = paginated.flatMap((s) => {
             let id: SessionId;
             try {
@@ -324,6 +329,9 @@ export class SessionRpcHandlers {
                 createdAt: s.createdAt,
                 messageCount: 0, // SDK handles messages - count not stored in metadata
                 isActive: false, // Listed sessions are not currently active
+                ...(transcriptIds
+                  ? { hasTranscript: transcriptIds.has(s.sessionId) }
+                  : {}),
                 ...(s.totalTokens &&
                 (s.totalTokens.input > 0 || s.totalTokens.output > 0)
                   ? {
@@ -722,10 +730,13 @@ export class SessionRpcHandlers {
         const sessionId = this.validateSessionId(params.sessionId);
         await this.authorizeSessionAccess(sessionId);
         const metadata = await this.metadataStore.get(sessionId);
-        const raw = metadata?.cliSessions ?? [];
-        const cliSessions = raw.filter(
-          (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId,
-        );
+        // Returned unfiltered — this must agree with the `cliSessions` payload
+        // of `chat:resume`, which is the other restore path. An earlier filter
+        // dropped ptah-cli refs without a `ptahCliId` to hide ghosts
+        // synthesized by the long-removed recoverMissingCliSessions(); it also
+        // hid legitimate MCP-spawned ptah-cli agents (the tribunal's panelists),
+        // so their cards never came back on reopen.
+        const cliSessions = [...(metadata?.cliSessions ?? [])];
 
         return { cliSessions };
       } catch (error) {
@@ -1132,8 +1143,43 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<string | null> {
-    const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    const sessionDir = await this.resolveSessionsDir(workspacePath, {
+      allowPartialMatch: true,
+    });
+    if (!sessionDir) {
+      return null;
+    }
+
+    const sessionFilePath = path.join(sessionDir, `${sessionId}.jsonl`);
+
+    try {
+      await fs.access(sessionFilePath);
+      return sessionFilePath;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the Claude SDK sessions directory for a workspace.
+   *
+   * The CLI escapes the workspace path into a directory name under
+   * `~/.claude/projects/`, but its escaping is not identical to ours (it also
+   * folds `_` to `-`), so exact match is tried first, then case-insensitive,
+   * then `[-_]`-normalized.
+   *
+   * `allowPartialMatch` adds a final basename-contains guess. It is a guess:
+   * a workspace named `api` matches any project directory containing "api".
+   * Callers that only probe for one known file (`findSessionFile`) tolerate a
+   * wrong directory — it degrades to "not found". Callers that treat the
+   * directory listing as authoritative must NOT enable it, since a wrong
+   * directory would report live sessions as having no transcript.
+   */
+  private async resolveSessionsDir(
+    workspacePath: string,
+    opts: { allowPartialMatch?: boolean } = {},
+  ): Promise<string | null> {
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
 
     try {
       await fs.access(projectsDir);
@@ -1154,7 +1200,7 @@ export class SessionRpcHandlers {
         sessionDir = dirs.find((d) => normalize(d) === normalize(escapedPath));
       }
 
-      if (!sessionDir) {
+      if (!sessionDir && opts.allowPartialMatch) {
         const workspaceName = path.basename(workspacePath);
         const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
         sessionDir = dirs.find(
@@ -1165,20 +1211,36 @@ export class SessionRpcHandlers {
       }
     }
 
-    if (!sessionDir) {
-      return null;
-    }
+    return sessionDir ? path.join(projectsDir, sessionDir) : null;
+  }
 
-    const sessionFilePath = path.join(
-      projectsDir,
-      sessionDir,
-      `${sessionId}.jsonl`,
-    );
-
+  /**
+   * Index the session IDs that still have a transcript on disk for a workspace.
+   *
+   * One `readdir` per `session:list` call rather than one `stat` per row.
+   * Returns `null` when the sessions directory can't be resolved or read — the
+   * caller must then leave `hasTranscript` undefined rather than marking every
+   * session expired.
+   */
+  private async listTranscriptIds(
+    workspacePath: string,
+  ): Promise<ReadonlySet<string> | null> {
     try {
-      await fs.access(sessionFilePath);
-      return sessionFilePath;
-    } catch {
+      const sessionDir = await this.resolveSessionsDir(workspacePath);
+      if (!sessionDir) {
+        return null;
+      }
+      const entries = await fs.readdir(sessionDir);
+      return new Set(
+        entries
+          .filter((e) => e.endsWith('.jsonl'))
+          .map((e) => e.slice(0, -'.jsonl'.length)),
+      );
+    } catch (error: unknown) {
+      this.logger.debug('RPC: session:list could not index transcripts', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
   }

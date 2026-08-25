@@ -6,10 +6,18 @@
  * Inbound `GatewayInboundEvent`s are serialized per conversation via
  * {@link ConversationQueue}; each turn either starts a new SDK session (first
  * message for the conversation row) or resumes the one persisted on it.
- * Gateway-originated sessions are auto-approved from turn one: each start/resume
- * seeds the session's permission level to the frontend `'yolo'` level, so the
- * first tool call is auto-approved (no post-hoc bypass flip, no permission
- * prompt that a chat platform cannot render).
+ *
+ * SECURITY — inbound permission gate (TASK_2026_192): gateway inbound is a
+ * REMOTE, non-interactive path. A message the gateway accepts drives a host
+ * agent turn under the local user's privileges, and no chat platform can render
+ * a tool-approval prompt. Each start/resume therefore seeds the session's
+ * permission level from `ptah.gateway.permissionLevel`, defaulting to the safe
+ * `'ask'` level: the SDK gate auto-approves only read-only SAFE tools, while
+ * `Write`/`Edit`/`Bash`, network and MCP tools are NOT auto-approved — they
+ * route to the local Ptah approval surface and fail closed when it is absent.
+ * An operator who wants autonomous write/exec from chat must opt in explicitly
+ * by raising that setting (`'auto-edit'` or `'yolo'`). The level is seeded at
+ * start/resume, never flipped post-hoc.
  *
  * Each turn runs in the conversation's EFFECTIVE workspace: the
  * conversation-pinned root first, then the binding root, then the active
@@ -19,12 +27,7 @@
  */
 import { access } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
-import {
-  TOKENS,
-  isPremiumTier,
-  type Logger,
-  type LicenseService,
-} from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -38,12 +41,14 @@ import {
   type GatewayConversation,
   type GatewayInboundEvent,
   type GatewayService,
+  type InterruptedInboundConversation,
   type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
 import {
   SessionId,
   type IAgentAdapter,
   type FlatStreamEventUnion,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import {
   SETTINGS_TOKENS,
@@ -52,7 +57,8 @@ import {
 import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
-  type PluginLoaderService,
+  type PermissionPromptLifecycleEvent,
+  type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
@@ -69,6 +75,15 @@ import { ConversationQueue } from './conversation-queue';
 const TURN_WATCHDOG_MS = 10 * 60_000;
 
 /**
+ * Re-arm interval for the "bot is typing" indicator (TASK_2026_271). Every
+ * platform expires the indicator on its own — Discord after ~10 s — so a turn
+ * that spends minutes in a tool call or an approval wait must keep pinging or
+ * it looks dead. 8 s leaves headroom under the shortest expiry without turning
+ * the indicator into a rate-limit problem of its own.
+ */
+const TYPING_REARM_MS = 8_000;
+
+/**
  * Fail-closed reply when the conversation's pinned workspace root is no longer
  * allowlisted or no longer exists on disk (Data-2). The user must explicitly
  * re-pick via `/workspace use` — the turn never silently falls back to the
@@ -78,15 +93,80 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
   "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
 
 /**
- * Premium/session context resolved once per turn and threaded into the
- * start/resume config so gateway sessions reach parity with the webview chat
- * path (enhanced prompts, plugins, code-exec MCP).
+ * Reply sent when the agent finished but the platform rejected the outbound
+ * message (deleted thread, revoked permission, network). Without it the turn
+ * vanished with only a backend warn-log (TASK_2026_271 #2).
  */
-interface PremiumSessionContext {
-  isPremium: boolean;
+const DELIVERY_FAILED_MESSAGE =
+  'Ptah finished this request but could not deliver the reply here. Please try again.';
+
+/**
+ * Sent once per conversation on the first `start()` after the host process died
+ * mid-turn (TASK_2026_277).
+ *
+ * It asks for a resend instead of replaying. A gateway turn at `auto-edit` or
+ * `yolo` may already have run `Write`/`Bash` before the process went down, and
+ * re-running the same prompt from the top would repeat those side effects with
+ * no idempotency guarantee. The watchdog path already established the safe
+ * shape: stop, tell the user, let them decide.
+ */
+const INTERRUPTED_TURN_MESSAGE =
+  'Ptah restarted while working on your last message. Please send it again.';
+
+/** Prefix of the tab id every gateway turn runs under (`gw-<conversationId>`). */
+const GATEWAY_TAB_PREFIX = 'gw-';
+
+/**
+ * Out-of-band notices for permission prompts (TASK_2026_271 #1). At the
+ * default `'ask'` level a gateway turn cannot render an approval prompt on the
+ * chat platform; the prompt goes to the local Ptah window with a deny window.
+ * Before these notices the chat user saw nothing for the whole window and then
+ * a reply that quietly skipped the tool.
+ */
+function approvalRequestedNotice(toolName: string, timeoutMs?: number): string {
+  const window = timeoutMs ? ` within ${Math.round(timeoutMs / 1000)}s` : '';
+  return (
+    `Ptah needs approval to run \`${toolName}\`. Approve it in the Ptah desktop app${window}, ` +
+    `or set gateway.permissionLevel to auto-edit/yolo to allow it from chat.`
+  );
+}
+
+function approvalTimedOutNotice(toolName: string): string {
+  return `No approval arrived for \`${toolName}\` — Ptah skipped it and is continuing without it.`;
+}
+
+/**
+ * Settings key (under the `ptah` section) for the gateway inbound permission
+ * level. Read per turn via `IWorkspaceProvider.getConfiguration`, mirroring
+ * `GatewayService`'s config reads.
+ */
+const GATEWAY_PERMISSION_LEVEL_KEY = 'gateway.permissionLevel';
+
+/**
+ * Permission levels an operator may configure for gateway inbound sessions —
+ * the boundary allowlist for {@link GATEWAY_PERMISSION_LEVEL_KEY}. Deliberately
+ * a subset of the SDK's full set: `'plan'` is excluded (it would block every
+ * turn) and there is no way to express "more than yolo". Any value outside this
+ * set is rejected and falls back to {@link DEFAULT_GATEWAY_PERMISSION_LEVEL}.
+ */
+const GATEWAY_PERMISSION_LEVELS = ['ask', 'auto-edit', 'yolo'] as const;
+
+/**
+ * Default gateway inbound permission level. SECURITY (TASK_2026_192): the safe
+ * default is `'ask'` so a remote, non-interactive message never silently drives
+ * `Bash`/`Write`/`Edit`/MCP — only read-only SAFE tools auto-approve; anything
+ * dangerous routes to the local Ptah approval surface (fail-closed when absent).
+ */
+const DEFAULT_GATEWAY_PERMISSION_LEVEL: PermissionLevel = 'ask';
+
+/**
+ * Session context resolved once per turn and threaded into the start/resume
+ * config so gateway sessions reach parity with the webview chat path
+ * (enhanced prompts, plugins, code-exec MCP).
+ */
+interface SdkSessionContext {
   mcpServerRunning: boolean;
   enhancedPromptsContent?: string;
-  pluginPaths?: string[];
 }
 
 /**
@@ -105,6 +185,9 @@ interface TurnCancellation {
 export class GatewayChatBridge {
   private readonly queue = new ConversationQueue();
   private listener: ((event: GatewayInboundEvent) => void) | null = null;
+  private unsubscribePrompts: (() => void) | null = null;
+  /** Route of the turn currently running under each `gw-*` tab id. */
+  private readonly activeRoutes = new Map<string, OutboundRoute>();
   private stopped = false;
 
   constructor(
@@ -119,16 +202,14 @@ export class GatewayChatBridge {
     private readonly workspace: IWorkspaceProvider,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
-    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService,
     @inject(GATEWAY_TOKENS.GATEWAY_TURN_TRACKER)
     private readonly turnTracker: ConversationTurnTracker,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler,
   ) {}
 
   start(): void {
@@ -139,7 +220,64 @@ export class GatewayChatBridge {
     };
     this.listener = listener;
     this.gateway.on('inbound', listener);
+    this.unsubscribePrompts = this.permissionHandler.onPromptLifecycle(
+      (event) => this.onPermissionPrompt(event),
+    );
     this.logger.info('[gateway-chat-bridge] subscribed to inbound events');
+    // Deliberately not awaited: `start()` is called during host activation and
+    // must not be gated on a chat platform's round-trip. `notifyInterrupted`
+    // owns every failure internally, so nothing here can reject.
+    void this.notifyInterrupted();
+  }
+
+  /**
+   * Tell each conversation whose turn died with the previous process that it
+   * needs to resend (TASK_2026_277).
+   *
+   * `claimInterruptedInboundTurns` has already moved the rows to
+   * `'interrupted'` by the time it returns, so a notice that fails to send is
+   * lost rather than retried — which is the intended trade. Retrying forever
+   * would mean every subsequent boot re-notifying a channel that may have been
+   * deleted, and the rows would never leave the sweep.
+   *
+   * NO agent turn is started here for any interrupted row.
+   */
+  private async notifyInterrupted(): Promise<void> {
+    let interrupted: readonly InterruptedInboundConversation[] = [];
+    try {
+      interrupted = this.gateway.claimInterruptedInboundTurns();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[gateway-chat-bridge] could not claim interrupted turns',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return;
+    }
+    if (interrupted.length === 0) return;
+
+    this.logger.info(
+      '[gateway-chat-bridge] notifying conversations interrupted by a restart',
+      {
+        conversations: interrupted.length,
+        messages: interrupted.reduce((sum, i) => sum + i.messageCount, 0),
+      },
+    );
+    for (const { route } of interrupted) {
+      // One notice per conversation, however many of its messages were caught
+      // mid-flight — a burst of five would otherwise produce five identical
+      // "please resend" lines.
+      await this.gateway
+        .sendNotice(route, INTERRUPTED_TURN_MESSAGE)
+        .catch((error: unknown) => {
+          this.logger.warn(
+            '[gateway-chat-bridge] interrupted-turn notice not delivered',
+            {
+              platform: route.platform,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        });
+    }
   }
 
   stop(): void {
@@ -148,7 +286,38 @@ export class GatewayChatBridge {
       this.gateway.off('inbound', this.listener);
       this.listener = null;
     }
+    this.unsubscribePrompts?.();
+    this.unsubscribePrompts = null;
     this.logger.info('[gateway-chat-bridge] unsubscribed from inbound events');
+  }
+
+  /**
+   * Relay permission-prompt lifecycle to the chat user for the turn that
+   * raised it. Only `gw-*` hints belong to us; only the unroutable case (the
+   * one with a deny window) is worth a notice — a routable prompt has a real
+   * surface and no timeout. Notices bypass the coalescer so the turn's own
+   * reply is unaffected; a failed notice is logged, never fatal.
+   */
+  private onPermissionPrompt(event: PermissionPromptLifecycleEvent): void {
+    if (!event.routingHint?.startsWith(GATEWAY_TAB_PREFIX)) return;
+    const route = this.activeRoutes.get(event.routingHint);
+    if (!route) return;
+    let text: string | null = null;
+    if (event.phase === 'requested' && !event.routable) {
+      text = approvalRequestedNotice(event.toolName, event.timeoutMs);
+    } else if (event.phase === 'resolved' && event.outcome === 'timed-out') {
+      text = approvalTimedOutNotice(event.toolName);
+    }
+    if (!text) return;
+    void this.gateway.sendNotice(route, text).catch((error: unknown) => {
+      this.logger.warn(
+        '[gateway-chat-bridge] permission notice not delivered',
+        {
+          toolName: event.toolName,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    });
   }
 
   private onInbound(event: GatewayInboundEvent): void {
@@ -171,22 +340,38 @@ export class GatewayChatBridge {
     const route = this.resolveRoute(event);
     const body = event.message.body;
 
+    // The row leaves `'queued'` the moment the turn actually begins, so a crash
+    // from here on is recoverable as `'interrupted'` (TASK_2026_277). Every
+    // path out of this method below marks a terminal state.
+    const messageId = event.messageId;
+    this.gateway.markInboundTurnState(messageId, 'running');
+
     const resolved = resolveEffectiveWorkspaceRoot({
       conversationRoot: conversation.workspaceRoot,
       bindingRoot: binding.workspaceRoot,
       workspace: this.workspace,
     });
+    // Both exits below return BEFORE the end-of-turn seal is wired, so they own
+    // their own outbound cleanup — which is why they go through `sendError`
+    // (drain + discard) and not a raw drain.
     if (!resolved.ok) {
-      await this.sendError(
+      await this.sendErrorQuietly(
         route,
         resolved.reason === 'conversation-root-revoked'
           ? WORKSPACE_UNAVAILABLE_MESSAGE
           : 'No workspace is open in Ptah. Open a project folder, then try again.',
+        'workspace-unresolved',
       );
+      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     if (!(await this.workspaceRootExists(resolved.root))) {
-      await this.sendError(route, WORKSPACE_UNAVAILABLE_MESSAGE);
+      await this.sendErrorQuietly(
+        route,
+        WORKSPACE_UNAVAILABLE_MESSAGE,
+        'workspace-missing-on-disk',
+      );
+      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     const workspaceRoot = resolved.root;
@@ -204,15 +389,51 @@ export class GatewayChatBridge {
       await this.gateway.completeOutboundTurn(route.conversationKey);
     };
 
-    const tabId = `gw-${conversation.id}`;
+    const tabId = `${GATEWAY_TAB_PREFIX}${conversation.id}`;
+    this.activeRoutes.set(tabId, route);
     let sessionToEnd: string | null = conversation.ptahSessionId ?? null;
-
-    const premium = await this.resolvePremiumContext(workspaceRoot);
 
     // Tripped by the watchdog below. `turnWork` and everything it calls check
     // this before touching shared per-conversation state, so a timed-out turn's
     // background continuation cannot interfere with the next dequeued turn.
     const cancellation: TurnCancellation = { cancelled: false };
+
+    // Typing starts before the (potentially slow) context resolution, so the
+    // chat user sees the bot react to their message immediately rather than
+    // when the first token lands. Stopped in the `finally`.
+    const stopTyping = this.startTypingHeartbeat(route, cancellation);
+
+    // `resolveSdkContext` guards every step internally, but it runs before the
+    // try/finally below owns the heartbeat and the active-route entry — if it
+    // ever did throw, both would leak. Clean up and rethrow.
+    let sdkContext: SdkSessionContext;
+    try {
+      sdkContext = await this.resolveSdkContext(workspaceRoot);
+    } catch (error: unknown) {
+      stopTyping();
+      this.activeRoutes.delete(tabId);
+      // Report before rethrowing. The throw lands in `onInbound`'s swallowing
+      // `.catch`, so without these three lines this path is total silence —
+      // no reply, no Gateway-tab status, no terminal turn state — which is the
+      // exact failure class this task exists to close.
+      await this.sendErrorQuietly(
+        route,
+        'Ptah could not complete this request. Please try again.',
+        'sdk-context',
+      );
+      this.gateway.recordTurnOutcome(route.platform, {
+        ok: false,
+        reason: `session context failed (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      });
+      this.gateway.markInboundTurnState(messageId, 'failed');
+      throw error;
+    }
+
+    // How this turn ended, for the Gateway tab (TASK_2026_271 #7). Set at
+    // each failure site below; `null` at the end means success.
+    let turnFailure: string | null = null;
 
     const turnWork = async (): Promise<void> => {
       try {
@@ -221,7 +442,7 @@ export class GatewayChatBridge {
           body,
           workspaceRoot,
           tabId,
-          premium,
+          sdkContext,
         );
         if (cancellation.cancelled) return;
         sessionToEnd =
@@ -240,7 +461,7 @@ export class GatewayChatBridge {
           workspaceRoot,
           tabId,
           route,
-          premium,
+          sdkContext,
           cancellation,
         );
         if (recovered.ok) {
@@ -250,18 +471,14 @@ export class GatewayChatBridge {
             '[gateway-chat-bridge] turn failed',
             error instanceof Error ? error : new Error(String(error)),
           );
-          await this.sendError(
+          turnFailure = `agent turn failed (${
+            error instanceof Error ? error.message : String(error)
+          })`;
+          await this.sendErrorQuietly(
             route,
             'Ptah could not complete this request. Please try again.',
-          ).catch((sendErr: unknown) => {
-            this.logger.warn(
-              '[gateway-chat-bridge] failed to send turn-failure error reply',
-              {
-                error:
-                  sendErr instanceof Error ? sendErr.message : String(sendErr),
-              },
-            );
-          });
+            'turn-failure',
+          );
         }
       }
     };
@@ -290,55 +507,99 @@ export class GatewayChatBridge {
           timeoutMs: TURN_WATCHDOG_MS,
         });
         this.endSessionAfterTurn(sessionToEnd ?? tabId);
-        await this.sendError(
+        turnFailure = `stopped by the ${Math.round(TURN_WATCHDOG_MS / 60_000)}-minute turn watchdog`;
+        await this.sendErrorQuietly(
           route,
           'This request took too long and was stopped. Please try again.',
-        ).catch((sendErr: unknown) => {
-          this.logger.warn(
-            '[gateway-chat-bridge] failed to send watchdog error reply',
-            {
-              error:
-                sendErr instanceof Error ? sendErr.message : String(sendErr),
-            },
-          );
-        });
+          'watchdog',
+        );
       }
     } finally {
       if (watchdogTimer) {
         clearTimeout(watchdogTimer);
       }
-      await sealTurn().catch((sealErr: unknown) => {
-        this.logger.warn('[gateway-chat-bridge] drain failed', {
+      // Before the seal: the reply itself is about to land, and a typing dot
+      // that outlives the turn is exactly the "still working" lie this feature
+      // exists to remove.
+      stopTyping();
+      this.activeRoutes.delete(tabId);
+      await sealTurn().catch(async (sealErr: unknown) => {
+        // The reply was generated but the platform rejected it (deleted
+        // channel, revoked permission, network). The buffer is already reset
+        // by `completeOutboundTurn`, so this error reply goes out on a fresh
+        // message; if THAT fails too there is nothing left to try but log.
+        this.logger.warn('[gateway-chat-bridge] reply delivery failed', {
+          conversationId: String(conversation.id),
           error: sealErr instanceof Error ? sealErr.message : String(sealErr),
         });
+        turnFailure = `reply not delivered (${
+          sealErr instanceof Error ? sealErr.message : String(sealErr)
+        })`;
+        await this.sendErrorQuietly(
+          route,
+          DELIVERY_FAILED_MESSAGE,
+          'delivery-failure',
+        );
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
+      this.gateway.recordTurnOutcome(
+        route.platform,
+        turnFailure === null
+          ? { ok: true }
+          : { ok: false, reason: turnFailure },
+      );
+      // Same `finally`, same verdict as `recordTurnOutcome`: one turn lifecycle,
+      // not two. Once this lands the row can never be swept as interrupted.
+      this.gateway.markInboundTurnState(
+        messageId,
+        turnFailure === null ? 'done' : 'failed',
+      );
     }
   }
 
   /**
-   * Resolve the premium/session context for a turn, mirroring the webview chat
-   * path (`ChatSessionService` + `ChatPremiumContextService`). Every external
-   * call is guarded so a license/prompt/plugin failure degrades to non-premium
-   * defaults rather than breaking the turn.
+   * Show "Ptah is typing…" for the life of a turn (TASK_2026_271). The
+   * indicator is fire-and-forget on every platform that has one and expires by
+   * itself, so this pings once immediately and re-arms every
+   * {@link TYPING_REARM_MS} until the returned stopper runs in the turn's
+   * `finally`. The interval is `unref()`'d — a pending re-arm must never be the
+   * reason the process stays alive — and checks the turn's cancellation flag so
+   * a watchdog-terminated turn stops pinging even before the stopper runs.
+   *
+   * @returns idempotent stopper for the turn's `finally`.
    */
-  private async resolvePremiumContext(
-    workspaceRoot: string,
-  ): Promise<PremiumSessionContext> {
-    let isPremium = false;
-    try {
-      isPremium = isPremiumTier(await this.licenseService.verifyLicense());
-    } catch (error: unknown) {
-      this.logger.debug(
-        '[gateway-chat-bridge] license verification failed; treating as non-premium',
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-    }
+  private startTypingHeartbeat(
+    route: OutboundRoute,
+    cancellation: TurnCancellation,
+  ): () => void {
+    // `sendTyping` swallows its own failures; the `.catch` is defence in depth,
+    // because an unhandled rejection on this untracked promise would take the
+    // host process down over a cosmetic indicator.
+    const ping = (): void => {
+      void this.gateway.sendTyping(route).catch(() => undefined);
+    };
+    ping();
+    const timer = setInterval(() => {
+      if (cancellation.cancelled) return;
+      ping();
+    }, TYPING_REARM_MS);
+    (timer as { unref?: () => void }).unref?.();
+    return () => clearInterval(timer);
+  }
 
+  /**
+   * Resolve the session context for a turn, mirroring the webview chat path
+   * (`ChatSessionService` + `ChatSdkContextService`). Every external call
+   * is guarded so a prompt/plugin/MCP failure degrades to safe defaults
+   * rather than breaking the turn.
+   */
+  private async resolveSdkContext(
+    workspaceRoot: string,
+  ): Promise<SdkSessionContext> {
     let mcpServerRunning = false;
     try {
       mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
-      if (isPremium && mcpServerRunning) {
+      if (mcpServerRunning) {
         this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
     } catch (error: unknown) {
@@ -349,33 +610,19 @@ export class GatewayChatBridge {
     }
 
     let enhancedPromptsContent: string | undefined;
-    if (isPremium) {
-      try {
-        enhancedPromptsContent =
-          (await this.enhancedPromptsService.getEnhancedPromptContent(
-            workspaceRoot,
-          )) ?? undefined;
-      } catch (error: unknown) {
-        this.logger.debug(
-          '[gateway-chat-bridge] enhanced prompt resolution failed',
-          { error: error instanceof Error ? error.message : String(error) },
-        );
-      }
+    try {
+      enhancedPromptsContent =
+        (await this.enhancedPromptsService.getEnhancedPromptContent(
+          workspaceRoot,
+        )) ?? undefined;
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[gateway-chat-bridge] enhanced prompt resolution failed',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
     }
 
-    let pluginPaths: string[] | undefined;
-    if (isPremium) {
-      try {
-        pluginPaths = this.resolvePluginPaths();
-      } catch (error: unknown) {
-        this.logger.debug(
-          '[gateway-chat-bridge] plugin path resolution failed',
-          { error: error instanceof Error ? error.message : String(error) },
-        );
-      }
-    }
-
-    return { isPremium, mcpServerRunning, enhancedPromptsContent, pluginPaths };
+    return { mcpServerRunning, enhancedPromptsContent };
   }
 
   /**
@@ -392,15 +639,6 @@ export class GatewayChatBridge {
     } catch {
       return false;
     }
-  }
-
-  private resolvePluginPaths(): string[] | undefined {
-    const config = this.pluginLoader.getWorkspacePluginConfig();
-    if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
-      return undefined;
-    }
-    const paths = this.pluginLoader.resolvePluginPaths(config.enabledPluginIds);
-    return paths.length > 0 ? paths : undefined;
   }
 
   /**
@@ -430,24 +668,23 @@ export class GatewayChatBridge {
     body: string,
     workspaceRoot: string,
     tabId: string,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     const persistedId = conversation.ptahSessionId;
     const canResume =
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
     const model = this.resolveModel();
+    const permissionLevel = this.resolvePermissionLevel();
     if (persistedId && canResume) {
       return this.agentAdapter.resumeSession(SessionId.from(persistedId), {
         prompt: body,
         tabId,
         projectPath: workspaceRoot,
         model,
-        permissionLevel: 'yolo',
-        isPremium: premium.isPremium,
-        mcpServerRunning: premium.mcpServerRunning,
-        enhancedPromptsContent: premium.enhancedPromptsContent,
-        pluginPaths: premium.pluginPaths,
+        permissionLevel,
+        mcpServerRunning: sdkContext.mcpServerRunning,
+        enhancedPromptsContent: sdkContext.enhancedPromptsContent,
       });
     }
     if (persistedId) {
@@ -459,11 +696,9 @@ export class GatewayChatBridge {
             tabId,
             projectPath: workspaceRoot,
             model,
-            permissionLevel: 'yolo',
-            isPremium: premium.isPremium,
-            mcpServerRunning: premium.mcpServerRunning,
-            enhancedPromptsContent: premium.enhancedPromptsContent,
-            pluginPaths: premium.pluginPaths,
+            permissionLevel,
+            mcpServerRunning: sdkContext.mcpServerRunning,
+            enhancedPromptsContent: sdkContext.enhancedPromptsContent,
           },
         );
       } catch (error: unknown) {
@@ -476,14 +711,14 @@ export class GatewayChatBridge {
         );
       }
     }
-    return this.startNew(body, workspaceRoot, tabId, premium);
+    return this.startNew(body, workspaceRoot, tabId, sdkContext);
   }
 
   private startNew(
     body: string,
     workspaceRoot: string,
     tabId: string,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     return this.agentAdapter.startChatSession({
       tabId,
@@ -492,16 +727,32 @@ export class GatewayChatBridge {
       workspaceId: workspaceRoot,
       model: this.resolveModel(),
       includePartialMessages: true,
-      permissionLevel: 'yolo',
-      isPremium: premium.isPremium,
-      mcpServerRunning: premium.mcpServerRunning,
-      enhancedPromptsContent: premium.enhancedPromptsContent,
-      pluginPaths: premium.pluginPaths,
+      permissionLevel: this.resolvePermissionLevel(),
+      mcpServerRunning: sdkContext.mcpServerRunning,
+      enhancedPromptsContent: sdkContext.enhancedPromptsContent,
     });
   }
 
   private resolveModel(): string {
     return this.modelSettings.selectedModel.get() || 'default';
+  }
+
+  /**
+   * Resolve the permission level for gateway inbound sessions from settings,
+   * validated against {@link GATEWAY_PERMISSION_LEVELS}. Any unset or unknown
+   * value falls back to {@link DEFAULT_GATEWAY_PERMISSION_LEVEL} (`'ask'`) — a
+   * gateway turn is never silently promoted to `'yolo'`. Read per turn (like
+   * the model) so a settings change takes effect without a restart.
+   */
+  private resolvePermissionLevel(): PermissionLevel {
+    const raw = this.workspace.getConfiguration<string>(
+      'ptah',
+      GATEWAY_PERMISSION_LEVEL_KEY,
+      DEFAULT_GATEWAY_PERMISSION_LEVEL,
+    );
+    return (GATEWAY_PERMISSION_LEVELS as readonly string[]).includes(raw ?? '')
+      ? (raw as PermissionLevel)
+      : DEFAULT_GATEWAY_PERMISSION_LEVEL;
   }
 
   private async pumpStream(
@@ -554,7 +805,7 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     route: OutboundRoute,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
     cancellation: TurnCancellation,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
     // Turn already watchdog-terminated — do not start a stray retry session or
@@ -569,7 +820,17 @@ export class GatewayChatBridge {
       },
     );
     try {
-      const stream = await this.startNew(body, workspaceRoot, tabId, premium);
+      // The failed resume may already have streamed part of an answer into
+      // the conversation buffer. Drop it — otherwise the fresh session's reply
+      // is appended after a stranded fragment and the user gets two unrelated
+      // generations in one message.
+      this.gateway.discardOutbound(route.conversationKey);
+      const stream = await this.startNew(
+        body,
+        workspaceRoot,
+        tabId,
+        sdkContext,
+      );
       if (cancellation.cancelled) return { ok: false, sessionId: null };
       const sessionId = await this.pumpStream(
         stream,
@@ -606,12 +867,57 @@ export class GatewayChatBridge {
     }
   }
 
+  /**
+   * Send a short error reply as its own outbound message.
+   *
+   * Drains AND THEN discards. The coalescer's body is cumulative per
+   * conversation key and `drainOutbound` alone leaves it in place — only
+   * `discardOutbound` clears it. Every `sendError` that is NOT followed by
+   * `completeOutboundTurn` therefore used to strand its own text in the
+   * buffer, so the next turn's reply was flushed with a stale error prepended:
+   * the two fail-closed workspace exits (which return before the seal is even
+   * wired) and the post-seal delivery-failure reply (which runs after
+   * `completeOutboundTurn` already ran). Discarding HERE rather than at each
+   * call site is deliberate — the guarantee then holds for any future early
+   * return too, and the call sites that do seal afterwards see a no-op discard.
+   *
+   * The discard is in a `finally` because a drain that throws
+   * (`OutboundDeliveryError`) is exactly the case where the undelivered body
+   * must not survive into the next turn.
+   */
   private async sendError(
     route: OutboundRoute,
     message: string,
   ): Promise<void> {
     this.gateway.appendOutboundChunk(route, message);
-    await this.gateway.drainOutbound(route.conversationKey);
+    try {
+      await this.gateway.drainOutbound(route.conversationKey);
+    } finally {
+      this.gateway.discardOutbound(route.conversationKey);
+    }
+  }
+
+  /**
+   * {@link sendError} for the paths that must never fail because of it. An
+   * error reply is already the consolation prize; letting its delivery failure
+   * propagate would unwind the turn past `recordTurnOutcome` /
+   * `markInboundTurnState` and land in `onInbound`'s swallowing `.catch`,
+   * leaving no record of the turn anywhere — the exact silence this task
+   * exists to remove.
+   */
+  private async sendErrorQuietly(
+    route: OutboundRoute,
+    message: string,
+    context: string,
+  ): Promise<void> {
+    try {
+      await this.sendError(route, message);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway-chat-bridge] error reply not delivered', {
+        context,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private resolveRoute(event: GatewayInboundEvent): OutboundRoute {

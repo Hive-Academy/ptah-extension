@@ -22,13 +22,19 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our lockfile
+  # (see package.json engines.npm >= 11) and silently degrades `npm ci` into
+  # an unpinned `npm install` fallback. The publish-* and deploy-* workflows
+  # stay on 22 deliberately -- they match release and DO buildpack targets.
+  NODE_VERSION: 24
   NX_TUI: false
 
 jobs:
   electron-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: the suite only started running to completion once the 11
+    # failing specs were fixed — earlier runs bailed early at 13-18m.
+    timeout-minutes: 45
     # head_commit is null on pull_request events, so the commit-message check
     # never skipped bump PRs — guard on the chore/bump-* head branch too.
     if: |
@@ -96,7 +102,7 @@ jobs:
         run: npx nx run ptah-electron:build-dev
 
       - name: Copy renderer assets into Electron dist
-        run: npx nx run ptah-electron:copy-renderer
+        run: npx nx run ptah-electron:copy-renderer-dev
 
       - name: Run Electron E2E specs under xvfb
         run: xvfb-run --auto-servernum npx nx run ptah-electron-e2e:e2e --skip-nx-cache

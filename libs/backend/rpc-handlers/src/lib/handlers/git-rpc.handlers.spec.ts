@@ -2,9 +2,10 @@
  * GitRpcHandlers — unit specs.
  *
  * Coverage matrix:
- *   METHODS invariant  — all 16 entries present (9 original + 6 + git:push)
+ *   METHODS invariant  — all 17 entries present (9 original + 6 + git:push
+ *                        + git:diffFile)
  *   METHODS invariant  — each of the 6 new names explicitly asserted
- *   register()         — wires all 16 methods into the RpcHandler
+ *   register()         — wires all 17 methods into the RpcHandler
  *   git:push           — workspace guard returns { success:false } when wsRoot is null
  *   git:push           — delegates to gitInfo.push with the resolved workspace root
  *   git:branches       — workspace guard returns empty result when wsRoot is null
@@ -18,6 +19,11 @@
  *   git:tags           — delegates to gitInfo.getTags with limit
  *   git:remotes        — delegates to gitInfo.getRemotes
  *   git:lastCommit     — delegates to gitInfo.getLastCommit with ref
+ *   git:diffFile       — delegates with the file system provider
+ *   git:diffFile       — forwards originalPath for staged renames
+ *   git:diffFile       — rejects malformed params without invoking git
+ *   git:diffFile       — returns a not-a-repo error result with no workspace
+ *   git:diffFile       — maps a thrown rejection to an error result
  *
  * Mocking posture: direct constructor injection; narrow mock surfaces.
  *
@@ -37,10 +43,15 @@ import {
   createMockRpcHandler,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
+  createMockFileSystemProvider,
   type MockWorkspaceProvider,
+  type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
@@ -63,6 +74,8 @@ type MockGitInfo = jest.Mocked<
     | 'getRemotes'
     | 'getLastCommit'
     | 'push'
+    | 'diffFile'
+    | 'applyHunks'
   >
 >;
 
@@ -92,6 +105,21 @@ function createMockGitInfo(): MockGitInfo {
       time: 0,
     }),
     push: jest.fn().mockResolvedValue({ success: true }),
+    diffFile: jest.fn().mockResolvedValue({
+      path: 'src/a.ts',
+      originalPath: 'src/a.ts',
+      comparison: 'worktree',
+      original: { outcome: 'content', content: 'old' },
+      modified: { outcome: 'content', content: 'new' },
+      originalRef: { kind: 'index' },
+      modifiedRef: { kind: 'worktree' },
+      patch: null,
+      hunks: [],
+      snapshotToken: 'token',
+    }),
+    applyHunks: jest
+      .fn()
+      .mockResolvedValue({ success: true, snapshotToken: 'token-2' }),
   };
 }
 
@@ -109,6 +137,7 @@ interface Suite {
   gitInfo: MockGitInfo;
   logger: MockLogger;
   webviewManager: MockWebviewManager;
+  fileSystem: MockFileSystemProvider;
 }
 
 function createMockWebviewManager(): MockWebviewManager {
@@ -129,6 +158,7 @@ function buildSuite(wsRoot: string | null = '/workspace'): Suite {
   }
   const gitInfo = createMockGitInfo();
   const webviewManager = createMockWebviewManager();
+  const fileSystem = createMockFileSystemProvider();
 
   const handlers = new GitRpcHandlers(
     logger as unknown as Logger,
@@ -136,9 +166,18 @@ function buildSuite(wsRoot: string | null = '/workspace'): Suite {
     workspace as unknown as IWorkspaceProvider,
     gitInfo as unknown as GitInfoService,
     webviewManager as unknown as WebviewManager,
+    fileSystem as unknown as IFileSystemProvider,
   );
 
-  return { handlers, rpc, workspace, gitInfo, logger, webviewManager };
+  return {
+    handlers,
+    rpc,
+    workspace,
+    gitInfo,
+    logger,
+    webviewManager,
+    fileSystem,
+  };
 }
 
 /** Retrieve a registered handler by method name for direct invocation. */
@@ -159,12 +198,20 @@ function getHandler(
 // ===========================================================================
 
 describe('GitRpcHandlers.METHODS coverage invariant', () => {
-  it('contains exactly 16 entries (9 original + 6 from TASK_2026_111 + git:push)', () => {
-    expect(GitRpcHandlers.METHODS).toHaveLength(16);
+  it('contains exactly 18 entries (9 original + 6 from TASK_2026_111 + git:push + git:diffFile + git:applyHunks)', () => {
+    expect(GitRpcHandlers.METHODS).toHaveLength(18);
   });
 
   it('contains git:push', () => {
     expect(GitRpcHandlers.METHODS).toContain('git:push');
+  });
+
+  it('contains git:diffFile', () => {
+    expect(GitRpcHandlers.METHODS).toContain('git:diffFile');
+  });
+
+  it('contains git:applyHunks', () => {
+    expect(GitRpcHandlers.METHODS).toContain('git:applyHunks');
   });
 
   it('contains all 6 new method names from TASK_2026_111', () => {
@@ -202,7 +249,7 @@ describe('GitRpcHandlers.METHODS coverage invariant', () => {
 // ===========================================================================
 
 describe('GitRpcHandlers.register()', () => {
-  it('registers all 16 methods into the RpcHandler', () => {
+  it('registers all 17 methods into the RpcHandler', () => {
     const { handlers, rpc } = buildSuite();
     handlers.register();
 
@@ -591,5 +638,244 @@ describe('git:lastCommit handler', () => {
     const result = (await handler({})) as { hash: string };
 
     expect(result.hash).toBe('');
+  });
+});
+
+// ===========================================================================
+// git:diffFile (TASK_2026_173)
+// ===========================================================================
+
+describe('git:diffFile handler', () => {
+  it('delegates to gitInfo.diffFile with the file system provider', async () => {
+    const { handlers, rpc, gitInfo, fileSystem } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:diffFile');
+
+    await handler({
+      workspaceRoot: '/workspace',
+      path: 'src/a.ts',
+      comparison: 'staged',
+    });
+
+    expect(gitInfo.diffFile).toHaveBeenCalledWith(
+      '/workspace',
+      { path: 'src/a.ts', comparison: 'staged', originalPath: undefined },
+      fileSystem,
+    );
+  });
+
+  it('forwards originalPath so a staged rename diffs against its source', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:diffFile');
+
+    await handler({
+      path: 'src/new-name.ts',
+      comparison: 'staged',
+      originalPath: 'src/old-name.ts',
+    });
+
+    expect(gitInfo.diffFile).toHaveBeenCalledWith(
+      '/workspace',
+      {
+        path: 'src/new-name.ts',
+        comparison: 'staged',
+        originalPath: 'src/old-name.ts',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('rejects malformed params without invoking git', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:diffFile');
+
+    const result = (await handler({
+      path: 'src/a.ts',
+      comparison: 'head-to-worktree',
+    })) as { original: { outcome: string; code: string } };
+
+    expect(gitInfo.diffFile).not.toHaveBeenCalled();
+    expect(result.original.outcome).toBe('error');
+  });
+
+  it('returns a not-a-repo error result when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:diffFile');
+
+    const result = (await handler({
+      path: 'src/a.ts',
+      comparison: 'worktree',
+    })) as {
+      original: { outcome: string; code: string };
+      modified: { outcome: string };
+      snapshotToken: string;
+    };
+
+    expect(gitInfo.diffFile).not.toHaveBeenCalled();
+    expect(result.original.outcome).toBe('error');
+    expect(result.original.code).toBe('not-a-repo');
+    expect(result.modified.outcome).toBe('error');
+    expect(result.snapshotToken).toBe('');
+  });
+
+  it('maps a thrown path-validation rejection to an error result, not a fault', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:diffFile');
+
+    gitInfo.diffFile.mockRejectedValueOnce(
+      new Error(`Path traversal detected: "../etc/passwd" contains '..'`),
+    );
+
+    const result = (await handler({
+      path: '../etc/passwd',
+      comparison: 'worktree',
+    })) as { original: { outcome: string; message: string } };
+
+    expect(result.original.outcome).toBe('error');
+    expect(result.original.message).not.toContain('..');
+    expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// git:applyHunks (TASK_2026_173 D2)
+//
+// The service owns every safety decision; these cover the RPC boundary only:
+// Zod-before-git, the registered-folder guard, and sanitized failures.
+// ===========================================================================
+
+describe('git:applyHunks handler', () => {
+  const validParams = {
+    workspaceRoot: '/workspace',
+    path: 'src/a.ts',
+    comparison: 'worktree' as const,
+    operation: 'stage' as const,
+    hunkIndices: [0, 2],
+    snapshotToken: 'token',
+  };
+
+  it('delegates to gitInfo.applyHunks with the file system provider', async () => {
+    const { handlers, rpc, gitInfo, fileSystem } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = await handler(validParams);
+
+    expect(gitInfo.applyHunks).toHaveBeenCalledWith(
+      '/workspace',
+      {
+        path: 'src/a.ts',
+        originalPath: undefined,
+        comparison: 'worktree',
+        operation: 'stage',
+        hunkIndices: [0, 2],
+        snapshotToken: 'token',
+      },
+      fileSystem,
+    );
+    expect(result).toEqual({ success: true, snapshotToken: 'token-2' });
+  });
+
+  it('forwards originalPath so a staged rename applies against its source', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    await handler({
+      ...validParams,
+      comparison: 'staged',
+      operation: 'unstage',
+      originalPath: 'src/old-name.ts',
+    });
+
+    expect(gitInfo.applyHunks).toHaveBeenCalledWith(
+      '/workspace',
+      expect.objectContaining({ originalPath: 'src/old-name.ts' }),
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    ['an unknown operation', { ...validParams, operation: 'obliterate' }],
+    [
+      'an unknown comparison',
+      { ...validParams, comparison: 'head-to-worktree' },
+    ],
+    ['an empty hunk selection', { ...validParams, hunkIndices: [] }],
+    ['a negative hunk ordinal', { ...validParams, hunkIndices: [-1] }],
+    ['a fractional hunk ordinal', { ...validParams, hunkIndices: [1.5] }],
+    ['an empty snapshot token', { ...validParams, snapshotToken: '' }],
+    ['a missing snapshot token', { ...validParams, snapshotToken: undefined }],
+    ['an empty path', { ...validParams, path: '' }],
+  ])('rejects %s without invoking git', async (_label, params) => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler(params)) as {
+      success: boolean;
+      code: string;
+    };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('UNKNOWN');
+  });
+
+  it('refuses an unregistered workspace folder without invoking git', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler({
+      ...validParams,
+      workspaceRoot: '/somewhere/else',
+    })) as { success: boolean; code: string };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.code).toBe('NOT_A_REPO');
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('returns NOT_A_REPO when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler(validParams)) as { code: string };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.code).toBe('NOT_A_REPO');
+  });
+
+  it('maps a thrown rejection to a sanitized failure, not a transport fault', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    gitInfo.applyHunks.mockRejectedValueOnce(
+      new Error(
+        `Path traversal detected: "../etc/passwd" contains '..' segments`,
+      ),
+    );
+
+    const result = (await handler(validParams)) as {
+      success: boolean;
+      code: string;
+      message: string;
+      snapshotToken?: string;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('UNKNOWN');
+    expect(result.message).not.toContain('..');
+    expect(result.message).not.toContain('passwd');
+    // A failure must never look like a fresh snapshot to the caller.
+    expect(result.snapshotToken).toBeUndefined();
+    expect(logger.error).toHaveBeenCalled();
   });
 });

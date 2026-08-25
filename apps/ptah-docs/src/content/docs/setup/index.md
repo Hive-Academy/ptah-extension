@@ -11,9 +11,7 @@ The **Setup Hub** is Ptah's unified configuration dashboard. Instead of hunting 
 
 In the Ptah desktop app, click the **Setup Hub** tab in the left navigation rail. The hub loads your current configuration status (agents, rules, `CLAUDE.md`) and any saved presets.
 
-:::note
-The Setup Hub and its builders are **Pro features**. On the free tier you'll see the cards but be prompted to upgrade before launching a builder.
-:::
+The Setup Hub and all of its builders are free and available to everyone — open any card and launch a builder without restrictions.
 
 ## Quick Actions
 

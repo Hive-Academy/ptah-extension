@@ -6,6 +6,10 @@
   "tags": ["scope:cli", "type:app"],
   "targets": {
     "build": {
+      "executor": "nx:noop",
+      "dependsOn": ["build-esbuild", "copy-wasm"]
+    },
+    "build-esbuild": {
       "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
@@ -67,7 +71,8 @@
           "@slack/bolt",
           "ffmpeg-static",
           "nodejs-whisper",
-          "bottleneck"
+          "bottleneck",
+          "typescript"
         ],
         "assets": [
           {
@@ -106,6 +111,21 @@
           "sourcemap": true,
           "minify": false
         }
+      }
+    },
+    "copy-wasm": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-esbuild"],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-cli/wasm"],
+      "options": {
+        "command": "node scripts/copy-wasm.js dist/apps/ptah-cli"
+      }
+    },
+    "verify-packed-wasm": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["restore-cli-manifest"],
+      "options": {
+        "command": "node apps/ptah-cli/scripts/verify-packed-wasm.cjs"
       }
     },
     "build-embedder-worker": {
@@ -182,9 +202,16 @@
         "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
-    "publish:dry-run": {
+    "e2e-pty": {
       "executor": "nx:run-commands",
       "dependsOn": ["restore-cli-manifest"],
+      "options": {
+        "command": "jest --config apps/ptah-cli/jest.pty.config.cjs --runInBand"
+      }
+    },
+    "publish:dry-run": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --dry-run --access public"
@@ -192,7 +219,7 @@
     },
     "publish": {
       "executor": "nx:run-commands",
-      "dependsOn": ["restore-cli-manifest"],
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --access public --provenance"

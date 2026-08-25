@@ -1,4 +1,11 @@
-import { Server, Sparkles, Blocks, Boxes, Puzzle } from 'lucide-angular';
+import {
+  Server,
+  Sparkles,
+  Blocks,
+  Boxes,
+  Puzzle,
+  KeyRound,
+} from 'lucide-angular';
 import {
   McpDirectoryBrowserComponent,
   SkillShBrowserComponent,
@@ -6,6 +13,7 @@ import {
 import { MarketplaceProviderSpec } from './provider-spec';
 import { SmitherySurfaceComponent } from './smithery-surface.component';
 import { PluginsSurfaceComponent } from './plugins-surface.component';
+import { OAuthSurfaceComponent } from './oauth-surface.component';
 
 export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
   {
@@ -15,7 +23,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'skills',
     tagline: 'Bundled skill packs for orchestration, frontend & backend',
-    proGated: true,
     surface: PluginsSurfaceComponent,
   },
   {
@@ -25,7 +32,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'mcp',
     tagline: 'Official Model Context Protocol server registry',
-    proGated: true,
     surface: McpDirectoryBrowserComponent,
   },
   {
@@ -35,7 +41,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'skills',
     tagline: 'Discover and install community skills',
-    proGated: true,
     surface: SkillShBrowserComponent,
   },
   {
@@ -45,8 +50,16 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'mcp',
     tagline: 'Hosted MCP servers with one-click setup',
-    proGated: true,
     surface: SmitherySurfaceComponent,
+  },
+  {
+    id: 'oauth-mcp',
+    name: 'Connected Apps',
+    icon: KeyRound,
+    status: 'live',
+    kind: 'mcp',
+    tagline: 'Connect OAuth-secured remote MCP servers',
+    surface: OAuthSurfaceComponent,
   },
   {
     id: 'composio',
@@ -55,6 +68,5 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'coming-soon',
     kind: 'mcp',
     tagline: 'Managed-auth MCP toolkits',
-    proGated: true,
   },
 ];

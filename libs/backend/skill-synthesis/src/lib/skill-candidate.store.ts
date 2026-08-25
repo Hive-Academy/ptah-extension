@@ -21,9 +21,16 @@ import {
   type SqliteStatement,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  JUDGE_PANEL_ROLES,
+  JUDGE_STATUSES,
   type CandidateId,
+  type JudgePanelRationale,
+  type JudgeStatus,
+  type JudgeVerdict,
   type NewCandidateInput,
   type RegisterCandidateResult,
+  type ReplayMeasurement,
+  type TriggerEvalMeasurement,
   type SkillCandidateRow,
   type SkillInvocationRow,
   type SkillResidency,
@@ -51,6 +58,43 @@ interface RawCandidateRow {
   rejected_reason: string | null;
   pinned: number;
   residency: string;
+  // ── 0040 ──────────────────────────────────────────────────────────────────
+  // Same `SELECT *` trap as the two blocks below. `NULL` here means UNKNOWN
+  // origin and is INCLUDED by a workspace-scoped read; a column missing from
+  // this interface reads back `undefined`, becomes `null`, and every candidate
+  // silently reverts to appearing in every workspace — the defect `0040`
+  // exists to fix, looking exactly like the fix working.
+  workspace_root: string | null;
+  // ── 0033 ──────────────────────────────────────────────────────────────────
+  // Reads are `SELECT *`, so a column that is missing from this interface is
+  // silently invisible to the store no matter what the DDL says. Adding a
+  // column to `0033` without adding it here is a silent-data-loss bug, not a
+  // compile error.
+  judge_score: number | null;
+  judge_status: string | null;
+  judge_reason: string | null;
+  judge_novelty: number | null;
+  judge_actionability: number | null;
+  judge_scope: number | null;
+  judge_generalization: number | null;
+  judge_trigger_clarity: number | null;
+  judge_panel_rationales: string | null;
+  judged_at: number | null;
+  display_name: string | null;
+  // ── 0036 ──────────────────────────────────────────────────────────────────
+  // Same `SELECT *` trap as the 0033 block above, and it bites harder here: a
+  // column missing from this interface reads back `undefined`, which
+  // `toCandidateRow`'s `?? null` then turns into `null` — indistinguishable
+  // from a gate that genuinely has not run. The failure looks exactly like the
+  // feature working. Adding a column to `0036` without adding it here is a
+  // silent-data-loss bug, not a compile error.
+  replay_confidence: number | null;
+  replay_holdout_session_id: string | null;
+  replay_at: number | null;
+  trigger_score: number | null;
+  trigger_precision: number | null;
+  trigger_recall: number | null;
+  trigger_eval_at: number | null;
 }
 
 interface RawInvocationRow {
@@ -76,6 +120,32 @@ interface RawScorecardAggregateRow {
   avg_cost: number | null;
   avg_duration: number | null;
   avg_tools: number | null;
+}
+
+interface RawWinRateRow {
+  skill_slug: string;
+  invocations: number | null;
+  wins: number | null;
+  unknown: number | null;
+}
+
+/**
+ * One slug's win rate over the invocation → session-outcome join (plan §2.5).
+ *
+ * `winRate` is `number | null` and the `null` is NOT an error state — it is
+ * "no measured session for this skill yet". See `getWinRates`'s header for why
+ * it must never be `0`. Every consumer branches on it; none coalesces it.
+ */
+export interface SkillWinRate {
+  readonly slug: string;
+  /** Every recorded invocation of the slug, whatever its session's verdict. */
+  readonly invocations: number;
+  /** Verdicts in `tests-green` / `user-accepted` / `explicit-confirmation`. */
+  readonly wins: number;
+  /** `unverified` verdicts PLUS sessions with no verdict row at all. */
+  readonly unknown: number;
+  /** `wins / (invocations - unknown)`; `null` when that denominator is 0. */
+  readonly winRate: number | null;
 }
 
 interface RawGradedInvocationRow {
@@ -132,8 +202,8 @@ export class SkillCandidateStore {
          id, name, description, body_path, source_session_ids,
          trajectory_hash, embedding_rowid, status,
          success_count, failure_count, created_at,
-         promoted_at, rejected_at, rejected_reason
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL)`,
+         promoted_at, rejected_at, rejected_reason, workspace_root
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL, ?)`,
     );
     stmt.run(
       id,
@@ -144,6 +214,10 @@ export class SkillCandidateStore {
       input.trajectoryHash,
       embeddingRowid,
       input.createdAt,
+      // `?? null`, never `?? ''`. A caller that did not supply a root does not
+      // know where the session ran; writing `''` would record the unrelated
+      // claim "deliberately cross-project". See `NewCandidateInput`.
+      input.workspaceRoot ?? null,
     );
 
     const row = this.findById(id as CandidateId);
@@ -177,13 +251,53 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  listByStatus(status: SkillStatus): SkillCandidateRow[] {
+  /**
+   * ## `workspaceRoot` IS OPTIONAL, AND OMITTING IT IS NOT A DEFAULT — IT IS A
+   * ## SEPARATE, LOUDER READ.
+   *
+   * This mirrors `getWinRates` exactly; read its header for the full
+   * reasoning, because the same two rules apply here.
+   *
+   * The unscoped form is what almost every caller wants, and that is not an
+   * accident of history. Clustering, dedup, the residency budget, the
+   * promotion sweep and the phase-3 gates all read the candidate set ACROSS
+   * projects on purpose: a promoted skill is written to `~/.ptah/skills/` and
+   * propagated into every workspace, so scoping any of those reads would
+   * change what the subsystem does, not just what it shows.
+   *
+   * Exactly ONE caller passes a root — `SkillsSynthesisRpcHandlers`, backing
+   * the Skills tab's list. A candidate is unreviewed work from one session in
+   * one project, and the person who can judge it is the person working there.
+   * Widening the scoped form into the default would silently re-scope the
+   * other six.
+   *
+   * ## A `NULL` `workspace_root` IS INCLUDED IN A SCOPED READ
+   *
+   * `workspace_root` is three-valued — a real path is that workspace, `''` is
+   * DELIBERATELY cross-project, and `NULL` is UNKNOWN. Every candidate
+   * predating `0040` whose queue row the backfill could not resolve is `NULL`,
+   * and dropping those would make them invisible in every workspace forever:
+   * a display defect traded for silent data loss. `''` is NOT folded in — it
+   * is a known value meaning "not this workspace".
+   */
+  listByStatus(
+    status: SkillStatus,
+    workspaceRoot?: string,
+  ): SkillCandidateRow[] {
+    const scoped = workspaceRoot !== undefined;
     const stmt = this.db.prepare(
-      `SELECT * FROM skill_candidates
-       WHERE status = ?
-       ORDER BY created_at DESC`,
+      scoped
+        ? `SELECT * FROM skill_candidates
+            WHERE status = ?
+              AND (workspace_root = ? OR workspace_root IS NULL)
+            ORDER BY created_at DESC`
+        : `SELECT * FROM skill_candidates
+            WHERE status = ?
+            ORDER BY created_at DESC`,
     );
-    const rows = stmt.all(status) as RawCandidateRow[];
+    const rows = (
+      scoped ? stmt.all(status, workspaceRoot) : stmt.all(status)
+    ) as RawCandidateRow[];
     return rows.map((r) => this.toCandidateRow(r));
   }
 
@@ -331,6 +445,311 @@ export class SkillCandidateStore {
     return updated;
   }
 
+  /**
+   * Persist a judge verdict. A SIBLING of `updateStatus`, deliberately not an
+   * option on it: the lifecycle status (`candidate`/`promoted`/`rejected`) and
+   * the judge verdict are independent axes, and an `unscored` verdict is
+   * precisely the case where the lifecycle status must NOT move.
+   *
+   * The nine judge columns are written as one fixed set rather than as the
+   * dynamic fragments `updateStatus` builds, because a verdict is a whole
+   * object: a partial update would leave last pass's per-criterion scores
+   * sitting beside this pass's headline score, which is the same class of
+   * quietly-wrong verdict this phase exists to remove. Absent criteria are
+   * written NULL. `judge_panel_rationales` is untouched — phase 3 owns it.
+   *
+   * Throws on a status outside the union (there is no DB `CHECK` behind it) and
+   * on the two contradictions that would reintroduce a fabricated score: a
+   * `scored` verdict with no number, and a non-`scored` verdict carrying one.
+   */
+  recordJudgeVerdict(
+    id: CandidateId,
+    verdict: JudgeVerdict,
+  ): SkillCandidateRow {
+    if (!(JUDGE_STATUSES as readonly string[]).includes(verdict.status)) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: unknown judge status '${String(
+          verdict.status,
+        )}' (expected ${JUDGE_STATUSES.join(' | ')})`,
+      );
+    }
+    if (verdict.status === 'scored') {
+      if (verdict.score === null || !Number.isFinite(verdict.score)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgeVerdict: a 'scored' verdict for ${id} needs a finite score`,
+        );
+      }
+    } else if (verdict.score !== null) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: a '${verdict.status}' verdict for ${id} must carry score=null, got ${verdict.score}`,
+      );
+    }
+
+    const criteria = verdict.criteria;
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates
+       SET judge_score           = ?,
+           judge_status          = ?,
+           judge_reason          = ?,
+           judge_novelty         = ?,
+           judge_actionability   = ?,
+           judge_scope           = ?,
+           judge_generalization  = ?,
+           judge_trigger_clarity = ?,
+           judged_at             = ?
+       WHERE id = ?`,
+    );
+    stmt.run(
+      verdict.score,
+      verdict.status,
+      verdict.reason,
+      criteria?.novelty ?? null,
+      criteria?.actionability ?? null,
+      criteria?.scope ?? null,
+      criteria?.generalization ?? null,
+      criteria?.triggerClarity ?? null,
+      verdict.judgedAt ?? Date.now(),
+      id,
+    );
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordJudgeVerdict: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist the judge PANEL's rationales (`0033`'s `judge_panel_rationales`,
+   * first written in phase 3).
+   *
+   * A SIBLING of {@link recordJudgeVerdict}, and deliberately not folded into
+   * it. `recordJudgeVerdict` writes the nine columns of ONE verdict as a fixed
+   * set; the panel writes the RECORD OF HOW that verdict was reached, and the
+   * two are produced at different moments — the `judge` stage scores, the
+   * `judge-panel` stage convenes. Folding the column into the verdict write
+   * would mean every single-judge run had to blank a panel it never held.
+   *
+   * ## The column is the whole list, replaced, never appended to
+   *
+   * One panel run is one deliberation. Appending would let a re-run's panellist
+   * A sit beside the previous run's escalation, which reads as a five-way panel
+   * nobody convened — the same class of quietly-wrong record the fixed
+   * nine-column verdict write exists to prevent.
+   *
+   * Each entry is validated against the SAME `status`/`score` contract
+   * `recordJudgeVerdict` enforces. This is not a second layer above that method:
+   * it is this column's own enforcing edge, and it exists because a panel entry
+   * is a verdict too — `{status:'unscored', score:10}` would be exactly the
+   * fabricated score phase 1 removed, stored one column to the left.
+   */
+  recordJudgePanel(
+    id: CandidateId,
+    rationales: readonly JudgePanelRationale[],
+  ): SkillCandidateRow {
+    if (rationales.length === 0) {
+      throw new Error(
+        `[skill-synthesis] recordJudgePanel: ${id} was given no rationales; a panel that produced nothing must write nothing`,
+      );
+    }
+    for (const entry of rationales) {
+      if (!(JUDGE_PANEL_ROLES as readonly string[]).includes(entry.role)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: unknown panel role '${String(
+            entry.role,
+          )}' (expected ${JUDGE_PANEL_ROLES.join(' | ')})`,
+        );
+      }
+      if (!(JUDGE_STATUSES as readonly string[]).includes(entry.status)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: unknown judge status '${String(
+            entry.status,
+          )}' (expected ${JUDGE_STATUSES.join(' | ')})`,
+        );
+      }
+      if (entry.status === 'scored') {
+        if (entry.score === null || !Number.isFinite(entry.score)) {
+          throw new Error(
+            `[skill-synthesis] recordJudgePanel: a 'scored' ${entry.role} entry for ${id} needs a finite score`,
+          );
+        }
+      } else if (entry.score !== null) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: a '${entry.status}' ${entry.role} entry for ${id} must carry score=null, got ${entry.score}`,
+        );
+      }
+    }
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET judge_panel_rationales = ? WHERE id = ?`,
+      )
+      .run(JSON.stringify(rationales), id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordJudgePanel: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Set the human-readable title a naming pass produced. `name` stays the slug
+   * — it is the SKILL.md folder name and carries a UNIQUE index, so it is an
+   * internal id and is never what a human should read. An empty or
+   * whitespace-only name clears the column so the UI falls back rather than
+   * rendering a blank title.
+   */
+  setDisplayName(id: CandidateId, displayName: string): SkillCandidateRow {
+    const trimmed = displayName.trim();
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET display_name = ? WHERE id = ?`,
+    );
+    stmt.run(trimmed.length > 0 ? trimmed : null, id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] setDisplayName: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a replay-validation measurement (`0036`).
+   *
+   * A SIBLING of `updateStatus` and `recordJudgeVerdict`, and deliberately not
+   * an option on either: the lifecycle status, the judge verdict and the two
+   * empirical gates are four independent axes written by different stages at
+   * different times. A replay result must be recordable without moving the
+   * candidate's status and without touching a judge column.
+   *
+   * It is built with `updateStatus`'s fragment mechanics, but every fragment in
+   * ITS OWN group is unconditional — the three replay columns always move
+   * together. That is the same reasoning `recordJudgeVerdict` documents from
+   * the other direction: a partial write would leave the PREVIOUS replay's
+   * hold-out session sitting beside THIS replay's confidence, which reads as a
+   * measurement nobody took. The group is the unit; the fragment list is how
+   * two groups stay out of each other's UPDATE.
+   *
+   * `confidence: null` is a first-class value, not an omission — it is what a
+   * replay whose lane failed, or a cluster with no member to hold out, records.
+   * It must never be written as `0`, which means "replayed, aligned with
+   * nothing".
+   *
+   * Throws on the two shapes that would fabricate a measurement: a confidence
+   * outside 0–1 or non-finite, and a confidence with no hold-out session behind
+   * it (there is nothing it could have been measured against).
+   */
+  recordReplay(
+    id: CandidateId,
+    measurement: ReplayMeasurement,
+  ): SkillCandidateRow {
+    const { confidence } = measurement;
+    if (confidence !== null) {
+      if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+        throw new Error(
+          `[skill-synthesis] recordReplay: confidence for ${id} must be null or a finite number in [0, 1], got ${confidence}`,
+        );
+      }
+    }
+    const holdoutSessionId = measurement.holdoutSessionId?.trim() || null;
+    if (confidence !== null && holdoutSessionId === null) {
+      throw new Error(
+        `[skill-synthesis] recordReplay: a confidence for ${id} needs the hold-out session it was measured against`,
+      );
+    }
+
+    const fragments: string[] = [
+      'replay_confidence = ?',
+      'replay_holdout_session_id = ?',
+      'replay_at = ?',
+    ];
+    const values: unknown[] = [
+      confidence,
+      holdoutSessionId,
+      measurement.replayAt ?? Date.now(),
+      id,
+    ];
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET ${fragments.join(', ')} WHERE id = ?`,
+      )
+      .run(...values);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordReplay: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a trigger-retrieval measurement (`0036`). The sibling of
+   * {@link recordReplay}, same group-is-the-unit rule: precision, recall, the
+   * derived score and the timestamp move together, because a precision left
+   * beside the previous run's recall is not a measurement of anything.
+   *
+   * `precision` and `recall` are definitionally 0–1 and are range-checked here
+   * — the schema deliberately carries no `CHECK`, because SQLite cannot widen
+   * or drop one, so this is the enforcing edge. `score` is checked for
+   * finiteness only: it replaces the judge's 0–10 `triggerClarity` in ranking
+   * and the scale it is expressed on is B3.3's to decide, so pinning a range
+   * here would pre-empt that decision from the wrong file.
+   *
+   * All three may be `null` together — an eval that produced nothing
+   * trustworthy. `null` is not `0`; a 0 means the description retrieved nothing
+   * and IS a result.
+   */
+  recordTriggerEval(
+    id: CandidateId,
+    measurement: TriggerEvalMeasurement,
+  ): SkillCandidateRow {
+    const bounded: ReadonlyArray<readonly [string, number | null]> = [
+      ['precision', measurement.precision],
+      ['recall', measurement.recall],
+    ];
+    for (const [label, value] of bounded) {
+      if (value === null) continue;
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(
+          `[skill-synthesis] recordTriggerEval: ${label} for ${id} must be null or a finite number in [0, 1], got ${value}`,
+        );
+      }
+    }
+    if (measurement.score !== null && !Number.isFinite(measurement.score)) {
+      throw new Error(
+        `[skill-synthesis] recordTriggerEval: score for ${id} must be null or finite, got ${measurement.score}`,
+      );
+    }
+
+    const fragments: string[] = [
+      'trigger_score = ?',
+      'trigger_precision = ?',
+      'trigger_recall = ?',
+      'trigger_eval_at = ?',
+    ];
+    const values: unknown[] = [
+      measurement.score,
+      measurement.precision,
+      measurement.recall,
+      measurement.evaluatedAt ?? Date.now(),
+      id,
+    ];
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET ${fragments.join(', ')} WHERE id = ?`,
+      )
+      .run(...values);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordTriggerEval: ${id} not found`);
+    }
+    return updated;
+  }
+
   /** Increment success_count atomically. Returns the post-increment value. */
   incrementSuccess(id: CandidateId): number {
     const stmt = this.db.prepare(
@@ -437,6 +856,18 @@ export class SkillCandidateStore {
   recordSkillEvent(input: {
     skillSlug: string;
     sessionId: string;
+    /**
+     * Workspace the invocation happened in (migration `0037`).
+     *
+     * OPTIONAL AT THE TYPE LEVEL, NEVER FABRICATED AT THE VALUE LEVEL. A
+     * caller that does not know the workspace writes NULL, which means
+     * "provenance unknown" and is a different fact from `''`, which `0034`
+     * spends on `skill_session_verdicts.workspace_root` to mean "deliberately
+     * cross-project". Do not coalesce one to the other.
+     * `SkillInvocationRecorder` — the only production caller — requires the
+     * value on its own input type, so the production path always supplies it.
+     */
+    workspaceRoot?: string | null;
     contextId: string | null;
     source: string;
     succeeded: boolean;
@@ -452,8 +883,8 @@ export class SkillCandidateStore {
       `INSERT INTO skill_invocation_events
          (id, skill_slug, session_id, context_id, source, succeeded, is_error, invoked_at,
           input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-          cost_usd, duration_ms, tool_count, task_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          cost_usd, duration_ms, tool_count, task_id, workspace_root)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     stmt.run(
       ulid(),
@@ -472,7 +903,120 @@ export class SkillCandidateStore {
       m?.durationMs ?? null,
       m?.toolCount ?? null,
       input.taskId ?? null,
+      input.workspaceRoot ?? null,
     );
+  }
+
+  /**
+   * Per-slug win rate over the invocation → session-outcome join (plan §2.5,
+   * migration `0037`).
+   *
+   * THE NULL IS THE FEATURE. `winRate = wins / (invocations - unknown)`, and
+   * when that denominator is `0` the answer is `null` — NEVER `0`. A skill
+   * nobody has measured has no win rate; a skill measured and beaten has a
+   * low one. Collapsing the first into `0` ranks the unmeasured skill BELOW
+   * the measured loser in every consumer that sorts on this number (dormancy
+   * demotion, the auto-enhance gate, the weekly digest), which is exactly
+   * backwards: the unmeasured skill is the one we know least about and the one
+   * demotion must touch LAST. This is the same asymmetry `0033` established for
+   * `judge_score` and `0036` for the empirical gates.
+   *
+   * The three buckets partition on `evidence_class`, and `no-correction` is
+   * deliberately in NONE of them: it is weak evidence of success, so it is
+   * neither a win (it does not enter the numerator) nor unknown (it does not
+   * leave the denominator). A session whose verdict row is absent entirely
+   * counts as unknown, which is what makes a host that never ran the
+   * archaeologist report `null` instead of a fabricated `0`.
+   *
+   * Aggregated in SQL, divided in TypeScript: SQLite's integer division would
+   * turn every rate below 1 into `0`, and a `CAST(... AS REAL)` would still
+   * have to answer for the zero denominator somewhere. One place to get the
+   * rule wrong is better than two.
+   *
+   * ## `workspaceRoot` IS OPTIONAL, AND OMITTING IT IS NOT A DEFAULT — IT IS A
+   * ## DIFFERENT QUESTION
+   *
+   * Four callers ask a CROSS-PROJECT question and pass nothing: the enhancer's
+   * eligibility gate, the promotion service's dormancy ranking and the
+   * scorecard's RPC read all ask "what is this skill's track record", and a
+   * skill's track record does not stop at a repo boundary. The weekly gap
+   * digest asks the other question — "how is this skill doing HERE" — because
+   * its other three sweeps are workspace-scoped through
+   * `SessionVerdictStore.listByWorkspace` and a per-workspace digest carrying
+   * one cross-project row is something a user notices. Widening the scoped form
+   * into the default would silently re-scope the other three.
+   *
+   * ## A `NULL` `workspace_root` IS INCLUDED IN A SCOPED READ
+   *
+   * `0037` added the column as nullable and spelled out what the three values
+   * mean: a real path is that workspace, `''` is DELIBERATELY cross-project,
+   * and `NULL` is "recorded before phase 4 threaded the value through,
+   * provenance unknown". Only the third is in question here, and the predicate
+   * keeps it, because excluding it is the worse error in a way that is easy to
+   * miss. Every event on every install that has history predates `0037`, so a
+   * `NULL`-excluding predicate empties the denominator on exactly those
+   * installs — and an empty denominator is `winRate: null`, which the digest
+   * renders as "no measured outcome yet". That would retitle a skill's real,
+   * measured track record as an ABSENT measurement, the same `null`-is-never-a
+   * measurement inversion this method's header forbids, arriving from the other
+   * direction. Keeping the row instead can only over-attribute work whose
+   * provenance nobody recorded, and it is still strictly NARROWER than the
+   * cross-project answer the digest read before, so the change cannot regress
+   * anything. The `NULL` pool is also fixed in size and stops growing the
+   * moment `0037` lands, so the scoping sharpens by itself as events accrue.
+   *
+   * `''` is NOT folded in — it is a known value meaning "not this workspace",
+   * and `0037` is explicit that no consumer may coalesce `NULL` to `''`. The
+   * caller that genuinely wants the cross-project feed passes `''` and gets
+   * `''`-plus-unknown rows, exactly as `listByWorkspace('')` behaves.
+   *
+   * Two whole static statements rather than one built by concatenation: this
+   * directory's SQL must stay free of `${...}` interpolation, and a predicate
+   * spliced in at runtime is precisely the shape that rule exists to keep out.
+   */
+  getWinRates(workspaceRoot?: string): SkillWinRate[] {
+    const scoped = workspaceRoot !== undefined;
+    const statement = this.db.prepare(
+      scoped
+        ? `SELECT e.skill_slug,
+                  COUNT(*) AS invocations,
+                  SUM(CASE WHEN v.evidence_class IN
+                        ('tests-green','user-accepted','explicit-confirmation')
+                      THEN 1 ELSE 0 END) AS wins,
+                  SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
+                      THEN 1 ELSE 0 END) AS unknown
+           FROM skill_invocation_events e
+           LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
+           WHERE e.workspace_root = ? OR e.workspace_root IS NULL
+           GROUP BY e.skill_slug`
+        : `SELECT e.skill_slug,
+                  COUNT(*) AS invocations,
+                  SUM(CASE WHEN v.evidence_class IN
+                        ('tests-green','user-accepted','explicit-confirmation')
+                      THEN 1 ELSE 0 END) AS wins,
+                  SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
+                      THEN 1 ELSE 0 END) AS unknown
+           FROM skill_invocation_events e
+           LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
+           GROUP BY e.skill_slug`,
+    );
+    const rows = (
+      scoped ? statement.all(workspaceRoot) : statement.all()
+    ) as RawWinRateRow[];
+
+    return rows.map((r) => {
+      const invocations = r.invocations ?? 0;
+      const wins = r.wins ?? 0;
+      const unknown = r.unknown ?? 0;
+      const measured = invocations - unknown;
+      return {
+        slug: r.skill_slug,
+        invocations,
+        wins,
+        unknown,
+        winRate: measured > 0 ? wins / measured : null,
+      };
+    });
   }
 
   /**
@@ -868,6 +1412,25 @@ export class SkillCandidateStore {
     }
   }
 
+  /**
+   * Read edge of the `judge_status` union. `null` and `''` mean "never judged".
+   * Anything else that is not a union member is downgraded to `'unscored'` —
+   * the value that means "no trustworthy verdict" — and logged. There is no DB
+   * `CHECK` to have caught it, and the alternative (passing the raw string
+   * through a field typed as the union) would lie to every consumer.
+   */
+  private toJudgeStatus(raw: string | null): JudgeStatus | null {
+    if (raw === null || raw === '') return null;
+    if ((JUDGE_STATUSES as readonly string[]).includes(raw)) {
+      return raw as JudgeStatus;
+    }
+    this.logger.warn(
+      '[skill-synthesis] unknown judge_status read from skill_candidates; treating as unscored',
+      { judgeStatus: raw },
+    );
+    return 'unscored';
+  }
+
   private toCandidateRow(raw: RawCandidateRow): SkillCandidateRow {
     let sources: string[] = [];
     try {
@@ -895,6 +1458,39 @@ export class SkillCandidateStore {
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
       residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce to `''` — `null` is "origin unknown" and `''` is
+      // "deliberately cross-project", and only the second is a claim.
+      workspaceRoot: raw.workspace_root ?? null,
+      judgeStatus: this.toJudgeStatus(raw.judge_status),
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce a stored NULL to 0 — that would resurrect the exact
+      // fabricated-score defect this column exists to kill.
+      judgeScore: raw.judge_score ?? null,
+      judgeReason: raw.judge_reason ?? null,
+      judgeCriteria: {
+        novelty: raw.judge_novelty ?? null,
+        actionability: raw.judge_actionability ?? null,
+        scope: raw.judge_scope ?? null,
+        generalization: raw.judge_generalization ?? null,
+        triggerClarity: raw.judge_trigger_clarity ?? null,
+      },
+      judgePanelRationales: raw.judge_panel_rationales ?? null,
+      judgedAt: raw.judged_at ?? null,
+      displayName: raw.display_name ?? null,
+      // `?? null` normalizes a driver's `undefined` for an absent column, and
+      // NOTHING here may coalesce to 0. A measured `0` — a replay that aligned
+      // with nothing, a description that retrieved nothing — is evidence
+      // against promotion; `null` is "this gate has not spoken" and leaves the
+      // candidate retry-eligible. Collapsing the two would silently reject
+      // every candidate the weekly drain has not reached yet.
+      replayConfidence: raw.replay_confidence ?? null,
+      replayHoldoutSessionId: raw.replay_holdout_session_id ?? null,
+      replayAt: raw.replay_at ?? null,
+      triggerScore: raw.trigger_score ?? null,
+      triggerPrecision: raw.trigger_precision ?? null,
+      triggerRecall: raw.trigger_recall ?? null,
+      triggerEvalAt: raw.trigger_eval_at ?? null,
     };
   }
 

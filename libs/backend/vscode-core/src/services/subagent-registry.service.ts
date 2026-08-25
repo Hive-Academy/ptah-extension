@@ -33,6 +33,7 @@ import type {
   SubagentStatus,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { SubagentStateStore } from './subagent-registry/subagent-state-store';
 import { SubagentHistoryRegistrar } from './subagent-registry/subagent-history-registrar';
 
@@ -92,6 +93,11 @@ export class SubagentRegistryService {
     const isPendingBackground = this.store.consumePendingBackground(
       registration.toolCallId,
     );
+    // Prefer a name already on the registration (e.g. history replay); otherwise
+    // consume the pending name captured from the Task tool_use before the hook.
+    const teammateName =
+      registration.teammateName ??
+      this.store.consumePendingTeammateName(registration.toolCallId);
 
     const record: SubagentRecord = {
       ...registration,
@@ -102,26 +108,123 @@ export class SubagentRegistryService {
         isBackground: true,
         backgroundStartedAt: Date.now(),
       }),
+      ...(teammateName ? { teammateName } : {}),
     };
 
     this.store.set(registration.toolCallId, record);
 
     this.logger.info('[SubagentRegistryService.register] Subagent registered', {
       toolCallId: registration.toolCallId,
-      sessionId: registration.sessionId,
       agentType: registration.agentType,
       agentId: registration.agentId,
+      teammateName,
       parentSessionId: registration.parentSessionId,
       registrySize: this.store.size,
     });
   }
 
   /**
-   * When a new registration shares an agentId with an existing interrupted
-   * record, the interrupted agent is being resumed — drop the stale record
-   * so it is no longer reported as resumable.
+   * Pre-mark a human-legible teammate name for a not-yet-registered toolCallId.
+   *
+   * Called by SdkMessageTransformer when it observes the Agent/Task tool_use
+   * `name` input, which is present BEFORE the SubagentStart hook fires. The
+   * subsequent register() call consumes this name and stores it on the record
+   * as teammateName.
+   *
+   * @param toolCallId - The Task tool_use ID that will spawn a named teammate
+   * @param teammateName - The human-legible name from the tool_use input
    */
-  private removeSupersededInterrupted(registration: SubagentRegistration): void {
+  markPendingTeammateName(toolCallId: string, teammateName: string): void {
+    this.store.markPendingTeammateName(toolCallId, teammateName);
+    this.logger.debug(
+      '[SubagentRegistryService.markPendingTeammateName] Marked toolCallId with teammate name',
+      { toolCallId, teammateName },
+    );
+  }
+
+  /**
+   * Peek at a pending teammate name for a not-yet-registered toolCallId WITHOUT
+   * consuming it. Emit sites use this to populate `teammateName` on identity
+   * events during the window between observing the Task tool_use `name` input
+   * and the SubagentStart hook registering the record — without stealing the
+   * name from the eventual register() consumption.
+   *
+   * @param toolCallId - The Task tool_use ID to look up
+   * @returns The pending teammate name, or undefined when none was recorded
+   */
+  peekPendingTeammateName(toolCallId: string): string | undefined {
+    return this.store.peekPendingTeammateName(toolCallId);
+  }
+
+  /**
+   * Look up a SubagentRecord by its human-legible teammate name.
+   *
+   * Returns the first running match (most relevant for live steering); if no
+   * running match exists, returns the first match of any status. Returns null
+   * when no record carries the name.
+   *
+   * @param teammateName - The human-legible teammate name to resolve
+   * @returns The matching SubagentRecord, or null if not found
+   */
+  getByName(teammateName: string): SubagentRecord | null {
+    let fallback: SubagentRecord | null = null;
+
+    for (const record of this.store.values()) {
+      if (record.teammateName === teammateName) {
+        if (record.status === 'running') {
+          return record;
+        }
+        if (!fallback) {
+          fallback = record;
+        }
+      }
+    }
+
+    return fallback;
+  }
+
+  /**
+   * Look up the Task tool's toolCallId by the teammate's human-legible name.
+   *
+   * Mirrors {@link getToolCallIdByAgentId} but keys on the coordinator-supplied
+   * name rather than the SDK short-hex agentId. Returns the first running match,
+   * else the first match of any status, else null.
+   *
+   * @param teammateName - The human-legible teammate name to resolve
+   * @returns The Task tool's toolCallId, or null if not found
+   */
+  getToolCallIdByName(teammateName: string): string | null {
+    let fallback: string | null = null;
+
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (record.teammateName === teammateName) {
+        if (record.status === 'running') {
+          return toolCallId;
+        }
+        if (!fallback) {
+          fallback = toolCallId;
+        }
+      }
+    }
+
+    return fallback;
+  }
+
+  /**
+   * When a new registration shares an agentId with an existing interrupted
+   * record IN THE SAME PARENT SESSION, the interrupted agent is being
+   * resumed — drop the stale record so it is no longer reported as resumable.
+   *
+   * The parent-session match is required, not cosmetic. `agentId` is a short
+   * hex string minted by the SDK and is only unique within a session; matching
+   * on it alone let a resume in session A delete session B's interrupted
+   * record. Because removal here is permanent (it also marks the id injected,
+   * which blocks re-registration from history), a missed supersede is the far
+   * cheaper error: the stale record is retired by the injection-attempt cap.
+   */
+  private removeSupersededInterrupted(
+    registration: SubagentRegistration,
+  ): void {
     if (!registration.agentId) {
       return;
     }
@@ -131,6 +234,7 @@ export class SubagentRegistryService {
       if (
         toolCallId !== registration.toolCallId &&
         record.agentId === registration.agentId &&
+        record.parentSessionId === registration.parentSessionId &&
         record.status === 'interrupted'
       ) {
         toRemove.push(toolCallId);
@@ -346,15 +450,39 @@ export class SubagentRegistryService {
    * Background agents have status 'background' and are still running
    * independently of the main agent's turn.
    *
+   * Filter semantics are explicit, not derived from falsiness:
+   * - argument omitted (`undefined`) → no filter, every background agent
+   * - a non-empty id → exact match on that parent session
+   * - an empty string → a filter that cannot identify a session, so it matches
+   *   NOTHING. It used to match everything, which surfaced session B's
+   *   background agents in session A's UI via `agent:backgroundList`.
+   *
    * @param parentSessionId - Optional filter by parent session
    * @returns Array of background SubagentRecords
    */
   getBackgroundAgents(parentSessionId?: string): SubagentRecord[] {
+    // The `!== undefined` arm is load-bearing and must stay explicit: this is a
+    // TRI-state, and `blankToUndefined` alone would collapse the omitted
+    // argument ("every background agent") into the blank case ("none"). Only
+    // the PRESENT-but-blank filter is refused here.
+    if (
+      parentSessionId !== undefined &&
+      blankToUndefined(parentSessionId) === undefined
+    ) {
+      this.logger.warn(
+        '[SubagentRegistryService.getBackgroundAgents] Empty parentSessionId is not a filter for all sessions — returning none',
+      );
+      return [];
+    }
+
     const background: SubagentRecord[] = [];
 
     for (const record of this.store.values()) {
       if (record.status === 'background' && !this.store.isExpired(record)) {
-        if (!parentSessionId || record.parentSessionId === parentSessionId) {
+        if (
+          parentSessionId === undefined ||
+          record.parentSessionId === parentSessionId
+        ) {
           background.push(record);
         }
       }
@@ -512,6 +640,16 @@ export class SubagentRegistryService {
    * @param realSessionId - The real SDK session UUID
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    // Without this guard an empty tabId matches every record whose parent is
+    // also empty — across all sessions — and rebrands them all as one session.
+    if (!tabId || !realSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.resolveParentSessionId] Ignoring resolve with an empty id',
+        { tabId, realSessionId },
+      );
+      return;
+    }
+
     let updatedCount = 0;
 
     for (const record of this.store.values()) {
@@ -677,6 +815,15 @@ export class SubagentRegistryService {
    * @param parentSessionId - The parent session ID to remove subagents for
    */
   removeBySessionId(parentSessionId: string): void {
+    // Mirrors the guard in pruneSession(): an empty id would delete every
+    // record whose parent is also empty, across unrelated sessions.
+    if (!parentSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.removeBySessionId] Ignoring removal for an empty parentSessionId',
+      );
+      return;
+    }
+
     const toRemove: string[] = [];
 
     for (const [toolCallId, record] of this.store.entries()) {

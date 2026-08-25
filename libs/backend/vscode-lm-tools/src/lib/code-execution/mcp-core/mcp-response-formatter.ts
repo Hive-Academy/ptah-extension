@@ -212,69 +212,107 @@ export function formatSearchFiles(files: unknown): string {
 }
 
 /**
- * Format ptah_get_diagnostics result
+ * Format ptah_get_diagnostics result.
+ *
+ * Accepts a `DiagnosticsPayload` (`{ status, source, diagnostics }`) so the
+ * formatter can distinguish "unavailable" from "available with zero issues".
+ * Falls back to the legacy flat-array shape for backward compatibility.
  */
-export function formatDiagnostics(diagnostics: unknown): string {
+export function formatDiagnostics(payload: unknown): string {
   try {
-    if (!Array.isArray(diagnostics)) return fallbackJson(diagnostics);
-    if (diagnostics.length === 0)
-      return json2md([
-        { h2: 'Diagnostics' },
-        { p: 'Errors: 0 | Warnings: 0 — No issues found.' },
-      ]);
+    if (payload && typeof payload === 'object' && 'status' in payload) {
+      const p = payload as {
+        status: 'available' | 'unavailable';
+        source: string;
+        reason?: string;
+        diagnostics?: unknown[];
+      };
 
-    const errors = diagnostics.filter(
-      (d: Record<string, unknown>) =>
-        d['severity'] === 'error' ||
-        d['severity'] === 0 ||
-        d['severity'] === 'Error',
-    );
-    const warnings = diagnostics.filter(
-      (d: Record<string, unknown>) =>
-        d['severity'] === 'warning' ||
-        d['severity'] === 1 ||
-        d['severity'] === 'Warning',
-    );
-    const others = diagnostics.filter(
-      (d: Record<string, unknown>) =>
-        !errors.includes(d) && !warnings.includes(d),
-    );
-    const blocks: any[] = [
-      { h2: 'Diagnostics' },
-      {
-        p: `**Errors:** ${errors.length} | **Warnings:** ${warnings.length}${
-          others.length > 0 ? ` | **Other:** ${others.length}` : ''
-        }`,
-      },
-    ];
+      if (p.status === 'unavailable') {
+        return json2md([
+          { h2: 'Diagnostics' },
+          {
+            p: `**Source:** ${p.source} — Unavailable. ${p.reason ?? ''}`,
+          },
+        ]);
+      }
 
-    if (errors.length > 0) {
-      blocks.push({ h3: 'Errors' });
-      blocks.push({
-        ul: errors.map((e: Record<string, unknown>) => formatDiagnosticItem(e)),
-      });
+      const diagnostics = Array.isArray(p.diagnostics) ? p.diagnostics : [];
+      if (diagnostics.length === 0) {
+        return json2md([
+          { h2: 'Diagnostics' },
+          {
+            p: `**Source:** ${p.source}  \nErrors: 0 | Warnings: 0 — No issues found.`,
+          },
+        ]);
+      }
+
+      return formatDiagnosticList(diagnostics, p.source);
     }
 
-    if (warnings.length > 0) {
-      blocks.push({ h3: 'Warnings' });
-      blocks.push({
-        ul: warnings.map((w: Record<string, unknown>) =>
-          formatDiagnosticItem(w),
-        ),
-      });
+    if (Array.isArray(payload)) {
+      if (payload.length === 0)
+        return json2md([
+          { h2: 'Diagnostics' },
+          { p: 'Errors: 0 | Warnings: 0 — No issues found.' },
+        ]);
+      return formatDiagnosticList(payload);
     }
 
-    if (others.length > 0) {
-      blocks.push({ h3: 'Other' });
-      blocks.push({
-        ul: others.map((o: Record<string, unknown>) => formatDiagnosticItem(o)),
-      });
-    }
-
-    return json2md(blocks);
+    return fallbackJson(payload);
   } catch {
-    return fallbackJson(diagnostics);
+    return fallbackJson(payload);
   }
+}
+
+function formatDiagnosticList(diagnostics: unknown[], source?: string): string {
+  const typedDiags = diagnostics as Record<string, unknown>[];
+  const errors = typedDiags.filter(
+    (d) =>
+      d['severity'] === 'error' ||
+      d['severity'] === 0 ||
+      d['severity'] === 'Error',
+  );
+  const warnings = typedDiags.filter(
+    (d) =>
+      d['severity'] === 'warning' ||
+      d['severity'] === 1 ||
+      d['severity'] === 'Warning',
+  );
+  const others = typedDiags.filter(
+    (d) => !errors.includes(d) && !warnings.includes(d),
+  );
+  const blocks: any[] = [
+    { h2: 'Diagnostics' },
+    {
+      p: `${source ? `**Source:** ${source}  \n` : ''}**Errors:** ${errors.length} | **Warnings:** ${warnings.length}${
+        others.length > 0 ? ` | **Other:** ${others.length}` : ''
+      }`,
+    },
+  ];
+
+  if (errors.length > 0) {
+    blocks.push({ h3: 'Errors' });
+    blocks.push({
+      ul: errors.map((e) => formatDiagnosticItem(e)),
+    });
+  }
+
+  if (warnings.length > 0) {
+    blocks.push({ h3: 'Warnings' });
+    blocks.push({
+      ul: warnings.map((w) => formatDiagnosticItem(w)),
+    });
+  }
+
+  if (others.length > 0) {
+    blocks.push({ h3: 'Other' });
+    blocks.push({
+      ul: others.map((o) => formatDiagnosticItem(o)),
+    });
+  }
+
+  return json2md(blocks);
 }
 
 function formatDiagnosticItem(d: Record<string, unknown>): string {
@@ -427,7 +465,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       return json2md([
         { h2: 'Available Agents' },
         {
-          p: 'No agents found. Install a CLI agent (Codex, Copilot) or configure a Ptah CLI agent.',
+          p: 'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.',
         },
       ]);
     }
@@ -444,10 +482,20 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         };
       }
 
+      // `disabled` outranks `installed`: the binary is present but spawning it
+      // is rejected, and that is the fact the caller needs before choosing.
+      const status = agent.disabled
+        ? agent.installed
+          ? 'disabled (installed)'
+          : 'disabled'
+        : agent.installed
+          ? 'installed'
+          : 'not installed';
+
       return {
         Agent: agent.cli,
         Type: 'cli',
-        Status: agent.installed ? 'installed' : 'not installed',
+        Status: status,
         Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
       };
     });

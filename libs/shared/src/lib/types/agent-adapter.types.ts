@@ -99,7 +99,6 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   prompt?: string;
   files?: string[];
   images?: { data: string; mediaType: string }[];
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -143,7 +142,6 @@ export interface AgentSessionStartConfig extends AISessionConfig {
  * Extended session config used by resumeSession.
  */
 export interface AgentSessionResumeConfig extends AISessionConfig {
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -168,7 +166,6 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
  */
 export interface SlashCommandRunConfig {
   sessionConfig?: AISessionConfig;
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];

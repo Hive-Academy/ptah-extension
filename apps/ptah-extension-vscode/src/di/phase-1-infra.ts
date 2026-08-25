@@ -63,7 +63,7 @@ export function registerPhase1InfraMinimal(
  *   - Delegates to `registerVsCodeCoreServices` which registers 13 tokens
  *     including the platform-agnostic block (RPC_HANDLER, MESSAGE_VALIDATOR,
  *     AGENT_SESSION_WATCHER_SERVICE, SUBAGENT_REGISTRY_SERVICE,
- *     FEATURE_GATE_SERVICE, SENTRY_SERVICE, LICENSE_SERVICE, AUTH_SECRETS_SERVICE).
+ *     SENTRY_SERVICE, LICENSE_SERVICE, AUTH_SECRETS_SERVICE).
  *   - Wires file-based settings into ConfigManager.
  */
 export function registerPhase1Infra(

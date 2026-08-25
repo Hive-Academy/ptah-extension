@@ -29,7 +29,7 @@ import type { VendorLane } from '../types/tribunal-ui.types';
           [sessionId]="tribunalSessionId()"
         />
       } @else {
-        <p class="px-3 py-4 text-center text-xs text-base-content/40">
+        <p class="px-3 py-4 text-center text-xs text-base-content-muted">
           Awaiting {{ lane().displayName }}…
         </p>
       }
@@ -50,7 +50,17 @@ import type { VendorLane } from '../types/tribunal-ui.types';
 })
 export class VendorCardComponent {
   readonly lane = input.required<VendorLane>();
-  readonly tribunalSessionId = input.required<string>();
+  /**
+   * The tribunal's resolved session id, or `null` while it is still unresolved.
+   *
+   * Absence is modelled, not fabricated. This was `input.required<string>()`,
+   * which forced `tribunal-page.component.ts` to bind `tribunalSessionId() ?? ''`
+   * — inventing an id for a session that did not have one yet (TASK_2026_296).
+   * `null` matches `TribunalStateService.tribunalSessionId` on the parent side
+   * and `AgentMonitorPanelComponent.sessionId` on the child side, so the value
+   * now travels this chain unconverted.
+   */
+  readonly tribunalSessionId = input<string | null>(null);
 
   private readonly tribunalState = inject(TribunalStateService);
 

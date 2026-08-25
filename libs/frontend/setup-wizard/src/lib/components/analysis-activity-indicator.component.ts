@@ -20,7 +20,7 @@ import {
   standalone: true,
   template: `
     <div
-      class="flex items-center gap-1.5 text-sm text-base-content/60 italic min-h-[1.5em]"
+      class="flex items-center gap-1.5 text-sm text-base-content-muted italic min-h-[1.5em]"
     >
       <span class="typewriter-text overflow-hidden whitespace-nowrap">{{
         displayedText()
@@ -112,7 +112,7 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
           if (this.currentCharIndex < currentMessage.length) {
             this.currentCharIndex++;
             this.displayedText.set(
-              currentMessage.slice(0, this.currentCharIndex)
+              currentMessage.slice(0, this.currentCharIndex),
             );
           } else {
             if (this.typingInterval !== null) {
@@ -127,7 +127,7 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
           if (this.currentCharIndex > 0) {
             this.currentCharIndex--;
             this.displayedText.set(
-              currentMessage.slice(0, this.currentCharIndex)
+              currentMessage.slice(0, this.currentCharIndex),
             );
           } else {
             this.isDeleting = false;
@@ -135,7 +135,7 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
           }
         }
       },
-      this.isDeleting ? deleteSpeed : typeSpeed
+      this.isDeleting ? deleteSpeed : typeSpeed,
     );
   }
 }

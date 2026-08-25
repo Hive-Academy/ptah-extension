@@ -10,8 +10,6 @@
  * SubagentStop (Phase 3).
  */
 
-import { z } from 'zod';
-
 /**
  * Wire payload for `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`
  * (`'session:compactionComplete'`).
@@ -33,15 +31,6 @@ export interface SdkCompactionCompletePayload {
   readonly timestamp: number;
 }
 
-/** Zod schema for {@link SdkCompactionCompletePayload}, used at the RPC boundary. */
-export const SdkCompactionCompletePayloadSchema = z.object({
-  sessionId: z.string().min(1),
-  cwd: z.string().min(1),
-  trigger: z.union([z.literal('manual'), z.literal('auto')]),
-  compactSummary: z.string(),
-  timestamp: z.number().int().nonnegative(),
-});
-
 /**
  * Structural mirror of the SDK's `BackgroundTaskSummary`
  * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:123-138`).
@@ -54,15 +43,6 @@ export interface SdkBackgroundTaskSummary {
   readonly command?: string;
 }
 
-/** Zod schema for {@link SdkBackgroundTaskSummary}. */
-export const SdkBackgroundTaskSummarySchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  status: z.string(),
-  description: z.string(),
-  command: z.string().optional(),
-});
-
 /**
  * Structural mirror of the SDK's `SessionCronSummary`
  * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:3724-3738`).
@@ -73,14 +53,6 @@ export interface SdkSessionCronSummary {
   readonly recurring: boolean;
   readonly prompt: string;
 }
-
-/** Zod schema for {@link SdkSessionCronSummary}. */
-export const SdkSessionCronSummarySchema = z.object({
-  id: z.string(),
-  schedule: z.string(),
-  recurring: z.boolean(),
-  prompt: z.string(),
-});
 
 /**
  * Structural mirror of the SDK's 12-variant `TerminalReason` union
@@ -100,22 +72,6 @@ export type SdkTerminalReason =
   | 'max_turns'
   | 'completed';
 
-/** Zod schema for {@link SdkTerminalReason}. */
-export const SdkTerminalReasonSchema = z.union([
-  z.literal('blocking_limit'),
-  z.literal('rapid_refill_breaker'),
-  z.literal('prompt_too_long'),
-  z.literal('image_error'),
-  z.literal('model_error'),
-  z.literal('aborted_streaming'),
-  z.literal('aborted_tools'),
-  z.literal('stop_hook_prevented'),
-  z.literal('hook_stopped'),
-  z.literal('tool_deferred'),
-  z.literal('max_turns'),
-  z.literal('completed'),
-]);
-
 /**
  * Structural mirror of the SDK's `SDKAssistantMessageError` string literal union
  * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:2574`).
@@ -130,19 +86,6 @@ export type SdkAssistantMessageError =
   | 'server_error'
   | 'unknown'
   | 'max_output_tokens';
-
-/** Zod schema for {@link SdkAssistantMessageError}. */
-export const SdkAssistantMessageErrorSchema = z.union([
-  z.literal('authentication_failed'),
-  z.literal('oauth_org_not_allowed'),
-  z.literal('billing_error'),
-  z.literal('rate_limit'),
-  z.literal('invalid_request'),
-  z.literal('model_not_found'),
-  z.literal('server_error'),
-  z.literal('unknown'),
-  z.literal('max_output_tokens'),
-]);
 
 /**
  * Wire payload for `MESSAGE_TYPES.SESSION_TURN_ENDED`
@@ -163,17 +106,6 @@ export interface SdkTurnEndedPayload {
   readonly timestamp: number;
 }
 
-/** Zod schema for {@link SdkTurnEndedPayload}. */
-export const SdkTurnEndedPayloadSchema = z.object({
-  sessionId: z.string().min(1),
-  cwd: z.string().min(1),
-  lastAssistantMessage: z.string().nullable(),
-  backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
-  sessionCrons: z.array(SdkSessionCronSummarySchema).readonly(),
-  terminalReason: SdkTerminalReasonSchema.nullable(),
-  timestamp: z.number().int().nonnegative(),
-});
-
 /**
  * Wire payload for `MESSAGE_TYPES.SESSION_TURN_FAILED`
  * (`'session:turnFailed'`).
@@ -190,17 +122,6 @@ export interface SdkTurnFailedPayload {
   readonly terminalReason: SdkTerminalReason | null;
   readonly timestamp: number;
 }
-
-/** Zod schema for {@link SdkTurnFailedPayload}. */
-export const SdkTurnFailedPayloadSchema = z.object({
-  sessionId: z.string().min(1),
-  cwd: z.string().min(1),
-  lastAssistantMessage: z.string().nullable(),
-  error: SdkAssistantMessageErrorSchema,
-  errorDetails: z.string().nullable(),
-  terminalReason: SdkTerminalReasonSchema.nullable(),
-  timestamp: z.number().int().nonnegative(),
-});
 
 /**
  * Wire payload for `MESSAGE_TYPES.SESSION_SUBAGENT_ENDED`
@@ -220,14 +141,3 @@ export interface SdkSubagentEndedPayload {
   readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
   readonly timestamp: number;
 }
-
-/** Zod schema for {@link SdkSubagentEndedPayload}. */
-export const SdkSubagentEndedPayloadSchema = z.object({
-  sessionId: z.string().min(1),
-  cwd: z.string().min(1),
-  agentId: z.string().min(1),
-  agentType: z.string().min(1),
-  lastAssistantMessage: z.string().nullable(),
-  backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
-  timestamp: z.number().int().nonnegative(),
-});

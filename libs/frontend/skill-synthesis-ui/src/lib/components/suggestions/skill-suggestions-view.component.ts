@@ -51,7 +51,7 @@ interface SuggestionsToast {
     } @else {
       <div class="space-y-4" data-testid="suggestions-view">
         <div class="flex items-center justify-between">
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-base-content-muted">
             Skills Thoth distilled from clusters of similar successful sessions
             — review and refine each before adding it to your library.
           </p>
@@ -92,11 +92,11 @@ interface SuggestionsToast {
           >
             <lucide-angular
               [img]="LayersIcon"
-              class="mx-auto mb-2 size-8 text-base-content/30"
+              class="mx-auto mb-2 size-8 text-base-content-muted"
               aria-hidden="true"
             />
             <p class="text-sm font-medium">No recommended skills yet.</p>
-            <p class="mt-1 text-xs text-base-content/60">
+            <p class="mt-1 text-xs text-base-content-muted">
               Thoth recommends a skill once enough similar sessions cluster
               together and clear the quality judge. Run the Curator to scan now.
             </p>
@@ -115,16 +115,16 @@ interface SuggestionsToast {
                         class="inline-block size-1.5 rounded-full bg-secondary"
                         aria-hidden="true"
                       ></span>
-                      <span class="text-xs text-base-content/70"
+                      <span class="text-xs text-base-content-muted"
                         >Pending review</span
                       >
                     </div>
                     <h3 class="truncate text-sm font-semibold">{{ s.name }}</h3>
-                    <p class="text-xs text-base-content/70">
+                    <p class="text-xs text-base-content-muted">
                       {{ s.description }}
                     </p>
                     <div
-                      class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-base-content/60"
+                      class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-base-content-muted"
                     >
                       <span class="inline-flex items-center gap-1">
                         <lucide-angular
@@ -206,7 +206,7 @@ interface SuggestionsToast {
           >
             <div class="modal-box max-w-3xl">
               @if (detailLoading() && !detail()) {
-                <p class="py-6 text-center text-sm text-base-content/60">
+                <p class="py-6 text-center text-sm text-base-content-muted">
                   Loading skill…
                 </p>
               } @else if (detail(); as d) {
@@ -214,7 +214,7 @@ interface SuggestionsToast {
                   <h3 class="text-base font-semibold">Edit skill</h3>
                   <div class="mt-3 space-y-3">
                     <label class="flex flex-col gap-1">
-                      <span class="text-xs text-base-content/60">Title</span>
+                      <span class="text-xs text-base-content-muted">Title</span>
                       <input
                         type="text"
                         class="input input-bordered input-sm w-full font-mono"
@@ -224,7 +224,7 @@ interface SuggestionsToast {
                       />
                     </label>
                     <label class="flex flex-col gap-1">
-                      <span class="text-xs text-base-content/60"
+                      <span class="text-xs text-base-content-muted"
                         >Description (the trigger — when to use it)</span
                       >
                       <textarea
@@ -236,7 +236,7 @@ interface SuggestionsToast {
                       ></textarea>
                     </label>
                     <label class="flex flex-col gap-1">
-                      <span class="text-xs text-base-content/60"
+                      <span class="text-xs text-base-content-muted"
                         >Body (SKILL.md instructions)</span
                       >
                       <textarea
@@ -284,11 +284,11 @@ interface SuggestionsToast {
                       Edit
                     </button>
                   </div>
-                  <p class="mt-1 text-sm text-base-content/80">
+                  <p class="mt-1 text-sm text-base-content-muted">
                     {{ d.description }}
                   </p>
                   <dl
-                    class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-base-content/60"
+                    class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-base-content-muted"
                   >
                     <dt>Cluster size</dt>
                     <dd class="tabular-nums">{{ d.clusterSize }}</dd>
@@ -331,7 +331,7 @@ interface SuggestionsToast {
                   </div>
                 }
               } @else {
-                <p class="py-6 text-center text-sm text-base-content/60">
+                <p class="py-6 text-center text-sm text-base-content-muted">
                   Could not load this skill.
                 </p>
                 <div class="modal-action">
@@ -358,12 +358,12 @@ interface SuggestionsToast {
           >
             <div class="modal-box">
               <h3 class="text-base font-semibold">Dismiss suggestion</h3>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-base-content-muted">
                 <span class="font-mono">{{ target.name }}</span>
               </p>
               <label class="mt-3 flex flex-col gap-1">
-                <span class="text-xs text-base-content/60">
-                  Reason <span class="text-base-content/50">(optional)</span>
+                <span class="text-xs text-base-content-muted">
+                  Reason <span class="text-base-content-muted">(optional)</span>
                 </span>
                 <textarea
                   class="textarea textarea-bordered textarea-sm w-full"

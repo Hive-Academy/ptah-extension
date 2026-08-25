@@ -58,12 +58,11 @@ Start a new chat if:
 
 The in-chat model selector greys out providers that aren't usable right now, with an inline reason:
 
-| Signal         | Meaning                                   |
-| -------------- | ----------------------------------------- |
-| "No API key"   | Configure it in Settings → Providers.     |
-| "Offline"      | For Ollama, the server isn't reachable.   |
-| "Pro required" | The integration is gated behind Ptah Pro. |
-| "Rate limited" | Recent 429 — retry in a moment.           |
+| Signal         | Meaning                                 |
+| -------------- | --------------------------------------- |
+| "No API key"   | Configure it in Settings → Providers.   |
+| "Offline"      | For Ollama, the server isn't reachable. |
+| "Rate limited" | Recent 429 — retry in a moment.         |
 
 Click the provider anyway to open its settings page with the failure reason pre-populated.
 

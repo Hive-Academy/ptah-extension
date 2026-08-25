@@ -1,58 +1,108 @@
 /**
- * SkillCandidateStore specs — uses better-sqlite3 in-memory DB.
+ * SkillCandidateStore specs — in-memory SQLite.
  *
  * Tests: setPin cap, transaction holds, countDistinctContexts, decay math,
- * pinned excluded from decay list, zero-invocation skills sort last.
+ * pinned excluded from decay list, zero-invocation skills sort last, and the
+ * `0033` judge verdict round-trip (per-criterion scores, the `unscored`
+ * verdict, `display_name`).
  *
- * Better-sqlite3 has no @types package in this repo, so we use require() with
- * a local type alias — consistent with how persistence-sqlite tests use it.
- * Tests are skipped when the native module is unavailable (e.g. CI without
- * rebuilt bindings), matching the pattern in sqlite-connection.service.spec.ts.
+ * WHICH BINDING. `better-sqlite3` is rebuilt against Electron's ABI by
+ * postinstall here, so it cannot load in the Jest/Node runner on a normal dev
+ * machine. Rather than permanently skip the assertions that matter, the opener
+ * falls back to Node's built-in `node:sqlite` — the same engine behind a
+ * different binding — exactly as the queue specs do. `resolveOpener` is reused
+ * from `queue/queue-db.test-support` so there is one such opener, not two.
+ * `node:sqlite` has no `transaction()`, so this file adds the BEGIN/COMMIT
+ * shim; that is the only behavioural difference the store can observe.
+ *
+ * THE SCHEMA IS NOT HAND-WRITTEN FOR `0033`. The base table is the pre-`0033`
+ * shape, and the eleven judge columns come from `MIGRATIONS` itself, so a
+ * column renamed in the migration fails these specs instead of silently
+ * disagreeing with them.
  */
 import 'reflect-metadata';
+import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { SkillCandidateStore } from './skill-candidate.store';
-import type { CandidateId, NewCandidateInput } from './types';
+import {
+  JUDGE_STATUSES,
+  type CandidateId,
+  type JudgeStatus,
+  type NewCandidateInput,
+} from './types';
+import {
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
-interface BetterSqliteDb {
-  exec(sql: string): void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  prepare(sql: string): {
-    run(...args: any[]): any;
-    get(...args: any[]): any;
-    all(...args: any[]): any[];
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  transaction<T extends (...args: any[]) => any>(fn: T): T;
-  close(): void;
+type TransactionFn = <T extends (...args: never[]) => unknown>(fn: T) => T;
+
+type SpecDb = TestDatabase & { transaction: TransactionFn };
+
+const opener = resolveOpener();
+const maybe = opener ? it : it.skip;
+
+const SQL_0033 = MIGRATIONS.find((m) => m.version === 33)?.sql ?? '';
+/**
+ * The seven empirical-gate columns. Pulled from `MIGRATIONS` for the same
+ * reason `0033` is: a column renamed in the migration fails these specs instead
+ * of silently disagreeing with them.
+ */
+const SQL_0036 = MIGRATIONS.find((m) => m.version === 36)?.sql ?? '';
+/**
+ * `workspace_root` on `skill_invocation_events` plus the session index.
+ * Applied from `MIGRATIONS` rather than hand-added to the CREATE TABLE below
+ * for the same reason as `0033`/`0036`: `recordSkillEvent` writes a FIXED
+ * seventeen-column list, so a fixture that spelled the column itself could
+ * drift from the migration silently. Running the real ALTER is what keeps the
+ * two honest.
+ */
+const SQL_0037 = MIGRATIONS.find((m) => m.version === 37)?.sql ?? '';
+/**
+ * `skill_synthesis_queue`. Applied only because `0040`'s backfill JOINs it —
+ * the fixture never inserts a queue row, so the UPDATE is a no-op here. Without
+ * the table the migration would fail with "no such table" and the fixture would
+ * have to skip the backfill, which is exactly the drift these constants exist
+ * to prevent.
+ */
+const SQL_0032 = MIGRATIONS.find((m) => m.version === 32)?.sql ?? '';
+/**
+ * `workspace_root` on `skill_candidates` plus its index. From `MIGRATIONS` for
+ * the same reason as `0033`/`0036`/`0037`: `registerCandidate` writes a FIXED
+ * fifteen-column list, so a fixture that spelled this column itself could drift
+ * from the migration silently.
+ */
+const SQL_0040 = MIGRATIONS.find((m) => m.version === 40)?.sql ?? '';
+
+/**
+ * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
+ * only use of it (`setPin`) is synchronous and single-connection, for which
+ * BEGIN/COMMIT/ROLLBACK is equivalent.
+ */
+function transactionFor(db: TestDatabase): TransactionFn {
+  const native = (db as { transaction?: unknown }).transaction;
+  if (typeof native === 'function') {
+    return (native as TransactionFn).bind(db) as TransactionFn;
+  }
+  return (<T extends (...args: never[]) => unknown>(fn: T): T =>
+    ((...args: never[]) => {
+      db.exec('BEGIN');
+      try {
+        const result = fn(...args);
+        db.exec('COMMIT');
+        return result;
+      } catch (error: unknown) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    }) as unknown as T) as TransactionFn;
 }
-
-// Detect whether the native module can be loaded (ABI mismatch on Electron builds).
-let nativeAvailable = false;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-  const DB = require('better-sqlite3') as new (path: string) => {
-    close(): void;
-  };
-  const probe = new DB(':memory:');
-  probe.close();
-  nativeAvailable = true;
-} catch {
-  nativeAvailable = false;
-}
-
-const maybe = nativeAvailable ? it : it.skip;
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-const DatabaseCtor = nativeAvailable
-  ? (require('better-sqlite3') as new (path: string) => BetterSqliteDb)
-  : null;
 
 // ─── Minimal in-memory DB setup ─────────────────────────────────────────────
 
-function createInMemoryDb(): BetterSqliteDb {
-  if (!DatabaseCtor) throw new Error('native not available');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const db = new DatabaseCtor(':memory:');
+function createInMemoryDb(): SpecDb {
+  if (!opener) throw new Error('no sqlite binding available');
+  const raw = opener(':memory:');
+  const db: SpecDb = Object.assign(raw, { transaction: transactionFor(raw) });
   db.exec(`
     CREATE TABLE skill_candidates (
       id TEXT PRIMARY KEY,
@@ -106,6 +156,11 @@ function createInMemoryDb(): BetterSqliteDb {
     CREATE INDEX idx_skill_inv_events_task
       ON skill_invocation_events(skill_slug, task_id);
   `);
+  db.exec(SQL_0033);
+  db.exec(SQL_0036);
+  db.exec(SQL_0037);
+  db.exec(SQL_0032);
+  db.exec(SQL_0040);
   return db;
 }
 
@@ -116,7 +171,7 @@ const noopLogger = {
   error: jest.fn(),
 };
 
-function makeConnection(db: BetterSqliteDb) {
+function makeConnection(db: SpecDb) {
   return {
     db,
     vecExtensionLoaded: false,
@@ -146,7 +201,7 @@ function makeVecStatus(available = false): unknown {
   };
 }
 
-function makeStore(db: BetterSqliteDb): SkillCandidateStore {
+function makeStore(db: SpecDb): SkillCandidateStore {
   const connection = makeConnection(db);
   return new SkillCandidateStore(
     noopLogger as never,
@@ -270,6 +325,123 @@ describe('SkillCandidateStore', () => {
     });
   });
 
+  describe('listByStatus — workspace scoping', () => {
+    /**
+     * `workspaceRoot` is optional on {@link NewCandidateInput} and the three
+     * cases below are three DIFFERENT facts, not one with defaults:
+     * a path is "captured there", `''` is "deliberately cross-project", and
+     * omitting it is "origin unknown".
+     */
+    function seedThreeOrigins(store: SkillCandidateStore): void {
+      store.registerCandidate({
+        ...candidateInput('mine'),
+        workspaceRoot: 'D:\\projects\\alpha',
+      });
+      store.registerCandidate({
+        ...candidateInput('theirs'),
+        workspaceRoot: 'D:\\projects\\beta',
+      });
+      store.registerCandidate({
+        ...candidateInput('cross'),
+        workspaceRoot: '',
+      });
+      // No `workspaceRoot` at all — the legacy row.
+      store.registerCandidate(candidateInput('legacy'));
+    }
+
+    maybe('round-trips all three origin values distinctly', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedThreeOrigins(store);
+
+      const byName = new Map(
+        store.listByStatus('candidate').map((r) => [r.name, r.workspaceRoot]),
+      );
+      // Stated in every direction: a reader that returns null for everything,
+      // or '' for everything, passes any single assertion here.
+      expect(byName.get('skill-mine')).toBe('D:\\projects\\alpha');
+      expect(byName.get('skill-cross')).toBe('');
+      expect(byName.get('skill-cross')).not.toBeNull();
+      expect(byName.get('skill-legacy')).toBeNull();
+      expect(byName.get('skill-legacy')).not.toBe('');
+    });
+
+    maybe('omitting the root reads back every candidate', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedThreeOrigins(store);
+
+      // The unscoped overload is what clustering, dedup, the residency budget
+      // and the gates use, and it must stay cross-project.
+      expect(
+        store
+          .listByStatus('candidate')
+          .map((r) => r.name)
+          .sort(),
+      ).toEqual(['skill-cross', 'skill-legacy', 'skill-mine', 'skill-theirs']);
+    });
+
+    maybe(
+      'a scoped read includes the unknown-origin row and excludes the cross-project one',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        seedThreeOrigins(store);
+
+        const names = store
+          .listByStatus('candidate', 'D:\\projects\\alpha')
+          .map((r) => r.name)
+          .sort();
+
+        // `skill-legacy` is IN — dropping NULL would make every candidate
+        // captured before `0040` unreachable in every workspace, which trades a
+        // display defect for silent data loss. `skill-cross` is OUT — `''` is a
+        // KNOWN value meaning "not this workspace". Asserting both is what
+        // pins the rule: matching everything passes the first half, matching
+        // only the exact path passes the second.
+        expect(names).toEqual(['skill-legacy', 'skill-mine']);
+      },
+    );
+
+    maybe(
+      'a workspace with no captures of its own still sees the legacy rows',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        seedThreeOrigins(store);
+
+        // The reported symptom, from the other side: a brand-new project must
+        // NOT see alpha's or beta's captures. It still sees the rows nobody can
+        // attribute, and that is why the UI keeps an "all projects" toggle.
+        expect(
+          store
+            .listByStatus('candidate', 'D:\\projects\\brand-new')
+            .map((r) => r.name),
+        ).toEqual(['skill-legacy']);
+      },
+    );
+
+    maybe('scoping is per status, not across statuses', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate({
+        ...candidateInput('promoted-elsewhere'),
+        workspaceRoot: 'D:\\projects\\beta',
+      });
+      store.updateStatus(candidate.id, 'promoted', { promotedAt: 1 });
+
+      expect(store.listByStatus('promoted', 'D:\\projects\\alpha')).toEqual([]);
+      expect(
+        store.listByStatus('promoted', 'D:\\projects\\beta').map((r) => r.name),
+      ).toEqual(['skill-promoted-elsewhere']);
+      // And the unscoped read — the one promotion, dedup and the curator use —
+      // still finds it from anywhere.
+      expect(store.listByStatus('promoted').map((r) => r.name)).toEqual([
+        'skill-promoted-elsewhere',
+      ]);
+    });
+  });
+
   describe('reconcileSubagentEvent', () => {
     function recordSubagentRun(
       store: SkillCandidateStore,
@@ -387,7 +559,7 @@ describe('SkillCandidateStore', () => {
       task_id: string | null;
     }
 
-    function readEvent(db: BetterSqliteDb, slug: string): EventRow {
+    function readEvent(db: SpecDb, slug: string): EventRow {
       return db
         .prepare(
           `SELECT input_tokens, output_tokens, cache_read_tokens,
@@ -520,6 +692,57 @@ describe('SkillCandidateStore', () => {
         expect(agg.sum_input).toBe(100);
       },
     );
+
+    maybe('writes workspace_root as the seventeenth column (0037)', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const readRoot = (slug: string): string | null =>
+        (
+          db
+            .prepare(
+              'SELECT workspace_root FROM skill_invocation_events WHERE skill_slug = ?',
+            )
+            .get(slug) as { workspace_root: string | null }
+        ).workspace_root;
+
+      store.recordSkillEvent({
+        skillSlug: 'scoped',
+        sessionId: 's1',
+        workspaceRoot: 'D:/projects/ptah-extension',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+      // 0034's "deliberately cross-project" value survives as itself.
+      store.recordSkillEvent({
+        skillSlug: 'cross-project',
+        sessionId: 's2',
+        workspaceRoot: '',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+      // A caller that does not know: NULL, meaning unknown provenance. NOT ''.
+      store.recordSkillEvent({
+        skillSlug: 'unknown-root',
+        sessionId: 's3',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+
+      expect(readRoot('scoped')).toBe('D:/projects/ptah-extension');
+      expect(readRoot('cross-project')).toBe('');
+      expect(readRoot('cross-project')).not.toBeNull();
+      expect(readRoot('unknown-root')).toBeNull();
+      expect(readRoot('unknown-root')).not.toBe('');
+    });
   });
 
   describe('reconcileSubagentEvent — exact task_id first, window fallback', () => {
@@ -548,11 +771,7 @@ describe('SkillCandidateStore', () => {
       });
     }
 
-    function rowByTask(
-      db: BetterSqliteDb,
-      slug: string,
-      taskId: string,
-    ): VerdictRow {
+    function rowByTask(db: SpecDb, slug: string, taskId: string): VerdictRow {
       return db
         .prepare(
           `SELECT succeeded, is_error, reconciled_at, verdict_source
@@ -1155,6 +1374,609 @@ describe('SkillCandidateStore', () => {
       expect(store.listGradedInvocations('nope', 10)).toEqual([]);
       recordAndGrade(store, 'agent-lim', 1000, 'TASK_2026_001', 5000, true);
       expect(store.listGradedInvocations('agent-lim', 0)).toEqual([]);
+    });
+  });
+
+  // ── 0033: judge verdicts + display_name ───────────────────────────────────
+
+  describe('recordJudgeVerdict', () => {
+    function seed(db: SpecDb, suffix: string): CandidateId {
+      const store = makeStore(db);
+      return store.registerCandidate(candidateInput(suffix)).candidate.id;
+    }
+
+    function rawJudge(
+      db: SpecDb,
+      id: CandidateId,
+    ): { judge_score: number | null; judge_status: string | null } {
+      return db
+        .prepare(
+          `SELECT judge_score, judge_status FROM skill_candidates WHERE id = ?`,
+        )
+        .get(id) as { judge_score: number | null; judge_status: string | null };
+    }
+
+    maybe('a fresh candidate carries no verdict at all', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-fresh');
+
+      const row = store.findById(id);
+      expect(row?.judgeStatus).toBeNull();
+      expect(row?.judgeScore).toBeNull();
+      expect(row?.judgeReason).toBeNull();
+      expect(row?.judgedAt).toBeNull();
+      expect(row?.judgePanelRationales).toBeNull();
+      expect(row?.displayName).toBeNull();
+      expect(row?.judgeCriteria).toEqual({
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      });
+    });
+
+    maybe('round-trips a scored verdict with all five criteria', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-scored');
+
+      const returned = store.recordJudgeVerdict(id, {
+        status: 'scored',
+        score: 7.4,
+        reason: 'Generalizes past the originating repo.',
+        criteria: {
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        },
+        judgedAt: 1_700_000_000_000,
+      });
+
+      for (const row of [returned, store.findById(id)]) {
+        expect(row?.judgeStatus).toBe('scored');
+        expect(row?.judgeScore).toBeCloseTo(7.4);
+        expect(row?.judgeReason).toBe('Generalizes past the originating repo.');
+        expect(row?.judgedAt).toBe(1_700_000_000_000);
+        expect(row?.judgeCriteria).toEqual({
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        });
+      }
+    });
+
+    maybe(
+      'an unscored verdict reads back as NULL — not 0 — and keeps its reason',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const id = seed(db, 'verdict-unscored');
+
+        store.recordJudgeVerdict(id, {
+          status: 'unscored',
+          score: null,
+          reason: 'judge call rate-limited',
+        });
+
+        const row = store.findById(id);
+        expect(row?.judgeStatus).toBe('unscored');
+        expect(row?.judgeScore).toBeNull();
+        expect(row?.judgeScore).not.toBe(0);
+        expect(row?.judgeReason).toBe('judge call rate-limited');
+        // And the column itself is NULL, not a coerced zero.
+        expect(rawJudge(db, id).judge_score).toBeNull();
+      },
+    );
+
+    maybe('a genuine score of 0 is distinguishable from unscored', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const zero = seed(db, 'verdict-zero');
+      const none = seed(db, 'verdict-none');
+
+      store.recordJudgeVerdict(zero, {
+        status: 'scored',
+        score: 0,
+        reason: 'no reusable workflow here',
+      });
+      store.recordJudgeVerdict(none, {
+        status: 'unscored',
+        score: null,
+        reason: 'provider returned unparseable JSON',
+      });
+
+      expect(store.findById(zero)?.judgeScore).toBe(0);
+      expect(store.findById(none)?.judgeScore).toBeNull();
+      expect(rawJudge(db, zero).judge_score).toBe(0);
+      expect(rawJudge(db, none).judge_score).toBeNull();
+    });
+
+    maybe('a disabled verdict records that the gate was off', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-disabled');
+
+      const row = store.recordJudgeVerdict(id, {
+        status: 'disabled',
+        score: null,
+        reason: 'skillSynthesis.judgeEnabled=false',
+      });
+
+      expect(row.judgeStatus).toBe('disabled');
+      expect(row.judgeScore).toBeNull();
+      expect(rawJudge(db, id).judge_status).toBe('disabled');
+    });
+
+    maybe('the verdict does not move the lifecycle status', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-lifecycle');
+
+      store.recordJudgeVerdict(id, {
+        status: 'unscored',
+        score: null,
+        reason: 'timeout',
+      });
+
+      // An unscored verdict is precisely the case that must NOT promote or
+      // reject: the candidate stays pending and is retried on the next pass.
+      expect(store.findById(id)?.status).toBe('candidate');
+    });
+
+    maybe('re-judging replaces stale per-criterion scores', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-rejudge');
+
+      store.recordJudgeVerdict(id, {
+        status: 'scored',
+        score: 9,
+        reason: 'first pass',
+        criteria: {
+          novelty: 9,
+          actionability: 9,
+          scope: 9,
+          generalization: 9,
+          triggerClarity: 9,
+        },
+      });
+      store.recordJudgeVerdict(id, {
+        status: 'unscored',
+        score: null,
+        reason: 'second pass failed',
+      });
+
+      const row = store.findById(id);
+      expect(row?.judgeScore).toBeNull();
+      // No stale 9s left sitting beside the new verdict.
+      expect(row?.judgeCriteria).toEqual({
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      });
+    });
+
+    maybe('rejects a judge_status outside the union', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-bad-status');
+
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          // There is no DB CHECK behind this column — the union is the only
+          // enforcement, so the store has to be the one that refuses.
+          status: 'passed' as JudgeStatus,
+          score: null,
+          reason: null,
+        }),
+      ).toThrow(/unknown judge status/i);
+      expect(rawJudge(db, id).judge_status).toBeNull();
+    });
+
+    maybe('rejects a scored verdict with no number', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-scored-null');
+
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          status: 'scored',
+          score: null,
+          reason: null,
+        }),
+      ).toThrow(/finite score/i);
+    });
+
+    maybe('rejects a non-scored verdict that carries a number', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-unscored-number');
+
+      // This is the shape of the old fail-open bug: an errored judge call
+      // arriving with a fabricated 10.
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          status: 'unscored',
+          score: 10,
+          reason: 'LLM error',
+        }),
+      ).toThrow(/must carry score=null/i);
+    });
+
+    maybe('accepts every member of JUDGE_STATUSES', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      for (const status of JUDGE_STATUSES) {
+        const id = seed(db, `verdict-each-${status}`);
+        const row = store.recordJudgeVerdict(id, {
+          status,
+          score: status === 'scored' ? 5 : null,
+          reason: null,
+        });
+        expect(row.judgeStatus).toBe(status);
+      }
+    });
+
+    maybe('downgrades an unrecognized stored status to unscored', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-legacy-status');
+      noopLogger.warn.mockClear();
+      // No CHECK constraint guards this column, so a foreign writer (an older
+      // or newer build) can leave a value the union does not know.
+      db.prepare(
+        `UPDATE skill_candidates SET judge_status = ? WHERE id = ?`,
+      ).run('panel-pending', id);
+
+      expect(store.findById(id)?.judgeStatus).toBe('unscored');
+      expect(noopLogger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('setDisplayName', () => {
+    maybe('sets a human title without touching the slug', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('name-1'));
+
+      const row = store.setDisplayName(candidate.id, '  Bisect A Flaky Spec  ');
+
+      expect(row.displayName).toBe('Bisect A Flaky Spec');
+      expect(row.name).toBe('skill-name-1');
+      expect(store.findById(candidate.id)?.displayName).toBe(
+        'Bisect A Flaky Spec',
+      );
+      expect(store.findById(candidate.id)?.name).toBe('skill-name-1');
+    });
+
+    maybe('clears the column when given a blank name', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('name-2'));
+      store.setDisplayName(candidate.id, 'Something');
+
+      expect(store.setDisplayName(candidate.id, '   ').displayName).toBeNull();
+    });
+  });
+
+  // ── 0036 empirical gates (B3.1.2) ─────────────────────────────────────────
+
+  describe('recordReplay', () => {
+    maybe('a fresh candidate carries no gate measurement at all', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('gate-0'));
+
+      const row = store.findById(candidate.id);
+      expect(row?.replayConfidence).toBeNull();
+      expect(row?.replayHoldoutSessionId).toBeNull();
+      expect(row?.replayAt).toBeNull();
+      expect(row?.triggerScore).toBeNull();
+      expect(row?.triggerPrecision).toBeNull();
+      expect(row?.triggerRecall).toBeNull();
+      expect(row?.triggerEvalAt).toBeNull();
+    });
+
+    maybe('round-trips a confidence with its hold-out session', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-1'));
+
+      const returned = store.recordReplay(candidate.id, {
+        confidence: 0.82,
+        holdoutSessionId: 'sess-9f3a',
+        replayAt: 1_770_000_000_000,
+      });
+
+      for (const row of [returned, store.findById(candidate.id)]) {
+        expect(row?.replayConfidence).toBeCloseTo(0.82);
+        expect(row?.replayHoldoutSessionId).toBe('sess-9f3a');
+        expect(row?.replayAt).toBe(1_770_000_000_000);
+      }
+    });
+
+    /**
+     * THE assertion this batch exists for, stated in BOTH directions in one
+     * test. A confidence of zero (replayed, aligned with nothing) and an
+     * unmeasured confidence (never replayed) must not be the same value.
+     *
+     * Either half alone is vacuous: a reader hard-wired to return `null` passes
+     * the first pair, and one hard-wired to return `0` passes the second. Only
+     * the pair distinguishes them, and only the raw-column read proves the
+     * distinction survives to SQL — which is where the promotion sweep's
+     * `replay_confidence < minConfidence` will read it.
+     */
+    maybe('a measured 0 and an unmeasured null are different values', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const measured = store.registerCandidate(candidateInput('replay-zero'))
+        .candidate.id;
+      const unmeasured = store.registerCandidate(candidateInput('replay-none'))
+        .candidate.id;
+
+      store.recordReplay(measured, {
+        confidence: 0,
+        holdoutSessionId: 'sess-held',
+        replayAt: 1_770_000_000_000,
+      });
+
+      const measuredRow = store.findById(measured);
+      expect(measuredRow?.replayConfidence).toBe(0);
+      expect(measuredRow?.replayConfidence).not.toBeNull();
+
+      const unmeasuredRow = store.findById(unmeasured);
+      expect(unmeasuredRow?.replayConfidence).toBeNull();
+      expect(unmeasuredRow?.replayConfidence).not.toBe(0);
+
+      // And the column itself, not just the mapped field: a coerced zero here
+      // would make the promotion sweep reject every never-replayed candidate.
+      const raw = (id: CandidateId): number | null =>
+        (
+          db
+            .prepare(
+              'SELECT replay_confidence FROM skill_candidates WHERE id = ?',
+            )
+            .get(id) as { replay_confidence: number | null }
+        ).replay_confidence;
+      expect(raw(measured)).toBe(0);
+      expect(raw(unmeasured)).toBeNull();
+
+      const belowThreshold = (
+        db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM skill_candidates WHERE replay_confidence < 0.5',
+          )
+          .get() as { n: number }
+      ).n;
+      expect(belowThreshold).toBe(1);
+    });
+
+    maybe('records a failed replay as null without a hold-out', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-2'));
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: null,
+        holdoutSessionId: null,
+        replayAt: 1_770_000_000_000,
+      });
+
+      expect(row.replayConfidence).toBeNull();
+      expect(row.replayHoldoutSessionId).toBeNull();
+      // The timestamp still lands: we know WHEN we failed to measure.
+      expect(row.replayAt).toBe(1_770_000_000_000);
+    });
+
+    maybe('defaults replayAt to now when the caller omits it', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-3'));
+      const before = Date.now();
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: 0.5,
+        holdoutSessionId: 'sess-x',
+      });
+
+      expect(row.replayAt).toBeGreaterThanOrEqual(before);
+    });
+
+    maybe.each([
+      ['above 1', 1.5],
+      ['below 0', -0.1],
+      ['not finite', Number.NaN],
+    ])('rejects a confidence %s', (_label, confidence) => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(
+        candidateInput(`replay-bad-${String(confidence)}`),
+      );
+
+      expect(() =>
+        store.recordReplay(candidate.id, {
+          confidence: confidence as number,
+          holdoutSessionId: 'sess-x',
+        }),
+      ).toThrow(/\[0, 1\]/);
+    });
+
+    // A confidence with nothing behind it is a fabricated measurement — there
+    // is no session it could have been scored against.
+    maybe('rejects a confidence with no hold-out session', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-4'));
+
+      expect(() =>
+        store.recordReplay(candidate.id, {
+          confidence: 0.7,
+          holdoutSessionId: '   ',
+        }),
+      ).toThrow(/hold-out session/);
+    });
+
+    maybe('leaves the 0033 judge columns untouched', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-5'));
+      store.recordJudgeVerdict(candidate.id, {
+        status: 'scored',
+        score: 7.4,
+        reason: 'ok',
+        criteria: {
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        },
+        judgedAt: 1_700_000_000_000,
+      });
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: 0.9,
+        holdoutSessionId: 'sess-y',
+      });
+
+      expect(row.judgeStatus).toBe('scored');
+      expect(row.judgeScore).toBeCloseTo(7.4);
+      expect(row.judgeCriteria.triggerClarity).toBe(6);
+      expect(row.judgedAt).toBe(1_700_000_000_000);
+    });
+  });
+
+  describe('recordTriggerEval', () => {
+    maybe('round-trips precision, recall and the derived score', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-1'));
+
+      const returned = store.recordTriggerEval(candidate.id, {
+        score: 0.75,
+        precision: 0.8,
+        recall: 0.7,
+        evaluatedAt: 1_770_000_060_000,
+      });
+
+      for (const row of [returned, store.findById(candidate.id)]) {
+        expect(row?.triggerScore).toBeCloseTo(0.75);
+        expect(row?.triggerPrecision).toBeCloseTo(0.8);
+        expect(row?.triggerRecall).toBeCloseTo(0.7);
+        expect(row?.triggerEvalAt).toBe(1_770_000_060_000);
+      }
+    });
+
+    // Same null-vs-zero rule as replay, in both directions: a description that
+    // retrieved nothing measured 0, which is a result; an un-evaluated
+    // candidate has no number at all.
+    maybe('a measured 0 and an unmeasured null are different values', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const measured = store.registerCandidate(candidateInput('trig-zero'))
+        .candidate.id;
+      const unmeasured = store.registerCandidate(candidateInput('trig-none'))
+        .candidate.id;
+
+      store.recordTriggerEval(measured, {
+        score: 0,
+        precision: 0,
+        recall: 0,
+      });
+
+      for (const field of [
+        'triggerScore',
+        'triggerPrecision',
+        'triggerRecall',
+      ] as const) {
+        expect(store.findById(measured)?.[field]).toBe(0);
+        expect(store.findById(measured)?.[field]).not.toBeNull();
+        expect(store.findById(unmeasured)?.[field]).toBeNull();
+        expect(store.findById(unmeasured)?.[field]).not.toBe(0);
+      }
+    });
+
+    maybe.each([
+      ['precision above 1', { score: 0.5, precision: 1.4, recall: 0.5 }],
+      ['recall below 0', { score: 0.5, precision: 0.5, recall: -0.2 }],
+      [
+        'a non-finite recall',
+        { score: 0.5, precision: 0.5, recall: Number.NaN },
+      ],
+    ])('rejects %s', (_label, measurement) => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(
+        candidateInput(`trig-bad-${_label}`),
+      );
+
+      expect(() => store.recordTriggerEval(candidate.id, measurement)).toThrow(
+        /\[0, 1\]/,
+      );
+    });
+
+    // `score` is finiteness-checked only — its scale is B3.3's decision, and
+    // pinning a range from the store would pre-empt it from the wrong file.
+    maybe('accepts a score outside 0–1 but rejects a non-finite one', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-2'));
+
+      expect(
+        store.recordTriggerEval(candidate.id, {
+          score: 7.5,
+          precision: 0.8,
+          recall: 0.7,
+        }).triggerScore,
+      ).toBeCloseTo(7.5);
+
+      expect(() =>
+        store.recordTriggerEval(candidate.id, {
+          score: Number.POSITIVE_INFINITY,
+          precision: 0.8,
+          recall: 0.7,
+        }),
+      ).toThrow(/finite/);
+    });
+
+    // The two gates are independent axes; neither may clobber the other.
+    maybe('does not disturb a replay measurement, and vice versa', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-3'));
+
+      store.recordReplay(candidate.id, {
+        confidence: 0.82,
+        holdoutSessionId: 'sess-9f3a',
+        replayAt: 1_770_000_000_000,
+      });
+      const afterTrigger = store.recordTriggerEval(candidate.id, {
+        score: 0.75,
+        precision: 0.8,
+        recall: 0.7,
+        evaluatedAt: 1_770_000_060_000,
+      });
+
+      expect(afterTrigger.replayConfidence).toBeCloseTo(0.82);
+      expect(afterTrigger.replayHoldoutSessionId).toBe('sess-9f3a');
+      expect(afterTrigger.replayAt).toBe(1_770_000_000_000);
+
+      const afterReplay = store.recordReplay(candidate.id, {
+        confidence: 0.4,
+        holdoutSessionId: 'sess-other',
+      });
+      expect(afterReplay.triggerScore).toBeCloseTo(0.75);
+      expect(afterReplay.triggerPrecision).toBeCloseTo(0.8);
+      expect(afterReplay.triggerRecall).toBeCloseTo(0.7);
+      expect(afterReplay.triggerEvalAt).toBe(1_770_000_060_000);
     });
   });
 });

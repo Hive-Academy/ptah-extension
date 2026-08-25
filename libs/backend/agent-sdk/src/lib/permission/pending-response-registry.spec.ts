@@ -118,3 +118,87 @@ describe('PendingResponseRegistry', () => {
     expect(sessionResolver).toHaveBeenCalledWith(null);
   });
 });
+
+interface SampleRequest {
+  id: string;
+  label: string;
+}
+
+describe('PendingResponseRegistry - listBySession', () => {
+  let logger: MockLogger;
+  let registry: PendingResponseRegistry<SampleResponse, SampleRequest>;
+
+  beforeEach(() => {
+    logger = createMockLogger();
+    registry = new PendingResponseRegistry<SampleResponse, SampleRequest>(
+      asLogger(logger),
+    );
+  });
+
+  it('returns an empty array when nothing matches', () => {
+    registry.register('req-1', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+      request: { id: 'req-1', label: 'a' },
+    });
+    expect(registry.listBySession('SESS-OTHER')).toEqual([]);
+  });
+
+  it('returns the stored request objects, matching on sessionId or tabId', () => {
+    const bySession: SampleRequest = { id: 'req-session', label: 'session' };
+    const byTab: SampleRequest = { id: 'req-tab', label: 'tab' };
+    registry.register('req-session', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+      request: bySession,
+    });
+    registry.register('req-tab', {
+      resolve: jest.fn(),
+      tabId: 'TAB-1' as never,
+      request: byTab,
+    });
+
+    expect(registry.listBySession('SESS-1')).toEqual([bySession]);
+    expect(registry.listBySession('TAB-1')).toEqual([byTab]);
+  });
+
+  it('skips matching entries that carry no request', () => {
+    registry.register('req-bare', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+    });
+    registry.register('req-full', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+      request: { id: 'req-full', label: 'full' },
+    });
+
+    const listed = registry.listBySession('SESS-1');
+    expect(listed).toEqual([{ id: 'req-full', label: 'full' }]);
+  });
+
+  it('drops an entry from the listing once it resolves', () => {
+    registry.register('req-1', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+      request: { id: 'req-1', label: 'a' },
+    });
+    registry.resolve('req-1', { id: 'req-1', value: 'ok' });
+    expect(registry.listBySession('SESS-1')).toEqual([]);
+  });
+
+  it('uses the same matching rule as cleanupBySession', () => {
+    registry.register('req-1', {
+      resolve: jest.fn(),
+      sessionId: 'SESS-1' as never,
+      tabId: 'TAB-1' as never,
+      request: { id: 'req-1', label: 'a' },
+    });
+
+    // Whatever cleanupBySession would tear down is exactly what listBySession
+    // reports as outstanding — the two must never drift.
+    expect(registry.listBySession('SESS-1')).toHaveLength(1);
+    expect(registry.cleanupBySession('SESS-1')).toEqual(['req-1']);
+    expect(registry.listBySession('SESS-1')).toEqual([]);
+  });
+});

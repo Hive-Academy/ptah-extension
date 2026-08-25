@@ -7,6 +7,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { effect } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
 import type { SessionId, TabId } from '@ptah-extension/shared';
 
@@ -139,13 +140,67 @@ describe('TabWorkspacePartitionService', () => {
       expect(svc.activeWorkspacePath$()).toBe('/ws/b');
     });
 
-    it('removedWorkspace$ emits the removed path then clears on ack', () => {
+    it('removedWorkspace$ emits an append-only {path,seq} that persists (never cleared)', () => {
       svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [], null);
       expect(svc.removedWorkspace$()).toBeNull();
+
       svc.removeWorkspaceState('/ws/a');
-      expect(svc.removedWorkspace$()).toBe('/ws/a');
-      svc.clearRemovedWorkspace();
-      expect(svc.removedWorkspace$()).toBeNull();
+      expect(svc.removedWorkspace$()).toEqual({ path: '/ws/a', seq: 1 });
+
+      // The emission is never cleared — it persists until the next removal.
+      expect(svc.removedWorkspace$()).toEqual({ path: '/ws/a', seq: 1 });
+
+      // A second removal increments seq monotonically and replaces the value.
+      svc.removeWorkspaceState('/ws/b');
+      expect(svc.removedWorkspace$()).toEqual({ path: '/ws/b', seq: 2 });
+    });
+
+    it('lets two independent consumers each observe every removal exactly once, regardless of effect order', () => {
+      // Two consumers read the SAME append-only signal, each with its own
+      // last-seen seq. Neither mutates the signal, so flush order is irrelevant
+      // — the old single-shot clear-on-read contract could starve whichever
+      // consumer flushed after the one that cleared it.
+      const consumerA: string[] = [];
+      const consumerB: string[] = [];
+      let seenA = 0;
+      let seenB = 0;
+
+      TestBed.runInInjectionContext(() => {
+        effect(() => {
+          const removed = svc.removedWorkspace$();
+          if (removed && removed.seq > seenA) {
+            seenA = removed.seq;
+            consumerA.push(removed.path);
+          }
+        });
+        effect(() => {
+          const removed = svc.removedWorkspace$();
+          if (removed && removed.seq > seenB) {
+            seenB = removed.seq;
+            consumerB.push(removed.path);
+          }
+        });
+      });
+
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [], null);
+
+      svc.removeWorkspaceState('/ws/a');
+      TestBed.tick();
+      expect(consumerA).toEqual(['/ws/a']);
+      expect(consumerB).toEqual(['/ws/a']);
+
+      // A second removal of a DIFFERENT path is processed by both.
+      svc.removeWorkspaceState('/ws/b');
+      TestBed.tick();
+      expect(consumerA).toEqual(['/ws/a', '/ws/b']);
+      expect(consumerB).toEqual(['/ws/a', '/ws/b']);
+
+      // Re-flushing without a new removal processes nothing (idempotent).
+      TestBed.tick();
+      expect(consumerA).toEqual(['/ws/a', '/ws/b']);
+      expect(consumerB).toEqual(['/ws/a', '/ws/b']);
     });
   });
 

@@ -11,15 +11,17 @@
  *
  * Flow:
  * 1. SubagentStart hook fires -> registry.register() for resumption tracking
- * 2. Subagent visibility flows via `agentProgressSummaries: true` Option in
- *    SdkQueryOptionsBuilder + task_* system messages (task_started,
- *    task_progress, task_updated, task_notification) handled by
- *    SdkMessageTransformer.
+ * 2. Subagent visibility flows via two complementary channels handled by
+ *    SdkMessageTransformer:
+ *      - the built-in task_* system message stream (task_started, task_progress,
+ *        task_updated, task_notification) for the collapsed task-node summary; and
+ *      - `forwardSubagentText: true` (SdkQueryOptionsBuilder), which forwards the
+ *        full nested subagent conversation (assistant/user text + thinking) as
+ *        messages carrying `parent_tool_use_id` = the spawning Task tool_use id.
  * 3. SubagentStop hook fires -> registry.update() to mark as 'completed'.
  *
- * Subagent visibility flows via the SDK's built-in task_* event stream
- * (`agentProgressSummaries: true` Option). The legacy AgentSessionWatcherService
- * is a no-op stub retained for legacy consumers.
+ * The legacy AgentSessionWatcherService is a no-op stub retained for legacy
+ * consumers.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -39,6 +41,7 @@ import type {
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import { SubagentStopCallbackRegistry } from './subagent-stop-callback-registry';
 
 /**
@@ -164,7 +167,12 @@ export class SubagentHookHandler {
                 );
                 return { continue: true };
               }
-              return this.handleSubagentStop(input, toolUseId, workspacePath);
+              return this.handleSubagentStop(
+                input,
+                toolUseId,
+                workspacePath,
+                capturedParentSessionId,
+              );
             },
           ],
         },
@@ -200,13 +208,25 @@ export class SubagentHookHandler {
         workspacePath,
         parentSessionId,
       });
-      if (toolUseId && parentSessionId) {
+      // The authoritative parent id is on the payload. The closure holds
+      // whatever was known when the hooks were built — `''` for a new session,
+      // `undefined` for a one-shot internal query — and gating on it dropped
+      // the registration silently, which is what kills subagent:send-message,
+      // subagent:stop, background listing and interrupted-agent resumption for
+      // every subagent of such a query (TASK_2026_295).
+      const resolvedParentSessionId = resolveHookSessionId(
+        input.session_id,
+        parentSessionId,
+      );
+
+      if (toolUseId && resolvedParentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
-          sessionId: input.session_id, // Parent session ID (SDK hook doesn't expose subagent's own)
           agentType: input.agent_type,
           startedAt: Date.now(),
-          parentSessionId,
+          // The PARENT session id — the SDK hook does not expose the
+          // subagent's own.
+          parentSessionId: resolvedParentSessionId,
           agentId: input.agent_id,
         });
 
@@ -214,17 +234,22 @@ export class SubagentHookHandler {
           '[SubagentHookHandler] Subagent registered in registry',
           {
             toolCallId: toolUseId,
-            sessionId: input.session_id,
             agentType: input.agent_type,
-            parentSessionId,
+            parentSessionId: resolvedParentSessionId,
           },
         );
       } else {
-        this.logger.debug(
-          '[SubagentHookHandler] Skipping registry registration - missing toolUseId or parentSessionId',
+        this.logger.warn(
+          '[SubagentHookHandler] Subagent NOT registered — it will be unreachable for steering, stop and resumption',
           {
+            reason: !toolUseId
+              ? 'no toolUseId on the SubagentStart hook'
+              : 'no parent sessionId in either the hook payload or the captured closure',
             hasToolUseId: !!toolUseId,
-            hasParentSessionId: !!parentSessionId,
+            payloadSessionId: input.session_id,
+            closureParentSessionId: parentSessionId,
+            agentId: input.agent_id,
+            agentType: input.agent_type,
           },
         );
       }
@@ -257,12 +282,15 @@ export class SubagentHookHandler {
    *
    * @param input - SubagentStop hook input containing agentId, transcriptPath, etc.
    * @param toolUseId - Task tool_use ID (usually available at stop)
+   * @param workspacePath - Workspace path forwarded to stop subscribers
+   * @param parentSessionId - Parent session ID captured in closure
    * @returns HookJSONOutput - Always { continue: true }
    */
   private async handleSubagentStop(
     input: SubagentStopHookInput,
     toolUseId: string | undefined,
     workspacePath: string,
+    parentSessionId?: string,
   ): Promise<HookJSONOutput> {
     try {
       this.logger.debug('[SubagentHookHandler] SubagentStop received', {
@@ -332,11 +360,19 @@ export class SubagentHookHandler {
         const derivedSessionId = this.deriveSubagentSessionId(
           input.agent_transcript_path,
         );
-        if (derivedSessionId !== null) {
+        // Same rigour as the SubagentStop twin in subagent-stop-hook-handler:
+        // payload first, closure second, `''` from either means absent. This
+        // used to fan the raw payload id out unvalidated, so subscribers could
+        // receive `parentSessionId: ''` for the same event the bus rejected.
+        const resolvedParentSessionId = resolveHookSessionId(
+          input.session_id,
+          parentSessionId,
+        );
+        if (derivedSessionId !== null && resolvedParentSessionId !== null) {
           try {
             this.subagentStopRegistry.notifyAll({
               subagentSessionId: derivedSessionId,
-              parentSessionId: input.session_id,
+              parentSessionId: resolvedParentSessionId,
               workspaceRoot: workspacePath,
               agentId: input.agent_id,
               agentType: record?.agentType ?? 'unknown',
@@ -354,11 +390,20 @@ export class SubagentHookHandler {
               },
             );
           }
-        } else {
+        } else if (derivedSessionId === null) {
           this.logger.warn(
             '[subagent-hook] could not derive subagentSessionId from agent_transcript_path',
             {
               transcriptPath: input.agent_transcript_path,
+            },
+          );
+        } else {
+          this.logger.warn(
+            '[subagent-hook] SubagentStop has no resolvable parentSessionId, skipping fan-out',
+            {
+              subagentSessionId: derivedSessionId,
+              payloadSessionId: input.session_id,
+              closureParentSessionId: parentSessionId,
             },
           );
         }

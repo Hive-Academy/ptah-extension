@@ -1,9 +1,24 @@
+/**
+ * SkillInvocationsPanelComponent — invocation history for one candidate.
+ *
+ * A run log is read outcome-first, not column-first: the old four-column table
+ * put `When` and `Session` ahead of the only field anyone scans for, and padded
+ * every note-less run with an em dash. Each run is now a compact
+ * {@link NativeCardComponent} whose tone and spine ARE the outcome (success /
+ * error), with the note rendered only when there is one.
+ *
+ * There is intentionally NO filtering here. The list is already scoped to a
+ * single candidate and is short; a filter row would be chrome over nothing.
+ *
+ * Pure presentational: `input()` signals in, one `closed` output. OnPush.
+ */
 import {
   ChangeDetectionStrategy,
   Component,
   input,
   output,
 } from '@angular/core';
+import { NativeCardComponent } from '@ptah-extension/ui';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
@@ -13,18 +28,14 @@ import type {
   selector: 'ptah-skill-invocations-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NativeCardComponent],
   template: `
     @if (candidate(); as sc) {
-      <section
-        class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
-        aria-label="Invocation history"
-      >
-        <div
-          class="flex items-center justify-between border-b border-base-300 px-4 py-3"
-        >
+      <section class="flex flex-col gap-2" aria-label="Invocation history">
+        <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-medium">
             Invocations
-            <span class="ml-1 text-base-content/60">{{ sc.name }}</span>
+            <span class="ml-1 text-base-content-muted">{{ sc.name }}</span>
           </h2>
           <button
             type="button"
@@ -36,27 +47,26 @@ import type {
         </div>
 
         @if (invocations().length === 0) {
-          <div class="px-4 py-8 text-center text-xs text-base-content/60">
+          <p
+            class="px-4 py-8 text-center text-xs text-base-content-muted"
+            data-testid="skills-invocations-empty"
+          >
             No invocations recorded for this candidate yet.
-          </div>
+          </p>
         } @else {
-          <table class="table table-sm">
-            <thead>
-              <tr class="text-xs text-base-content/50">
-                <th scope="col" class="font-normal">When</th>
-                <th scope="col" class="font-normal">Session</th>
-                <th scope="col" class="font-normal">Outcome</th>
-                <th scope="col" class="font-normal">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (inv of invocations(); track inv.id) {
-                <tr class="hover:bg-base-300/20">
-                  <td class="font-mono text-xs">
-                    {{ formatTime(inv.invokedAt) }}
-                  </td>
-                  <td class="font-mono text-xs">{{ inv.sessionId }}</td>
-                  <td>
+          <ul class="flex list-none flex-col gap-1.5 p-0" role="list">
+            @for (inv of invocations(); track inv.id) {
+              <li>
+                <ptah-native-card
+                  [tone]="inv.succeeded ? 'success' : 'error'"
+                  [spine]="true"
+                  density="compact"
+                  data-testid="skills-invocation-card"
+                >
+                  <div
+                    card-header
+                    class="flex items-center justify-between gap-3"
+                  >
                     <span class="inline-flex items-center gap-1.5">
                       <span
                         class="inline-block size-1.5 rounded-full"
@@ -64,16 +74,38 @@ import type {
                         [class.bg-error]="!inv.succeeded"
                         aria-hidden="true"
                       ></span>
-                      <span class="text-xs text-base-content/70">
-                        {{ inv.succeeded ? 'success' : 'failure' }}
-                      </span>
+                      <span
+                        class="text-xs text-base-content-muted"
+                        data-testid="skills-invocation-outcome"
+                        >{{ inv.succeeded ? 'success' : 'failure' }}</span
+                      >
                     </span>
-                  </td>
-                  <td class="text-xs">{{ inv.notes ?? '—' }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
+                    <span
+                      class="shrink-0 font-mono text-[11px] text-base-content-muted"
+                    >
+                      {{ formatTime(inv.invokedAt) }}
+                    </span>
+                  </div>
+
+                  <p
+                    class="truncate font-mono text-[11px] text-base-content-muted"
+                    [title]="inv.sessionId"
+                  >
+                    {{ inv.sessionId }}
+                  </p>
+
+                  @if (inv.notes; as notes) {
+                    <p
+                      class="text-xs text-base-content-muted"
+                      data-testid="skills-invocation-notes"
+                    >
+                      {{ notes }}
+                    </p>
+                  }
+                </ptah-native-card>
+              </li>
+            }
+          </ul>
         }
       </section>
     }
@@ -88,7 +120,7 @@ export class SkillInvocationsPanelComponent {
   public readonly closed = output<void>();
 
   protected formatTime(epochMs: number): string {
-    if (!Number.isFinite(epochMs)) return '—';
+    if (!Number.isFinite(epochMs)) return 'unknown time';
     return new Date(epochMs).toLocaleString();
   }
 }

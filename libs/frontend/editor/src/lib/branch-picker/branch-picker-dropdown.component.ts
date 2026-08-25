@@ -61,7 +61,7 @@ import { GitBranchesService } from '../services/git-branches.service';
         >
           <lucide-angular
             [img]="SearchIcon"
-            class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0"
+            class="w-3.5 h-3.5 text-base-content-muted flex-shrink-0"
           />
           <input
             type="text"
@@ -168,11 +168,11 @@ import { GitBranchesService } from '../services/git-branches.service';
                 class="w-3 h-3 flex-shrink-0"
               />
               <span>
-                Local ({{ filteredLocal().length }}@if (
-                  !searchQuery() && totalLocal() > filteredLocal().length
-                ) {
+                Local ({{ filteredLocal().length }}
+                @if (!searchQuery() && totalLocal() > filteredLocal().length) {
                   <span> of {{ totalLocal() }}</span>
-                })
+                }
+                )
               </span>
             </button>
             @if (localExpanded()) {
@@ -199,7 +199,7 @@ import { GitBranchesService } from '../services/git-branches.service';
                   </span>
                   @if (b.ahead > 0 || b.behind > 0) {
                     <span
-                      class="text-[10px] text-base-content/50 flex-shrink-0"
+                      class="text-[10px] text-base-content-muted flex-shrink-0"
                     >
                       @if (b.ahead > 0) {
                         <span class="text-info">↑{{ b.ahead }}</span>
@@ -242,11 +242,13 @@ import { GitBranchesService } from '../services/git-branches.service';
                 class="w-3 h-3 flex-shrink-0"
               />
               <span>
-                Remote ({{ filteredRemote().length }}@if (
+                Remote ({{ filteredRemote().length }}
+                @if (
                   !searchQuery() && totalRemote() > filteredRemote().length
                 ) {
                   <span> of {{ totalRemote() }}</span>
-                })
+                }
+                )
               </span>
             </button>
             @if (remoteExpanded()) {

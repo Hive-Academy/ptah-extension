@@ -1,0 +1,69 @@
+
+[test:native] persistence-sqlite — electron-as-node (ABI-matched)
+
+Test Suites: 18 passed, 18 total
+Tests:       145 passed, 145 total
+Snapshots:   0 total
+Time:        31.405 s
+Ran all test suites.
+
+[test:native] task-specs — electron-as-node (ABI-matched)
+
+Test Suites: 14 passed, 14 total
+Tests:       380 passed, 380 total
+Snapshots:   0 total
+Time:        32.687 s
+Ran all test suites.
+
+[test:native] rpc-handlers — electron-as-node (ABI-matched)
+(node:30304) Warning: Failed to load the ES module: D:\projects\ptah-extension\libs\backend\rpc-handlers\jest.config.ts. Make sure to set "type": "module" in the nearest package.json file or use the .mjs extension.
+(Use `electron --trace-warnings ...` to show where the warning was created)
+(node:20700) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `electron --trace-deprecation ...` to show where the warning was created)
+(node:12992) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `electron --trace-deprecation ...` to show where the warning was created)
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 71 passed, 71 total
+Tests:       2 skipped, 1632 passed, 1634 total
+Snapshots:   0 total
+Time:        58.386 s
+Ran all test suites.
+
+[test:native] messaging-gateway — electron-as-node (ABI-matched)
+
+Test Suites: 12 passed, 12 total
+Tests:       224 passed, 224 total
+Snapshots:   0 total
+Time:        32.002 s
+Ran all test suites.
+
+[test:native] skill-synthesis — electron-as-node (ABI-matched)
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 29 passed, 29 total
+Tests:       380 passed, 380 total
+Snapshots:   0 total
+Time:        55.132 s
+Ran all test suites.
+
+[test:native] memory-curator — electron-as-node (ABI-matched)
+
+Test Suites: 24 passed, 24 total
+Tests:       369 passed, 369 total
+Snapshots:   0 total
+Time:        42.991 s
+Ran all test suites.
+
+[test:native] ptah-electron — electron-as-node (ABI-matched)
+(node:21532) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `electron --trace-deprecation ...` to show where the warning was created)
+(node:12376) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `electron --trace-deprecation ...` to show where the warning was created)
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 13 passed, 13 total
+Tests:       139 passed, 139 total
+Snapshots:   0 total
+Time:        51.743 s
+Ran all test suites.

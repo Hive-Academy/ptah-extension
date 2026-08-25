@@ -327,6 +327,12 @@ jobs:
       - name: Test
         run: npx nx test ptah-cli
 
+      # TASK_2026_240. platform-cli registers ContentDownloadService, so the CLI
+      # prunes ~/.ptah/plugins/ against this manifest too — a stale one deletes
+      # plugin files the user already has.
+      - name: Content manifest is current
+        run: npm run manifest:check
+
       - name: Build
         run: npx nx build ptah-cli
 
@@ -339,7 +345,9 @@ jobs:
       - name: Verify dist contents
         run: |
           DIST=dist/apps/ptah-cli
-          for f in main.mjs tui.mjs package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md; do
+          for f in main.mjs tui.mjs package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md \
+                   wasm/web-tree-sitter.wasm wasm/tree-sitter-javascript.wasm wasm/tree-sitter-typescript.wasm \
+                   wasm/tree-sitter-python.wasm wasm/tree-sitter-go.wasm wasm/tree-sitter-c-sharp.wasm; do
             if [[ ! -f "$DIST/$f" ]]; then
               echo "::error::Missing dist file: $DIST/$f"
               exit 1
@@ -350,6 +358,14 @@ jobs:
             echo "::error::Dist version ($DIST_VERSION) does not match resolved version (${{ steps.version.outputs.new_version }})"
             exit 1
           fi
+
+      # TASK_2026_273. The dist check above only proves the files exist on disk —
+      # it does NOT prove `npm publish` would actually ship them, since that is
+      # gated separately by package.json `files`. This is exactly the gap that
+      # let the CLI/TUI ship without tree-sitter grammars unnoticed. Pack a REAL
+      # tarball and inspect it before publishing.
+      - name: Verify packed WASM assets (real npm pack)
+        run: node apps/ptah-cli/scripts/verify-packed-wasm.cjs
 
       - name: Publish dry-run
         working-directory: dist/apps/ptah-cli

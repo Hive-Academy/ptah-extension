@@ -32,3 +32,9 @@ export {
   type ProtocolHandlerDependencies,
   type ToolResultCallback,
 } from './protocol-dispatcher';
+
+export {
+  runWithMcpRequestContext,
+  getCallerSessionId,
+  type McpRequestContext,
+} from './mcp-request-context';

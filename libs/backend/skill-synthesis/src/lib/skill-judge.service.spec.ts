@@ -1,27 +1,42 @@
 /**
- * SkillJudgeService specs — exercises the LLM-as-judge gate.
+ * SkillJudgeService specs.
  *
- * Tests: disabled, no internalQuery, LLM throw, malformed JSON, score below
- * threshold, score at/above threshold.
+ * The judge is driven through a REAL `LaneRunnerService` wired to the shared
+ * lane stubs rather than through a stubbed runner. The three converted
+ * fail-open sites are distinguished by what the ENDPOINT did — honoured the
+ * schema and answered nothing usable, answered with values that are not scores,
+ * or never answered — and a stubbed runner would let the spec assert those
+ * distinctions into existence instead of observing them.
+ *
+ * P1-1  — a judge that cannot produce a verdict returns `unscored`, never a pass.
+ * P1-11 — `score: 10` appears in no judge result, and in no line of the service.
  */
 import 'reflect-metadata';
-import { SkillJudgeService } from './skill-judge.service';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {
+  JUDGE_REASONS,
+  SkillJudgeService,
+  type JudgeDecision,
+} from './skill-judge.service';
+import { LaneRunnerService } from './lanes/lane-runner.service';
+import {
+  assistantText,
+  makeBudgetStub,
+  makeLogger,
+  makeQueryStub,
+  makeResolverStub,
+  makeThrowingResolverStub,
+  resolvedLane,
+  resultMessage,
+  type StreamMessage,
+} from './lanes/lane-runner.test-support';
 import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
   CandidateId,
 } from './types';
-
-const noopLogger = {
-  debug: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-} as unknown as ConstructorParameters<typeof SkillJudgeService>[0];
-
-const noopWorkspaceProvider = {
-  getConfiguration: jest.fn(() => ''),
-} as unknown as ConstructorParameters<typeof SkillJudgeService>[1];
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -69,205 +84,366 @@ function fakeCandidate(): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    workspaceRoot: null,
+    ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
   };
 }
 
-function makeInternalQuery(response: string) {
+/** Block and whole-line comments removed, so a source scan sees only code. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
+/** All five criteria at the same value — the simplest scorecard to reason about. */
+function flatScorecard(value: number): Record<string, number> {
   return {
-    execute: jest.fn().mockResolvedValue({
-      stream: (async function* () {
-        yield {
-          type: 'assistant',
-          message: { content: [{ type: 'text', text: response }] },
-        };
-        yield { type: 'result' };
-      })(),
-    }),
+    novelty: value,
+    actionability: value,
+    scope: value,
+    generalization: value,
+    triggerClarity: value,
   };
+}
+
+/**
+ * A judge behind a real runner. `scripts` is one message list per `execute`
+ * call, so a case that expects the runner's re-run rung supplies two.
+ */
+function makeJudge(scripts: StreamMessage[][]) {
+  const logger = makeLogger();
+  const query = makeQueryStub(scripts);
+  const runner = new LaneRunnerService(
+    logger,
+    makeResolverStub(resolvedLane('judge')).service,
+    makeBudgetStub().store,
+    query.query,
+    null,
+  );
+  return { svc: new SkillJudgeService(logger, runner), query, logger };
+}
+
+/** A judge whose lane throws outright — the shape a real transport defect has. */
+function makeThrowingJudge() {
+  const logger = makeLogger();
+  const runner = new LaneRunnerService(
+    logger,
+    makeThrowingResolverStub(new Error('network error')),
+    makeBudgetStub().store,
+    makeQueryStub([[]]).query,
+    null,
+  );
+  return { svc: new SkillJudgeService(logger, runner), logger };
+}
+
+/** A judge in a host that registered no LLM at all. */
+function makeHostlessJudge() {
+  const logger = makeLogger();
+  const runner = new LaneRunnerService(
+    logger,
+    makeResolverStub(resolvedLane('judge')).service,
+    makeBudgetStub().store,
+    null,
+    null,
+  );
+  return { svc: new SkillJudgeService(logger, runner), logger };
 }
 
 describe('SkillJudgeService', () => {
-  it('short-circuits when judgeEnabled=false — returns pass without calling LLM', async () => {
-    const query = makeInternalQuery(
-      '{"novelty":9,"actionability":9,"scope":9}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const settings = makeSettings({ judgeEnabled: false });
-    const result = await svc.judge(fakeCandidate(), 'body text', settings);
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-disabled');
-    expect(query.execute).not.toHaveBeenCalled();
+  describe('scored verdicts', () => {
+    it('averages the five criteria from a structured answer', async () => {
+      const { svc } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings({ minJudgeScore: 6.0 }),
+      );
+      expect(result.status).toBe('scored');
+      expect(result.score).toBeCloseTo(7.0);
+      expect(result.reason).toBe(JUDGE_REASONS.verdict);
+      expect(result.criteria).toEqual(flatScorecard(7));
+    });
+
+    it('reads the scorecard out of prose when the endpoint ignores the schema', async () => {
+      const { svc } = makeJudge([
+        [
+          assistantText(
+            'Here you go: {"novelty":3,"actionability":4,"scope":5,"generalization":4,"triggerClarity":4}',
+          ),
+          resultMessage(),
+        ],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings({ minJudgeScore: 6.0 }),
+      );
+      expect(result.status).toBe('scored');
+      expect(result.score).toBeCloseTo(4.0);
+      expect(result.criteria?.novelty).toBe(3);
+    });
+
+    it('does NOT decide pass/fail itself — a low score is still a scored verdict', async () => {
+      const { svc } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(2) })],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings({ minJudgeScore: 6.0 }),
+      );
+      // The threshold belongs to the caller; the judge only reports.
+      expect(result.status).toBe('scored');
+      expect(result.score).toBeCloseTo(2.0);
+      expect(result).not.toHaveProperty('passed');
+    });
   });
 
-  it('short-circuits when internalQuery=null — returns pass', async () => {
-    const svc = new SkillJudgeService(noopLogger, noopWorkspaceProvider, null);
-    const result = await svc.judge(
-      fakeCandidate(),
-      'body text',
-      makeSettings(),
-    );
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-disabled');
+  describe('disabled — a missing gate is not a failed one', () => {
+    it('short-circuits when judgeEnabled=false, without calling the LLM', async () => {
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(9) })],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body text',
+        makeSettings({ judgeEnabled: false }),
+      );
+      expect(result).toEqual<JudgeDecision>({
+        status: 'disabled',
+        score: null,
+        criteria: null,
+        reason: JUDGE_REASONS.disabled,
+      });
+      expect(query.execute).not.toHaveBeenCalled();
+    });
+
+    it('reports disabled — not unscored — in a host with no LLM registered', async () => {
+      const { svc } = makeHostlessJudge();
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body text',
+        makeSettings(),
+      );
+      expect(result.status).toBe('disabled');
+      expect(result.score).toBeNull();
+    });
   });
 
-  it('fails open when LLM throws — returns passed=true with judge-error-passthrough', async () => {
-    const badQuery = {
-      execute: jest.fn().mockRejectedValue(new Error('network error')),
-    };
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      badQuery as never,
-    );
-    const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-error-passthrough');
+  describe('the three converted fail-open sites', () => {
+    it('site 1 — no usable JSON object: unscored, distinct reason', async () => {
+      // The endpoint HONOURED the schema and answered `null`. The runner treats
+      // that as resolved (no re-run), so the emptiness lands on the judge.
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: null })],
+      ]);
+      const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(result.status).toBe('unscored');
+      expect(result.score).toBeNull();
+      expect(result.criteria).toBeNull();
+      expect(result.reason).toBe(JUDGE_REASONS.noJson);
+      expect(query.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('site 2 — the old 3-criteria shape scores nothing: unscored, distinct reason', async () => {
+      const { svc } = makeJudge([
+        [
+          resultMessage({
+            structured_output: { novelty: 8, actionability: 8, scope: 8 },
+          }),
+        ],
+      ]);
+      const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(result.status).toBe('unscored');
+      expect(result.score).toBeNull();
+      expect(result.reason).toBe(JUDGE_REASONS.invalidScores);
+    });
+
+    it('site 2 — an out-of-range score is not a score', async () => {
+      const { svc } = makeJudge([
+        [
+          resultMessage({
+            structured_output: { ...flatScorecard(7), novelty: 99 },
+          }),
+        ],
+      ]);
+      const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(result.status).toBe('unscored');
+      expect(result.reason).toBe(JUDGE_REASONS.invalidScores);
+    });
+
+    it('site 3 — the call throws: unscored, distinct reason', async () => {
+      const { svc } = makeThrowingJudge();
+      const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(result.status).toBe('unscored');
+      expect(result.score).toBeNull();
+      expect(result.reason).toBe(JUDGE_REASONS.callThrew);
+    });
+
+    it('gives all three sites DISTINCT reasons', async () => {
+      const noJson = await makeJudge([
+        [resultMessage({ structured_output: null })],
+      ]).svc.judge(fakeCandidate(), 'body', makeSettings());
+      const invalid = await makeJudge([
+        [resultMessage({ structured_output: { novelty: 8 } })],
+      ]).svc.judge(fakeCandidate(), 'body', makeSettings());
+      const threw = await makeThrowingJudge().svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings(),
+      );
+
+      const reasons = [noJson.reason, invalid.reason, threw.reason];
+      expect(new Set(reasons).size).toBe(3);
+      expect(reasons).toEqual([
+        JUDGE_REASONS.noJson,
+        JUDGE_REASONS.invalidScores,
+        JUDGE_REASONS.callThrew,
+      ]);
+    });
+
+    it('surfaces a lane failure verbatim rather than inventing a reason', async () => {
+      // Unparseable on BOTH rungs of the runner's ladder → the lane itself
+      // fails, and its user-facing reason is what reaches the queue row.
+      const { svc, query } = makeJudge([
+        [assistantText('this is not json at all'), resultMessage()],
+        [assistantText('still not json'), resultMessage()],
+      ]);
+      const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(result.status).toBe('unscored');
+      expect(result.score).toBeNull();
+      expect(result.reason).toContain('judge');
+      expect(result.reason).not.toBe(JUDGE_REASONS.verdict);
+      expect(query.execute).toHaveBeenCalledTimes(2);
+    });
   });
 
-  it('fails open when LLM returns only the old 3-criteria JSON (missing generalization + triggerClarity) — passes through', async () => {
-    // LLM replies with the old 3-field schema — generalization and triggerClarity
-    // will be null from toScore, triggering the null-guard and the fail-open path.
-    const query = makeInternalQuery(
-      '{"novelty":8,"actionability":8,"scope":8}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-error-passthrough');
+  describe('P1-11 — no fabricated perfect score, anywhere', () => {
+    it('returns score=null on every branch that cannot produce a verdict', async () => {
+      const decisions: JudgeDecision[] = [
+        await makeJudge([[]]).svc.judge(
+          fakeCandidate(),
+          'b',
+          makeSettings({ judgeEnabled: false }),
+        ),
+        await makeHostlessJudge().svc.judge(
+          fakeCandidate(),
+          'b',
+          makeSettings(),
+        ),
+        await makeJudge([
+          [resultMessage({ structured_output: null })],
+        ]).svc.judge(fakeCandidate(), 'b', makeSettings()),
+        await makeJudge([
+          [resultMessage({ structured_output: { novelty: 8 } })],
+        ]).svc.judge(fakeCandidate(), 'b', makeSettings()),
+        await makeThrowingJudge().svc.judge(
+          fakeCandidate(),
+          'b',
+          makeSettings(),
+        ),
+        await makeJudge([
+          [assistantText('nope'), resultMessage()],
+          [assistantText('nope again'), resultMessage()],
+        ]).svc.judge(fakeCandidate(), 'b', makeSettings()),
+      ];
+
+      expect(decisions).toHaveLength(6);
+      for (const decision of decisions) {
+        expect(decision.status).not.toBe('scored');
+        expect(decision.score).toBeNull();
+        expect(decision.score).not.toBe(10);
+        expect(decision.criteria).toBeNull();
+      }
+    });
+
+    it('never emits the literal `score: 10`, and owns no timeout constant', () => {
+      const source = path.join(__dirname, 'skill-judge.service.ts');
+      // Asserted rather than assumed: a moved file would otherwise turn this
+      // guard into a test that reads nothing and passes.
+      expect(fs.existsSync(source)).toBe(true);
+      const code = stripComments(fs.readFileSync(source, 'utf8'));
+
+      // The fail-open literal this phase exists to delete. Comments are
+      // stripped first — the header DESCRIBES the old shape on purpose, and a
+      // guard that forbade naming the defect would forbid documenting it.
+      expect(code).not.toMatch(/score:\s*10\b/);
+      expect(code).not.toMatch(/passed:\s*true/);
+      // Every timeout is the lane's now.
+      expect(code).not.toContain('JUDGE_TIMEOUT_MS');
+      expect(code).not.toContain('setTimeout');
+    });
   });
 
-  it('fails open when LLM returns malformed JSON — passed=true with judge-error-passthrough', async () => {
-    const query = makeInternalQuery('this is not json at all');
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-error-passthrough');
-  });
+  describe('prompt construction', () => {
+    it('keeps the rubric OUT of the clippable prompt', async () => {
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      await svc.judge(fakeCandidate(), 'body text', makeSettings());
 
-  it('returns passed=false when composite score < minJudgeScore', async () => {
-    // novelty=3, actionability=4, scope=5, generalization=4, triggerClarity=4 → avg=4.0 < 6.0
-    const query = makeInternalQuery(
-      '{"novelty":3,"actionability":4,"scope":5,"generalization":4,"triggerClarity":4}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const result = await svc.judge(
-      fakeCandidate(),
-      'body',
-      makeSettings({ minJudgeScore: 6.0 }),
-    );
-    expect(result.passed).toBe(false);
-    expect(result.score).toBeCloseTo(4.0);
-    expect(result.reason).toBe('judge-verdict');
-  });
+      const call = query.calls[0];
+      // `maxInputChars` clips `prompt` only, so the criteria and the
+      // reply-with-JSON instruction must never live there.
+      expect(call.systemPromptAppend).toContain('Score each criterion 1-10');
+      expect(call.systemPromptAppend).toContain('triggerClarity');
+      expect(call.prompt).not.toContain('Score each criterion 1-10');
+      expect(call.prompt).toContain('Skill name: judge-me');
+      expect(call.prompt).toContain('body text');
+    });
 
-  it('returns passed=true when composite score >= minJudgeScore', async () => {
-    // all five criteria = 7 → avg=7.0 >= 6.0
-    const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const result = await svc.judge(
-      fakeCandidate(),
-      'body',
-      makeSettings({ minJudgeScore: 6.0 }),
-    );
-    expect(result.passed).toBe(true);
-    expect(result.score).toBeCloseTo(7.0);
-    expect(result.reason).toBe('judge-verdict');
-  });
+    it('appends optional context as background material', async () => {
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings(),
+        'Measured scorecard for this agent: success 71%',
+      );
+      const prompt = query.calls[0].prompt;
+      expect(prompt).toContain('Background (measured usage signal');
+      expect(prompt).toContain(
+        'Measured scorecard for this agent: success 71%',
+      );
+    });
 
-  // ─── Batch 6: optional trailing context (R9) ──────────────────────────────
+    it('omits the background section when no context is supplied', async () => {
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      await svc.judge(fakeCandidate(), 'body', makeSettings());
+      expect(query.calls[0].prompt).not.toContain(
+        'Background (measured usage signal',
+      );
+    });
 
-  it('appends optional context to the verdict prompt as background material', async () => {
-    const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    await svc.judge(
-      fakeCandidate(),
-      'body',
-      makeSettings(),
-      'Measured scorecard for this agent: success 71%',
-    );
-    const prompt = query.execute.mock.calls[0][0].prompt as string;
-    expect(prompt).toContain('Background (measured usage signal');
-    expect(prompt).toContain('Measured scorecard for this agent: success 71%');
-  });
+    it('context does not change the composite', async () => {
+      const { svc } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings(),
+        'some context',
+      );
+      expect(result.score).toBeCloseTo(7.0);
+    });
 
-  it('context does NOT change criteria/averaging — composite unchanged', async () => {
-    const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    const result = await svc.judge(
-      fakeCandidate(),
-      'body',
-      makeSettings({ minJudgeScore: 6.0 }),
-      'some context',
-    );
-    expect(result.passed).toBe(true);
-    expect(result.score).toBeCloseTo(7.0);
-    expect(result.reason).toBe('judge-verdict');
-  });
-
-  it('omits the background section when no context is supplied', async () => {
-    const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
-    );
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      query as never,
-    );
-    await svc.judge(fakeCandidate(), 'body', makeSettings());
-    const prompt = query.execute.mock.calls[0][0].prompt as string;
-    expect(prompt).not.toContain('Background (measured usage signal');
-  });
-
-  it('still fails OPEN with context present when the LLM throws', async () => {
-    const badQuery = {
-      execute: jest.fn().mockRejectedValue(new Error('network error')),
-    };
-    const svc = new SkillJudgeService(
-      noopLogger,
-      noopWorkspaceProvider,
-      badQuery as never,
-    );
-    const result = await svc.judge(
-      fakeCandidate(),
-      'body',
-      makeSettings(),
-      'context that should not block promotion',
-    );
-    expect(result.passed).toBe(true);
-    expect(result.reason).toBe('judge-error-passthrough');
+    it('still refuses to fail open with context present when the call throws', async () => {
+      const { svc } = makeThrowingJudge();
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        makeSettings(),
+        'context that must not become a pass',
+      );
+      expect(result.status).toBe('unscored');
+      expect(result.score).toBeNull();
+    });
   });
 });

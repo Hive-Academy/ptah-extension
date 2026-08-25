@@ -98,6 +98,11 @@ const LOCAL_TUI_COMMANDS: PaletteCommand[] = [
     scope: 'tui-local',
   },
   {
+    name: 'harness',
+    description: 'Check or remove the Ptah-managed CLI harness',
+    scope: 'tui-local',
+  },
+  {
     name: 'help',
     description: 'List all available commands',
     scope: 'tui-local',

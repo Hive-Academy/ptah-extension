@@ -49,6 +49,19 @@ interface QueuedStreamEvent {
 }
 
 /**
+ * Best-effort `type` off an outbound message, for diagnostics only.
+ *
+ * Returns `undefined` rather than a placeholder: "this message carried no
+ * type" and "this message was typed X" are different facts, and the caller
+ * renders them differently.
+ */
+function messageTypeOf(message: unknown): string | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const type = (message as Record<string, unknown>)['type'];
+  return typeof type === 'string' ? type : undefined;
+}
+
+/**
  * Callback type for obtaining the BrowserWindow's webContents.send method.
  * Uses a thin interface instead of importing BrowserWindow directly to
  * avoid tight coupling and simplify testing.
@@ -56,6 +69,8 @@ interface QueuedStreamEvent {
 interface ElectronWindowHandle {
   webContents: {
     send(channel: string, ...args: unknown[]): void;
+    /** Present on real Electron webContents; absent on lightweight test stubs. */
+    isDestroyed?(): boolean;
   };
 }
 
@@ -77,6 +92,13 @@ export class IpcBridge {
   private readonly stateStorage: IStateStorage;
   private readonly streamQueue: QueuedStreamEvent[] = [];
   private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Flips the first time {@link getWindow} returns a window and never flips
+   * back. It is what separates "no renderer yet" (boot — expected) from "the
+   * renderer went away" (mid-session — worth a warning). See
+   * {@link resolveWindow}.
+   */
+  private hasHadWindow = false;
 
   constructor(
     private readonly container: DependencyContainer,
@@ -116,12 +138,74 @@ export class IpcBridge {
       return;
     }
     this.flushStreamQueue();
-    const win = this.getWindow();
+    const win = this.resolveWindow(messageTypeOf(message));
     if (!win) {
-      console.warn('[IpcBridge] Cannot send to renderer: no window available');
+      return;
+    }
+    if (win.webContents.isDestroyed?.() === true) {
       return;
     }
     win.webContents.send('to-renderer', message);
+  }
+
+  /**
+   * Resolve the renderer window, reporting an undeliverable push honestly.
+   *
+   * ### Why boot-time pushes are DROPPED and not queued (B2, TASK_2026_315)
+   *
+   * Traced at a clean boot, exactly two messages reach this method before the
+   * `BrowserWindow` exists — `main.ts` runs `wireRuntime` at `:127` and only
+   * creates the window inside `registerPostWindow` at `:145`:
+   *
+   *  1. `skillSynthesis:event` (the `boot-scan` stats event) — from
+   *     `SkillTriggerService.runBootScan` via `SkillSynthesisService.pushEvent`.
+   *  2. `harness:healthChanged` — from `HarnessHealthRpcService.pushIfChanged`,
+   *     on the `reason: activation` reconcile pass.
+   *
+   * Both are EDGE-TRIGGERED notifications sitting on top of PULL-backed state,
+   * and both consumers cold-pull when no push has reached them:
+   * `HarnessCardComponent.ngOnInit` calls `HarnessHealthStore.refresh()`
+   * whenever `health()` is still null, and `SkillSynthesisLiveService` feeds an
+   * activity feed whose entire meaning is "while you were watching" — there was
+   * nobody watching. Nothing downstream loses state it depended on.
+   *
+   * Queueing was the cheap option — `enqueueStreamEvent` above already buffers
+   * one class of message — and it is the wrong one, for two reasons:
+   *
+   *  - The activation `harness:healthChanged` snapshot is superseded within
+   *    milliseconds by the `content-download-complete` pass, and again by the
+   *    renderer's own pull. A replay racing that pull would overwrite fresher
+   *    state with staler state — strictly worse than the drop.
+   *  - `IpcBridge` outlives a renderer reload (`SETUP_WIZARD_COMPLETE` below
+   *    reloads the window deliberately), so a replay buffer would re-deliver
+   *    boot events to a renderer that has already moved past them.
+   *
+   * So the drop stays, and only its reporting changes. Before the first window
+   * a push has no subscriber and that is normal: debug, not warn. After a
+   * window has existed, losing one is not normal and still warns. Either way
+   * the message TYPE is named — the bare warning this replaces carried no type,
+   * which is why identifying those two events needed a stack trace at all.
+   */
+  private resolveWindow(
+    messageType: string | undefined,
+  ): ElectronWindowHandle | null {
+    const win = this.getWindow();
+    if (win) {
+      this.hasHadWindow = true;
+      return win;
+    }
+    if (this.hasHadWindow) {
+      console.warn(
+        '[IpcBridge] Cannot send to renderer: the window is gone',
+        messageType ?? '(untyped message)',
+      );
+    } else {
+      console.debug(
+        '[IpcBridge] Push dropped, no renderer yet (pull-backed, deliberately not queued):',
+        messageType ?? '(untyped message)',
+      );
+    }
+    return null;
   }
 
   private extractStreamEvent(message: unknown): QueuedStreamEvent | null {
@@ -148,11 +232,13 @@ export class IpcBridge {
     }
     if (this.streamQueue.length === 0) return;
     const events = this.streamQueue.splice(0, this.streamQueue.length);
-    const win = this.getWindow();
+    const win = this.resolveWindow(
+      events.length === 1 ? events[0].type : MESSAGE_TYPES.BATCH,
+    );
     if (!win) {
-      console.warn(
-        '[IpcBridge] Cannot flush stream queue: no window available',
-      );
+      return;
+    }
+    if (win.webContents.isDestroyed?.() === true) {
       return;
     }
     if (events.length === 1) {
@@ -210,6 +296,12 @@ export class IpcBridge {
           correlationId,
         });
         this.flushStreamQueue();
+        // The renderer can be torn down (app quitting / window closed) while an
+        // async RPC is in flight; sending to a destroyed sender throws
+        // "Object has been destroyed". Skip the reply — nothing is listening.
+        if (event.sender.isDestroyed()) {
+          return;
+        }
         event.sender.send('to-renderer', {
           type: MESSAGE_TYPES.RPC_RESPONSE,
           correlationId,
@@ -236,7 +328,7 @@ export class IpcBridge {
             (rpcData['requestId'] as string) ||
             '';
 
-          if (correlationId) {
+          if (correlationId && !event.sender.isDestroyed()) {
             event.sender.send('to-renderer', {
               type: MESSAGE_TYPES.RPC_RESPONSE,
               correlationId,

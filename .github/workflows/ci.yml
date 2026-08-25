@@ -22,13 +22,20 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our lockfile
+  # (see package.json engines.npm >= 11) and silently degrades `npm ci` into
+  # an unpinned `npm install` fallback. The publish-* and deploy-* workflows
+  # stay on 22 deliberately -- they match release and DO buildpack targets.
+  NODE_VERSION: 24
   NX_TUI: false
 
 jobs:
   main:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, not 30: every run before 2026-08-19 died at the test step and never
+    # reached "nx affected -t build", so 30 was only ever measured against a
+    # failing job. The first fully-passing run was cut off mid-build at 30m.
+    timeout-minutes: 60
     # Skip if PR was closed/merged, or if this is an auto-generated version
     # bump. On pull_request events `github.event.head_commit` is null (it only
     # exists on push), so the commit-message check alone never matched bump

@@ -27,12 +27,16 @@ import {
   AlertTriangle,
   Server,
   RotateCcw,
+  Plus,
+  Pencil,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   AuthMethod,
   AuthSaveSettingsParams,
+  CustomProviderEntry,
 } from '@ptah-extension/shared';
+import { CustomProviderFormComponent } from './custom-provider-form.component';
 
 /**
  * AuthConfigComponent - Authentication configuration form
@@ -65,7 +69,12 @@ import type {
 @Component({
   selector: 'ptah-auth-config',
   standalone: true,
-  imports: [FormsModule, SlicePipe, LucideAngularModule],
+  imports: [
+    FormsModule,
+    SlicePipe,
+    LucideAngularModule,
+    CustomProviderFormComponent,
+  ],
   templateUrl: './auth-config.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -88,6 +97,8 @@ export class AuthConfigComponent implements OnInit {
   readonly AlertTriangleIcon = AlertTriangle;
   readonly ServerIcon = Server;
   readonly RotateCcwIcon = RotateCcw;
+  readonly PlusIcon = Plus;
+  readonly PencilIcon = Pencil;
 
   /** API key text input value */
   readonly apiKey = signal('');
@@ -97,6 +108,19 @@ export class AuthConfigComponent implements OnInit {
 
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
+
+  /**
+   * Whether the add/edit custom-provider panel is open.
+   *
+   * It renders inline directly under the tile grid rather than in a modal: this
+   * component lives in a ~300px VS Code sidebar where a dialog would be
+   * narrower than the form it contains, and keeping the grid visible is what
+   * makes the relationship between the "+" tile and the panel legible.
+   */
+  readonly isCustomFormOpen = signal(false);
+
+  /** Entry the custom-provider panel is editing (null = creating a new one). */
+  readonly customFormEntry = signal<CustomProviderEntry | null>(null);
 
   /** Whether the active folder currently overrides auth/provider settings. */
   readonly hasWorkspaceOverride = this.authState.hasWorkspaceOverride;
@@ -280,6 +304,59 @@ export class AuthConfigComponent implements OnInit {
     }
   });
 
+  /** Whether a tile in the grid is a user-defined provider (drives edit/delete). */
+  isCustomTile(providerId: string): boolean {
+    return this.authState.isCustomProvider(providerId);
+  }
+
+  /** Open the panel in create mode. */
+  openAddCustomProvider(): void {
+    this.authState.clearCustomEntryError();
+    this.authState.clearCustomTestState();
+    this.customFormEntry.set(null);
+    this.isCustomFormOpen.set(true);
+  }
+
+  /**
+   * Open the panel in edit mode for one custom tile. Selecting the tile too,
+   * so the form and the config below it always describe the same provider.
+   */
+  openEditCustomProvider(providerId: string): void {
+    const entry = this.authState.customEntry(providerId);
+    if (!entry) return;
+    this.authState.clearCustomEntryError();
+    this.authState.clearCustomTestState();
+    this.onTileSelect(providerId);
+    this.customFormEntry.set(entry);
+    this.isCustomFormOpen.set(true);
+  }
+
+  /**
+   * A custom entry was created or updated. Select its tile so the user lands on
+   * the provider they just configured instead of whatever was selected before —
+   * the post-save auth refresh otherwise snaps the selection back to the
+   * persisted provider.
+   */
+  onCustomProviderSaved(entry: CustomProviderEntry): void {
+    this.customFormEntry.set(entry);
+    this.authState.setAuthMethod('thirdParty');
+    this.authState.setSelectedProviderId(entry.id);
+    void this.authState.checkProviderKeyStatus(entry.id);
+    this.authStatusChanged.emit();
+  }
+
+  /** A custom entry was deleted — close the panel and let the grid re-render. */
+  onCustomProviderDeleted(): void {
+    this.closeCustomForm();
+    this.authStatusChanged.emit();
+  }
+
+  /** Close the add/edit panel without saving. */
+  closeCustomForm(): void {
+    this.isCustomFormOpen.set(false);
+    this.customFormEntry.set(null);
+  }
+
   /** Trigger Copilot OAuth login */
   async copilotLogin(): Promise<void> {
     await this.authState.copilotLogin();
@@ -306,6 +383,14 @@ export class AuthConfigComponent implements OnInit {
     } catch (error) {
       console.error(
         '[AuthConfigComponent] Failed to initialize auth status:',
+        error,
+      );
+    }
+    try {
+      await this.authState.loadCustomEntries();
+    } catch (error) {
+      console.error(
+        '[AuthConfigComponent] Failed to load custom providers:',
         error,
       );
     }

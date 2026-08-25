@@ -50,7 +50,7 @@ import type { CorpusSuggestion } from '@ptah-extension/shared';
       <section class="flex flex-col gap-2" aria-label="Suggested boards">
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-sm font-semibold">Suggested boards</span>
-          <span class="text-xs text-base-content/60">
+          <span class="text-xs text-base-content-muted">
             One-click boards clustered from your memories.
           </span>
         </div>
@@ -64,7 +64,7 @@ import type { CorpusSuggestion } from '@ptah-extension/shared';
                   <p class="truncate text-sm font-medium">
                     {{ suggestion.suggestedName }}
                   </p>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-base-content-muted">
                     {{ suggestion.memberCount }}
                     {{ suggestion.memberCount === 1 ? 'memory' : 'memories' }}
                   </p>
@@ -91,7 +91,7 @@ import type { CorpusSuggestion } from '@ptah-extension/shared';
                 </div>
               }
 
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 {{ suggestion.rationale }}
               </p>
 

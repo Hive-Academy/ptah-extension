@@ -577,13 +577,12 @@ export class TabManagerService {
   /** Reactive read of the active workspace path. */
   readonly activeWorkspacePath$ = this.workspacePartition.activeWorkspacePath$;
 
-  /** Reactive signal of the most recently removed workspace path. */
+  /**
+   * Append-only signal of the most recent workspace removal (`{ path, seq }`,
+   * never cleared). Each consumer tracks its own last-seen `seq` and handles
+   * every removal exactly once — see the `WorkspaceRemovalEvent` type.
+   */
   readonly removedWorkspace$ = this.workspacePartition.removedWorkspace$;
-
-  /** Ack the removedWorkspace$ signal after consumption. */
-  clearRemovedWorkspace(): void {
-    this.workspacePartition.clearRemovedWorkspace();
-  }
 
   /**
    * Cache a backend-provided encoded path for a workspace.

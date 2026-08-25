@@ -115,11 +115,9 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     assembleSpawnOptions: jest.fn().mockResolvedValue({
       mcpServers: {},
       hooks: undefined,
-      plugins: undefined,
       compactionControl: undefined,
       systemPromptMode: 'append',
       systemPromptContent: undefined,
-      isPremium: false,
     }),
   } as unknown as never;
 

@@ -8,7 +8,7 @@ import {
   SessionIdSchema,
   MessageIdSchema,
   CorrelationIdSchema,
-} from '../branded.types';
+} from '../branded.schemas';
 
 import type { StrictMessageType } from './message-type';
 

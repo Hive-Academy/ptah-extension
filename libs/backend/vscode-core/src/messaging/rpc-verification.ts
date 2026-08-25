@@ -140,6 +140,12 @@ export function verifyRpcRegistration(
  *
  * @param rpcHandler - The RpcHandler instance to verify
  * @param logger - Logger for reporting results
+ * @param excludeMethods - Methods this host does not serve
+ * @param precomputed - A result from an earlier `verifyRpcRegistration` call on
+ *   the SAME handler and exclusion list. Pass it when the caller has already
+ *   verified: verification LOGS, so re-running it here made every caller that
+ *   verified-then-asserted print `All N RPC methods correctly registered`
+ *   twice per pass. Omit it and this asserts standalone, as before.
  * @throws Error if any expected methods are missing handlers
  *
  * @example
@@ -154,8 +160,10 @@ export function assertRpcRegistration(
   rpcHandler: RpcHandler,
   logger: Logger,
   excludeMethods?: string[],
+  precomputed?: RpcVerificationResult,
 ): void {
-  const result = verifyRpcRegistration(rpcHandler, logger, excludeMethods);
+  const result =
+    precomputed ?? verifyRpcRegistration(rpcHandler, logger, excludeMethods);
 
   if (!result.valid) {
     throw new Error(
@@ -163,7 +171,7 @@ export function assertRpcRegistration(
         ', ',
       )}\n` +
         `Expected ${result.expectedCount} methods, found ${result.actualCount} handlers.\n` +
-        `This usually means a handler was not registered in RpcMethodRegistrationService.`,
+        `This usually means the owning manifest entry is missing from the host profile.`,
     );
   }
 }

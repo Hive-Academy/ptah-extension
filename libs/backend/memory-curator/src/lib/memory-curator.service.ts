@@ -23,12 +23,13 @@ import {
   type IWorkspaceProvider,
   type ITracer,
 } from '@ptah-extension/platform-core';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
 import type {
   ICuratorLLM,
-  ExtractedMemoryDraft,
+  CuratorExtraction,
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
@@ -43,7 +44,23 @@ const AUTO_REBUILD_THROTTLE_MS = 30_000;
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
 
+/**
+ * Whether the pass reached the model at all — TASK_2026_306 Batch 10 (F1).
+ *
+ * `'ran'` covers every pass that dialled the curator LLM, including one that
+ * found nothing and one whose call failed: in both cases the input was consumed
+ * and the caller may advance its state. `'stalled'` means the provider quota
+ * gate stopped the pass BEFORE dispatch, so the input is untouched and the
+ * caller must leave it exactly where it found it.
+ *
+ * Required, not optional, so every construction site has to answer. The zero
+ * counts on the two arms are identical, which is precisely why the counts
+ * cannot carry this distinction themselves.
+ */
+export type CuratorRunOutcome = 'ran' | 'stalled';
+
 export interface CuratorRunStats {
+  readonly outcome: CuratorRunOutcome;
   readonly extracted: number;
   readonly merged: number;
   readonly created: number;
@@ -203,8 +220,8 @@ export class MemoryCuratorService {
     salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
-    const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
-    const existing = this.inFlight.get(key);
+    const key = this.coalesceKey(input);
+    const existing = key === null ? undefined : this.inFlight.get(key);
     if (existing) return existing;
     const work = this.tracer
       .startSpan(
@@ -213,10 +230,89 @@ export class MemoryCuratorService {
         () => this.doCurate(input),
       )
       .finally(() => {
-        this.inFlight.delete(key);
+        if (key !== null) this.inFlight.delete(key);
       });
-    this.inFlight.set(key, work);
+    if (key !== null) this.inFlight.set(key, work);
     return work;
+  }
+
+  /**
+   * The in-flight coalescing key, or `null` when this run must NOT coalesce.
+   *
+   * Coalescing is keyed on identity, and an empty session id is not one. Two
+   * unrelated sessions in the same workspace both arriving with `''` produced
+   * the identical key `"/ws::"`, so the second caller was handed the FIRST
+   * session's promise: session B's transcript was never curated, while its
+   * caller received A's `CuratorRunStats` and reported success. Silent
+   * cross-session curation loss, indistinguishable from a clean run.
+   *
+   * Returning `null` lets both runs proceed independently. It is deliberately
+   * not a rejection — the transcript is still real work, and the memories it
+   * produces are stored with a NULL session (see {@link MemoryStore}), which is
+   * the honest record of "we do not know which session this came from".
+   */
+  private coalesceKey(input: {
+    sessionId: string;
+    workspaceRoot?: string | null;
+  }): string | null {
+    const sessionId = blankToUndefined(input.sessionId);
+    if (sessionId === undefined) return null;
+    return `${input.workspaceRoot ?? ''}::${sessionId}`;
+  }
+
+  /**
+   * Re-point the in-flight coalescing keys of `fromId` onto `toId`.
+   *
+   * Called synchronously from `MemoryTriggerService.rekeySession` when the SDK
+   * resolves a session's canonical UUID (TASK_2026_296 item 6, Part B). Without
+   * it a curate started under the tabId keeps the suppression guard on the old
+   * key, so a second curate triggered under the UUID would run concurrently —
+   * a double-curate, which is exactly what {@link curate}'s coalescing exists
+   * to prevent.
+   *
+   * ## The key is `${workspaceRoot ?? ''}::${sessionId}`, so this is a suffix
+   * migration, not a lookup
+   *
+   * One session can hold entries under several workspace roots, so every key
+   * whose trailing segment equals `fromId` moves. The split is on the LAST
+   * `::` because a session id never contains one (a tabId and an SDK session
+   * id are both UUID v4) while a Windows workspace root plausibly could.
+   *
+   * ## Refuse-overwrite
+   *
+   * Mirrors `SessionRegistry.bindRealSessionId`: when the destination key
+   * already holds a promise, that promise WINS and the `fromId` entry is left
+   * exactly where it is — it still owns a real run whose own `.finally` will
+   * clear it. Never clobber; a missed merge is recoverable, a lost in-flight
+   * handle is not.
+   *
+   * ## Why the cleanup is re-armed
+   *
+   * {@link curate} attaches `.finally(() => this.inFlight.delete(key))` with
+   * the ORIGINAL key captured in the closure. After a move that delete is a
+   * no-op, so the migrated entry would otherwise sit under `toId` forever and
+   * every later curate for that session would be handed a long-settled
+   * promise. The re-armed cleanup below is what keeps the map self-draining; it
+   * is guarded on identity so it cannot delete a newer entry that replaced it.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    for (const [key, work] of [...this.inFlight]) {
+      const split = key.lastIndexOf('::');
+      if (split < 0 || key.slice(split + 2) !== from) continue;
+      const nextKey = key.slice(0, split).concat('::', to);
+      if (this.inFlight.has(nextKey)) continue;
+
+      this.inFlight.delete(key);
+      this.inFlight.set(nextKey, work);
+      const clear = (): void => {
+        if (this.inFlight.get(nextKey) === work) this.inFlight.delete(nextKey);
+      };
+      void work.then(clear, clear);
+    }
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */
@@ -234,6 +330,7 @@ export class MemoryCuratorService {
 
     if (transcript === TRANSCRIPT_PLACEHOLDER) {
       const emptyStats: CuratorRunStats = {
+        outcome: 'ran',
         extracted: 0,
         merged: 0,
         created: 0,
@@ -249,14 +346,19 @@ export class MemoryCuratorService {
       return emptyStats;
     }
 
-    let drafts: readonly ExtractedMemoryDraft[];
+    let extraction: CuratorExtraction;
     try {
-      drafts = await this.llm.extract(transcript, input.signal);
+      extraction = await this.llm.extract(transcript, input.signal);
     } catch (error: unknown) {
       return this.recordCuratorError(input.sessionId, error, 'extract');
     }
+    if (extraction.status === 'stalled') {
+      return this.recordCuratorStall(input.sessionId, extraction);
+    }
+    const drafts = extraction.drafts;
     if (drafts.length === 0) {
       const emptyStats: CuratorRunStats = {
+        outcome: 'ran',
         extracted: 0,
         merged: 0,
         created: 0,
@@ -374,6 +476,7 @@ export class MemoryCuratorService {
     }
 
     const stats: CuratorRunStats = {
+      outcome: 'ran',
       extracted: drafts.length,
       merged,
       created,
@@ -396,6 +499,56 @@ export class MemoryCuratorService {
     return stats;
   }
 
+  /**
+   * The provider quota gate stopped this pass before it reached the model.
+   *
+   * Three things this deliberately does NOT do, each of which would re-open F1
+   * through a different route:
+   *
+   *  - it does not touch `lastRunAtMs` / `lastRunStatsCache`. "Last run" means
+   *    the last pass that ran; a stall would otherwise overwrite a real run's
+   *    stats with zeroes and make the diagnostics panel report a clean empty
+   *    pass while nothing had happened.
+   *  - it does not push `curator-run`. That event is the Activity surface's
+   *    record of work performed. `rate-limited` already exists in the event
+   *    union, already renders as a warning, and already means exactly this.
+   *  - it does not persist anything, so the auto-rebuild hook never fires.
+   *
+   * The returned `outcome: 'stalled'` is the whole product of this method. Its
+   * only consumer that matters is `MemoryTriggerService.invokeCurate`, which
+   * uses it to keep the drained `observation_queue` rows unprocessed.
+   */
+  private recordCuratorStall(
+    sessionId: string,
+    extraction: Extract<CuratorExtraction, { status: 'stalled' }>,
+  ): CuratorRunStats {
+    this.pushEvent({
+      kind: 'rate-limited',
+      timestamp: Date.now(),
+      sessionId,
+      stats: {
+        source: 'curator-llm',
+        reason: extraction.reason,
+        providerId: extraction.providerId,
+      },
+    });
+    this.logger.info(
+      '[memory-curator] curation pass stalled before dispatch; input left untouched',
+      {
+        sessionId,
+        reason: extraction.reason,
+        providerId: extraction.providerId,
+      },
+    );
+    return {
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+  }
+
   private recordCuratorError(
     sessionId: string,
     error: unknown,
@@ -407,7 +560,12 @@ export class MemoryCuratorService {
       stage === 'extract'
         ? `memory extraction failed: ${detail}`
         : `memory resolution failed (${extractedCount} extracted): ${detail}`;
+    // `'ran'`, not `'stalled'`: the call was dispatched and failed. Whether a
+    // FAILED pass should also preserve its input is a separate question from
+    // F1 (which is about a pass that never ran) and is deliberately left at its
+    // pre-existing behaviour here.
     const zeroedStats: CuratorRunStats = {
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,

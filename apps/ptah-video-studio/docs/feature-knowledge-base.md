@@ -1,7 +1,7 @@
 # Ptah Feature Knowledge Base — "Scalable SaaS From Day One"
 
 > Script source-of-truth for the next promo video (working title: **"From Cold Clone to Scalable SaaS"**).
-> Every claim here traces to source code read on 2026-07-14. Facts marked ✅ are on-screen-safe.
+> Every claim here traces to source code read on 2026-07-14; counts recounted 2026-08-01. Facts marked ✅ are on-screen-safe.
 > Successor to the _Speed vs. Scale — Dyad vs. Ptah_ video; same dark indigo/amber cinematic-tech grammar.
 
 ---
@@ -76,16 +76,16 @@ Welcome → Scan → Analysis → Selection → **Enhance** → **Generation** �
 
 - **Two-stage bootstrap.** Stage A (one session): discovery → write `.ptah/roadmap.md` → scaffold _only_ foundation (Nx workspace, `apps/web`+`apps/api`, ESLint module boundaries, Jest, `libs/shared/domain`, `libs/api-interfaces`, CI, + tenant/auth/DB stubs _only if load-bearing_). Then stop. Stage B: each unchecked roadmap item is its own `/orchestrate <slug>` task. Roadmap enforces kebab slugs, 3-5 sentence charters, acyclic `Depends on:` chains.
 - **Nx architecture:** 7 typed library kinds (feature, feature-api, ui, data-access, util, api-interfaces, domain), domain-folder layout, 3-dimension tags (`scope:`/`type:`/`platform:`) enforced by `@nx/enforce-module-boundaries` — the exact pattern running in Ptah's own `eslint.config.mjs`.
-- **Hexagonal spine:** `libs/backend/platform-core` = **16 `I`-prefixed ports** under one `PLATFORM_TOKENS` map (`tokens.ts:11`); **3 adapter families** (`platform-cli/electron/vscode`) implement them and nothing else. "Everything imports this. This imports nothing."
+- **Hexagonal spine:** `libs/backend/platform-core` = **22 `I`-prefixed ports** under one `PLATFORM_TOKENS` map (`src/di/tokens.ts:11`); **3 adapter families** (`platform-cli/electron/vscode`) implement them and nothing else. "Everything imports this. This imports nothing."
 - **SaaS lifecycle:** `plans.config.ts` (tiers) → `LicenseService` (key gen/verify/expire) → webhook-driven subscription state machine → checkout/portal → trial auto-downgrade. **3-layer webhook** pattern (Controller always-200 → verify+idempotency → domain). **5 resilience patterns**, ordered adoption.
 
 **Why SaaS-from-day-one:** you get a working monorepo, enforced boundaries, and _only_ the primitives discovery requires — architecture never retrofitted; billing/webhooks/resilience land alongside the domain that consumes them.
 
 **Proof:** `apps/ptah-license-server` — real NestJS 11 + Prisma + PostgreSQL + Paddle (signature-verified webhooks) + WorkOS PKCE + Resend, global Throttler/Audit/Sentry. Ptah runs on the exact spine the skills teach.
 
-**On-screen facts:** ✅ 16 platform ports · 3 adapter families · 7 Nx library kinds · 2-stage bootstrap / 1 roadmap file · 3-layer webhooks · 5 resilience patterns. ⚠️ Root CLAUDE.md says 10 apps / 16 backend / 21 frontend libs; on-disk has grown further — verify exact counts at render time before putting a number on screen.
+**On-screen facts:** ✅ 22 platform ports · 3 adapter families · 7 Nx library kinds · 2-stage bootstrap / 1 roadmap file · 3-layer webhooks · 5 resilience patterns. ✅ 14 Nx projects under `apps/` · 25 backend libs · 25 frontend libs (recounted 2026-08-01, root CLAUDE.md now matches). ⚠️ These counts move — recount before any new number goes on screen.
 
-**Visual metaphors:** (1) **Blueprint-to-city** — `roadmap.md` unrolls as ink-lines; districts rise per phase only once dependency conduits are lit; pull back to a skyline that was extended, never rebuilt. (2) **Hexagonal core + snap-blocks** — 16 glowing port sockets; CLI/Electron/VS Code blocks snap to the hexagon, never to each other. (3) **Scaffold + construction crane** (`/orchestrate <slug>`) lifting one tagged crate at a time.
+**Visual metaphors:** (1) **Blueprint-to-city** — `roadmap.md` unrolls as ink-lines; districts rise per phase only once dependency conduits are lit; pull back to a skyline that was extended, never rebuilt. (2) **Hexagonal core + snap-blocks** — 22 glowing port sockets; CLI/Electron/VS Code blocks snap to the hexagon, never to each other. (3) **Scaffold + construction crane** (`/orchestrate <slug>`) lifting one tagged crate at a time.
 
 ---
 

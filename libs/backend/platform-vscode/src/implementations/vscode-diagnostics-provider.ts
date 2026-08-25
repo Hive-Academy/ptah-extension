@@ -1,35 +1,43 @@
 /**
  * VscodeDiagnosticsProvider — IDiagnosticsProvider implementation using VS Code APIs.
  *
- * Wraps vscode.languages.getDiagnostics() and converts the VS Code DiagnosticSeverity
- * enum to platform-agnostic string literals ('error' | 'warning' | 'info' | 'hint').
+ * Wraps vscode.languages.getDiagnostics() and converts the VS Code
+ * DiagnosticSeverity enum to platform-agnostic string literals. Returns an
+ * `available` result always (VS Code always has the language API). When a
+ * workspace root is provided, diagnostics are filtered to files within that root.
  */
 
 import * as vscode from 'vscode';
-import type { IDiagnosticsProvider } from '@ptah-extension/platform-core';
+import * as path from 'path';
+import type {
+  IDiagnosticsProvider,
+  DiagnosticsResult,
+  FileDiagnostics,
+  DiagnosticSeverity,
+} from '@ptah-extension/platform-core';
 
 export class VscodeDiagnosticsProvider implements IDiagnosticsProvider {
-  getDiagnostics(): Array<{
-    file: string;
-    diagnostics: Array<{
-      message: string;
-      line: number;
-      severity: 'error' | 'warning' | 'info' | 'hint';
-    }>;
-  }> {
+  async getDiagnostics(workspaceRoot?: string): Promise<DiagnosticsResult> {
     const vscDiagnostics = vscode.languages.getDiagnostics();
-    const result: Array<{
-      file: string;
-      diagnostics: Array<{
-        message: string;
-        line: number;
-        severity: 'error' | 'warning' | 'info' | 'hint';
-      }>;
-    }> = [];
+    const result: FileDiagnostics[] = [];
+
+    const normRoot = workspaceRoot
+      ? path.resolve(workspaceRoot).replace(/\\/g, '/')
+      : undefined;
 
     for (const [uri, diagnostics] of vscDiagnostics) {
       if (diagnostics.length === 0) {
         continue;
+      }
+
+      const filePath = uri.fsPath.replace(/\\/g, '/');
+
+      // Filter to workspace root when provided.
+      if (normRoot) {
+        const rel = path.relative(normRoot, filePath).replace(/\\/g, '/');
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          continue;
+        }
       }
 
       result.push({
@@ -42,15 +50,16 @@ export class VscodeDiagnosticsProvider implements IDiagnosticsProvider {
       });
     }
 
-    return result;
+    return {
+      status: 'available',
+      source: 'vscode-languages',
+      diagnostics: result,
+    };
   }
 
-  /**
-   * Convert VS Code DiagnosticSeverity enum to platform-agnostic string literal.
-   */
   private severityToString(
     severity: vscode.DiagnosticSeverity,
-  ): 'error' | 'warning' | 'info' | 'hint' {
+  ): DiagnosticSeverity {
     switch (severity) {
       case vscode.DiagnosticSeverity.Error:
         return 'error';

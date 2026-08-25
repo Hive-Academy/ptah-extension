@@ -14,6 +14,7 @@ import {
 } from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { GitFileStatus } from '@ptah-extension/shared';
+import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
 import { SearchPanelComponent } from '../search/search-panel.component';
@@ -56,7 +57,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'explorer'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('explorer')"
         >
@@ -71,7 +72,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'source-control'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('source-control')"
         >
@@ -91,7 +92,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'search'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('search')"
         >
@@ -140,7 +141,8 @@ export class SidebarComponent {
   readonly activeFilePath = input<string | undefined>(undefined);
   readonly changedFiles = input<GitFileStatus[]>([]);
   readonly fileSelected = output<string>();
-  readonly diffRequested = output<string>();
+  /** Forwarded from the source-control rows; carries the comparison (A2). */
+  readonly diffRequested = output<OpenDiffRequest>();
   readonly searchResultSelected = output<{ filePath: string; line: number }>();
   readonly contextMenuRequested = output<{
     event: MouseEvent;

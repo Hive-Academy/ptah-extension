@@ -9,8 +9,10 @@
  *    native-module failure case (NFR-5/NFR-6). Behaviour is identical; the
  *    RPC surface degrades transparently.
  *
- * Excluded folders (no valid frontmatter) get NO row — the excluded count
- * lives in `task_specs_scan_meta` and rides along on list/board results.
+ * Excluded folders (no valid frontmatter) get NO row in `task_specs` — they are
+ * not tasks. They ARE carried as typed rows on the scan meta so the board can
+ * name every skipped folder instead of reporting a bare count (TASK_2026_179,
+ * step 10).
  *
  * Store methods are synchronous (better-sqlite3 is synchronous); the async
  * seam is owned by `TaskIndexService`.
@@ -22,7 +24,11 @@ import {
   type SqliteConnectionService,
   type SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
+import { filterTasks, mergeStatusTypeFacets } from '@ptah-extension/shared';
 import type {
+  ExcludedTaskFolder,
+  TaskEstimate,
+  TaskFilterSpec,
   TaskSpecSummary,
   TaskStatus,
   TaskType,
@@ -31,12 +37,31 @@ import type {
 
 /** Optional filters applied to a workspace listing (list/board RPCs). */
 export interface TaskIndexFilters {
+  /**
+   * Legacy status facet — `ptah_task_list` and `ptah spec list` both use it.
+   * Folded into {@link filter}'s `statuses` before the predicate runs.
+   */
   status?: readonly TaskStatus[];
+  /** Legacy type facet — see {@link status}. */
   type?: readonly TaskType[];
+  /**
+   * The multi-axis filter spec (FR-C1.5).
+   *
+   * Applied by the SHARED `filterTasks`, the same function the board runs over
+   * the same summaries — which is what makes the parity assertion in
+   * `tasks-rpc.handlers.spec.ts` meaningful rather than a comparison of two
+   * implementations that happen to agree.
+   */
+  filter?: TaskFilterSpec;
 }
 
-/** Per-workspace scan metadata — excluded folder count + last full scan. */
+/** Per-workspace scan metadata — the excluded folders + last full scan. */
 export interface TaskIndexMeta {
+  /**
+   * Every folder the scan skipped, BY NAME with its typed reason. Written and
+   * read by both store impls; `excludedCount` is always `excluded.length`.
+   */
+  excluded: ExcludedTaskFolder[];
   excludedCount: number;
   lastFullScanAt: number | null;
 }
@@ -47,14 +72,35 @@ export interface TaskIndexMeta {
  */
 export interface ITaskIndexStore {
   /**
+   * Can this store accept a write RIGHT NOW?
+   *
+   * TASK_2026_306 task 4.4. Registration and opening are separate events for the
+   * SQLite impl: both Electron and the CLI register the store in the same DI
+   * pass as the activation warm-up but call `openAndMigrate` hundreds of log
+   * lines later. The warm-up's write therefore used to be attempted against a
+   * connection that was guaranteed to reject it, and the resulting
+   * `Persistence is offline` failure was reported as a WARN on every clean boot
+   * — a predicted outcome in a channel that exists for unpredicted ones.
+   *
+   * `TaskIndexService.rebuild` asks first and skips only the write. It is a
+   * point-in-time answer, not a promise: a store may report `true` and still
+   * fail (disk full, a page corrupted, the connection closed underneath us), and
+   * THAT failure is genuine and still warns. This predicate removes one known
+   * case from the warn channel; it does not replace the channel.
+   */
+  isReady(): boolean;
+  /**
    * Replace an entire workspace's rows in ONE transaction: delete every row
-   * for the workspace, re-insert `tasks`, and record `excludedCount`. This is
-   * the "rebuild equivalent to fresh" guarantee (R3.2) by construction.
+   * for the workspace, re-insert `tasks`, and record the `excluded` folders.
+   * This is the "rebuild equivalent to fresh" guarantee (R3.2) by construction.
+   *
+   * `excluded` is the FULL row set, not a count — the count is derived from it
+   * so the two can never disagree.
    */
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void;
   /** Upsert rows without touching the rest of the workspace. */
   upsertMany(workspaceRoot: string, tasks: readonly TaskSpecSummary[]): void;
@@ -83,28 +129,64 @@ function orderSummaries(tasks: TaskSpecSummary[]): TaskSpecSummary[] {
   });
 }
 
-/** Apply optional status/type filters (both are OR-within, AND-across). */
+/**
+ * Apply a listing's filters through the SHARED predicate.
+ *
+ * ## There is no comparison over task fields in this file any more
+ *
+ * This function used to hand-roll the status/type test. It does not now, and
+ * nothing else here may either: `filterTasks` in `libs/shared` is the ONE
+ * implementation (FR-C1.5), and a "quick" `WHERE status IN (…)` added to the
+ * SQL below — or a convenience `.filter()` added beside a handler — would
+ * silently become a second one. The SQL therefore stays `WHERE workspace_root
+ * = ?` and every facet is decided in JS, over the row set both store impls
+ * return identically.
+ *
+ * The graph argument is deliberately omitted: `filterTasks` builds one on
+ * demand, and only when a parentage or relation facet is actually active, so an
+ * unfiltered board listing pays nothing for facets it is not using.
+ */
 function applyFilters(
   tasks: TaskSpecSummary[],
   filters?: TaskIndexFilters,
 ): TaskSpecSummary[] {
   if (!filters) return tasks;
-  return tasks.filter((t) => {
-    if (filters.status && filters.status.length > 0) {
-      if (!filters.status.includes(t.status)) return false;
-    }
-    if (filters.type && filters.type.length > 0) {
-      if (t.type === null || !filters.type.includes(t.type)) return false;
-    }
-    return true;
-  });
+  const spec = mergeStatusTypeFacets(
+    filters.filter,
+    filters.status,
+    filters.type,
+  );
+  // `null` means the two spellings of one facet contradict each other, which no
+  // task can satisfy. Writing the empty intersection back as `[]` would read as
+  // "no constraint" and return everything — see `mergeStatusTypeFacets`.
+  if (spec === null) return [];
+  return filterTasks(tasks, spec);
 }
 
-/** Deep-ish clone so in-memory callers never mutate stored rows. */
+/** Copy excluded rows so no caller can mutate what the store handed back. */
+function cloneExcluded(
+  excluded: readonly ExcludedTaskFolder[],
+): ExcludedTaskFolder[] {
+  return excluded.map((row) => ({ ...row }));
+}
+
+/**
+ * Deep-ish clone so in-memory callers never mutate stored rows.
+ *
+ * EVERY array field must be copied here. The spread above is shallow, so a
+ * missed array leaves the in-memory store handing out a live reference to its
+ * own state — a caller that pushes one label would silently rewrite the index
+ * for every other reader, and the SQLite impl (which round-trips through JSON)
+ * would not behave the same way. That divergence is exactly what the parity
+ * spec exists to catch.
+ */
 function cloneSummary(task: TaskSpecSummary): TaskSpecSummary {
   return {
     ...task,
     dependsOn: [...task.dependsOn],
+    labels: [...task.labels],
+    duplicates: [...task.duplicates],
+    relatesTo: [...task.relatesTo],
     validationIssues: task.validationIssues.map((i) => ({ ...i })),
   };
 }
@@ -122,6 +204,12 @@ interface RawTaskRow {
   assignee: string | null;
   depends_on: string;
   executor: string | null;
+  /** JSON `string[]`, `'[]'` when empty — same convention as `depends_on`. */
+  labels: string;
+  estimate: string | null;
+  parent: string | null;
+  duplicates: string;
+  relates_to: string;
   claim: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -140,9 +228,24 @@ interface RawMetaRow {
  * SQLite-backed store over the shared connection. All SQL is static with bound
  * parameters (no interpolation). Filtering is applied in JS over the
  * workspace-scoped (indexed) row set — trivially fast for the phase-1 scale.
+ *
+ * ## Why the excluded ROWS are held in process, not in a table
+ *
+ * `task_specs_scan_meta` persists `excluded_count` only, and the design for
+ * TASK_2026_179 explicitly rejects a schema migration for this work. That
+ * rejection costs nothing here: the excluded set is pure scan output, and NO
+ * read path can observe it before a scan has produced it. `TaskIndexService`
+ * calls `ensureStarted` before every list/board read, and `ensureStarted`
+ * always performs a full `rebuild` → `replaceWorkspace`. A persisted copy would
+ * therefore be overwritten before it could ever be read — exactly as true of
+ * the `excluded_count` column that already exists. Keeping the rows beside the
+ * connection gives both impls identical semantics with no DDL.
  */
 @injectable()
 export class SqliteTaskIndexStore implements ITaskIndexStore {
+  /** Excluded rows per workspace root — see the class note above. */
+  private readonly excludedRows = new Map<string, ExcludedTaskFolder[]>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -153,10 +256,19 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
     return this.connection.db;
   }
 
+  /**
+   * Open connection = writable store. The connection owns this fact already
+   * (`SqliteConnectionService.isOpen`); this method only forwards it, so the two
+   * cannot drift.
+   */
+  isReady(): boolean {
+    return this.connection.isOpen;
+  }
+
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void {
     const now = Date.now();
     const del = this.db.prepare(
@@ -169,9 +281,12 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       for (const task of tasks) {
         ins.run(...this.insertParams(workspaceRoot, task, now));
       }
-      meta.run(workspaceRoot, excludedCount, now);
+      meta.run(workspaceRoot, excluded.length, now);
     });
     txn();
+    // Only after the transaction commits, so a failed write leaves the rows
+    // and the count describing the same (previous) scan.
+    this.excludedRows.set(workspaceRoot, cloneExcluded(excluded));
   }
 
   upsertMany(workspaceRoot: string, tasks: readonly TaskSpecSummary[]): void {
@@ -210,6 +325,7 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       .get(workspaceRoot) as RawMetaRow | undefined;
     if (!row) return null;
     return {
+      excluded: cloneExcluded(this.excludedRows.get(workspaceRoot) ?? []),
       excludedCount: row.excluded_count,
       lastFullScanAt: row.last_full_scan_at,
     };
@@ -218,17 +334,19 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
   setMeta(workspaceRoot: string, meta: TaskIndexMeta): void {
     this.db
       .prepare(this.metaUpsertSql())
-      .run(workspaceRoot, meta.excludedCount, meta.lastFullScanAt);
+      .run(workspaceRoot, meta.excluded.length, meta.lastFullScanAt);
+    this.excludedRows.set(workspaceRoot, cloneExcluded(meta.excluded));
   }
 
   private insertSql(): string {
     return `
       INSERT INTO task_specs (
         workspace_root, folder_name, task_id, status, type, title,
-        description, assignee, depends_on, executor, claim,
+        description, assignee, depends_on, executor,
+        labels, estimate, parent, duplicates, relates_to, claim,
         created_at, updated_at, frontmatter_valid, validation_issues,
         last_indexed_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(workspace_root, folder_name) DO UPDATE SET
         task_id = excluded.task_id,
         status = excluded.status,
@@ -238,6 +356,11 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
         assignee = excluded.assignee,
         depends_on = excluded.depends_on,
         executor = excluded.executor,
+        labels = excluded.labels,
+        estimate = excluded.estimate,
+        parent = excluded.parent,
+        duplicates = excluded.duplicates,
+        relates_to = excluded.relates_to,
         claim = excluded.claim,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
@@ -274,6 +397,11 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       task.assignee ?? null,
       JSON.stringify(task.dependsOn ?? []),
       task.executor ?? null,
+      JSON.stringify(task.labels ?? []),
+      task.estimate ?? null,
+      task.parent ?? null,
+      JSON.stringify(task.duplicates ?? []),
+      JSON.stringify(task.relatesTo ?? []),
       null, // claim — reserved, phase 2
       task.created,
       task.updated,
@@ -292,6 +420,9 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       type: (row.type as TaskType | null) ?? null,
       title: row.title,
       dependsOn: this.parseJsonArray(row.depends_on),
+      labels: this.parseJsonArray(row.labels),
+      duplicates: this.parseJsonArray(row.duplicates),
+      relatesTo: this.parseJsonArray(row.relates_to),
       created: row.created_at,
       updated: row.updated_at,
       frontmatterValid: row.frontmatter_valid === 1,
@@ -300,6 +431,10 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
     if (row.description !== null) summary.description = row.description;
     if (row.assignee !== null) summary.assignee = row.assignee;
     if (row.executor !== null) summary.executor = row.executor;
+    // Assigned conditionally, exactly like the other optional fields above, so
+    // an absent value is an absent key rather than an explicit `undefined`.
+    if (row.estimate !== null) summary.estimate = row.estimate as TaskEstimate;
+    if (row.parent !== null) summary.parent = row.parent;
     return summary;
   }
 
@@ -336,10 +471,19 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
+  /**
+   * Always. A Map is writable from the moment it is constructed — there is no
+   * open/closed transition for this impl, and reporting anything else would make
+   * the no-SQLite fallback skip writes it can perform perfectly well.
+   */
+  isReady(): boolean {
+    return true;
+  }
+
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void {
     const folder = new Map<string, TaskSpecSummary>();
     for (const task of tasks) {
@@ -347,7 +491,8 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
     }
     this.rows.set(workspaceRoot, folder);
     this.meta.set(workspaceRoot, {
-      excludedCount,
+      excluded: cloneExcluded(excluded),
+      excludedCount: excluded.length,
       lastFullScanAt: Date.now(),
     });
   }
@@ -377,10 +522,14 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
 
   getMeta(workspaceRoot: string): TaskIndexMeta | null {
     const meta = this.meta.get(workspaceRoot);
-    return meta ? { ...meta } : null;
+    return meta ? { ...meta, excluded: cloneExcluded(meta.excluded) } : null;
   }
 
   setMeta(workspaceRoot: string, meta: TaskIndexMeta): void {
-    this.meta.set(workspaceRoot, { ...meta });
+    this.meta.set(workspaceRoot, {
+      ...meta,
+      excluded: cloneExcluded(meta.excluded),
+      excludedCount: meta.excluded.length,
+    });
   }
 }

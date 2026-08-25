@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -22,6 +23,7 @@ import {
   type PostToolUsePayload,
   type PreToolUseCallbackRegistry,
   type PreToolUsePayload,
+  type SessionIdResolvedCallbackRegistry,
   type SessionStartCallbackRegistry,
   type SessionStartPayload,
   type UserPromptSubmitCallbackRegistry,
@@ -42,7 +44,7 @@ import {
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
-import { EpisodeTracker } from './episode-tracker';
+import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
 import {
   MEMORY_TRIGGER_DEFAULTS,
   MEMORY_TRIGGER_KEYS,
@@ -68,6 +70,14 @@ type CurateSource =
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Wall-clock instant `idleTimer` is due to fire, or `null` when no timer is
+   * armed. Recorded so `rekeySession` can re-arm under the new key with the
+   * REMAINING delay — a `setTimeout` closure captures the id it was armed
+   * with, so the timer has to be recreated, and recreating it with the full
+   * idle window would silently extend it.
+   */
+  idleDueAt: number | null;
   turnCount: number;
 }
 
@@ -83,6 +93,7 @@ export class MemoryTriggerService {
   private sessionEndHookDisposer: (() => void) | null = null;
   private preToolUseDisposer: (() => void) | null = null;
   private sessionStartDisposer: (() => void) | null = null;
+  private sessionIdResolvedDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly episodes = new EpisodeTracker();
   private readonly inFlightCurates = new Set<string>();
@@ -129,6 +140,8 @@ export class MemoryTriggerService {
     private readonly sessionStartRegistry: SessionStartCallbackRegistry,
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
     private readonly transcriptReader: ITranscriptReader,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
+    private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
   ) {}
 
   start(): void {
@@ -168,6 +181,14 @@ export class MemoryTriggerService {
         this.onSessionStart(payload);
       },
     );
+    // Deliberately a synchronous arrow with no `await` anywhere beneath it —
+    // see the ordering contract on `rekeySession`.
+    this.sessionIdResolvedDisposer = this.sessionIdResolvedRegistry.register(
+      (payload) => {
+        if (payload.tabId === undefined) return;
+        this.rekeySession(payload.tabId, payload.realSessionId);
+      },
+    );
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -188,6 +209,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer?.();
     this.preToolUseDisposer?.();
     this.sessionStartDisposer?.();
+    this.sessionIdResolvedDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.userPromptSubmitDisposer = null;
@@ -197,6 +219,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer = null;
     this.preToolUseDisposer = null;
     this.sessionStartDisposer = null;
+    this.sessionIdResolvedDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -214,8 +237,15 @@ export class MemoryTriggerService {
    * Session activity drives the idle timer only. The authoritative
    * "turn complete" signal is the SDK `Stop` hook ({@link onStop}); the
    * legacy activity-based turn counter has been retired in favour of it.
+   *
+   * The empty-id check is the same one every other handler here makes, and it
+   * matters MORE on this path than on the ones that only read: `sessions` is
+   * keyed by session id and holds one idle timer per key, so two sessions both
+   * reporting `''` share a single slot — the second `onActivity` clears the
+   * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 
@@ -224,15 +254,97 @@ export class MemoryTriggerService {
       state = {
         workspaceRoot: payload.workspaceRoot,
         idleTimer: null,
+        idleDueAt: null,
         turnCount: 0,
       };
       this.sessions.set(payload.sessionId, state);
     }
 
     if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleDueAt = Date.now() + idleMs;
     state.idleTimer = setTimeout(() => {
       this.fireIdle(payload.sessionId);
     }, idleMs);
+  }
+
+  /**
+   * Migrate every piece of state keyed by `fromId` onto `toId`.
+   *
+   * Fired from the SDK's `SessionIdResolvedCallbackRegistry` when a session's
+   * canonical UUID becomes known. Before that instant a residual hook path —
+   * one whose payload genuinely lacks `session_id` and falls back to the
+   * closure — reports the **tabId**, so state gets armed under the tabId while
+   * `SessionEnd` always canonicalises to `realSessionId ?? tabId`
+   * (`session-control.service.ts:126`) and arrives under the UUID. That split
+   * is what strands an idle timer. TASK_2026_296 item 6, Part B.
+   *
+   * A tabId is itself a UUID v4, so nothing here inspects an id's SHAPE: both
+   * ids are supplied by the adapter and are shape-indistinguishable.
+   *
+   * ## Three rules, all load-bearing
+   *
+   * 1. **Synchronous, start to finish.** There is no `await` anywhere in this
+   *    method or in anything it calls, so nothing can interleave between
+   *    reading the old key and writing the new one. The curate-suppression
+   *    state (`inFlightCurates`, `lastCurateAt`, and the curator's own
+   *    `inFlight` map) is migrated FIRST, before `sessions` — so at no instant
+   *    is a curate un-suppressed under either key.
+   * 2. **Refuse-overwrite.** Where `toId` already holds an entry, that entry is
+   *    KEPT and the `fromId` entry is discarded, its timer cleared. Never
+   *    clobber: a missed merge costs one un-curated episode and is recoverable,
+   *    a wrong overwrite destroys a live session's state and is not. Mirrors
+   *    `SessionRegistry.bindRealSessionId`'s set-once discipline.
+   * 3. **Timers are re-armed, never carried.** A `setTimeout` closure captures
+   *    the id it was armed with, so a carried-over timer would fire
+   *    `fireIdle(tabId)` against a map that no longer has that key. The timer
+   *    is cleared and recreated under `toId` with the REMAINING delay taken
+   *    from `idleDueAt`.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    // 1 — curate suppression first (R-Q3). `inFlightCurates` is a Set, so
+    // "keep toId" and "add toId" are the same operation.
+    if (this.inFlightCurates.delete(from)) this.inFlightCurates.add(to);
+    const lastCurate = this.lastCurateAt.get(from);
+    this.lastCurateAt.delete(from);
+    if (lastCurate !== undefined && !this.lastCurateAt.has(to)) {
+      this.lastCurateAt.set(to, lastCurate);
+    }
+    this.curator.rekeySession(from, to);
+
+    // 2 — the episode buffer (refuse-overwrite lives in the tracker).
+    this.episodes.rekey(from, to);
+
+    // 3 — the idle timer.
+    const state = this.sessions.get(from);
+    if (state) {
+      this.sessions.delete(from);
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+      if (this.sessions.has(to)) {
+        state.idleTimer = null;
+        state.idleDueAt = null;
+      } else {
+        const remaining =
+          state.idleDueAt === null ? null : state.idleDueAt - Date.now();
+        state.idleTimer =
+          remaining === null
+            ? null
+            : setTimeout(
+                () => {
+                  this.fireIdle(to);
+                },
+                Math.max(0, remaining),
+              );
+        this.sessions.set(to, state);
+      }
+    }
+
+    // 4 — the durable half. Rows captured under the tabId are un-drainable by
+    // the UUID-keyed drain until they are re-pointed.
+    this.observationQueue.backfillSessionId(from, to);
   }
 
   /**
@@ -246,7 +358,7 @@ export class MemoryTriggerService {
 
   /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
   private onStop(payload: StopPayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
@@ -272,7 +384,7 @@ export class MemoryTriggerService {
 
   /** Real SDK `PostToolUseFailure` hook — buffer the failure for episode context. */
   private onToolFailure(payload: ToolFailurePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.isInterrupt) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
@@ -309,7 +421,7 @@ export class MemoryTriggerService {
    * already-flushed buffer, so a double-fire is harmless.
    */
   private flushSessionEnd(sessionId: string, workspaceRoot: string): void {
-    if (!sessionId || sessionId.length === 0) return;
+    if (blankToUndefined(sessionId) === undefined) return;
     if (this.readSessionEndEnabled()) {
       this.tryEpisodeCurate(
         sessionId,
@@ -325,7 +437,7 @@ export class MemoryTriggerService {
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
-    if (payload.sessionId && payload.sessionId.length > 0) {
+    if (blankToUndefined(payload.sessionId) !== undefined) {
       this.observationQueue.insert({
         sessionId: payload.sessionId,
         workspaceRoot: payload.workspaceRoot,
@@ -334,7 +446,7 @@ export class MemoryTriggerService {
       });
     }
     if (!this.readUserPromptSubmitEnabled()) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) {
+    if (blankToUndefined(payload.sessionId) === undefined) {
       this.logger.warn(
         '[memory-curator] empty sessionId in onUserPromptSubmit, skipping',
         { workspaceRoot: payload.workspaceRoot },
@@ -388,7 +500,7 @@ export class MemoryTriggerService {
   }
 
   private onPostToolUse(payload: PostToolUsePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
@@ -442,7 +554,7 @@ export class MemoryTriggerService {
   }
 
   private onPreToolUseRead(payload: PreToolUsePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.toolName !== 'Read') return;
     const filePath = extractFilePath(payload.toolInput);
     this.observationQueue.insert({
@@ -501,6 +613,7 @@ export class MemoryTriggerService {
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
+    state.idleDueAt = null;
     this.tryEpisodeCurate(
       sessionId,
       state.workspaceRoot,
@@ -580,7 +693,12 @@ export class MemoryTriggerService {
       commits: snap.commits,
       hasCriticalLearning: snap.hasCriticalLearning,
     };
-    this.episodes.reset(sessionId);
+    // `detach`, not `reset`. Same effect when the pass runs — the buffer is
+    // cleared here and the returned handle dropped — but a pass the provider
+    // quota gate stalls never consumed this episode, and `invokeCurate` puts it
+    // back. The clear still happens BEFORE the curate, so turns arriving during
+    // the pass keep landing in a fresh buffer (TASK_2026_306 Batch 10, F1).
+    const detached = this.episodes.detach(sessionId);
     this.inFlightCurates.add(sessionId);
     this.lastCurateAt.set(sessionId, Date.now());
     void this.invokeCurate(
@@ -589,6 +707,7 @@ export class MemoryTriggerService {
       source,
       salienceBoost,
       episodeSnap,
+      detached,
     );
   }
 
@@ -599,12 +718,37 @@ export class MemoryTriggerService {
     return Date.now() - last < COALESCE_WINDOW_MS;
   }
 
+  /**
+   * Compose the transcript, run the curator, and advance the state the pass
+   * consumed — but only if it consumed anything.
+   *
+   * ## The three pieces of state, enumerated (TASK_2026_306 Batch 10, F1)
+   *
+   * F1 happened because only the first of these was ever considered.
+   *
+   *  1. **`observation_queue.processed_at`.** `drainForSession` is a pure
+   *     SELECT filtered on `processed_at IS NULL`, so *not* calling
+   *     `markProcessed` is the entire mechanism by which the rows survive: they
+   *     are still NULL and the next drain returns them.
+   *  2. **The episode buffer.** Cleared by `tryEpisodeCurate` before this
+   *     method is even entered, so it can only be restored, not deferred —
+   *     `detached` is that restore, and it merges rather than overwrites.
+   *  3. **The boot-scan watermark.** Not reachable from here; the boot scan
+   *     calls `curator.curate` directly. Handled in `runBootScan`, which maps
+   *     the same outcome onto `BootScanItemOutcome` so `BootScanRunner` leaves
+   *     the watermark where it is.
+   *
+   * A pass that RAN and found nothing keeps its old behaviour exactly: rows
+   * marked, buffer gone. Turning "found nothing" into a retry would be F1
+   * inverted — an episode that can never be curated, re-fed forever.
+   */
   private async invokeCurate(
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,
     salienceBoost?: number,
     episodeSnap?: EpisodeSummaryInput,
+    detachedEpisode?: EpisodeBuffer | null,
   ): Promise<void> {
     const limit = this.readMaxObservationsPerCurate();
     let jsonlText = '';
@@ -622,12 +766,22 @@ export class MemoryTriggerService {
     const drainedRows = this.observationQueue.drainForSession(sessionId, limit);
     const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
     try {
-      await this.curator.curate({
+      const stats = await this.curator.curate({
         sessionId,
         workspaceRoot,
         transcript,
         salienceBoost,
       });
+      if (stats.outcome === 'stalled') {
+        if (detachedEpisode) {
+          this.episodes.reattach(sessionId, detachedEpisode);
+        }
+        this.logger.info(
+          '[memory-curator] curation pass stalled; observations kept for the next pass',
+          { sessionId, source, observations: drainedRows.length },
+        );
+        return;
+      }
       const ids = drainedRows.map((r) => r.id);
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
@@ -664,6 +818,44 @@ export class MemoryTriggerService {
         logger: this.logger,
         signal,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          // The boot scan draws from the SAME hourly budget as the cue path
+          // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
+          // It did not until TASK_2026_319: this callback calls
+          // `curator.curate` directly, and `curate` holds no limiter of its own
+          // — its only internal gate is the provider QUOTA gate — so
+          // `maxCuratesPerHour` simply did not apply here. A cold boot could
+          // issue one LLM call per session with nothing but a 200 ms throttle
+          // in the way.
+          //
+          // Refusal returns `'stalled'`, never `'ran'`, and that is the whole
+          // point: `BootScanRunner` stops the scan, leaves the watermark below
+          // this session, and the next boot retries it. `'ran'` would record a
+          // session that was never read and lose it at the next
+          // `mtime > watermark` filter.
+          //
+          // The SKILLS boot scan deliberately does not do this. Its callback
+          // enqueues a local SQLite row and spends nothing upstream, so
+          // charging it to the curate budget would starve real curation to pay
+          // for free work — see `skill-trigger.service.ts`'s `runBootScan`.
+          const decision = this.rateLimiter.tryAcquire(
+            RATE_LIMIT_KEY,
+            this.readMaxCuratesPerHour(),
+          );
+          if (!decision.allowed) {
+            this.curator.pushEvent({
+              kind: 'rate-limited',
+              timestamp: Date.now(),
+              sessionId: scanSessionId,
+              stats: {
+                source: 'boot',
+                limit: decision.limit,
+                resetAt: decision.resetAt,
+                usedThisWindow: decision.usedThisWindow,
+              },
+            });
+            return 'stalled';
+          }
+
           let transcript = '';
           try {
             transcript = await this.transcriptReader.read(
@@ -679,12 +871,16 @@ export class MemoryTriggerService {
               },
             );
           }
-          return this.curator.curate({
+          const stats = await this.curator.curate({
             sessionId: scanSessionId,
             workspaceRoot: scanWorkspaceRoot,
             transcript,
             signal: runSignal,
           });
+          // The watermark's only input. A stalled pass read this session and
+          // curated nothing from it, so recording it as scanned would lose it
+          // the moment the next boot filters on `mtime > watermark`.
+          return stats.outcome === 'stalled' ? 'stalled' : 'ran';
         },
       });
       this.curator.pushEvent({
@@ -694,6 +890,7 @@ export class MemoryTriggerService {
           scanned: result.scanned,
           succeeded: result.succeeded,
           skipped: result.skipped,
+          stalled: result.stalled,
         },
       });
     } catch (err: unknown) {

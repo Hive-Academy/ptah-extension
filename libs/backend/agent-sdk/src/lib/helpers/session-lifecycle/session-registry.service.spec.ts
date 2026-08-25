@@ -797,6 +797,56 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('getSessionWorkspace (per-session, concurrency-safe)', () => {
+    it('returns undefined for an unknown session id', () => {
+      const { registry } = makeRegistry();
+      expect(registry.getSessionWorkspace('nope')).toBeUndefined();
+    });
+
+    it('resolves a specific session by tabId — not the most-recently-active', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_2',
+        makeConfig({ projectPath: '/workspace/b' }),
+        new AbortController(),
+      );
+
+      // tab_2 is most-recently-active, but a call FROM tab_1 must resolve to a.
+      expect(registry.getActiveSessionWorkspace()).toBe('/workspace/b');
+      expect(registry.getSessionWorkspace('tab_1')).toBe('/workspace/a');
+      expect(registry.getSessionWorkspace('tab_2')).toBe('/workspace/b');
+    });
+
+    it('resolves by realSessionId after bindRealSessionId', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.bindRealSessionId('tab_1', 'real-uuid-123');
+
+      expect(registry.getSessionWorkspace('real-uuid-123')).toBe(
+        '/workspace/a',
+      );
+    });
+
+    it('returns undefined when the session carries no projectPath', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: undefined }),
+        new AbortController(),
+      );
+      expect(registry.getSessionWorkspace('tab_1')).toBeUndefined();
+    });
+  });
+
   describe('resolveRealSessionId (push-down from facade)', () => {
     it('does not affect workspace resolution', () => {
       const { registry } = makeRegistry();

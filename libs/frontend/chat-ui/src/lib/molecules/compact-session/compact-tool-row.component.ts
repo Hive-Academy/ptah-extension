@@ -66,14 +66,14 @@ export interface CompactToolRow {
       <ptah-tool-icon [toolName]="row().toolName" />
 
       <!-- Verb -->
-      <span class="font-medium text-base-content/75 flex-shrink-0">{{
+      <span class="font-medium text-base-content-muted flex-shrink-0">{{
         row().verb
       }}</span>
 
       <!-- Command (Bash) in monospace -->
       @if (row().command) {
         <code
-          class="font-mono text-[10px] text-base-content/60 bg-base-300/50 rounded px-1 py-px truncate min-w-0"
+          class="font-mono text-[10px] text-base-content-muted bg-base-300/50 rounded px-1 py-px truncate min-w-0"
           [title]="row().command"
           >{{ row().command }}</code
         >
@@ -82,7 +82,7 @@ export interface CompactToolRow {
       <!-- File-name badges -->
       @for (file of row().files; track file) {
         <span
-          class="font-mono text-[10px] text-base-content/70 bg-base-content/5 border border-base-content/10 rounded px-1 py-px max-w-[10rem] truncate"
+          class="font-mono text-[10px] text-base-content-muted bg-base-content/5 border border-base-content/10 rounded px-1 py-px max-w-[10rem] truncate"
           [title]="file"
           >{{ file }}</span
         >
@@ -91,7 +91,7 @@ export interface CompactToolRow {
       <!-- Secondary detail (pattern / query / url) -->
       @if (row().detail) {
         <code
-          class="font-mono text-[10px] text-base-content/45 truncate min-w-0"
+          class="font-mono text-[10px] text-base-content-muted truncate min-w-0"
           [title]="row().detail"
           >{{ row().detail }}</code
         >

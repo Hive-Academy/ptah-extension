@@ -29,7 +29,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 **Concrete services**: `PtahFileSettingsManager`, `ContentDownloadService`, `AgentPackDownloadService`.
 
-**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`.
+**Constants/helpers**: `PLATFORM_TOKENS`, `FILE_BASED_SETTINGS_KEYS`, `FILE_BASED_SETTINGS_DEFAULTS`, `isFileBasedSettingKey`, `createEvent`, `isPathWithinRoots`, `planGlobWatch` (+ `GlobWatchPlan`).
 
 ## Internal Structure
 
@@ -38,6 +38,9 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 - `src/di/tokens.ts` — `PLATFORM_TOKENS` (the canonical DI symbol map)
 - `src/di/index.ts` — re-exports `PLATFORM_TOKENS` only (no `register.ts`)
 - `src/utils/event-emitter.ts` — `createEvent` helper
+- `src/utils/glob-watch-plan.ts` — `planGlobWatch`: glob → watchable directory +
+  match/prune predicates, shared by the two chokidar-backed adapters. Not a
+  port, same category as `path-containment.ts`
 - `src/file-settings-manager.ts` + `file-settings-keys.ts` — `~/.ptah/settings.json` routing (TASK_2025_247)
 - `src/content-download.service.ts` — GitHub plugin/template downloader (TASK_2025_248)
 - `src/agent-pack-download.service.ts` — Agent pack downloader (TASK_2025_257)
@@ -79,7 +82,7 @@ All under `PLATFORM_TOKENS` (`Symbol.for('Platform*')`):
 ## Dependencies
 
 **Internal**: none (this is L0.5)
-**External**: minimal — pure type definitions plus the three concrete services use Node `fs`/`https`.
+**External**: minimal — pure type definitions plus the three concrete services use Node `fs`/`https`, and `glob-watch-plan.ts` uses `picomatch`.
 
 ## Guidelines
 

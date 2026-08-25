@@ -35,6 +35,9 @@ class StubTranslationProxy extends TranslationProxyBase {
   protected getStaticModels(): Array<{ id: string }> {
     return [{ id: 'stub-model' }];
   }
+  protected getProviderId(): string {
+    return 'stub-provider';
+  }
 }
 
 function createIdleProxy(): jest.Mocked<ITranslationProxy> {

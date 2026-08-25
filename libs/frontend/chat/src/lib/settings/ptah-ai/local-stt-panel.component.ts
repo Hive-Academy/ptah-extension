@@ -58,7 +58,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <p class="text-xs text-base-content/70 mb-2">
+    <p class="text-xs text-base-content-muted mb-2">
       Whisper model used for voice-to-text. Curated models download to
       <code class="text-[10px] bg-base-300 px-1 rounded">~/.ptah/models/</code>
       on first use.
@@ -97,7 +97,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
       <div class="flex items-center justify-between mb-1">
         <label
           for="local-stt-model"
-          class="text-xs font-medium text-base-content/70"
+          class="text-xs font-medium text-base-content-muted"
         >
           Whisper Model
         </label>
@@ -198,7 +198,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
             max="100"
             data-testid="local-stt-download-progress"
           ></progress>
-          <span class="text-[10px] text-base-content/60 w-20 text-right">
+          <span class="text-[10px] text-base-content-muted w-20 text-right">
             @if (downloadPercent() !== null) {
               Downloading {{ downloadPercent() }}%
             } @else {
@@ -218,10 +218,10 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
             </span>
           } @else {
             <span
-              class="text-[10px] text-base-content/50 flex items-center gap-1"
+              class="text-[10px] text-base-content-muted flex items-center gap-1"
               data-testid="local-stt-download-status"
             >
-              <span class="text-base-content/40">○</span>
+              <span class="text-base-content-muted">○</span>
               Not downloaded
             </span>
           }

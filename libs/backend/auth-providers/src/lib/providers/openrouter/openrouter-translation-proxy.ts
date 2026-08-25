@@ -29,6 +29,14 @@ import type { IOpenRouterAuthService } from './openrouter-provider.types';
 /** OpenRouter Chat Completions API endpoint base URL */
 const OPENROUTER_API_ENDPOINT = 'https://openrouter.ai/api/v1';
 
+/**
+ * The registry id, which is what `ProviderAuthResolver` resolves and what the
+ * quota gate keys on. A module constant rather than a `*_PROVIDER_ENTRY.id`
+ * read because OpenRouter is declared inline in `ANTHROPIC_PROVIDERS` and
+ * exports no entry constant; `provider-auth-resolver.ts` names it the same way.
+ */
+const OPENROUTER_PROVIDER_ID = 'openrouter';
+
 @injectable()
 export class OpenRouterTranslationProxy extends TranslationProxyBase {
   constructor(
@@ -48,6 +56,11 @@ export class OpenRouterTranslationProxy extends TranslationProxyBase {
    */
   protected async getApiEndpoint(): Promise<string> {
     return OPENROUTER_API_ENDPOINT;
+  }
+
+  /** See {@link OPENROUTER_PROVIDER_ID}. */
+  protected getProviderId(): string {
+    return OPENROUTER_PROVIDER_ID;
   }
 
   /**

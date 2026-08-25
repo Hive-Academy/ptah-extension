@@ -121,8 +121,30 @@ import type {
   VecLoadDiagnosticWire,
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
-import type { HarnessConfig } from '../rpc/rpc-harness.types';
+import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
+import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
+import type { GitStatusUpdatePayload } from './git-status';
+
+/**
+ * Payload for MESSAGE_TYPES.FILE_TREE_CHANGED ('file:tree-changed').
+ *
+ * Deliberately empty: the push is a pure invalidation signal and the
+ * renderer re-fetches the tree for whichever workspace is active.
+ */
+export type FileTreeChangedPayload = Record<string, never>;
+
+/** Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed'). */
+export interface FileContentChangedPayload {
+  /** Absolute path (forward-slash normalized) of the file that changed. */
+  readonly filePath: string;
+}
+
+/**
+ * Payload for MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS
+ * ('editor:reread-open-tabs'). Empty — the renderer iterates its own tabs.
+ */
+export type EditorRereadOpenTabsPayload = Record<string, never>;
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
 export interface VecStatusChangedPayload {
@@ -140,10 +162,42 @@ export interface SkillSynthesisEventPayload {
   readonly event: SkillSynthesisEventWire;
 }
 
+/**
+ * Payload for MESSAGE_TYPES.AUTH_DEVICE_CODE ('auth:deviceCode').
+ *
+ * `provider` is the provider registry id ('github-copilot', 'openai-codex').
+ * `userCode` is absent when the underlying CLI printed only a verification URL.
+ */
+export interface AuthDeviceCodePayload {
+  readonly provider: string;
+  readonly userCode?: string;
+  readonly verificationUri?: string;
+  /** Seconds until the code expires, when the provider reports it. */
+  readonly expiresInSeconds?: number;
+}
+
+/** Payload for MESSAGE_TYPES.AUTH_LOGIN_OUTPUT ('auth:loginOutput'). */
+export interface AuthLoginOutputPayload {
+  readonly provider: string;
+  readonly stream: 'stdout' | 'stderr';
+  readonly line: string;
+}
+
 /** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
 export interface HarnessOpenWorkflowPayload {
   readonly mode: 'new-project' | 'configure-harness';
+  /**
+   * The prompt actually sent to `chat:start`. For `new-project` this is the
+   * built instruction prompt (intake answers + skill/tool sequencing), which
+   * is deliberately NOT what the user sees.
+   */
   readonly seedPrompt?: string;
+  /**
+   * The raw intake answers behind `seedPrompt`, so the surface can render the
+   * user's own words as the first transcript bubble instead of the full
+   * instruction prompt. Present for `new-project` only.
+   */
+  readonly intake?: NewProjectIntake;
 }
 
 /** Payload for MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED ('harness:config-proposed'). */
@@ -263,8 +317,15 @@ export interface MessagePayloadMap {
   'db:vecStatusChanged': VecStatusChangedPayload;
   'embedder:statusChanged': EmbedderStatusChangedPayload;
   'skillSynthesis:event': SkillSynthesisEventPayload;
+  'auth:deviceCode': AuthDeviceCodePayload;
+  'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
+  'harness:healthChanged': HarnessHealthChangedPayload;
+  'git:status-update': GitStatusUpdatePayload;
+  'file:tree-changed': FileTreeChangedPayload;
+  'file:content-changed': FileContentChangedPayload;
+  'editor:reread-open-tabs': EditorRereadOpenTabsPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

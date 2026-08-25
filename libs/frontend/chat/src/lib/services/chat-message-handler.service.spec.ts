@@ -68,6 +68,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     refreshQuestionTargetsForSession: jest.Mock;
     routeStreamEvent: jest.Mock;
     routeStreamEventForSurface: jest.Mock;
+    onSurfaceCreated: jest.Mock;
   };
   let tabManager: {
     tabs: jest.Mock;
@@ -105,6 +106,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       refreshQuestionTargetsForSession: jest.fn(),
       routeStreamEvent: jest.fn(),
       routeStreamEventForSurface: jest.fn(),
+      onSurfaceCreated: jest.fn(),
     };
     tabManager = {
       tabs: jest.fn(() => [{ id: 'tab-1' }]),
@@ -548,6 +550,35 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(
         streamRouter.refreshQuestionTargetsForSession,
       ).toHaveBeenCalledTimes(1);
+      // Nothing to append — the surface has no adapter, so the tab path owns
+      // the session.
+      expect(streamRouter.onSurfaceCreated).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_263 — without this append the surface conversation never
+    // contains the real session id, so question routing cannot find the
+    // surface and the card never renders.
+    it('appends the real session to the claimed surface conversation before refreshing question targets', () => {
+      const correlationId = VALID_UUID;
+      const surfaceId = SurfaceId.create();
+      claims.claim(correlationId, surfaceId);
+      registerSurfaceAdapter(surfaceId);
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+        payload: { tabId: correlationId, realSessionId: CHUNK_SESSION },
+      });
+
+      expect(streamRouter.onSurfaceCreated).toHaveBeenCalledWith(
+        surfaceId,
+        CHUNK_SESSION,
+      );
+      expect(
+        streamRouter.onSurfaceCreated.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        streamRouter.refreshQuestionTargetsForSession.mock
+          .invocationCallOrder[0],
+      );
     });
   });
 });

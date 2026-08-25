@@ -263,6 +263,10 @@ export class EditorFileOpsHelper {
     const tabs = this.state.openTabs();
     const tab = tabs.find((t) => t.filePath === filePath);
     if (!tab || tab.isDirty) return;
+    // Defence in depth for A1 AC5: a diff tab is keyed by `diff:...`, which can
+    // never equal a real file path, but nothing here should ever issue
+    // `editor:openFile` against one even if a caller passes the key directly.
+    if (tab.diff) return;
     const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) return;
 

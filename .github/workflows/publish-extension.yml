@@ -141,6 +141,13 @@ jobs:
       - name: Quality gates
         run: npx nx run-many -t typecheck --projects=ptah-extension-vscode
 
+      # Release backstop for the Content Manifest workflow (TASK_2026_240). That
+      # one is path-filtered to PRs; this one is unconditional, because shipping
+      # a stale manifest makes ContentDownloadService PRUNE plugin files users
+      # already have. Cheap: dependency-free script over 234 files.
+      - name: Content manifest is current
+        run: npm run manifest:check
+
       - name: Clean dist
         run: rm -rf dist/apps/ptah-extension-vscode
 

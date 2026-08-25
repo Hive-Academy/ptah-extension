@@ -8,7 +8,7 @@
  * Registered via `registerChatServices(container)` — see `./di.ts`.
  */
 export const CHAT_TOKENS = {
-  PREMIUM_CONTEXT: Symbol.for('ChatPremiumContextService'),
+  SDK_CONTEXT: Symbol.for('ChatSdkContextService'),
   PTAH_CLI: Symbol.for('ChatPtahCliService'),
   SESSION: Symbol.for('ChatSessionService'),
   STREAM_BROADCASTER: Symbol.for('ChatStreamBroadcaster'),

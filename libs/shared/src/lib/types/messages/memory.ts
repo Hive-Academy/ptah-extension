@@ -43,7 +43,7 @@ export interface MemoryCorpusChangedPayload {
 }
 
 export interface MemoryExtractedPayload {
-  readonly sessionId: string;
+  readonly sessionId?: string;
   readonly workspaceRoot: string | null;
   readonly extracted: number;
   readonly created: number;

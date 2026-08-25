@@ -75,4 +75,33 @@ describe('SdkRuntimeStateService', () => {
     expect(svc.getCliJsPath()).toBeNull();
     expect(svc.getHealth().status).toBe('initializing');
   });
+
+  describe('hasInitialized', () => {
+    it('is false before any health verdict — the CLI `requireSdk: false` posture', () => {
+      // Not a startup phase: every `ptah` command that boots
+      // `withEngine({ requireSdk: false })` stays here for its whole life, and
+      // a headless caller has to be able to tell that apart from a live SDK.
+      expect(make().hasInitialized()).toBe(false);
+    });
+
+    it('is true after an ERROR verdict, not just an available one', () => {
+      // The distinction the flag exists to preserve: an SDK that initialized
+      // and failed HAS an LLM behind it and owns a retryable transport fault.
+      const svc = make();
+      svc.setHealth({
+        status: 'error' as ProviderStatus,
+        lastCheck: 1,
+        errorMessage: 'no credentials',
+      });
+      expect(svc.hasInitialized()).toBe(true);
+      expect(svc.getHealth().status).toBe('error');
+    });
+
+    it('reset returns it to false', () => {
+      const svc = make();
+      svc.setHealth({ status: 'available' as ProviderStatus, lastCheck: 1 });
+      svc.reset();
+      expect(svc.hasInitialized()).toBe(false);
+    });
+  });
 });

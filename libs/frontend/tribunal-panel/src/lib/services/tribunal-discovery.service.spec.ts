@@ -168,6 +168,36 @@ describe('TribunalDiscoveryService', () => {
       expect(byLaneId(result, 'cursor#0')?.lane.displayName).toBe('Cursor');
     });
 
+    // Regression: CLI_FAMILIES listed only codex/copilot/cursor, so these three
+    // could be executed by TribunalRunService.spawnArgsFor but were never
+    // offered as lanes in the panel.
+    it('also emits antigravity/opencode/pi lanes', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+
+      expect(byLaneId(result, 'antigravity#0')?.lane.displayName).toBe(
+        'Antigravity',
+      );
+      expect(byLaneId(result, 'opencode#0')?.lane.displayName).toBe('opencode');
+      expect(byLaneId(result, 'pi#0')?.lane.displayName).toBe('Pi');
+    });
+
+    it('marks antigravity available when detection reports it installed', async () => {
+      rpc.call.mockResolvedValue(
+        rpcSuccess(
+          makeConfig([makeCli({ cli: 'antigravity', installed: true })]),
+        ),
+      );
+
+      const result = await service.discover();
+      const antigravity = byLaneId(result, 'antigravity#0');
+
+      expect(antigravity?.available).toBe(true);
+      expect(antigravity?.needsSetup).toBe(false);
+      expect(antigravity?.lane.cli).toBe('antigravity');
+    });
+
     it('reflects installed=true as available, installed=false as needsSetup', async () => {
       rpc.call.mockResolvedValue(
         rpcSuccess(
@@ -295,6 +325,19 @@ describe('TribunalDiscoveryService', () => {
       expect(cursor?.modelProviderId).toBeUndefined();
     });
 
+    it('antigravity/opencode/pi list models through agent:listCliModels, not a provider id', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+
+      for (const cli of ['antigravity', 'opencode', 'pi']) {
+        const vendor = requireLaneId(result, `${cli}#0`);
+        expect(vendor.supportsModelList).toBe(true);
+        expect(vendor.cliModelKey).toBe(cli);
+        expect(vendor.modelProviderId).toBeUndefined();
+      }
+    });
+
     it('ptah-cli lanes carry their providerId as the model provider id', async () => {
       rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
@@ -331,6 +374,45 @@ describe('TribunalDiscoveryService', () => {
       });
       expect(models).toHaveLength(2);
       expect(models[0].id).toBe('gpt-5.1-codex-max');
+    });
+
+    it('calls agent:listCliModels and returns that CLI slice for antigravity', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+      const result = await service.discover();
+      const antigravity = requireLaneId(result, 'antigravity#0');
+
+      rpc.call.mockResolvedValue(
+        rpcSuccess({
+          codex: [{ id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex' }],
+          copilot: [],
+          cursor: [],
+          antigravity: [
+            { id: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)' },
+          ],
+          opencode: [],
+          pi: [],
+        }),
+      );
+
+      const models = await service.listModelsFor(antigravity);
+
+      expect(rpc.call).toHaveBeenLastCalledWith(
+        'agent:listCliModels',
+        undefined,
+      );
+      expect(models).toEqual([
+        { id: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)' },
+      ]);
+    });
+
+    it('returns [] when agent:listCliModels fails', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+      const result = await service.discover();
+      const pi = requireLaneId(result, 'pi#0');
+
+      rpc.call.mockResolvedValue(rpcError('boom'));
+
+      expect(await service.listModelsFor(pi)).toEqual([]);
     });
 
     it('returns [] for a lane that does not support listing (cursor)', async () => {

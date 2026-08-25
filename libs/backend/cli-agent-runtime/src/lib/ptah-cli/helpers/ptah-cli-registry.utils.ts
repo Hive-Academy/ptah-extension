@@ -29,6 +29,24 @@ export function generateAgentId(): string {
 }
 
 /**
+ * Collapse a blank session id to `undefined`.
+ *
+ * `''` is a third state nothing in the session model intends:
+ * `AgentProcessInfo.parentSessionId` is optional (absent = `undefined`) and the
+ * branded `SessionId` requires a UUID. An empty string survives `??` chains, so
+ * a caller that passes `parentSessionId: ''` silently defeats every
+ * `a ?? b ?? fallback` default downstream. Normalise at the boundary instead of
+ * teaching each consumer a second spelling of "absent".
+ *
+ * This was a local copy of the rule until TASK_2026_296. It is now re-exported
+ * from `@ptah-extension/shared` so the trim policy is defined once for the
+ * whole monorepo — the behaviour is identical (trims, returns the trimmed
+ * value, `undefined` for blank), so the four call sites in this lib are
+ * unchanged. See `libs/shared/src/lib/utils/session-id.utils.ts`.
+ */
+export { blankToUndefined } from '@ptah-extension/shared';
+
+/**
  * Summarize tool input for display in structured segments.
  *
  * Extracts the most useful field from the tool input object

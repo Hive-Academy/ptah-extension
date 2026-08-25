@@ -9,20 +9,24 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
-import { execFile, ChildProcess } from 'child_process';
+import {
+  HARNESS_PREFLIGHT_TOKEN,
+  type IHarnessPreflight,
+} from '@ptah-extension/agent-sdk';
+import { ChildProcess } from 'child_process';
 import { promises as fsPromises } from 'fs';
-import { promisify } from 'util';
 import { EventEmitter } from 'eventemitter3';
-import axios from 'axios';
 import {
   TOKENS,
   Logger,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IMcpServerStatus,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ReasoningSettings } from '@ptah-extension/settings-core';
 import {
@@ -34,6 +38,7 @@ import {
   SpawnAgentResult,
   AgentOutput,
   CliType,
+  SYSTEM_CLI_TYPES,
 } from '@ptah-extension/shared';
 import type {
   CliOutputSegment,
@@ -44,11 +49,11 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
   DEFAULT_TIMEOUT,
   MAX_TIMEOUT,
-  KILL_GRACE_PERIOD,
   COMPLETED_AGENT_TTL,
   OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
@@ -61,8 +66,6 @@ import {
   capStreamEvents,
   mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Shell metacharacters — kept for reference only.
@@ -149,8 +152,45 @@ export class AgentProcessManager {
     }
   }
 
+  /** Clamp a UI effort value onto the `low|medium|high` scale `agy` accepts. */
+  private static mapEffortToAgy(effort: string): string | undefined {
+    switch (effort) {
+      case 'minimal':
+      case 'low':
+        return 'low';
+      case 'medium':
+        return 'medium';
+      case 'high':
+      case 'xhigh':
+      case 'max':
+        return 'high';
+      default:
+        return undefined;
+    }
+  }
+
   /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
+    // Pi maps reasoning effort to `--thinking` and supports the full scale
+    // (off|minimal|low|medium|high|xhigh|max), so the configured value flows
+    // through raw — no in-chat driver and no `max`→`xhigh` coercion.
+    if (cli === 'pi') {
+      const piEffort =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          'piReasoningEffort',
+          '',
+        ) ?? '';
+      return piEffort || undefined;
+    }
+    // `agy --effort` takes low|medium|high only, and has no per-CLI config key
+    // (the Antigravity settings pane is model-only), so the in-chat selection
+    // is the sole driver and is clamped onto that three-value scale.
+    if (cli === 'antigravity') {
+      return AgentProcessManager.mapEffortToAgy(
+        this.reasoningSettings.effort.get(),
+      );
+    }
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
     if (uiEffort) return uiEffort;
@@ -180,6 +220,9 @@ export class AgentProcessManager {
       codex: 'codexModel',
       copilot: 'copilotModel',
       cursor: 'cursorModel',
+      antigravity: 'antigravityModel',
+      opencode: 'opencodeModel',
+      pi: 'piModel',
     };
 
   private resolveConfiguredModel(
@@ -198,19 +241,10 @@ export class AgentProcessManager {
     return configuredModel || requestModel;
   }
 
-  /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
-  private mcpHealthCache: {
-    port: number | undefined;
-    timestamp: number;
-  } | null = null;
-  private static readonly MCP_HEALTH_CACHE_TTL = 30_000;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -219,6 +253,20 @@ export class AgentProcessManager {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
     private readonly reasoningSettings: ReasoningSettings,
+    /**
+     * A rival CLI reads the harness off DISK and has no other channel — no
+     * system-prompt injection, no MCP fallback. If `{ws}/.agents/skills` is not
+     * there when the process starts, the skills do not exist for that run.
+     * Optional so a host without `harness-sync` spawns exactly as before.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
+    /**
+     * Optional because CLI-only hosts do not start Ptah's in-process MCP server.
+     * The port is the source of truth after deterministic fallback selection.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -302,6 +350,10 @@ export class AgentProcessManager {
     const workingDirectory =
       request.workingDirectory ?? this.getWorkspaceRoot();
     await this.validateWorkingDirectory(workingDirectory);
+    // AFTER validation, BEFORE the process exists. `workingDirectory` may be a
+    // sub-package of a monorepo (E14) — the preflight resolves it to the
+    // workspace root, which is where every CLI-discoverable directory lives.
+    await this.runHarnessPreflight(workingDirectory);
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
     return this.doSpawnSdk(
@@ -625,8 +677,24 @@ export class AgentProcessManager {
    * Update parentSessionId for all tracked agents that match the given tab ID.
    * Called when the real session UUID is resolved from the SDK, replacing the
    * temporary tab ID so that CLI session persistence uses the correct parent.
+   *
+   * A blank id is not an id. Without this guard, one call with `tabId === ''`
+   * matched every agent whose parent was also `''` — agents belonging to
+   * different sessions, or to none — and re-parented all of them onto whichever
+   * session happened to resolve first. `SubagentRegistryService.pruneSession`
+   * guards the same way.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    if (!tabId || !realSessionId) {
+      this.logger.warn(
+        '[AgentProcessManager] resolveParentSessionId ignored — blank id',
+        {
+          hasTabId: Boolean(tabId),
+          hasRealSessionId: Boolean(realSessionId),
+        },
+      );
+      return;
+    }
     for (const tracked of this.agents.values()) {
       if (tracked.info.parentSessionId === tabId) {
         tracked.info.parentSessionId = realSessionId;
@@ -684,6 +752,15 @@ export class AgentProcessManager {
           `The agent will complete its task based on the original prompt.`,
       );
     }
+    // SDK-based agents that own a live input channel (e.g. Pi RPC mode) route
+    // steering through the handle, which writes to the current child's stdin.
+    // This is preferred over the legacy `tracked.process.stdin` path below.
+    const sdkSteer = tracked.sdkHandle?.steer;
+    if (sdkSteer) {
+      sdkSteer(instruction);
+      return;
+    }
+
     if (!tracked.process) {
       throw new Error(
         `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
@@ -1104,6 +1181,12 @@ export class AgentProcessManager {
       this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
         agentId,
       });
+      // The UI's agent card outlives this record. Announce the drop so a
+      // follow-up box can stop offering `continueConversation` on an id that
+      // can now only answer `not_found`, and reach for the session-resume path
+      // instead. Emitted AFTER the delete so a listener that immediately calls
+      // back in observes the same map this method just left behind.
+      this.events.emit('agent:expired', { agentId });
     }, COMPLETED_AGENT_TTL);
   }
 
@@ -1120,79 +1203,40 @@ export class AgentProcessManager {
   }
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
+    const captureTreeKillError = (err: unknown): void => {
+      this.sentryService.captureException(
+        err instanceof Error ? err : new Error(String(err)),
+        { errorSource: 'AgentProcessManager.killProcess.treeKill' },
+      );
+    };
+
     const child = tracked.process;
     if (!child) {
+      // SDK-handle branch (every current adapter). Abort fires the adapter's own
+      // best-effort graceful stop + tree-kill; we ALSO tree-kill the live child's
+      // process group here (defense in depth for handles whose abort path doesn't
+      // reap descendants), then wait for the run to actually settle.
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
-        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+        const sdkPid = tracked.sdkHandle?.getPid?.();
+        if (sdkPid) {
+          // killProcessTree polls for real exit, so it already blocks until the
+          // process (and group) is gone — no separate settle wait needed.
+          await killProcessTree(sdkPid, 'SIGTERM', captureTreeKillError);
+        } else {
+          // No live child PID exposed — give the abort a brief moment to settle.
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        }
       }
       return;
     }
 
     if (!child.pid) return;
 
-    if (process.platform === 'win32') {
-      try {
-        await execFileAsync('taskkill', [
-          '/pid',
-          String(child.pid),
-          '/T',
-          '/F',
-        ]);
-      } catch (err) {
-        this.sentryService.captureException(
-          err instanceof Error ? err : new Error(String(err)),
-          { errorSource: 'AgentProcessManager.killProcess.taskkill' },
-        );
-        try {
-          child.kill();
-        } catch (killErr) {
-          this.sentryService.captureException(
-            killErr instanceof Error ? killErr : new Error(String(killErr)),
-            { errorSource: 'AgentProcessManager.killProcess.fallbackKill' },
-          );
-          /* already dead */
-        }
-      }
-    } else {
-      const childPid = child.pid;
-      const killGroup = (signal: NodeJS.Signals): boolean => {
-        try {
-          process.kill(-childPid, signal);
-          return true;
-        } catch {
-          child.kill(signal);
-          return false;
-        }
-      };
-
-      killGroup('SIGTERM');
-      await new Promise<void>((resolve) => {
-        let resolved = false;
-
-        const killTimeout = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          try {
-            killGroup('SIGKILL');
-          } catch (err) {
-            this.sentryService.captureException(
-              err instanceof Error ? err : new Error(String(err)),
-              { errorSource: 'AgentProcessManager.killProcess.SIGKILL' },
-            );
-            /* already dead */
-          }
-          resolve();
-        }, KILL_GRACE_PERIOD);
-
-        child.on('exit', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(killTimeout);
-          resolve();
-        });
-      });
-    }
+    // Legacy tracked-ChildProcess branch: single shared tree-kill implementation
+    // (Windows taskkill /T /F; POSIX process-group kill escalating to SIGKILL).
+    await killProcessTree(child.pid, 'SIGTERM', captureTreeKillError);
   }
 
   private getRunningCount(): number {
@@ -1218,7 +1262,7 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>(['codex', 'copilot', 'cursor']);
+    const systemCliTypes = new Set<string>(SYSTEM_CLI_TYPES);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',
@@ -1355,73 +1399,51 @@ export class AgentProcessManager {
   }
 
   /**
-   * Resolve MCP server port for CLI agents, gated on premium status + server health.
-   * Returns the port number if both conditions are met, undefined otherwise.
-   * Mirrors the premium gating pattern from SdkQueryOptionsBuilder.buildMcpServers().
+   * Resolve the actual MCP listener port.
    *
-   * Health check results are cached for 30 seconds to avoid repeated HTTP calls
-   * when spawning multiple agents in rapid succession.
+   * The status port is updated only after the server binds, so it reflects a
+   * deterministic fallback port rather than the configured port that collided.
    */
-  private async resolveMcpPort(): Promise<number | undefined> {
+  private resolveMcpPort(): number | undefined {
     try {
-      const cached = this.licenseService.getCachedStatus();
-      const status = cached ?? (await this.licenseService.verifyLicense());
-      const isPremium =
-        status.tier === 'pro' ||
-        status.tier === 'trial_pro' ||
-        status.plan?.isPremium === true;
-
-      if (!isPremium) {
+      const port = this.mcpServerStatus?.getPort() ?? null;
+      if (port === null) {
         this.logger.info(
-          '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
-          {
-            tier: status.tier,
-          },
+          '[AgentProcessManager] MCP server is not running, disabling for CLI agent',
         );
         return undefined;
       }
-      const configuredPort =
-        this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
-        51820;
 
-      if (
-        this.mcpHealthCache &&
-        Date.now() - this.mcpHealthCache.timestamp <
-          AgentProcessManager.MCP_HEALTH_CACHE_TTL
-      ) {
-        return this.mcpHealthCache.port;
-      }
-      try {
-        await axios.get(`http://localhost:${configuredPort}/health`, {
-          timeout: 2000,
-        });
-        this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
-        this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
-          port: configuredPort,
-        });
-        return configuredPort;
-      } catch (error) {
-        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        if (axios.isAxiosError(error) && error.response) {
-          this.logger.info(
-            `[AgentProcessManager] MCP health check failed: HTTP ${error.response.status}, disabling for CLI agent`,
-          );
-        } else {
-          this.logger.info(
-            '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
-          );
-        }
-        return undefined;
-      }
-    } catch (err) {
+      this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
+        port,
+      });
+      return port;
+    } catch (error: unknown) {
       this.sentryService.captureException(
-        err instanceof Error ? err : new Error(String(err)),
+        error instanceof Error ? error : new Error(String(error)),
         { errorSource: 'AgentProcessManager.resolveMcpPort' },
       );
-      this.logger.info(
-        '[AgentProcessManager] MCP port resolution failed (license check error)',
-      );
+      this.logger.info('[AgentProcessManager] MCP port resolution failed');
       return undefined;
+    }
+  }
+  /**
+   * Bounded harness check for a rival CLI spawn.
+   *
+   * Swallows everything. `spawn` is wrapped in a lock and its caller surfaces
+   * failures to the user as "the agent could not start"; a harness directory
+   * that could not be written is not that, and must not be reported as that.
+   */
+  private async runHarnessPreflight(cwd: string): Promise<void> {
+    if (this.harnessPreflight === null) return;
+    try {
+      await this.harnessPreflight.ensure(cwd);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[AgentProcessManager] Harness preflight failed (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 }

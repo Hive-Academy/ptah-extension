@@ -16,9 +16,15 @@ npx nx run ptah-electron-e2e:e2e:nightly
 ```
 
 The `e2e` target depends on `ptah-electron:build-dev` and
-`ptah-electron:copy-renderer`, so you do not need to run the build by
+`ptah-electron:copy-renderer-dev`, so you do not need to run the build by
 hand. If artifacts are missing for any reason, `globalSetup` fails fast
 with the exact command to run.
+
+`copy-renderer-dev` is a separate target from `copy-renderer` (used by
+`package`): Nx cannot pin a configuration on a `dependsOn` edge, so a single
+target can't serve both the development bundle e2e needs and the production
+bundle packaging needs. Do not point e2e-family targets back at bare
+`copy-renderer` — it always resolves to production (TASK_2026_229).
 
 ## Debug
 

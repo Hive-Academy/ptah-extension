@@ -111,7 +111,7 @@ describe('ptah doctor', () => {
     engine.scripted.set('license:getStatus', {
       success: true,
       data: {
-        tier: 'pro',
+        tier: 'builders',
         valid: true,
         daysRemaining: 8,
         expiryWarning: 'near_expiry',
@@ -199,7 +199,7 @@ describe('ptah doctor', () => {
       timestamp: string;
     };
     expect(report.license).toMatchObject({
-      tier: 'pro',
+      tier: 'builders',
       valid: true,
       daysRemaining: 8,
       expiryWarning: 'near_expiry',

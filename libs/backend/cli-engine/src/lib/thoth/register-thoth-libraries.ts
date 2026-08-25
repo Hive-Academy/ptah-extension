@@ -6,9 +6,9 @@ import type { DependencyContainer } from 'tsyringe';
 import { type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-  type IMemoryLister,
-  type ISymbolSink,
+  NullMemoryLister,
+  NullMemoryReader,
+  NullSymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { registerCuratorAuthServices } from '@ptah-extension/auth-providers';
 import {
@@ -25,7 +25,11 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerCronSchedulerServices,
   CRON_TOKENS,
@@ -120,6 +124,16 @@ export function registerThothLibraries(
   // fanned to all hosts via registerAllRpcHandlers, so its backing services
   // must resolve even if the skill-synthesis block above degraded.
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even in a headless run that never touches the Tasks RPCs.
+  // Non-blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  startTaskSpecsIndex(container, logger);
+
+  // output-styles registered independently for the same reason as task-specs:
+  // OutputStyleRpcHandlers is a `requires: []` manifest entry fanned to every
+  // host, so its backing services must resolve here too. They depend only on
+  // the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER, WORKSPACE_PROVIDER).
+  registerOutputStyleServices(container, logger);
 
   try {
     container.register(CRON_TOKENS.CRON_POWER_MONITOR, {
@@ -158,32 +172,22 @@ function ensureMemoryContractFallbacks(
   const missing: string[] = [];
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
-    const noopMemoryReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopMemoryReader,
+      useValue: NullMemoryReader,
     });
     missing.push('MEMORY_READER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)) {
-    const noopMemoryLister: IMemoryLister = {
-      listAll: () => ({ memories: [], total: 0 }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
-      useValue: noopMemoryLister,
+      useValue: NullMemoryLister,
     });
     missing.push('MEMORY_LISTER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {
-    const noopSymbolSink: ISymbolSink = {
-      deleteSymbolsForFile: () => 0,
-      insertSymbols: async () => undefined,
-    };
     container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
-      useValue: noopSymbolSink,
+      useValue: NullSymbolSink,
     });
     missing.push('SYMBOL_SINK');
   }

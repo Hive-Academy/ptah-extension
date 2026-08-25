@@ -1,0 +1,36 @@
+
+[test:native] persistence-sqlite — electron-as-node (ABI-matched)
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0017_memory_schema_v2.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\sqlite-connection.service.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\sqlite-connection.realbinary.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\backup.service.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0018_corpora.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0024_gateway_conversations.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migration-runner.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0030_skill_event_metrics.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0021_skill_invocation_events.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0016_observation_queue.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0025_skill_suggestions.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0028_gateway_conversation_workspace_root.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0023_skill_registry_pending.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0022_skill_registry.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0014_boot_scan_state.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0031_task_specs_metadata.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0026_skill_residency.spec.ts
+D:\projects\ptah-extension\libs\backend\persistence-sqlite\src\lib\migrations\0027_skill_event_reconciliation.spec.ts
+
+[test:native] task-specs — electron-as-node (ABI-matched)
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\contract.guard.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-scanner.service.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-writer.conflict.integration.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-index.service.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-writer.metadata.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-writer.service.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-index.store.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\registry-generator.service.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-doctor.service.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-graph.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\task-frontmatter.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\id-allocator.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\di\start-index.spec.ts
+D:\projects\ptah-extension\libs\backend\task-specs\src\lib\normalize-workspace-root.spec.ts

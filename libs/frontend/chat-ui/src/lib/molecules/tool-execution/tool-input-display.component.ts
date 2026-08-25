@@ -38,7 +38,7 @@ interface InputParam {
         <!-- Collapsible Input header -->
         <button
           type="button"
-          class="flex items-center gap-1 text-[10px] font-semibold text-base-content/50 mb-0.5 hover:text-base-content/70 transition-colors"
+          class="flex items-center gap-1 text-[10px] font-semibold text-base-content-muted mb-0.5 hover:text-base-content transition-colors"
           (click)="toggleInputCollapsed()"
         >
           <span
@@ -76,7 +76,7 @@ interface InputParam {
                         />
                       </div>
                     } @else {
-                      <div class="text-base-content/60 italic">
+                      <div class="text-base-content-muted italic">
                         {{ param.value }}
                       </div>
                     }
@@ -85,7 +85,7 @@ interface InputParam {
                   <!-- Normal param display -->
                   <div class="flex gap-2 px-2 py-1">
                     <span class="text-primary/70">{{ param.key }}:</span>
-                    <span class="text-base-content/80 break-all">{{
+                    <span class="text-base-content-muted break-all">{{
                       param.value
                     }}</span>
                   </div>

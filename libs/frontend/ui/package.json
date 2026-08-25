@@ -5,7 +5,8 @@
     "@angular/cdk": "21.2.4",
     "@angular/core": "21.2.6",
     "@angular/common": "21.2.6",
-    "@floating-ui/dom": "^1.7.4"
+    "@floating-ui/dom": "^1.7.4",
+    "@ptah-extension/shared": "0.0.1"
   },
   "sideEffects": false
 }

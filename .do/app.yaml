@@ -49,7 +49,7 @@ static_sites:
   - name: landing
     github:
       repo: Hive-Academy/ptah-extension
-      branch: main
+      branch: release/landing
       deploy_on_push: false
     source_dir: /
     build_command: bash scripts/do-build.sh
@@ -62,3 +62,19 @@ static_sites:
     # CSR deep-links (/login, /signup, /profile, /trial-ended, /admin/**) boot
     # the SPA cleanly instead of flashing the prerendered home page.
     catchall_document: index.csr.html
+    # App spec field is `envs`, NOT `env_vars` — doctl rejects the whole spec
+    # with `unknown field "env_vars"` before it ever reaches the builder.
+    # A static site has no runtime, so every var here is BUILD_TIME.
+    envs:
+      # The buildpack defaults to NODE_ENV=production, which skips
+      # devDependencies and breaks the Nx/Angular build. Force a full install.
+      - key: NODE_ENV
+        scope: BUILD_TIME
+        value: development
+      - key: NPM_CONFIG_PRODUCTION
+        scope: BUILD_TIME
+        value: "false"
+      # Angular 21 build of the full monorepo needs more than the default heap.
+      - key: NODE_OPTIONS
+        scope: BUILD_TIME
+        value: --max-old-space-size=4096

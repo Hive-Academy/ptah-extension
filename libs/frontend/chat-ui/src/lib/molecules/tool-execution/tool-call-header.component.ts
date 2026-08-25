@@ -63,7 +63,7 @@ import {
       <!-- Chevron icon -->
       <lucide-angular
         [img]="ChevronIcon"
-        class="w-3 h-3 flex-shrink-0 text-base-content/50 transition-transform"
+        class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform"
         [class.rotate-0]="!isCollapsed()"
         [class.-rotate-90]="isCollapsed()"
       />
@@ -94,7 +94,7 @@ import {
           />
         } @else {
           <span
-            class="text-base-content/60 truncate flex-1 min-w-0 font-mono text-[10px]"
+            class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
             [title]="getFullDescription()"
           >
             {{ getToolDescription() }}
@@ -131,7 +131,7 @@ import {
             class="w-3 h-3 text-info animate-spin flex-shrink-0"
           />
           <span
-            class="text-base-content/50 text-[10px] animate-pulse font-mono truncate"
+            class="text-base-content-muted text-[10px] animate-pulse font-mono truncate"
           >
             {{ getStreamingDescription() }}
           </span>

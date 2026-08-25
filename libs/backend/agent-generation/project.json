@@ -27,6 +27,15 @@
       "options": {
         "jestConfig": "libs/backend/agent-generation/jest.config.ts"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/agent-generation/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
     }
   }
 }

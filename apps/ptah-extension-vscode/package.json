@@ -39,7 +39,8 @@
     "onCommand:ptah.openFullPanel",
     "onCommand:ptah.toggleChat",
     "onCommand:ptah.setupAgents",
-    "onCommand:ptah.openDashboard"
+    "onCommand:ptah.openDashboard",
+    "onUri"
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "preview": true,

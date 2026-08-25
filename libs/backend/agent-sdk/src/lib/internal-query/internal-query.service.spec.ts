@@ -43,7 +43,6 @@ function makeConfig(
     cwd: '/fake/workspace',
     model: 'claude-sonnet-4-20250514',
     prompt: 'Analyze this workspace',
-    isPremium: false,
     mcpServerRunning: false,
     ...overrides,
   };
@@ -84,13 +83,11 @@ describe('InternalQueryService', () => {
         model: 'opus',
         prompt: 'do the thing',
         systemPromptAppend: 'return JSON',
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 51820,
         maxTurns: 12,
         outputFormat,
         abortController,
-        pluginPaths: ['/p1', '/p2'],
       };
 
       await h.service.execute(config);
@@ -102,13 +99,11 @@ describe('InternalQueryService', () => {
         model: 'opus',
         prompt: 'do the thing',
         systemPromptAppend: 'return JSON',
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 51820,
         maxTurns: 12,
         outputFormat,
         abortController,
-        pluginPaths: ['/p1', '/p2'],
       });
     });
 
@@ -124,7 +119,6 @@ describe('InternalQueryService', () => {
       expect(input.maxTurns).toBeUndefined();
       expect(input.outputFormat).toBeUndefined();
       expect(input.abortController).toBeUndefined();
-      expect(input.pluginPaths).toBeUndefined();
     });
 
     it('propagates rejections thrown by the runner', async () => {

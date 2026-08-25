@@ -10,8 +10,38 @@ import type {
   QualityHistoryEntry,
 } from '../quality-assessment.types';
 
+/**
+ * Workspace-scoping param shared by the `@` file picker (`context:*`) and the
+ * `/` command picker (`autocomplete:*`). Same convention as
+ * {@link GitWorkspaceScopedParams} / {@link TasksWorkspaceScopedParams} — one
+ * optional `workspaceRoot` field, absolute path, host-native form.
+ *
+ * **Omitting it means "the process-global active workspace folder"** — i.e.
+ * whatever `IWorkspaceProvider.getWorkspaceRoot()` reports at the instant the
+ * request is served. That fallback is a deliberate part of the contract, not an
+ * accident: an older webview build and any MCP-side caller that has no root to
+ * offer must keep working unchanged.
+ *
+ * The process-global root is subject to switch timing (Electron flips the
+ * active folder at runtime) and, in VS Code, it is the *window's* folder even
+ * when the calling chat tab is bound to a different session root. A caller that
+ * knows which workspace it means should therefore ALWAYS pass it — that is the
+ * only thing on this wire that can disambiguate, since the RPC envelope carries
+ * no session id (TASK_2026_200).
+ *
+ * Send the field or omit it — never send `''`. The empty string is not "no
+ * opinion", and the backend rejects it at the Zod boundary.
+ */
+export interface PickerWorkspaceScopedParams {
+  /**
+   * Absolute path of the workspace to answer for. Omit for the process-global
+   * active workspace folder.
+   */
+  workspaceRoot?: string;
+}
+
 /** Parameters for context:getAllFiles RPC method */
-export interface ContextGetAllFilesParams {
+export interface ContextGetAllFilesParams extends PickerWorkspaceScopedParams {
   /** Whether to include image files */
   includeImages?: boolean;
   /** Maximum number of files to return */
@@ -19,7 +49,7 @@ export interface ContextGetAllFilesParams {
 }
 
 /** Parameters for context:getFileSuggestions RPC method */
-export interface ContextGetFileSuggestionsParams {
+export interface ContextGetFileSuggestionsParams extends PickerWorkspaceScopedParams {
   /** Search query for file suggestions */
   query?: string;
   /** Maximum number of suggestions to return */
@@ -50,7 +80,7 @@ export interface ContextGetFileSuggestionsResult {
 }
 
 /** Parameters for autocomplete:agents RPC method */
-export interface AutocompleteAgentsParams {
+export interface AutocompleteAgentsParams extends PickerWorkspaceScopedParams {
   /** Search query for agents */
   query?: string;
   /** Maximum number of results */
@@ -58,7 +88,7 @@ export interface AutocompleteAgentsParams {
 }
 
 /** Parameters for autocomplete:commands RPC method */
-export interface AutocompleteCommandsParams {
+export interface AutocompleteCommandsParams extends PickerWorkspaceScopedParams {
   /** Search query for commands */
   query?: string;
   /** Maximum number of results */
@@ -111,36 +141,30 @@ export type LicenseGetStatusParams = Record<string, never>;
 /**
  * License tier values for RPC communication.
  *
- * Freemium model:
- * - 'community': FREE forever - always valid, no license required
- * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 100-day trial
+ * Open-source + Builders model (exactly three values):
+ * - 'community': FREE and open source - always valid, no license required
+ * - 'builders': Active Ptah Builders membership (the only premium tier)
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
-export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type LicenseTier = 'community' | 'builders' | 'expired';
 
 /**
  * Response from license:getStatus RPC method.
  *
- * Supports a two-tier paid model with trial support, plus a `reason` field
- * for context-aware welcome messaging. Freemium model uses `isCommunity`
- * (previously `isBasic`).
+ * Open-source + Builders model, plus a `reason` field for context-aware
+ * welcome messaging. Freemium model uses `isCommunity` (previously `isBasic`).
  */
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** License tier (community, pro, trial_pro, or expired) */
+  /** License tier (community, builders, or expired) */
   tier: LicenseTier;
-  /** Whether the user has premium features enabled (Pro tier) */
+  /** Whether the user has premium features enabled (Builders tier) */
   isPremium: boolean;
   /** Whether the user has Community tier (convenience flag) */
   isCommunity: boolean;
   /** Days remaining before subscription expires (null if not applicable) */
   daysRemaining: number | null;
-  /** Whether user is currently in trial period */
-  trialActive: boolean;
-  /** Days remaining in trial period (null if not in trial) */
-  trialDaysRemaining: number | null;
   /** Plan details (if has valid license) */
   plan?: {
     name: string;
@@ -148,7 +172,7 @@ export interface LicenseGetStatusResponse {
     features: string[];
   };
   /** Reason for invalid license (for context-aware welcome messaging) */
-  reason?: 'expired' | 'trial_ended' | 'no_license';
+  reason?: 'expired' | 'no_license';
   /** User profile data - only present for licensed users */
   user?: {
     email: string;
@@ -257,6 +281,51 @@ export interface QualityExportResult {
   filePath?: string;
 }
 
+/**
+ * Where a plugin came from — this drives its activation semantics.
+ *
+ * - `bundled`: shipped with Ptah and downloaded into `~/.ptah/plugins/`.
+ *   OPT-IN — active only while its id is listed in `enabledPluginIds`.
+ * - `harness`: authored by the user through the harness wizard
+ *   (`ptah_harness_create_skill` / `harness:create-skill`), written to
+ *   `~/.ptah/plugins/ptah-harness-{slug}/`. OPT-OUT — the user created it by
+ *   clicking Apply, so it is active on discovery and stays active until its id
+ *   is listed in `disabledPluginIds`.
+ * - `external`: installed from a third-party marketplace into
+ *   `~/.ptah/plugins/external/<owner>/<repo>/<plugin>/`. OPT-IN like bundled,
+ *   so it must appear in `enabledPluginIds` to take effect — but the consent
+ *   dialog already showed the user its skills, scripts and declared MCP
+ *   servers, so a successful install enables it in the current workspace
+ *   rather than making the user hunt for a second switch. Turning it off
+ *   afterwards is the ordinary bundled-plugin toggle.
+ * - `skillssh`: installed from the skills.sh directory into
+ *   `~/.ptah/plugins/ptah-skillssh-{owner}-{repo}/`. OPT-OUT like `harness` —
+ *   the user picked this exact skill by name, which is the same deliberate act
+ *   as authoring one. Before TASK_2026_288 these did not appear here at all:
+ *   the install wrote straight into `.claude/skills`, so the skill reached
+ *   Claude alone, no toggle could reach it, and `ptah harness doctor` reported
+ *   it `foreign` forever.
+ *
+ * Optional on {@link PluginInfo} for back-compat: payloads produced before this
+ * field existed carry only bundled plugins, so `undefined` means `'bundled'`.
+ */
+export type PluginSource = 'bundled' | 'harness' | 'external' | 'skillssh';
+
+/**
+ * Whether a plugin source is OPT-OUT (active on discovery) rather than OPT-IN
+ * (active only while listed in `enabledPluginIds`).
+ *
+ * One rule, three consumers — `PluginLoaderService.resolveCurrentPluginPaths`,
+ * the plugin browser modal's toggle, and the status widget's enabled count. It
+ * lives here because those three disagreeing is invisible until a user toggles
+ * a plugin and the count does not move.
+ */
+export function isOptOutPluginSource(
+  source: PluginSource | undefined,
+): boolean {
+  return source === 'harness' || source === 'skillssh';
+}
+
 /** Plugin metadata for UI display */
 export interface PluginInfo {
   /** Unique plugin identifier (directory name, e.g., 'ptah-core') */
@@ -270,7 +339,9 @@ export interface PluginInfo {
     | 'core-tools'
     | 'backend-tools'
     | 'frontend-tools'
-    | 'creative-tools';
+    | 'creative-tools'
+    | 'harness-tools'
+    | 'external-tools';
   /** Number of skills in this plugin */
   skillCount: number;
   /** Number of commands in this plugin */
@@ -279,26 +350,87 @@ export interface PluginInfo {
   isDefault: boolean;
   /** Search keywords for filtering */
   keywords: string[];
+  /** Origin + activation semantics. Absent on legacy payloads → `'bundled'`. */
+  source?: PluginSource;
 }
 
 /** Per-workspace plugin configuration state */
 export interface PluginConfigState {
-  /** Array of enabled plugin IDs */
+  /**
+   * Plugin IDs the user explicitly turned ON.
+   *
+   * This is the allowlist for OPT-IN (bundled) plugins only. Harness-authored
+   * plugins are default-enabled and are NOT required to appear here.
+   */
   enabledPluginIds: string[];
   /** Skill directory names that are explicitly disabled (e.g., "orchestration") */
   disabledSkillIds: string[];
+  /**
+   * Plugin IDs the user explicitly turned OFF.
+   *
+   * Only meaningful for OPT-OUT (harness-authored) plugins: those are active on
+   * discovery, so the only way to record "the user unchecked this" is a
+   * dedicated denylist. Optional — configs persisted before this field existed
+   * load unchanged and are read as an empty denylist (no migration).
+   */
+  disabledPluginIds?: string[];
+  /**
+   * Agent slugs the user explicitly turned OFF — `backend-developer` for
+   * `~/.ptah/user/agents/backend-developer.md`.
+   *
+   * The per-agent half of agent consent; the workspace-level half lives in
+   * `{ws}/.ptah/harness/state.json`. Optional for the same reason
+   * {@link disabledPluginIds} is: configs persisted before this field existed
+   * load unchanged and read as an empty denylist (no migration).
+   */
+  disabledAgentIds?: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
 }
 
-/** Skill metadata for per-skill toggling UI */
+/**
+ * Invocation confidence for a skill descriptor.
+ *
+ * `invocable` means Ptah discovered a local `SKILL.md` directory and therefore
+ * knows the native Skill-tool invocation name. `not-invocable` means that
+ * local descriptor is explicitly disabled in the current workspace. `unknown`
+ * is reserved for directory-search records whose bytes are not local yet.
+ */
+export type SkillInvocability = 'invocable' | 'not-invocable' | 'unknown';
+
+/**
+ * Stable, source-qualified identity for a skill descriptor.
+ *
+ * `skillId` intentionally remains the bare directory slug because it is both
+ * the existing toggle key and the native Skill-tool invocation name. It is not
+ * globally unique across independent plugin sources, so consumers that need a
+ * descriptor identity must use this value instead.
+ */
+export function buildSkillDescriptorId(
+  sourceId: string,
+  invocationName: string,
+): string {
+  return `${sourceId}:${invocationName}`;
+}
+
+/** Skill metadata for per-skill toggling UI and discovery surfaces. */
 export interface PluginSkillEntry {
-  /** Skill directory name (globally unique, used as ID) */
+  /** Existing toggle key: the bare directory slug. */
   skillId: string;
-  /** Human-readable skill name from SKILL.md frontmatter */
+  /** Stable identity qualified by the plugin/source that supplied this skill. */
+  descriptorId: string;
+  /** Native Skill-tool name: always the bare skill directory slug. */
+  invocationName: string;
+  /** Human-readable skill name from SKILL.md frontmatter. */
   displayName: string;
-  /** Skill description from SKILL.md frontmatter */
+  /** Skill description from SKILL.md frontmatter. */
   description: string;
-  /** Parent plugin ID (e.g., "ptah-core") */
+  /** Parent plugin ID (e.g., "ptah-core"); stable within its source. */
   pluginId: string;
+  /** Stable source identifier; local descriptors use their parent plugin ID. */
+  sourceId: string;
+  /** Origin and activation semantics of the parent plugin. */
+  source: PluginSource;
+  /** Whether this descriptor can be invoked through the native Skill tool. */
+  invocability: SkillInvocability;
 }

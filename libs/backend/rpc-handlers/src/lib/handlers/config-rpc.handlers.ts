@@ -11,7 +11,6 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
-  FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -24,6 +23,7 @@ import {
   SdkPermissionHandler,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
+import type { IPricingProvider } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   ProviderModelsService,
@@ -41,7 +41,9 @@ import {
   ConfigEffortSetParams,
   ConfigEffortSetResult,
   ConfigEffortGetResult,
+  ConfigPricingGetResult,
   getModelPricingDescription,
+  getPricingMap,
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -65,6 +67,7 @@ export class ConfigRpcHandlers {
     'config:models-list',
     'config:effort-get',
     'config:effort-set',
+    'config:pricing-get',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -82,12 +85,12 @@ export class ConfigRpcHandlers {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(TOKENS.FEATURE_GATE_SERVICE)
-    private readonly featureGate: FeatureGateService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
     private readonly reasoningSettings: ReasoningSettings,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -102,6 +105,7 @@ export class ConfigRpcHandlers {
     this.registerModelsList();
     this.registerEffortGet();
     this.registerEffortSet();
+    this.registerPricingGet();
     const autopilotEnabled = this.configManager.getWithDefault<boolean>(
       'autopilot.enabled',
       false,
@@ -125,8 +129,49 @@ export class ConfigRpcHandlers {
         'config:models-list',
         'config:effort-get',
         'config:effort-set',
+        'config:pricing-get',
       ],
       initialPermissionLevel: effectiveLevel,
+    });
+  }
+
+  /**
+   * config:pricing-get - Hand the runtime pricing map to the webview.
+   *
+   * `pricing.utils` stores its map in a module-level `let`, and the webview
+   * bundle holds its OWN instance of that module. Every hydration path —
+   * OpenRouter's catalog, `seedStaticModelPricing`, Ollama Cloud's metadata —
+   * runs in the extension host, so the renderer's copy never held anything but
+   * the handful of bundled entries. There is no way to share the map short of
+   * sending it, which is what this does.
+   *
+   * Awaits {@link IPricingProvider.ensureHydrated} first so a webview that
+   * boots faster than the catalog fetch does not cache the bundled table
+   * forever. Hydration failure is reported, never thrown: a renderer holding
+   * the bundled table is degraded, not broken, and `hydrated: false` tells it
+   * the answer is worth asking for again.
+   */
+  private registerPricingGet(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      ConfigPricingGetResult
+    >('config:pricing-get', async () => {
+      let hydrated = false;
+      try {
+        hydrated = await this.pricingProvider.ensureHydrated();
+      } catch (error) {
+        // Not fatal — fall through and serve whatever the map holds.
+        this.logger.warn(
+          'RPC: config:pricing-get hydration failed, serving bundled pricing',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      const pricing = getPricingMap();
+      this.logger.debug('RPC: config:pricing-get called', {
+        entryCount: Object.keys(pricing).length,
+        hydrated,
+      });
+      return { pricing, hydrated };
     });
   }
 
@@ -298,12 +343,6 @@ export class ConfigRpcHandlers {
           sessionId,
         });
         if (enabled && permissionLevel === 'yolo') {
-          const isPro = await this.featureGate.isProTier();
-          if (!isPro) {
-            throw new Error(
-              'YOLO mode requires a Pro subscription. Upgrade to enable unattended execution.',
-            );
-          }
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
             { enabled, permissionLevel },
@@ -323,8 +362,13 @@ export class ConfigRpcHandlers {
         // most-recently-active session. Permission gating is now per-session
         // (each session reads its own level), so the toggle must reach a
         // concrete session to take effect on a running turn.
+        //
+        // An empty sessionId counts as "not supplied": `??` alone kept it, and
+        // the truthiness check below then discarded it, so the toggle reached
+        // no session at all and the fallback never fired.
+        const requestedSessionId = sessionId ? sessionId : undefined;
         const targetSessionId =
-          sessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+          requestedSessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
         if (targetSessionId) {
           try {
             const sdkMode = enabled
@@ -442,6 +486,12 @@ export class ConfigRpcHandlers {
             tierOverrides: tierOverrides ?? 'null',
             savedModel,
           });
+          // Rates are the published ones either way; the active provider's
+          // billing policy only decides whether the line says they are
+          // charged per token or absorbed by a flat fee.
+          const pricingOptions = {
+            subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
+          };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           const models: Array<{
             id: string;
@@ -471,7 +521,7 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
+                ? getModelPricingDescription(providerModelId, pricingOptions)
                 : m.description,
               isSelected:
                 m.value === savedModel ||
@@ -496,8 +546,8 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
-                : getModelPricingDescription(m.value),
+                ? getModelPricingDescription(providerModelId, pricingOptions)
+                : getModelPricingDescription(m.value, pricingOptions),
               isSelected:
                 m.value === savedModel ||
                 (savedModel.startsWith('claude-') &&

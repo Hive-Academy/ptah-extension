@@ -1,0 +1,25 @@
+<div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+  <lucide-angular
+    [img]="icon()"
+    class="h-10 w-10 text-base-content/40"
+    aria-hidden="true"
+  />
+  <p class="text-sm text-base-content-muted">{{ message() }}</p>
+  @if (hint(); as h) {
+    <!--
+      🔴 THE TOKEN, NOT AN ALPHA. Batch 13's axe pass measured this exact
+      paragraph at 3.2:1 (#656b79 on #151c27, 12px normal) on
+      `/members/live/request` and failed WCAG AA's 4.5:1 for body text. B13
+      closed it by moving `/40` to `/60` — which then measured 4.42:1 on
+      `operator-member-light` and failed there instead. No alpha is correct on
+      every theme, so the value is chosen per theme by `--bcm` and this reads it.
+      The decorative icon above keeps `/40` because it is `aria-hidden` and
+      carries no information the hint does not; no contrast ratio applies to it.
+      A hint is a sentence a member is meant to READ, so it takes the token.
+    -->
+    <p class="max-w-sm text-xs text-base-content-muted">{{ h }}</p>
+  }
+  <div class="mt-1 empty:hidden">
+    <ng-content />
+  </div>
+</div>

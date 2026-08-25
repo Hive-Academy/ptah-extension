@@ -17,6 +17,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
+import type { ActivityHold } from './no-activity-watchdog';
 import {
   AISessionConfig,
   AuthEnv,
@@ -48,6 +49,7 @@ import { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-han
 import { StopHookHandler } from './stop-hook-handler';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+import { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -58,14 +60,20 @@ import {
   type ModelInfo,
   type SdkBeta,
   type Options,
+  type Settings,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getModelContextWindow,
+  includesUserSettingSource,
 } from '@ptah-extension/shared';
-import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
+import {
+  SdkModelService,
+  TIER_ENV_VAR_MAP,
+  buildTierEnvDefaults,
+} from './sdk-model-service';
 import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
@@ -77,28 +85,15 @@ import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
- * Detect obvious upstream provider error signatures in a stderr chunk.
- *
- * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
- * through the message stream, which causes the UI to hang. These patterns
- * cover the common cases we've seen from Anthropic-compatible providers
- * (Moonshot, Z.AI, OpenRouter) â€” HTTP status codes, Anthropic error type
- * strings, and common auth/model keywords.
+ * Placeholders `ModelResolver.resolve()` can hand back when a tier has no
+ * concrete mapping: the bare tier names and the literal `'default'`. They name
+ * a slot, not a model, so the identity block must be omitted rather than
+ * announce "You are running as sonnet".
  */
-function isUpstreamProviderError(stderrChunk: string): boolean {
-  const lower = stderrChunk.toLowerCase();
-  return (
-    /\b(401|403|404|429|5\d\d)\b/.test(stderrChunk) ||
-    lower.includes('model_not_found') ||
-    lower.includes('invalid_request_error') ||
-    lower.includes('authentication_error') ||
-    lower.includes('permission_error') ||
-    lower.includes('not_found_error') ||
-    lower.includes('rate_limit_error') ||
-    lower.includes('overloaded_error') ||
-    lower.includes('api_error')
-  );
-}
+const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
+  'default',
+  ...Object.keys(TIER_ENV_VAR_MAP),
+]);
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -110,12 +105,24 @@ function isUpstreamProviderError(stderrChunk: string): boolean {
  * This function generates a clarification prompt that overrides the identity
  * when a third-party provider is active.
  *
+ * `resolvedModel` MUST be the same value handed to `Options.model` — i.e. the
+ * output of `SdkModelService.resolveModelId()` for THIS session. It used to be
+ * derived here as `OPUS || SONNET || HAIKU`, which picks the first tier that
+ * happens to be defined rather than the tier the session runs on: a
+ * `modelTier: 'sonnet'` spawn on a provider whose opus and sonnet mappings
+ * differ was ordered to identify as the opus model. Because the block ends with
+ * "takes precedence over any other identity instructions", the agent then
+ * authoritatively reported a model it was not running.
+ *
  * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
- * @returns Identity clarification prompt, or undefined if using Anthropic directly
+ * @param resolvedModel - The concrete model id this session runs on
+ * @returns Identity clarification prompt, or undefined when the provider is
+ *   Anthropic itself or the model cannot be resolved to a concrete id (a
+ *   missing clarification beats a confidently wrong one)
  */
 export function buildModelIdentityPrompt(
   providerId: string | null,
-  authEnv: AuthEnv,
+  resolvedModel: string | undefined,
 ): string | undefined {
   if (!providerId) {
     return undefined;
@@ -125,12 +132,9 @@ export function buildModelIdentityPrompt(
   if (!provider) {
     return undefined;
   }
-  const actualModel =
-    authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
-  if (!actualModel) {
+  const actualModel = resolvedModel?.trim();
+  if (!actualModel || UNRESOLVED_MODEL_IDS.has(actualModel.toLowerCase())) {
     return undefined;
   }
   return `# Model Identity Clarification
@@ -163,12 +167,18 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
     return 'openrouter';
   }
-  for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
-    const provider = getAnthropicProvider(id);
-    if (provider && provider.baseUrl) {
+  // Merged list — a session running through a user-defined entry must still
+  // resolve back to its provider id, or the model-identity system prompt is
+  // never injected for that session.
+  for (const provider of getAllAnthropicProviders()) {
+    if (!provider.baseUrl) continue;
+    try {
       if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        return id;
+        return provider.id;
       }
+    } catch {
+      // A malformed base URL on one entry must not abort the whole scan.
+      continue;
     }
   }
 
@@ -183,12 +193,25 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
 export interface AssembleSystemPromptInput {
   /** Active provider ID (from getActiveProviderId) - for model identity clarification */
   providerId: string | null;
-  /** AuthEnv for the session - used by buildModelIdentityPrompt */
-  authEnv: AuthEnv;
+  /**
+   * The concrete model id this session runs on — the SAME value assigned to
+   * `Options.model`. Feeds `buildModelIdentityPrompt`; when it cannot be
+   * resolved the identity block is omitted rather than guessed.
+   */
+  resolvedModel: string | undefined;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
-  /** Whether the user has premium features */
-  isPremium: boolean;
+  /**
+   * Output-style BODY to append (TASK_2026_197, Req 5.2).
+   *
+   * Populated ONLY when `ActivationDecision.path === 'inject'` — a user-tier
+   * style FILE on a localhost-proxy provider, where `settingSources` drops
+   * `'user'` and the SDK never scans `~/.claude/output-styles/` at all. Every
+   * other case rides the flag tier (`Options.settings.outputStyle`) instead,
+   * which is why this is a separate field from `outputStyleName` and why the
+   * two can never both be set — see `assertSingleOutputStylePath`.
+   */
+  outputStyleBody?: string;
   /** Whether the MCP server is currently running */
   mcpServerRunning: boolean;
   /** Enhanced prompts content (AI-generated guidance) */
@@ -216,15 +239,12 @@ export interface SystemPromptAssemblyResult {
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
- * **Premium users**: PTAH_CORE_SYSTEM_PROMPT is appended to the preset, providing
+ * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset, providing
  * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
  * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
  * (project-specific guidance from the setup wizard) are also appended when available.
  * Some behavioral sections overlap with the preset â€” this is intentional as it
  * reinforces the instructions without contradicting them.
- *
- * **Free tier**: Only basic top-ups appended (identity, user prompt). No Ptah-specific
- * behavioral guidance.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -236,23 +256,28 @@ export function assembleSystemPrompt(
 ): SystemPromptAssemblyResult {
   const {
     providerId,
-    authEnv,
+    resolvedModel,
     userSystemPrompt,
-    isPremium,
     enhancedPromptsContent,
+    outputStyleBody,
   } = input;
   const appendParts: string[] = [];
-  const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
+  const identityPrompt = buildModelIdentityPrompt(providerId, resolvedModel);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
-  if (isPremium) {
-    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-  }
+  appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
-  if (isPremium && enhancedPromptsContent?.trim()) {
+  // Output-style INJECT fallback. Pushed exactly once, from exactly one place:
+  // there is no other `appendParts.push(outputStyleBody)` in this file, which
+  // is what makes Req 5.3 ("applied exactly once") structural. The trim guard
+  // keeps an all-whitespace body from adding a stray blank section.
+  if (outputStyleBody?.trim()) {
+    appendParts.push(outputStyleBody);
+  }
+  if (enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
   }
 
@@ -260,6 +285,60 @@ export function assembleSystemPrompt(
     mode: 'preset-append',
     content: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
   };
+}
+
+/** The two `AISessionConfig` fields that carry an output-style activation. */
+type OutputStyleActivationFields = Pick<
+  AISessionConfig,
+  'outputStyleName' | 'outputStyleBody'
+>;
+
+/**
+ * Defensive guard: the flag field and the inject field must never both be set.
+ *
+ * `OutputStyleActivationResolver` defines `inject` as `!fileVisible`, so the
+ * two branches are complements of one boolean and this is unreachable through
+ * the supported path. It is asserted anyway because the failure mode it
+ * guards is silent — a style applied through BOTH the flag tier and the
+ * appended prompt is a doubled instruction the user cannot see (R3 / Req 5.3).
+ * Throwing here makes a future regression loud at session start instead.
+ */
+export function assertSingleOutputStylePath(
+  sessionConfig?: OutputStyleActivationFields,
+): void {
+  if (sessionConfig?.outputStyleName && sessionConfig?.outputStyleBody) {
+    throw new SdkError(
+      'Output style activation is ambiguous: outputStyleName and ' +
+        'outputStyleBody are both set. ActivationDecision guarantees exactly ' +
+        'one of them; this is a regression in the activation resolver or in ' +
+        'the chat-session call site.',
+    );
+  }
+}
+
+/**
+ * Build the SDK's FLAG-tier settings object for one session.
+ *
+ * `PTAH_DISABLE_SDK_AUTO_MEMORY` is a MODULE-LEVEL object handed to the SDK by
+ * reference on every query. Mutating it to carry a style would leak that style
+ * into every later session, including sessions that chose none (G4) — so a
+ * style is merged into a FRESH spread and the shared constant is only ever
+ * read.
+ *
+ * When no style is active the constant is returned unchanged, so `outputStyle`
+ * is ABSENT rather than `undefined` or `'default'`. This matters: the flag tier
+ * OUTRANKS user/project/local settings, so emitting the key when Ptah has no
+ * opinion would silently clobber a style the user picked for their own Claude
+ * Code CLI usage. Absence is the only correct "no opinion" value (G4b).
+ */
+export function buildFlagSettings(
+  sessionConfig?: OutputStyleActivationFields,
+): Settings {
+  assertSingleOutputStylePath(sessionConfig);
+  const styleName = sessionConfig?.outputStyleName?.trim();
+  return styleName
+    ? { ...PTAH_DISABLE_SDK_AUTO_MEMORY, outputStyle: styleName }
+    : PTAH_DISABLE_SDK_AUTO_MEMORY;
 }
 
 /**
@@ -289,31 +368,19 @@ export interface QueryOptionsInput {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt
-   * When true, enables Ptah MCP server and appends PTAH_CORE_SYSTEM_PROMPT
-   * Defaults to false (free tier behavior)
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
   /**
    * Enhanced prompts content.
-   * AI-generated project-specific guidance appended as a premium top-up
+   * AI-generated project-specific guidance appended as a top-up
    * alongside the base prompt (either claude_code preset or PTAH_CORE_SYSTEM_PROMPT).
    * Also triggers auto-selection of the Ptah harness path when no explicit preset is set.
    */
   enhancedPromptsContent?: string;
-  /**
-   * Plugin paths to load for this session.
-   * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Only populated for premium users with configured plugins.
-   */
-  pluginPaths?: string[];
   /**
    * Initial SDK permission mode based on current autopilot config.
    * Mapped from the per-session level: 'auto-edit' → 'acceptEdits',
@@ -331,17 +398,6 @@ export interface QueryOptionsInput {
    * bundle time.
    */
   pathToClaudeCodeExecutable?: string;
-  /**
-   * Optional callback invoked when the SDK's stderr stream contains an
-   * obvious upstream provider error (HTTP 4xx, model_not_found,
-   * invalid_request_error, authentication failures). The callee is
-   * responsible for surfacing the error to the UI â€” typically by aborting
-   * the query's AbortController with a descriptive Error, which then
-   * causes the stream iterator to throw. Without this hook, stderr-only
-   * errors (e.g., Moonshot returning model_not_found for an unsupported
-   * tier mapping) can leave the UI hanging with no response.
-   */
-  onProviderError?: (message: string) => void;
   /**
    * When true, resume + forkSession together create a NEW session ID instead
    * of mutating the resumed transcript. Used by the fork-session RPC path.
@@ -366,6 +422,17 @@ export interface QueryOptionsInput {
    */
   includePartialMessages?: boolean;
   /**
+   * When true, the SDK forwards the full nested subagent conversation
+   * (assistant/user text + thinking) through the message stream so live
+   * subagent transcripts render in the execution tree. Mirrors
+   * `Options.forwardSubagentText`. Defaults to ON when unspecified. This is a
+   * deliberate killswitch: forwarded text shares the per-session capped event
+   * buffer with the root conversation, so a caller can pass `false` to fall
+   * back to the lighter task_* summary path if a chatty subagent is observed
+   * evicting root/sibling events under load.
+   */
+  forwardSubagentText?: boolean;
+  /**
    * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
    * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
@@ -376,8 +443,8 @@ export interface QueryOptionsInput {
   /**
    * The user's initial message text for this turn.
    * Used to drive a memory recall search so the top-K hits can be prepended to
-   * the system prompt. Only used when `isPremium === true` and the string is
-   * non-empty. Multi-turn sessions should pass the most recent user message.
+   * the system prompt. Only used when the string is non-empty. Multi-turn
+   * sessions should pass the most recent user message.
    */
   initialUserQuery?: string;
   /**
@@ -396,17 +463,44 @@ export interface QueryOptionsInput {
    * by non-interactive callers, which fall back to the global default.
    */
   permissionLevelResolver?: () => PermissionLevel;
+  /**
+   * The session's no-stream-activity watchdog, as a hold handle.
+   *
+   * Every blocking branch of `canUseTool` — permission prompt, AskUserQuestion,
+   * ExitPlanMode — parks the turn with zero SDK messages in flight, which is
+   * indistinguishable from a wedged provider to a timer that only watches the
+   * stream. Wrapping the callback in hold/release makes the distinction
+   * explicit: time a human spends reading a prompt is never counted against the
+   * provider, so a 3-minute deliberation can no longer kill the session
+   * (TASK_2026_317). Omitted by callers with no watchdog, which behave exactly
+   * as before.
+   */
+  activityHold?: ActivityHold;
+  /**
+   * Resolves the session's REAL SDK id, read live when a prompt is raised.
+   *
+   * The routing ids below are fixed at build time, and for a NEW session the
+   * SDK UUID does not exist yet — so they fall back to `sessionConfig.tabId`.
+   * That is the correlation id for a surface workflow, which makes the prompt
+   * unroutable to anything but a chat tab. Supplied by `SessionQueryExecutor`
+   * bound to the SessionRecord so the id is correct by the first tool call.
+   * See `SdkPermissionHandler.createCallback`'s `sessionIdResolver`.
+   */
+  sessionIdResolver?: () => string | undefined;
 }
 
 /**
  * SDK query options structure â€” directly aliased from the SDK's canonical
- * `Options` type. The hand-rolled `SdkQueryOptions` interface previously
- * masked phantom fields like `forwardSubagentText` that the SDK silently
- * ignored. Using `Options` directly surfaces compile errors when we attempt
- * to set properties that do not exist in the SDK.
+ * `Options` type. Aliasing `Options` directly surfaces compile errors when we
+ * attempt to set properties that do not exist in the SDK.
  *
- * Subagent visibility now flows via `agentProgressSummaries: true` Option
- * + task_* system messages handled by SdkMessageTransformer.
+ * Subagent visibility flows via two complementary channels, both handled by
+ * SdkMessageTransformer:
+ *  - the built-in task_* system message stream (task_started / task_progress /
+ *    task_updated / task_notification) for the collapsed task-node summary; and
+ *  - `forwardSubagentText: true` (a real Option in SDK 0.3.150) which forwards
+ *    the full nested subagent conversation (assistant/user text + thinking) as
+ *    messages carrying `parent_tool_use_id` = the spawning Task tool_use id.
  */
 export type SdkQueryOptions = Options;
 
@@ -471,6 +565,8 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
     private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER)
+    private readonly teammateLifecycleHookHandler: TeammateLifecycleHookHandler,
     @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
     private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
@@ -503,20 +599,20 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
       onWorktreeCreated,
       onWorktreeRemoved,
-      isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
-      onProviderError,
       forkSession,
       enableFileCheckpointing,
       includePartialMessages,
+      forwardSubagentText,
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
       permissionLevelResolver,
+      activityHold,
+      sessionIdResolver,
     } = input;
 
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
@@ -567,15 +663,15 @@ export class SdkQueryOptionsBuilder {
     }
     const systemPrompt = await this.buildSystemPrompt(
       sessionConfig,
-      isPremium,
       enhancedPromptsContent,
       mcpServerRunning,
       initialUserQuery,
       cwd,
       effectiveAuthEnv,
+      model,
     );
     const routingId = sessionConfig?.tabId ?? sessionId;
-    const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
+    const routingSessionId = SessionId.safeParse(routingId);
     const routingTabId = sessionConfig?.tabId
       ? TabId.safeParse(sessionConfig.tabId)
       : null;
@@ -591,13 +687,29 @@ export class SdkQueryOptionsBuilder {
         { tabId: sessionConfig.tabId },
       );
     }
-    const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback(
-        routingSessionId ?? undefined,
-        undefined,
-        routingTabId ?? undefined,
-        permissionLevelResolver,
-      );
+    const gateToolCall: CanUseTool = this.permissionHandler.createCallback(
+      routingSessionId ?? undefined,
+      undefined,
+      routingTabId ?? undefined,
+      permissionLevelResolver,
+      sessionConfig?.tabId,
+      sessionIdResolver,
+    );
+    // Silence while `canUseTool` is parked is Ptah's own doing, not the
+    // provider's — see `QueryOptionsInput.activityHold`. The hold is taken for
+    // every tool call, not just the blocking ones: an auto-approved tool
+    // resolves in the same tick, so the cost is a matched hold/release pair,
+    // and there is no list of "which branches block" to keep in step.
+    const canUseToolCallback: CanUseTool = activityHold
+      ? async (toolName, input_, options) => {
+          activityHold.hold();
+          try {
+            return await gateToolCall(toolName, input_, options);
+          } finally {
+            activityHold.release();
+          }
+        }
+      : gateToolCall;
     const hooks = this.createHooks(
       cwd,
       sessionId,
@@ -617,10 +729,8 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
-      isPremium,
-      mcpEnabled: isPremium,
+      mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
-      pluginCount: pluginPaths?.length ?? 0,
       mcpOverrideKeys: mcpServersOverride
         ? Object.keys(mcpServersOverride)
         : [],
@@ -636,24 +746,46 @@ export class SdkQueryOptionsBuilder {
         resume: resumeSessionId,
         maxTurns: this.calculateMaxTurns(sessionConfig),
         systemPrompt,
-        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+        // Flag tier. Fresh per session when a style is active; the shared
+        // PTAH_DISABLE_SDK_AUTO_MEMORY constant itself is never mutated (G4),
+        // and the `outputStyle` key is absent entirely when no style is
+        // chosen so a CLI-chosen style is not clobbered (G4b).
+        settings: buildFlagSettings(sessionConfig),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
         mcpServers: this.mergeMcpOverride(
-          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          // Same `routingId` the permission callback above is keyed on, and the
+          // same precedence `SessionQueryExecutor` uses for its registry key.
+          this.buildMcpServers(mcpServerRunning, routingId),
           mcpServersOverride,
         ),
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
         includePartialMessages: includePartialMessages ?? true,
-        settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
-          effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+        // Forward the full nested subagent conversation (assistant/user text +
+        // thinking) through the message stream. Forwarded messages carry
+        // `parent_tool_use_id` = the spawning Task tool_use id, which the
+        // message-transform pipeline already propagates onto every emitted event
+        // (message_start / text_delta / thinking_delta / message_complete) via
+        // `parentToolUseId`, and the streaming transformer keys its per-message
+        // state by that same id — so forwarded text is attributed to the correct
+        // subagent node without any transform change. Defaults ON (additive to
+        // the task_* summary path; does not alter existing tool_use/tool_result
+        // subagent handling), but plumbed so a caller can disable it — see the
+        // QueryOptionsInput.forwardSubagentText killswitch note.
+        forwardSubagentText: forwardSubagentText ?? true,
+        // `includesUserSettingSource` (shared) is the ONE definition of this
+        // predicate. `output-styles` calls the same function to decide whether
+        // a user-tier style file will be visible to the binary — the two must
+        // agree, and now they cannot disagree.
+        settingSources: includesUserSettingSource(
+          effectiveAuthEnv.ANTHROPIC_BASE_URL,
         )
-          ? ['project', 'local']
-          : ['user', 'project', 'local'],
+          ? ['user', 'project', 'local']
+          : ['project', 'local'],
         env: {
           ...process.env,
           ...buildTierEnvDefaults(effectiveAuthEnv),
@@ -664,25 +796,24 @@ export class SdkQueryOptionsBuilder {
             model,
             effectiveAuthEnv.ANTHROPIC_BASE_URL,
           ),
+          // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+          // keyword) only when the persisted `workflows.disabled` config resolved
+          // to true at the session origination point (chat-session.service). When
+          // absent/false the env is untouched so workflows stay ON.
+          ...(sessionConfig?.workflowsDisabled
+            ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+            : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
+          // stderr is for logging/observability only. Stuck-session detection
+          // is handled by the no-activity watchdog (NoActivityWatchdog),
+          // NOT by pattern-matching stderr text — no session is aborted here.
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else if (data.includes('[WARN]')) {
             this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          }
-
-          if (onProviderError && isUpstreamProviderError(data)) {
-            try {
-              onProviderError(data);
-            } catch (hookErr) {
-              this.logger.warn(
-                '[SdkQueryOptionsBuilder] onProviderError hook threw',
-                hookErr instanceof Error ? hookErr : new Error(String(hookErr)),
-              );
-            }
           }
         },
         hooks,
@@ -924,27 +1055,28 @@ export class SdkQueryOptionsBuilder {
    * Build system prompt configuration.
    *
    * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
-   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
-   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
+   * environment context). Always appends PTAH_CORE_SYSTEM_PROMPT with Ptah-specific
+   * MCP mandates, orchestration, and formatting rules. Enhanced prompts
    * (project-specific guidance) are also appended when available.
-   * Memory recall block injected for premium users with a non-empty initialUserQuery.
+   * Memory recall block injected whenever initialUserQuery is non-empty.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
-   * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
    * @param initialUserQuery - First user message text for memory recall
    * @param cwd - Workspace root for workspace-scoped memory recall
+   * @param resolvedModel - The concrete model id assigned to `Options.model`,
+   *   so the identity clarification names the model the session actually runs on
    * @returns System prompt configuration for SDK (always preset+append)
    */
   private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
-    isPremium = false,
     enhancedPromptsContent?: string,
     mcpServerRunning = true,
     initialUserQuery?: string,
     cwd?: string,
     authEnvOverride?: AuthEnv,
+    resolvedModel?: string,
   ): Promise<SdkQueryOptions['systemPrompt']> {
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     const activeProviderId = getActiveProviderId(effectiveAuthEnv);
@@ -957,37 +1089,35 @@ export class SdkQueryOptionsBuilder {
 
     const result = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv: effectiveAuthEnv,
+      resolvedModel,
       userSystemPrompt: sessionConfig?.systemPrompt,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
+      // Set only on the `inject` branch of ActivationDecision; the `flag`
+      // branch travels on options.settings instead (see buildFlagSettings).
+      outputStyleBody: sessionConfig?.outputStyleBody,
     });
     let sessionStartBlock = '';
-    if (isPremium && cwd) {
+    if (cwd) {
       sessionStartBlock =
         await this.memoryPromptInjector.buildSessionStartBlock(cwd);
     }
     let corpusPrimeBlock = '';
     const corpusName = sessionConfig?.corpusName?.trim();
-    if (isPremium && corpusName) {
+    if (corpusName) {
       corpusPrimeBlock =
         await this.memoryPromptInjector.buildCorpusBlock(corpusName);
     }
     let memoryBlock = '';
-    if (isPremium && initialUserQuery?.trim()) {
+    if (initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
       );
     }
     let codeSymbolBlock = '';
-    if (
-      isPremium &&
-      initialUserQuery?.trim() &&
-      this.codeSymbolPromptInjector
-    ) {
+    if (initialUserQuery?.trim() && this.codeSymbolPromptInjector) {
       codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
@@ -1006,12 +1136,10 @@ export class SdkQueryOptionsBuilder {
       finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
-      isPremium,
       mcpServerRunning,
       mode: 'preset-append',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasSessionStartBlock: !!sessionStartBlock,
@@ -1034,39 +1162,63 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build MCP servers configuration.
    *
-   * For premium users, enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
-   * Returns an empty object for free-tier users or when the server is not running.
+   * Enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
+   * Returns an empty object when the server is not running.
+   *
+   * The `/session/{id}` segment is how an MCP tool call learns WHICH session
+   * made it. `extractCallerSessionId` (vscode-lm-tools `http-server.handler`)
+   * parses it back off the URL onto `request._callerSessionId`, and
+   * `ptah_agent_spawn` uses it as the agent's `parentSessionId`.
+   *
+   * The id is the ROUTING id — `sessionConfig.tabId` preferred over the raw
+   * `sessionId` — because that is the key `SessionRegistry.register` uses
+   * (`registerKey`, `SessionQueryExecutor`), and the consumer's
+   * `resolveSessionId` resolves it through `find()` before use. Passing the
+   * raw `sessionId` could name a key the registry was never indexed under.
+   * A tabId here is correct and expected (`http-server.handler.ts:143`
+   * documents the format as `/session/{tabId}`); for a NEW session it is also
+   * the only id that exists yet, since the canonical SDK UUID does not arrive
+   * until the system `init` message.
+   *
+   * @throws SdkError when no routing id is available. Dropping the segment
+   * instead — which this used to do — produced a working MCP endpoint whose
+   * calls arrived anonymous, and the consumer then attributed the spawn to
+   * `getActiveSessionIds()[0]`, the most-recently-active session. With two
+   * sessions open, session B's `ptah_agent_spawn` was recorded under session
+   * A's `parentSessionId`, so A's `markAllInterrupted` could later mis-handle
+   * B's agent. Every legitimate no-caller-id path (stdio, CLI, internal
+   * one-shot queries) builds its MCP config in `SdkQueryRunner`'s separate
+   * `buildOneShotMcpServers`, which has no session segment by construction —
+   * so on this interactive path a missing id is a broken caller, not a mode
+   * (TASK_2026_295).
    */
   private buildMcpServers(
-    isPremium: boolean,
     mcpServerRunning = true,
-    sessionId?: string,
+    routingSessionId?: string,
   ): Record<string, McpHttpServerConfig> {
-    if (!isPremium) {
-      this.logger.info(
-        '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
-        { isPremium, mcpServerRunning },
-      );
-      return {};
-    }
-
     if (!mcpServerRunning) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
-        { isPremium, mcpServerRunning },
+        { mcpServerRunning },
       );
       return {};
+    }
+    if (!routingSessionId || routingSessionId.trim().length === 0) {
+      throw new SdkError(
+        'Cannot build the Ptah MCP server URL without a session routing id. ' +
+          'The /session/{id} segment is what tells an MCP tool call which session made it; ' +
+          'without it every call arrives anonymous and ptah_agent_spawn attributes the agent ' +
+          'to whichever session was most recently active. Callers must supply sessionConfig.tabId ' +
+          'or sessionId before starting an interactive session.',
+      );
     }
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: sessionId
-          ? `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(sessionId)}`
-          : `http://localhost:${PTAH_MCP_PORT}`,
+        url: `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(routingSessionId)}`,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
-      isPremium,
       mcpServerRunning,
       mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
     });
@@ -1122,7 +1274,7 @@ export class SdkQueryOptionsBuilder {
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
     const compactionHooks = this.compactionHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
       onCompactionStart,
     );
@@ -1132,40 +1284,42 @@ export class SdkQueryOptionsBuilder {
       onWorktreeRemoved,
     );
     const postToolUseHooks = this.postToolUseHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const userPromptExpansionHooks =
-      this.userPromptExpansionHookHandler.createHooks(sessionId ?? '', cwd);
-    const stopHooks = this.stopHookHandler.createHooks(sessionId ?? '', cwd);
+      this.userPromptExpansionHookHandler.createHooks(sessionId, cwd);
+    const stopHooks = this.stopHookHandler.createHooks(sessionId, cwd);
     const stopFailureHooks = this.stopFailureHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const sessionEndHooks = this.sessionEndHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const toolFailureHooks = this.toolFailureHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const preToolUseHooks = this.preToolUseHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const sessionStartHooks = this.sessionStartHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const subagentStopHooks = this.subagentStopHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
+    const teammateLifecycleHooks =
+      this.teammateLifecycleHookHandler.createHooks(sessionId, cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1181,6 +1335,7 @@ export class SdkQueryOptionsBuilder {
       preToolUseHooks,
       sessionStartHooks,
       subagentStopHooks,
+      teammateLifecycleHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
@@ -1193,6 +1348,9 @@ export class SdkQueryOptionsBuilder {
       hookEvents: Object.keys(mergedHooks),
       hasSubagentStart: !!mergedHooks.SubagentStart,
       hasSubagentStop: !!mergedHooks.SubagentStop,
+      hasTaskCreated: !!mergedHooks.TaskCreated,
+      hasTaskCompleted: !!mergedHooks.TaskCompleted,
+      hasTeammateIdle: !!mergedHooks.TeammateIdle,
       hasPreCompact: !!mergedHooks.PreCompact,
       hasWorktreeCreate: !!mergedHooks.WorktreeCreate,
       hasWorktreeRemove: !!mergedHooks.WorktreeRemove,

@@ -43,7 +43,7 @@ export function wireThothPushBridges(
             (ev.stats['created'] as number) > 0
           ) {
             void pushAdapter.broadcastMessage(MESSAGE_TYPES.MEMORY_EXTRACTED, {
-              sessionId: ev.sessionId ?? '',
+              sessionId: ev.sessionId,
               workspaceRoot: null,
               extracted: Number(ev.stats['extracted'] ?? 0),
               created: Number(ev.stats['created'] ?? 0),

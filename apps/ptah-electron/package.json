@@ -1,10 +1,10 @@
 {
   "name": "ptah-desktop",
-  "version": "0.1.66",
+  "version": "0.1.67",
   "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
   "main": "main.mjs",
   "author": {
-    "name": "Hive Academy",
+    "name": "Ptah Orchestra",
     "email": "support@ptah.live"
   },
   "homepage": "https://github.com/Hive-Academy/ptah-extension",
@@ -12,7 +12,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.150",
     "@cursor/sdk": "^1.0.13",
-    "@openai/codex-sdk": "^0.133.0",
+    "@openai/codex-sdk": "^0.147.0",
     "@sentry/node": "^9.27.0",
     "@slack/bolt": "4.4.0",
     "@tavily/core": "^0.7.2",
@@ -45,6 +45,7 @@
     "rxjs": "7.8.2",
     "sqlite-vec": "0.1.6",
     "tsyringe": "^4.10.0",
+    "typescript": "^5.9.0",
     "ulid": "2.3.0",
     "uuid": "^11.1.0",
     "web-tree-sitter": "^0.26.8",

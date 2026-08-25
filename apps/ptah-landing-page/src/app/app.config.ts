@@ -9,14 +9,16 @@ import {
   provideClientHydration,
   withEventReplay,
 } from '@angular/platform-browser';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { provideGsap } from '@hive-academy/angular-gsap';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { environment } from '../environments/environment';
 import { routes } from './app.routes';
-import { providePaddleConfig } from './config/paddle.config';
-import { apiInterceptor } from './interceptors/api.interceptor';
-import { AuthInitializerService } from './services/auth-initializer.service';
+import { providePaddleConfig } from '@ptah-web/core';
+import { apiInterceptor } from '@ptah-web/core';
+import { AuthInitializerService } from '@ptah-web/core';
+import { provideApiBaseUrl } from '@ptah-web/core';
+import { provideBuildersCheckoutEnabled } from '@ptah-web/core';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -27,12 +29,20 @@ export const appConfig: ApplicationConfig = {
       deps: [AuthInitializerService],
       multi: true,
     },
-    provideRouter(routes),
+    provideRouter(
+      routes,
+      withInMemoryScrolling({
+        anchorScrolling: 'enabled',
+        scrollPositionRestoration: 'enabled',
+      }),
+    ),
     provideClientHydration(withEventReplay()),
     provideHttpClient(withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideMarkdownRendering({ extensions: 'basic' }),
+    provideApiBaseUrl(environment.apiBaseUrl),
+    provideBuildersCheckoutEnabled(environment.buildersCheckoutEnabled),
     providePaddleConfig({
       environment: environment.paddle.environment,
       token: environment.paddle.token,

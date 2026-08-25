@@ -13,6 +13,10 @@ import {
   ContextGetFileSuggestionsParams,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import {
+  parseContextGetAllFilesParams,
+  parseContextGetFileSuggestionsParams,
+} from './context-rpc.schema';
 
 interface ContextOrchestrationService {
   getAllFiles(params: ContextGetAllFilesParams): Promise<unknown>;
@@ -57,12 +61,27 @@ export class ContextRpcHandlers {
     this.rpcHandler.registerMethod<ContextGetAllFilesParams, unknown>(
       'context:getAllFiles',
       async (params) => {
+        // Validate BEFORE the try: a malformed payload is a caller fault, not
+        // an orchestration failure, so it must not be wrapped as one or shipped
+        // to Sentry as a backend error.
+        const parsed = parseContextGetAllFilesParams(params);
+        if (!parsed) {
+          throw new Error(
+            'Invalid context:getAllFiles parameters: expected optional ' +
+              'includeImages (boolean), limit (non-negative integer) and ' +
+              'workspaceRoot (non-empty absolute path).',
+          );
+        }
         try {
           this.logger.debug('RPC: context:getAllFiles called', {
-            includeImages: params?.includeImages,
-            limit: params?.limit,
+            includeImages: parsed.includeImages,
+            limit: parsed.limit,
+            // Which workspace answered is the whole point of TASK_2026_200 —
+            // log it so a wrong-workspace report is diagnosable from the log
+            // alone. `undefined` here means "process-global active folder".
+            workspaceRoot: parsed.workspaceRoot,
           });
-          const result = await this.contextOrchestration.getAllFiles(params);
+          const result = await this.contextOrchestration.getAllFiles(parsed);
           return result;
         } catch (error) {
           this.logger.error(
@@ -90,13 +109,23 @@ export class ContextRpcHandlers {
     this.rpcHandler.registerMethod<ContextGetFileSuggestionsParams, unknown>(
       'context:getFileSuggestions',
       async (params) => {
+        // Validate BEFORE the try — see registerGetAllFiles.
+        const parsed = parseContextGetFileSuggestionsParams(params);
+        if (!parsed) {
+          throw new Error(
+            'Invalid context:getFileSuggestions parameters: expected ' +
+              'optional query (string), limit (non-negative integer) and ' +
+              'workspaceRoot (non-empty absolute path).',
+          );
+        }
         try {
           this.logger.debug('RPC: context:getFileSuggestions called', {
-            query: params?.query,
-            limit: params?.limit,
+            query: parsed.query,
+            limit: parsed.limit,
+            workspaceRoot: parsed.workspaceRoot,
           });
           const result =
-            await this.contextOrchestration.getFileSuggestions(params);
+            await this.contextOrchestration.getFileSuggestions(parsed);
           return result;
         } catch (error) {
           this.logger.error(

@@ -36,11 +36,9 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
-export { CommunityUpgradeBannerComponent } from './lib/molecules/community-upgrade-banner.component';
+export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
-export { TrialBannerComponent } from './lib/molecules/trial-banner.component';
-export { TrialEndedModalComponent } from './lib/molecules/trial-ended-modal.component';
 export { AgentSelectorComponent } from './lib/molecules/chat-input/agent-selector.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
@@ -54,7 +52,6 @@ export {
 } from './lib/molecules/compact-session/compact-tool-row.component';
 export { CompactionMarkerComponent } from './lib/molecules/notifications/compaction-marker.component';
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
-export { NotificationBellComponent } from './lib/molecules/notifications/notification-bell.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
 export { PermissionBadgeComponent } from './lib/molecules/permissions/permission-badge.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';

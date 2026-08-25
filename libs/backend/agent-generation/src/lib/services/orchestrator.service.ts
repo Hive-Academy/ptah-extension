@@ -19,8 +19,6 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type {
-  CliTarget,
-  CliGenerationResult,
   GenerationStreamPayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
@@ -49,7 +47,6 @@ import {
   ValidationResult,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import type { MultiCliAgentWriterService } from './cli-agent-transforms/multi-cli-agent-writer.service';
 
 /**
  * Generation options for orchestrator.
@@ -92,11 +89,6 @@ export interface OrchestratorGenerationOptions {
   preComputedAnalysis?: ProjectAnalysisResult;
 
   /**
-   * Whether user has premium features (enables MCP server + enhanced prompts in SDK calls).
-   */
-  isPremium?: boolean;
-
-  /**
    * Whether the Ptah MCP server is currently running.
    */
   mcpServerRunning?: boolean;
@@ -127,12 +119,6 @@ export interface OrchestratorGenerationOptions {
 
   /** Absolute paths to plugin directories (for SDK queries during content generation) */
   pluginPaths?: string[];
-
-  /**
-   * Target CLI platforms for agent distribution (premium only).
-   * When provided, Phase 5 transforms and writes agents to these CLI directories.
-   */
-  targetClis?: CliTarget[];
 }
 
 /**
@@ -190,7 +176,7 @@ export interface GenerationProgress {
  * ```typescript
  * const orchestrator = container.resolve(AgentGenerationOrchestratorService);
  * const result = await orchestrator.generateAgents(
- *   { workspaceUri, threshold: 70, isPremium: true, mcpServerRunning: true },
+ *   { workspaceUri, threshold: 70, mcpServerRunning: true },
  *   (progress) => console.log(`${progress.phase}: ${progress.percentComplete}%`)
  * );
  * if (result.isOk()) {
@@ -219,8 +205,6 @@ export class AgentGenerationOrchestratorService {
     private readonly frameworkDetector: FrameworkDetectorService,
     @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
-    @inject(AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE)
-    private readonly multiCliWriter: MultiCliAgentWriterService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
@@ -254,7 +238,6 @@ export class AgentGenerationOrchestratorService {
         workspace: options.workspacePath,
         threshold: options.threshold ?? 50,
         hasOverrides: !!options.userOverrides,
-        isPremium: options.isPremium,
         mcpServerRunning: options.mcpServerRunning,
       });
       let projectContext: AgentProjectContext;
@@ -440,38 +423,14 @@ export class AgentGenerationOrchestratorService {
       if (writeFailures === renderedAgents.length) {
         return Result.err(new Error('All agent file writes failed'));
       }
-      let cliResults: CliGenerationResult[] | undefined;
-      if (options.targetClis && options.targetClis.length > 0) {
-        this.logger.info('Phase 5: Distributing agents to CLI targets', {
-          targets: options.targetClis,
-          agentCount: renderedAgents.length,
-        });
-
-        try {
-          cliResults = await this.multiCliWriter.writeForClis(
-            renderedAgents,
-            options.targetClis,
-            options.workspacePath,
-          );
-          for (const result of cliResults) {
-            if (result.errors.length > 0) {
-              warnings.push(
-                ...result.errors.map((e) => `[${result.cli}] ${e}`),
-              );
-            }
-          }
-        } catch (cliError) {
-          this.logger.warn('Phase 5 failed (non-fatal)', {
-            error:
-              cliError instanceof Error ? cliError.message : String(cliError),
-          });
-          warnings.push(
-            `Multi-CLI distribution failed: ${
-              cliError instanceof Error ? cliError.message : String(cliError)
-            }`,
-          );
-        }
-      }
+      // There is no Phase 5. Distributing agents to rival CLIs used to happen
+      // here, through `MultiCliAgentWriterService` and a caller-supplied list of
+      // detected CLIs. It moved out in TASK_2026_278 Batch 2: generation writes
+      // `{ws}/.claude/agents` and nothing else, the user-layer mirror picks
+      // those up, and `HarnessReconciler` fans them out to every detected
+      // target under one manifest. Generation no longer needs to know which
+      // CLIs exist, and a CLI installed after the wizard ran is populated by
+      // the next reconcile instead of never.
       const durationMs = Date.now() - startTime;
       progressCallback?.({
         phase: 'complete',
@@ -487,7 +446,6 @@ export class AgentGenerationOrchestratorService {
         warnings,
         agents: renderedAgents,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
-        cliResults,
       };
 
       this.logger.info('Agent generation complete', {
@@ -727,7 +685,6 @@ export class AgentGenerationOrchestratorService {
     try {
       const rendered: GeneratedAgent[] = [];
       const sdkConfig = {
-        isPremium: options.isPremium ?? false,
         mcpServerRunning: options.mcpServerRunning ?? false,
         mcpPort: options.mcpPort,
         onStreamEvent: options.onStreamEvent,

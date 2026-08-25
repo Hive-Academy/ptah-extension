@@ -43,7 +43,7 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
         <h1 class="text-2xl font-bold text-base-content mb-2">
           Welcome to Ptah Desktop
         </h1>
-        <p class="text-sm text-base-content/50 mb-8 leading-relaxed">
+        <p class="text-sm text-base-content-muted mb-8 leading-relaxed">
           Open a project folder to get started. Ptah will analyze your workspace
           and configure AI agents tailored to your codebase.
         </p>
@@ -68,10 +68,10 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
                 />
               </div>
               <div>
-                <span class="text-sm font-medium text-base-content/80">{{
+                <span class="text-sm font-medium text-base-content-muted">{{
                   feature.title
                 }}</span>
-                <p class="text-xs text-base-content/40 mt-0.5">
+                <p class="text-xs text-base-content-muted mt-0.5">
                   {{ feature.description }}
                 </p>
               </div>

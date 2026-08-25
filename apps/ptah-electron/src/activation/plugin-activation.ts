@@ -1,20 +1,35 @@
-import * as os from 'os';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  ContentDownloadService,
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   type PluginLoaderService,
-  type SkillJunctionService,
 } from '@ptah-extension/agent-sdk';
 import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+  type HarnessReconcilerService,
+} from '@ptah-extension/harness-sync';
+import {
+  summarizeHarnessHealth,
+  type HarnessHealth,
+} from '@ptah-extension/shared';
+import {
   AGENT_GENERATION_TOKENS,
+  type MirrorSources,
   type UserLayerMirrorService,
   type UserLayerRoots,
 } from '@ptah-extension/agent-generation';
+import { initializePluginMarketplace } from '@ptah-extension/plugin-marketplace';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  resolveSkillsRoot,
   type SkillCandidateStore,
   type SkillRegistryCatalogService,
   type SkillRegistryStore,
@@ -35,6 +50,10 @@ export function initPluginLoader(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
     pluginLoader.initialize(pluginsPath, workspaceStateStorage);
+    // Same base path, same moment: PluginLoaderService asks this store whether
+    // an external plugin id was consented to, and an unbound store reports an
+    // empty allowlist — so the two must never be initialized apart.
+    initializePluginMarketplace(container, pluginsPath);
 
     const pluginConfig = pluginLoader.getWorkspacePluginConfig();
     const pluginPaths = pluginLoader.resolvePluginPaths(
@@ -52,13 +71,59 @@ export function initPluginLoader(
 }
 
 /**
+ * The ONE `MirrorSources` block both user-layer passes feed to
+ * `UserLayerMirrorService`. Built in a single place because mirror and reconcile
+ * must never disagree about what the sources ARE: the reap half of
+ * `reconcileAll()` reads "not among the supplied roots" as "upstream deleted",
+ * so a reconcile walking fewer roots than the mirror would reap live clones.
+ *
+ * Four fields, three of them absent before TASK_2026_278 Batch 1b:
+ * - `harnessPluginRoots` — the `ptah-harness-*` dirs the harness builder writes.
+ *   They come from a different producer than `pluginPaths` and were present in
+ *   every junction call while missing from every mirror call (defect 6).
+ * - `pluginsBasePath` — lets the reap pass tell a DISABLED plugin (dir present,
+ *   clones kept) from an UNINSTALLED one (dir gone, clones reaped).
+ * - `synthesizedSkillsRoot` — through `resolveSkillsRoot`, not
+ *   `~/.ptah/skills`, so promotion and the mirror cannot be pointed at two
+ *   different roots by `skillSynthesis.skillsRoot`.
+ */
+function buildMirrorSources(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+): MirrorSources {
+  const pluginLoader = container.resolve<PluginLoaderService>(
+    SDK_TOKENS.SDK_PLUGIN_LOADER,
+  );
+  const contentDownload = container.resolve<ContentDownloadService>(
+    PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+  );
+  const workspaceProvider = container.resolve<IWorkspaceProvider>(
+    PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+  );
+  const config = pluginLoader.getWorkspacePluginConfig();
+
+  return {
+    pluginPaths: pluginLoader.resolvePluginPaths(config.enabledPluginIds),
+    harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
+    pluginsBasePath: contentDownload.getPluginsPath(),
+    synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
+    ...(workspaceRoot
+      ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
+      : {}),
+  };
+}
+
+/**
  * Mirror installed/downloaded skills, synthesized skills, and Claude agents
  * into the user layer (~/.ptah/user/). create-if-absent, so it is safe to call
- * on every activation; the IStateStorage watermark only skips the directory
- * walk after the first successful backfill. Non-fatal on failure.
+ * on every activation. The IStateStorage watermark skips no work — it gates the
+ * backfill log line only; the directory walk runs every activation and must, so
+ * newly-added slugs get clones. Refreshing an EXISTING clone is not this
+ * function's job and never was: that is reconcileUserLayer below.
+ * Non-fatal on failure.
  *
- * Must run BEFORE activateSkillJunctions so the user layer is populated before
- * junctions are pointed at it.
+ * Must run BEFORE reconcileHarness: the reconciler's desired state IS the user
+ * layer, so reconciling an unmirrored layer copies nothing.
  */
 export async function mirrorUserLayer(
   container: DependencyContainer,
@@ -71,22 +136,10 @@ export async function mirrorUserLayer(
     const stateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
-    const pluginLoader = container.resolve<PluginLoaderService>(
-      SDK_TOKENS.SDK_PLUGIN_LOADER,
-    );
-    const config = pluginLoader.getWorkspacePluginConfig();
-    const pluginPaths = pluginLoader.resolvePluginPaths(
-      config.enabledPluginIds,
-    );
-    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
 
-    const result = await mirror.mirrorAll({
-      pluginPaths,
-      synthesizedSkillsRoot,
-      ...(workspaceRoot
-        ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-        : {}),
-    });
+    const result = await mirror.mirrorAll(
+      buildMirrorSources(container, workspaceRoot),
+    );
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -141,12 +194,18 @@ export async function syncSkillRegistryCatalog(
 }
 
 /**
- * Reconcile cloned skills/commands/agents against the freshly re-downloaded
- * plugin sources. Must run AFTER mirrorUserLayer (create-if-absent) and only
- * when a download actually happened (caller gates on !fromCache). Fast-forwards
- * untouched clones, flags diverged ones in their sidecars (the SQLite-free
- * record VS Code also uses), and — Electron-only — persists the divergence into
- * the skill_registry catalog. Non-fatal on failure.
+ * Reconcile cloned skills/commands/agents against their upstream sources, and
+ * sweep clones whose upstream is gone. Must run AFTER mirrorUserLayer
+ * (create-if-absent), and now runs UNCONDITIONALLY — the old `!fromCache` gate
+ * meant a clone edited between two cached activations was never noticed and an
+ * upstream deletion was never reaped at all (defect 8). Both halves are a
+ * directory walk plus a content hash, so a no-change pass is cheap.
+ *
+ * Fast-forwards untouched clones, flags diverged ones in their sidecars (the
+ * SQLite-free record VS Code also uses), reaps clones with no local work whose
+ * upstream vanished, keeps + flags the diverged ones as `orphaned`, and —
+ * Electron-only — persists all of that into the skill_registry catalog.
+ * Non-fatal on failure.
  */
 export async function reconcileUserLayer(
   container: DependencyContainer,
@@ -157,25 +216,13 @@ export async function reconcileUserLayer(
     const mirror = container.resolve<UserLayerMirrorService>(
       AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
     );
-    const pluginLoader = container.resolve<PluginLoaderService>(
-      SDK_TOKENS.SDK_PLUGIN_LOADER,
-    );
-    const config = pluginLoader.getWorkspacePluginConfig();
-    const pluginPaths = pluginLoader.resolvePluginPaths(
-      config.enabledPluginIds,
-    );
-    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
 
-    const result = await mirror.reconcile({
-      pluginPaths,
-      synthesizedSkillsRoot,
-      ...(workspaceRoot
-        ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-        : {}),
-    });
+    const result = await mirror.reconcileAll(
+      buildMirrorSources(container, workspaceRoot),
+    );
 
     console.log(
-      `[Ptah Electron] User-layer reconcile complete (noop: ${result.noop}, fastForwarded: ${result.fastForwarded}, diverged: ${result.diverged}, missingSidecar: ${result.missingSidecar}, errors: ${result.errors})`,
+      `[Ptah Electron] User-layer reconcile complete (noop: ${result.noop}, fastForwarded: ${result.fastForwarded}, diverged: ${result.diverged}, reaped: ${result.reaped}, orphaned: ${result.orphaned}, missingSidecar: ${result.missingSidecar}, errors: ${result.errors})`,
     );
 
     if (sqliteOpen && result.divergedSlugs.length > 0) {
@@ -194,7 +241,16 @@ export async function reconcileUserLayer(
       }
     }
 
-    if (sqliteOpen && (result.fastForwarded > 0 || result.diverged > 0)) {
+    // A reap DELETES a user-layer clone and an orphan re-flags one, so both
+    // change what the catalog should hold just as much as a fast-forward does.
+    // Leaving them out left reaped skills listed in the Library forever.
+    if (
+      sqliteOpen &&
+      (result.fastForwarded > 0 ||
+        result.diverged > 0 ||
+        result.reaped > 0 ||
+        result.orphaned > 0)
+    ) {
       await syncSkillRegistryCatalog(container);
     }
   } catch (error) {
@@ -206,13 +262,63 @@ export async function reconcileUserLayer(
 }
 
 /**
- * Slugs of promoted skills currently marked dormant by the residency budget.
- * Folded into the junction layer's disabledSkillIds channel so dormant skills
- * are not junctioned into .claude/skills/ and therefore no longer occupy the
- * model's prompt budget. The candidate store is Electron-only (Thoth) and
- * resolved optionally so this no-ops cleanly when skill-synthesis is absent.
+ * The `IUserLayerRefresher` this host hands `harness-sync` at registration.
+ *
+ * `HarnessPropagationService` runs this before every reconcile it performs, so
+ * a trigger that changed an UPSTREAM source — a promoted synth skill, a
+ * harness-builder plugin dir, an agent the wizard wrote into
+ * `{ws}/.claude/agents` — is visible in `~/.ptah/user` by the time the
+ * reconciler reads it. Without this port a repropagation event reconciled the
+ * PREVIOUS state and logged a clean pass (TASK_2026_278 Batch 3).
+ *
+ * Both halves, in the activation order: `mirrorUserLayer` is create-if-absent
+ * and picks up new slugs; `reconcileUserLayer` fast-forwards existing clones
+ * and reaps the ones whose upstream is gone. An uninstall needs the second
+ * half specifically — see `deactivateExternalPlugin` in `plugin-rpc.handlers`.
+ *
+ * `sqliteOpen` is derived from the container rather than passed in, because
+ * this runs long after `wire-runtime` computed its copy and the connection can
+ * have opened (or closed) since.
  */
-function readDormantSkillSlugs(container: DependencyContainer): string[] {
+export function createUserLayerRefresher(container: DependencyContainer): {
+  refresh(workspaceRoot: string | undefined): Promise<void>;
+} {
+  return {
+    async refresh(workspaceRoot: string | undefined): Promise<void> {
+      await mirrorUserLayer(container, workspaceRoot);
+      await reconcileUserLayer(
+        container,
+        workspaceRoot,
+        isSqliteOpen(container),
+      );
+    },
+  };
+}
+
+function isSqliteOpen(container: DependencyContainer): boolean {
+  try {
+    if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
+      return false;
+    }
+    const connection = container.resolve<{ isOpen: boolean }>(
+      PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+    );
+    return connection.isOpen === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Slugs of promoted skills currently marked dormant by the residency budget.
+ * Folded into the reconciler's disabledSkillIds channel so dormant skills are
+ * not copied into .claude/skills/ and therefore no longer occupy the model's
+ * prompt budget. The candidate store is Electron-only (Thoth) and resolved
+ * optionally so this no-ops cleanly when skill-synthesis is absent.
+ */
+export function readDormantSkillSlugs(
+  container: DependencyContainer,
+): string[] {
   try {
     if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)) {
       return [];
@@ -231,60 +337,137 @@ function readDormantSkillSlugs(container: DependencyContainer): string[] {
 }
 
 /**
- * Phase 4.56: activate skill junctions and return the service handle so the
- * caller can deactivate it during will-quit. Non-fatal on failure.
+ * The claude target's slice, rendered so an ABSENT target cannot read as a
+ * healthy empty pass.
  *
- * When `userRoots` is provided, junctions and command copies source from the
- * user layer (~/.ptah/user/) instead of the plugin directories.
+ * `claude?.found ?? 0` collapsed three different facts to `0/0`: a host that
+ * never registered the claude target, a claude that is registered but not
+ * detected, and a claude with genuinely nothing desired. Only the last is a
+ * clean pass; the first two are wiring and environment problems that the `0/0`
+ * spelling actively hid.
  */
-export function activateSkillJunctions(
+function formatClaudeSlice(health: HarnessHealth): string {
+  const claude = health.targets.find((target) => target.target === 'claude');
+  if (claude === undefined) return 'claude=not-registered';
+  if (!claude.detected) return 'claude=undetected';
+  return `claude=${claude.found}/${claude.expected}`;
+}
+
+/**
+ * The one health line both harness call sites print.
+ *
+ * Shared rather than duplicated because the two sites previously carried the
+ * SAME defect and were fixed together: each narrowed to the claude target and
+ * printed `found`/`expected` under bare field names, while the reconciler's own
+ * warn (`harness-reconciler.service.ts`) sums all six targets under those same
+ * names. `found=14/27` beside `found=106/119` from one pass is not a
+ * disagreement anybody can debug — the two numbers were never measuring the
+ * same thing.
+ *
+ * The AGGREGATE is now the headline, so this line and the reconciler's warn
+ * report the same scope, and it comes from `summarizeHarnessHealth` — the one
+ * definition of these totals that `harness doctor`, the Marketplace badge and
+ * the health push already share — rather than from a fourth summation written
+ * here. The claude slice is kept beside it and explicitly LABELLED, because it
+ * is the target this host cares about most and dropping it would trade one
+ * legibility problem for an information loss.
+ */
+function formatHarnessLine(
+  verb: 'reconciled' | 'propagated',
+  reason: string,
+  health: HarnessHealth | null,
+): string {
+  if (health === null) {
+    return `[Ptah Electron] Harness ${verb} (${reason}): no health report produced`;
+  }
+  const summary = summarizeHarnessHealth(health);
+  return (
+    `[Ptah Electron] Harness ${verb} (${reason}): sources=${summary.sources}, ` +
+    `detectedTargets=${summary.detectedTargets}/${health.targets.length}, ` +
+    `found=${summary.found}/${summary.expected} (all targets), ` +
+    `${formatClaudeSlice(health)}, ` +
+    `missing=${summary.missing}, foreign=${summary.foreign}, ` +
+    `writeFailed=${summary.writeFailed}`
+  );
+}
+
+/**
+ * Reconcile the workspace harness: copy every enabled skill and command from
+ * the user layer into `{ws}/.claude/{skills,commands}` (TASK_2026_278).
+ *
+ * Replaces `activateSkillJunctions`. Artifacts are copies rather than NTFS
+ * junctions, so they survive this process exiting and are readable by
+ * `ptah tui`, the headless CLI, the gateway and a plain `claude` invocation.
+ * Nothing is torn down on `will-quit` — which is why this returns no handle.
+ *
+ * Non-fatal by contract: a workspace that cannot be written must never block
+ * boot. Failures land in the health report instead.
+ */
+export async function reconcileHarness(
   container: DependencyContainer,
-  pluginsPath: string,
-  userRoots?: { skills: string; commands: string },
-): { deactivateSync: () => void } | null {
+  workspaceRoot: string | undefined,
+  reason: string,
+  options: { downloadPending?: boolean } = {},
+): Promise<void> {
+  if (workspaceRoot === undefined) {
+    return;
+  }
   try {
-    const skillJunction = container.resolve<SkillJunctionService>(
-      SDK_TOKENS.SDK_SKILL_JUNCTION,
+    const reconciler = container.resolve<HarnessReconcilerService>(
+      HARNESS_SYNC_TOKENS.RECONCILER,
     );
-    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
-    skillJunction.initialize(pluginsPath, synthesizedSkillsRoot);
-    if (userRoots) {
-      skillJunction.setSourceRoots(userRoots.skills, userRoots.commands);
-    }
-
-    const pluginLoader = container.resolve<PluginLoaderService>(
-      SDK_TOKENS.SDK_PLUGIN_LOADER,
-    );
-    const config = pluginLoader.getWorkspacePluginConfig();
-    const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
-
-    const junctionResult = skillJunction.activate({
-      pluginPaths: paths,
-      disabledSkillIds: [
-        ...config.disabledSkillIds,
-        ...readDormantSkillSlugs(container),
-      ],
-      getPluginPaths: () => pluginLoader.resolveCurrentPluginPaths(),
-      getDisabledSkillIds: () => [
-        ...pluginLoader.getDisabledSkillIds(),
-        ...readDormantSkillSlugs(container),
-      ],
+    const health = await reconciler.reconcile(workspaceRoot, {
+      mode: 'full',
+      reason,
+      ...(options.downloadPending === true ? { downloadPending: true } : {}),
     });
-
-    if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
-      console.log(
-        `[Ptah Electron] Skill junctions: ${junctionResult.created} created, ${junctionResult.skipped} skipped, ${junctionResult.removed} removed, ${junctionResult.errors.length} errors`,
-      );
-    } else {
-      console.log('[Ptah Electron] Skill junctions activated');
-    }
-
-    return skillJunction;
+    console.log(formatHarnessLine('reconciled', reason, health));
   } catch (error) {
     console.warn(
-      '[Ptah Electron] Skill junction activation failed (non-fatal):',
+      '[Ptah Electron] Harness reconcile failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
-    return null;
+  }
+}
+
+/**
+ * Refresh the user layer for `workspaceRoot`, THEN reconcile it — the full
+ * pass, not the bare reconcile.
+ *
+ * This is what a workspace-folder change needs and what it did not get. The
+ * reconciler's desired state IS `~/.ptah/user`, and one of that layer's sources
+ * is `{ws}/.claude/agents` — a per-WORKSPACE directory. Switching folders
+ * therefore changes the sources, and a bare `reconcile` propagated the previous
+ * workspace's agents into the new one and logged a clean pass. `propagate` runs
+ * `mirrorUserLayer` + `reconcileUserLayer` first, which is exactly the ordering
+ * `bootHeavyServices` performs by hand at activation.
+ *
+ * Falls back to a bare reconcile when propagation is not registered — a host
+ * phase that never wired `harness-sync`'s trigger surface should still get the
+ * old behaviour rather than nothing. Non-fatal by contract.
+ */
+export async function propagateHarness(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  reason: string,
+): Promise<void> {
+  if (workspaceRoot === undefined) {
+    return;
+  }
+  try {
+    if (!container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) {
+      await reconcileHarness(container, workspaceRoot, reason);
+      return;
+    }
+    const propagation = container.resolve<HarnessPropagationService>(
+      HARNESS_SYNC_TOKENS.PROPAGATION,
+    );
+    const health = await propagation.propagate(workspaceRoot, reason);
+    console.log(formatHarnessLine('propagated', reason, health));
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Harness propagation failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }

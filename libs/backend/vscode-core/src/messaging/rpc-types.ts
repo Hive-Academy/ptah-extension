@@ -31,11 +31,10 @@ export interface RpcResponse<T = unknown> {
   error?: string;
   /**
    * Error code for programmatic handling by frontend.
-   * Used to distinguish license-related errors from other failures.
+   * Used to distinguish expected, user-recoverable conditions from real failures.
    *
-   * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
-   * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
    * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected, not a bug)
+   * - 'AUTH_REQUIRED': The provider has no usable credentials; the user must sign in
    * - 'MESSAGE_ID_NOT_FOUND': upToMessageId not found in session history (user recoverable)
    * - 'MODEL_NOT_AVAILABLE': Requested model not in provider's available list (user recoverable)
    * - 'PERSISTENCE_UNAVAILABLE': SQLite connection is closed (native module ABI mismatch, disk error, etc.)
@@ -44,12 +43,10 @@ export interface RpcResponse<T = unknown> {
    *
    * @example
    * ```typescript
-   * if (response.errorCode === 'LICENSE_REQUIRED') {
-   *   showLicensePrompt();
-   * } else if (response.errorCode === 'PRO_TIER_REQUIRED') {
-   *   showUpgradePrompt();
-   * } else if (response.errorCode === 'WORKSPACE_NOT_OPEN') {
+   * if (response.errorCode === 'WORKSPACE_NOT_OPEN') {
    *   showOpenFolderPrompt();
+   * } else if (response.errorCode === 'AUTH_REQUIRED') {
+   *   showSignInPrompt();
    * } else if (response.errorCode === 'MESSAGE_ID_NOT_FOUND') {
    *   showForkCheckpointError();
    * } else if (response.errorCode === 'MODEL_NOT_AVAILABLE') {

@@ -21,10 +21,10 @@ import {
       >
         <lucide-angular [img]="ScaleIcon" class="h-8 w-8" />
       </div>
-      <h2 class="mb-2 text-lg font-semibold text-base-content/80">
+      <h2 class="mb-2 text-lg font-semibold text-base-content-muted">
         Convene a Tribunal
       </h2>
-      <p class="mb-6 max-w-md text-sm text-base-content/55">
+      <p class="mb-6 max-w-md text-sm text-base-content-muted">
         Put your AI vendors on one panel. Run a Council for a cited verdict, a
         Forge for competing implementations, or a Race scored against a rubric.
       </p>
@@ -35,27 +35,29 @@ import {
         >
           <lucide-angular
             [img]="UsersIcon"
-            class="h-5 w-5 text-base-content/70"
+            class="h-5 w-5 text-base-content-muted"
           />
-          <span class="text-xs font-medium text-base-content/70">Council</span>
+          <span class="text-xs font-medium text-base-content-muted"
+            >Council</span
+          >
         </div>
         <div
           class="flex flex-col items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-4"
         >
           <lucide-angular
             [img]="ForgeIcon"
-            class="h-5 w-5 text-base-content/70"
+            class="h-5 w-5 text-base-content-muted"
           />
-          <span class="text-xs font-medium text-base-content/70">Forge</span>
+          <span class="text-xs font-medium text-base-content-muted">Forge</span>
         </div>
         <div
           class="flex flex-col items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-4"
         >
           <lucide-angular
             [img]="RaceIcon"
-            class="h-5 w-5 text-base-content/70"
+            class="h-5 w-5 text-base-content-muted"
           />
-          <span class="text-xs font-medium text-base-content/70">Race</span>
+          <span class="text-xs font-medium text-base-content-muted">Race</span>
         </div>
       </div>
 

@@ -35,13 +35,17 @@
         </div>
       }
 
-      <!-- Persistent background-agents tray (main panel only; tiles reuse this
-           same component so it must not render per-tile). Lives under the stats
-           summary so it never competes with the streamed output at the bottom.
-           Focus/steer/stop/background are handled inside the tray against each
-           agent's owning session. -->
-      @if (showBackgroundStrip) {
-        <ptah-background-agent-tray class="flex-shrink-0" />
+      <!-- Persistent background-agents tray. On the main panel it renders once
+           and shows every session's agents; inside a canvas tile it renders
+           scoped to that tile's own session (traySessionId). Lives under the
+           stats summary so it never competes with the streamed output at the
+           bottom. Focus/steer/stop/background are handled inside the tray
+           against each agent's owning session. -->
+      @if (showBackgroundStrip()) {
+        <ptah-background-agent-tray
+          class="flex-shrink-0"
+          [sessionId]="traySessionId()"
+        />
       }
 
       <!-- Compaction Notification Banner -->
@@ -104,7 +108,7 @@
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">
         <ptah-resume-notification-banner
-          [resumableSubagents]="chatStore.resumableSubagents()"
+          [resumableSubagents]="resolvedResumableSubagents()"
           (resumeRequested)="handleResumeAgent($event)"
           (resumeAllRequested)="handleResumeAllAgents($event)"
         />
@@ -161,7 +165,7 @@
                 aria-hidden="true"
               />
               <span class="text-primary font-medium">Message queued</span>
-              <span class="text-base-content/60"
+              <span class="text-base-content-muted"
                 >(will send when Claude finishes)</span
               >
             </div>
@@ -189,7 +193,7 @@
 
           <!-- Queued content preview (click to edit) -->
           <button
-            class="w-full text-left text-xs text-base-content/70 bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
+            class="w-full text-left text-xs text-base-content-muted bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
             (click)="editQueue()"
             type="button"
             title="Edit queued message"
@@ -206,7 +210,7 @@
 
       <!-- Input Area Collapse Toggle (full-width bar above input) -->
       <button
-        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content/40 hover:text-base-content/70 flex-shrink-0"
+        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content-muted hover:text-base-content flex-shrink-0"
         (click)="toggleInputCollapse()"
         [title]="inputCollapsed() ? 'Show input area' : 'Hide input area'"
         type="button"
@@ -244,8 +248,12 @@
     <!-- Resize handle between chat and agent panel -->
     @if (agentPanelOpen()) {
       <div
-        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
-        (mousedown)="onResizeStart($event)"
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize · double-click to reset"
+        (pointerdown)="onResizeStart($event)"
+        (dblclick)="onResizeReset()"
       >
         <div
           class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"

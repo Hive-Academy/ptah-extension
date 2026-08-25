@@ -23,6 +23,7 @@ import {
   UserMessageContent,
   TextBlock,
   SDKUserMessage,
+  SDKMessageOrigin,
 } from '../types/sdk-types/claude-sdk.types';
 export type { SDKUserMessage } from '../types/sdk-types/claude-sdk.types';
 
@@ -38,6 +39,14 @@ export interface CreateMessageParams {
   files?: string[];
   /** Optional inline images (pasted/dropped) */
   images?: InlineImageAttachment[];
+  /**
+   * Provenance of this user turn. Stamped onto the SDK message so the agent
+   * runtime can distinguish an interactive human turn from a headless/gateway/
+   * peer/coordinator-injected turn. Defaults to `{ kind: 'human' }` — this is
+   * the single choke point for interactive user turns, so non-human callers
+   * (channel/peer/coordinator) must pass an explicit origin here.
+   */
+  origin?: SDKMessageOrigin;
 }
 
 /**
@@ -75,7 +84,13 @@ export class SdkMessageFactory {
   async createUserMessage(
     params: CreateMessageParams,
   ): Promise<SDKUserMessage> {
-    const { content, sessionId, files = [], images = [] } = params;
+    const {
+      content,
+      sessionId,
+      files = [],
+      images = [],
+      origin = { kind: 'human' },
+    } = params;
     let messageContent: UserMessageContent = content;
 
     const hasAttachments = files.length > 0 || images.length > 0;
@@ -130,6 +145,7 @@ export class SdkMessageFactory {
         content: messageContent,
       } as SDKUserMessage['message'],
       parent_tool_use_id: null,
+      origin,
     };
 
     this.logger.debug('[SdkMessageFactory] Created user message', {

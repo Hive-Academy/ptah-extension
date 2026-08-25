@@ -1,0 +1,9 @@
+[
+  "persistence-sqlite",
+  "task-specs",
+  "rpc-handlers",
+  "messaging-gateway",
+  "skill-synthesis",
+  "memory-curator",
+  "ptah-electron"
+]

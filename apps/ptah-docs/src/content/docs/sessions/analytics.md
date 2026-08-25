@@ -7,8 +7,6 @@ description: Performance metrics, quality scores, and trend charts for your AI w
 
 The Session Analytics dashboard turns your chat history into signal. It surfaces performance, cost, and quality metrics — per session and across your whole workspace — so you can see what's working, what's expensive, and where your agents are spending time.
 
-![Analytics dashboard](/screenshots/sessions-analytics.png)
-
 ## Opening the dashboard
 
 - Sidebar → **Analytics**
@@ -67,8 +65,6 @@ The trends tab plots time series for any KPI:
 - Quality score moving average (7-day)
 
 Hover for exact values. Click a point to drill into the sessions that made up that day.
-
-![Trend charts](/screenshots/sessions-analytics-trends.png)
 
 ## Per-session drill-down
 

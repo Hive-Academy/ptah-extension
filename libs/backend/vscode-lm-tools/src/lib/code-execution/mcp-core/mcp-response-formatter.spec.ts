@@ -133,6 +133,42 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
     expect(out).toMatch(/No issues found/);
   });
 
+  it('formatDiagnostics renders unavailable status with source and reason (TASK_2026_299)', () => {
+    const out = formatDiagnostics({
+      status: 'unavailable',
+      source: 'cli-phase0',
+      reason: 'Diagnostics not configured.',
+    });
+    expect(out).toMatch(/Diagnostics/);
+    expect(out).toMatch(/Unavailable/);
+    expect(out).toMatch(/cli-phase0/);
+    expect(out).toMatch(/Diagnostics not configured/);
+    expect(out).not.toMatch(/No issues found/);
+  });
+
+  it('formatDiagnostics renders available-empty with source and "No issues found" (TASK_2026_299)', () => {
+    const out = formatDiagnostics({
+      status: 'available',
+      source: 'typescript-compiler',
+      diagnostics: [],
+    });
+    expect(out).toMatch(/No issues found/);
+    expect(out).toMatch(/typescript-compiler/);
+  });
+
+  it('formatDiagnostics renders available-populated with source header (TASK_2026_299)', () => {
+    const out = formatDiagnostics({
+      status: 'available',
+      source: 'vscode-languages',
+      diagnostics: [
+        { file: 'a.ts', line: 1, message: 'bad', severity: 'error' },
+      ],
+    });
+    expect(out).toMatch(/vscode-languages/);
+    expect(out).toMatch(/\*\*Errors:\*\* 1/);
+    expect(out).toMatch(/a\.ts:1/);
+  });
+
   it('formatLspReferences shows count and file:line:col entries', () => {
     const out = formatLspReferences([
       { file: 'src/foo.ts', line: 10, col: 4 },
@@ -176,6 +212,19 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/codex/);
     expect(out).toMatch(/installed/);
     expect(out).toMatch(/not installed/);
+  });
+
+  it('formatAgentList marks a disabled-but-installed agent as disabled', () => {
+    const agents = [
+      { cli: 'codex', installed: true, supportsSteer: true, disabled: true },
+      { cli: 'cursor', installed: false, supportsSteer: false, disabled: true },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents);
+    expect(out).toMatch(/disabled \(installed\)/);
+    // A disabled CLI that is not installed reads plainly as `disabled`.
+    expect(out).toMatch(/\bdisabled\b/);
+    expect(out).not.toMatch(/not installed/);
   });
 
   it('formatAgentList renders helpful empty-state message for zero agents', () => {

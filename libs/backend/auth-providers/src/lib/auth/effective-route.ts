@@ -19,6 +19,7 @@
  */
 
 import {
+  getAnthropicProvider,
   resolveStrategy,
   type AuthStrategyType,
   type LegacyAuthMethod,
@@ -129,6 +130,13 @@ export function resolveEffectiveAuthRoute(
   }
 
   const driver = providers.find((p) => p.id === driverProviderId);
+  // `nativeAuth` is a registry fact, not a probe result — the probe-shaped
+  // `EffectiveRouteProvider.type` union cannot express it, and `ptah doctor`
+  // classifies `claude-cli` as `'unknown'` because it is `authType: 'none'`
+  // WITHOUT `isLocal`. Reading the flag straight from the registry keeps this
+  // resolver in lockstep with `AuthManager`, which is the entire point of the
+  // module: doctor must report the route a real run would take.
+  const registryEntry = getAnthropicProvider(driverProviderId);
   const route = resolveStrategy(legacy, {
     authType:
       driver?.type === 'apiKey' || driver?.type === 'oauth'
@@ -137,6 +145,7 @@ export function resolveEffectiveAuthRoute(
           ? 'none'
           : undefined,
     requiresProxy: driver?.type === 'oauth' || driver?.type === 'local-proxy',
+    nativeAuth: registryEntry?.nativeAuth,
   });
 
   if (!driver) {

@@ -4,12 +4,19 @@ export {
   registerAuthProvidersServices,
   registerCuratorAuthServices,
 } from './lib/di/register';
-export { CuratorAuthResolver } from './lib/auth/curator-auth-resolver';
+export { ProviderAuthResolver } from './lib/auth/provider-auth-resolver';
 export {
   CuratorProxyManager,
   type CuratorProxyHandle,
 } from './lib/auth/curator-proxy-manager';
-export { CuratorAuthError } from './lib/auth/curator-auth.error';
+export { ProviderAuthError } from './lib/auth/provider-auth.error';
+export { ProviderQuotaError } from './lib/auth/provider-quota.error';
+export {
+  ProviderQuotaStore,
+  providerQuotaStore,
+  PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+  type ProviderQuotaState,
+} from './lib/auth/provider-quota.store';
 export {
   AuthManager,
   type AuthResult,
@@ -68,6 +75,7 @@ export {
   COPILOT_DEFAULT_TIERS,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
+  readCopilotUsername,
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,
@@ -76,7 +84,9 @@ export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
   CopilotHostsFile,
+  CopilotLoginOptions,
 } from './lib/providers/copilot';
 export {
   CodexAuthService,
@@ -103,6 +113,13 @@ export {
   SAKANA_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/sakana';
 export type { ISakanaAuthService } from './lib/providers/sakana';
+export {
+  CustomOpenAiTranslationProxy,
+  createCustomOpenAiProxy,
+  normalizeOpenAiApiRoot,
+  CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/custom';
+export type { CustomOpenAiProxyConfig } from './lib/providers/custom';
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,

@@ -41,9 +41,9 @@ export interface TokenBreakdown {
 }
 
 /**
- * Bundled pricing for known-zero-cost surfaces (Copilot subscription, local
- * Ollama / LM Studio) and a small Anthropic-direct table that ships with the
- * binary for the case where the OpenRouter catalog hasn't fetched yet.
+ * Bundled pricing for local zero-cost surfaces (Ollama / LM Studio) plus a
+ * small usage-billed table that ships with the binary for the case where the
+ * OpenRouter catalog hasn't fetched yet.
  *
  * For every other model the runtime pricing map is hydrated from OpenRouter's
  * public `/api/v1/models` catalog at startup via {@link registerProviderPricing}.
@@ -51,46 +51,17 @@ export interface TokenBreakdown {
  * models return `null` from {@link findModelPricing} so the UI can render
  * "Pricing unavailable" instead of a fabricated dollar figure.
  *
+ * Subscription-covered surfaces (GitHub Copilot, OpenAI Codex) are deliberately
+ * ABSENT here. Seeding their models at $0 would publish that price under a bare
+ * slug — `gpt-5.4` is a Codex model AND an OpenRouter one — and pin the shared
+ * catalog rate to zero for whichever provider looked it up next. Their turns are
+ * costed from the same published rates as everyone else's; the flat-fee billing
+ * is a labelling concern, carried per call by {@link FindPricingOptions}.
+ *
  * @see https://www.anthropic.com/pricing
  * @see https://openrouter.ai/api/v1/models
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-sonnet-4.6': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.7': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 1_000_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.6': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 1_000_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-sonnet-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-haiku-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
   'gpt-4o': {
     inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
     outputCostPerToken: 10e-6, // $10.00 per 1M tokens
@@ -203,9 +174,24 @@ export function getPricingMap(): Record<string, ModelPricing> {
 }
 
 /**
+ * Per-call pricing context that the model id alone cannot carry.
+ */
+export interface FindPricingOptions {
+  /**
+   * True when the ACTIVE provider bills a flat subscription rather than per
+   * token (GitHub Copilot, OpenAI Codex).
+   *
+   * Rates are still the published per-token ones — a subscription turn is
+   * costed at what the same tokens would bill on the open market, matching how
+   * `claude /usage` and the Codex CLI report consumption. The flag only changes
+   * how the figure is LABELLED, never its value.
+   */
+  readonly subscriptionCovered?: boolean;
+}
+
+/**
  * Find pricing for a model by ID.
  *
- * Matching strategy:
  * 1. Exact match (e.g., "claude-opus-4-5-20251101", "gpt-5.4", "kimi-k2.5")
  * 2. Partial match (e.g., "claude-opus-4-5" matches "claude-opus-4-5-20251101")
  * 3. Returns `null` — pricing genuinely unknown.
@@ -229,6 +215,25 @@ export function findModelPricing(modelId: string): ModelPricing | null {
     return null;
   }
 
+  const found = lookupPricingEntry(modelId);
+  if (found) {
+    return found;
+  }
+  if (!warnedModelIds.has(modelId)) {
+    warnedModelIds.add(modelId);
+    console.warn(
+      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
+    );
+  }
+  return null;
+}
+
+/**
+ * Exact-then-partial lookup against the runtime map. Silent: the "unknown
+ * model" warning belongs to {@link findModelPricing}, which alone knows
+ * whether a miss is actually a problem.
+ */
+function lookupPricingEntry(modelId: string): ModelPricing | null {
   const normalizedId = modelId.toLowerCase();
   if (modelPricingMap[normalizedId]) {
     return modelPricingMap[normalizedId];
@@ -240,12 +245,6 @@ export function findModelPricing(modelId: string): ModelPricing | null {
     if (key.toLowerCase().includes(normalizedId)) {
       return pricing;
     }
-  }
-  if (!warnedModelIds.has(modelId)) {
-    warnedModelIds.add(modelId);
-    console.warn(
-      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
-    );
   }
   return null;
 }
@@ -296,22 +295,40 @@ export function calculateMessageCost(
   return Math.round(totalCost * 1000000) / 1000000;
 }
 
+/**
+ * Context window for a model, in tokens. `0` when genuinely unknown.
+ *
+ * Deliberately uses the SILENT {@link lookupPricingEntry} rather than
+ * {@link findModelPricing}. A catalogue entry is a convenient carrier for
+ * `maxTokens`, but a miss here is not a pricing failure: the family regex below
+ * answers every modern Claude id without any catalogue at all. Routing through
+ * the warning variant made every webview context-window lookup print
+ * "cost will render as unavailable" about a cost nobody was calculating — the
+ * renderer's pricing map is only ever the bundled table (hydration from
+ * OpenRouter happens in the extension host, a different module instance), so
+ * that warning fired for every Claude model on every session load.
+ */
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
-  const pricing = findModelPricing(modelId);
+  const pricing = lookupPricingEntry(modelId);
   if (pricing?.maxTokens) return pricing.maxTokens;
 
   const stripped = modelId
     .replace(/^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i, '')
     .toLowerCase();
 
+  // The minor version is OPTIONAL. Anthropic's ids carried one up to
+  // `claude-opus-4-5`, then dropped it at `claude-opus-5`. Requiring it meant
+  // every id in the new scheme fell through to `return 0` — no context window
+  // at all, so the header's context-fill bar read 0% for the whole Opus 5 line.
   const claudeModern = stripped.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)[-.](\d+)/,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/,
   );
   if (claudeModern) {
     const family = claudeModern[1];
     const major = Number.parseInt(claudeModern[2], 10);
-    const minor = Number.parseInt(claudeModern[3], 10);
+    // Absent minor reads as .0 — `claude-opus-5` is 5.0, not 5.undefined.
+    const minor = claudeModern[3] ? Number.parseInt(claudeModern[3], 10) : 0;
     if (family === 'opus' && (major > 4 || (major === 4 && minor >= 6))) {
       return 1_000_000;
     }
@@ -335,14 +352,22 @@ export function getModelContextWindow(modelId: string): number {
  * // Returns: "Input: $5.00/1M, Output: $25.00/1M"
  * ```
  */
-export function getModelPricingDescription(modelId: string): string {
+export function getModelPricingDescription(
+  modelId: string,
+  options?: FindPricingOptions,
+): string {
   const pricing = findModelPricing(modelId);
   if (!pricing) return 'Pricing unavailable';
 
   const inputPer1M = (pricing.inputCostPerToken * 1000000).toFixed(2);
   const outputPer1M = (pricing.outputCostPerToken * 1000000).toFixed(2);
+  const rates = `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 
-  return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
+  // Same rates, flagged as reference: the user is not billed these per token,
+  // they are what the tokens would cost on the open market.
+  return options?.subscriptionCovered
+    ? `${rates} · covered by subscription`
+    : rates;
 }
 
 export function formatClaudeModelDisplayName(modelId: string): string {
@@ -351,16 +376,31 @@ export function formatClaudeModelDisplayName(modelId: string): string {
     /^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i,
     '',
   );
-  const noDate = stripped
+  // A trailing bracketed variant tag — `claude-opus-5[1m]` for the 1M-context
+  // beta — is part of the id the SDK reports back in `modelUsage`, so it lands
+  // in front of users. It is not part of the version, so lift it out before
+  // matching and re-attach it as the suffix.
+  const variantMatch = stripped.match(/^(.*?)\[([^\]]+)\]$/);
+  const withoutVariant = variantMatch ? variantMatch[1] : stripped;
+  const variant = variantMatch ? variantMatch[2] : null;
+  const noDate = withoutVariant
     .replace(/-\d{8}$/, '')
     .replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  // Minor version OPTIONAL — Anthropic dropped it after `claude-opus-4-5`, so
+  // requiring it left the whole Opus 5 line falling through to the raw id.
   const modern = noDate.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-(.+))?$/i,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-(.+))?$/i,
   );
   if (modern) {
     const [, family, maj, min, suffix] = modern;
     const cap = family[0].toUpperCase() + family.slice(1).toLowerCase();
-    return suffix ? `${cap} ${maj}.${min} (${suffix})` : `${cap} ${maj}.${min}`;
+    const version = min ? `${maj}.${min}` : maj;
+    // A variant tag and a name suffix can both be present
+    // (`claude-opus-5-fast[1m]`); show both rather than silently dropping one.
+    const qualifiers = [suffix, variant].filter(Boolean).join(', ');
+    return qualifiers
+      ? `${cap} ${version} (${qualifiers})`
+      : `${cap} ${version}`;
   }
   const legacy = noDate.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)$/i);
   if (legacy) {

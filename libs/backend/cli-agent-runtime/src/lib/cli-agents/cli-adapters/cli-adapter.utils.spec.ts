@@ -32,7 +32,12 @@ jest.mock('which', () => ({
   default: (...args: unknown[]) => mockWhich(...args),
 }));
 
-import { probeCliVersion, resolveDirectSpawn } from './cli-adapter.utils';
+import {
+  buildTaskPrompt,
+  probeCliVersion,
+  resolveDirectSpawn,
+  withAsarUnpackedTwin,
+} from './cli-adapter.utils';
 
 interface FakeChild {
   stdout: EventEmitter & { setEncoding: jest.Mock };
@@ -50,6 +55,33 @@ function createFakeChild(): FakeChild & EventEmitter {
   child.kill = jest.fn();
   return child;
 }
+
+describe('buildTaskPrompt', () => {
+  const toolPolicy =
+    'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
+
+  it('includes the shared native-agent policy without enhanced guidance', () => {
+    const prompt = buildTaskPrompt({
+      task: 'Implement the requested change.',
+      workingDirectory: 'D:\\workspace',
+    });
+
+    expect(prompt).toBe(`${toolPolicy}\n\nImplement the requested change.`);
+  });
+
+  it('includes the policy exactly once independently of system guidance', () => {
+    const prompt = buildTaskPrompt({
+      task: 'Implement the requested change.',
+      workingDirectory: 'D:\\workspace',
+      systemPrompt: 'Existing system guidance.',
+      projectGuidance: 'Ignored fallback guidance.',
+    });
+
+    expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
+    expect(prompt).not.toContain('Ignored fallback guidance.');
+    expect(prompt.split(toolPolicy)).toHaveLength(2);
+  });
+});
 
 describe('probeCliVersion', () => {
   beforeEach(() => {
@@ -230,5 +262,49 @@ describe('resolveDirectSpawn', () => {
     const result = await resolveDirectSpawn('C:\\npm\\copilot.cmd');
 
     expect(result).toEqual({ command: 'C:\\npm\\copilot.cmd', prefixArgs: [] });
+  });
+});
+
+/**
+ * Pure string helper — no cross-spawn / fs / which mocking needed.
+ *
+ * A native binary inside `app.asar` satisfies existsSync through the asar shim
+ * but cannot be spawned; electron-builder's `asarUnpack` puts the spawnable
+ * copy in the sibling `app.asar.unpacked` tree. Codex and opencode both route
+ * their module-resolved candidates through this helper.
+ */
+describe('withAsarUnpackedTwin', () => {
+  const UNIX_CANDIDATE =
+    '/usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex';
+  const ASAR_CANDIDATE =
+    'C:\\Users\\dev\\AppData\\Local\\Programs\\Ptah\\resources\\app.asar\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe';
+
+  it('returns the candidate alone when it is not inside an asar', () => {
+    expect(withAsarUnpackedTwin(UNIX_CANDIDATE)).toEqual([UNIX_CANDIDATE]);
+  });
+
+  it('appends the app.asar.unpacked twin, original first', () => {
+    const result = withAsarUnpackedTwin(ASAR_CANDIDATE);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(ASAR_CANDIDATE);
+    expect(result[1]).toBe(
+      ASAR_CANDIDATE.replace('app.asar\\', 'app.asar.unpacked\\'),
+    );
+    expect(result[1]).toContain('\\app.asar.unpacked\\node_modules\\');
+  });
+
+  it('does not re-rewrite a path that is already app.asar.unpacked', () => {
+    // What the `(?!\.unpacked)` lookahead exists for: without it this would
+    // yield an `app.asar.unpacked.unpacked` directory that never exists.
+    const unpacked = ASAR_CANDIDATE.replace(
+      'app.asar\\',
+      'app.asar.unpacked\\',
+    );
+
+    const result = withAsarUnpackedTwin(unpacked);
+
+    expect(result).toEqual([unpacked]);
+    expect(result[0]).not.toContain('app.asar.unpacked.unpacked');
   });
 });

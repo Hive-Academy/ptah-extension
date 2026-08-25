@@ -20,6 +20,7 @@ import {
 import type { SdkHandle } from '../cli-agents/cli-adapters';
 import {
   SDK_TOKENS,
+  HARNESS_PREFLIGHT_TOKEN,
   SdkError,
   SdkModuleLoader,
   SdkMessageTransformer,
@@ -27,12 +28,14 @@ import {
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
+  buildFlagSettings,
   type AnthropicProvider,
+  type IHarnessPreflight,
   type ModelTier,
   type Options,
 } from '@ptah-extension/agent-sdk';
@@ -54,6 +57,7 @@ import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
+  blankToUndefined,
   generateAgentId,
   sanitizeErrorMessage,
 } from './helpers/ptah-cli-registry.utils';
@@ -96,6 +100,13 @@ export class PtahCliRegistry {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    /**
+     * A raw Ptah CLI reads its harness from disk at process startup. Keep this
+     * optional so hosts that have not bound harness-sync keep their existing
+     * spawn behavior.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -467,10 +478,12 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Get list of available Anthropic-compatible providers from the registry
+   * Get list of available Anthropic-compatible providers from the merged
+   * registry — built-ins plus user-defined entries, so a custom provider can
+   * back a spawned Ptah CLI agent.
    */
   getAvailableProviders(): AnthropicProvider[] {
-    return [...ANTHROPIC_PROVIDERS];
+    return getAllAnthropicProviders();
   }
 
   /**
@@ -562,10 +575,20 @@ export class PtahCliRegistry {
       );
     }
     const cwd = options?.workingDirectory || require('os').homedir();
+    await this.runHarnessPreflight(cwd);
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
       authEnv,
       cwd,
       options?.projectGuidance,
+      // The tier is already resolved above — hand the identity clarification
+      // the same model the spawn runs on rather than letting it guess a tier.
+      model || undefined,
+      {
+        parentSessionId: options?.parentSessionId,
+        // The agent's OWN session id, which only exists when resuming. NOT the
+        // parent's — see `PtahSpawnSessionContext.ownSessionId`.
+        ownSessionId: options?.resumeSessionId,
+      },
     );
     const {
       outputCallbacks,
@@ -588,8 +611,6 @@ export class PtahCliRegistry {
         modelTier: tier,
         sdkModel: model,
         resumeSessionId: options?.resumeSessionId ?? null,
-        isPremium: assembly.isPremium,
-        pluginCount: assembly.plugins?.length ?? 0,
         mcpEnabled: Object.keys(assembly.mcpServers).length > 0,
         hasSystemPrompt: !!assembly.systemPromptContent,
       },
@@ -625,9 +646,22 @@ export class PtahCliRegistry {
           preset: 'claude_code' as const,
         },
         mcpServers: assembly.mcpServers,
+        // Output-style FLAG tier (TASK_2026_197). `buildFlagSettings` is the
+        // ONE builder of this object — hand-rolling `{ outputStyle: name }`
+        // here would be a second flag-tier definition, and it omits the
+        // `outputStyle`-key-absent rule that stops a spawn from clobbering a
+        // style the user chose for their own CLI sessions (G4b).
+        //
+        // It also carries `PTAH_DISABLE_SDK_AUTO_MEMORY`, which spawns did not
+        // send before. That is deliberate: Ptah runs its own memory curator,
+        // and a spawned agent writing SDK auto-memory was an inconsistency
+        // with every other session Ptah starts.
+        settings: buildFlagSettings({
+          outputStyleName: assembly.outputStyleName,
+        }),
         ...this.resolvePermissionOptions(
-          options?.resumeSessionId ??
-            options?.parentSessionId ??
+          blankToUndefined(options?.resumeSessionId) ??
+            blankToUndefined(options?.parentSessionId) ??
             `ptah-cli:${id}`,
           () => agentIdHolder.value,
         ),
@@ -642,7 +676,6 @@ export class PtahCliRegistry {
           );
         },
         hooks: assembly.hooks,
-        plugins: assembly.plugins,
         compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:
           (await this.moduleLoader.getCliJsPath()) ?? undefined,
@@ -732,6 +765,26 @@ export class PtahCliRegistry {
   }
 
   /**
+   * Verifies the on-disk harness before a raw Ptah CLI query begins.
+   *
+   * The preflight port promises a bounded, non-throwing operation, but a
+   * defensive boundary is necessary because a rejected implementation must not
+   * prevent an otherwise valid agent spawn.
+   */
+  private async runHarnessPreflight(cwd: string): Promise<void> {
+    if (this.harnessPreflight === null) return;
+    try {
+      await this.harnessPreflight.ensure(cwd);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[PtahCliRegistry] Harness preflight failed (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
    * Dispose all active adapters. Chat sessions are owned by SdkAgentAdapter,
    * but any long-lived per-agent translation proxies started by `getProfile()`
    * are owned here and must be torn down.
@@ -765,9 +818,13 @@ export class PtahCliRegistry {
    *
    * For other modes ('ask', 'auto-edit'), we keep `default` and provide
    * the canUseTool callback so the user sees permission prompts.
+   *
+   * @param routingId - The caller's RAW routing id, which may not be a session
+   *   at all: a spawn with neither a resume nor a parent falls back to
+   *   `ptah-cli:${id}`. It is parsed here exactly once — see the body.
    */
   private resolvePermissionOptions(
-    sessionId?: string,
+    routingId: string,
     cliAgentResolver?: () => string | undefined,
   ): {
     permissionMode: string;
@@ -794,15 +851,32 @@ export class PtahCliRegistry {
       };
     }
 
+    // Two wrong branches used to live here. A non-UUID routing id (`''` from a
+    // caller that minted an empty parent session) collapsed to `undefined`,
+    // which makes the request unroutable and auto-denies every tool prompt on
+    // timeout; anything else non-UUID (the `ptah-cli:${id}` fallback) reached
+    // `SessionId.from`, which THROWS — taking the whole spawn down. Parse once,
+    // keep the raw id as the routing hint so out-of-band observers can still
+    // match the prompt, and say out loud when there is no routable surface.
+    const routableSessionId = SessionId.safeParse(routingId) ?? undefined;
+    if (!routableSessionId) {
+      this.logger.warn(
+        `[PtahCliRegistry] Spawned agent has no routable session id — tool prompts reach the agent monitor panel only, and auto-deny on timeout if that panel is not listening`,
+        { routingHint: routingId, sdkMode, level },
+      );
+    }
     this.logger.info(
       `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
-      { sessionId, hasCanUseTool: true },
+      { sessionId: routableSessionId ?? null, hasCanUseTool: true },
     );
     return {
       permissionMode: sdkMode,
       canUseTool: this.permissionHandler.createCallback(
-        sessionId ? SessionId.from(sessionId) : undefined,
+        routableSessionId,
         cliAgentResolver,
+        undefined,
+        undefined,
+        routingId,
       ),
     };
   }

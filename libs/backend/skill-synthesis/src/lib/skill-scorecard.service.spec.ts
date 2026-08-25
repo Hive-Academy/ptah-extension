@@ -7,6 +7,7 @@
  */
 import 'reflect-metadata';
 import { SkillScorecardService } from './skill-scorecard.service';
+import type { SkillWinRate } from './skill-candidate.store';
 import type { ScorecardAggregate, GradedInvocationRow } from './types';
 import type { SpecFindingsPort } from './spec-findings.port';
 
@@ -39,6 +40,7 @@ function zeroAggregate(slug: string): ScorecardAggregate {
 interface FakeStore {
   getScorecardAggregates: jest.Mock;
   listGradedInvocations: jest.Mock;
+  getWinRates: jest.Mock;
 }
 
 function makeStore(): FakeStore {
@@ -47,6 +49,26 @@ function makeStore(): FakeStore {
       () => new Map<string, ScorecardAggregate>(),
     ),
     listGradedInvocations: jest.fn((): GradedInvocationRow[] => []),
+    getWinRates: jest.fn((): SkillWinRate[] => []),
+  };
+}
+
+/**
+ * A measured win-rate row. `winRate` is passed in explicitly — including `0`,
+ * which is a measurement and not a stand-in for "unmeasured".
+ */
+function winRateRow(
+  slug: string,
+  winRate: number | null,
+  over: Partial<SkillWinRate> = {},
+): SkillWinRate {
+  return {
+    slug,
+    invocations: 4,
+    wins: 2,
+    unknown: 0,
+    winRate,
+    ...over,
   };
 }
 
@@ -285,5 +307,92 @@ describe('SkillScorecardService.getScorecardDetail', () => {
 
     await service.getScorecardDetail('agent-e', 5);
     expect(store.listGradedInvocations).toHaveBeenLastCalledWith('agent-e', 5);
+  });
+});
+
+// ─── B4.3.1: the scorecard exposes the win rate alongside its aggregates ─────
+
+describe('SkillScorecardService.getWinRates', () => {
+  it('returns {} for an empty slug list without touching the store', () => {
+    const store = makeStore();
+    const service = makeService(store);
+
+    expect(service.getWinRates([])).toEqual({});
+    expect(store.getWinRates).not.toHaveBeenCalled();
+  });
+
+  it('echoes the measured row for a slug the join covered', () => {
+    const store = makeStore();
+    store.getWinRates.mockReturnValue([
+      winRateRow('backend-developer', 0.75, {
+        invocations: 6,
+        wins: 3,
+        unknown: 2,
+      }),
+    ]);
+    const service = makeService(store);
+
+    expect(service.getWinRates(['backend-developer'])).toEqual({
+      'backend-developer': {
+        slug: 'backend-developer',
+        invocations: 6,
+        wins: 3,
+        unknown: 2,
+        winRate: 0.75,
+      },
+    });
+  });
+
+  it('reports an unmeasured slug as winRate null — NOT 0 — and never omits it', () => {
+    const store = makeStore();
+    store.getWinRates.mockReturnValue([winRateRow('measured', 0.5)]);
+    const service = makeService(store);
+
+    const rates = service.getWinRates(['measured', 'never-invoked']);
+
+    expect(rates['never-invoked']).toEqual({
+      slug: 'never-invoked',
+      invocations: 0,
+      wins: 0,
+      unknown: 0,
+      winRate: null,
+    });
+    expect(rates['never-invoked'].winRate).toBeNull();
+    expect(rates['never-invoked'].winRate).not.toBe(0);
+  });
+
+  it('preserves a measured 0 as 0 — the loser is not folded into "unmeasured"', () => {
+    const store = makeStore();
+    store.getWinRates.mockReturnValue([
+      winRateRow('measured-loser', 0, { invocations: 4, wins: 0, unknown: 0 }),
+    ]);
+    const service = makeService(store);
+
+    const rate = service.getWinRates(['measured-loser'])['measured-loser'];
+    expect(rate.winRate).toBe(0);
+    expect(rate.winRate).not.toBeNull();
+  });
+
+  it('ignores slugs the caller did not ask about', () => {
+    const store = makeStore();
+    store.getWinRates.mockReturnValue([
+      winRateRow('asked', 0.4),
+      winRateRow('not-asked', 0.9),
+    ]);
+    const service = makeService(store);
+
+    expect(Object.keys(service.getWinRates(['asked']))).toEqual(['asked']);
+  });
+
+  it('degrades to unmeasured (never throws, never 0) when the store fails', () => {
+    const store = makeStore();
+    store.getWinRates.mockImplementation(() => {
+      throw new Error('no such table: skill_session_verdicts');
+    });
+    const service = makeService(store);
+
+    const rates = service.getWinRates(['a', 'b']);
+    expect(rates['a'].winRate).toBeNull();
+    expect(rates['b'].winRate).toBeNull();
   });
 });

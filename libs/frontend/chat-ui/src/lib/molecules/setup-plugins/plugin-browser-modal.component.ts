@@ -18,9 +18,17 @@ import {
   Star,
   ChevronDown,
   ChevronRight,
+  Wand2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { PluginInfo, PluginSkillEntry } from '@ptah-extension/shared';
+import {
+  isOptOutPluginSource,
+  type HarnessSetSkillSelectionParams,
+  type HarnessSkillCandidate,
+  type HarnessSkillSyncMode,
+  type PluginInfo,
+  type PluginSkillEntry,
+} from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
 
 /**
@@ -33,12 +41,21 @@ interface CategoryGroup {
 }
 
 /** Ordered category definitions for display grouping.
- * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS */
+ * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS
+ * plus the dynamic `harness-tools` category the loader assigns to discovered
+ * `ptah-harness-*` directories and `external-tools` for plugins installed from
+ * a registered external marketplace.
+ *
+ * The `Record` is exhaustive over `PluginInfo['category']` deliberately: widening
+ * that union without adding a label here is a compile error rather than a group
+ * that silently renders with no heading. */
 const CATEGORY_LABELS: Record<PluginInfo['category'], string> = {
   'core-tools': 'Core Tools',
   'backend-tools': 'Backend Tools',
   'frontend-tools': 'Frontend Tools',
   'creative-tools': 'Creative Tools',
+  'harness-tools': 'Your Skills',
+  'external-tools': 'From Marketplaces',
 };
 
 const CATEGORY_ORDER: PluginInfo['category'][] = [
@@ -46,7 +63,53 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
   'backend-tools',
   'frontend-tools',
   'creative-tools',
+  'harness-tools',
+  'external-tools',
 ];
+
+/**
+ * True when the plugin is OPT-OUT — enabled the moment it exists on disk,
+ * disabled only by an explicit entry in `disabledPluginIds`.
+ *
+ * That is the harness wizard's own skills and, since TASK_2026_288, skills.sh
+ * installs: in both cases the user named this exact artifact on purpose.
+ * Bundled and external plugins (and any legacy payload with no `source`) are
+ * OPT-IN via `enabledPluginIds`.
+ *
+ * Delegates to the shared rule so this modal, the status widget's count and
+ * `PluginLoaderService.resolveCurrentPluginPaths` cannot drift.
+ */
+function isOptOutPlugin(plugin: PluginInfo): boolean {
+  return isOptOutPluginSource(plugin.source);
+}
+
+/**
+ * Timeout for `harness:set-skill-selection`.
+ *
+ * Far longer than the 10s the plugin calls get, because this one is not a
+ * config write: recording the selection runs a propagation pass that copies
+ * skills across up to six harness targets and retries on Windows lock
+ * contention. `HarnessHealthStore` gives `harness:reconcile` the same budget.
+ */
+const SKILL_SELECTION_SAVE_TIMEOUT_MS = 90_000;
+
+/**
+ * A comparable key for a selection, so "the user changed nothing" is decidable.
+ *
+ * Slugs are sorted because the backend normalizes them (trimmed, deduplicated,
+ * sorted) before recording, and tick-order is not a change. Under `'all'` the
+ * allowlist is meaningless and is deliberately excluded from the key — a stale
+ * set left over from a previous `'selected'` session must not read as an edit.
+ */
+function skillSelectionKey(
+  mode: HarnessSkillSyncMode,
+  slugs: Iterable<string>,
+): string {
+  if (mode === 'all') {
+    return 'all';
+  }
+  return `selected|${[...slugs].sort().join(',')}`;
+}
 
 /**
  * PluginBrowserModalComponent - Modal dialog for browsing and configuring plugins
@@ -60,6 +123,17 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
  * - Checkbox selection with immutable Set signal updates
  * - Saves configuration via RPC on confirm
  * - Recommended badge for default plugins
+ * - Per-workspace skill selection: all-vs-allowlist for what this project
+ *   propagates into its AI tools' harness directories (TASK_2026_316)
+ *
+ * ### Two axes, one modal
+ *
+ * This is the only surface that speaks for both, which is why the selection
+ * lives here rather than in a second picker. The plugin checkboxes decide what
+ * loads into a SESSION; the section above them decides what this WORKSPACE
+ * copies onto disk for Claude, Codex, Copilot and Cursor. They are saved by
+ * two different RPCs and neither derives the other — most of the selectable
+ * slugs have no plugin above them at all.
  *
  * SOLID Principles:
  * - Single Responsibility: Browse and configure plugin selection
@@ -88,7 +162,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
             </div>
             <div>
               <span class="block font-bold text-lg">Configure Ptah Skills</span>
-              <span class="block text-sm text-base-content/60">
+              <span class="block text-sm text-base-content-muted">
                 Select plugins to enhance your AI sessions
               </span>
             </div>
@@ -111,7 +185,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                 class="loading loading-spinner loading-md text-primary"
               ></span>
             </div>
-            <span class="block text-sm text-base-content/60 text-center">
+            <span class="block text-sm text-base-content-muted text-center">
               Loading available plugins...
             </span>
           </div>
@@ -128,11 +202,131 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
             </button>
           </div>
         } @else {
+          <!-- Which of the user's skills THIS project gets (TASK_2026_316) -->
+          @if (skillSelectionAvailable()) {
+            <section
+              class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
+              data-testid="skill-selection"
+              aria-label="Skills for this project"
+            >
+              <div class="flex items-start gap-3">
+                <div class="flex-1 min-w-0">
+                  <span class="block text-sm font-medium"
+                    >Skills for this project</span
+                  >
+                  <span
+                    class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
+                  >
+                    Which of your skills Ptah copies into this project's AI
+                    tools. Every project keeps its own answer.
+                  </span>
+                </div>
+                <div
+                  class="join shrink-0"
+                  role="radiogroup"
+                  aria-label="Skill selection mode"
+                >
+                  <button
+                    class="btn btn-xs join-item"
+                    [ngClass]="
+                      skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'
+                    "
+                    type="button"
+                    role="radio"
+                    [attr.aria-checked]="skillMode() === 'all'"
+                    data-testid="skill-mode-all"
+                    (click)="setSkillMode('all')"
+                  >
+                    All of them
+                  </button>
+                  <button
+                    class="btn btn-xs join-item"
+                    [ngClass]="
+                      skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
+                    "
+                    type="button"
+                    role="radio"
+                    [attr.aria-checked]="skillMode() === 'selected'"
+                    data-testid="skill-mode-selected"
+                    (click)="setSkillMode('selected')"
+                  >
+                    Only the ones I pick
+                  </button>
+                </div>
+              </div>
+
+              @if (skillMode() === 'all') {
+                @if (skillModeDerived()) {
+                  <span
+                    class="block text-xs text-base-content-muted mt-2"
+                    data-testid="skill-mode-derived"
+                  >
+                    This project was already receiving skills before it could be
+                    asked, so Ptah kept them all flowing. Narrow it whenever you
+                    like.
+                  </span>
+                }
+              } @else {
+                <div
+                  class="mt-2 max-h-40 overflow-y-auto pr-1"
+                  role="group"
+                  aria-label="Selectable skills"
+                >
+                  @for (candidate of skillCandidates(); track candidate.slug) {
+                    <label
+                      class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs checkbox-primary mt-0.5"
+                        [checked]="isSkillSlugSelected(candidate.slug)"
+                        (change)="toggleSkillSlug(candidate.slug)"
+                        [attr.aria-label]="
+                          (isSkillSlugSelected(candidate.slug)
+                            ? 'Deselect '
+                            : 'Select ') + candidate.name
+                        "
+                      />
+                      <span class="min-w-0 flex-1">
+                        <span class="block text-xs font-medium">{{
+                          candidate.name
+                        }}</span>
+                        @if (candidate.description) {
+                          <span
+                            class="block text-xs text-base-content-muted leading-relaxed"
+                            >{{ candidate.description }}</span
+                          >
+                        }
+                      </span>
+                      @if (candidate.pluginId) {
+                        <span class="badge badge-xs badge-ghost shrink-0">{{
+                          candidate.pluginId
+                        }}</span>
+                      }
+                    </label>
+                  } @empty {
+                    <span class="block text-xs text-base-content-muted py-2">
+                      No skills on this machine yet. Anything you add with the
+                      harness wizard, a marketplace or skills.sh shows up here.
+                    </span>
+                  }
+                </div>
+                <span
+                  class="block text-xs text-base-content-muted mt-1"
+                  data-testid="skill-selection-count"
+                >
+                  {{ selectedSkillSlugs().size }} of
+                  {{ skillCandidates().length }} skills selected
+                </span>
+              }
+            </section>
+          }
+
           <!-- Search input -->
           <div class="relative mb-4">
             <lucide-angular
               [img]="SearchIcon"
-              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40"
+              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
               aria-hidden="true"
             />
             <input
@@ -155,7 +349,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
               <div>
                 <!-- Category header -->
                 <span
-                  class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+                  class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
                 >
                   {{ group.label }}
                 </span>
@@ -201,9 +395,21 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                                 Recommended
                               </span>
                             }
+                            @if (plugin.source === 'harness') {
+                              <span
+                                class="badge badge-xs badge-secondary gap-1"
+                              >
+                                <lucide-angular
+                                  [img]="WandIcon"
+                                  class="w-2.5 h-2.5"
+                                  aria-hidden="true"
+                                />
+                                Yours
+                              </span>
+                            }
                           </div>
                           <span
-                            class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
+                            class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
                           >
                             {{ plugin.description }}
                           </span>
@@ -305,7 +511,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                                   >{{ skill.displayName }}</span
                                 >
                                 <span
-                                  class="text-xs text-base-content/50 truncate"
+                                  class="text-xs text-base-content-muted truncate"
                                   >{{ skill.description }}</span
                                 >
                               </label>
@@ -318,7 +524,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                 </div>
               </div>
             } @empty {
-              <div class="text-center py-6 text-base-content/50">
+              <div class="text-center py-6 text-base-content-muted">
                 <span class="block text-sm">
                   @if (searchQuery()) {
                     No plugins match your search.
@@ -332,11 +538,11 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
 
           <!-- Footer -->
           <div class="modal-action mt-4 pt-3 border-t border-base-300">
-            <span class="text-xs text-base-content/50 flex-1">
+            <span class="text-xs text-base-content-muted flex-1">
               {{ selectedIds().size }} of
               {{ availablePlugins().length }} selected
               @if (disabledSkillIds().size > 0) {
-                <span class="text-base-content/40">
+                <span class="text-base-content-muted">
                   &middot; {{ disabledSkillIds().size }} skill{{
                     disabledSkillIds().size !== 1 ? 's' : ''
                   }}
@@ -400,6 +606,7 @@ export class PluginBrowserModalComponent {
   protected readonly StarIcon = Star;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly WandIcon = Wand2;
 
   /** Controls modal visibility (from parent) */
   readonly isOpen = input(false);
@@ -439,6 +646,63 @@ export class PluginBrowserModalComponent {
 
   /** Set of plugin IDs whose skill list is currently expanded */
   readonly expandedPlugins = signal<Set<string>>(new Set());
+
+  // -------------------------------------------------------------------------
+  // The per-workspace skill selection (TASK_2026_316)
+  //
+  // A SECOND axis, not a second copy of the first. `selectedIds` above decides
+  // which plugins load into a session; the four signals below decide which of
+  // the user's skills this WORKSPACE has copied into its AI tools' harness
+  // directories, and the two answers are independent — a plugin can be off in
+  // chat while its skills still reach Codex, and a hand-authored SKILL.md with
+  // no plugin above it has no checkbox on the first axis at all.
+  //
+  // Which is why the list below is keyed on `available` from
+  // `harness:get-skill-selection` rather than on `availablePlugins`. A promoted
+  // synth skill, a hand-authored SKILL.md and a `skills.sh` install all arrive
+  // with `pluginId: null`, and that is the normal case, not an error. Omitting
+  // them would let the first `'selected'` save reap them with no control
+  // anywhere able to bring them back.
+  // -------------------------------------------------------------------------
+
+  /** Everything this workspace COULD propagate, sorted by slug, as the backend reported it. */
+  readonly skillCandidates = signal<HarnessSkillCandidate[]>([]);
+
+  /** The allowlist being edited. Meaningless (and unsent) under `'all'`. */
+  readonly selectedSkillSlugs = signal<Set<string>>(new Set());
+
+  /** Whether this workspace propagates everything or only {@link selectedSkillSlugs}. */
+  readonly skillMode = signal<HarnessSkillSyncMode>('all');
+
+  /**
+   * The `'all'` on screen was inferred by the migration, not chosen by anyone.
+   *
+   * Surfaced quietly rather than acted on: a user who chose everything and a
+   * workspace that predates the gate look identical without it, and only the
+   * second deserves a sentence explaining why it is set that way.
+   */
+  readonly skillModeDerived = signal(false);
+
+  /**
+   * Whether the selection section renders at all.
+   *
+   * False when `harness:get-skill-selection` did not answer — no workspace is
+   * open, or the host predates Batch 3. A control that cannot be saved is worse
+   * than no control, so the whole section is withheld rather than shown inert.
+   */
+  readonly skillSelectionAvailable = signal(false);
+
+  /**
+   * The selection as loaded, for deciding whether the user actually changed it.
+   *
+   * Load-bearing, not an optimization. `harness:get-skill-selection` is
+   * READ-ONLY on purpose — asking must not record — and saving an untouched
+   * derived `'all'` would quietly convert "this workspace predates the gate"
+   * into "the user chose everything", destroying the one distinction `derived`
+   * exists to carry. It would also spend a full propagation pass every time
+   * someone toggles an unrelated plugin.
+   */
+  private skillSelectionBaseline = skillSelectionKey('all', []);
 
   /**
    * Filtered plugins based on search query.
@@ -572,6 +836,35 @@ export class PluginBrowserModalComponent {
   }
 
   /**
+   * Switch between propagating every skill and propagating an allowlist.
+   *
+   * Switching to `'all'` KEEPS the ticked slugs in memory rather than clearing
+   * them, so a user who flips the control to look at the other option and flips
+   * back has not lost their work. Nothing stale is ever sent: the save path
+   * omits `slugs` entirely under `'all'`, and the backend clears the recorded
+   * allowlist itself.
+   */
+  setSkillMode(mode: HarnessSkillSyncMode): void {
+    this.skillMode.set(mode);
+  }
+
+  /** Whether a slug is in the allowlist being edited. */
+  isSkillSlugSelected(slug: string): boolean {
+    return this.selectedSkillSlugs().has(slug);
+  }
+
+  /** Add or remove one slug, immutably so the signal actually fires. */
+  toggleSkillSlug(slug: string): void {
+    const updated = new Set(this.selectedSkillSlugs());
+    if (updated.has(slug)) {
+      updated.delete(slug);
+    } else {
+      updated.add(slug);
+    }
+    this.selectedSkillSlugs.set(updated);
+  }
+
+  /**
    * Handle search input changes.
    */
   onSearchInput(event: Event): void {
@@ -589,22 +882,55 @@ export class PluginBrowserModalComponent {
   /**
    * Save the current plugin configuration via RPC.
    * Emits saved with enabled IDs, then closes modal.
+   *
+   * Harness plugins are opt-out, so an unchecked one cannot be expressed by
+   * simply leaving it out of `enabledPluginIds` — the backend would rediscover
+   * it and re-enable it. Every unchecked harness plugin is therefore sent
+   * explicitly in `disabledPluginIds`.
+   *
+   * The inverse also holds: a CHECKED harness plugin is deliberately kept OUT
+   * of `enabledPluginIds`. That list drives the user-layer mirror, and
+   * The harness reconciler's flat skill map lets a mirrored copy win over the
+   * live plugin directory — mirroring a harness plugin would freeze its skills
+   * at mirror time and hide later wizard edits. Absence from the denylist is
+   * the whole "enabled" signal for harness plugins.
    */
   async saveConfiguration(): Promise<void> {
     this.isSaving.set(true);
     this.saveError.set(null);
 
     try {
-      const enabledPluginIds = Array.from(this.selectedIds());
+      const selected = this.selectedIds();
+      const harnessIds = new Set(
+        this.availablePlugins()
+          .filter(isOptOutPlugin)
+          .map((p) => p.id),
+      );
+      const enabledPluginIds = Array.from(selected).filter(
+        (id) => !harnessIds.has(id),
+      );
       const disabledSkillIds = Array.from(this.disabledSkillIds());
+      const disabledPluginIds = Array.from(harnessIds).filter(
+        (id) => !selected.has(id),
+      );
 
       const result = await this.rpcService.call(
         'plugins:save-config',
-        { enabledPluginIds, disabledSkillIds },
+        { enabledPluginIds, disabledSkillIds, disabledPluginIds },
         { timeout: 10000 },
       );
 
       if (result.isSuccess()) {
+        // Second write, and only if the user moved this control. It runs after
+        // the plugin save rather than beside it because both propagate, and
+        // the selection is the narrower filter — letting it land last means the
+        // harness ends the save reflecting the answer the user just gave.
+        if (!(await this.saveSkillSelection())) {
+          this.saveError.set(
+            'Your plugin choices were saved, but Ptah could not record which skills this project gets.',
+          );
+          return;
+        }
         this.saved.emit(enabledPluginIds);
         this.closed.emit();
       } else {
@@ -623,6 +949,138 @@ export class PluginBrowserModalComponent {
   }
 
   /**
+   * Record the skill selection, if and only if the user changed it.
+   *
+   * Returns `true` for "nothing to do" as well as for a successful write —
+   * both mean the recorded selection now matches what is on screen. A `saved:
+   * false` reply is a real failure: the previous selection stays in force and
+   * no pass ran, so reporting success would show the user a selection the next
+   * reconcile does not honour.
+   *
+   * The reply's NORMALIZED slugs are adopted rather than the ones sent, so the
+   * baseline matches what is actually on disk (trimmed, deduplicated, sorted)
+   * and a re-save cannot fire on a difference that only exists locally.
+   */
+  private async saveSkillSelection(): Promise<boolean> {
+    if (!this.skillSelectionAvailable()) {
+      return true;
+    }
+
+    const mode = this.skillMode();
+    const slugs = this.selectedSkillSlugs();
+    if (skillSelectionKey(mode, slugs) === this.skillSelectionBaseline) {
+      return true;
+    }
+
+    const params: HarnessSetSkillSelectionParams =
+      mode === 'all' ? { mode } : { mode, slugs: Array.from(slugs) };
+
+    try {
+      const result = await this.rpcService.call(
+        'harness:set-skill-selection',
+        params,
+        { timeout: SKILL_SELECTION_SAVE_TIMEOUT_MS },
+      );
+
+      if (result.isSuccess() && result.data?.saved) {
+        this.applySkillSelection({
+          mode: result.data.mode,
+          slugs: result.data.slugs,
+          // The user just answered, so nothing here is inferred any more.
+          derived: false,
+        });
+        return true;
+      }
+
+      console.error(
+        '[PluginBrowserModal] Failed to record the skill selection:',
+        result.error,
+      );
+      return false;
+    } catch (err: unknown) {
+      console.error(
+        '[PluginBrowserModal] Error recording the skill selection:',
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Adopt a selection the backend reported, and take it as the new baseline.
+   *
+   * `available` is optional because the save reply does not carry it: recording
+   * a selection cannot change what the user layer OFFERS, only which of it this
+   * workspace takes, so the loaded candidate list stays as it is.
+   */
+  private applySkillSelection(selection: {
+    mode: HarnessSkillSyncMode;
+    slugs: string[];
+    derived: boolean;
+    available?: HarnessSkillCandidate[];
+  }): void {
+    if (selection.available !== undefined) {
+      this.skillCandidates.set(selection.available);
+    }
+    this.skillMode.set(selection.mode);
+    this.selectedSkillSlugs.set(new Set(selection.slugs));
+    this.skillModeDerived.set(selection.derived);
+    this.skillSelectionBaseline = skillSelectionKey(
+      selection.mode,
+      selection.slugs,
+    );
+    this.skillSelectionAvailable.set(true);
+  }
+
+  /**
+   * Withdraw the selection section entirely.
+   *
+   * For no workspace, a host that predates Batch 3, or a failed read — in every
+   * case the modal does not know the current selection, and a control seeded
+   * with a guess would let a Save write that guess to disk.
+   */
+  private clearSkillSelection(): void {
+    this.skillSelectionAvailable.set(false);
+    this.skillCandidates.set([]);
+    this.selectedSkillSlugs.set(new Set());
+    this.skillMode.set('all');
+    this.skillModeDerived.set(false);
+    this.skillSelectionBaseline = skillSelectionKey('all', []);
+  }
+
+  /**
+   * Translate the persisted config into the modal's checkbox state.
+   *
+   * The two activation models are collapsed into one `selectedIds` set here so
+   * the template stays a plain checked/unchecked render:
+   * - bundled (opt-in)  → checked when listed in `enabledPluginIds`
+   * - harness (opt-out) → checked unless listed in `disabledPluginIds`
+   */
+  private deriveSelection(
+    plugins: PluginInfo[],
+    enabledPluginIds: string[],
+    disabledPluginIds: string[],
+  ): Set<string> {
+    const enabled = new Set(enabledPluginIds);
+    const disabled = new Set(disabledPluginIds);
+
+    const selection = new Set(
+      enabledPluginIds.filter((id) => !disabled.has(id)),
+    );
+
+    for (const plugin of plugins) {
+      if (!isOptOutPlugin(plugin)) continue;
+      if (disabled.has(plugin.id)) {
+        selection.delete(plugin.id);
+      } else if (!enabled.has(plugin.id)) {
+        selection.add(plugin.id);
+      }
+    }
+
+    return selection;
+  }
+
+  /**
    * Load available plugins and current configuration from backend.
    * Called via effect when isOpen becomes true, and by error retry button.
    */
@@ -632,9 +1090,16 @@ export class PluginBrowserModalComponent {
     this.saveError.set(null);
 
     try {
-      const [listResult, configResult] = await Promise.all([
+      const [listResult, configResult, selectionResult] = await Promise.all([
         this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
         this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
+        // Non-fatal by construction. A host without this handler, or with no
+        // workspace open, must still be able to configure plugins — so this
+        // one call swallows its own rejection instead of failing the load, and
+        // the section it feeds simply does not render.
+        this.rpcService
+          .call('harness:get-skill-selection', {}, { timeout: 10000 })
+          .catch(() => null),
       ]);
 
       let plugins: PluginInfo[] = [];
@@ -647,7 +1112,11 @@ export class PluginBrowserModalComponent {
       }
 
       if (configResult.isSuccess() && configResult.data) {
-        this.selectedIds.set(new Set(configResult.data.enabledPluginIds));
+        this.selectedIds.set(
+          this.deriveSelection(plugins, configResult.data.enabledPluginIds, [
+            ...(configResult.data.disabledPluginIds ?? []),
+          ]),
+        );
         this.disabledSkillIds.set(
           new Set(configResult.data.disabledSkillIds ?? []),
         );
@@ -655,6 +1124,13 @@ export class PluginBrowserModalComponent {
         this.selectedIds.set(new Set());
         this.disabledSkillIds.set(new Set());
       }
+
+      if (selectionResult?.isSuccess() && selectionResult.data) {
+        this.applySkillSelection(selectionResult.data);
+      } else {
+        this.clearSkillSelection();
+      }
+
       if (plugins.length > 0) {
         try {
           const pluginIds = plugins.map((p) => p.id);
@@ -690,6 +1166,7 @@ export class PluginBrowserModalComponent {
       this.selectedIds.set(new Set());
       this.pluginSkills.set(new Map());
       this.disabledSkillIds.set(new Set());
+      this.clearSkillSelection();
     } finally {
       this.isLoading.set(false);
     }

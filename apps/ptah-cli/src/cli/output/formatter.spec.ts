@@ -203,13 +203,13 @@ describe('HumanFormatter', () => {
     const cap = makeCapture();
     const fmt = new HumanFormatter(cap.writer, { noColor: true });
     await fmt.writeNotification('license.status', {
-      tier: 'pro',
+      tier: 'builders',
       valid: true,
       daysRemaining: 30,
     });
     const text = await cap.read();
     expect(text).toContain('✓ license.status');
-    expect(text).toContain('tier:           pro');
+    expect(text).toContain('tier:           builders');
     expect(text).toContain('valid:          yes');
     expect(text).toContain('daysRemaining:  30');
   });
@@ -244,6 +244,40 @@ describe('HumanFormatter', () => {
     const text = await cap.read();
     // eslint-disable-next-line no-control-regex
     expect(text).not.toMatch(/\x1b\[/);
+  });
+
+  it('renders a source-managed harness facet as source rather than n/a', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('harness.doctor', {
+      health: {
+        sources: 'ok',
+        collisions: [],
+        targets: [
+          {
+            target: 'claude',
+            detected: true,
+            facets: {
+              skills: 'supported',
+              commands: 'supported',
+              agents: 'source-managed',
+              mcp: 'supported',
+            },
+            expected: 0,
+            found: 0,
+            missing: [],
+            foreign: [],
+            writeFailed: [],
+            overwrittenLocalEdit: [],
+          },
+        ],
+      },
+      summary: { level: 'ok', label: 'Harness in sync across 1 target' },
+    });
+    const text = await cap.read();
+
+    expect(text).toContain('agents');
+    expect(text).toMatch(/claude\s+yes\s+yes\s+yes\s+source\s+yes/);
   });
 });
 

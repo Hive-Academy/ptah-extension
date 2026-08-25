@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   SkillSuggestionDetail,
   SkillSuggestionSummary,
+  SkillSynthesisCandidateScope,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
   SkillSynthesisPromoteBulkResult,
@@ -11,6 +12,10 @@ import type {
   SkillSynthesisStatsResult,
   SkillSynthesisSpecSummary,
   SkillSynthesisCandidateDetail,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
+  SkillDigestItem,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -38,6 +43,19 @@ function normalizeSuggestion(
 
 /** Status filter values for the candidates table. */
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
+
+/**
+ * What one {@link SkillSynthesisStateService.refreshDigest} call is scoped to.
+ *
+ * `allowRewrite` is the money flag, and it is `?: boolean` rather than
+ * `: boolean` on purpose: an automatic caller should be able to be safe by
+ * saying nothing, exactly as it is on the wire. Only a control the user pressed
+ * may pass `true`.
+ */
+export interface RefreshDigestOptions {
+  readonly limit?: number;
+  readonly allowRewrite?: boolean;
+}
 
 /**
  * Map a UI-facing status filter to the backend `status` parameter
@@ -68,6 +86,14 @@ export class SkillSynthesisStateService {
 
   public readonly candidates = signal<SkillSynthesisCandidateSummary[]>([]);
   public readonly statusFilter = signal<SkillStatusFilter>('all');
+  /**
+   * How wide the list reaches across projects. Defaults to `'workspace'`,
+   * matching the wire default — every project on this machine shares one
+   * `ptah.sqlite`, so an unscoped list showed a freshly opened project every
+   * other project's pending captures.
+   */
+  public readonly scopeFilter =
+    signal<SkillSynthesisCandidateScope>('workspace');
   public readonly selectedCandidateId = signal<string | null>(null);
   public readonly invocations = signal<SkillSynthesisInvocationEntry[]>([]);
   public readonly stats = signal<SkillSynthesisStatsResult | null>(null);
@@ -86,6 +112,40 @@ export class SkillSynthesisStateService {
 
   public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
   public readonly specsLoading = signal<boolean>(false);
+
+  /**
+   * The three parts of `skillSynthesis:queue`, kept as separate signals but
+   * only ever written together by {@link refreshQueue} — reading one without
+   * the others cannot distinguish "the drain never fired" from "the queue is
+   * up to date", and a partial write would make that ambiguity permanent.
+   *
+   * `stageSpend` is today's UTC token ledger. It is a sibling of `queueItems`
+   * rather than a field on one, because tokens are recorded per `(day, stage)`
+   * and never per row: a stage can have spent and have no rows left.
+   */
+  public readonly queueItems = signal<SkillSynthesisQueueItem[]>([]);
+  public readonly drainRuns = signal<SkillSynthesisDrainRun[]>([]);
+  public readonly stageSpend = signal<SkillSynthesisStageSpend[]>([]);
+  public readonly queueLoading = signal<boolean>(false);
+
+  /**
+   * The weekly gap digest, ALREADY ranked by `score` descending.
+   *
+   * Held in the order the backend returned it and never re-sorted here — the
+   * curator's tie-break is what makes two identical sweeps produce identical
+   * digests, and a sort on the way through would drop it.
+   */
+  public readonly digestItems = signal<SkillDigestItem[]>([]);
+  public readonly digestLoading = signal<boolean>(false);
+
+  /**
+   * Total queued attempts across every stage — the headline figure behind the
+   * per-stage cost strip. An attempt is one dispatch of one stage, so this
+   * grows with retries as well as with new work.
+   */
+  public readonly queuedAttemptTotal = computed(() =>
+    this.queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
+  );
 
   public readonly staleSpecCount = computed(
     () => this.specs().filter((s) => s.status === 'harvested').length,
@@ -108,6 +168,7 @@ export class SkillSynthesisStateService {
     try {
       const list = await this.rpc.listCandidates({
         status: statusFilterToBackend(this.statusFilter()),
+        scope: this.scopeFilter(),
       });
       this.candidates.set(list);
     } catch (err) {
@@ -292,6 +353,14 @@ export class SkillSynthesisStateService {
     await this.refreshCandidates();
   }
 
+  /** Update the project scope and reload the list. */
+  public async setScopeFilter(
+    scope: SkillSynthesisCandidateScope,
+  ): Promise<void> {
+    this.scopeFilter.set(scope);
+    await this.refreshCandidates();
+  }
+
   /** Refresh the cluster-derived suggestion list. */
   public async refreshSuggestions(): Promise<void> {
     this.suggestionsLoading.set(true);
@@ -438,6 +507,71 @@ export class SkillSynthesisStateService {
       return 0;
     } finally {
       this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the synthesis queue, the drain's recent run history and today's
+   * per-stage token ledger.
+   *
+   * All three signals are written from the one response so the Activity
+   * surface never renders a queue snapshot against a stale run feed or a stale
+   * cost strip. On failure all three are left untouched: showing the last good
+   * snapshot beside the error is more useful than blanking the panel.
+   */
+  public async refreshQueue(
+    options: { limit?: number; runLimit?: number } = {},
+  ): Promise<void> {
+    this.queueLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.queue(options);
+      this.queueItems.set(result.items ?? []);
+      this.drainRuns.set(result.recentRuns ?? []);
+      this.stageSpend.set(result.stageSpend ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.queueLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the weekly gap digest.
+   *
+   * On failure the last good digest is LEFT IN PLACE rather than blanked: an
+   * empty panel would read as "swept, nothing to look at", which is a false
+   * statement when the sweep never completed. The error surfaces beside it.
+   *
+   * ### `allowRewrite` is RESOLVED here, and defaults to not spending
+   *
+   * The backend's sweep may author its description rewrite on an LLM lane, and
+   * nothing budgets that call — the `digest` queue stage has no handler, so the
+   * drain's daily token gate never sees one. This method is reached from two
+   * automatic paths (the tab's `ngOnInit` and `SkillSynthesisLiveService`'s
+   * debounced event refresh) and both must be reads.
+   *
+   * So the flag is resolved with `=== true` and always sent, rather than spread
+   * through from `options`. Spreading would forward `undefined` and leave the
+   * decision to the wire — which is safe today only because the RPC omits
+   * undefined fields and `runDigest` defaults to `false`. Sending the resolved
+   * boolean makes the automatic paths' intent assertable at THIS seam instead of
+   * three libs away, which is what the spec pins.
+   */
+  public async refreshDigest(
+    options: RefreshDigestOptions = {},
+  ): Promise<void> {
+    this.digestLoading.set(true);
+    try {
+      const result = await this.rpc.digest({
+        limit: options.limit,
+        allowRewrite: options.allowRewrite === true,
+      });
+      this.digestItems.set(result.items ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.digestLoading.set(false);
     }
   }
 

@@ -1,4 +1,4 @@
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
 
 /** Result of IAuthEnvProvider.configureAuthentication. */
 export interface AuthResult {
@@ -43,4 +43,35 @@ export interface IModelResolver {
    * Mirrors `ModelResolver.detectTier` in @ptah-extension/auth-providers.
    */
   detectTier(model: string): 'opus' | 'sonnet' | 'haiku' | undefined;
+
+  /**
+   * Whether the active provider bills a flat subscription instead of per token.
+   * Mirrors `ModelResolver.isSubscriptionCovered`.
+   */
+  isSubscriptionCovered(envOverride?: AuthEnv): boolean;
+
+  /**
+   * Resolve a model id to the pricing that should be charged for it, under the
+   * active provider. Mirrors `ModelResolver.resolveForCost`.
+   */
+  resolveForCost(modelId: string, envOverride?: AuthEnv): ResolvedModelPricing;
+}
+
+/**
+ * A model id resolved for pricing, together with the rates that apply to it.
+ *
+ * Bundled deliberately: the id and the rate must come from the SAME view of
+ * the active provider, or a session can be priced against a provider it never
+ * ran on.
+ */
+export interface ResolvedModelPricing {
+  /** Provider-side model id, after tier-override resolution. */
+  readonly modelId: string;
+  /** Published per-token rates, or `null` when genuinely unknown. */
+  readonly pricing: ModelPricing | null;
+  /**
+   * True when the active provider bills a flat subscription. Labelling only —
+   * the rates above are the same published ones either way.
+   */
+  readonly subscriptionCovered: boolean;
 }

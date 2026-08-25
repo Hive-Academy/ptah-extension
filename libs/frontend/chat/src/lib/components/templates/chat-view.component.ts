@@ -7,6 +7,9 @@ import {
   ChangeDetectionStrategy,
   effect,
   untracked,
+  ElementRef,
+  NgZone,
+  OnDestroy,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -38,7 +41,11 @@ import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
+import {
+  AgentMonitorStore,
+  agentVisibleInSession,
+} from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
   TabManagerService,
@@ -47,6 +54,7 @@ import {
   TabId,
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
@@ -111,12 +119,14 @@ import type {
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [TranscriptRetentionService],
+  providers: [TranscriptRetentionService, PanelResizeService],
 })
-export class ChatViewComponent {
+export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -133,6 +143,13 @@ export class ChatViewComponent {
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
   /**
+   * Asked one question only: "does an interactive workflow surface already own
+   * this prompt?" — see the fallback ladder in
+   * {@link resolvedQuestionRequests}. The verdict lives on the router so this
+   * view and the routing itself can never disagree about who owns a prompt.
+   */
+  private readonly _streamRouter = inject(StreamRouter);
+  /**
    * Read the one-tick auto-animate suppression flag set by
    * `CompactionLifecycleService.handleCompactionComplete`. Combined with
    * `resolvedIsStreaming()` and `isFinalizingTransition()` in the
@@ -142,6 +159,7 @@ export class ChatViewComponent {
   private readonly _compactionLifecycle = inject(CompactionLifecycleService);
   protected readonly suppressAnimateOnce =
     this._compactionLifecycle.suppressAnimateOnce;
+  private readonly sessionLoader = inject(SessionLoaderService);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
@@ -244,13 +262,22 @@ export class ChatViewComponent {
   readonly agentPanelOpen = signal(false);
 
   /**
-   * True only for the primary (non-tile) chat surface. Guards the persistent
-   * background-agent tray so it renders once at the app top rather than once
-   * per canvas tile (every tile mounts its own ChatViewComponent). The tray
-   * shows all agents globally and handles its own focus/steer/stop actions
-   * against each agent's owning session — no wiring needed from this host.
+   * Whether to render the background-agent tray on this surface. The main panel
+   * (no session context) always shows it, scoped to ALL sessions. A canvas tile
+   * shows it only once its own session has resolved, scoped to that session via
+   * {@link traySessionId} so each tile manages exactly its own subagents.
    */
-  protected readonly showBackgroundStrip = !this._sessionContext;
+  protected readonly showBackgroundStrip = computed<boolean>(() =>
+    this._sessionContext ? this.resolvedSessionId() !== null : true,
+  );
+
+  /**
+   * Owning-session filter passed to the tray: the tile's resolved session in
+   * tile mode, or null on the main panel (which shows every session's agents).
+   */
+  protected readonly traySessionId = computed<string | null>(() =>
+    this._sessionContext ? this.resolvedSessionId() : null,
+  );
 
   /** Session-scoped agents for the embedded panel */
   readonly sessionAgents = computed(() => {
@@ -285,33 +312,140 @@ export class ChatViewComponent {
     }
   }
 
-  private resizeMouseMove: ((e: MouseEvent) => void) | null = null;
-  private resizeMouseUp: (() => void) | null = null;
+  private resizeHandleEl: HTMLElement | null = null;
+  private resizePointerId: number | null = null;
+  private _resizeFrame: number | null = null;
+  private _latestResizeEvent: PointerEvent | null = null;
+  private _startWidth: number | null = null;
+  private _hostRight: number | null = null;
 
-  /** Start drag-resize: capture mouse and update panel width on move. */
-  onResizeStart(event: MouseEvent): void {
+  private readonly onResizeMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.resizePointerId) return;
+    this._latestResizeEvent = event;
+    if (this._resizeFrame === null) {
+      this._resizeFrame = requestAnimationFrame(this._applyResize);
+    }
+  };
+
+  private readonly _applyResize = (): void => {
+    this._resizeFrame = null;
+    const event = this._latestResizeEvent;
+    this._latestResizeEvent = null;
+    if (!event || this._hostRight === null) return;
+    const newWidth = this._hostRight - event.clientX;
+    this.ngZone.run(() =>
+      this.panelResizeService.setCustomWidth(
+        newWidth,
+        this.hostEl.nativeElement.clientWidth,
+      ),
+    );
+  };
+
+  private readonly onResizeEnd = (event: PointerEvent): void => {
+    if (event.pointerId !== this.resizePointerId) return;
+    this._endResize(false);
+  };
+
+  private readonly _onBlur = (): void => this._endResize(true);
+
+  private readonly _onKeydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this._endResize(true);
+    }
+  };
+
+  /**
+   * Start drag-resize.
+   *
+   * Uses pointer capture rather than document-level mouse listeners: the pointer
+   * routinely leaves the window while dragging the agent panel edge, and a
+   * `mouseup` fired outside the window never reaches the document — leaving the
+   * drag stuck on forever. Capture guarantees the matching up/cancel event.
+   */
+  onResizeStart(event: PointerEvent): void {
+    if (event.button !== 0) return;
     event.preventDefault();
+    this.endResize();
+
+    const handle = event.currentTarget as HTMLElement;
+    this.resizeHandleEl = handle;
+    this.resizePointerId = event.pointerId;
+    this._startWidth = this.panelResizeService.customWidth();
+    this._hostRight = this.hostEl.nativeElement.getBoundingClientRect().right;
+
+    handle.setPointerCapture(event.pointerId);
+
+    this.ngZone.runOutsideAngular(() => {
+      handle.addEventListener('pointermove', this.onResizeMove);
+      handle.addEventListener('pointerup', this.onResizeEnd);
+      handle.addEventListener('pointercancel', this.onResizeEnd);
+      // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
+      handle.addEventListener('lostpointercapture', this.onResizeEnd);
+      window.addEventListener('blur', this._onBlur);
+      document.addEventListener('keydown', this._onKeydown);
+    });
+
     this.panelResizeService.setDragging(true);
+  }
 
-    this.resizeMouseMove = (e: MouseEvent) => {
-      const newWidth = window.innerWidth - e.clientX;
-      this.panelResizeService.setCustomWidth(newWidth);
-    };
+  /** Double-click the handle to fall back to the responsive default width. */
+  onResizeReset(): void {
+    this.panelResizeService.resetWidth();
+  }
 
-    this.resizeMouseUp = () => {
-      this.panelResizeService.setDragging(false);
-      if (this.resizeMouseMove) {
-        document.removeEventListener('mousemove', this.resizeMouseMove);
+  ngOnDestroy(): void {
+    this._cancelResizeFrame();
+    this._cleanupResizeListeners();
+  }
+
+  private endResize(): void {
+    this._endResize(false);
+  }
+
+  private _endResize(cancel: boolean): void {
+    const startWidth = this._startWidth;
+    this._cancelResizeFrame();
+    if (cancel && startWidth !== null) {
+      this.ngZone.run(() =>
+        this.panelResizeService.setCustomWidth(
+          startWidth,
+          this.hostEl.nativeElement.clientWidth,
+        ),
+      );
+    } else {
+      this._applyResize();
+    }
+    this._cleanupResizeListeners();
+  }
+
+  private _cleanupResizeListeners(): void {
+    const handle = this.resizeHandleEl;
+    const pointerId = this.resizePointerId;
+    this.resizeHandleEl = null;
+    this.resizePointerId = null;
+    this._latestResizeEvent = null;
+    this._startWidth = null;
+    this._hostRight = null;
+    if (handle) {
+      handle.removeEventListener('pointermove', this.onResizeMove);
+      handle.removeEventListener('pointerup', this.onResizeEnd);
+      handle.removeEventListener('pointercancel', this.onResizeEnd);
+      handle.removeEventListener('lostpointercapture', this.onResizeEnd);
+      if (pointerId !== null && handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
       }
-      if (this.resizeMouseUp) {
-        document.removeEventListener('mouseup', this.resizeMouseUp);
-      }
-      this.resizeMouseMove = null;
-      this.resizeMouseUp = null;
-    };
+    }
+    window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('keydown', this._onKeydown);
+    this.ngZone.run(() => this.panelResizeService.setDragging(false));
+  }
 
-    document.addEventListener('mousemove', this.resizeMouseMove);
-    document.addEventListener('mouseup', this.resizeMouseUp);
+  private _cancelResizeFrame(): void {
+    if (this._resizeFrame !== null) {
+      cancelAnimationFrame(this._resizeFrame);
+      this._resizeFrame = null;
+    }
   }
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
@@ -336,6 +470,29 @@ export class ChatViewComponent {
     const ctx = this._sessionContext;
     return ctx ? ctx() : this._tabManager.activeTabId();
   });
+
+  /**
+   * Resumable interrupted subagents scoped to THIS surface's session. The
+   * backing `chatStore.resumableSubagents()` is a single root-scoped signal, so
+   * in canvas/tile mode every tile would otherwise render the same list. Tile
+   * mode (SESSION_CONTEXT present) filters by the tile's own resolved session
+   * via `parentSessionId`; the main panel keeps the global list unchanged.
+   *
+   * Scoping goes through `agentVisibleInSession`, not a strict `===`: an
+   * interrupted subagent whose owning session was never resolved would
+   * otherwise match no tile at all, so the "N interrupted agents — Resume"
+   * banner never appeared for the agents most likely to need it. That helper
+   * also answers the other half — a tile whose OWN session has not resolved
+   * renders nothing — so there is no pre-check here to disagree with it.
+   */
+  protected readonly resolvedResumableSubagents = computed<SubagentRecord[]>(
+    () => {
+      const all = this.chatStore.resumableSubagents();
+      if (!this._sessionContext) return all;
+      const sid = this.resolvedSessionId();
+      return all.filter((s) => agentVisibleInSession(s.parentSessionId, sid));
+    },
+  );
 
   /**
    * Component-scoped LRU of tab ids whose transcript stays mounted (keep-alive).
@@ -558,6 +715,15 @@ export class ChatViewComponent {
    *      silent drops; the backend's `awaitQuestionResponse` has
    *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
    *      the tool call forever.
+   *
+   * Rung 2 is a safety net for questions NOBODY owns, and it must stay that
+   * way. A workflow surface (New Project, harness builder) raises questions
+   * whose `tabId`/`sessionId` is its own correlation id, which resolves to a
+   * `SurfaceId` rather than a tab — so rung 1 misses by construction and the
+   * net used to fire, painting the workflow's question onto whichever canvas
+   * tile happened to be focused while the workflow's own panel stayed empty.
+   * A claimed correlation id means the prompt HAS an owner and this tile is
+   * not it; showing it here is a mis-route, not a rescue (TASK_2026_317).
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
@@ -580,9 +746,28 @@ export class ChatViewComponent {
       const legacyMatch =
         tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
       if (legacyMatch) return true;
+      if (this.isClaimedByWorkflowSurface(q)) return false;
       return isActiveTile;
     });
   });
+
+  /**
+   * True when an INTERACTIVE workflow surface owns this question — it has a
+   * panel of its own to render the card on, so the active-tile safety net in
+   * {@link resolvedQuestionRequests} must stand down rather than adopt it.
+   *
+   * Delegated to the router rather than reading the claim map directly. A raw
+   * claim lookup is not the same question: Tribunal claims its CONDUCTOR TAB's
+   * id against a surface it never registers, and treating that as "owned
+   * elsewhere" would have hidden the conductor's own prompts from every tile
+   * but the one already matching by id.
+   */
+  private isClaimedByWorkflowSurface(q: {
+    readonly tabId?: string;
+    readonly sessionId?: string;
+  }): boolean {
+    return this._streamRouter.interactiveSurfaceOwning(q) !== null;
+  }
 
   readonly resolvedQueuedContent = computed(() => {
     const tab = this.resolvedTab();
@@ -592,6 +777,40 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Hydrate this surface's CLI agent cards from persisted metadata. Each
+    // surface asks for its OWN session — a canvas tile is rarely the active
+    // tab, and the bootstrap-time active-tab restore only ever covered one of
+    // them, so agents spawned in a prior run never came back on the others.
+    // SessionLoaderService dedupes per session, so the extra calls from the
+    // main panel and sibling tiles cost nothing.
+    effect(() => {
+      const sessionId = this.resolvedSessionId();
+      if (!sessionId) return;
+      untracked(() => {
+        this.sessionLoader
+          .restoreCliSessionsForSession(sessionId)
+          .catch((err) => {
+            console.warn(
+              '[ChatView] Failed to restore CLI sessions for surface:',
+              err,
+            );
+          });
+      });
+    });
+
+    // Force the embedded agent panel open when a deep-tree caller (the
+    // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
+    // monotonic counter re-triggers even after the user manually closed the
+    // panel. Counter starts at 0 (initial effect run is a no-op).
+    effect(() => {
+      const requests = this.agentMonitorStore.panelOpenRequests();
+      if (requests === 0) return;
+      untracked(() => {
+        this.agentPanelOpen.set(true);
+        this._userExplicitlyClosed = false;
+      });
+    });
+
     effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');

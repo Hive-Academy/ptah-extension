@@ -81,6 +81,7 @@ export default defineConfig({
             { label: 'Forge', slug: 'tribunal/forge' },
             { label: 'Race', slug: 'tribunal/race' },
             { label: 'Relay', slug: 'tribunal/relay' },
+            { label: 'Crucible', slug: 'tribunal/crucible' },
           ],
         },
         {
@@ -89,6 +90,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'skill-synthesis' },
             { label: 'The Skills Tab', slug: 'skill-synthesis/the-skills-tab' },
             { label: 'How It Works', slug: 'skill-synthesis/how-it-works' },
+            { label: 'Background Learning', slug: 'skill-synthesis/background-learning' },
             { label: 'Reviewing Candidates', slug: 'skill-synthesis/reviewing-candidates' },
             { label: 'SKILL.md Anatomy', slug: 'skill-synthesis/skill-md-anatomy' },
             { label: 'Settings', slug: 'skill-synthesis/settings' },
@@ -123,6 +125,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'marketplace' },
             { label: 'MCP Registry', slug: 'marketplace/mcp-registry' },
+            { label: 'Connected Apps', slug: 'marketplace/connected-apps' },
             { label: 'Smithery', slug: 'marketplace/smithery' },
           ],
         },
@@ -130,9 +133,12 @@ export default defineConfig({
           label: 'Plugins',
           items: [
             { label: 'Overview', slug: 'plugins' },
-            { label: 'Marketplace', slug: 'plugins/marketplace' },
+            { label: 'Catalog', slug: 'plugins/marketplace' },
             { label: 'Installing', slug: 'plugins/installing' },
             { label: 'Managing', slug: 'plugins/managing' },
+            { label: 'Skill Toggles', slug: 'plugins/skill-toggles' },
+            { label: 'Per-Project Skill Selection', slug: 'plugins/skill-selection' },
+            { label: 'Harness Plugins', slug: 'plugins/harness-plugins' },
             { label: 'Plugin Storage', slug: 'plugins/plugin-storage' },
             { label: 'Creating Plugins', slug: 'plugins/creating-plugins' },
           ],

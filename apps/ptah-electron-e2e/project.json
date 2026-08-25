@@ -10,7 +10,7 @@
       "executor": "nx:run-commands",
       "dependsOn": [
         { "target": "build-dev", "projects": ["ptah-electron"] },
-        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+        { "target": "copy-renderer-dev", "projects": ["ptah-electron"] }
       ],
       "options": {
         "cwd": "apps/ptah-electron-e2e",
@@ -26,7 +26,7 @@
       "executor": "nx:run-commands",
       "dependsOn": [
         { "target": "build-dev", "projects": ["ptah-electron"] },
-        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+        { "target": "copy-renderer-dev", "projects": ["ptah-electron"] }
       ],
       "options": {
         "parallel": false,
@@ -42,7 +42,7 @@
       "executor": "nx:run-commands",
       "dependsOn": [
         { "target": "build-dev", "projects": ["ptah-electron"] },
-        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+        { "target": "copy-renderer-dev", "projects": ["ptah-electron"] }
       ],
       "options": {
         "cwd": "apps/ptah-electron-e2e",

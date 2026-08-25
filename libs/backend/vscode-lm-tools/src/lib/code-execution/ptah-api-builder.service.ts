@@ -84,11 +84,19 @@ import {
   buildCorpusNamespace,
   buildCodeNamespace,
   buildHarnessNamespace,
+  buildTasksNamespace,
+  type TaskSpecWriterLike,
+  type TaskSpecIndexLike,
 } from './namespace-builders';
+import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
+import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
+import { getCallerSessionId } from './mcp-core/mcp-request-context';
+import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
 import {
   AgentProcessManager,
   CliDetectionService,
   McpRegistryProvider,
+  McpInstallService,
   SmitheryRegistrySource,
   PulseMcpRegistrySource,
   SkillsShApiClient,
@@ -134,6 +142,16 @@ const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+
+/**
+ * `HARNESS_SYNC_TOKENS.RECONCILER` from `@ptah-extension/harness-sync`, declared
+ * locally for the same reason as the tokens around it: this lib must not take a
+ * dependency on the reconciler to hand it to `McpInstallService`.
+ *
+ * @warning Keep the `Symbol.for()` string in sync with
+ * `libs/backend/harness-sync/src/lib/di/tokens.ts`.
+ */
+const HARNESS_SYNC_RECONCILER = Symbol.for('HarnessSyncReconciler');
 
 /**
  * Duplicated from MEMORY_TOKENS.MEMORY_SEARCH to avoid circular dependency
@@ -188,6 +206,7 @@ export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 interface SdkSessionLifecycleManagerLike {
   getActiveSessionIds(): string[];
   getActiveSessionWorkspace(): string | undefined;
+  getSessionWorkspace(idOrTabId: string): string | undefined;
   find(id: string): { realSessionId: string | null } | undefined;
 }
 
@@ -202,9 +221,13 @@ interface PluginLoaderLike {
   resolveCurrentPluginPaths(): string[];
   discoverSkillsForPlugins(pluginPaths: string[]): Array<{
     skillId: string;
+    descriptorId: string;
+    invocationName: string;
     displayName: string;
     description: string;
     pluginId: string;
+    sourceId: string;
+    invocability: 'invocable' | 'not-invocable' | 'unknown';
   }>;
   getDisabledSkillIds(): string[];
 }
@@ -338,6 +361,16 @@ export class PtahAPIBuilder {
     @inject(SDK_PLUGIN_LOADER, { isOptional: true })
     private readonly pluginLoader: PluginLoaderLike | undefined,
 
+    /**
+     * Optional: hosts that never registered `harness-sync` still build the API
+     * surface, and `McpInstallService` reports a clear per-target error instead
+     * of writing config files through a second path.
+     */
+    @inject(HARNESS_SYNC_RECONCILER, { isOptional: true })
+    private readonly harnessReconciler:
+      | ConstructorParameters<typeof McpInstallService>[0]
+      | undefined,
+
     @inject(SDK_PTAH_CLI_REGISTRY, { isOptional: true })
     private readonly ptahCliRegistry: PtahCliRegistryLike | undefined,
 
@@ -373,6 +406,15 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
     private readonly authSecretsService: IAuthSecretsService | undefined,
+
+    // Task-spec collaborators (TASK_2026_179, step 17). Optional so a host that
+    // has not registered `task-specs` still boots — the namespace reports the
+    // absence instead of the whole API failing to construct.
+    @inject(TASK_SPECS_TOKENS.TASK_WRITER, { isOptional: true })
+    private readonly taskWriter: TaskSpecWriterLike | undefined,
+
+    @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
+    private readonly taskIndex: TaskSpecIndexLike | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
   }
@@ -396,14 +438,39 @@ export class PtahAPIBuilder {
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
+    // ORDERING CONTRACT (TASK_2026_200, task 3.1) — the session-aware provider
+    // MUST be constructed BEFORE any dependency bag, and every bag MUST carry
+    // it. It previously sat below `coreDeps`, so `coreDeps` was built without a
+    // provider at all and the `workspace` + `search` namespaces silently
+    // answered for the process-global active folder instead of the calling
+    // session's root (context.md §2). Do not move this construction back down,
+    // and do not add a bag above it.
+    //
+    // Session-aware provider: `getWorkspaceRoot()` prefers the calling session's
+    // workspace over the process-global active folder. Path-resolving agent
+    // namespaces use this so a relative path resolves against the right
+    // workspace when multiple workspaces are open in Electron.
+    //
+    // NOTE: deliberately NOT registered globally against
+    // `PLATFORM_TOKENS.WORKSPACE_PROVIDER` — the same singletons serve non-MCP
+    // callers (webview RPC, watchers, indexer warm-up) that have no caller
+    // session id to resolve against (context.md §4 "Alternative considered",
+    // research-report.md §6 — both reject global registration).
+    const sessionAwareWorkspaceProvider = buildSessionAwareWorkspaceProvider(
+      this.workspaceProvider,
+      () => this.resolveSessionWorkspaceRoot(),
+    );
+
     const coreDeps = {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextOrchestration: this.contextOrchestration,
+      workspaceProvider: sessionAwareWorkspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
       fileSystemProvider: this.fileSystemProvider,
     };
 
@@ -418,14 +485,14 @@ export class PtahAPIBuilder {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
     };
 
     const astDeps = {
       treeSitterParser: this.treeSitterParser,
       astAnalysis: this.astAnalysis,
       fileSystemProvider: this.fileSystemProvider,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
     };
     const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
@@ -442,7 +509,10 @@ export class PtahAPIBuilder {
         buildSearchNamespace(coreDeps),
       ),
       diagnostics: this.buildNamespaceSafe('diagnostics', () =>
-        buildDiagnosticsNamespace(this.diagnosticsProvider),
+        buildDiagnosticsNamespace(
+          this.diagnosticsProvider,
+          sessionAwareWorkspaceProvider,
+        ),
       ),
       files: this.buildNamespaceSafe('files', () =>
         buildFilesNamespace(systemDeps),
@@ -564,7 +634,7 @@ export class PtahAPIBuilder {
       json: this.buildNamespaceSafe('json', () =>
         buildJsonNamespace({
           fileSystemProvider: this.fileSystemProvider,
-          workspaceProvider: this.workspaceProvider,
+          workspaceProvider: sessionAwareWorkspaceProvider,
         }),
       ),
       browser: this.buildNamespaceSafe('browser', () =>
@@ -614,6 +684,13 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
+      tasks: this.buildNamespaceSafe('tasks', () =>
+        buildTasksNamespace({
+          getWriter: () => this.taskWriter,
+          getIndex: () => this.taskIndex,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
       harness: this.buildNamespaceSafe('harness', () => {
         if (!this.pluginLoader) {
           throw new Error(
@@ -639,6 +716,11 @@ export class PtahAPIBuilder {
           // PulseMCP needs no API key — always live in production so the harness
           // builder also discovers trusted vendor/community servers.
           pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
+          // Same installer that backs the marketplace MCP directory and
+          // harness:apply, so an agent-initiated install records the same
+          // intent in ~/.ptah/mcp-installed.json and reaches the config files
+          // through the same reconcile pass.
+          mcpInstaller: new McpInstallService(this.harnessReconciler ?? null),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {
@@ -709,20 +791,32 @@ export class PtahAPIBuilder {
    * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
-    try {
-      const sessionWorkspace =
-        this.sdkSessionLifecycleManager?.getActiveSessionWorkspace();
-      if (sessionWorkspace) {
-        return sessionWorkspace;
-      }
-    } catch {
-      // fall through to workspace provider
-    }
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (workspaceRoot) {
-      return workspaceRoot;
-    }
-    return os.homedir();
+    return this.resolveSessionWorkspaceRoot() ?? os.homedir();
+  }
+
+  /**
+   * Session-aware workspace root, or `undefined` when neither a session nor a
+   * platform workspace resolves. Unlike {@link getWorkspaceRoot} this does NOT
+   * fall back to the home directory — path-resolving namespaces need the
+   * `undefined` so a relative path against a missing workspace surfaces a clear
+   * "No workspace folder open" error instead of silently resolving under $HOME.
+   *
+   * Resolution order:
+   * 1. The workspace of the session that issued THIS MCP call, resolved from
+   *    the request-scoped caller session id (concurrency-safe: bound to the
+   *    exact caller, not whichever session is globally most-recently-active).
+   * 2. Most-recently-active SDK session's projectPath (used off the MCP call
+   *    path — e.g. stdio/CLI or internal calls — where no caller id exists).
+   * 3. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
+   */
+  private resolveSessionWorkspaceRoot(): string | undefined {
+    const mgr = this.sdkSessionLifecycleManager;
+    return resolveWorkspaceRootWithPrecedence({
+      getCallerSessionId,
+      getSessionWorkspace: (id) => mgr?.getSessionWorkspace(id),
+      getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),
+      getProviderRoot: () => this.workspaceProvider.getWorkspaceRoot(),
+    });
   }
 
   /**

@@ -6,7 +6,7 @@
  *     RPC `error` field bubbles via task.error
  *   - installed: dispatches skillsSh:listInstalled
  *   - install:
- *       * UsageError when source missing or scope invalid
+ *       * UsageError when source missing
  *       * first run → `skillsSh:install` + emits `skill.installed { changed: true }`
  *       * second run → skips install RPC + emits `changed: false`
  *   - remove: idempotent — emits `changed: false` when skill absent
@@ -15,8 +15,21 @@
  *       * UsageError when --from-spec missing
  *       * UsageError when spec file unreadable, invalid JSON, or schema-invalid
  *       * dispatches harness:create-skill on a valid spec
+ *   - select (TASK_2026_316):
+ *       * <slug...> sends harness:set-skill-selection { mode:'selected', slugs }
+ *       * --all sends { mode:'all' } with no slugs key
+ *       * exits 1 when the RPC answers saved:false (prior selection stays in force)
+ *       * boots requireSdk:false (filesystem verb, not a skills.sh network call)
+ *   - selection (TASK_2026_316):
+ *       * sends harness:get-skill-selection and emits mode/slugs/available/derived
+ *       * boots requireSdk:false
  *   - unknown sub-command: usage error (exit 2)
+ *   - reaches harness-sync ONLY over RPC — no `@ptah-extension/harness-sync`
+ *     import in this file, mirroring the harness-doctor.ts guarantee
  */
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { execute } from './skill.js';
 import type { SkillExecuteHooks, SkillOptions } from './skill.js';
@@ -71,6 +84,12 @@ function makeStderr(): { stderr: { write: jest.Mock }; buffer: string } {
 interface MockEngine {
   withEngine: SkillExecuteHooks['withEngine'];
   rpcCalls: Array<{ method: string; params: unknown }>;
+  /**
+   * Boot options as they reached `withEngine`. `select` / `selection` are
+   * filesystem verbs (TASK_2026_316) and must boot `requireSdk: false`, unlike
+   * their skillsSh network-hitting siblings above which keep the default.
+   */
+  engineOpts: Array<{ mode: string; requireSdk?: boolean }>;
   scripted: Map<
     string,
     | { success: true; data?: unknown }
@@ -80,6 +99,7 @@ interface MockEngine {
 
 function makeEngine(): MockEngine {
   const rpcCalls: MockEngine['rpcCalls'] = [];
+  const engineOpts: MockEngine['engineOpts'] = [];
   const scripted: MockEngine['scripted'] = new Map();
   const transport = {
     call: jest.fn(async (method: string, params: unknown) => {
@@ -98,13 +118,14 @@ function makeEngine(): MockEngine {
 
   const withEngine = (async (
     _globals: unknown,
-    _opts: unknown,
+    opts: { mode: string; requireSdk?: boolean },
     fn: (ctx: {
       container: typeof container;
       transport: CliMessageTransport;
       pushAdapter: { removeAllListeners(): void };
     }) => Promise<unknown>,
   ): Promise<unknown> => {
+    engineOpts.push(opts);
     return fn({
       container,
       transport,
@@ -112,7 +133,7 @@ function makeEngine(): MockEngine {
     });
   }) as unknown as SkillExecuteHooks['withEngine'];
 
-  return { withEngine, rpcCalls, scripted };
+  return { withEngine, rpcCalls, engineOpts, scripted };
 }
 
 function buildHooks(opts: { readSpec?: SkillExecuteHooks['readSpec'] } = {}): {
@@ -205,7 +226,7 @@ describe('ptah skill installed', () => {
             description: '',
             source: 'a/b',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -227,21 +248,6 @@ describe('ptah skill install', () => {
     const { hooks, engine } = buildHooks();
     const exit = await execute(
       { subcommand: 'install' } satisfies SkillOptions,
-      baseGlobals,
-      hooks,
-    );
-    expect(exit).toBe(ExitCode.UsageError);
-    expect(engine.rpcCalls).toHaveLength(0);
-  });
-
-  it('exits 2 (UsageError) for invalid --scope', async () => {
-    const { hooks, engine } = buildHooks();
-    const exit = await execute(
-      {
-        subcommand: 'install',
-        source: 'a/b',
-        scope: 'bogus',
-      } satisfies SkillOptions,
       baseGlobals,
       hooks,
     );
@@ -273,10 +279,9 @@ describe('ptah skill install', () => {
       (c) => c.method === 'skillsSh:install',
     );
     expect(installCall).toBeDefined();
-    expect(installCall?.params).toMatchObject({
+    expect(installCall?.params).toEqual({
       source: 'vercel-labs/agent-skills',
       skillId: 'react-best-practices',
-      scope: 'project',
     });
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
@@ -295,7 +300,7 @@ describe('ptah skill install', () => {
             description: '',
             source: 'vercel-labs/agent-skills',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -389,7 +394,7 @@ describe('ptah skill remove', () => {
             description: '',
             source: 'foo',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -409,10 +414,7 @@ describe('ptah skill remove', () => {
       (c) => c.method === 'skillsSh:uninstall',
     );
     expect(uninstall).toBeDefined();
-    expect(uninstall?.params).toMatchObject({
-      name: 'foo',
-      scope: 'project',
-    });
+    expect(uninstall?.params).toEqual({ name: 'foo' });
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
     expect(last?.method).toBe('skill.removed');
@@ -573,6 +575,173 @@ describe('ptah skill create', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// select / selection — the headless half of the desktop selection dialog
+// (TASK_2026_316). Both go over `harness:*` RPC and neither resolves
+// `SkillSyncGate` (or any other harness-sync internal) out of DI.
+// ---------------------------------------------------------------------------
+describe('ptah skill select', () => {
+  it('<slug...> sends harness:set-skill-selection with mode:selected and exactly those slugs', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:set-skill-selection', {
+      success: true,
+      data: {
+        saved: true,
+        mode: 'selected',
+        slugs: ['alpha', 'beta'],
+        health: null,
+        summary: { level: 'ok', missing: 0, detectedTargets: 0 },
+      },
+    });
+    const exit = await execute(
+      {
+        subcommand: 'select',
+        slugs: ['alpha', 'beta'],
+      } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([
+      {
+        method: 'harness:set-skill-selection',
+        params: { mode: 'selected', slugs: ['alpha', 'beta'] },
+      },
+    ]);
+    const last =
+      formatterTrace.notifications[formatterTrace.notifications.length - 1];
+    expect(last?.method).toBe('skill.selected');
+    expect(last?.params).toMatchObject({
+      saved: true,
+      mode: 'selected',
+      slugs: ['alpha', 'beta'],
+    });
+  });
+
+  it('--all sends mode:all with no slugs list', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:set-skill-selection', {
+      success: true,
+      data: {
+        saved: true,
+        mode: 'all',
+        slugs: [],
+        health: null,
+        summary: { level: 'ok', missing: 0, detectedTargets: 0 },
+      },
+    });
+    const exit = await execute(
+      { subcommand: 'select', all: true } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([
+      { method: 'harness:set-skill-selection', params: { mode: 'all' } },
+    ]);
+    // No `slugs` key at all — a stale allowlist surviving the switch to
+    // 'all' would read as a selection nobody made the next time the mode
+    // narrows again.
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        engine.rpcCalls[0]?.params as object,
+        'slugs',
+      ),
+    ).toBe(false);
+  });
+
+  it('exits 1 when the RPC answers saved:false — the prior selection stays in force', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:set-skill-selection', {
+      success: true,
+      data: {
+        saved: false,
+        mode: 'selected',
+        slugs: [],
+        health: null,
+        summary: { level: 'ok', missing: 0, detectedTargets: 0 },
+      },
+    });
+    const exit = await execute(
+      { subcommand: 'select', slugs: ['gamma'] } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.GeneralError);
+    const last =
+      formatterTrace.notifications[formatterTrace.notifications.length - 1];
+    expect(last?.method).toBe('skill.selected');
+    expect(last?.params).toMatchObject({ saved: false });
+  });
+
+  it('boots requireSdk:false — a filesystem verb, unlike the skillsSh network siblings', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:set-skill-selection', {
+      success: true,
+      data: { saved: true, mode: 'all', slugs: [] },
+    });
+    await execute(
+      { subcommand: 'select', all: true } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+  });
+});
+
+describe('ptah skill selection', () => {
+  it('sends harness:get-skill-selection and emits mode/slugs/available/derived', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: {
+        mode: 'selected',
+        slugs: ['alpha'],
+        available: [
+          {
+            slug: 'alpha',
+            name: 'Alpha',
+            description: 'd',
+            pluginId: null,
+          },
+        ],
+        derived: false,
+      },
+    });
+    const exit = await execute(
+      { subcommand: 'selection' } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([
+      { method: 'harness:get-skill-selection', params: {} },
+    ]);
+    const last = formatterTrace.notifications[0];
+    expect(last?.method).toBe('skill.selection');
+    expect(last?.params).toMatchObject({
+      mode: 'selected',
+      slugs: ['alpha'],
+      available: [{ slug: 'alpha' }],
+      derived: false,
+    });
+  });
+
+  it('boots requireSdk:false', async () => {
+    const { engine, hooks } = buildHooks();
+    engine.scripted.set('harness:get-skill-selection', {
+      success: true,
+      data: { mode: 'all', slugs: [], available: [], derived: false },
+    });
+    await execute(
+      { subcommand: 'selection' } satisfies SkillOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(engine.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+  });
+});
+
 describe('ptah skill unknown sub-command', () => {
   it('exits 2 (UsageError) on unknown sub-command', async () => {
     const { stderrTrace, hooks } = buildHooks();
@@ -583,5 +752,18 @@ describe('ptah skill unknown sub-command', () => {
     );
     expect(exit).toBe(ExitCode.UsageError);
     expect(stderrTrace.buffer).toMatch(/unknown sub-command/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// harness-sync isolation — `apps/ptah-cli` must reach the reconciler ONLY
+// through the RPC transport, never by resolving a `harness-sync` DI token.
+// That is what keeps `ptah harness doctor`, the TUI's `/harness` and the
+// Marketplace badge on one implementation (TASK_2026_316 hard rule).
+// ---------------------------------------------------------------------------
+describe('ptah skill — harness-sync isolation', () => {
+  it('does not import @ptah-extension/harness-sync', () => {
+    const source = readFileSync(path.resolve(__dirname, 'skill.ts'), 'utf8');
+    expect(source).not.toMatch(/from ['"]@ptah-extension\/harness-sync['"]/);
   });
 });

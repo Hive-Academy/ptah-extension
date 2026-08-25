@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Square,
   Moon,
+  ScrollText,
 } from 'lucide-angular';
 import { AgentSteerInputComponent } from './agent-steer-input.component';
 
@@ -51,6 +52,9 @@ export interface BackgroundAgentStripEntry {
   /** Whether the "send to background" action applies — foreground running
    * subagents only. */
   readonly canBackground: boolean;
+  /** Whether a "view transcript" action applies — set by the smart wrapper when
+   * both the SDK `agentId` and owning session id are known for this agent. */
+  readonly canViewTranscript: boolean;
 }
 
 /** Payload emitted when a chip's inline steer input is submitted. */
@@ -116,19 +120,36 @@ export interface BackgroundAgentSteerRequest {
                   entry.name
                 }}</span>
                 @if (entry.description) {
-                  <span class="text-base-content/40 truncate hidden sm:inline">
+                  <span
+                    class="text-base-content-muted truncate hidden sm:inline"
+                  >
                     {{ entry.description }}
                   </span>
                 }
               </button>
 
               <!-- Contextual actions -->
+              @if (entry.canViewTranscript) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-primary"
+                  [attr.aria-label]="'View transcript for agent ' + entry.name"
+                  title="View transcript"
+                  (click)="viewTranscript.emit(entry.id)"
+                >
+                  <lucide-angular
+                    [img]="ScrollTextIcon"
+                    class="w-3 h-3"
+                    aria-hidden="true"
+                  />
+                </button>
+              }
               @if (entry.steerable) {
                 <button
                   type="button"
                   class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 hover:text-primary"
                   [class.text-primary]="expandedId() === entry.id"
-                  [class.text-base-content/50]="expandedId() !== entry.id"
+                  [class.text-base-content-muted]="expandedId() !== entry.id"
                   [attr.aria-label]="'Steer agent ' + entry.name"
                   [attr.aria-expanded]="expandedId() === entry.id"
                   title="Steer"
@@ -144,7 +165,7 @@ export interface BackgroundAgentSteerRequest {
               @if (entry.canBackground) {
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-info"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-info"
                   [attr.aria-label]="
                     'Send agent ' + entry.name + ' to background'
                   "
@@ -161,7 +182,7 @@ export interface BackgroundAgentSteerRequest {
               @if (entry.stoppable) {
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-error"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-error"
                   [attr.aria-label]="'Stop agent ' + entry.name"
                   title="Stop"
                   (click)="stop.emit(entry.id)"
@@ -205,10 +226,13 @@ export class BackgroundAgentStripComponent {
   readonly stop = output<string>();
   /** Emits the entry id when its send-to-background button is clicked. */
   readonly sendToBackground = output<string>();
+  /** Emits the entry id when its view-transcript button is clicked. */
+  readonly viewTranscript = output<string>();
 
   protected readonly SteerIcon = MessageSquare;
   protected readonly StopIcon = Square;
   protected readonly BackgroundIcon = Moon;
+  protected readonly ScrollTextIcon = ScrollText;
 
   /** Id of the chip whose inline steer input is currently expanded. */
   protected readonly expandedId = signal<string | null>(null);

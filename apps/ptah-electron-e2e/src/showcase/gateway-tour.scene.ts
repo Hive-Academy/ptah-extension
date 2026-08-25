@@ -78,9 +78,8 @@ const PAIRING_LINE = 10;
 
 /**
  * Navigate from wherever the shell opens into the Thoth → Gateway tab and wait
- * for its panel to render. Dismisses the persistent "trial ended" startup modal
- * both on the way in and again once inside, since it can re-assert after a
- * navigation. Best-effort selectors so the scene survives minor chrome changes.
+ * for its panel to render. Best-effort selectors so the scene survives minor
+ * chrome changes.
  */
 async function goToGateway(page: Page, director: Director): Promise<void> {
   // Enter the desktop "cockpit" (Thoth shell) via the top nav tab.
@@ -93,15 +92,12 @@ async function goToGateway(page: Page, director: Director): Promise<void> {
   ) {
     await director.click(thothTab.first());
   }
-  // The trial modal frequently re-appears after entering Thoth — clear it.
-  await director.dismissDialogs();
 
   // Open the Gateway inner tab and wait for its panel.
   const gatewayTab = page.locator('#thoth-tab-gateway');
   await gatewayTab.waitFor({ state: 'visible' });
   await director.click(gatewayTab);
   await page.locator('#thoth-panel-gateway').waitFor({ state: 'visible' });
-  await director.dismissDialogs();
 }
 
 /**
@@ -184,9 +180,6 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   page,
   director,
 }) => {
-  // Clear the persistent "Your Pro Trial Has Ended" startup modal before filming.
-  await director.dismissDialogs();
-
   // Navigate + settle BEFORE the first beat: enter the Gateway tab (the subject
   // surface) so the hook lands on it instead of the stale restored surface.
   // Everything until the hook is trimmed by render-all's lead-in trim, so the

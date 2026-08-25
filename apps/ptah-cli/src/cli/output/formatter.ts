@@ -152,6 +152,39 @@ const CONFIRMATION_SALIENT_KEYS = [
   'defaultProvider',
 ] as const;
 
+/** Column order of the `harness.doctor` per-target table. */
+const HARNESS_DOCTOR_COLUMNS = [
+  'target',
+  'detected',
+  'skills',
+  'commands',
+  'agents',
+  'mcp',
+  'expected',
+  'found',
+  'missing',
+  'foreign',
+  'writeFailed',
+  'overwritten',
+] as const;
+
+/**
+ * How many paths one `harness.doctor` list prints before it summarizes.
+ *
+ * Enough to name every gap in a normal workspace, small enough that a target
+ * with a pathological count cannot bury the other five. `--json` carries the
+ * full arrays either way.
+ */
+const HARNESS_PATH_LIST_LIMIT = 20;
+
+/** Severity colour for the `harness.doctor` status line. */
+const HARNESS_LEVEL_COLORS: Readonly<Record<string, AnsiKey>> = {
+  ok: 'green',
+  degraded: 'yellow',
+  error: 'red',
+  unknown: 'gray',
+};
+
 /**
  * Pretty-printer for `--human` mode. Renders each event as a one- or
  * two-line summary with a colored prefix and indented key/value body. Does
@@ -280,6 +313,9 @@ export class HumanFormatter implements Formatter {
     }
     if (method === 'doctor.report') {
       return this.renderDoctorReport(obj);
+    }
+    if (method === 'harness.doctor') {
+      return this.renderHarnessDoctor(obj);
     }
     if (
       method === 'license.status' ||
@@ -431,6 +467,139 @@ export class HumanFormatter implements Formatter {
       lines.push(this.color(`  (${ts})`, 'dim'));
     }
     return `${lines.join('\n')}\n`;
+  }
+
+  /**
+   * Render a `harness.doctor` notification as one row per harness target.
+   *
+   * The four facet columns say whether a target can carry that artifact family
+   * AT ALL, independent of whether the CLI is installed — Codex and Copilot
+   * reject project prompt directories upstream, so `n/a` there is a permanent,
+   * correct answer rather than a gap. A `source` cell is different: Ptah reads
+   * that facet as editable input and deliberately does not write, manifest, or
+   * reap it. Without those columns a reader would see `expected 0` and assume
+   * something failed.
+   *
+   * `overwritten` is `overwrittenLocalEdit`, abbreviated to keep the row on one
+   * terminal line.
+   */
+  private renderHarnessDoctor(obj: Record<string, unknown>): string {
+    const lines: string[] = [];
+    lines.push(this.color('* harness.doctor', 'cyan'));
+
+    const health = (obj['health'] ?? null) as Record<string, unknown> | null;
+    const summary = (obj['summary'] ?? null) as Record<string, unknown> | null;
+    const targets =
+      health !== null && Array.isArray(health['targets'])
+        ? (health['targets'] as Array<Record<string, unknown>>)
+        : [];
+
+    lines.push(this.color('  Targets', 'bold'));
+    const rows: string[][] = targets.map((target) => {
+      const facets = (target['facets'] ?? null) as Record<
+        string,
+        unknown
+      > | null;
+      const facet = (name: string): string => {
+        if (facets === null) return 'n/a';
+        if (facets[name] === 'supported') return 'yes';
+        if (facets[name] === 'source-managed') return 'source';
+        return 'n/a';
+      };
+      return [
+        stringField(target, 'target') || '(unknown)',
+        booleanField(target, 'detected') ? 'yes' : 'no',
+        facet('skills'),
+        facet('commands'),
+        facet('agents'),
+        facet('mcp'),
+        numberField(target, 'expected'),
+        numberField(target, 'found'),
+        countField(target, 'missing'),
+        countField(target, 'foreign'),
+        countField(target, 'writeFailed'),
+        countField(target, 'overwrittenLocalEdit'),
+      ];
+    });
+    lines.push(renderTable([...HARNESS_DOCTOR_COLUMNS], rows).trimEnd());
+    lines.push(...this.harnessPathSections(targets));
+
+    lines.push(this.color('  Summary', 'bold'));
+    const sources =
+      health !== null
+        ? stringField(health, 'sources') || '(unknown)'
+        : '(none)';
+    lines.push(
+      `    sources:     ${this.color(
+        sources,
+        sources === 'ok' ? 'green' : 'yellow',
+      )}${describeSkillSelection(obj['selection'])}`,
+    );
+    const collisions =
+      health !== null && Array.isArray(health['collisions'])
+        ? health['collisions'].length
+        : 0;
+    lines.push(`    collisions:  ${String(collisions)}`);
+    const level = summary !== null ? stringField(summary, 'level') : '';
+    const label = summary !== null ? stringField(summary, 'label') : '';
+    lines.push(
+      `    status:      ${this.color(
+        label || level || '(unknown)',
+        HARNESS_LEVEL_COLORS[level] ?? 'gray',
+      )}`,
+    );
+    return `${lines.join('\n')}\n`;
+  }
+
+  /**
+   * The PATHS behind the count columns, grouped by kind then by target.
+   *
+   * A row reading `missing 15` tells a user their harness is broken and gives
+   * them nothing to do about it; `.codex/agents/backend-developer.toml` tells
+   * them where to look. `foreign` matters most of all — those are entries Ptah
+   * is deliberately refusing to touch, so the only way out is for the user to
+   * move or delete the file, and they cannot do that without its name.
+   *
+   * Capped per section rather than per target: a workspace where one target has
+   * 200 gaps should not push the other five off the screen.
+   */
+  private harnessPathSections(
+    targets: Array<Record<string, unknown>>,
+  ): string[] {
+    const sections: Array<{ key: string; title: string }> = [
+      { key: 'missing', title: 'Missing (desired, not owned by Ptah on disk)' },
+      { key: 'foreign', title: 'Foreign (present, not Ptah’s — left alone)' },
+      { key: 'adopted', title: 'Adopted (proved to be Ptah’s, rewritten)' },
+      { key: 'removed', title: 'Removed' },
+    ];
+
+    const lines: string[] = [];
+    for (const { key, title } of sections) {
+      const entries = targets.flatMap((target) => {
+        const value = target[key];
+        const name = stringField(target, 'target') || '(unknown)';
+        return Array.isArray(value)
+          ? value
+              .filter((item): item is string => typeof item === 'string')
+              .map((path) => `${name}  ${path}`)
+          : [];
+      });
+      if (entries.length === 0) continue;
+
+      lines.push(this.color(`  ${title}`, 'bold'));
+      for (const entry of entries.slice(0, HARNESS_PATH_LIST_LIMIT)) {
+        lines.push(`    ${entry}`);
+      }
+      if (entries.length > HARNESS_PATH_LIST_LIMIT) {
+        lines.push(
+          this.color(
+            `    +${String(entries.length - HARNESS_PATH_LIST_LIMIT)} more`,
+            'dim',
+          ),
+        );
+      }
+    }
+    return lines;
   }
 
   private renderProviderStatus(obj: Record<string, unknown>): string {
@@ -617,6 +786,32 @@ function renderTable(headers: string[], rows: string[][]): string {
   return `${out.join('\n')}\n`;
 }
 
+/**
+ * The skill-selection clause appended to the doctor's `sources` line
+ * (TASK_2026_316).
+ *
+ * A `'selected'` workspace propagates only its allowlist, and the counts above
+ * cannot show that — an unselected skill never enters `expected`, so a
+ * workspace that deliberately propagates nothing renders identically to one
+ * whose harness came up empty. This clause is the difference between the two.
+ *
+ * INFORMATIONAL ONLY. The verdict on the `status` line comes from
+ * `summarizeHarnessHealth`, which grades a narrow selection `ok`; nothing here
+ * colours or contradicts it. An absent or unrecognized `selection` renders
+ * nothing at all rather than guessing a mode.
+ */
+function describeSkillSelection(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return '';
+  const obj = value as Record<string, unknown>;
+  const mode = obj['mode'];
+  if (mode !== 'all' && mode !== 'selected') return '';
+  const derived = obj['derived'] === true ? ', derived' : '';
+  if (mode === 'all') return `  (skills: all${derived})`;
+  const selected = numberField(obj, 'selected');
+  const available = numberField(obj, 'available');
+  return `  (skills: selected — ${selected} of ${available}${derived})`;
+}
+
 function stringField(obj: Record<string, unknown>, key: string): string {
   const v = obj[key];
   return typeof v === 'string' ? v : '';
@@ -624,6 +819,18 @@ function stringField(obj: Record<string, unknown>, key: string): string {
 
 function booleanField(obj: Record<string, unknown>, key: string): boolean {
   return obj[key] === true;
+}
+
+/** Render a numeric field as a table cell; `-` when the field is absent. */
+function numberField(obj: Record<string, unknown>, key: string): string {
+  const v = obj[key];
+  return typeof v === 'number' ? String(v) : '-';
+}
+
+/** Render the LENGTH of an array field as a table cell. */
+function countField(obj: Record<string, unknown>, key: string): string {
+  const v = obj[key];
+  return Array.isArray(v) ? String(v.length) : '0';
 }
 
 function formatScalar(value: unknown): string {

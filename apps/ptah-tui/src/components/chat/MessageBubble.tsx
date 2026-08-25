@@ -3,7 +3,8 @@ import { Box, Text } from 'ink';
 
 import { useTheme, type TuiTheme } from '../../hooks/use-theme.js';
 import { DiffViewer } from '../diff/DiffViewer.js';
-import { ToolIcon } from '../atoms/index.js';
+import { Markdown } from './Markdown.js';
+import { GLYPHS } from '../../lib/glyphs.js';
 import type { ChatRole, ChatToolRow } from '../../hooks/use-chat.js';
 
 function isDiffContent(text: string): boolean {
@@ -23,15 +24,18 @@ interface MessageBubbleProps {
 
 function getRoleConfig(
   theme: TuiTheme,
-): Record<ChatRole, { label: string; color: string; gutter: string }> {
+): Record<ChatRole, { label: string; color: string }> {
   return {
-    user: { label: 'You', color: theme.roles.user, gutter: '┃' },
-    assistant: { label: 'Ptah', color: theme.roles.assistant, gutter: '┃' },
-    system: { label: 'System', color: theme.roles.system, gutter: '┃' },
+    user: { label: 'you', color: theme.roles.user },
+    assistant: { label: 'ptah', color: theme.roles.assistant },
+    system: { label: 'system', color: theme.roles.system },
   };
 }
 
-function toolStatusColor(theme: TuiTheme, status: ChatToolRow['status']): string {
+function toolStatusColor(
+  theme: TuiTheme,
+  status: ChatToolRow['status'],
+): string {
   switch (status) {
     case 'ok':
       return theme.status.success;
@@ -45,11 +49,11 @@ function toolStatusColor(theme: TuiTheme, status: ChatToolRow['status']): string
 function toolStatusGlyph(status: ChatToolRow['status']): string {
   switch (status) {
     case 'ok':
-      return '✓';
+      return GLYPHS.ok;
     case 'error':
-      return '✗';
+      return GLYPHS.error;
     default:
-      return '…';
+      return GLYPHS.running;
   }
 }
 
@@ -58,6 +62,15 @@ function collapseThinking(text: string): string {
   return collapsed.length > 80 ? `${collapsed.slice(0, 80)}…` : collapsed;
 }
 
+/**
+ * One chat turn.
+ *
+ * The role label is a lowercase word in the role colour rather than a bold
+ * "You"/"Ptah" title — the gutter rail already carries the attribution, so the
+ * label only has to disambiguate, not shout. Assistant prose now goes through
+ * `Markdown` instead of a bare `<Text>`, which is the single biggest visual
+ * difference from the old transcript.
+ */
 export function MessageBubble({
   role,
   content,
@@ -75,62 +88,56 @@ export function MessageBubble({
   );
 
   const thinkingLine = useMemo(() => collapseThinking(thinking), [thinking]);
+  const renderMarkdown = role === 'assistant' && !showDiff;
 
   return (
     <Box flexDirection="row" marginBottom={1}>
       <Box marginRight={1}>
-        <Text color={config.color}>{config.gutter}</Text>
+        <Text color={config.color}>{GLYPHS.gutter}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1}>
-        <Box gap={1} marginBottom={0}>
-          <Text bold color={config.color}>
-            {config.label}
-          </Text>
-          {isStreaming && (
-            <Text color={theme.status.warning} dimColor>
-              {'streaming...'}
-            </Text>
-          )}
-        </Box>
+        <Text color={config.color} bold>
+          {config.label}
+        </Text>
 
         {thinkingLine.length > 0 && (
-          <Box paddingLeft={0}>
-            <Text color={theme.ui.dimmed} italic>
-              {`✦ ${thinkingLine}`}
-            </Text>
-          </Box>
+          <Text color={theme.ui.dimmed} italic>
+            {`${GLYPHS.thinking} ${thinkingLine}`}
+          </Text>
         )}
 
         {tools.length > 0 && (
-          <Box flexDirection="column" paddingLeft={0}>
+          <Box flexDirection="column">
             {tools.map((tool) => (
               <Box key={tool.id} gap={1}>
-                <ToolIcon name={tool.toolName} />
-                <Text color={theme.ui.dimmed}>{tool.toolName}</Text>
                 <Text color={toolStatusColor(theme, tool.status)}>
                   {toolStatusGlyph(tool.status)}
                 </Text>
+                <Text color={theme.ui.muted}>{tool.toolName}</Text>
               </Box>
             ))}
           </Box>
         )}
 
-        {content.length > 0 && (
-          <Box paddingLeft={0}>
-            {showDiff ? (
-              <DiffViewer rawDiff={content} defaultCollapsed />
-            ) : (
-              <Text wrap="wrap">
-                {content}
-                {isStreaming ? (
-                  <Text color={config.color}>{'█'}</Text>
-                ) : (
-                  ''
-                )}
-              </Text>
-            )}
-          </Box>
-        )}
+        {content.length > 0 &&
+          (showDiff ? (
+            <DiffViewer rawDiff={content} defaultCollapsed />
+          ) : renderMarkdown ? (
+            <Markdown
+              text={content}
+              streaming={isStreaming === true}
+              cursorColor={config.color}
+            />
+          ) : (
+            <Text wrap="wrap">
+              {content}
+              {isStreaming === true ? (
+                <Text color={config.color}>{GLYPHS.cursor}</Text>
+              ) : (
+                ''
+              )}
+            </Text>
+          ))}
       </Box>
     </Box>
   );

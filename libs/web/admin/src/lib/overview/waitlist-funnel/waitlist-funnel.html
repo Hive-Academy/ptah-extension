@@ -1,0 +1,55 @@
+<div class="flex flex-col gap-3">
+  @for (bar of bars(); track bar.label) {
+    <div class="flex items-center gap-3">
+      <div class="w-32 shrink-0 text-sm text-base-content-muted">
+        {{ bar.label }}
+        <span class="font-medium text-base-content">{{ bar.count }}</span>
+      </div>
+
+      <div
+        class="relative flex h-8 flex-1 items-center overflow-hidden rounded-md bg-base-300"
+      >
+        <div
+          class="flex h-full items-center justify-end rounded-md pr-2"
+          [class]="bar.fillClass"
+          [style.width.%]="bar.widthPct"
+        >
+          @if (bar.ratioPct !== null && bar.widthPct >= 15) {
+            <span class="text-xs font-medium text-base-100">
+              {{ bar.ratioPct | number: '1.0-1' }}%
+            </span>
+          }
+        </div>
+
+        @if (bar.ratioPct !== null && bar.widthPct < 15) {
+          <span
+            class="pointer-events-none absolute inset-y-0 flex items-center pl-2 text-xs font-medium text-base-content"
+            [style.left.%]="bar.widthPct"
+          >
+            {{ bar.ratioPct | number: '1.0-1' }}%
+          </span>
+        }
+      </div>
+    </div>
+  }
+</div>
+
+<div class="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-2">
+  @if (conversionPct(); as pct) {
+    <span
+      class="text-4xl font-bold tabular-nums text-primary md:text-5xl"
+    >
+      {{ pct | number: '1.0-1' }}%
+    </span>
+    <span class="text-sm text-base-content-muted">conversion</span>
+  } @else {
+    <span class="text-4xl font-bold tabular-nums text-base-content-muted md:text-5xl">
+      —
+    </span>
+    <span class="text-sm text-base-content-muted">No signups yet</span>
+  }
+
+  <span class="badge badge-info badge-outline text-xs">
+    +{{ last7Days() }} signups · last 7 days
+  </span>
+</div>

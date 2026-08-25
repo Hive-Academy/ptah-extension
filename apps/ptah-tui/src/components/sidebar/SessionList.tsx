@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import type { Session } from '../../hooks/use-sessions.js';
+import { useEscapeClaim } from '../../context/EscapeClaimContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
 import { Spinner } from '../atoms/Spinner.js';
@@ -40,6 +41,11 @@ export function SessionList({
     },
     [sessions, onSelect],
   );
+
+  // Escape cancels the confirmation and nothing else. Without the claim it
+  // also reached the AppShell handler, which closed the sidebar in the same
+  // press — so Ctrl+E → `d` → Esc left you back in the chat.
+  useEscapeClaim('sidebar.delete-confirm', confirmingDeleteId !== null);
 
   const { activeIndex } = useKeyboardNav({
     itemCount: sessions.length,

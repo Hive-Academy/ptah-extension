@@ -2,14 +2,12 @@
  * Wizard View Component - Main container for setup wizard UI.
  *
  * **Responsibilities**:
- * - Verify premium license before showing wizard
  * - Render current wizard step component
  * - Display step progress indicator
  * - Handle step navigation (next/previous)
  * - Coordinate with SetupWizardStateService for state
  *
  * **State Management**:
- * - License state: `licenseState()` signal - 'checking' | 'valid' | 'invalid'
  * - Current step: `wizardState.currentStep()` signal
  * - Step index: `wizardState.stepIndex()` signal (for progress indicator)
  *
@@ -21,11 +19,6 @@
  * 5. Generation - Rule generation progress
  * 6. Enhance - Enhanced prompts generation
  * 7. Completion - Success confirmation
- *
- * **Premium Gating**:
- * - Shows loading state while checking license
- * - Shows PremiumUpsellComponent if license is invalid
- * - Shows wizard content if license is valid
  *
  * **Usage**:
  * ```html
@@ -40,9 +33,7 @@ import {
   computed,
   inject,
   ChangeDetectionStrategy,
-  signal,
 } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
 
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WelcomeComponent } from './welcome.component';
@@ -51,13 +42,7 @@ import { AnalysisResultsComponent } from './analysis-results.component';
 import { AgentSelectionComponent } from './agent-selection.component';
 import { GenerationProgressComponent } from './generation-progress.component';
 import { CompletionComponent } from './completion.component';
-import { PremiumUpsellComponent } from './premium-upsell.component';
 import { PromptEnhancementComponent } from './prompt-enhancement.component';
-
-/**
- * License verification state
- */
-type LicenseState = 'checking' | 'valid' | 'invalid';
 
 @Component({
   selector: 'ptah-wizard-view',
@@ -69,7 +54,6 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     PromptEnhancementComponent,
     GenerationProgressComponent,
     CompletionComponent,
-    PremiumUpsellComponent,
   ],
   styles: [
     `
@@ -97,88 +81,65 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     `,
   ],
   template: `
-    <!-- License checking state -->
-    @if (licenseState() === 'checking') {
-      <div class="h-full flex items-center justify-center">
-        <div class="text-center">
-          <span class="loading loading-spinner loading-sm text-primary"></span>
-          <p class="mt-2 text-xs text-base-content/60">Verifying license...</p>
+    <div class="wizard-container h-full flex flex-col bg-base-100">
+      <!-- Progress indicator -->
+      <div class="wizard-progress p-3 border-b border-base-300">
+        <ul class="steps steps-horizontal w-full text-xs">
+          @for (label of stepLabels(); track label; let i = $index) {
+            <li
+              class="step cursor-pointer hover:opacity-80 transition-opacity"
+              [class.step-primary]="stepIndex() >= i"
+              [class.pointer-events-none]="!canNavigateToStep(i)"
+              [class.opacity-50]="i > 0 && !canNavigateToStep(i)"
+              (click)="navigateToStep(i)"
+              (keyup.enter)="navigateToStep(i)"
+              tabindex="0"
+              [title]="'Go to ' + label"
+            >
+              {{ label }}
+            </li>
+          }
+        </ul>
+      </div>
+
+      <!-- Step content -->
+      <div class="wizard-content flex-1 overflow-y-auto p-3">
+        <div
+          class="animate-fadeIn"
+          data-testid="wizard-step"
+          [attr.data-step]="currentStep()"
+        >
+          @switch (currentStep()) {
+            @case ('welcome') {
+              <ptah-welcome />
+            }
+            @case ('scan') {
+              <ptah-scan-progress />
+            }
+            @case ('analysis') {
+              <ptah-analysis-results />
+            }
+            @case ('selection') {
+              <ptah-agent-selection />
+            }
+            @case ('enhance') {
+              <ptah-prompt-enhancement />
+            }
+            @case ('generation') {
+              <ptah-generation-progress />
+            }
+            @case ('completion') {
+              <ptah-completion />
+            }
+          }
         </div>
       </div>
-    }
-
-    <!-- Invalid license - show upsell -->
-    @else if (licenseState() === 'invalid') {
-      <ptah-premium-upsell
-        [features]="premiumFeatures"
-        [errorMessage]="licenseError()"
-        (retry)="checkLicense()"
-      />
-    }
-
-    <!-- Valid license - show wizard -->
-    @else {
-      <div class="wizard-container h-full flex flex-col bg-base-100">
-        <!-- Progress indicator -->
-        <div class="wizard-progress p-3 border-b border-base-300">
-          <ul class="steps steps-horizontal w-full text-xs">
-            @for (label of stepLabels(); track label; let i = $index) {
-              <li
-                class="step cursor-pointer hover:opacity-80 transition-opacity"
-                [class.step-primary]="stepIndex() >= i"
-                [class.pointer-events-none]="!canNavigateToStep(i)"
-                [class.opacity-50]="i > 0 && !canNavigateToStep(i)"
-                (click)="navigateToStep(i)"
-                (keyup.enter)="navigateToStep(i)"
-                tabindex="0"
-                [title]="'Go to ' + label"
-              >
-                {{ label }}
-              </li>
-            }
-          </ul>
-        </div>
-
-        <!-- Step content -->
-        <div class="wizard-content flex-1 overflow-y-auto p-3">
-          <div
-            class="animate-fadeIn"
-            data-testid="wizard-step"
-            [attr.data-step]="currentStep()"
-          >
-            @switch (currentStep()) {
-              @case ('welcome') {
-                <ptah-welcome />
-              }
-              @case ('scan') {
-                <ptah-scan-progress />
-              }
-              @case ('analysis') {
-                <ptah-analysis-results />
-              }
-              @case ('selection') {
-                <ptah-agent-selection />
-              }
-              @case ('enhance') {
-                <ptah-prompt-enhancement />
-              }
-              @case ('generation') {
-                <ptah-generation-progress />
-              }
-              @case ('completion') {
-                <ptah-completion />
-              }
-            }
-          </div>
-        </div>
-      </div>
-    }
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WizardViewComponent {
   private readonly wizardState = inject(SetupWizardStateService);
-  private readonly rpcService = inject(ClaudeRpcService);
 
   public readonly currentStep = this.wizardState.currentStep;
   public readonly stepIndex = this.wizardState.stepIndex;
@@ -225,67 +186,6 @@ export class WizardViewComponent {
     const targetStep = steps[targetIndex];
     if (targetStep) {
       this.wizardState.setCurrentStep(targetStep);
-    }
-  }
-
-  /**
-   * License verification state
-   * - 'checking': Initial state, verifying license
-   * - 'valid': Premium license valid, show wizard
-   * - 'invalid': No premium license, show upsell
-   */
-  protected readonly licenseState = signal<LicenseState>('checking');
-
-  /**
-   * Error message when license check fails due to network error
-   */
-  protected readonly licenseError = signal<string | null>(null);
-
-  /**
-   * Premium features to display in upsell component
-   */
-  protected readonly premiumFeatures = [
-    'Deep project analysis via MCP',
-    'Intelligent agent recommendations',
-    '13 customized agent templates',
-    'Orchestration skill generation',
-    'Project-specific rule customization',
-  ];
-
-  public constructor() {
-    this.checkLicense();
-  }
-
-  /**
-   * Verify premium license status via RPC
-   * Uses existing license:getStatus RPC method and checks isPremium flag
-   */
-  protected async checkLicense(): Promise<void> {
-    this.licenseState.set('checking');
-    this.licenseError.set(null);
-
-    try {
-      const result = await this.rpcService.call('license:getStatus', {});
-
-      if (result.success && result.data) {
-        if (result.data.isPremium) {
-          this.licenseState.set('valid');
-        } else {
-          this.licenseState.set('invalid');
-        }
-      } else {
-        this.licenseError.set(
-          result.error || 'Failed to verify license. Please try again.',
-        );
-        this.licenseState.set('invalid');
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Failed to verify license. Please check your connection and try again.';
-      this.licenseError.set(message);
-      this.licenseState.set('invalid');
     }
   }
 }

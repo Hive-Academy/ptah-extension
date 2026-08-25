@@ -55,6 +55,7 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
+import { WorkflowSessionClaimService } from './workflow-session-claim.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamRouter {
@@ -65,6 +66,7 @@ export class StreamRouter {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+  private readonly claims = inject(WorkflowSessionClaimService);
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
   private readonly sessionManager = inject(SessionManager);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -344,6 +346,15 @@ export class StreamRouter {
       batchedUpdate: this.batchedUpdate,
       backgroundAgentStore: this.backgroundAgentStore,
       agentMonitorStore: this.agentMonitorStore,
+      // The accumulator mutates the surface's state object IN PLACE. A
+      // signal-backed adapter therefore never sees a new reference and never
+      // notifies, so a surface transcript stayed blank for the whole run and
+      // only filled in when the host component was re-created (which re-reads
+      // the already-mutated object from scratch). `onStateChanged` exists for
+      // exactly this — push every mutation back through the adapter so the
+      // host can re-emit. Chat does not need it: it owns the state slot
+      // directly. See `AccumulatorContext.onStateChanged`.
+      onStateChanged: (next) => adapter.setState(next),
     };
 
     const result = this.accumulatorCore.process(adapter.getState(), event, ctx);
@@ -411,6 +422,14 @@ export class StreamRouter {
         if (convId) {
           tabs = this.binding.tabsFor(convId);
         }
+      }
+    }
+
+    if (tabs.length === 0) {
+      const claimed = this.interactiveSurfaceOwning(prompt);
+      if (claimed) {
+        this.permissionHandler.attachPromptTargets(prompt.id, [claimed]);
+        return tabs;
       }
     }
 
@@ -483,6 +502,14 @@ export class StreamRouter {
       }
     }
 
+    if (tabs.length === 0) {
+      const claimed = this.interactiveSurfaceOwning(question);
+      if (claimed) {
+        this.permissionHandler.attachQuestionTargets(question.id, [claimed]);
+        return tabs;
+      }
+    }
+
     if (tabs.length === 0 && question.sessionId) {
       tabs = this.tabsForSession(question.sessionId as ClaudeSessionId);
     }
@@ -499,9 +526,7 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
-        const interactive = surfaces.filter((s) =>
-          this.surfaceRegistry.isInteractive(s),
-        );
+        const interactive = this.interactiveSurfacesForSession(sessionId);
         if (interactive.length > 0) {
           this.permissionHandler.attachQuestionTargets(
             question.id,
@@ -527,10 +552,93 @@ export class StreamRouter {
       if (tabsAfterTick.length > 0) {
         const targets = this.resolveQuestionTargets(question, tabsAfterTick);
         this.permissionHandler.attachQuestionTargets(question.id, targets);
+        return;
+      }
+      const surfacesAfterTick = this.interactiveSurfacesForSession(sessionId);
+      if (surfacesAfterTick.length > 0) {
+        this.permissionHandler.attachQuestionTargets(
+          question.id,
+          surfacesAfterTick,
+        );
       }
     });
 
     return tabs;
+  }
+
+  /**
+   * The workflow surface that CLAIMED this prompt's correlation id, if any.
+   *
+   * There are three identities in play, not two, and this is the one the
+   * router used to be blind to:
+   *   1. `TabId` — a chat tab, resolvable through `TabSessionBinding`.
+   *   2. `ClaudeSessionId` — the SDK's UUID, resolvable through
+   *      `ConversationRegistry` once the session has reported it.
+   *   3. A workflow CORRELATION id — minted by a surface host (New Project,
+   *      harness builder, tribunal) and handed to `chat:start` as `tabId`.
+   *
+   * The backend puts the correlation id on BOTH `tabId` and `sessionId` of
+   * every prompt it raises: `SdkQueryOptionsBuilder` derives its routing ids
+   * from `sessionConfig.tabId ?? sessionId`, so for a surface run the real SDK
+   * session id never reaches the prompt at all. A chat tab is unaffected —
+   * there the correlation id IS a bound `TabId`, which is exactly why this
+   * only ever broke on the non-tab surfaces. On a surface, both lookups above
+   * miss, the router attaches nothing, and `chat-view`'s "show it on the
+   * active tile" safety net drops the card on an unrelated canvas session
+   * while the workflow's own panel shows nothing (TASK_2026_317).
+   *
+   * `WorkflowSessionClaimService` already holds correlation id → `SurfaceId`,
+   * and the stream-event path has consulted it all along
+   * (`ChatMessageHandler.renderedSurfaceFor`). Prompts never did. This closes
+   * that asymmetry: same map, same claim, same surface.
+   *
+   * Returns null unless the claimed surface is also registered INTERACTIVE —
+   * a background surface has no card to render on, and the existing
+   * auto-answer / auto-deny guards below must keep owning that case. Two live
+   * claimants depend on that gate:
+   *   - the setup wizard's analysis phases register non-interactive surfaces
+   *     (their queries run `bypassPermissions` with no `canUseTool`, so they
+   *     cannot raise a prompt at all);
+   *   - Tribunal claims its CONDUCTOR TAB's id against a `SurfaceId` it never
+   *     registers an adapter for — the claim is a marker, and the conductor is
+   *     a normal chat tab that must keep routing as one.
+   *
+   * Public because `chat-view` needs the same verdict to decide whether its
+   * active-tile fallback should stand down. One rule, one implementation:
+   * duplicating the gate is how Tribunal's tab-shaped claim would have started
+   * suppressing cards that only the tab could show.
+   */
+  interactiveSurfaceOwning(prompt: {
+    readonly tabId?: string;
+    readonly sessionId?: string;
+  }): SurfaceId | null {
+    for (const correlationId of [prompt.tabId, prompt.sessionId]) {
+      if (!correlationId) continue;
+      const surfaceId = this.claims.surfaceFor(correlationId);
+      if (!surfaceId) continue;
+      if (!this.surfaceRegistry.isInteractive(surfaceId)) continue;
+      return surfaceId;
+    }
+    return null;
+  }
+
+  /**
+   * Interactive surfaces bound to the conversation containing `sessionId`.
+   *
+   * Question routing's surface counterpart to `tabsForSession`. A surface is
+   * a valid question target only when its host registered it as interactive
+   * (harness workflow, tribunal conductor) — background surfaces run full-auto
+   * and have no card to render on. Returns an empty array when the session is
+   * unknown to the registry or every bound surface is non-interactive.
+   */
+  private interactiveSurfacesForSession(
+    sessionId: ClaudeSessionId,
+  ): readonly SurfaceId[] {
+    const containing = this.registry.findContainingSession(sessionId);
+    if (!containing) return [];
+    const surfaces = this.binding.surfacesFor(containing.id);
+    if (surfaces.length === 0) return [];
+    return surfaces.filter((s) => this.surfaceRegistry.isInteractive(s));
   }
 
   /**
@@ -706,7 +814,10 @@ export class StreamRouter {
    */
   refreshQuestionTargetsForSession(sessionId: ClaudeSessionId): void {
     const tabs = this.tabsForSession(sessionId);
-    if (tabs.length === 0) return;
+    if (tabs.length === 0) {
+      this.attachSurfaceQuestionTargets(sessionId);
+      return;
+    }
 
     const pending = this.permissionHandler.questionRequests();
     for (const q of pending) {
@@ -735,18 +846,62 @@ export class StreamRouter {
       if (!containing || containing.id !== convId) continue;
 
       const tabs = this.tabsForSession(sessionId);
-      if (tabs.length === 0) continue;
-
       const existing = this.permissionHandler.questionTargetTabsFor(q.id);
-      const stale =
-        existing.length === 0 ||
-        existing.some((t) => !tabs.some((b) => (b as string) === t));
-      if (!stale) continue;
+
+      if (tabs.length === 0) {
+        const surfaces = this.interactiveSurfacesForSession(sessionId);
+        if (surfaces.length === 0) continue;
+        if (!this.targetsAreStale(existing, surfaces)) continue;
+        this.permissionHandler.clearQuestionTargets(q.id);
+        this.permissionHandler.attachQuestionTargets(q.id, surfaces);
+        continue;
+      }
+
+      if (!this.targetsAreStale(existing, tabs)) continue;
 
       const targets = this.resolveQuestionTargets(q, tabs);
       this.permissionHandler.clearQuestionTargets(q.id);
       this.permissionHandler.attachQuestionTargets(q.id, targets);
     }
+  }
+
+  /**
+   * Attach interactive-surface targets to every pending question for
+   * `sessionId` that has no targets yet.
+   *
+   * Surface counterpart of the tab branch in
+   * `refreshQuestionTargetsForSession`. Reached when a question arrived
+   * before its surface conversation knew the real session id (late
+   * `SESSION_ID_RESOLVED`), so no tab and no surface could be resolved at
+   * routing time. Only empty target lists are filled — an already-resolved
+   * question keeps whatever the router decided first.
+   */
+  private attachSurfaceQuestionTargets(sessionId: ClaudeSessionId): void {
+    const surfaces = this.interactiveSurfacesForSession(sessionId);
+    if (surfaces.length === 0) return;
+
+    for (const q of this.permissionHandler.questionRequests()) {
+      if (q.sessionId !== (sessionId as unknown as string)) continue;
+      const existing = this.permissionHandler.questionTargetTabsFor(q.id);
+      if (existing.length > 0) continue;
+      this.permissionHandler.clearQuestionTargets(q.id);
+      this.permissionHandler.attachQuestionTargets(q.id, surfaces);
+    }
+  }
+
+  /**
+   * A target list is stale when it is empty, or when any entry no longer
+   * appears in the live consumer set (tabs or surfaces) it was resolved
+   * against.
+   */
+  private targetsAreStale(
+    existing: readonly string[],
+    live: readonly (TabId | SurfaceId)[],
+  ): boolean {
+    return (
+      existing.length === 0 ||
+      existing.some((t) => !live.some((l) => (l as string) === t))
+    );
   }
 
   /**

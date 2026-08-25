@@ -21,6 +21,7 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
+import { findModelPricing } from '@ptah-extension/shared';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 
@@ -62,10 +63,19 @@ function makeSessionLifecycle(
 }
 
 function makeModelResolver(): jest.Mocked<
-  Pick<IModelResolver, 'resolveForPricing'>
+  Pick<
+    IModelResolver,
+    'resolveForPricing' | 'resolveForCost' | 'isSubscriptionCovered'
+  >
 > {
   return {
     resolveForPricing: jest.fn().mockImplementation((m: string) => m),
+    isSubscriptionCovered: jest.fn().mockReturnValue(false),
+    resolveForCost: jest.fn().mockImplementation((m: string) => ({
+      modelId: m,
+      pricing: findModelPricing(m),
+      subscriptionCovered: false,
+    })),
   };
 }
 
@@ -315,5 +325,269 @@ describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
       (e) => (e as { eventType: string }).eventType === 'agent_start',
     );
     expect(agentStarts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workflow run correlation (watch-running-workflows backend slice)
+//
+// Exercises the REAL transformer state end-to-end across the assistant
+// (complete-message) path and the system task_* path. Requires a fuller
+// SubagentRegistry mock than the compact_boundary suite: transformTaskStarted
+// reads `get`/`peekPendingTeammateName` while building the agent_start event,
+// and the SdkMessageTransformer.transform try/catch would otherwise swallow
+// the event on a missing-method TypeError.
+// ---------------------------------------------------------------------------
+
+function makeFullSubagentRegistry() {
+  return {
+    pruneSession: jest.fn(),
+    markPendingBackground: jest.fn(),
+    markPendingTeammateName: jest.fn(),
+    setTaskId: jest.fn(),
+    get: jest.fn().mockReturnValue(undefined),
+    peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
+    update: jest.fn(),
+  };
+}
+
+function makeAssistantWithToolUse(opts: {
+  toolUseId: string;
+  name: string;
+  input?: Record<string, unknown>;
+  parentToolUseId?: string | null;
+  id?: string;
+}): unknown {
+  return {
+    type: 'assistant',
+    uuid: opts.id ?? `uuid-${opts.toolUseId}`,
+    parent_tool_use_id: opts.parentToolUseId ?? null,
+    message: {
+      id: opts.id ?? `msg-${opts.toolUseId}`,
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-x',
+      stop_reason: 'tool_use',
+      stop_sequence: null,
+      content: [
+        {
+          type: 'tool_use',
+          id: opts.toolUseId,
+          name: opts.name,
+          input: opts.input ?? {},
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  };
+}
+
+function makeWorkflowTaskStarted(opts: {
+  taskId: string;
+  toolUseId: string;
+  workflowName: string;
+  sessionId?: string;
+}): unknown {
+  return {
+    type: 'system',
+    subtype: 'task_started',
+    task_id: opts.taskId,
+    tool_use_id: opts.toolUseId,
+    session_id: opts.sessionId,
+    skip_transcript: false,
+    task_type: 'local_workflow',
+    workflow_name: opts.workflowName,
+    description: 'workflow run',
+  };
+}
+
+function agentStartsOf(events: unknown[]): Array<Record<string, unknown>> {
+  return events.filter(
+    (e) => (e as { eventType?: string }).eventType === 'agent_start',
+  ) as Array<Record<string, unknown>>;
+}
+
+describe('SdkMessageTransformer — workflow run correlation', () => {
+  let registry: ReturnType<typeof makeFullSubagentRegistry>;
+
+  function build(): SdkMessageTransformer {
+    registry = makeFullSubagentRegistry();
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      registry as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+    );
+  }
+
+  it('(a) does NOT double-emit agent_start when task_started follows the assistant path for the same tool_use id (dedup holds with the gate open)', () => {
+    const transformer = build();
+
+    // Assistant complete path emits agent_start for the Task tool_use AND
+    // marks the tool_use id as emitted.
+    const assistantEvents = transformer.transform(
+      makeAssistantWithToolUse({
+        toolUseId: 'toolu_child',
+        name: 'Task',
+        input: { subagent_type: 'backend', description: 'd', prompt: 'p' },
+      }) as never,
+      'sess-w' as never,
+    );
+    expect(agentStartsOf(assistantEvents)).toHaveLength(1);
+
+    // task_started for the SAME tool_use id must be suppressed by the dedup.
+    const taskStartedEvents = transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-child',
+        toolUseId: 'toolu_child',
+        sessionId: 'sess-w',
+      }) as never,
+      'sess-w' as never,
+    );
+    expect(agentStartsOf(taskStartedEvents)).toHaveLength(0);
+  });
+
+  it('(b) a local_workflow task_started emits an agent_start carrying workflowRunId and workflowName', () => {
+    const transformer = build();
+
+    // The Workflow tool_use launches the run (fire-and-forget, no agent_start).
+    const wfLaunch = transformer.transform(
+      makeAssistantWithToolUse({
+        toolUseId: 'toolu_wf',
+        name: 'Workflow',
+        input: { workflow: 'spec' },
+      }) as never,
+      'sess-w' as never,
+    );
+    expect(agentStartsOf(wfLaunch)).toHaveLength(0);
+
+    // The local_workflow task_started is the run root.
+    const rootEvents = transformer.transform(
+      makeWorkflowTaskStarted({
+        taskId: 'task-wf',
+        toolUseId: 'toolu_wf',
+        workflowName: 'spec',
+        sessionId: 'sess-w',
+      }) as never,
+      'sess-w' as never,
+    );
+
+    const [rootStart] = agentStartsOf(rootEvents);
+    expect(rootStart).toBeDefined();
+    expect(rootStart['workflowRunId']).toBe('toolu_wf');
+    expect(rootStart['workflowName']).toBe('spec');
+  });
+
+  it('(c) a descendant agent dispatched inside the workflow inherits the same workflowRunId', () => {
+    const transformer = build();
+
+    // Launch + root establish the run.
+    transformer.transform(
+      makeAssistantWithToolUse({
+        toolUseId: 'toolu_wf',
+        name: 'Workflow',
+        input: { workflow: 'spec' },
+      }) as never,
+      'sess-w' as never,
+    );
+    transformer.transform(
+      makeWorkflowTaskStarted({
+        taskId: 'task-wf',
+        toolUseId: 'toolu_wf',
+        workflowName: 'spec',
+        sessionId: 'sess-w',
+      }) as never,
+      'sess-w' as never,
+    );
+
+    // A subagent dispatched from WITHIN the workflow: its assistant turn is a
+    // child of the Workflow tool_use, so the child inherits the run.
+    const childEvents = transformer.transform(
+      makeAssistantWithToolUse({
+        toolUseId: 'toolu_sub',
+        name: 'Task',
+        input: { subagent_type: 'backend', description: 'd', prompt: 'p' },
+        parentToolUseId: 'toolu_wf',
+      }) as never,
+      'sess-w' as never,
+    );
+
+    const [childStart] = agentStartsOf(childEvents);
+    expect(childStart).toBeDefined();
+    expect(childStart['workflowRunId']).toBe('toolu_wf');
+    expect(childStart['workflowName']).toBe('spec');
+  });
+});
+
+/**
+ * TASK_2026_295 — roughly 25 emit sites across the sub-transformers end in
+ * `sessionId || ''`. That branch is reachable: PtahCliStreamLoop passes
+ * `this.effectiveSessionId || undefined` until the SDK reports the real id, so
+ * every event of a CLI agent's first turn was stamped `sessionId: ''` even
+ * though the SDK message it came from carried the real one. Resolving once at
+ * the dispatch point fixes every site without touching them.
+ */
+describe('SdkMessageTransformer — session id falls back to the SDK payload (TASK_2026_295)', () => {
+  function build(activeIds: string[] = []): SdkMessageTransformer {
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      makeSubagentRegistry() as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle(activeIds) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+    );
+  }
+
+  function assistantMessage(sessionId: string | undefined): unknown {
+    return {
+      type: 'assistant',
+      uuid: 'assistant-uuid-1',
+      ...(sessionId === undefined ? {} : { session_id: sessionId }),
+      message: {
+        id: 'msg_1',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    };
+  }
+
+  it('stamps events with the SDK message session_id when the caller has no id', () => {
+    const events = build().transform(
+      assistantMessage('sdk-real-id') as never,
+      undefined,
+    );
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect((event as { sessionId: string }).sessionId).toBe('sdk-real-id');
+    }
+  });
+
+  it('keeps the caller id when there is one — it is the frontend routing key', () => {
+    const events = build().transform(
+      assistantMessage('sdk-real-id') as never,
+      'harness-stream-1' as never,
+    );
+
+    for (const event of events) {
+      expect((event as { sessionId: string }).sessionId).toBe(
+        'harness-stream-1',
+      );
+    }
+  });
+
+  it('emits no sessionId at all when neither source has an id — never an empty string', () => {
+    const events = build().transform(assistantMessage('') as never, undefined);
+
+    expect(events.length).toBeGreaterThan(0);
+    // `FlatStreamEvent.sessionId` is optional since Wave 2, so "not known"
+    // travels as `undefined`. `''` is the third state that made `??` fallbacks
+    // skip it and `!x` guards reject it — the whole point of the widening is
+    // that no emit site can produce it any more.
+    for (const event of events) {
+      expect(event.sessionId).toBeUndefined();
+    }
   });
 });

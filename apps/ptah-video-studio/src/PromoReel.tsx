@@ -18,6 +18,7 @@ import React from 'react';
 import {
   AbsoluteFill,
   Audio,
+  OffthreadVideo,
   Sequence,
   interpolate,
   staticFile,
@@ -30,7 +31,8 @@ import { PromoSoundDesign, type VoWindow } from './components/PromoSoundDesign';
 import { Watermark } from './components/Watermark';
 import { AnimatedGridPattern, Particles } from './components/effects';
 import { CONCEPT_SCENES } from './concept';
-import { SfxProvider } from './concept/scene-kit';
+import { CaptionRail, SfxProvider } from './concept/scene-kit';
+import { TerminalPlayer, type TuiFramesData } from './components/TerminalPlayer';
 import { THEME } from './theme';
 
 export const PROMO_FPS = 30;
@@ -50,6 +52,14 @@ const NEW_STAGE_SCENES = new Set<string>([
   'story-lifecycle',
   'story-proof',
   'story-cta',
+  'builders-hook',
+  'builders-promise',
+  'builders-cohort',
+  'builders-course',
+  'builders-vault',
+  'builders-room',
+  'builders-proof',
+  'builders-offer',
 ]);
 
 /** Extra on-screen breath after each scene's timeline ends. */
@@ -58,10 +68,42 @@ const BREATH_MS = 420;
 const DEFAULT_HOLD_MS = 7000;
 
 export interface PromoSlide {
-  /** Only concept scenes now — the component IS the message. */
-  kind: 'scene';
+  /**
+   * `scene` renders a concept component; `capture` plays real product footage
+   * full-frame (the Xirp-style act — no device frame, no virtual camera, the
+   * recording carries itself).
+   */
+  kind: 'scene' | 'capture' | 'terminal';
   /** Concept-scene key (see the CONCEPT_SCENES registry in src/concept). */
   scene?: string;
+  /**
+   * `kind: 'capture'` only — staticFile-relative video staged into the promo's
+   * public dir by render-promo.mjs's stageCaptures().
+   */
+  src?: string;
+  /** `kind: 'capture'` only — source scene slug, resolved by render-promo.mjs. */
+  capture?: string;
+  /**
+   * `kind: 'capture'` only — use the scene's composited `out/<slug>.mp4` instead
+   * of its clean `raw.webm`. Off by default: the rendered file already carries
+   * baked captions, a device frame and the watermark.
+   */
+  captureRendered?: boolean;
+  /**
+   * `kind: 'terminal'` only — scene slug whose `tui-frames.json` to play.
+   * render-promo.mjs inlines the resolved grids onto `frames`.
+   */
+  terminal?: string;
+  /** `kind: 'terminal'` only — per-frame grids, inlined by render-promo.mjs. */
+  frames?: TuiFramesData;
+  /** `kind: 'capture' | 'terminal'` — where to start inside the recording. */
+  startFromMs?: number;
+  /**
+   * Cut style INTO the next slide. Defaults to the legacy cross-fade; `cut`
+   * gives the hard flash cuts a flat 2D reel needs (a fade between a black
+   * frame and a full-bleed amber frame reads as a muddy brown wash).
+   */
+  transition?: 'cut' | 'xfade';
   /**
    * Sequential captions the scene cross-fades through across its duration —
    * one per narration beat. The scene paces them off `durationFrames`.
@@ -128,6 +170,18 @@ export interface PromoSpec {
   music?: string | null;
   /** Music-bed volume 0..1 override. */
   musicVolume?: number;
+  /**
+   * Skip the shared cinematic backdrop (Backdrop + grid + orbs + particles).
+   * Flat 2D reels own their own background per scene — leaving the ambient
+   * layer on washes every hard-cut flat fill with drifting orbs.
+   */
+  bare?: boolean;
+  /**
+   * Burn word-synced subtitles of the ACTUAL narration along the bottom.
+   * Opt-in per spec: scenes built on `PhaseStage` render their own CaptionRail
+   * internally, so switching this on for those reels would double the captions.
+   */
+  subtitles?: boolean;
   slides: PromoSlide[];
 }
 
@@ -214,26 +268,73 @@ const MissingScene: React.FC<ConceptSceneProps> = ({ slide }) => {
   );
 };
 
+/** Per-slide exit cross-fade length — zero when the spec asks for a hard cut. */
+function xfadeFramesFor(slide: PromoSlide): number {
+  return slide.transition === 'cut' ? 0 : XFADE_FRAMES;
+}
+
+/**
+ * Real product footage, full-frame. No DeviceFrame and no virtual camera: this
+ * is the Xirp-style product act, where the recording is the whole shot. Muted,
+ * because the source mp4s carry their own narration.
+ */
+const CaptureSlide: React.FC<{ slide: PromoSlide }> = ({ slide }) => {
+  if (!slide.src) return <MissingScene slide={slide} durationFrames={0} locale="en" />;
+  return (
+    <AbsoluteFill style={{ backgroundColor: THEME.bg }}>
+      <OffthreadVideo
+        src={staticFile(slide.src)}
+        startFrom={Math.round(((slide.startFromMs ?? 0) / 1000) * PROMO_FPS)}
+        muted
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+    </AbsoluteFill>
+  );
+};
+
 const Slide: React.FC<{
   slide: PromoSlide;
   durationFrames: number;
   locale: Locale;
   whooshSrc?: string;
-}> = ({ slide, durationFrames, locale, whooshSrc }) => {
+  subtitles?: boolean;
+}> = ({ slide, durationFrames, locale, whooshSrc, subtitles }) => {
   const frame = useCurrentFrame();
+  const { width } = useVideoConfig();
+  const xfade = xfadeFramesFor(slide);
   // Fade the whole scene out over its last XFADE frames so cuts feel soft.
-  const exit = interpolate(
-    frame,
-    [durationFrames - XFADE_FRAMES, durationFrames],
-    [1, 0],
-    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
-  );
+  // A `cut` slide skips this entirely — see PromoSlide.transition.
+  const exit =
+    xfade === 0
+      ? 1
+      : interpolate(frame, [durationFrames - xfade, durationFrames], [1, 0], {
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        });
 
   const Scene = (slide.scene && CONCEPT_SCENES[slide.scene]) || MissingScene;
 
   return (
     <AbsoluteFill style={{ opacity: exit }}>
-      <Scene slide={slide} durationFrames={durationFrames} locale={locale} whooshSrc={whooshSrc} />
+      {slide.kind === 'terminal' ? (
+        slide.frames ? (
+          <AbsoluteFill style={{ backgroundColor: THEME.bg }}>
+            <TerminalPlayer data={slide.frames} startFromMs={slide.startFromMs} />
+          </AbsoluteFill>
+        ) : (
+          <MissingScene slide={slide} durationFrames={0} locale="en" />
+        )
+      ) : slide.kind === 'capture' ? (
+        <CaptureSlide slide={slide} />
+      ) : (
+        <Scene slide={slide} durationFrames={durationFrames} locale={locale} whooshSrc={whooshSrc} />
+      )}
+      {/* Subtitles sit ABOVE the scene so a capture slide's footage never
+          covers them. CaptionRail returns null when a slide has no narration,
+          so silent slides (ident, wipe) stay clean. */}
+      {subtitles ? (
+        <CaptionRail slide={slide} durationFrames={durationFrames} width={width} />
+      ) : null}
     </AbsoluteFill>
   );
 };
@@ -296,11 +397,16 @@ export const PromoReel: React.FC<PromoReelProps> = ({
   return (
     <SfxProvider tickSrc={tickSrc} chimeSrc={chimeSrc}>
       <AbsoluteFill style={{ backgroundColor: THEME.bg, direction: dir }}>
-        {/* Shared cinematic backdrop, behind every scene. */}
-        <Backdrop glow={backdropGlow} />
-        <AnimatedGridPattern opacity={0.04} />
-        <AmbientOrbs glow={backdropGlow} />
-        <Particles count={20} opacity={0.09} />
+        {/* Shared cinematic backdrop, behind every scene. Flat 2D reels opt out
+            via `bare` — see PromoSpec.bare. */}
+        {spec.bare ? null : (
+          <>
+            <Backdrop glow={backdropGlow} />
+            <AnimatedGridPattern opacity={0.04} />
+            <AmbientOrbs glow={backdropGlow} />
+            <Particles count={20} opacity={0.09} />
+          </>
+        )}
 
         <PromoSoundDesign
           musicSrc={musicFile ? staticFile(musicFile) : undefined}
@@ -309,23 +415,32 @@ export const PromoReel: React.FC<PromoReelProps> = ({
           whooshFrames={slideWhooshFrames}
           whooshSrc={whooshSrc}
         />
-        {slides.map((slide, i) => (
-          <Sequence
-            key={i}
-            from={windows[i].fromFrame}
-            durationInFrames={windows[i].durationFrames + XFADE_FRAMES}
-            name={`${i + 1}-${slide.scene ?? 'scene'}`}
-          >
-            <Slide
-              slide={slide}
-              durationFrames={windows[i].durationFrames + XFADE_FRAMES}
-              locale={locale}
-              whooshSrc={whooshSrc}
-            />
-            {narrationFiles[i] ? <Audio src={staticFile(narrationFiles[i])} /> : null}
-          </Sequence>
-        ))}
-        <Watermark videoHeight={height} />
+        {slides.map((slide, i) => {
+          // A cross-fading slide is held XFADE frames past its window so it can
+          // fade over the next one. A hard-cut slide ends exactly on its window.
+          const total = windows[i].durationFrames + xfadeFramesFor(slide);
+          return (
+            <Sequence
+              key={i}
+              from={windows[i].fromFrame}
+              durationInFrames={total}
+              name={`${i + 1}-${slide.scene ?? slide.kind}`}
+            >
+              <Slide
+                slide={slide}
+                durationFrames={total}
+                locale={locale}
+                whooshSrc={whooshSrc}
+                subtitles={spec.subtitles}
+              />
+              {narrationFiles[i] ? <Audio src={staticFile(narrationFiles[i])} /> : null}
+            </Sequence>
+          );
+        })}
+        {/* The corner wordmark belongs on the cinematic reels. On a flat reel it
+            sits over full-bleed amber flash frames as a dark smudge, and the
+            ident/end card already carry the brand explicitly. */}
+        {spec.bare ? null : <Watermark videoHeight={height} />}
       </AbsoluteFill>
     </SfxProvider>
   );

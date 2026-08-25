@@ -9,21 +9,46 @@ a fresh Claude Code session **in the target repo**.
 
 ## What you're installing
 
-Playwright drives your real app and records a flat screen capture plus a
-`beats`/`shots` JSON manifest; Remotion renders that into an MP4 with virtual-
-camera zoom/pan, amber highlight rings, motion blur, a device frame, word-timed
-captions, AI narration, and a music bed. **Capture is dumb, render is smart** —
-all cinematography is a post-process, so you re-render without re-recording.
+One render engine with **two front ends** — how the footage is acquired differs;
+everything cinematic is the same post-process either way. **Capture is dumb,
+render is smart**, so you re-render endlessly without re-recording.
 
-The engine is **three units** + a Claude skill + a subagent:
+| Front end          | Footage comes from                                                                             | Narration                             |
+| ------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------- |
+| **Showcase tours** | Playwright drives your real app and records a flat screen capture + a `beats`/`shots` manifest | AI (kokoro or elevenlabs)             |
+| **Self-shot**      | You, in OBS — camera and/or screen, recorded as separate tracks                                | Your own voice; captions from whisper |
 
-| Unit                                                       | Source (this repo)                     |
-| ---------------------------------------------------------- | -------------------------------------- |
-| Remotion compositor + render/narrate/caption scripts       | `apps/ptah-video-studio/`              |
-| Shared `beats`/`shots` types (capture↔render contract)     | `libs/showcase-manifest/`              |
-| Capture harness: `Director` + Playwright fixtures + scenes | `apps/ptah-electron-e2e/src/showcase/` |
-| Claude skill (install + authoring + camera/render docs)    | `.claude/skills/video-showcase/`       |
-| Specialist subagent                                        | `.claude/agents/video-director.md`     |
+Both render to an MP4 with virtual-camera zoom/pan, amber highlight rings, motion
+blur, a device frame, word-timed captions and a music bed. Self-shot adds three
+composition modes — `talking-head`, `screen-demo`, `hybrid` — plus lower-third,
+keyword, stat and b-roll overlays and a branded end card.
+
+The kit is **three units** + a Claude skill + a subagent:
+
+| Unit                                                           | Source (this repo)                              |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| Remotion compositor + render/narrate/caption scripts           | `apps/ptah-video-studio/`                       |
+| ↳ Self-shot compositions (`TalkingHead`/`ScreenDemo`/`Hybrid`) | `apps/ptah-video-studio/src/selfshot/`          |
+| ↳ Self-shot pipeline: transcribe → draft beats → render        | `apps/ptah-video-studio/scripts/selfshot-*.mjs` |
+| ↳ Self-shot smoke fixture (the only ingest slug that ships)    | `apps/ptah-video-studio/selfshot/_smoke/`       |
+| Shared `beats`/`shots` types (capture↔render contract)         | `libs/showcase-manifest/`                       |
+| Capture harness: `Director` + Playwright fixtures + scenes     | `apps/ptah-electron-e2e/src/showcase/`          |
+| Claude skill (install + authoring + camera/render docs)        | `.claude/skills/video-showcase/`                |
+| Specialist subagent                                            | `.claude/agents/video-director.md`              |
+
+### What the kit deliberately does NOT contain
+
+`selfshot/<slug>/` holds real source recordings — raw camera/screen footage and
+whisper transcripts of someone actually speaking. **`export-kit.mjs` ships only
+the `_smoke` slug** (a small synthetic fixture built from a showcase tour clip);
+every other slug is excluded at export time and named in the export log.
+
+That exclusion is an **allowlist** (`SELFSHOT_KIT_SLUGS` in
+`scripts/export-kit.mjs`), so a newly recorded video is private by default — you
+never have to remember to exclude it. A post-copy guard re-scans the assembled
+kit and, if any non-allowlisted ingest got through, deletes the kit and exits
+non-zero rather than handing you a bundle with someone's face in it. If you add
+a slug that genuinely belongs in the kit, add it to `SELFSHOT_KIT_SLUGS`.
 
 ## Prep — do this in THIS (ptah) repo first
 
@@ -32,6 +57,9 @@ The engine is **three units** + a Claude skill + a subagent:
    node apps/ptah-video-studio/scripts/export-kit.mjs
    # -> dist/video-showcase-kit/  (3 engine units + .claude skill/agent + README)
    ```
+   Read the output. Every `[kit] EXCLUDED selfshot/<slug>/` line is a private
+   recording that was withheld on purpose — confirm nothing you _needed_ is in
+   that list. A non-zero exit means the leak guard tripped; do not ship the kit.
 2. **Copy `dist/video-showcase-kit/` into your target repo** (a scratch location
    is fine — the new session's Claude will move files into place). The `.claude/`
    folder inside carries the `video-showcase` skill and `video-director` agent, so
@@ -100,3 +128,10 @@ The engine is **three units** + a Claude skill + a subagent:
   back into components.
 - **Preview without full renders** — `cd apps/<studio> && npm run studio` opens
   Remotion Studio to scrub the camera frame-by-frame.
+- **The self-shot side has its own smoke test** — `npm run selfshot:render --
+--slug _smoke --range 0-40` renders the bundled fixture in seconds and proves
+  transcribe → draft → render works before you shoot anything real. See
+  `selfshot/README.md` (fixture + how to rebuild it) and `RECORDING.md` (the OBS
+  spec: separate camera/screen tracks, 30 fps CFR, 2 seconds of lead silence).
+- **Your own recordings stay out of any kit you re-export** — put them in
+  `selfshot/<your-slug>/` and they are excluded by default; only `_smoke` ships.

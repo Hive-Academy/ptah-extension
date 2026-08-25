@@ -19,5 +19,22 @@ export const HARNESS_TOKENS = {
   WORKFLOW_PROMPT: Symbol.for('HarnessWorkflowPromptService'),
   STREAM_BROADCASTER: Symbol.for('HarnessStreamBroadcaster'),
   IO_FS: Symbol.for('HarnessIoFs'),
+  MCP_INSTALL: Symbol.for('HarnessMcpInstall'),
+  SKILL_INSTALL: Symbol.for('HarnessSkillInstall'),
   LLM_RUNNER: Symbol.for('HarnessLlmRunner'),
+  /**
+   * `HarnessHealthRpcService` — the reconciler surface (`harness:health`,
+   * `harness:reconcile`, `harness:remove`) and the `harness:healthChanged`
+   * push. Separate from the wizard services above: those AUTHOR a harness,
+   * this one reports whether it reached disk.
+   */
+  HEALTH: Symbol.for('HarnessHealthRpcService'),
+  /**
+   * `HarnessSkillSelectionRpcService` — the per-workspace skill selection
+   * (TASK_2026_316). Separate from `HEALTH` for the same reason `HEALTH` is
+   * separate from the wizard services: those AUTHOR a harness, `HEALTH` reports
+   * whether it reached disk, and this one records which of it this project
+   * wants.
+   */
+  SKILL_SELECTION: Symbol.for('HarnessSkillSelectionRpcService'),
 } as const;

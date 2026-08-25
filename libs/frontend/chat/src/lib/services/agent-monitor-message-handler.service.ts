@@ -23,6 +23,7 @@ export class AgentMonitorMessageHandler implements MessageHandler {
     MESSAGE_TYPES.AGENT_MONITOR_SPAWNED,
     MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
     MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+    MESSAGE_TYPES.AGENT_MONITOR_EXPIRED,
     MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
   ] as const;
 
@@ -36,6 +37,11 @@ export class AgentMonitorMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.AGENT_MONITOR_EXITED:
         this.store.onAgentExited(message.payload as AgentProcessInfo);
+        break;
+      case MESSAGE_TYPES.AGENT_MONITOR_EXPIRED:
+        this.store.onAgentExpired(
+          (message.payload as { agentId: string } | undefined)?.agentId ?? '',
+        );
         break;
       case MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST:
         this.store.onPermissionRequest(

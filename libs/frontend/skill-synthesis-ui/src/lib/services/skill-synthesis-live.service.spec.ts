@@ -18,22 +18,20 @@ function makeDiagnosticsStub(): jest.Mocked<
   >;
 }
 
-function makeSkillStateStub(): jest.Mocked<
+type SkillStateStub = jest.Mocked<
   Pick<
     SkillSynthesisStateService,
-    'refreshSuggestions' | 'refreshCandidates' | 'loadStats'
+    'refreshSuggestions' | 'refreshCandidates' | 'loadStats' | 'refreshDigest'
   >
-> {
+>;
+
+function makeSkillStateStub(): SkillStateStub {
   return {
     refreshSuggestions: jest.fn(async () => undefined),
     refreshCandidates: jest.fn(async () => undefined),
     loadStats: jest.fn(async () => undefined),
-  } as unknown as jest.Mocked<
-    Pick<
-      SkillSynthesisStateService,
-      'refreshSuggestions' | 'refreshCandidates' | 'loadStats'
-    >
-  >;
+    refreshDigest: jest.fn(async () => undefined),
+  } as unknown as SkillStateStub;
 }
 
 function event(
@@ -145,5 +143,148 @@ describe('SkillSynthesisLiveService', () => {
     send(svc, event({ kind: 'analyze-run' }));
     expect(skillState.loadStats).toHaveBeenCalledTimes(1);
     expect(skillState.refreshCandidates).not.toHaveBeenCalled();
+  });
+
+  /**
+   * B4.5.2 — nudges ride THIS broadcast.
+   *
+   * The weekly digest is a pull; the only thing the push has to say is that the
+   * tables underneath it moved. These tests pin which event kinds mean that,
+   * which ones deliberately do not, and that a burst costs one sweep rather
+   * than one per event — a full digest sweep reads a week of sessions, so the
+   * debounce is a cost control, not a cosmetic detail.
+   *
+   * No new event kind and no second notification channel were added. If either
+   * ever appears, the first of these tests is where it will be noticed.
+   */
+  describe('weekly digest nudges', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    /** Advance past the debounce window and let the queued refresh run. */
+    function settle(): void {
+      jest.advanceTimersByTime(5_000);
+    }
+
+    it.each([
+      'analyze-run',
+      'curator-pass',
+      'backfill-complete',
+      'edit-then-test',
+    ] as const)('refreshes the digest after a %s event', (kind) => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind }));
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * B4.8 — THIS PATH IS A READ AND MAY NEVER SPEND.
+     *
+     * The sweep behind `skillSynthesis:digest` can author its description
+     * rewrite on an LLM lane, and nothing budgets that call: the `digest` queue
+     * stage has no registered handler and no producer, so `SkillDrainService`'s
+     * daily token gate never sees a digest item. Every refresh scheduled here is
+     * driven by a BACKGROUND event — the user is not present and asked for
+     * nothing. The ruling was "auto-refresh reads only; explicit refresh may
+     * spend", and this is the auto-refresh path.
+     *
+     * Asserted on the ARGUMENT rather than by reading the source, because the
+     * safe behaviour is also what the default would give: a source scan would
+     * pass against a call that had dropped the flag, and then break silently the
+     * day the default moved.
+     */
+    it.each([
+      'analyze-run',
+      'curator-pass',
+      'backfill-complete',
+      'edit-then-test',
+    ] as const)(
+      'refreshes with allowRewrite:false after a %s event — background work never spends',
+      (kind) => {
+        const { svc, skillState } = setup();
+        send(svc, event({ kind }));
+        settle();
+        expect(skillState.refreshDigest).toHaveBeenCalledWith({
+          allowRewrite: false,
+        });
+        // `toHaveBeenCalledWith({allowRewrite: false})` would also pass against
+        // a second, spending call, so pin the count too.
+        expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('never passes allowRewrite:true from any event kind', () => {
+      // The whole event vocabulary in one assertion, so a NEW invalidating kind
+      // added to `DIGEST_INVALIDATING_KINDS` cannot arrive with the flag set.
+      const { svc, skillState } = setup();
+      for (const kind of [
+        'analyze-run',
+        'curator-pass',
+        'backfill-complete',
+        'edit-then-test',
+        'curator-pass-start',
+        'backfill-progress',
+        'manual-run',
+        'ineligible',
+        'rate-limited',
+        'error',
+      ] as const) {
+        send(svc, event({ kind }));
+        settle();
+      }
+      for (const call of skillState.refreshDigest.mock.calls) {
+        expect(call[0]?.allowRewrite).not.toBe(true);
+      }
+      // Not vacuous: some of those kinds DID schedule a sweep.
+      expect(skillState.refreshDigest.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    it.each(['ineligible', 'rate-limited', 'error'] as const)(
+      'does NOT re-sweep after a %s event',
+      (kind) => {
+        // These report that nothing was recorded, so a sweep would re-derive
+        // the digest already on screen at the cost of a week-long scan.
+        const { svc, skillState } = setup();
+        send(svc, event({ kind }));
+        settle();
+        expect(skillState.refreshDigest).not.toHaveBeenCalled();
+      },
+    );
+
+    it('coalesces a burst of invalidating events into ONE sweep', () => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'analyze-run' }));
+      send(svc, event({ kind: 'edit-then-test' }));
+      send(svc, event({ kind: 'curator-pass', stats: {} }));
+      expect(skillState.refreshDigest).not.toHaveBeenCalled();
+
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
+
+    it('sweeps again for a later burst rather than only once per session', () => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'analyze-run' }));
+      settle();
+      send(svc, event({ kind: 'analyze-run' }));
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(2);
+    });
+
+    it('still does the per-kind work it did before the nudge was added', () => {
+      // The nudge is scheduled alongside the existing switch, not instead of
+      // it: a kind that both invalidates the digest and refreshes something
+      // else must keep doing both.
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'backfill-complete', stats: { count: 2 } }));
+      settle();
+      expect(skillState.refreshCandidates).toHaveBeenCalledTimes(1);
+      expect(skillState.loadStats).toHaveBeenCalledTimes(1);
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
   });
 });

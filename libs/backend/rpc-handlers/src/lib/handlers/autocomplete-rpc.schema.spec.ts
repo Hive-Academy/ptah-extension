@@ -1,15 +1,20 @@
 /**
  * AutocompleteRpcHandlers schema — unit specs.
  *
- * Surface under test: the schema module is intentionally empty — the
- * autocomplete handler validates its params via `@ptah-extension/shared` TS
- * types plus a `params.query || ''` fallback, not via Zod.
+ * This file used to lock in an "intentionally empty" contract. TASK_2026_200
+ * replaced that with real schemas: the params grew a `workspaceRoot` that
+ * selects which workspace's `.claude/agents` and `.claude/commands` are
+ * scanned, and it is joined onto a filesystem path downstream — a boundary, so
+ * it gets a schema. The old spec required coverage to ship alongside such a
+ * change; this is that coverage.
  *
- * This spec exists so the empty-schema contract is locked in: if a future
- * change adds a `z.object({...})` export here, test coverage must be added at
- * the same time rather than left for "later". The assertion is minimal but
- * meaningful — importing the module must succeed and produce no runtime
- * exports beyond the documented empty contract.
+ * Contracts held here:
+ *   - **`query` stays permissive.** The handler's long-standing
+ *     `params.query || ''` fallback means "missing query → top N"; the schema
+ *     must not pre-empt it by requiring or defaulting the field.
+ *   - **`''` is not "no opinion" for `workspaceRoot`.** Absent means
+ *     "process-global active folder"; `''` would resolve to the process CWD and
+ *     scan the wrong tree.
  *
  * Source-under-test:
  *   `libs/backend/rpc-handlers/src/lib/handlers/autocomplete-rpc.schema.ts`
@@ -17,22 +22,57 @@
 
 import 'reflect-metadata';
 
-import * as AutocompleteRpcSchema from './autocomplete-rpc.schema';
+import {
+  parseAutocompleteAgentsParams,
+  parseAutocompleteCommandsParams,
+} from './autocomplete-rpc.schema';
 
-describe('autocomplete-rpc.schema (empty-contract lock)', () => {
-  it('module loads without side-effects', () => {
-    // If the schema module ever throws on import (circular dep, missing peer),
-    // this assertion flags it before the handler spec picks it up.
-    expect(AutocompleteRpcSchema).toBeDefined();
-  });
+describe('autocomplete-rpc.schema', () => {
+  describe.each([
+    ['parseAutocompleteAgentsParams', parseAutocompleteAgentsParams],
+    ['parseAutocompleteCommandsParams', parseAutocompleteCommandsParams],
+  ])('%s', (_name, parse) => {
+    it('accepts a fully populated payload and returns it verbatim', () => {
+      expect(
+        parse({ query: 'debug', maxResults: 5, workspaceRoot: 'D:\\proj-b' }),
+      ).toEqual({ query: 'debug', maxResults: 5, workspaceRoot: 'D:\\proj-b' });
+    });
 
-  it('exports nothing runtime-visible (intentional — no Zod validation yet)', () => {
-    // Filter out anything TS adds for namespace interop (`default`, Symbol
-    // tags) and assert the remaining keys are empty. A future batch adding
-    // `z.object({...})` will fail this and force coverage updates.
-    const runtimeKeys = Object.keys(AutocompleteRpcSchema).filter(
-      (k) => k !== 'default' && k !== '__esModule',
-    );
-    expect(runtimeKeys).toEqual([]);
+    it('accepts an empty payload, undefined and null', () => {
+      expect(parse({})).toEqual({});
+      expect(parse(undefined)).toEqual({});
+      expect(parse(null)).toEqual({});
+    });
+
+    it('preserves an empty-string query so the "top N" fallback still fires', () => {
+      expect(parse({ query: '' })).toEqual({ query: '' });
+    });
+
+    it('does not inject defaults for query or maxResults', () => {
+      const parsed = parse({});
+      expect(parsed).not.toBeNull();
+      expect(Object.keys(parsed as object)).toEqual([]);
+    });
+
+    it('strips unknown keys instead of rejecting them', () => {
+      expect(parse({ query: 'x', futureFlag: true })).toEqual({ query: 'x' });
+    });
+
+    it('rejects an empty-string workspaceRoot', () => {
+      expect(parse({ workspaceRoot: '' })).toBeNull();
+    });
+
+    it('rejects a non-string workspaceRoot', () => {
+      expect(parse({ workspaceRoot: 42 })).toBeNull();
+      expect(parse({ workspaceRoot: null })).toBeNull();
+      expect(parse({ workspaceRoot: ['D:\\x'] })).toBeNull();
+    });
+
+    it('rejects a non-string query and a malformed maxResults', () => {
+      expect(parse({ query: 7 })).toBeNull();
+      expect(parse({ maxResults: -1 })).toBeNull();
+      expect(parse({ maxResults: 2.5 })).toBeNull();
+      expect(parse({ maxResults: '20' })).toBeNull();
+    });
   });
 });

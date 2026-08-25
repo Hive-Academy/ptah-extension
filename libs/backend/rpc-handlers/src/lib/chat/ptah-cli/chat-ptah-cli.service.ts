@@ -2,12 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
-import {
-  Logger,
-  TOKENS,
-  LicenseService,
-  isPremiumTier,
-} from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
@@ -24,11 +19,36 @@ import type {
 } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
-import type { ChatPremiumContextService } from '../session/chat-premium-context.service';
+import type { ChatSdkContextService } from '../session/chat-sdk-context.service';
 
 interface PtahCliSessionEntry {
   readonly agentId: string;
   readonly agentName: string;
+}
+
+/**
+ * Outcome of a subagent-transcript probe.
+ *
+ * `'indeterminate'` exists so callers can tell "the transcript is not on disk"
+ * apart from "we could not look" — the two have opposite consequences for a
+ * resumable registry record.
+ */
+export type SubagentTranscriptProbe = 'present' | 'absent' | 'indeterminate';
+
+/**
+ * Whether a value can be used as a single path segment.
+ *
+ * Rejects the empty string (which `path.join` silently swallows) and anything
+ * carrying a separator or `..`, which would escape the intended directory.
+ */
+function isUsablePathSegment(value: string): boolean {
+  return (
+    value.length > 0 &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    value !== '.' &&
+    value !== '..'
+  );
 }
 
 @injectable()
@@ -38,16 +58,14 @@ export class ChatPtahCliService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly agentAdapter: SdkAgentAdapter,
-    @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
-    private readonly premiumContext: ChatPremiumContextService,
+    @inject(CHAT_TOKENS.SDK_CONTEXT)
+    private readonly sdkContext: ChatSdkContextService,
   ) {}
 
   async handleStart(params: ChatStartParams): Promise<{
@@ -79,27 +97,20 @@ export class ChatPtahCliService {
     const summary = summaries.find((s) => s.id === agentId);
     const agentName = summary?.name ?? agentId;
 
-    const licenseStatus = await this.licenseService.verifyLicense();
-    const isPremium = isPremiumTier(licenseStatus);
-    const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
-    this.logger.info('[RPC] chat:start - Ptah CLI premium config', {
+    this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
       tabId,
       ptahCliId: agentId,
-      isPremium,
       mcpServerRunning,
     });
 
-    if (isPremium && mcpServerRunning) {
+    if (mcpServerRunning) {
       this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     const enhancedPromptsContent =
-      await this.premiumContext.resolveEnhancedPromptsContent(
-        workspacePath,
-        isPremium,
-      );
-    const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
 
     const stream = await this.agentAdapter.startChatSession({
       tabId,
@@ -109,10 +120,8 @@ export class ChatPtahCliService {
       name,
       prompt,
       files: options?.files,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
-      pluginPaths,
       providerProfile: profile,
     });
 
@@ -149,11 +158,8 @@ export class ChatPtahCliService {
       ptahCliAgentId: entry.agentId,
     });
 
-    if (this.premiumContext.isMcpServerRunning()) {
-      const licenseCheck = await this.licenseService.verifyLicense();
-      if (isPremiumTier(licenseCheck)) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
-      }
+    if (this.sdkContext.isMcpServerRunning()) {
+      this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     if (!this.agentAdapter.isSessionActive(sessionId)) {
@@ -240,37 +246,101 @@ export class ChatPtahCliService {
     }
   }
 
-  async hasSubagentTranscript(
+  /**
+   * Probe whether a subagent transcript exists on disk.
+   *
+   * `'absent'` is a load-bearing answer: the only caller
+   * ({@link ChatSubagentContextInjectorService}) permanently retires the
+   * registry record when it hears it. So every case where we simply could not
+   * look must answer `'indeterminate'` instead — an empty or separator-bearing
+   * id segment, an unresolvable project directory, or an I/O failure.
+   *
+   * The empty-segment guard is the important one. `path.join(a, '', b)`
+   * silently collapses to `a/b`, so an empty `parentSessionId` used to probe a
+   * path that can never exist and reported a confident `'absent'`.
+   */
+  async probeSubagentTranscript(
     workspacePath: string,
     parentSessionId: string,
     agentId: string,
-  ): Promise<boolean> {
-    try {
-      const homeDir = os.homedir();
-      const projectsDir = path.join(homeDir, '.claude', 'projects');
-      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-
-      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-      const dirs = await fs.readdir(projectsDir);
-      const projectDir =
-        dirs.find((d) => d === escapedPath) ??
-        dirs.find((d) => d.toLowerCase() === escapedPath.toLowerCase()) ??
-        dirs.find((d) => normalize(d) === normalize(escapedPath));
-
-      if (!projectDir) return false;
-
-      const transcriptPath = path.join(
-        projectsDir,
-        projectDir,
-        parentSessionId,
-        'subagents',
-        `agent-${agentId}.jsonl`,
+  ): Promise<SubagentTranscriptProbe> {
+    if (!isUsablePathSegment(parentSessionId)) {
+      this.logger.warn(
+        '[ChatPtahCliService.probeSubagentTranscript] Unusable parentSessionId — cannot locate transcript',
+        { parentSessionId, agentId },
       );
+      return 'indeterminate';
+    }
+    if (!isUsablePathSegment(agentId)) {
+      this.logger.warn(
+        '[ChatPtahCliService.probeSubagentTranscript] Unusable agentId — cannot locate transcript',
+        { parentSessionId, agentId },
+      );
+      return 'indeterminate';
+    }
 
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+
+    let dirs: string[];
+    try {
+      dirs = await fs.readdir(projectsDir);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[ChatPtahCliService.probeSubagentTranscript] Could not read projects directory',
+        {
+          projectsDir,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return 'indeterminate';
+    }
+
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const projectDir =
+      dirs.find((d) => d === escapedPath) ??
+      dirs.find((d) => d.toLowerCase() === escapedPath.toLowerCase()) ??
+      dirs.find((d) => normalize(d) === normalize(escapedPath));
+
+    // The workspace→directory mapping is a three-strategy heuristic. A miss
+    // means we failed to locate the project root, not that the transcript is
+    // gone — answering 'absent' here would destroy a recoverable record.
+    if (!projectDir) {
+      this.logger.warn(
+        '[ChatPtahCliService.probeSubagentTranscript] No project directory matched workspace',
+        { workspacePath, escapedPath },
+      );
+      return 'indeterminate';
+    }
+
+    const transcriptPath = path.join(
+      projectsDir,
+      projectDir,
+      parentSessionId,
+      'subagents',
+      `agent-${agentId}.jsonl`,
+    );
+
+    try {
       await fs.access(transcriptPath);
-      return true;
-    } catch {
-      return false;
+      return 'present';
+    } catch (error: unknown) {
+      const code =
+        error instanceof Error && 'code' in error
+          ? (error as NodeJS.ErrnoException).code
+          : undefined;
+      if (code === 'ENOENT') {
+        return 'absent';
+      }
+      this.logger.warn(
+        '[ChatPtahCliService.probeSubagentTranscript] Transcript access failed for a reason other than absence',
+        {
+          transcriptPath,
+          code,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return 'indeterminate';
     }
   }
 }

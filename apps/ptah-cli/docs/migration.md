@@ -99,7 +99,7 @@ Phase 1 commands and notifications listed in [`jsonrpc-schema.md`](jsonrpc-schem
 - **New exit codes.** `4` (license required), `130` (SIGINT), `143` (SIGTERM) are explicit. Existing `0` / `1` / `2` / `3` / `5` are preserved.
 - **New global flags.** `--profile <id>`, `--out <path>`, `--in <path>`, `--target <cli>`. See [`../README.md#global-flags`](../README.md#global-flags) for the full list.
 - **New env var.** `PTAH_AUTO_APPROVE` — set to `'true'` to behave as if `--auto-approve` were passed. Useful in CI. Existing `PTAH_CONFIG_PATH`, `PTAH_LOG_LEVEL`, `PTAH_NO_TTY`, `PTAH_DI_LAZY`, `NO_COLOR`, `FORCE_COLOR` are preserved.
-- **CLI agent allowlist.** `agent-cli stop` and `agent-cli resume` only accept `--cli glm`. `copilot` and `cursor` are blocked at the command entry-point and cannot be bypassed via `PTAH_AGENT_CLI_OVERRIDE` (the env var is documented but ignored — the check is hard-coded).
+- **CLI agent targets.** `agent-cli models list`, `stop` and `resume` accept every CLI agent target Ptah has an adapter for: `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi` and `ptah-cli`. `glm` remains as a deprecated alias for `ptah-cli` and warns on stderr. `PTAH_AGENT_CLI_OVERRIDE` is documented but ignored, and has nothing left to override. Earlier revisions of this document said only `--cli glm` was accepted and that `copilot` and `cursor` were blocked; the block was real but it was an accident, not a policy — see TASK_2026_297.
 - **JSON-RPC 2.0 strict mode.** Every notification, request, and response conforms to JSON-RPC 2.0. Stdout is reserved for protocol messages; logger output goes to stderr only.
 
 ## See also

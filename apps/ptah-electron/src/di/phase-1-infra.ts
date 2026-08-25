@@ -5,7 +5,7 @@
  *   - Platform-agnostic vscode-core services via registerVsCodeCorePlatformAgnostic
  *     (Phase 1.0b: SENTRY_SERVICE, Phase 1.1: LICENSE_SERVICE, Phase 1.1b:
  *     AUTH_SECRETS_SERVICE, Phase 1.2: RPC_HANDLER, MESSAGE_VALIDATOR,
- *     AGENT_SESSION_WATCHER_SERVICE, SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE)
+ *     AGENT_SESSION_WATCHER_SERVICE, SUBAGENT_REGISTRY_SERVICE)
  *   - Phase 1.3: TOKENS.FILE_SYSTEM_MANAGER shim (delegates to IFileSystemProvider)
  *   - Phase 1.4: TOKENS.CONFIG_MANAGER shim (file-based settings routing)
  *   - Phase 1.5: TOKENS.EXTENSION_CONTEXT shim (globalState/secrets/subscriptions)

@@ -28,12 +28,16 @@ import { HarnessPromptBuilderService } from './config/harness-prompt-builder.ser
 import { HarnessConfigStore } from './config/harness-config-store.service';
 import { HarnessAgentFileWriterService } from './config/harness-agent-file-writer.service';
 import { HarnessFsService } from './io/harness-fs.service';
+import { HarnessMcpInstallService } from './io/harness-mcp-install.service';
+import { HarnessSkillInstallService } from './io/harness-skill-install.service';
 import { HarnessLlmRunner } from './ai/harness-llm-runner.service';
 import { HarnessSuggestionService } from './ai/harness-suggestion.service';
 import { HarnessSubagentDesignService } from './ai/harness-subagent-design.service';
 import { HarnessSkillGenerationService } from './ai/harness-skill-generation.service';
 import { HarnessDocumentGenerationService } from './ai/harness-document-generation.service';
 import { HarnessWorkflowPromptService } from './ai/harness-workflow-prompt.service';
+import { HarnessHealthRpcService } from './health/harness-health-rpc.service';
+import { HarnessSkillSelectionRpcService } from './selection/harness-skill-selection-rpc.service';
 
 export { HARNESS_TOKENS } from './tokens';
 
@@ -56,6 +60,14 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HarnessAgentFileWriterService,
   );
   container.registerSingleton(HARNESS_TOKENS.IO_FS, HarnessFsService);
+  container.registerSingleton(
+    HARNESS_TOKENS.MCP_INSTALL,
+    HarnessMcpInstallService,
+  );
+  container.registerSingleton(
+    HARNESS_TOKENS.SKILL_INSTALL,
+    HarnessSkillInstallService,
+  );
   container.registerSingleton(HARNESS_TOKENS.LLM_RUNNER, HarnessLlmRunner);
   container.registerSingleton(
     HARNESS_TOKENS.SUGGESTION,
@@ -76,5 +88,15 @@ export function registerHarnessServices(container: DependencyContainer): void {
   container.registerSingleton(
     HARNESS_TOKENS.WORKFLOW_PROMPT,
     HarnessWorkflowPromptService,
+  );
+  // Last, and a singleton for a reason beyond cost: its constructor subscribes
+  // to the reconciler's health stream to drive the `harness:healthChanged`
+  // push. A transient would add a listener per resolve and push N copies.
+  container.registerSingleton(HARNESS_TOKENS.HEALTH, HarnessHealthRpcService);
+  // Holds no subscription and no state of its own — every answer is read off
+  // disk per call — so the singleton here is cost, not correctness.
+  container.registerSingleton(
+    HARNESS_TOKENS.SKILL_SELECTION,
+    HarnessSkillSelectionRpcService,
   );
 }

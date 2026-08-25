@@ -1,15 +1,25 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { getStackProfile, matchesStackGlob } from '@ptah-extension/shared';
 import { Framework, ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
+
+/**
+ * The registry's .NET project-file patterns, so this service does not keep a
+ * second copy of "what a .NET project file is called".
+ */
+const DOTNET_PROJECT_GLOBS = getStackProfile('dotnet').detect.globs.filter(
+  (pattern) => pattern.endsWith('proj'),
+);
 
 /**
  * Service for detecting web frameworks and backend frameworks in a workspace.
  *
  * Supports:
  * - React, Vue, Angular, Next.js, Nuxt (frontend)
- * - Express, Django, Laravel, Rails (backend)
+ * - Express, Django, Flask, FastAPI, Laravel, Rails (backend)
+ * - ASP.NET Core, Blazor, .NET Worker (.NET)
  *
  * Detection strategy:
  * 1. Check for framework-specific config files (angular.json, next.config.js, etc.)
@@ -53,6 +63,9 @@ export class FrameworkDetectorService {
       }
       if (projectType === ProjectType.Python) {
         return await this.detectPythonFramework(workspacePath);
+      }
+      if (projectType === ProjectType.DotNet) {
+        return await this.detectDotNetFramework(workspacePath);
       }
       if (projectType === ProjectType.PHP) {
         return await this.detectPHPFramework(workspacePath);
@@ -149,7 +162,16 @@ export class FrameworkDetectorService {
   }
 
   /**
-   * Detect Python framework from requirements.txt or project structure.
+   * Detect Python framework from its dependency manifests or project structure.
+   *
+   * `Framework.Flask` and `Framework.FastAPI` were declared but unreachable —
+   * only Django was ever returned, and only from `requirements.txt`. Both
+   * manifests are now read, because a Poetry or uv project declares its
+   * dependencies in `pyproject.toml` and has no `requirements.txt` at all.
+   *
+   * Django keeps first claim, unchanged: `manage.py` is the strongest signal
+   * there is, and a project depending on both Django and FastAPI is a Django
+   * project with an API bolt-on far more often than the reverse.
    */
   private async detectPythonFramework(
     workspacePath: string,
@@ -160,19 +182,145 @@ export class FrameworkDetectorService {
     if (manageExists) {
       return Framework.Django;
     }
-    const requirementsPath = path.join(workspacePath, 'requirements.txt');
-    const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
-    if (requirementsExist) {
-      const content = await this.fileSystem.readFile(requirementsPath);
-      const lowerContent = content.toLowerCase();
+    const declared = await this.readPythonDependencyText(workspacePath);
+    if (!declared) {
+      return undefined;
+    }
 
-      if (lowerContent.includes('django')) {
-        return Framework.Django;
-      }
+    if (declared.includes('django')) {
+      return Framework.Django;
+    }
+    if (declared.includes('fastapi')) {
+      return Framework.FastAPI;
+    }
+    if (declared.includes('flask')) {
+      return Framework.Flask;
     }
 
     return undefined;
+  }
+
+  /**
+   * Concatenate the Python dependency manifests that exist, lowercased.
+   *
+   * Substring matching rather than a TOML/requirements parse is deliberate: the
+   * question is only "is this framework named anywhere in the dependency
+   * declarations", and pulling in a TOML parser to answer it would buy
+   * precision this service never uses. Returns `undefined` when neither
+   * manifest is readable, so the caller can distinguish "no framework" from
+   * "nothing to read".
+   */
+  private async readPythonDependencyText(
+    workspacePath: string,
+  ): Promise<string | undefined> {
+    const manifests = ['requirements.txt', 'pyproject.toml'];
+    const parts: string[] = [];
+
+    for (const manifest of manifests) {
+      const manifestPath = path.join(workspacePath, manifest);
+      if (!(await this.fileSystem.exists(manifestPath))) {
+        continue;
+      }
+      try {
+        parts.push(
+          (await this.fileSystem.readFile(manifestPath)).toLowerCase(),
+        );
+      } catch {
+        // An unreadable manifest contributes nothing; the other may still.
+        continue;
+      }
+    }
+
+    return parts.length > 0 ? parts.join('\n') : undefined;
+  }
+
+  /**
+   * Detect the .NET application model from the root's project files.
+   *
+   * Two signals, in order of authority:
+   *   1. The project SDK — `Microsoft.NET.Sdk.Web` and `Microsoft.NET.Sdk.Worker`
+   *      are declarations of intent that MSBuild itself acts on.
+   *   2. `PackageReference` entries, which is the only way to spot Blazor: a
+   *      Blazor app is an `Sdk="Microsoft.NET.Sdk.Web"` project plus the
+   *      Components packages.
+   *
+   * Blazor is checked before ASP.NET Core because it is the narrower claim —
+   * every Blazor Server/WebAssembly-hosted app is also a Web SDK project, so
+   * testing the SDK first would make `Framework.Blazor` unreachable, which is
+   * exactly the bug that left `Flask`/`FastAPI` dead in this file.
+   */
+  private async detectDotNetFramework(
+    workspacePath: string,
+  ): Promise<Framework | undefined> {
+    const projectFiles = await this.findDotNetProjectFiles(workspacePath);
+    if (projectFiles.length === 0) {
+      return undefined;
+    }
+
+    let sawWebSdk = false;
+    let sawWorkerSdk = false;
+
+    for (const projectFile of projectFiles) {
+      let content: string;
+      try {
+        content = await this.fileSystem.readFile(projectFile);
+      } catch {
+        continue;
+      }
+      const lower = content.toLowerCase();
+
+      if (
+        lower.includes('microsoft.aspnetcore.components.webassembly') ||
+        lower.includes('microsoft.aspnetcore.components.web')
+      ) {
+        return Framework.Blazor;
+      }
+      if (lower.includes('sdk="microsoft.net.sdk.web"')) {
+        sawWebSdk = true;
+      }
+      if (lower.includes('sdk="microsoft.net.sdk.worker"')) {
+        sawWorkerSdk = true;
+      }
+      if (lower.includes('microsoft.extensions.hosting')) {
+        sawWorkerSdk = true;
+      }
+      if (lower.includes('microsoft.aspnetcore.')) {
+        sawWebSdk = true;
+      }
+    }
+
+    if (sawWebSdk) {
+      return Framework.AspNetCore;
+    }
+    if (sawWorkerSdk) {
+      return Framework.DotNetWorker;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Absolute paths of the root's .NET project files, from the registry's globs
+   * rather than a second private list of extensions.
+   */
+  private async findDotNetProjectFiles(
+    workspacePath: string,
+  ): Promise<string[]> {
+    let entries: Array<{ name: string }>;
+    try {
+      entries = await this.fileSystem.readDirectory(workspacePath);
+    } catch {
+      return [];
+    }
+
+    return entries
+      .filter((entry) =>
+        DOTNET_PROJECT_GLOBS.some((pattern) =>
+          matchesStackGlob(pattern, entry.name),
+        ),
+      )
+      .map((entry) => path.join(workspacePath, entry.name));
   }
 
   /**

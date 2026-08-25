@@ -82,7 +82,9 @@ function createInMemoryDb(): BetterSqliteDb {
       cost_usd REAL,
       duration_ms INTEGER,
       tool_count INTEGER,
-      task_id TEXT
+      task_id TEXT,
+      -- Migration 0037 appends this last, nullable, with no default.
+      workspace_root TEXT
     );
     CREATE INDEX idx_skill_inv_events_task
       ON skill_invocation_events(skill_slug, task_id);

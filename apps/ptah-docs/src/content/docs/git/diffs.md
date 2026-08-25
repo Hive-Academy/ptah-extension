@@ -36,8 +36,6 @@ Toggle via the diff toolbar:
 
 When an agent proposes a file edit, Ptah renders the proposed change as a diff **before** applying it. You see exactly what will change and can accept or reject per-hunk.
 
-![Agent proposed diff](/screenshots/diff-agent-proposed.png)
-
 Rejecting a hunk keeps the rest of the proposed edit and skips only that section. Rejecting the whole diff reverts nothing — the agent's proposal simply isn't applied.
 
 :::tip

@@ -10,6 +10,8 @@ export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
+  CuratorExtraction,
+  CuratorStallReason,
   MemoryType,
 } from './lib/curator-llm.port';
 export type {
@@ -30,3 +32,8 @@ export type {
   CorpusPrimeResult,
 } from './lib/knowledge-agent.port';
 export { MEMORY_CONTRACT_TOKENS, KNOWLEDGE_AGENT_TOKEN } from './lib/tokens';
+export {
+  NullMemoryReader,
+  NullMemoryLister,
+  NullSymbolSink,
+} from './lib/null-implementations';

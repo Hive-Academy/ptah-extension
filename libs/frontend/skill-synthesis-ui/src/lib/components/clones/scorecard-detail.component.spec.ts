@@ -72,7 +72,7 @@ describe('ScorecardDetailComponent', () => {
     ).toBeTruthy();
   });
 
-  it('renders "—" for null metrics rather than fabricated zeros', () => {
+  it('says no metrics were recorded rather than fabricating zeros', () => {
     const el = render({
       rows: [
         row({
@@ -83,10 +83,39 @@ describe('ScorecardDetailComponent', () => {
         }),
       ],
     });
-    const rowText =
-      el.querySelector('[data-testid="scorecard-detail-row"]')?.textContent ??
-      '';
-    expect(rowText).toContain('—');
+
+    const rowEl = el.querySelector('[data-testid="scorecard-detail-row"]');
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-row-no-metrics"]'),
+    ).toBeTruthy();
+    // The metric list is absent entirely — not present-but-zeroed.
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-row-metrics"]'),
+    ).toBeNull();
+
+    const rowText = rowEl?.textContent ?? '';
+    expect(rowText).toContain('No metrics recorded');
+    expect(rowText).not.toContain('$');
+  });
+
+  it('omits only the metrics that are missing, keeping the ones present', () => {
+    const el = render({
+      rows: [row({ costUsd: null, durationMs: null })],
+    });
+    const rowEl = el.querySelector('[data-testid="scorecard-detail-row"]');
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-metric-tokens"]')
+        ?.textContent,
+    ).toContain('140');
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-metric-cost"]'),
+    ).toBeNull();
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-metric-duration"]'),
+    ).toBeNull();
+    expect(
+      rowEl?.querySelector('[data-testid="scorecard-row-no-metrics"]'),
+    ).toBeNull();
   });
 
   it('routes the findings excerpt through the markdown chokepoint', () => {

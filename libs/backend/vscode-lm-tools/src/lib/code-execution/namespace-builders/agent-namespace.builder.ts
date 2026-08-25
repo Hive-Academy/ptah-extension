@@ -2,8 +2,10 @@
  * Agent Namespace Builder
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
- * steer, stop, list, waitFor methods for managing headless CLI agents
- * (Codex, Copilot) as background workers.
+ * steer, stop, list, waitFor methods for managing headless CLI agents as
+ * background workers. Which agents exist is a runtime fact answered by `list`
+ * (`SYSTEM_CLI_TYPES` for the shipped adapters, user config for Ptah CLI
+ * providers) — this layer never names a vendor.
  *
  * Pattern: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts
  */
@@ -90,9 +92,9 @@ export interface AgentNamespaceDependencies {
   getActiveSessionId?: () => string | undefined;
   /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
   getProjectGuidance?: () => Promise<string | undefined>;
-  /** Returns full system prompt (prompt harness) for premium users (async). Replaces projectGuidance when available. */
+  /** Returns full system prompt (prompt harness) (async). Replaces projectGuidance when available. */
   getSystemPrompt?: () => Promise<string | undefined>;
-  /** Returns absolute paths to enabled plugin directories for premium users (async). */
+  /** Returns absolute paths to enabled plugin directories (async). */
   getPluginPaths?: () => Promise<string[] | undefined>;
   /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
   getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;
@@ -126,7 +128,14 @@ export function buildAgentNamespace(
 
   return {
     spawn: async (request) => {
-      const rawSessionId = request.parentSessionId ?? getActiveSessionId?.();
+      // An empty parentSessionId is absent, not supplied. `??` alone kept it,
+      // which BOTH suppressed the active-session fallback AND was then
+      // discarded by the truthiness check below — so the spawn was attributed
+      // to no parent at all.
+      const requestedSessionId = request.parentSessionId
+        ? request.parentSessionId
+        : undefined;
+      const rawSessionId = requestedSessionId ?? getActiveSessionId?.();
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;
@@ -194,8 +203,14 @@ export function buildAgentNamespace(
       ]);
       const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
+      // Drop the raw parentSessionId before spreading: `...request` would
+      // otherwise carry an unusable '' straight through, since the conditional
+      // spread below only overwrites when a resolved id exists.
+      const { parentSessionId: _rawParentSessionId, ...requestFields } =
+        request;
+
       const enrichedRequest = {
-        ...request,
+        ...requestFields,
         ...(workingDirectory && { workingDirectory }),
         ...(activeSessionId && { parentSessionId: activeSessionId }),
         ...(projectGuidance && { projectGuidance }),
@@ -224,9 +239,14 @@ export function buildAgentNamespace(
     list: async () => {
       const cliResults = await cliDetectionService.detectAll();
       const disabledClis = getDisabledClis?.() ?? [];
-      const enabledCliResults =
+      // Disabled CLIs are MARKED, not dropped. `spawn` rejects an explicit
+      // `cli` that is disabled, so omitting them here left the caller
+      // discovering the restriction only by failing a spawn.
+      const enabledCliResults: CliDetectionResult[] =
         disabledClis.length > 0
-          ? cliResults.filter((c) => !disabledClis.includes(c.cli))
+          ? cliResults.map((c) =>
+              disabledClis.includes(c.cli) ? { ...c, disabled: true } : c,
+            )
           : cliResults;
 
       const registry = getPtahCliRegistry?.();

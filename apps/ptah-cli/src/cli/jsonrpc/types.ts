@@ -151,6 +151,10 @@ export type PtahNotification =
   | 'skill.removed'
   | 'skill.popular'
   | 'skill.recommended'
+  // The per-workspace skill selection (TASK_2026_316): `selection` is the
+  // read, `selected` the write, matching `installed` / `removed` above.
+  | 'skill.selection'
+  | 'skill.selected'
   | 'skill.created'
   | 'mcp.search'
   | 'mcp.details'
@@ -186,6 +190,8 @@ export type PtahNotification =
   | 'harness.document.start'
   | 'harness.document.stream'
   | 'harness.document.complete'
+  | 'harness.doctor'
+  | 'harness.removed'
   | 'profile.applied'
   | 'profile.list'
   | 'workspace.info'
@@ -255,6 +261,15 @@ export type PtahNotification =
   | 'debug.di.phase'
   | 'doctor.report'
   | 'init.plan'
+  // `ptah spec` (TASK_2026_179, step 16). One per subcommand, and each
+  // subcommand emits exactly one — that is what makes `--json` output a single
+  // parseable document rather than an NDJSON stream.
+  | 'spec.created'
+  | 'spec.status'
+  | 'spec.detail'
+  | 'spec.list'
+  | 'spec.check'
+  | 'spec.doctor'
   | 'system.schema.version';
 
 /**

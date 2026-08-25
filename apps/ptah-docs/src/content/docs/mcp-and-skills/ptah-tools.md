@@ -76,24 +76,63 @@ Keep experiments isolated without cluttering your main checkout.
 
 ## Validation & harness
 
-| Tool                               | Purpose                                                                   | Typical use case                        |
-| ---------------------------------- | ------------------------------------------------------------------------- | --------------------------------------- |
-| `ptah_json_validate`               | Validate JSON against a schema                                            | Check config files before writing       |
-| `ptah_harness_create_skill`        | Create a new skill under `~/.ptah/skills/` or workspace `.claude/skills/` | Capture a reusable workflow on the fly  |
-| `ptah_harness_search_skills`       | Search the skill registry by keyword                                      | Find a skill by intent rather than name |
-| `ptah_harness_search_mcp_registry` | Search the public MCP server registry                                     | Discover third-party tools to plug in   |
-| `harness_list_installed_mcp`       | List every MCP server configured in the harness                           | Audit what's connected                  |
+| Tool                               | Purpose                                                                                                                                                 | Typical use case                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `ptah_json_validate`               | Validate JSON against a schema                                                                                                                          | Check config files before writing        |
+| `ptah_harness_create_skill`        | Create a new skill as its own plugin at `~/.ptah/plugins/ptah-harness-<slug>/skills/<slug>/SKILL.md` — see [Harness plugins](/plugins/harness-plugins/) | Capture a reusable workflow on the fly   |
+| `ptah_harness_search_skills`       | Search local plugin skills and the skills.sh marketplace by keyword                                                                                     | Find a skill by intent rather than name  |
+| `ptah_harness_search_mcp_registry` | Search the official MCP registry, PulseMCP and Smithery                                                                                                 | Discover third-party tools to plug in    |
+| `ptah_harness_list_installed_mcp`  | List every MCP server configured in the harness                                                                                                         | Audit what's connected                   |
+| `ptah_harness_install_mcp_server`  | Write a server's transport config into the target config files                                                                                          | Add a discovered server to the workspace |
+| `ptah_harness_propose_config`      | Hand a partial harness config to the surface for the user to review                                                                                     | Finish a harness build for approval      |
 
-## Code Execution (Pro)
+### Reading a harness search result
+
+Both searches return three states, not two:
+
+| `status`   | Meaning                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `ok`       | Every source answered. An empty list means the catalogue genuinely has nothing.              |
+| `degraded` | At least one source failed. The list is incomplete and the tool call is flagged as an error. |
+
+The per-source detail is in `sources`: `[{ source, status, count, error? }]`, where a source's
+`status` is `ok`, `unavailable` (not configured on this machine) or `failed`. An empty result is
+only a true negative while the top-level `status` is `ok`.
+
+`limit` on `ptah_harness_search_mcp_registry` bounds the **merged** list. Results are drawn
+round-robin across the three registries, so raising the limit never lets one source crowd out
+the others.
+
+### Paging skill search
+
+`ptah_harness_search_skills` takes `limit` and `offset`, which page the **skills.sh** half —
+local plugin results are a complete on-disk inventory and are never paged. The result echoes
+the window and adds:
+
+- `hasMore` — fetch the next page with `offset += limit`.
+- `total` — present **only** when the whole marketplace result set was seen. It is never estimated.
+- `limitedByUpstream` (on the `skills.sh` source entry) — the marketplace caps a single query at
+  200 rows. Past that no further page exists; narrow the query instead.
+
+### Skill scope
+
+`ptah_harness_create_skill` takes `scope`:
+
+| `scope`          | Written to                  | Loads in                                                   |
+| ---------------- | --------------------------- | ---------------------------------------------------------- |
+| `user` (default) | `~/.ptah/plugins`           | every workspace on this machine                            |
+| `workspace`      | `{workspace}/.ptah/plugins` | this project only — commit it and it travels with the repo |
+
+A workspace-scoped skill sits beside `.ptah/specs`, so it can be checked in and shared with the
+team. Both scopes produce the same plugin id, so the same name cannot be used in both — the call
+is refused rather than letting the workspace copy silently shadow the global one.
+
+## Code Execution
 
 | Tool              | Purpose                                                               | Typical use case                                    |
 | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
 | `execute_code`    | Run code in the sandboxed runtime with scoped file and network access | Transform data, verify a snippet, run quick scripts |
 | `approval_prompt` | Request explicit user approval mid-execution                          | Gate side-effectful steps                           |
-
-:::caution[Pro tier]
-`execute_code` requires the Pro subscription. See [Built-in MCP Server](/mcp-and-skills/built-in-mcp-server/) for details.
-:::
 
 ## Next steps
 

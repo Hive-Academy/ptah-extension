@@ -23,6 +23,7 @@ import {
   CuratorRateLimitService,
   PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import {
@@ -201,6 +202,13 @@ function buildTestContainer(): DependencyContainer {
     },
     { lifecycle: Lifecycle.Singleton },
   );
+  c.register(
+    SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    {
+      useClass: SessionIdResolvedCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
   c.register(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER, {
     useValue: {
       read: jest.fn().mockResolvedValue(''),
@@ -218,6 +226,7 @@ function buildTestContainer(): DependencyContainer {
       start: jest.fn(),
       stop: jest.fn(),
       curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
         success: true,
         memoriesUpserted: 0,
         topMemoryIds: [],

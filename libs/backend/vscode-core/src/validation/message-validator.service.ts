@@ -15,6 +15,7 @@ import type {
   StrictChatMessage,
   StrictChatSession,
 } from '@ptah-extension/shared';
+import { SessionId, MessageId, CorrelationId } from '@ptah-extension/shared';
 import {
   ChatSendMessagePayloadSchema,
   ChatMessageChunkPayloadSchema,
@@ -22,11 +23,8 @@ import {
   StrictChatMessageSchema,
   StrictChatSessionSchema,
   StrictMessageSchema,
-  SessionId,
-  MessageId,
-  CorrelationId,
   BrandedTypeValidator,
-} from '@ptah-extension/shared';
+} from '@ptah-extension/shared/schemas';
 
 /**
  * Structured Error Hierarchy for Validation Failures

@@ -224,6 +224,79 @@ describe('MemoryStore write-counter bumps', () => {
 });
 
 // ---------------------------------------------------------------------------
+// stats — the workspaceRoot tri-state (TASK_2026_315 A4)
+//
+// These three states are genuinely different queries and the fix at the RPC
+// boundary depends on them staying that way. Pinned here so nobody collapses
+// `null` into `undefined` (or the reverse) while "simplifying" the signature.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore.stats — workspaceRoot tri-state', () => {
+  function makeSqlCapturingDb(): {
+    stub: SqliteConnectionService;
+    prepared: string[];
+    boundArgs: unknown[][];
+  } {
+    const prepared: string[] = [];
+    const boundArgs: unknown[][] = [];
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn((sql: string) => {
+          prepared.push(sql);
+          return {
+            all: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return [];
+            }),
+            get: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return { m: null };
+            }),
+            run: jest.fn(() => ({ changes: 0 })),
+          };
+        }),
+        exec: jest.fn(),
+        transaction: jest.fn(),
+      },
+    } as unknown as SqliteConnectionService;
+    return { stub, prepared, boundArgs };
+  }
+
+  it('a string workspaceRoot filters to that workspace', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats('/ws/A');
+
+    expect(prepared).toHaveLength(2);
+    for (const sql of prepared) {
+      expect(sql).toContain('WHERE workspace_root IS ?');
+    }
+    expect(boundArgs).toEqual([['/ws/A'], ['/ws/A']]);
+  });
+
+  it('null means global/unscoped memories — WHERE workspace_root IS NULL', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats(null);
+
+    for (const sql of prepared) {
+      expect(sql).toContain('WHERE workspace_root IS ?');
+    }
+    // `IS ?` bound to null is `IS NULL` in SQLite — distinct from "no filter".
+    expect(boundArgs).toEqual([[null], [null]]);
+  });
+
+  it('undefined drops the predicate entirely (whole-database sweep)', () => {
+    const { stub, prepared, boundArgs } = makeSqlCapturingDb();
+    makeStore(stub).stats();
+
+    for (const sql of prepared) {
+      expect(sql).not.toContain('WHERE');
+    }
+    expect(boundArgs).toEqual([[], []]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleFatalWriteError wiring
 // ---------------------------------------------------------------------------
 
@@ -1125,4 +1198,51 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
       }
     },
   );
+});
+
+/**
+ * TASK_2026_295 — an empty session id is stored as NULL, never verbatim.
+ *
+ * `''` is not a scope. Written into `memories.session_id` it becomes a third
+ * state — "the empty session" — which reads back as legitimately scoped and
+ * which every row carrying the same upstream defect shares. NULL is the value
+ * the column already has for "this memory has no session".
+ *
+ * Asserted on the bound statement parameters rather than through a round trip,
+ * because what is under test is exactly what gets handed to SQLite.
+ */
+describe('MemoryStore — empty sessionId normalises to NULL (TASK_2026_295)', () => {
+  const baseInsert: MemoryInsert = {
+    tier: 'core',
+    kind: 'fact',
+    content: 'curated without a usable session id',
+    workspaceRoot: '/ws/A',
+  };
+
+  async function insertAndReadParams(
+    sessionId: string | null | undefined,
+  ): Promise<Record<string, unknown>> {
+    const { stub, runMock } = makeDb();
+    const store = makeStore(stub);
+    await store.insertMemoryWithChunks({ ...baseInsert, sessionId }, []);
+    return runMock.mock.calls[0][0] as Record<string, unknown>;
+  }
+
+  it('stores NULL for an empty sessionId', async () => {
+    expect((await insertAndReadParams('')).session_id).toBeNull();
+  });
+
+  it('stores NULL for a whitespace-only sessionId', async () => {
+    expect((await insertAndReadParams('   ')).session_id).toBeNull();
+  });
+
+  it('stores NULL when no sessionId is supplied at all', async () => {
+    expect((await insertAndReadParams(undefined)).session_id).toBeNull();
+  });
+
+  it('stores a real sessionId unchanged', async () => {
+    // The control: normalisation must not touch a usable id.
+    const id = '8f1c7d2e-2a5b-4b6e-9d3f-0c1a2b3c4d5e';
+    expect((await insertAndReadParams(id)).session_id).toBe(id);
+  });
 });

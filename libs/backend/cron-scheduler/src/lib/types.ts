@@ -155,4 +155,30 @@ export interface JobHandlerContext {
 export interface JobHandlerResult {
   /** Short human-readable summary stored in `job_runs.result_summary`. */
   summary?: string;
+  /**
+   * How the handler judges its own run. Omitted means `'succeeded'`, so every
+   * handler written before this channel existed keeps its meaning.
+   *
+   * `'skipped'` is the "ran to completion and deliberately did NOTHING" answer
+   * — a gate closed before any work was attempted (the skill drain's daily
+   * token budget, a disabled feature, no work available). It is NOT a failure:
+   * nothing threw, nothing is wrong, and there is nothing to retry. Recording
+   * it as `succeeded` is what made `cron:runs` claim four successful drains
+   * for four ticks that did nothing (TASK_2026_315 / C2), which is misleading
+   * exactly when a user opens the run history to find out why background work
+   * stopped.
+   *
+   * This is deliberately NOT a new {@link JobRunStatus} member: `'skipped'`
+   * already exists on the run row and {@link IRunStore.markSkipped} already
+   * writes it for the two cases the RUNNER decides (concurrency cap, abort).
+   * The missing piece was only a channel for the case the HANDLER decides.
+   */
+  outcome?: 'succeeded' | 'skipped';
+  /**
+   * Why the run was skipped. Stored in `job_runs.result_summary` (which is
+   * where {@link IRunStore.markSkipped} puts its reason, alongside
+   * `concurrency-limit` and `aborted`) and rendered by the cron run-history
+   * drawer. Read only when `outcome === 'skipped'`.
+   */
+  reason?: string;
 }

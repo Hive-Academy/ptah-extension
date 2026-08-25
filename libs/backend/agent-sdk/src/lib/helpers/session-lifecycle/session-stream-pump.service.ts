@@ -11,6 +11,13 @@
  *     SDKUserMessage onto the registry-owned queue and wakes the iterator's
  *     parked `resolveNext` callback.
  *
+ * ONE MESSAGE PER TURN (TASK_2026_294). The iterator claims `turnInFlight`
+ * before every yield and refuses to yield again until `markTurnEnded` clears it
+ * on the turn's `result`. Handing a prompt to the SDK mid-turn does NOT steer
+ * the agent: the SDK enqueues it, removes it, records it as a `queued_command`
+ * transcript attachment, and never turns it into a user message. Ptah owns the
+ * queue precisely so that cannot happen — do not "simplify" the gate away.
+ *
  * Extracted from `SessionLifecycleManager` (originally lines
  * 632–706, 972–1008, 1063–1088). The async-iterator body is preserved
  * byte-identically — every `addEventListener('abort', ...)`, every
@@ -62,11 +69,15 @@ export class SessionStreamPump {
             );
             return;
           }
-          while (session.messageQueue.length > 0) {
+          while (session.messageQueue.length > 0 && !session.turnInFlight) {
             const message = session.messageQueue.shift();
             if (message) {
+              // Claim the turn BEFORE yielding: this both ends the drain loop
+              // after one message and blocks any message that arrives while
+              // the SDK is generating (TASK_2026_294).
+              registry.markTurnStarted(session);
               logger.debug(
-                `[SessionLifecycle] Yielding message (${session.messageQueue.length} remaining)`,
+                `[SessionLifecycle] Yielding message (${session.messageQueue.length} held)`,
               );
               yield message;
             }
@@ -82,7 +93,14 @@ export class SessionStreamPump {
                 resolve('aborted');
                 return;
               }
-              if (currentSession.messageQueue.length > 0) {
+              // `!turnInFlight` is load-bearing, not a micro-optimisation:
+              // without it a message held during a turn keeps this fast path
+              // resolving immediately and the outer loop hot-spins, because
+              // the drain loop above refuses to consume it.
+              if (
+                currentSession.messageQueue.length > 0 &&
+                !currentSession.turnInFlight
+              ) {
                 abortController.signal.removeEventListener(
                   'abort',
                   abortHandler,
@@ -189,6 +207,10 @@ export class SessionStreamPump {
       session.resolveNext = null;
     }
 
-    this.logger.info(`[SessionLifecycle] Message queued for ${sessionId}`);
+    this.logger.info(
+      session.turnInFlight
+        ? `[SessionLifecycle] Message held for ${sessionId} — turn in flight, will send at turn end`
+        : `[SessionLifecycle] Message queued for ${sessionId}`,
+    );
   }
 }

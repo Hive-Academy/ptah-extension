@@ -104,7 +104,7 @@ export async function launchShowcase(
     throw new Error(
       `[showcase] Electron entry not found at:\n  ${entry}\n\n` +
         `Run \`nx run ptah-electron-e2e:showcase\` (it chains the dev build),\n` +
-        `or build manually with \`nx build-dev ptah-electron && nx copy-renderer ptah-electron\`.`,
+        `or build manually with \`nx build-dev ptah-electron && nx copy-renderer-dev ptah-electron\`.`,
     );
   }
 

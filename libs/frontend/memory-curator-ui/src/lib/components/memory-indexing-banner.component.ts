@@ -26,7 +26,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
             <span class="text-sm font-semibold">
               Your workspace isn't indexed yet
             </span>
-            <span class="text-xs text-base-content/60">
+            <span class="text-xs text-base-content-muted">
               Memory search and code navigation need a local index. Files are
               read on your machine; nothing is uploaded.
             </span>
@@ -54,7 +54,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
           <span class="text-sm font-semibold">
             Code index ready — chat to populate memory
           </span>
-          <span class="text-xs text-base-content/60">
+          <span class="text-xs text-base-content-muted">
             Your codebase is indexed for symbol search ({{
               banner.codeSymbolCount
             }}

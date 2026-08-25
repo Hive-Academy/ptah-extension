@@ -1,6 +1,6 @@
 # Vendor Panel — the reusable spine
 
-Every Tribunal move (Council, Forge, Race) runs on this loop:
+Every Tribunal move (Council, Forge, Race, Relay, Crucible) runs on this loop:
 
 ```
 discover → select (family spread) → announce → fan-out spawn → poll → read → [cross-examine] → synthesize
@@ -18,10 +18,19 @@ When the conductor prompt already contains explicit panelist lines of the form:
 [tribunal:<laneId>] <displayName> — ptah_agent_spawn({ <spawnArgs> }). <objective>
 ```
 
+or — for the **role moves** (Relay, Crucible) — the same line with an additive parenthesised role token:
+
+```
+[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }) with the objective below as the task.
+[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }). Phase: <role>. Deliverable: <specFolder>/<file>
+```
+
 the panel was **defined by the user in the Tribunal UI**. In that case:
 
 - **Skip §2 discovery/selection entirely.** Do NOT call `ptah_agent_list` to re-pick the panel, do NOT apply family-spread, and do NOT collapse duplicate vendors — the user may deliberately convene several lanes of the **same** vendor on **different models** (e.g. two `Ollama Cloud` lanes, one on `glm-5.2`, one on `kimi-k2.7-code`).
 - **Spawn exactly the lanes given, with exactly the `spawnArgs` shown.** Pass the `model` field through to `ptah_agent_spawn` unchanged — for `ptahCliId` lanes a raw `model` overrides the agent's tier mapping, so never substitute a tier or a different model id.
+- **When a `(<role>)` token is present it is AUTHORITATIVE.** The `[tribunal:<laneId>]` tag grammar is unchanged; the token is an addition to the human-readable remainder, sitting between the tag and the `<displayName>`, wrapped in round parentheses and lowercase. It is one of `plan` / `architect` / `implement` / `review` (Relay) or `executor` / `judge` (Crucible). Read each lane's role off its token — do **not** infer it from lane order, and do **not** spend a round-trip asking the user to confirm a role the token already states. The framing repeats this as a line of its own: "Each lane's ROLE is stated below and is authoritative — do not infer it from lane order." A lane line carrying **no** token belongs to a flat move (Council, Forge, Race), which has no roles.
+- **A `Spec folder:` line means the folder already exists — do not allocate another.** Role moves carry `Spec folder: TASK_YYYY_NNN (already created by the Tribunal UI). Use it. Do NOT scan for or allocate a new task id.` Take that task id as given, write every deliverable under `.ptah/specs/TASK_YYYY_NNN/`, and skip the folder-scan id allocation entirely. If the framing carries **no** `Spec folder:` line, the UI could not allocate one — then allocate per the move's own reference file.
 - Keep the `[tribunal:<laneId>]` tag as the literal first line of each sub-agent task. Everything else on this page (the spawn/poll/read loop §3, anonymization §4, synthesis §5) still applies.
 
 Only fall back to the discovery/selection algorithm below when the prompt does **not** carry explicit panelist lines (i.e. Tribunal was triggered conversationally, not from the UI).
@@ -35,24 +44,26 @@ A **panelist** is a distinct `(transport, addressing, tier)` tuple, chosen for m
 ```
 Panelist := {
   id:        "P1" | "P2" | ...        # stable anonymized label (assigned by panel order)
-  label:     human name, e.g. "Z.AI GLM-5.2"
-  family:    "codex" | "copilot" | "cursor" | "<providerName>"   # the diversity axis
+  label:     human name, taken from the ptah_agent_list row
+  family:    the CLI's name, or the ptah-cli entry's providerName   # the diversity axis
   spawnArgs: one of
-     { cli: "codex" }                                   # OpenAI GPT family (no resume — respawn on timeout)
-     { cli: "copilot", model?: "claude-sonnet-4.6" }    # GitHub / Claude+GPT family
-     { cli: "cursor" }                                  # Cursor CLI family (env-dependent install)
-     { ptahCliId: "pc-...", modelTier: "opus" }         # a specific ptah-cli provider family
-     { ptahCliId: "pc-...", model: "glm-5.2" }          # an explicit raw model on that provider
+     { cli: "<value from the live ptah_agent_spawn enum>", model?: "<id>" }   # an installed system CLI
+     { ptahCliId: "pc-...", modelTier: "opus" }                               # a configured provider, tier-resolved
+     { ptahCliId: "pc-...", model: "<id>" }                                   # an explicit raw model on that provider
 }
 ```
 
-> For panels **you** assemble (conversational trigger, §2), panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model (e.g. Moonshot → `kimi-k2.7-code`, Z.AI → `glm-5.2`) — don't hardcode a model id, so new models flow in through the registry. For panels defined in the **Tribunal UI** (§0), spawn args may instead carry a raw `model` per lane; pass it through unchanged.
+> **The vendor list is discovered, never hardcoded.** New CLI adapters ship between releases and every machine has a different set of providers configured, so the authoritative list is whatever `ptah_agent_list` returns right now — plus the live `cli` enum on the `ptah_agent_spawn` tool schema. Any vendor named anywhere in these references is an illustration, not a roster. A family that is installed/available joins automatically; one that is not is simply absent, and neither case needs a doc change.
+>
+> Claude is not privileged and not excluded: where the user has configured a Claude provider it appears as an ordinary ptah-cli entry and is addressed by its `ptahCliId` like any other lane.
+
+> For panels **you** assemble (conversational trigger, §2), panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model — don't hardcode a model id, so new models flow in through the registry. For panels defined in the **Tribunal UI** (§0), spawn args may instead carry a raw `model` per lane; pass it through unchanged. Resume support differs per adapter — check `ptah_agent_status` for a `CLI Session ID` rather than assuming.
 
 ## 2. Selection algorithm (deterministic family spread)
 
 1. Call `ptah_agent_list`.
 2. Keep entries with `installed: true` (CLIs) / `available` (ptah-cli).
-3. **Bucket by family** — native CLIs `codex`, `copilot`, `cursor`; then ptah-cli entries by `providerName` (`Moonshot`, `Z.AI`, `Ollama Cloud`, `OpenRouter`, …). The panel is **data-driven**: a family joins automatically wherever its entry reports installed, so `cursor` participates on machines where it is active and is simply absent elsewhere.
+3. **Bucket by family** — each system CLI is its own family (its `cli` value); each ptah-cli entry is its own family (its `providerName`). Take the families from the response, not from a list in this document. The panel is **data-driven**: a family joins automatically wherever its entry reports installed/available, and is simply absent elsewhere — that is what lets new adapters and newly configured providers participate with no edit here.
 4. Take **one** panelist per family, ordered by `preferredRank`. ptah-cli entries carry their `ptahCliId` + `modelTier: 'opus'`.
 5. Cap to the concurrency budget (default **3**; Council may widen with user consent — no worktrees, so cheap to grow).
 6. Assign stable labels `P1..Pn` in panel order.
@@ -82,8 +93,7 @@ ptah_agent_read({ agentId })   # capture full output, tag with Pk
 
 **Failure / timeout handling:**
 
-- `ptah-cli` and `copilot` support resume — re-spawn with `resume_session_id` (the `cliSessionId` from `ptah_agent_status`).
-- `codex` is ephemeral (no resume) — respawn fresh.
+- **Resume support is per-adapter — test for it, don't memorize it.** Call `ptah_agent_status`: if it reports a `CLI Session ID`, re-spawn with `resume_session_id` set to it and the lane continues from where it left off. If it reports none, that adapter is ephemeral — respawn fresh with the context restated in the prompt.
 - A panelist that fails twice is dropped from the panel with a note in the verdict; never block the whole tribunal on one vendor.
 
 ## 4. Deterministic anonymization (the cross-examination round)

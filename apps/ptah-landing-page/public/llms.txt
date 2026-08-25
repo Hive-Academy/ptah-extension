@@ -29,7 +29,7 @@ Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), Ollama (local mo
 
 ## License
 
-Ptah is open source under the FSL-1.1-MIT license, converting to MIT after two years.
+Ptah is open source under the MIT license.
 
 ## Canonical links
 

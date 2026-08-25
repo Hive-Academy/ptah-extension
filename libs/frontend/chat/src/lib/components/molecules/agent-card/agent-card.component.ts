@@ -67,12 +67,12 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
           <summary
             class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
           >
-            <span class="text-[10px] font-medium text-base-content/40"
+            <span class="text-[10px] font-medium text-base-content-muted"
               >Task</span
             >
             @if (agent().parentSessionId) {
               <span
-                class="text-[9px] text-base-content/30 ml-auto"
+                class="text-[9px] text-base-content-muted ml-auto"
                 [title]="'Parent session: ' + agent().parentSessionId!"
                 >Parent:
                 {{ agent().parentSessionId! | slice: 0 : 8 }}&hellip;</span
@@ -81,7 +81,7 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
           </summary>
           <div class="px-2 pb-1">
             <p
-              class="text-[11px] leading-snug text-base-content/60 line-clamp-3"
+              class="text-[11px] leading-snug text-base-content-muted line-clamp-3"
             >
               {{ agent().task }}
             </p>

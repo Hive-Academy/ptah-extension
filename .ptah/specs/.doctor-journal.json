@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "createdAt": "2026-08-09T15:26:27.165Z",
+  "entries": [
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_155\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_160\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_161\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_164\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_165\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_166\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_167\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_168\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_169\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_170\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_VOICE_PROVIDERS\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\TASK_WORKSPACE_SCOPING_REVIEW\\task.md"
+    },
+    {
+      "kind": "create",
+      "path": "d:\\projects\\ptah-extension\\.ptah\\specs\\.ptah-spec-contract.json"
+    }
+  ]
+}

@@ -21,8 +21,7 @@
  *     and re-saved; Claude IDs and `'default'` pass through unchanged
  *     (SDK owns tier resolution).
  *
- *   - `config:autopilot-toggle`: YOLO requires a Pro subscription — non-Pro
- *     users hit a thrown error. Permission level persists to ConfigManager,
+ *   - `config:autopilot-toggle`: Permission level persists to ConfigManager,
  *     is mirrored to SdkPermissionHandler, AND is mapped/mirrored to any
  *     active SDK session (`mapPermissionToSdkMode` — ask→default,
  *     auto-edit→acceptEdits, yolo→bypassPermissions, plan→plan). When
@@ -49,7 +48,6 @@ import 'reflect-metadata';
 
 import type {
   ConfigManager,
-  FeatureGateService,
   Logger,
   SentryService,
 } from '@ptah-extension/vscode-core';
@@ -135,7 +133,7 @@ function createMockPermissionHandler(): MockPermissionHandler {
 }
 
 type MockModelResolver = jest.Mocked<
-  Pick<ModelResolver, 'resolve' | 'detectTier'>
+  Pick<ModelResolver, 'resolve' | 'detectTier' | 'isSubscriptionCovered'>
 >;
 
 function createMockModelResolver(): MockModelResolver {
@@ -143,16 +141,8 @@ function createMockModelResolver(): MockModelResolver {
     // Default: identity resolve (handler tests override as needed)
     resolve: jest.fn((model: string) => model),
     detectTier: jest.fn((_model: string) => undefined),
-  };
-}
-
-type MockFeatureGate = jest.Mocked<Pick<FeatureGateService, 'isProTier'>>;
-
-function createMockFeatureGate(
-  { isPro }: { isPro?: boolean } = { isPro: false },
-): MockFeatureGate {
-  return {
-    isProTier: jest.fn().mockResolvedValue(isPro ?? false),
+    // Default: a usage-billed provider, so price lines read as dollar rates
+    isSubscriptionCovered: jest.fn(() => false),
   };
 }
 
@@ -160,8 +150,14 @@ function createMockFeatureGate(
 // Harness
 // ---------------------------------------------------------------------------
 
+interface MockPricingProvider {
+  getPricing: jest.Mock;
+  ensureHydrated: jest.Mock;
+}
+
 interface Harness {
   handlers: ConfigRpcHandlers;
+  pricingProvider: MockPricingProvider;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   configManager: MockConfigManager;
@@ -170,7 +166,6 @@ interface Harness {
   permissionHandler: MockPermissionHandler;
   modelResolver: MockModelResolver;
   sentry: MockSentryService;
-  featureGate: MockFeatureGate;
   modelSettings: MockModelSettings;
   reasoningSettings: MockReasoningSettings;
 }
@@ -178,7 +173,6 @@ interface Harness {
 function makeHarness(
   opts: {
     configSeed?: Record<string, unknown>;
-    isPro?: boolean;
     modelSelected?: string;
     reasoningEffort?: string;
   } = {},
@@ -191,7 +185,6 @@ function makeHarness(
   const permissionHandler = createMockPermissionHandler();
   const modelResolver = createMockModelResolver();
   const sentry = createMockSentryService();
-  const featureGate = createMockFeatureGate({ isPro: opts.isPro });
   const modelSettings = createMockModelSettings();
   const reasoningSettings = createMockReasoningSettings();
 
@@ -202,6 +195,11 @@ function makeHarness(
     reasoningSettings.effort.get.mockReturnValue(opts.reasoningEffort);
   }
 
+  const pricingProvider = {
+    getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
+  };
+
   const handlers = new ConfigRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -211,13 +209,14 @@ function makeHarness(
     permissionHandler as unknown as SdkPermissionHandler,
     modelResolver as unknown as ModelResolver,
     sentry as unknown as SentryService,
-    featureGate as unknown as FeatureGateService,
     modelSettings as unknown as ModelSettings,
     reasoningSettings as unknown as ReasoningSettings,
+    pricingProvider,
   );
 
   return {
     handlers,
+    pricingProvider,
     logger,
     rpcHandler,
     configManager,
@@ -226,7 +225,6 @@ function makeHarness(
     permissionHandler,
     modelResolver,
     sentry,
-    featureGate,
     modelSettings,
     reasoningSettings,
   };
@@ -439,25 +437,8 @@ describe('ConfigRpcHandlers', () => {
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
 
-    it('rejects YOLO mode for non-Pro users', async () => {
-      const h = makeHarness({ isPro: false });
-      h.handlers.register();
-
-      const response = await h.rpcHandler.handleMessage({
-        method: 'config:autopilot-toggle',
-        params: { enabled: true, permissionLevel: 'yolo' },
-        correlationId: 'corr',
-      });
-
-      expect(response.success).toBe(false);
-      expect(response.error).toMatch(/pro subscription/i);
-      expect(h.permissionHandler.setPermissionLevel).not.toHaveBeenCalledWith(
-        'yolo',
-      );
-    });
-
-    it('allows YOLO when isProTier() returns true and mirrors level to permission handler', async () => {
-      const h = makeHarness({ isPro: true });
+    it('allows YOLO for everyone and mirrors level to permission handler', async () => {
+      const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{
@@ -511,7 +492,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('falls back to the most-recently-active session when no sessionId is supplied', async () => {
-      const h = makeHarness({ isPro: true });
+      const h = makeHarness();
       h.sdkAdapter.getActiveSessionIds.mockReturnValue([
         'active-sess',
       ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
@@ -530,8 +511,31 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
+    // TASK_2026_295 — `sessionId ?? getActiveSessionIds()[0]` KEEPS '' (?? only
+    // falls through on null/undefined), and the truthiness check below it then
+    // discarded that ''. Net effect: the toggle reached no session at all and
+    // the active-session fallback never fired.
+    it('treats an empty sessionId as absent and falls back to the active session', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'active-sess',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+        sessionId: '',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'active-sess',
+        'bypassPermissions',
+      );
+    });
+
     it('skips session sync when no sessionId and no active session', async () => {
-      const h = makeHarness({ isPro: true });
+      const h = makeHarness();
       h.handlers.register();
 
       await call(h, 'config:autopilot-toggle', {
@@ -891,6 +895,41 @@ describe('ConfigRpcHandlers', () => {
         'high',
         'workspace',
       );
+    });
+  });
+
+  describe('config:pricing-get', () => {
+    it('waits for catalog hydration before serving the map', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{
+        pricing: Record<string, unknown>;
+        hydrated: boolean;
+      }>(h, 'config:pricing-get');
+
+      // The webview owns a SEPARATE module instance of `pricing.utils`, so a
+      // response that raced the OpenRouter fetch would cache the bundled table
+      // in the renderer for the rest of the run.
+      expect(h.pricingProvider.ensureHydrated).toHaveBeenCalled();
+      expect(result.hydrated).toBe(true);
+      expect(Object.keys(result.pricing).length).toBeGreaterThan(0);
+    });
+
+    it('still serves the bundled map when hydration fails', async () => {
+      const h = makeHarness();
+      h.pricingProvider.ensureHydrated.mockRejectedValue(new Error('offline'));
+      h.handlers.register();
+
+      const result = await call<{
+        pricing: Record<string, unknown>;
+        hydrated: boolean;
+      }>(h, 'config:pricing-get');
+
+      // Degraded, not broken — a renderer on the bundled table is exactly what
+      // shipped before, and `hydrated: false` tells it to ask again.
+      expect(result.hydrated).toBe(false);
+      expect(Object.keys(result.pricing).length).toBeGreaterThan(0);
     });
   });
 });

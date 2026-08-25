@@ -65,6 +65,18 @@ export class MemoryStateService {
   private readonly _indexRows = signal<readonly MemoryIndexRow[]>([]);
   private readonly _timelineRows = signal<readonly MemoryIndexRow[]>([]);
   private readonly _anchorId = signal<string | null>(null);
+
+  /**
+   * Monotonic request stamps. Each async loader bumps its counter before firing
+   * and, after the await resolves, only applies the result if the stamp is still
+   * current. This guards the workspace/scope-switch race: a slow response for a
+   * previously-active workspace must never overwrite the list/stats the user is
+   * now looking at. `refresh` and `search` share one stamp because both write
+   * `_entries` — a late refresh must not clobber a newer search and vice versa.
+   */
+  private entriesReqSeq = 0;
+  private statsReqSeq = 0;
+  private symbolsReqSeq = 0;
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
@@ -128,24 +140,31 @@ export class MemoryStateService {
    * Resolves the workspace root to scope an RPC call by, honoring the
    * current `_scopeFilter()`.
    *
-   * - `'all'` scope → `{ ok: true, workspaceRoot: undefined }` (global RPC).
-   * - `'workspace'` scope with a resolved workspace → `{ ok: true, workspaceRoot: path }`.
+   * - `'all'` scope → `{ ok: true, workspaceRoot: undefined, scope: 'all' }`.
+   * - `'workspace'` scope with a resolved workspace → `{ ok: true, workspaceRoot: path, scope: 'workspace' }`.
    * - `'workspace'` scope but `appState.workspaceInfo()` not yet resolved →
    *   `{ ok: false, error: ... }`. Callers must NOT fall through to a global
    *   RPC in this case (would silently leak cross-workspace results).
+   *
+   * `scope` is returned alongside the root and MUST be forwarded on every RPC
+   * this drives. It is the wire signal that says "all workspaces" out loud
+   * instead of implying it by an absent or null `workspaceRoot` — which the
+   * backend cannot tell apart from "no folder is open" (TASK_2026_315 A4).
+   * Encoding it here, once, is what keeps `refresh`, `search`, `loadStats` and
+   * `loadSymbols` from drifting into three different encodings again.
    */
   private resolveScopedWorkspaceRoot():
-    | { ok: true; workspaceRoot: string | undefined }
+    | { ok: true; workspaceRoot: string | undefined; scope: MemoryScopeFilter }
     | { ok: false; error: string } {
     const scope = this._scopeFilter();
     if (scope === 'all') {
-      return { ok: true, workspaceRoot: undefined };
+      return { ok: true, workspaceRoot: undefined, scope };
     }
     const root = this.getWorkspaceRoot();
     if (root === null) {
       return { ok: false, error: NO_WORKSPACE_FOR_SCOPED_RPC };
     }
-    return { ok: true, workspaceRoot: root };
+    return { ok: true, workspaceRoot: root, scope };
   }
 
   /** Refresh the entry list from `memory:list`, optionally restricted to a tier. */
@@ -156,6 +175,7 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.entriesReqSeq;
     this._loading.set(true);
     this._error.set(null);
     try {
@@ -167,11 +187,13 @@ export class MemoryStateService {
         limit: 200,
         offset: 0,
       });
+      if (seq !== this.entriesReqSeq) return;
       this._entries.set(result.memories);
     } catch (err) {
+      if (seq !== this.entriesReqSeq) return;
       this._error.set(toErrorMessage(err));
     } finally {
-      this._loading.set(false);
+      if (seq === this.entriesReqSeq) this._loading.set(false);
     }
   }
 
@@ -193,6 +215,7 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.entriesReqSeq;
     this._loading.set(true);
     this._error.set(null);
     try {
@@ -201,11 +224,13 @@ export class MemoryStateService {
         50,
         scoped.workspaceRoot,
       );
+      if (seq !== this.entriesReqSeq) return;
       this._entries.set(result.hits.map((hit) => hit.memory));
     } catch (err) {
+      if (seq !== this.entriesReqSeq) return;
       this._error.set(toErrorMessage(err));
     } finally {
-      this._loading.set(false);
+      if (seq === this.entriesReqSeq) this._loading.set(false);
     }
   }
 
@@ -267,12 +292,18 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.statsReqSeq;
     this._error.set(null);
     try {
       const scopedRoot = scoped.workspaceRoot ?? null;
-      const stats = await this.rpcService.stats(scopedRoot);
+      // `scope` must go with it: in `'all'` mode `scopedRoot` is null, and null
+      // on its own means "global/unscoped rows only" to the backend, not "every
+      // workspace" — which silently zeroed the codeIndex tile.
+      const stats = await this.rpcService.stats(scopedRoot, scoped.scope);
+      if (seq !== this.statsReqSeq) return;
       this._stats.set(stats);
     } catch (err) {
+      if (seq !== this.statsReqSeq) return;
       this._error.set(toErrorMessage(err));
     }
   }
@@ -305,6 +336,7 @@ export class MemoryStateService {
       this._symbolError.set(scoped.error);
       return;
     }
+    const seq = ++this.symbolsReqSeq;
     this._symbolLoading.set(true);
     this._symbolError.set(null);
     try {
@@ -312,18 +344,24 @@ export class MemoryStateService {
       const offset = this._symbolOffset();
       const limit = this._symbolLimit();
       const { workspaceRoot } = scoped;
+      // Omitting `workspaceRoot` no longer implies "every workspace" — the
+      // backend reads an absent key as "use the current root". `scope` carries
+      // that intent now.
       const result = await this.rpcService.searchSymbols({
         ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+        scope: scoped.scope,
         ...(query.trim().length > 0 ? { query } : {}),
         limit,
         offset,
       });
+      if (seq !== this.symbolsReqSeq) return;
       this._symbolItems.set(result.items);
       this._symbolTotal.set(result.total);
     } catch (err) {
+      if (seq !== this.symbolsReqSeq) return;
       this._symbolError.set(toErrorMessage(err));
     } finally {
-      this._symbolLoading.set(false);
+      if (seq === this.symbolsReqSeq) this._symbolLoading.set(false);
     }
   }
 }

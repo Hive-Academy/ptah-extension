@@ -39,6 +39,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   readCopilotToken,
+  readCopilotUsername,
   writeCopilotToken,
   getCopilotHostsPath,
   getCopilotAppsPath,
@@ -341,6 +342,84 @@ describe('copilot-file-auth', () => {
       mockedMkdir.mockRejectedValueOnce(new Error('EPERM'));
 
       await expect(writeCopilotToken('gho_new')).resolves.toBeUndefined();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // readCopilotUsername (TASK_2026_172 Issue 5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The official Copilot integrations record the GitHub login next to the
+   * token. Reading it is how the CLI/TUI stops printing "Connected as GitHub
+   * user" — free and offline, unlike the `/user` API fallback the caller uses
+   * when this returns null (Ptah's own device-code flow writes only
+   * `oauth_token`).
+   */
+  describe('readCopilotUsername', () => {
+    it('reads the user from the github.com entry in hosts.json', async () => {
+      mockedReadFile.mockResolvedValueOnce(
+        JSON.stringify({
+          'github.com': { oauth_token: 'gho_x', user: 'octocat' },
+        }),
+      );
+
+      await expect(readCopilotUsername()).resolves.toBe('octocat');
+      expect(mockedReadFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to apps.json when hosts.json records no user', async () => {
+      mockedReadFile
+        .mockResolvedValueOnce(
+          JSON.stringify({ 'github.com': { oauth_token: 'gho_x' } }),
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            'github.com:Iv1.appid': { oauth_token: 'gho_y', user: 'hubot' },
+          }),
+        );
+
+      await expect(readCopilotUsername()).resolves.toBe('hubot');
+      expect(mockedReadFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('accepts a non-github.com key when it is the only entry with a user', async () => {
+      mockedReadFile.mockResolvedValueOnce(
+        JSON.stringify({
+          'github.enterprise.example': { oauth_token: 'gho_x', user: 'ghost' },
+        }),
+      );
+
+      await expect(readCopilotUsername()).resolves.toBe('ghost');
+    });
+
+    it('returns null when neither file exists', async () => {
+      mockedReadFile.mockRejectedValue(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+      );
+
+      await expect(readCopilotUsername()).resolves.toBeNull();
+    });
+
+    it('returns null for corrupted JSON rather than throwing', async () => {
+      mockedReadFile.mockResolvedValue('{ not json');
+
+      await expect(readCopilotUsername()).resolves.toBeNull();
+    });
+
+    it('returns null when the token exists but no user was recorded (Ptah device-code login)', async () => {
+      mockedReadFile.mockResolvedValue(
+        JSON.stringify({ 'github.com': { oauth_token: 'gho_x' } }),
+      );
+
+      await expect(readCopilotUsername()).resolves.toBeNull();
+    });
+
+    it('ignores a non-string or empty user field', async () => {
+      mockedReadFile.mockResolvedValue(
+        JSON.stringify({ 'github.com': { oauth_token: 'gho_x', user: '' } }),
+      );
+
+      await expect(readCopilotUsername()).resolves.toBeNull();
     });
   });
 });

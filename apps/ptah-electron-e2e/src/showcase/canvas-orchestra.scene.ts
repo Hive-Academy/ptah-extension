@@ -187,13 +187,9 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   page,
   director,
 }) => {
-  // Clear any blocking startup modal (license / trial dialog) before filming.
-  await director.dismissDialogs();
-
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so stale-tile closing never airs.
   await goToCanvas(page, director);
-  await director.dismissDialogs();
   await closeStaleAgentTiles(page, director);
   await director.hold();
 

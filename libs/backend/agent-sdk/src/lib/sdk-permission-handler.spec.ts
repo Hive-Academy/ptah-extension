@@ -6,7 +6,8 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES, PermissionRequestSchema } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { PermissionRequestSchema } from '@ptah-extension/shared/schemas';
 
 import { SdkPermissionHandler } from './sdk-permission-handler';
 
@@ -450,6 +451,195 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
   });
 });
 
+// The surface-workflow regression (TASK_2026_317). `SdkQueryOptionsBuilder`
+// pins the routing ids at build time, when a NEW session has no SDK UUID yet,
+// so it falls back to the caller's tabId. For a chat tab that is harmless. For
+// a New Project / harness surface that tabId is a CORRELATION id, and stamping
+// it on both fields left the prompt unroutable: the question surfaced on
+// whichever canvas tile was focused, and `chat:pending-questions` — which
+// looks up by real session id — could never replay it after a reload.
+describe('SdkPermissionHandler - live session id resolution', () => {
+  const CORRELATION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('stamps the resolved SDK session id on a permission request, keeping the correlation id as tabId', async () => {
+    const { handler, sent } = makeHandler();
+    // Stands in for the SessionRecord the real resolver closes over.
+    const record: { realSessionId: string | null } = { realSessionId: null };
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => record.realSessionId ?? undefined,
+    );
+
+    // The SDK `init` message lands between callback creation and the first
+    // tool call — which is the whole point of resolving live.
+    record.realSessionId = REAL_SESSION_UUID;
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-1' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+    expect(payload.tabId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('stamps the resolved SDK session id on an AskUserQuestion request', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => REAL_SESSION_UUID,
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Which audience?',
+            header: 'Audience',
+            multiSelect: false,
+            options: [
+              { label: 'Devs', description: 'developers' },
+              { label: 'Ops', description: 'operators' },
+            ],
+          },
+        ],
+      },
+      { signal: ac.signal, toolUseID: 'tool-use-live-2' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    )?.payload as unknown as AskUserQuestionPayload;
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+    expect(payload.tabId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('makes the question findable by REAL session id, which is what chat:pending-questions asks for', async () => {
+    const { handler } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => REAL_SESSION_UUID,
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Which stack?',
+            header: 'Stack',
+            multiSelect: false,
+            options: [
+              { label: 'Node', description: 'node' },
+              { label: 'Deno', description: 'deno' },
+            ],
+          },
+        ],
+      },
+      { signal: ac.signal, toolUseID: 'tool-use-live-3' },
+    );
+    await flushMicrotasks();
+
+    expect(handler.listPendingQuestions(REAL_SESSION_UUID)).toHaveLength(1);
+    // The correlation id still resolves it too — the registry matches on
+    // either field, so session teardown keyed on the tab id still works.
+    expect(handler.listPendingQuestions(CORRELATION_ID)).toHaveLength(1);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('falls back to the build-time id while the SDK session id is still unknown', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => undefined, // no `init` yet
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-4' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('ignores a resolver that returns a non-UUID rather than stamping garbage', async () => {
+    const { handler, sent } = makeHandler();
+    const callback = handler.createCallback(
+      asSessionId(CORRELATION_ID),
+      undefined,
+      asTabId(CORRELATION_ID),
+      undefined,
+      CORRELATION_ID,
+      () => 'not-a-uuid',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-use-live-5' },
+    );
+    await flushMicrotasks();
+
+    const payload = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    )?.payload as unknown as PermissionRequestPayload;
+    expect(payload.sessionId).toBe(CORRELATION_ID);
+
+    ac.abort();
+    await pending;
+  });
+});
+
 describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
   afterEach(() => {
     container.clearInstances();
@@ -555,6 +745,41 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
 
     expect(interactiveResult).toMatchObject({ behavior: 'deny' });
     expect(cliResult).toMatchObject({ behavior: 'deny' });
+  });
+
+  // TASK_2026_295: `if (sessionId)` sent '' down the no-arg branch, so a caller
+  // that lost its id nuked every pending permission in the process — an
+  // unrelated live session received a systemAbort deny, which the model reads
+  // as the user refusing the tool.
+  it('cleanupPendingPermissions - an empty sessionId must NOT take the global branch', async () => {
+    const { handler } = makeHandler();
+
+    const OTHER_SESSION = 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa';
+    const callback = handler.createCallback(asSessionId(OTHER_SESSION));
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-empty-cleanup',
+      },
+    );
+
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions('');
+    await flushMicrotasks();
+
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    // The unrelated request is still live and still resolvable on its own terms.
+    handler.cleanupPendingPermissions(OTHER_SESSION);
+    await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
   });
 });
 
@@ -767,8 +992,16 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
 
       await jest.advanceTimersByTimeAsync(60_000);
 
-      const result = await pending;
-      expect(result).toMatchObject({ behavior: 'deny' });
+      const result = (await pending) as unknown as DenyResult;
+      expect(result.behavior).toBe('deny');
+
+      // A timeout is a system abort, not a refusal — nobody ever saw the
+      // prompt. interrupt:true is what makes the CLI swap in its canned
+      // "the user doesn't want to take this action" string, which is how this
+      // path used to read to the model as a deliberate deny (TASK_2026_247).
+      expect(result.interrupt).toBe(false);
+      expect(result.message).toMatch(/NOT a user decision/i);
+      expect(result.message).not.toMatch(/denied by user/i);
 
       const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
         String(call[0]).toLowerCase().includes('timed out'),
@@ -787,6 +1020,219 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  // TASK_2026_295: a CLI-agent request has no UUID session or tab, but
+  // sendPermissionRequest routes it to the agent monitor panel by agentId, the
+  // panel renders it, and the answer returns via agent:permissionResponse →
+  // handleResponse(requestId) — a round trip that involves no session or tab.
+  // Classifying it unroutable gave the user a real, visible prompt that
+  // auto-denied itself after 60s.
+  it('a CLI-agent request is routable: it goes to the agent monitor panel, outlives the 60s unroutable window, and stays answerable', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, sent } = makeHandler();
+      const callback = handler.createCallback(
+        // No UUID session id and no tabId — the parentless ptah-cli spawn.
+        undefined,
+        () => 'agent-cli-7',
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-cli-agent' },
+      );
+
+      await flushMicrotasks();
+
+      const monitorMessage = sent.find(
+        (m) => m.type === MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+      );
+      if (!monitorMessage) {
+        throw new Error(
+          'expected an AGENT_MONITOR_PERMISSION_REQUEST to be sent',
+        );
+      }
+      const agentPayload = monitorMessage.payload as unknown as {
+        requestId: string;
+        agentId: string;
+        timeoutAt: number;
+      };
+      expect(agentPayload.agentId).toBe('agent-cli-7');
+      // Bounded, not infinite: `timeoutAt` is a real future instant, and the
+      // ceiling is far beyond the 60s unroutable window this route used to be
+      // wrongly charged.
+      expect(agentPayload.timeoutAt).toBeGreaterThan(Date.now() + 60_000);
+      expect(jest.getTimerCount()).toBe(1);
+
+      // The Wave 1 invariant, unchanged: 60s must NOT auto-deny this prompt.
+      // The user is looking at a real card and gets to answer it.
+      await jest.advanceTimersByTimeAsync(120_000);
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await flushMicrotasks();
+      expect(settled).toBe(false);
+
+      // And the user's eventual answer still resolves it, keyed on requestId
+      // alone — the path agent:permissionResponse takes.
+      handler.handleResponse(agentPayload.requestId, {
+        id: agentPayload.requestId,
+        decision: 'allow',
+      });
+
+      const result = (await pending) as unknown as { behavior: string };
+      expect(result.behavior).toBe('allow');
+
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // TASK_2026_295 Wave 2: making the CLI-agent route "routable" also handed it
+  // `timeoutAt = 0` and no timer, i.e. an unbounded wait. The only remaining net
+  // was the `delivered === false` branch, which is a TRANSPORT check —
+  // `postMessage` succeeding reports `delivered: true` even when
+  // `AgentMonitorStore.onPermissionRequest` parks the prompt in
+  // `_pendingPermissionBuffer` because the agent card has not spawned. That
+  // buffer has no TTL and is drained only by the matching `onAgentSpawned`, so a
+  // crash or webview reload between `setAgentId()` and that event left the SDK
+  // stream stalled on a tool call forever. Bounded failure beats unbounded.
+  it('a CLI-agent request whose card never appears is denied at the ceiling instead of waiting forever', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, logger } = makeHandler();
+      const callback = handler.createCallback(
+        undefined,
+        () => 'agent-cli-orphan',
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-cli-orphan' },
+      );
+
+      await flushMicrotasks();
+
+      // Nobody ever answers — the card was buffered and never drained.
+      await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const result = (await pending) as unknown as DenyResult;
+      expect(result.behavior).toBe('deny');
+      // A timeout is a system abort, not a refusal — same contract as the
+      // unroutable window, so the model is not told the user objected.
+      expect(result.interrupt).toBe(false);
+      expect(result.message).toMatch(/NOT a user decision/i);
+
+      const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
+        String(call[0]).toLowerCase().includes('timed out'),
+      );
+      expect(warnedTimeout).toBe(true);
+
+      const internal = handler as unknown as {
+        pendingRequests: Map<string, unknown>;
+        pendingRequestContext: Map<string, unknown>;
+      };
+      expect(internal.pendingRequests.size).toBe(0);
+      expect(internal.pendingRequestContext.size).toBe(0);
+
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('emits prompt lifecycle events with the raw routing hint: requested (unroutable, 60s) then resolved timed-out (TASK_2026_271 #1)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler } = makeHandler();
+      const seen: Array<Record<string, unknown>> = [];
+      const unsubscribe = handler.onPromptLifecycle((e) => {
+        seen.push(e as unknown as Record<string, unknown>);
+      });
+      const callback = handler.createCallback(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'gw-conv-9',
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Write',
+        { file_path: '/tmp/a', content: 'x' },
+        { signal: ac.signal, toolUseID: 'tool-lc' },
+      );
+      await flushMicrotasks();
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({
+        phase: 'requested',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        routable: false,
+        timeoutMs: 60_000,
+      });
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      await pending;
+
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).toMatchObject({
+        phase: 'resolved',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        outcome: 'timed-out',
+      });
+      expect(seen[1]['requestId']).toBe(seen[0]['requestId']);
+
+      unsubscribe();
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a routable prompt answered allow emits requested (routable, no timeout) then resolved allowed', async () => {
+    const { handler, sent } = makeHandler();
+    const seen: Array<Record<string, unknown>> = [];
+    handler.onPromptLifecycle((e) => {
+      seen.push(e as unknown as Record<string, unknown>);
+    });
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(TAB_ID),
+      undefined,
+      asTabId(TAB_ID),
+      undefined,
+      TAB_ID,
+    );
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-lc2' },
+    );
+    await flushMicrotasks();
+    const requestId = (
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST)!
+        .payload as unknown as PermissionRequestPayload
+    ).id;
+    expect(seen[0]).toMatchObject({ phase: 'requested', routable: true });
+    expect(seen[0]['timeoutMs']).toBeUndefined();
+
+    handler.handleResponse(requestId, { id: requestId, decision: 'allow' });
+    await pending;
+    expect(seen[1]).toMatchObject({ phase: 'resolved', outcome: 'allowed' });
   });
 
   it('routed request (valid UUID sessionId) is NEVER auto-denied — no timer armed, still pending past 60s+', async () => {
@@ -921,5 +1367,118 @@ describe('PermissionRequestSchema - UUID validation', () => {
   it('PermissionRequestSchema accepts missing optional tabId and sessionId', () => {
     const result = PermissionRequestSchema.safeParse(BASE_VALID);
     expect(result.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// TASK_2026_247 — a system abort must not launder itself as a user denial.
+//
+// Both halves are asserted in contrast, because the whole defect is that the
+// two were INDISTINGUISHABLE at the tool-result layer: a teardown-deny and a
+// human deny produced byte-identical `{ behavior: 'deny', interrupt: true }`,
+// so the CLI substituted its canned "The user doesn't want to take this action
+// right now. STOP what you are doing..." string and the agent stopped working.
+// Asserting only one side cannot tell them apart and would not catch that.
+// ===========================================================================
+
+interface DenyResult {
+  behavior: string;
+  message?: string;
+  interrupt?: boolean;
+}
+
+describe('SdkPermissionHandler - system abort vs user deny mapping', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+
+  function startRequest(handler: SdkPermissionHandler, sent: SentMessage[]) {
+    const callback = handler.createCallback(
+      asSessionId(SESSION_UUID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+    return callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: `tool-${sent.length}`,
+      },
+    );
+  }
+
+  function requestIdOf(sent: SentMessage[]): string {
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    return (broadcast!.payload as unknown as PermissionRequestPayload).id;
+  }
+
+  it('a system-aborted request yields interrupt:false and a message that says it was NOT a user decision', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    // Teardown path — nobody clicked anything.
+    handler.cleanupPendingPermissions(TAB_ID);
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+
+    // interrupt:true is what makes the CLI swap in its canned user-denial
+    // string. A system abort MUST NOT take that path.
+    expect(result.interrupt).toBe(false);
+
+    // The message must state, in words that reach the model, that no human
+    // decided this and that the operation is retryable.
+    expect(result.message).toMatch(/NOT a user decision/i);
+    expect(result.message).toMatch(/retried/i);
+
+    // And it must not read as a refusal.
+    expect(result.message).not.toMatch(/denied by user/i);
+  });
+
+  it('a genuine user deny still yields interrupt:true and the user’s own reason', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    const requestId = requestIdOf(sent);
+    handler.handleResponse(requestId, {
+      id: requestId,
+      decision: 'deny',
+      reason: 'I do not want you running shell commands here',
+    });
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+    // A real refusal keeps the hard-stop semantics — the agent SHOULD stop.
+    expect(result.interrupt).toBe(true);
+    expect(result.message).toBe(
+      'I do not want you running shell commands here',
+    );
+    // It must NOT be relabelled as a system abort.
+    expect(result.message).not.toMatch(/NOT a user decision/i);
+  });
+
+  it('the global (no-arg) cleanup also marks its denials as system aborts', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions();
+
+    const result = (await pending) as unknown as DenyResult;
+    expect(result.behavior).toBe('deny');
+    expect(result.interrupt).toBe(false);
+    expect(result.message).toMatch(/NOT a user decision/i);
   });
 });

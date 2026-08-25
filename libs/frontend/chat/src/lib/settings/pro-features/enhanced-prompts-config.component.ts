@@ -61,20 +61,20 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
               <lucide-angular [img]="SparklesIcon" class="w-2 h-2" />
               Ptah Enhanced
             </span>
-            <span class="text-xs text-base-content/60"
+            <span class="text-xs text-base-content-muted"
               >Active for all sessions</span
             >
           </div>
         } @else {
           <div class="flex items-center gap-1 mb-2">
             <span class="badge badge-ghost badge-xs">Default</span>
-            <span class="text-xs text-base-content/60"
+            <span class="text-xs text-base-content-muted"
               >Standard system prompt</span
             >
           </div>
         }
 
-        <!-- Preset selection (only show for premium with enhanced prompts) -->
+        <!-- Preset selection (only shown once a prompt has been generated) -->
         @if (hasGeneratedPrompt() && enhancedPromptsEnabled()) {
           <div class="mb-2 p-2 border border-base-300 rounded bg-base-200/30">
             <div class="text-xs font-medium mb-1.5">
@@ -104,8 +104,9 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
                 <span>Default (Minimal)</span>
               </label>
             </div>
-            <div class="text-[10px] text-base-content/50 mt-1.5">
-              Both presets include MCP documentation for premium users.
+            <div class="text-[10px] text-base-content-muted mt-1.5">
+              Both presets include MCP documentation when the MCP server is
+              running.
             </div>
           </div>
         }
@@ -122,7 +123,9 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
           <div class="space-y-1.5 mb-2">
             <!-- Generated timestamp -->
             @if (enhancedPromptsGeneratedAt()) {
-              <div class="flex items-center gap-1 text-xs text-base-content/60">
+              <div
+                class="flex items-center gap-1 text-xs text-base-content-muted"
+              >
                 <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
                 <span>Generated: {{ enhancedPromptsGeneratedAt() }}</span>
               </div>
@@ -131,7 +134,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
             <!-- Detected stack -->
             @if (detectedStackSummary()) {
               <div
-                class="text-xs text-base-content/60 truncate"
+                class="text-xs text-base-content-muted truncate"
                 [title]="detectedStackSummary()!"
               >
                 Stack: {{ detectedStackSummary() }}
@@ -192,7 +195,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
           </div>
         } @else {
           <!-- No prompt generated yet -->
-          <p class="text-xs text-base-content/50 mb-2">
+          <p class="text-xs text-base-content-muted mb-2">
             Run the Setup Wizard to generate an AI-enhanced system prompt
             tailored to your project.
           </p>

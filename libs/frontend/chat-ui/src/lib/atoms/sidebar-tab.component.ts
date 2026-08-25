@@ -72,8 +72,8 @@ import {
         [class.tab-label--flip]="side() === 'left'"
         [class.tab-label--sm]="size() === 'sm'"
         [class.text-primary]="isOpen()"
-        [class.text-base-content/40]="!isOpen()"
-        [class.group-hover:text-base-content/70]="!isOpen()"
+        [class.text-base-content-muted]="!isOpen()"
+        [class.group-hover:text-base-content]="!isOpen()"
       >
         {{ label() }}
       </span>

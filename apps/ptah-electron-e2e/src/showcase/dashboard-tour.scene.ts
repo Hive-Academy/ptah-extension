@@ -73,9 +73,11 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   page,
   director,
 }) => {
-  // Clear any blocking startup modal (license / trial-ended dialog) before we
-  // film, then again after we switch surfaces.
-  await director.dismissDialogs();
+  // Keep the new open-source Builders card out of frame so the dashboard cards
+  // read in the order the script expects.
+  await page.evaluate(() => {
+    localStorage.setItem('ptah.builders-card.dismissed', '1');
+  });
 
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
@@ -83,7 +85,6 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   // navigation also forces the grid's first-mount (real session costs from
   // JSONL), so no separate pre-warm is needed.
   await goToDashboard(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.

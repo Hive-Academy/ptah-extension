@@ -16,6 +16,11 @@
  *   NativeDropdownComponent,
  *   NativePopoverComponent,
  *   NativeAutocompleteComponent,
+ *   NativeCardComponent,
+ *   NativeTabGroupComponent,
+ *   NativeDrawerComponent,
+ *   ProviderModelPickerComponent,
+ *   PROVIDER_MODELS_LOADER,
  * } from '@ptah-extension/ui';
  * ```
  */
@@ -25,3 +30,7 @@ export * from './dropdown';
 export * from './popover';
 export * from './autocomplete';
 export * from './form';
+export * from './card';
+export * from './tab-group';
+export * from './drawer';
+export * from './provider-model-picker';

@@ -4,20 +4,35 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SdkInternalQueryCuratorLlm,
-  CURATOR_FALLBACK_MODEL,
+  CURATOR_DEFAULT_MODEL_TIER,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
-import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
+import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
 import type { AuthEnv } from '@ptah-extension/shared';
 
-class FakeCuratorAuthError extends Error {
+class FakeProviderAuthError extends Error {
   readonly providerId: string;
   constructor(providerId: string, message: string) {
     super(message);
-    this.name = 'CuratorAuthError';
+    this.name = 'ProviderAuthError';
     this.providerId = providerId;
+  }
+}
+
+/**
+ * The sibling throw the curator must answer DIFFERENTLY. Matched by `name`,
+ * like the real one, because `ProviderQuotaError` lives in `auth-providers`.
+ */
+class FakeProviderQuotaError extends Error {
+  readonly providerId: string;
+  readonly retryAfterMs: number;
+  constructor(providerId: string, retryAfterMs: number, message: string) {
+    super(message);
+    this.name = 'ProviderQuotaError';
+    this.providerId = providerId;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -112,8 +127,8 @@ function makeInternalQuery(opts: {
 
 function makeResolver(
   impl: (id: string) => Promise<OneShotAuthOverride | null>,
-): ICuratorAuthResolver & { resolve: jest.Mock } {
-  return { resolve: jest.fn(impl) } as unknown as ICuratorAuthResolver & {
+): IProviderAuthResolver & { resolve: jest.Mock } {
+  return { resolve: jest.fn(impl) } as unknown as IProviderAuthResolver & {
     resolve: jest.Mock;
   };
 }
@@ -136,7 +151,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('falls back to CURATOR_FALLBACK_MODEL when unset', async () => {
+  it('sends the bare haiku TIER ALIAS — not a pinned Claude id — when unset', async () => {
     const capture: { model?: string } = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -148,8 +163,28 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeWorkspace(''),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
-    expect(CURATOR_FALLBACK_MODEL).toBe('claude-haiku-4-5-20251001');
+    expect(capture.model).toBe('haiku');
+    expect(CURATOR_DEFAULT_MODEL_TIER).toBe('haiku');
+  });
+
+  it('never hands a hardcoded Anthropic model id to a non-Anthropic provider', async () => {
+    const capture: { model?: string } = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': '',
+        'memory.curatorProvider': 'ollama-cloud',
+        authMethod: 'thirdParty',
+      }),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.model).not.toMatch(/^claude-/);
+    expect(capture.model).toBe('haiku');
   });
 
   it('falls back when the configured value is whitespace only', async () => {
@@ -164,7 +199,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeWorkspace('   '),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
   });
 
   it('trims the configured value before sending it as the model id', async () => {
@@ -182,7 +217,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('falls back to CURATOR_FALLBACK_MODEL when getConfiguration throws', async () => {
+  it('falls back to CURATOR_DEFAULT_MODEL_TIER when getConfiguration throws', async () => {
     const capture: { model?: string } = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -194,7 +229,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeThrowingWorkspace(),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
   });
 });
 
@@ -303,7 +338,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     expect(capture.model).toBe('glm-4.6');
   });
 
-  it('proceeds with auth=undefined and warns when the resolver throws CuratorAuthError', async () => {
+  it('proceeds with auth=undefined and warns when the resolver throws ProviderAuthError', async () => {
     const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -311,7 +346,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     });
     const logger = makeLogger();
     const resolver = makeResolver(async () => {
-      throw new FakeCuratorAuthError(
+      throw new FakeProviderAuthError(
         'github-copilot',
         'curator provider not authenticated',
       );
@@ -379,7 +414,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('rethrows non-CuratorAuthError resolver failures', async () => {
+  it('rethrows non-ProviderAuthError resolver failures', async () => {
     const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
     const resolver = makeResolver(async () => {
       throw new Error('unexpected resolver crash');
@@ -400,6 +435,169 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
   });
 });
 
+/**
+ * The quota branch (TASK_2026_306 defect B, decision A2).
+ *
+ * The curator STOPS while its resolved provider is cooling down. It does not
+ * inherit the `ProviderAuthError` fallback, and the reason is not symmetry: an
+ * unpinned curator (`''`) resolves TO the active provider, so "fall back to the
+ * active provider" would mean "immediately retry the one that just said no",
+ * and where a separate curator provider IS pinned the fallback moves an
+ * exhausted provider's work onto the user's foreground quota.
+ *
+ * It also does not THROW. `ICuratorLLM`'s contract grows no failure mode — the
+ * curator degrades to the same empty shape every other unusable-reply path
+ * here already produces.
+ */
+describe('SdkInternalQueryCuratorLlm — the quota gate (A2)', () => {
+  const quotaResolver = () =>
+    makeResolver(async () => {
+      throw new FakeProviderQuotaError(
+        'openai-codex',
+        900_000,
+        'Provider quota exhausted; retrying in about 15 min.',
+      );
+    });
+
+  function makeAdapter(logger: Logger, internalQuery: InternalQueryService) {
+    return new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': '',
+        authMethod: 'apiKey',
+      }),
+      quotaResolver(),
+    );
+  }
+
+  it('runs NO query at all while the provider is cooling down', async () => {
+    // The point of gating before dispatch: the second and later passes cost
+    // zero upstream requests. Falling back would have cost one each.
+    const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
+    const adapter = makeAdapter(makeLogger(), internalQuery);
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('reports status "stalled" — NOT an empty extraction (TASK_2026_306 F1)', async () => {
+    // The stubbed query would return a PERFECTLY VALID draft, so a `[]`-shaped
+    // answer proves the query never happened rather than that the reply was
+    // unparseable.
+    //
+    // But `[]` was ALSO the pre-fix answer, and that is the defect: it is what
+    // a pass that ran and found nothing produces, so `MemoryTriggerService`
+    // marked the drained observations processed and discarded them. This
+    // asserts the DISCRIMINATOR, which is the only part that distinguishes the
+    // fixed behaviour from the broken one.
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[{"kind":"fact","content":"the build uses esbuild"}]}',
+      }),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-cooling-down',
+      providerId: '',
+    });
+  });
+
+  it('carries no drafts on the stalled arm — the signal does not invent a result', async () => {
+    // The stalled arm has no `drafts` property at all. A stalled pass extracted
+    // nothing and the type says so; there is no empty array for a future caller
+    // to mistake for a real answer.
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[{"kind":"fact","content":"x"}]}',
+      }),
+    );
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result).not.toHaveProperty('drafts');
+  });
+
+  it('a pass that RAN and found nothing reports status "extracted" with an empty list', async () => {
+    // The inverse. Same zero drafts, opposite status — this is the pair the
+    // pre-fix code collapsed into one value.
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}' }),
+      makeWorkspace(''),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+  });
+
+  it('does not throw — ICuratorLLM grows no new failure mode', async () => {
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}' }),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.not.toThrow;
+    await expect(
+      adapter.resolve(
+        [{ content: 'a draft' } as never],
+        [{ id: '1', subject: null, content: 'related' }],
+      ),
+    ).resolves.toEqual([{ content: 'a draft', mergeTargetId: null }]);
+  });
+
+  it('warns with a message about the quota, distinct from the auth fallback line', async () => {
+    const logger = makeLogger();
+    const adapter = makeAdapter(
+      logger,
+      makeInternalQuery({ text: '{"memories":[]}' }),
+    );
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('rate-limited'),
+      expect.objectContaining({ curatorProviderId: '' }),
+    );
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[memory-curator] curator provider auth unavailable; riding active provider',
+      expect.anything(),
+    );
+  });
+
+  it('leaves the ProviderAuthError fallback exactly as it was', async () => {
+    // The documented divergence from lanes stays. Only the quota case is new.
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': 'github-copilot',
+        authMethod: 'apiKey',
+      }),
+      makeResolver(async () => {
+        throw new FakeProviderAuthError('github-copilot', 'not authenticated');
+      }),
+    );
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(internalQuery.execute).toHaveBeenCalledTimes(1);
+    expect(capture.auth).toBeUndefined();
+  });
+});
+
 describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
   it('re-throws CuratorLlmQueryError on SDK/transport failure', async () => {
     const internalQuery = makeInternalQuery({
@@ -415,23 +613,31 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
     );
   });
 
-  it('returns [] (does not throw) when model output is empty', async () => {
+  it('returns an EXTRACTED status with no drafts (does not throw) when model output is empty', async () => {
+    // `status: 'extracted'` even though the list is empty: the query ran and
+    // the model said nothing. Only the quota gate produces `'stalled'`.
     const internalQuery = makeInternalQuery({ text: '' });
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
       makeWorkspace(''),
     );
-    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
   });
 
-  it('returns [] when model output is non-JSON garbage', async () => {
+  it('returns an EXTRACTED status with no drafts when model output is non-JSON garbage', async () => {
     const internalQuery = makeInternalQuery({ text: 'not json at all' });
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
       makeWorkspace(''),
     );
-    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
   });
 });

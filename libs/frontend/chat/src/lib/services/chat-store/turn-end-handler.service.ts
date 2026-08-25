@@ -7,8 +7,11 @@ import {
   type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import {
+  ConversationRegistry,
+  TabSessionBinding,
   TabManagerService,
   type BackgroundAgentId,
+  type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
@@ -61,6 +64,27 @@ export class TurnEndHandlerService {
   private readonly finalization = inject(MessageFinalizationService);
   private readonly lifecycle = inject(ChatLifecycleService);
   private readonly backgroundAgents = inject(BackgroundAgentStore);
+  private readonly conversations = inject(ConversationRegistry);
+  private readonly sessionBinding = inject(TabSessionBinding);
+
+  /**
+   * True when the session is owned by a SURFACE rather than a tab — the harness
+   * / New Project workflow, the wizard, any non-tab host.
+   *
+   * Those flows never create a `TabState`: they claim a `SurfaceId`, and their
+   * turn-end effects (liveness, spinner, transcript) are driven by the surface
+   * path in `ChatMessageHandler` + `StreamRouter` before this service is ever
+   * called. Both tab lookups therefore come back empty for them, which used to
+   * fire "no tab bound to sessionId" on every single workflow turn — a warning
+   * that was never true and that drowned the case it exists to report, an event
+   * for a session nothing at all is listening to.
+   */
+  private isSurfaceOwned(sessionId: string): boolean {
+    const record = this.conversations.findContainingSession(
+      sessionId as ClaudeSessionId,
+    );
+    return record ? this.sessionBinding.hasBoundSurfaces(record.id) : false;
+  }
 
   /**
    * Handle the `session:turnEnded` push (backend `Stop` SDK hook). Fans out to
@@ -115,12 +139,14 @@ export class TurnEndHandlerService {
         }
         return;
       }
-      console.warn('[ChatStore] handleTurnEnded: no tab bound to sessionId', {
-        sessionId: payload.sessionId,
-        terminalReason: payload.terminalReason,
-        backgroundTaskCount: payload.backgroundTasks.length,
-        sessionCronCount: payload.sessionCrons.length,
-      });
+      if (!this.isSurfaceOwned(payload.sessionId)) {
+        console.warn('[ChatStore] handleTurnEnded: no tab bound to sessionId', {
+          sessionId: payload.sessionId,
+          terminalReason: payload.terminalReason,
+          backgroundTaskCount: payload.backgroundTasks.length,
+          sessionCronCount: payload.sessionCrons.length,
+        });
+      }
       return;
     }
     for (const tab of tabs) {
@@ -191,10 +217,12 @@ export class TurnEndHandlerService {
         }
         return;
       }
-      console.warn(
-        '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
-        { sessionId: payload.sessionId, agentId: payload.agentId },
-      );
+      if (!this.isSurfaceOwned(payload.sessionId)) {
+        console.warn(
+          '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
+          { sessionId: payload.sessionId, agentId: payload.agentId },
+        );
+      }
       return;
     }
     for (const tab of tabs) {
@@ -244,11 +272,16 @@ export class TurnEndHandlerService {
         this.tabManager.markTabIdle(lookup.tab.id);
         return;
       }
-      console.warn('[ChatStore] handleTurnFailed: no tab bound to sessionId', {
-        sessionId: payload.sessionId,
-        terminalReason: payload.terminalReason,
-        error: payload.error,
-      });
+      if (!this.isSurfaceOwned(payload.sessionId)) {
+        console.warn(
+          '[ChatStore] handleTurnFailed: no tab bound to sessionId',
+          {
+            sessionId: payload.sessionId,
+            terminalReason: payload.terminalReason,
+            error: payload.error,
+          },
+        );
+      }
       return;
     }
     for (const tab of tabs) {

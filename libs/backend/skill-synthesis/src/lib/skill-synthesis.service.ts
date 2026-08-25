@@ -5,8 +5,37 @@
  *   - `start()` is invoked by Electron `wire-runtime.ts`. It
  *     ensures the underlying SQLite connection is open and migrations are
  *     applied. It subscribes to the session-end registry so that every
- *     completed session is automatically analyzed for skill candidates.
+ *     completed session is ENQUEUED for later synthesis.
  *   - `stop()` unsubscribes from the session-end registry and resets state.
+ *
+ * ## Every trigger enqueues; nothing analyzes inline
+ *
+ * Phase 0 of TASK_2026_180 removed the inline pipeline that used to run off
+ * the session-end callback (B0.6) and off every other trigger (B0.9). A
+ * trigger now costs ZERO LLM tokens: it writes one `prefilter` row into
+ * `skill_synthesis_queue` through `enqueueAnalyze` and returns.
+ * `SkillDrainService`, driven by the three cron tiers registered in
+ * `thoth-runtime`, is the only thing allowed to spend from that point on.
+ * There is deliberately no feature flag for this — the queue REPLACES the
+ * inline path rather than running beside it.
+ *
+ * ## …and this service is what makes the queue drain
+ *
+ * `start()` is THE REGISTRATION SEAM. Without it an enqueued row is marked
+ * `skipped` ("no handler for stage …") and the queue is one nobody reads. The
+ * six stage protocols themselves live in `queue/stage-handlers.service.ts`
+ * (TASK_2026_256) — this service hands itself over as the `SkillStageWorkers`
+ * port and calls `registerStageHandlers`, ABOVE both of the early returns
+ * below.
+ *
+ * `analyzeSession` therefore has ONE background caller — the `prefilter` stage
+ * handler. The only other caller in the codebase is the explicit,
+ * user-initiated `skillSynthesis:analyzeNow` RPC. A new inline caller is a
+ * dual path and must not be added. The analyzer has the same shape: the
+ * `archaeology` stage handler is its one background caller, and a session
+ * reaches that stage only through the chain `prefilter → archaeology`, written
+ * from the successful end of the prefilter handler so the cheap gate still
+ * decides whether the expensive stage runs at all.
  *
  * Settings are read on demand from the platform `IWorkspaceProvider`
  * (file-based settings) so changes apply without restart.
@@ -36,12 +65,19 @@ import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
 import { SkillCuratorService } from './skill-curator.service';
 import {
+  MIN_ROLE_TURNS_FLOOR,
   TrajectoryExtractor,
   type ExtractedTrajectory,
 } from './trajectory-extractor';
 import { SkillSynthesizerService } from './skill-synthesizer.service';
+import type { SessionVerdictStore } from './archaeology/session-verdict.store';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 import { SkillRegistryStore } from './skill-registry.store';
 import { migrateSkillMdFiles } from './skill-md-migration';
+import { readCandidateBodyFile } from './candidate-body';
+import type { SkillQueueStore } from './queue/skill-queue.store';
+import type { EnqueueOutcome } from './queue/skill-queue.types';
+import type { SkillStageHandlersService } from './queue/stage-handlers.service';
 import type {
   CandidateId,
   RegisterCandidateResult,
@@ -53,6 +89,7 @@ import type {
 } from './diagnostics.types';
 import {
   MESSAGE_TYPES,
+  blankToUndefined,
   type SkillSynthesisPromoteBulkDecision,
   type SkillSynthesisEventWire,
 } from '@ptah-extension/shared';
@@ -73,6 +110,16 @@ export type AnalyzeSource =
   | 'edit-then-test'
   | 'turn-complete'
   | 'session-end';
+
+/** Everything `enqueueAnalyze` needs beyond the session identity. */
+export interface EnqueueAnalyzeOptions {
+  /** Which trigger fired. Travels onto the row and back out at drain time. */
+  source: AnalyzeSource;
+  /** Subagent transcripts do not live at the default path; carry it. */
+  transcriptPath?: string;
+  /** Boot scan's per-item signal. Enqueue is cheap, but it is not free. */
+  signal?: AbortSignal;
+}
 
 const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   enabled: true,
@@ -97,16 +144,35 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   suggestionMaxCandidates: 200,
 };
 
+/**
+ * Sentinel `session_id` prefix for the embedding-backfill queue row.
+ *
+ * The backfill is not session-scoped, but `skill_synthesis_queue` is keyed
+ * `UNIQUE(session_id, stage)`, so it needs a synthetic id. The calendar day is
+ * appended for two reasons: `UNIQUE` then dedups the row across every window
+ * that boots on the same day (the in-process `setTimeout` this replaces ran
+ * once per window), and a fresh day yields a fresh INSERT rather than relying
+ * on the `turn_count` re-open guard, which has no honest value to compare here.
+ */
+const EMBEDDING_BACKFILL_SESSION_PREFIX = 'backfill-embeddings:';
+
 @injectable()
 export class SkillSynthesisService {
   private static readonly RING_CAPACITY = 200;
   private started = false;
   /**
-   * Highest trajectory turn count analyzed per session in this process. A
-   * session is re-analyzed only once it has grown beyond the previously
-   * analyzed turn count, so a turn-complete trigger that fired while the
-   * session was still ineligible (<5 turns) can succeed later. Duplicate
-   * candidates are still prevented by the trajectory-hash dedup downstream.
+   * Highest trajectory turn count handed to the pipeline per session IN THIS
+   * PROCESS. A session is re-analyzed only once it has grown beyond that count,
+   * so a turn-complete trigger that fired while the session was still
+   * ineligible (<5 turns) can succeed later.
+   *
+   * SAME-PROCESS FAST PATH ONLY (TASK_2026_180 phase 0). It is a cache that
+   * saves a redundant SQLite round trip, not the correctness boundary — it is
+   * cleared by `stop()` and invisible to a second window. Correctness now lives
+   * in `skill_synthesis_queue`: `UNIQUE(session_id, stage)` plus the re-open
+   * guarded on `turn_count <`, which expresses the same "only once it grew"
+   * rule durably and across windows. It is a `Map<sessionId, turn count>` and
+   * NOT a seen-set for exactly that reason; do not flatten it into one.
    */
   private readonly analyzedSessions = new Map<string, number>();
   /** Disposer returned by the session-end registry — called in stop(). */
@@ -159,6 +225,37 @@ export class SkillSynthesisService {
     private readonly embedder: IEmbedder | null = null,
     @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
     private readonly webviewManager: WebviewManager | null = null,
+    /**
+     * The durable synthesis queue. Optional so a host without persistence (or
+     * a spec that constructs the service by hand) still resolves; when it is
+     * absent, session end logs and does nothing rather than falling back to the
+     * inline pipeline — a silent dual path is exactly what phase 0 removes.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, { isOptional: true })
+    private readonly queue: SkillQueueStore | null = null,
+    /**
+     * Read-only here. `analyzeSession` looks the verdict up to hand it to the
+     * synthesizer; the archaeologist owns every write.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE, { isOptional: true })
+    private readonly verdicts: SessionVerdictStore | null = null,
+    /**
+     * The six queue stage protocols, extracted in TASK_2026_256. Injected by
+     * TOKEN and typed with `import type`, so this file never takes a runtime
+     * dependency on the queue side — `queue/skill-queue.types` already points
+     * back here (`SkillQueueSource = AnalyzeSource`).
+     *
+     * Optional for the same reason the queue is: a host without persistence, or
+     * a spec that constructs the service by hand, still resolves. When it is
+     * absent nothing drains in this host, which is exactly what a host with no
+     * queue should do — it is never a reason to analyze inline. It owns the
+     * drain and every gate; this service owns only the three workers it hands
+     * over at registration.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_STAGE_HANDLERS_SERVICE, {
+      isOptional: true,
+    })
+    private readonly stageHandlers: SkillStageHandlersService | null = null,
   ) {}
 
   /**
@@ -166,6 +263,15 @@ export class SkillSynthesisService {
    * try/catch so a failure here NEVER blocks app activation.
    */
   async start(): Promise<void> {
+    // ABOVE both early returns, deliberately. Registration is a handful of Map
+    // writes: it opens no database, reads no transcript and spends nothing, so
+    // the "paused means touches nothing" rule the drain's gate 1 enforces is not
+    // weakened by doing it here. Doing it BELOW the `enabled` check would mean
+    // a host that booted while `skillSynthesis.enabled` was false has no
+    // handlers, and the moment the tray re-enables background learning every
+    // drained row would be marked `skipped` for want of one. Idempotent, so
+    // the `started` re-entry guard below does not need to cover it.
+    this.stageHandlers?.registerStageHandlers(this);
     if (this.started) return;
     if (!this.readSettings().enabled) {
       this.logger.info(
@@ -221,14 +327,14 @@ export class SkillSynthesisService {
     this.started = true;
     this._sessionEndDisposer = this.sessionEndRegistry.register(
       (data: { sessionId: string; workspaceRoot: string }) => {
-        void this.analyzeSession(data.sessionId, data.workspaceRoot).catch(
-          (err: unknown) => {
-            this.logger.warn('[skill-synthesis] analyzeSession error', {
-              sessionId: data.sessionId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          },
-        );
+        void this.enqueueAnalyze(data.sessionId, data.workspaceRoot, {
+          source: 'session-end',
+        }).catch((err: unknown) => {
+          this.logger.warn('[skill-synthesis] session-end enqueue error', {
+            sessionId: data.sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       },
     );
     const settings = this.readSettings();
@@ -243,25 +349,14 @@ export class SkillSynthesisService {
       });
     }
 
-    // Fire-and-forget backfill of embeddings onto pre-existing candidates so
-    // the clustering / suggestion pass has vectors to work with. Delayed and
-    // never awaited so it cannot block activation; self-limiting across runs.
-    setTimeout(() => {
-      void this.backfillEmbeddings()
-        .then((n) => {
-          if (n > 0) {
-            this.logger.info(
-              '[skill-synthesis] backfilled candidate embeddings',
-              { count: n },
-            );
-          }
-        })
-        .catch((err: unknown) =>
-          this.logger.warn('[skill-synthesis] backfill failed (non-fatal)', {
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
-    }, 5000);
+    // Backfill of embeddings onto pre-existing candidates, so the clustering /
+    // suggestion pass has vectors to work with. It used to be a
+    // `setTimeout(…, 5000)` fire-and-forget that raced host activation and was
+    // lost outright if the window closed inside the delay. It is now an
+    // `embedding`-stage queue row: the drain runs it on its own schedule, under
+    // the same gates (enabled / budget / battery / foreground) as every other
+    // background stage, and it survives a restart.
+    this.enqueueEmbeddingBackfill();
 
     this.logger.info('[skill-synthesis] started', {
       vecExtensionLoaded: this.vecStatus.available,
@@ -275,6 +370,186 @@ export class SkillSynthesisService {
     this.curator?.stop();
     this.started = false;
     this.analyzedSessions.clear();
+  }
+
+  /**
+   * Migrate this service's session-keyed state from `fromId` to `toId`, and
+   * re-point the durable queue rows with it.
+   *
+   * Driven by `SkillTriggerService.rekeySession`, which is in turn driven by
+   * the SDK's `SessionIdResolvedCallbackRegistry`. Before the canonical UUID
+   * exists a residual hook path reports the **tabId**, so both
+   * `analyzedSessions` and `skill_synthesis_queue` can end up keyed by it while
+   * every later signal — and `SessionEnd` — arrives under the UUID. Split keys
+   * mean the turn-count high-water mark is split too, so a session would be
+   * re-analyzed from zero under its real id. TASK_2026_296 item 6, Part B.
+   *
+   * Synchronous by contract: no `await` here or in `SkillQueueStore`'s
+   * backfill, so nothing interleaves between the read and the write.
+   *
+   * **Refuse-overwrite**: when `toId` already has a recorded turn count that
+   * count is KEPT and the `fromId` entry discarded. Never clobber — the
+   * surviving value was recorded under the canonical id, and a stale HIGHER
+   * count would suppress legitimate re-analysis while a stale LOWER one only
+   * costs one redundant round trip against `UNIQUE(session_id, stage)`'s
+   * durable guard.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    const turnCount = this.analyzedSessions.get(from);
+    this.analyzedSessions.delete(from);
+    if (turnCount !== undefined && !this.analyzedSessions.has(to)) {
+      this.analyzedSessions.set(to, turnCount);
+    }
+
+    this.queue?.backfillSessionId(from, to);
+  }
+
+  /**
+   * THE way a trigger reaches synthesis. It ENQUEUES; it never analyzes.
+   *
+   * Every trigger funnels here — session end (B0.6), and from B0.9 the idle,
+   * subagent-stop, edit-then-test, turn-complete and boot-scan triggers in
+   * `SkillTriggerService`. One entry point rather than six copies of the
+   * turn-count dance is the whole point: the trap below has to be got right
+   * exactly once.
+   *
+   * The one acceptance criterion is that this method spends nothing: it makes
+   * no LLM call, directly or transitively. It reads the transcript once —
+   * local file I/O the trigger path already performs on every turn — purely to
+   * learn how far the session got, then writes a single `prefilter` row.
+   *
+   * `turnCount` is the load-bearing argument, not decoration.
+   * `SkillQueueStore.enqueue` is a plain INSERT whose `UNIQUE(session_id,
+   * stage)` violation becomes a re-open guarded on `turn_count <`. Passing the
+   * freshly observed count is therefore what preserves "re-analyze a session
+   * only once it has grown" — the exact rule `analyzedSessions` enforced in
+   * memory, now durable and shared across windows. Passing `0` would compile,
+   * pass a naive test, and permanently wedge every finished row.
+   *
+   * A null trajectory means there is no readable transcript or fewer than two
+   * role turns. That is not queue-able work, so it is counted and dropped here
+   * exactly as the inline path counted and dropped it.
+   *
+   * Returns the enqueue outcome, or `null` when nothing was queued.
+   */
+  async enqueueAnalyze(
+    sessionId: string,
+    workspaceRoot: string,
+    opts: EnqueueAnalyzeOptions,
+  ): Promise<EnqueueOutcome | null> {
+    if (opts.signal?.aborted) return null;
+    if (!this.started) return null;
+    const settings = this.readSettings();
+    if (!settings.enabled) return null;
+    if (sessionId === 'manual') {
+      this.logger.warn(
+        '[skill-synthesis] enqueueAnalyze called with reserved sessionId "manual" — rejecting',
+        { source: opts.source },
+      );
+      return null;
+    }
+    // An empty id is not a session, and the queue treats it as one: the table
+    // is `UNIQUE(session_id, stage)`, so EVERY session arriving with `''`
+    // collides on a single row per stage, and the re-open is gated on
+    // `turn_count < ?` — so the first such session's turn count wedges every
+    // later one out, permanently and silently. The rejection belongs here
+    // because this is the one entry point every trigger and the boot scan share.
+    if (blankToUndefined(sessionId) === undefined) {
+      this.logger.warn(
+        '[skill-synthesis] enqueueAnalyze called with an empty sessionId — rejecting',
+        { source: opts.source, workspaceRoot },
+      );
+      return null;
+    }
+    if (!this.queue) {
+      this.logger.warn(
+        '[skill-synthesis] no queue store registered; enqueue skipped',
+        { sessionId, source: opts.source },
+      );
+      return null;
+    }
+
+    // The extractor's own FLOOR, not the eligibility threshold. Enqueuing is
+    // free and a short session may grow, so this path asks only "is there a
+    // readable session here"; `settings.eligibilityMinTurns` is spent in
+    // `passesPrefilter`, where the decision to spend tokens is actually made.
+    const trajectory = await this.extractor.extract(
+      sessionId,
+      workspaceRoot,
+      MIN_ROLE_TURNS_FLOOR,
+      opts.transcriptPath,
+    );
+    if (!trajectory) {
+      this.logger.info(
+        '[skill-synthesis] session ineligible (trajectory null — fewer than 2 role turns)',
+        { sessionId, source: opts.source },
+      );
+      this.incrementEligibility('prefilterTooThin');
+      this.pushEvent({
+        kind: 'ineligible',
+        timestamp: Date.now(),
+        sessionId,
+        reason: 'prefilterTooThin',
+      });
+      return null;
+    }
+
+    // Same-process fast path: this window already queued the session at this
+    // turn count or higher, so the guarded re-open would return `unchanged`.
+    // Skipping the round trip is the ONLY thing this Map is still for.
+    const lastTurnCount = this.analyzedSessions.get(sessionId);
+    if (lastTurnCount !== undefined && trajectory.turnCount <= lastTurnCount) {
+      return null;
+    }
+
+    const result = this.queue.enqueue({
+      sessionId,
+      stage: 'prefilter',
+      source: opts.source,
+      workspaceRoot,
+      transcriptPath: opts.transcriptPath ?? null,
+      turnCount: trajectory.turnCount,
+    });
+    this.analyzedSessions.set(sessionId, trajectory.turnCount);
+    this.logger.info('[skill-synthesis] session enqueued for synthesis', {
+      sessionId,
+      stage: 'prefilter',
+      source: opts.source,
+      outcome: result.outcome,
+      turnCount: trajectory.turnCount,
+    });
+    return result.outcome;
+  }
+
+  /**
+   * Queue the embedding backfill instead of running it on a timer. Failures
+   * are non-fatal by construction: a backfill that never queues degrades the
+   * suggestion pass, it must never break activation.
+   */
+  private enqueueEmbeddingBackfill(): void {
+    if (!this.queue) return;
+    try {
+      const result = this.queue.enqueue({
+        sessionId: `${EMBEDDING_BACKFILL_SESSION_PREFIX}${SkillSynthesisService.todayKey()}`,
+        stage: 'embedding',
+        source: 'boot',
+        // Cross-project work, like clustering: it has no owning workspace, and
+        // `''` is the round-robin key the drain reserves for exactly that.
+        workspaceRoot: '',
+      });
+      this.logger.info('[skill-synthesis] embedding backfill enqueued', {
+        outcome: result.outcome,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] embedding backfill enqueue failed (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
   }
 
   /**
@@ -355,10 +630,12 @@ export class SkillSynthesisService {
       this.analyzedSessions.delete(sessionId);
     }
 
+    // Floor, not threshold — see `enqueueAnalyze`. `passesPrefilter` below is
+    // the one place `eligibilityMinTurns` is applied.
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
-      settings.eligibilityMinTurns,
+      MIN_ROLE_TURNS_FLOOR,
       transcriptPath,
     );
     if (trajectory) {
@@ -452,6 +729,7 @@ export class SkillSynthesisService {
       const synthesized = await this.synthesizer.synthesize(
         trajectory,
         settings,
+        this.readVerdict(sessionId),
       );
       if (synthesized) {
         synthesizedBody = synthesized.body;
@@ -501,6 +779,14 @@ export class SkillSynthesisService {
       trajectoryHash: trajectory.hash,
       embedding,
       createdAt: Date.now(),
+      // The ORIGIN of this capture, and the reason the Skills tab can scope its
+      // review queue to one project. `|| null` and never `|| ''`: a session
+      // with no known root is UNKNOWN origin, which a scoped read includes,
+      // whereas `''` would claim the capture is deliberately cross-project.
+      // This is the same root the `contextId` above is hashed from — that hash
+      // is a generality COUNT (`countDistinctContexts`) and cannot be reversed
+      // to a path, which is why the path is stored as well as hashed.
+      workspaceRoot: workspaceRoot || null,
     });
     if (!result.reused && contextId) {
       this.store.recordInvocation({
@@ -554,18 +840,14 @@ export class SkillSynthesisService {
     let processed = 0;
     for (const c of candidates) {
       try {
-        let text: string;
-        try {
-          if (c.bodyPath && fs.existsSync(c.bodyPath)) {
-            const raw = fs.readFileSync(c.bodyPath, 'utf8');
-            const body = raw.replace(/^---[\s\S]*?---\s*/, '').trim();
-            text = `${c.description}\n\n${body}`;
-          } else {
-            text = `${c.name}\n\n${c.description}`;
-          }
-        } catch {
-          text = `${c.name}\n\n${c.description}`;
-        }
+        const body = readCandidateBodyFile(c, this.logger);
+        // The fallback stays the ROW's own text rather than the shared
+        // stand-in: this string is embedded, and folding `description` in
+        // twice would move the vector for every candidate with no file.
+        const text =
+          body === null
+            ? `${c.name}\n\n${c.description}`
+            : `${c.description}\n\n${body}`;
         const [vec] = await this.embedder.embed([text]);
         if (vec) {
           this.store.setEmbedding(c.id, vec);
@@ -708,19 +990,81 @@ export class SkillSynthesisService {
     }
   }
 
+  /**
+   * The session's verdict, when this host has a store and a row exists.
+   *
+   * `null` covers three genuinely different things — no store in this host, the
+   * session was never analyzed, and a lookup that threw — and the caller treats
+   * all three the same way, because the answer to every one of them is "build
+   * the prompt from the trajectory instead". A degraded row is NOT filtered out
+   * here: `SkillSynthesizerService` applies the usability predicate itself, so
+   * this stays a plain read.
+   */
+  private readVerdict(sessionId: string): SessionVerdict | null {
+    if (!this.verdicts) return null;
+    try {
+      return this.verdicts.findBySession(sessionId);
+    } catch (error: unknown) {
+      this.logger.warn('[skill-synthesis] verdict lookup failed', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * ELIGIBILITY TO SPEND TOKENS. Nothing more (phase 2).
+   *
+   * This used to double as a quality verdict, and the two AND-ed halves of the
+   * tool branch are what made it one: a session was only worth keeping if it had
+   * been tool-active AND had produced a lot of text, which selects for work that
+   * went WELL. A session that fought its way to an answer — three failed
+   * attempts, a correction, then a fix — is the most valuable material the
+   * pipeline can get, and the whole point of the archaeologist's `frictionMap`
+   * is to capture it. It is also frequently SHORT, because a debugging loop is
+   * terse.
+   *
+   * So the branches are now independent signals of "there is something here",
+   * and any one of them is enough:
+   *
+   *  - `editOk`  — code changed hands.
+   *  - `toolOk`  — the assistant DID things. `prefilterMinChars` no longer
+   *                conjoins this, which is the widening: retries are tool calls,
+   *                and a friction-rich session is tool-dense before it is long.
+   *  - `testOk`  — a test command ran. NOT "tests passed" — the extractor cannot
+   *                know that, and pretending it does is the same regex-as-verdict
+   *                mistake `SUCCESS_MARKERS` was demoted for.
+   *  - `depthOk` — a sustained back-and-forth with real content in it. This is
+   *                where a corrective session with no edits lands: the user and
+   *                the assistant went round `eligibilityMinTurns` times, which is
+   *                friction by definition. `prefilterMinChars` conjoins HERE,
+   *                where "long conversation" needs to mean more than a dozen
+   *                one-word turns.
+   *
+   * Deliberately still a REJECTION, not a pass-through: the analyzer is the only
+   * stage that runs once per session and it dominates the token budget (R3). The
+   * regex gate keeps gating spend; it just stops pretending to judge outcomes.
+   *
+   * No branch below reads the extractor's tail-regex success flag, and none may
+   * start. `regex-demotion.spec.ts` proves that with a substring scan over
+   * production file text, so the field is not named here either — a scan cannot
+   * tell code from a comment about code.
+   */
   private passesPrefilter(
     trajectory: ExtractedTrajectory,
     settings: SkillSynthesisSettings,
   ): { ok: boolean; reason?: 'tooThin' | 'noWork' } {
-    if (trajectory.turnCount < 2) {
+    if (trajectory.turnCount < MIN_ROLE_TURNS_FLOOR) {
       return { ok: false, reason: 'tooThin' };
     }
     const editOk = trajectory.editCount >= settings.prefilterMinEdits;
-    const toolOk =
-      trajectory.toolUseCount >= settings.prefilterMinToolUses &&
-      trajectory.charLength >= settings.prefilterMinChars;
+    const toolOk = trajectory.toolUseCount >= settings.prefilterMinToolUses;
     const testOk = trajectory.bashTestPassed === true;
-    if (editOk || toolOk || testOk) {
+    const depthOk =
+      trajectory.turnCount >= settings.eligibilityMinTurns &&
+      trajectory.charLength >= settings.prefilterMinChars;
+    if (editOk || toolOk || testOk || depthOk) {
       return { ok: true };
     }
     return { ok: false, reason: 'noWork' };

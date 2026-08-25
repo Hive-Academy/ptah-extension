@@ -1,0 +1,454 @@
+<section class="flex flex-col gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">Sessions</h2>
+        <span class="text-sm opacity-60">({{ sessions().length }} upcoming)</span>
+      </div>
+      <p class="max-w-2xl text-sm opacity-70">
+        The Builders session calendar, read and written through Google
+        Calendar. Members see these same events on their own page.
+      </p>
+    </div>
+
+    <div class="flex items-end gap-3">
+      <div role="tablist" class="tabs tabs-boxed tabs-sm">
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [class.tab-active]="view() === 'calendar'"
+          [attr.aria-selected]="view() === 'calendar'"
+          (click)="setView('calendar')"
+        >
+          Calendar
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [class.tab-active]="view() === 'table'"
+          [attr.aria-selected]="view() === 'table'"
+          (click)="setView('table')"
+        >
+          Table
+        </button>
+      </div>
+
+      @if (view() === 'table') {
+        <label class="form-control">
+          <div class="label py-0">
+            <span class="label-text text-xs opacity-70">Window</span>
+          </div>
+          <select
+            class="select select-bordered select-sm w-36"
+            aria-label="Lookahead window in days"
+            [value]="daysAhead()"
+            (change)="onWindowChange($event)"
+          >
+            @for (d of windowOptions; track d) {
+              <option [value]="d" [selected]="d === daysAhead()">
+                Next {{ d }} days
+              </option>
+            }
+          </select>
+        </label>
+      }
+
+      @if (calendarWritable()) {
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          (click)="openCreate()"
+        >
+          New Session
+        </button>
+      }
+    </div>
+  </header>
+
+  @if (showReadOnlyNotice()) {
+    <div class="alert alert-warning" role="status">
+      <div class="flex flex-col gap-1">
+        <span class="font-medium">Calendar is read-only</span>
+        <span class="text-sm">
+          The server's Google account has no calendar write scope, so sessions
+          cannot be created, edited, or deleted from here. Re-run the Google
+          OAuth consent with the calendar scope and replace the stored refresh
+          token to enable editing. Viewing is unaffected.
+        </span>
+      </div>
+    </div>
+  }
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (actionError(); as actErr) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ actErr }}</span>
+    </div>
+  }
+
+  @if (inviteNotice(); as notice) {
+    <div class="alert alert-success" role="status">
+      <span>{{ notice }}</span>
+    </div>
+  }
+
+  @if (rescheduleNotice(); as moved) {
+    <div class="alert alert-info" role="status">
+      <span>{{ moved }}</span>
+    </div>
+  }
+
+  @if (view() === 'calendar') {
+    @if (calendarWritable() && templates().length > 0) {
+      <ptah-admin-session-template-palette
+        [templates]="templates()"
+        (templatePicked)="onTemplatePicked($event)"
+      />
+    }
+
+    <ptah-session-calendar
+      [sessions]="calendarSessions()"
+      [writable]="calendarWritable()"
+      [loading]="loading()"
+      (sessionSelected)="onSessionSelected($event)"
+      (rangeSelected)="openCreateForRange($event)"
+      (rescheduled)="onRescheduled($event)"
+      (windowRequested)="widenWindow($event)"
+    />
+
+    @if (calendarWritable()) {
+      <p class="text-xs opacity-60">
+        Drag a session type onto a slot to schedule it, drag an event to
+        reschedule, or drag its edge to change the duration. Editing never
+        emails anyone unless you tick “Notify guests”. Only the series member
+        provisioning depends on is fixed — everything else, including your own
+        repeats, is yours to move.
+      </p>
+    }
+  } @else if (loading() && sessions().length === 0) {
+    <div class="flex flex-col gap-2">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (sessions().length === 0) {
+    <ptah-empty-state
+      [icon]="CalendarIcon"
+      message="No sessions in this window."
+      hint="Widen the window, or schedule one if the calendar is writable."
+    />
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-hairline">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Starts</th>
+            <th>Ends</th>
+            <th>Meet link</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of sessions(); track s.id) {
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <span class="font-medium">{{ s.title }}</span>
+                  @if (s.recurring) {
+                    <ptah-status-badge
+                      [variant]="'info'"
+                      label="series"
+                      [showIcon]="false"
+                    />
+                  }
+                </div>
+                @if (s.inProtectedSeries) {
+                  <div class="text-xs opacity-60">
+                    Member provisioning maintains this series' attendee list, so
+                    it cannot be deleted here. Manage it in Google Calendar.
+                  </div>
+                }
+              </td>
+              <td class="text-sm">{{ s.startsAt | date: 'medium' }}</td>
+              <td class="text-sm">{{ s.endsAt | date: 'shortTime' }}</td>
+              <td>
+                @if (s.meetLink) {
+                  <a
+                    class="link link-primary text-sm"
+                    [href]="s.meetLink"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Join
+                  </a>
+                } @else {
+                  <span class="text-sm opacity-50">—</span>
+                }
+              </td>
+              <td class="text-right">
+                @if (calendarWritable()) {
+                  @if (pendingDeleteId() === s.id) {
+                    <div class="flex items-center justify-end gap-2">
+                      <span class="text-xs opacity-70">Delete this session?</span>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-xs"
+                        [disabled]="deletingId() === s.id"
+                        (click)="confirmDelete(s)"
+                      >
+                        @if (deletingId() === s.id) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Confirm
+                        }
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="deletingId() === s.id"
+                        (click)="cancelDelete()"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  } @else {
+                    <div class="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="s.isProtectedMaster"
+                        [attr.title]="
+                          s.isProtectedMaster
+                            ? 'This is the master series member provisioning depends on — edit it in Google Calendar'
+                            : null
+                        "
+                        (click)="openEdit(s)"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        [disabled]="s.inProtectedSeries"
+                        [attr.title]="
+                          s.inProtectedSeries
+                            ? 'Part of the series member provisioning depends on — delete it in Google Calendar'
+                            : null
+                        "
+                        (click)="requestDelete(s)"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  }
+                } @else {
+                  <span class="text-xs opacity-50">read-only</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+<!--
+  Details dialog — the calendar's stand-in for a table row's action cell. Only
+  reachable from the calendar view; the table keeps its inline controls.
+-->
+@if (selectedSession(); as sel) {
+  <div class="modal modal-open" role="dialog" aria-labelledby="session-detail-title">
+    <div class="modal-box max-w-lg">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-col gap-1">
+          <h3 id="session-detail-title" class="text-lg font-semibold">
+            {{ sel.title }}
+          </h3>
+          <p class="text-sm opacity-70">
+            {{ sel.startsAt | date: 'medium' }} — {{ sel.endsAt | date: 'shortTime' }}
+          </p>
+        </div>
+        @if (sel.recurring) {
+          <ptah-status-badge
+            [variant]="'info'"
+            label="series"
+            [showIcon]="false"
+          />
+        }
+      </div>
+
+      @if (sel.description) {
+        <p class="mt-3 whitespace-pre-wrap text-sm opacity-80">
+          {{ sel.description }}
+        </p>
+      }
+
+      @if (sel.inProtectedSeries) {
+        <p class="mt-3 text-xs opacity-60">
+          Member provisioning maintains this series' attendee list, so it cannot
+          be deleted or invited from here. Manage it in Google Calendar.
+        </p>
+      }
+
+      <div class="mt-4 flex flex-col gap-1.5">
+        <span class="text-xs font-medium uppercase tracking-wide opacity-70">
+          Guests ({{ sel.attendees.length }})
+        </span>
+        @if (sel.attendees.length === 0) {
+          <span class="text-sm opacity-60">
+            Nobody is invited yet. Add guests from Edit.
+          </span>
+        } @else {
+          <div class="flex flex-wrap gap-1.5">
+            @for (a of sel.attendees; track a.email) {
+              <span
+                class="badge badge-sm gap-1 py-2.5"
+                [class.badge-success]="a.responseStatus === 'accepted'"
+                [class.badge-error]="a.responseStatus === 'declined'"
+                [class.badge-neutral]="
+                  a.responseStatus !== 'accepted' &&
+                  a.responseStatus !== 'declined'
+                "
+                [attr.title]="a.responseStatus ?? 'no response yet'"
+              >
+                {{ a.email }}
+              </span>
+            }
+          </div>
+        }
+      </div>
+
+      @if (pendingInviteId() === sel.id) {
+        <div class="mt-4 alert alert-warning" role="alert">
+          <div class="flex flex-col gap-1">
+            <span class="font-medium">
+              Email {{ sel.attendees.length }}
+              {{ sel.attendees.length === 1 ? 'guest' : 'guests' }}?
+            </span>
+            <span class="text-sm">
+              Google sends the invitation to everyone on this list, including
+              guests who already have it. This cannot be recalled.
+            </span>
+          </div>
+        </div>
+      }
+
+      <div class="modal-action">
+        @if (sel.meetLink) {
+          <a
+            class="btn btn-ghost btn-sm"
+            [href]="sel.meetLink"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Join
+          </a>
+        }
+
+        @if (calendarWritable() && !sel.inProtectedSeries) {
+          @if (pendingInviteId() === sel.id) {
+            <button
+              type="button"
+              class="btn btn-warning btn-sm"
+              [disabled]="invitingId() === sel.id"
+              (click)="confirmInvite(sel)"
+            >
+              @if (invitingId() === sel.id) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Send now
+              }
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              [disabled]="invitingId() === sel.id"
+              (click)="cancelInvite()"
+            >
+              Cancel
+            </button>
+          } @else if (pendingDeleteId() === sel.id) {
+            <span class="mr-auto text-xs opacity-70">Delete this session?</span>
+            <button
+              type="button"
+              class="btn btn-error btn-sm"
+              [disabled]="deletingId() === sel.id"
+              (click)="confirmDelete(sel)"
+            >
+              @if (deletingId() === sel.id) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Confirm
+              }
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              [disabled]="deletingId() === sel.id"
+              (click)="cancelDelete()"
+            >
+              Cancel
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm text-error"
+              (click)="requestDelete(sel)"
+            >
+              Delete
+            </button>
+            @if (sel.attendees.length > 0) {
+              <button
+                type="button"
+                class="btn btn-outline btn-warning btn-sm"
+                (click)="requestInvite(sel)"
+              >
+                Send invitations
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="openEdit(sel)"
+            >
+              Edit
+            </button>
+          }
+        }
+
+        <button type="button" class="btn btn-ghost btn-sm" (click)="closeDetails()">
+          Close
+        </button>
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close session details"
+      (click)="closeDetails()"
+    ></button>
+  </div>
+}
+
+<ptah-admin-session-form-modal
+  [open]="formOpen()"
+  [session]="formTarget()"
+  [initialRange]="formRange()"
+  [initialTitle]="formTitleSeed()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>

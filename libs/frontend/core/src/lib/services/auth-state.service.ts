@@ -17,10 +17,55 @@ import type {
   AuthSaveSettingsParams,
   AuthMethod,
   AnthropicProviderInfo,
+  CustomProviderEntry,
+  CustomProviderEntryInput,
+  CustomProviderEntryChanges,
 } from '@ptah-extension/shared';
 
 type ApplyTo = 'global' | 'app' | 'workspace';
 type SettingScope = 'global' | 'app' | 'workspace';
+
+/**
+ * Outcome of an add/update/remove against `provider.custom.entries`.
+ *
+ * Deliberately NOT a thrown error: every one of these mutations is driven by a
+ * form the user is still looking at, and the backend is the authority on
+ * rejection (id collision, unparseable base URL, secret-storage failure). The
+ * form must be able to render `error` verbatim rather than assume success.
+ */
+export interface CustomProviderMutationResult {
+  readonly ok: boolean;
+  /** The entry as the backend stored it — canonical id, defaults applied. */
+  readonly entry?: CustomProviderEntry;
+  /** Backend rejection text, surfaced verbatim. Present only when `ok` is false. */
+  readonly error?: string;
+}
+
+/**
+ * Outcome of one real round-trip against a user-defined endpoint.
+ *
+ * `message` is produced by the backend, which classifies the failure
+ * (unreachable host, TLS problem, rejected key, wrong URL shape, tool calling
+ * unsupported). That classification is the actionable part — surface it as-is
+ * and do not paraphrase it in the UI.
+ */
+export interface CustomProviderTestResult {
+  readonly ok: boolean;
+  readonly message: string;
+  readonly latencyMs?: number;
+}
+
+/** Live state of the "Test connection" probe for a single custom entry. */
+export interface CustomProviderTestState extends CustomProviderTestResult {
+  readonly id: string;
+}
+
+/**
+ * Ceiling for `provider:testCustomEntry`. The backend probe performs one real
+ * tool-call round-trip with a ~10s timeout, so the transport must outlive it —
+ * a 30s default would be fine, but an explicit value documents the coupling.
+ */
+const CUSTOM_ENTRY_TEST_TIMEOUT_MS = 20000;
 
 /**
  * Auth State Service - Signal-based authentication state
@@ -140,6 +185,31 @@ export class AuthStateService {
   /** Absolute active folder path resolved by the backend (null when none). */
   private readonly _activeScopePath = signal<string | null>(null);
 
+  /**
+   * User-defined provider entries as stored in `provider.custom.entries`.
+   *
+   * Distinct from `_availableProviders`: that is the merged TILE list the
+   * backend projects for rendering (built-ins first, custom after) and it
+   * carries no lane, no pricing, and no reliable base URL. This signal carries
+   * the raw stored shape, which is what the edit form and the security copy
+   * need. Never contains an API key — those live in SecretStorage backend-side.
+   */
+  private readonly _customEntries = signal<readonly CustomProviderEntry[]>([]);
+
+  /** Whether a custom-entry list/mutation request is in flight. */
+  private readonly _customEntriesBusy = signal(false);
+
+  /** Last custom-entry error, surfaced verbatim from the backend. */
+  private readonly _customEntryError = signal('');
+
+  /** Result of the most recent "Test connection" probe (null when none run). */
+  private readonly _customTestState = signal<CustomProviderTestState | null>(
+    null,
+  );
+
+  /** Id of the entry currently being probed, or null when idle. */
+  private readonly _customTestingId = signal<string | null>(null);
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -157,6 +227,21 @@ export class AuthStateService {
 
   /** Available Anthropic-compatible providers */
   readonly availableProviders = this._availableProviders.asReadonly();
+
+  /** User-defined provider entries (raw stored shape, no secrets). */
+  readonly customEntries = this._customEntries.asReadonly();
+
+  /** Whether a custom-entry list/mutation request is in flight. */
+  readonly customEntriesBusy = this._customEntriesBusy.asReadonly();
+
+  /** Last custom-entry error message (empty when none). */
+  readonly customEntryError = this._customEntryError.asReadonly();
+
+  /** Result of the most recent custom-entry connection probe. */
+  readonly customTestState = this._customTestState.asReadonly();
+
+  /** Id of the entry currently being probed (null when idle). */
+  readonly customTestingId = this._customTestingId.asReadonly();
 
   /** Whether initial auth status is loading */
   readonly isLoading = this._isLoading.asReadonly();
@@ -327,6 +412,59 @@ export class AuthStateService {
   });
 
   /**
+   * Ids of every user-defined entry. Tiles use this — NOT a name heuristic —
+   * to decide which get edit/delete affordances. Built-in tiles must not.
+   */
+  readonly customEntryIds = computed(
+    () => new Set(this._customEntries().map((entry) => entry.id)),
+  );
+
+  /**
+   * The stored entry behind the currently selected tile, or null when the
+   * selection is a built-in provider (or Claude direct).
+   */
+  readonly selectedCustomEntry = computed<CustomProviderEntry | null>(() => {
+    const method = this._authMethod();
+    if (method === 'apiKey' || method === 'claudeCli') return null;
+    const id = this._selectedProviderId();
+    return this._customEntries().find((entry) => entry.id === id) ?? null;
+  });
+
+  /**
+   * Host of the selected custom entry's base URL — the string the security
+   * copy names so the user sees exactly which machine their key reaches.
+   * Falls back to the raw base URL if it somehow will not parse.
+   */
+  readonly selectedCustomHost = computed<string | null>(() => {
+    const entry = this.selectedCustomEntry();
+    if (!entry) return null;
+    try {
+      return new URL(entry.baseUrl).host;
+    } catch {
+      return entry.baseUrl;
+    }
+  });
+
+  /** Whether the currently selected tile is a user-defined provider. */
+  readonly isCustomProviderSelected = computed(
+    () => this.selectedCustomEntry() !== null,
+  );
+
+  /**
+   * Whether the selected custom entry has NO manual pricing configured, which
+   * is the condition under which per-session cost must render as
+   * "cost unavailable" rather than `$0.00`.
+   *
+   * Built-in providers return false — their pricing comes from the registry or
+   * a live models endpoint, so this flag says nothing about them.
+   */
+  readonly selectedCustomPricingMissing = computed(() => {
+    const entry = this.selectedCustomEntry();
+    if (!entry) return false;
+    return entry.pricing === null || entry.pricing === undefined;
+  });
+
+  /**
    * Synchronous lookup: check if a specific provider has a key configured.
    * Used for badge display during provider switching without async calls.
    *
@@ -335,6 +473,18 @@ export class AuthStateService {
    */
   hasKeyForProvider(providerId: string): boolean {
     return this._providerKeyMap().get(providerId) ?? false;
+  }
+
+  /** Whether `providerId` resolves to a user-defined entry. */
+  isCustomProvider(providerId: string): boolean {
+    return this.customEntryIds().has(providerId);
+  }
+
+  /** One stored entry by id, or null when it is not user-defined. */
+  customEntry(providerId: string): CustomProviderEntry | null {
+    return (
+      this._customEntries().find((entry) => entry.id === providerId) ?? null
+    );
   }
 
   /**
@@ -589,6 +739,233 @@ export class AuthStateService {
         error instanceof Error
           ? error.message
           : 'Failed to delete provider key',
+      );
+    }
+  }
+
+  /**
+   * Load `provider.custom.entries` from the backend.
+   *
+   * Always re-fetches — unlike {@link loadAuthStatus} there is no once-only
+   * guard, because the list changes as a direct result of user actions in this
+   * same panel and a stale list would render stale edit/delete affordances.
+   */
+  async loadCustomEntries(): Promise<void> {
+    this._customEntriesBusy.set(true);
+    try {
+      const result = await this.rpc.call('provider:listCustomEntries', {});
+      if (result.isSuccess() && result.data) {
+        this._customEntries.set(result.data.entries);
+        this._customEntryError.set('');
+        return;
+      }
+      this._customEntryError.set(
+        result.error || 'Failed to load custom providers',
+      );
+    } catch (error) {
+      console.error('[AuthStateService] loadCustomEntries error:', error);
+      this._customEntryError.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load custom providers',
+      );
+    } finally {
+      this._customEntriesBusy.set(false);
+    }
+  }
+
+  /**
+   * Create a user-defined provider entry.
+   *
+   * @param entry - Non-secret metadata. The backend is the authority on id
+   *   collisions and base-URL validity; client-side checks are a courtesy, not
+   *   a guarantee, so a rejection here must be shown rather than swallowed.
+   * @param apiKey - Optional key, forwarded once and stored in SecretStorage
+   *   backend-side. It is NEVER written into the entry and never logged.
+   */
+  async addCustomEntry(
+    entry: CustomProviderEntryInput,
+    apiKey?: string,
+  ): Promise<CustomProviderMutationResult> {
+    return this.mutateCustomEntry(() =>
+      this.rpc.call('provider:addCustomEntry', { entry, apiKey }),
+    );
+  }
+
+  /**
+   * Update a user-defined provider entry in place.
+   *
+   * @param id - Id of the entry to change (the id itself is not renameable —
+   *   it keys the SecretStorage slot holding the API key).
+   * @param changes - Partial metadata patch.
+   * @param apiKey - Optional replacement key. Omit to leave the stored key
+   *   untouched; pass an empty string to clear it.
+   */
+  async updateCustomEntry(
+    id: string,
+    changes: CustomProviderEntryChanges,
+    apiKey?: string,
+  ): Promise<CustomProviderMutationResult> {
+    return this.mutateCustomEntry(() =>
+      this.rpc.call('provider:updateCustomEntry', { id, changes, apiKey }),
+    );
+  }
+
+  /**
+   * Delete a user-defined provider entry and its stored key.
+   *
+   * @returns Whether the backend reported the entry as removed. A `false`
+   *   result with no error means the entry was already gone.
+   */
+  async removeCustomEntry(id: string): Promise<boolean> {
+    this._customEntriesBusy.set(true);
+    this._customEntryError.set('');
+    try {
+      const result = await this.rpc.call('provider:removeCustomEntry', { id });
+      if (!result.isSuccess() || !result.data) {
+        this._customEntryError.set(
+          result.error || 'Failed to remove custom provider',
+        );
+        return false;
+      }
+      await this.reloadAfterCustomMutation();
+      if (this._customTestState()?.id === id) {
+        this._customTestState.set(null);
+      }
+      return result.data.removed;
+    } catch (error) {
+      console.error('[AuthStateService] removeCustomEntry error:', error);
+      this._customEntryError.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to remove custom provider',
+      );
+      return false;
+    } finally {
+      this._customEntriesBusy.set(false);
+    }
+  }
+
+  /**
+   * Probe a user-defined endpoint with one real round-trip.
+   *
+   * Unlike `auth:testConnection` (which reflects local SDK-adapter health and
+   * never leaves the machine), this actually talks to the user's endpoint, so
+   * it can take seconds. Callers must render {@link customTestingId} as a
+   * pending state rather than blocking.
+   *
+   * The returned `message` comes from the backend's failure classification and
+   * is surfaced verbatim — it is the part that tells the user what to fix.
+   */
+  async testCustomEntry(id: string): Promise<CustomProviderTestResult> {
+    if (this._customTestingId() !== null) {
+      return {
+        ok: false,
+        message: 'A connection test is already running.',
+      };
+    }
+
+    this._customTestingId.set(id);
+    this._customTestState.set(null);
+
+    try {
+      const result = await this.rpc.call(
+        'provider:testCustomEntry',
+        { id },
+        { timeout: CUSTOM_ENTRY_TEST_TIMEOUT_MS },
+      );
+
+      const outcome: CustomProviderTestResult =
+        result.isSuccess() && result.data
+          ? {
+              ok: result.data.ok,
+              message: result.data.message,
+              ...(result.data.latencyMs === undefined
+                ? {}
+                : { latencyMs: result.data.latencyMs }),
+            }
+          : {
+              ok: false,
+              message: result.error || 'Connection test failed',
+            };
+
+      this._customTestState.set({ id, ...outcome });
+      return outcome;
+    } catch (error) {
+      console.error('[AuthStateService] testCustomEntry error:', error);
+      const outcome: CustomProviderTestResult = {
+        ok: false,
+        message:
+          error instanceof Error ? error.message : 'Connection test failed',
+      };
+      this._customTestState.set({ id, ...outcome });
+      return outcome;
+    } finally {
+      this._customTestingId.set(null);
+    }
+  }
+
+  /** Clear the last custom-entry error (user dismissed or retried). */
+  clearCustomEntryError(): void {
+    this._customEntryError.set('');
+  }
+
+  /** Discard the last connection-probe result. */
+  clearCustomTestState(): void {
+    this._customTestState.set(null);
+  }
+
+  /**
+   * Shared add/update path: run the mutation, surface a rejection verbatim, and
+   * on success re-read both the entry list and the merged provider list so the
+   * tile grid shows the change without a manual refresh.
+   */
+  private async mutateCustomEntry(
+    run: () => Promise<{
+      isSuccess(): boolean;
+      data?: { entry: CustomProviderEntry };
+      error?: string;
+    }>,
+  ): Promise<CustomProviderMutationResult> {
+    this._customEntriesBusy.set(true);
+    this._customEntryError.set('');
+    try {
+      const result = await run();
+      if (!result.isSuccess() || !result.data) {
+        const message = result.error || 'Failed to save custom provider';
+        this._customEntryError.set(message);
+        return { ok: false, error: message };
+      }
+      const entry = result.data.entry;
+      await this.reloadAfterCustomMutation();
+      return { ok: true, entry };
+    } catch (error) {
+      console.error('[AuthStateService] custom entry mutation error:', error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to save custom provider';
+      this._customEntryError.set(message);
+      return { ok: false, error: message };
+    } finally {
+      this._customEntriesBusy.set(false);
+    }
+  }
+
+  /**
+   * Re-read entries and auth status after a mutation. A failure to refresh is
+   * logged but not promoted to an error — the write itself already succeeded,
+   * and reporting it as a failure would push the user to retry a mutation that
+   * has already landed.
+   */
+  private async reloadAfterCustomMutation(): Promise<void> {
+    try {
+      await this.loadCustomEntries();
+      await this.refreshAuthStatus();
+    } catch (error) {
+      console.warn(
+        '[AuthStateService] post-mutation refresh failed (write succeeded):',
+        error,
       );
     }
   }

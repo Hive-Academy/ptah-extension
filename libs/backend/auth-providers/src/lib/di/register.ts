@@ -27,7 +27,8 @@ import { CodexTranslationProxy } from '../providers/codex';
 import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
-import { CuratorAuthResolver } from '../auth/curator-auth-resolver';
+import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
+import { providerQuotaStore } from '../auth/provider-quota.store';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -42,6 +43,14 @@ export function registerAuthProvidersServices(
     AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
     { useClass: ProviderModelsService },
     { lifecycle: Lifecycle.Singleton },
+  );
+  // `registerInstance` and not `useClass`: the translation proxies reach the
+  // store by import (two of the six are built per provider id at runtime, not
+  // by the container), so a container-minted second instance would leave the
+  // resolver reading a store nothing ever writes.
+  container.registerInstance(
+    AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_QUOTA_STORE,
+    providerQuotaStore,
   );
   registerProviders(container);
   container.register(
@@ -141,8 +150,8 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
-    SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER,
-    { useClass: CuratorAuthResolver },
+    SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER,
+    { useClass: ProviderAuthResolver },
     { lifecycle: Lifecycle.Singleton },
   );
 

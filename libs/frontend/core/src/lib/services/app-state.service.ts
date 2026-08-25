@@ -5,7 +5,11 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import { WorkspaceInfo, MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  WorkspaceInfo,
+  MESSAGE_TYPES,
+  type NewProjectIntake,
+} from '@ptah-extension/shared';
 import { MessageHandler } from './message-router.types';
 
 export type ViewType =
@@ -15,7 +19,6 @@ export type ViewType =
   | 'context-tree'
   | 'settings'
   | 'setup-wizard'
-  | 'welcome'
   | 'orchestra-canvas'
   | 'harness-builder'
   | 'setup-hub'
@@ -57,7 +60,14 @@ export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
  */
 export interface HarnessWorkflowRequest {
   mode: 'new-project' | 'configure-harness';
+  /** Prompt sent to the agent. Not what the transcript renders. */
   seedPrompt?: string;
+  /**
+   * Setup Hub intake answers behind `seedPrompt`, so the harness surface can
+   * show the user's own words as the first bubble rather than the full
+   * instruction prompt. `new-project` only.
+   */
+  intake?: NewProjectIntake;
 }
 
 export type SettingsTabId =
@@ -73,7 +83,7 @@ export interface PendingSettingsTab {
 
 /**
  * Request to launch a chat session seeded with an initial prompt — e.g. the
- * standalone Tasks board firing `/ptah-core:orchestrate <TASK_ID>`. Consumed by
+ * standalone Tasks board firing `/orchestrate <TASK_ID>`. Consumed by
  * the chat lib (a root-provided bridge service), which creates/focuses a
  * session, submits the prompt through the normal send path, then settles
  * `resolve`. Kept in `core` so `tasks-ui` never imports `chat` — the same
@@ -126,9 +136,52 @@ export interface AppState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
-  /** Whether the user has a valid license */
-  isLicensed: boolean;
 }
+
+/**
+ * Sentinel workspace key holding the view slice created during bootstrap,
+ * before any real workspace path has arrived from
+ * `WorkspaceCoordinatorService`. `initializeState` writes `window.initialView`
+ * here, and the first {@link AppStateManager.switchWorkspace} migrates the
+ * slice onto the real path so that view is never orphaned. In the VS Code
+ * webview — which is single-root and never switches — every slice read and
+ * write stays on this key for the lifetime of the webview.
+ *
+ * Mirrors `IMPLICIT_WORKSPACE_PATH` in `CanvasStore` and
+ * `TribunalStateService`, the two surfaces already partitioned this way.
+ */
+const IMPLICIT_WORKSPACE_PATH = '';
+
+/**
+ * Which surface a single workspace is looking at, and where inside that
+ * surface. `currentView` and `openViews` move together: closing the active
+ * view tab falls back to chat, so splitting them across a partitioned and an
+ * unpartitioned store would let the two disagree per workspace.
+ *
+ * `thothActiveTab` and `marketplaceActiveProvider` are the same kind of
+ * pointer one level down — which tab of the `'thoth'` view, which provider of
+ * the `'marketplace'` view — so they live in the same slice rather than in
+ * parallel maps. That is not just tidiness: retention, lazy seeding, the
+ * bootstrap-sentinel migration in {@link AppStateManager.switchWorkspace} and
+ * the cleanup in {@link AppStateManager.removeWorkspaceState} are all
+ * slice-shaped, and a parallel map would have to re-implement each of them.
+ */
+interface ViewSlice {
+  readonly currentView: ViewType;
+  readonly openViews: ReadonlySet<ViewType>;
+  /** Active tab of this workspace's Thoth hub. */
+  readonly thothActiveTab: ThothActiveTabId;
+  /** Selected marketplace provider id, or null when none is selected. */
+  readonly marketplaceActiveProvider: string | null;
+}
+
+/** Slice a never-visited workspace reads until its first view mutation. */
+const DEFAULT_VIEW_SLICE: ViewSlice = {
+  currentView: 'chat',
+  openViews: new Set<ViewType>(['chat']),
+  thothActiveTab: 'memory',
+  marketplaceActiveProvider: null,
+};
 
 /**
  * App State Manager - Signal-based global state
@@ -148,7 +201,6 @@ export class AppStateManager implements MessageHandler {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome',
       'orchestra-canvas',
       'harness-builder',
       'setup-hub',
@@ -165,15 +217,39 @@ export class AppStateManager implements MessageHandler {
       );
     }
   }
-  private readonly _currentView = signal<ViewType>('chat');
+  /**
+   * Per-workspace view slices, keyed by workspace path (or
+   * {@link IMPLICIT_WORKSPACE_PATH} before the first switch). Session state is
+   * workspace-partitioned (`TabManagerService`, `SessionLoaderService`, the
+   * editor services, `CanvasStore`, `TribunalStateService`); the view pointer
+   * has to be too, or a switch lands the user on the previous workspace's
+   * surface rendered against the new workspace's — now empty — state.
+   */
+  private readonly _viewSlices = signal<ReadonlyMap<string, ViewSlice>>(
+    new Map([[IMPLICIT_WORKSPACE_PATH, DEFAULT_VIEW_SLICE]]),
+  );
+  /** The workspace whose slice {@link currentView} / {@link openViews} expose. */
+  private readonly _activeWorkspacePath = signal<string>(
+    IMPLICIT_WORKSPACE_PATH,
+  );
+  private readonly activeViewSlice = computed<ViewSlice>(
+    () =>
+      this._viewSlices().get(this._activeWorkspacePath()) ?? DEFAULT_VIEW_SLICE,
+  );
   private readonly _isLoading = signal(false);
   private readonly _statusMessage = signal('Ready');
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
-  /** License status - controls access to premium features and RPC calls */
-  private readonly _isLicensed = signal(true);
-  /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
-  private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
+  /**
+   * Deliberately NOT workspace-partitioned. Workspace switching only exists in
+   * Electron (`ElectronLayoutService` gates every entry point on `isElectron`,
+   * and the VS Code webview is single-root), and Electron pins this to `'grid'`
+   * unconditionally in `ElectronShellComponent`'s constructor — its single-chat
+   * layout was removed, and the toggle that would flip it is inside the
+   * `@if (!isElectron)` branch of the app-shell template. So the value cannot
+   * differ between two workspaces on any reachable path, and a partition map
+   * here would be state that never varies.
+   */
   private readonly _layoutMode = signal<LayoutMode>('grid');
   /** Signal bridge: request to open/focus a session in a canvas tile (from sidebar click in grid mode) */
   private readonly _canvasSessionRequest = signal<CanvasSessionRequest | null>(
@@ -201,18 +277,6 @@ export class AppStateManager implements MessageHandler {
   );
 
   /**
-   * Active tab inside the Thoth hub. Persisted via setter so re-entering
-   * the `'thoth'` view restores the user's last tab.
-   */
-  private readonly _thothActiveTab = signal<ThothActiveTabId>('memory');
-  /**
-   * Currently selected marketplace provider id (e.g. 'official-mcp',
-   * 'skills-sh'), or null when no provider is selected. Persisted in-memory
-   * via setter so re-entering the `'marketplace'` view restores the user's
-   * last provider — mirrors {@link _thothActiveTab}.
-   */
-  private readonly _marketplaceActiveProvider = signal<string | null>(null);
-  /**
    * Whether the user has dismissed the Thoth first-run hint.
    * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
    * (same pattern as `ptah-layout-mode`) so a reload preserves the dismissed
@@ -236,16 +300,17 @@ export class AppStateManager implements MessageHandler {
     }
     return view;
   }
-  readonly currentView = this._currentView.asReadonly();
+  /** Active view of the active workspace. */
+  readonly currentView = computed<ViewType>(
+    () => this.activeViewSlice().currentView,
+  );
   readonly isLoading = this._isLoading.asReadonly();
   readonly statusMessage = this._statusMessage.asReadonly();
   readonly workspaceInfo = this._workspaceInfo.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
-  /** Whether the user has a valid license - controls RPC access */
-  readonly isLicensed = this._isLicensed.asReadonly();
-  /** Open views as an array for template iteration. Excludes 'welcome' (license gate, not a tab). */
+  /** Open views of the active workspace, as an array for template iteration. */
   readonly openViews = computed(() =>
-    Array.from(this._openViews()).filter((v) => v !== 'welcome'),
+    Array.from(this.activeViewSlice().openViews),
   );
   /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
   readonly layoutMode = this._layoutMode.asReadonly();
@@ -260,18 +325,26 @@ export class AppStateManager implements MessageHandler {
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
   readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
   readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
-  /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
-  readonly thothActiveTab = this._thothActiveTab.asReadonly();
-  /** Selected marketplace provider id (null when none selected). */
-  readonly marketplaceActiveProvider =
-    this._marketplaceActiveProvider.asReadonly();
+  /**
+   * Active tab id inside the Thoth hub (memory / skills / cron / gateway),
+   * for the active workspace. Partitioned so switching workspaces does not
+   * leave the previous workspace's tab selected against the new workspace's
+   * memory / skills / cron / gateway state.
+   */
+  readonly thothActiveTab = computed<ThothActiveTabId>(
+    () => this.activeViewSlice().thothActiveTab,
+  );
+  /**
+   * Selected marketplace provider id of the active workspace (null when none
+   * selected). Partitioned for the same reason as {@link thothActiveTab}:
+   * installed content is per-workspace, so the provider selection is too.
+   */
+  readonly marketplaceActiveProvider = computed<string | null>(
+    () => this.activeViewSlice().marketplaceActiveProvider,
+  );
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
   readonly canSwitchViews = computed(() => {
-    const onWelcomeView = this._currentView() === 'welcome';
-    if (onWelcomeView) {
-      return false;
-    }
     return !this._isLoading() && this._isConnected();
   });
   readonly appTitle = computed(() => {
@@ -315,14 +388,11 @@ export class AppStateManager implements MessageHandler {
     const windowWithState = window as Window & {
       initialView?: ViewType;
       ptahConfig?: {
-        isLicensed?: boolean;
         initialView?: string;
         workspaceRoot?: string;
         workspaceName?: string;
       };
     };
-    const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
-    this._isLicensed.set(isLicensed);
     const workspaceRoot = windowWithState.ptahConfig?.workspaceRoot;
     const workspaceName = windowWithState.ptahConfig?.workspaceName;
     if (
@@ -368,38 +438,105 @@ export class AppStateManager implements MessageHandler {
     }
     initialView = this.normalizeView(initialView);
 
-    this._currentView.set(initialView);
-    if (initialView !== 'chat' && initialView !== 'welcome') {
-      this._openViews.update((views) => {
-        const next = new Set(views);
-        next.add(initialView);
-        return next;
-      });
-    }
+    this.openViewInActiveSlice(initialView);
   }
+
+  /**
+   * Read-modify-write the active workspace's view slice, seeding
+   * {@link DEFAULT_VIEW_SLICE} when the workspace is being written to for the
+   * first time.
+   */
+  private updateActiveViewSlice(update: (slice: ViewSlice) => ViewSlice): void {
+    const path = this._activeWorkspacePath();
+    this._viewSlices.update((slices) => {
+      const current = slices.get(path) ?? DEFAULT_VIEW_SLICE;
+      const next = update(current);
+      return next === current ? slices : new Map(slices).set(path, next);
+    });
+  }
+
+  /** Make `view` the active workspace's current view and mark it open. */
+  private openViewInActiveSlice(view: ViewType): void {
+    this.updateActiveViewSlice((slice) => ({
+      ...slice,
+      currentView: view,
+      openViews: slice.openViews.has(view)
+        ? slice.openViews
+        : new Set(slice.openViews).add(view),
+    }));
+  }
+
+  /**
+   * Point the view state at `newPath`, retaining every visited workspace's
+   * slice so returning to a workspace restores the surface it was left on.
+   * Called from `WorkspaceCoordinatorService.switchWorkspace`'s synchronous
+   * fan-out, alongside the tab, session and picker resets.
+   *
+   * A never-visited workspace has no entry: {@link activeViewSlice} falls back
+   * to {@link DEFAULT_VIEW_SLICE} and the entry is seeded on its first view
+   * mutation, so a fresh workspace opens on chat rather than inheriting the
+   * previous one's view.
+   */
+  switchWorkspace(newPath: string): void {
+    const previousPath = this._activeWorkspacePath();
+    if (previousPath === newPath) return;
+
+    this._activeWorkspacePath.set(newPath);
+
+    if (this._viewSlices().has(newPath)) return;
+
+    // First real workspace after bootstrap: migrate the sentinel slice rather
+    // than seed a default one, so an `initialView` (or a view the user opened
+    // before the initial workspace:switch RPC settled) is not discarded.
+    if (previousPath !== IMPLICIT_WORKSPACE_PATH) return;
+    const bootstrapSlice = this._viewSlices().get(IMPLICIT_WORKSPACE_PATH);
+    if (!bootstrapSlice) return;
+    this._viewSlices.update((slices) => {
+      const next = new Map(slices);
+      next.set(newPath, bootstrapSlice);
+      next.delete(IMPLICIT_WORKSPACE_PATH);
+      return next;
+    });
+  }
+
+  /**
+   * Drop a closed workspace's view slice. Without this a workspace removed and
+   * later re-added would resurrect the view it was closed on. Mirrors the
+   * slice cleanup `CanvasStore` and `TribunalStateService` do on
+   * `removedWorkspace$`.
+   */
+  removeWorkspaceState(workspacePath: string): void {
+    this._viewSlices.update((slices) => {
+      if (!slices.has(workspacePath)) return slices;
+      const next = new Map(slices);
+      next.delete(workspacePath);
+      return next;
+    });
+  }
+
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
-      view = this.normalizeView(view);
-      this._openViews.update((views) => {
-        const next = new Set(views);
-        next.add(view);
-        return next;
-      });
-      this._currentView.set(view);
+      this.openViewInActiveSlice(this.normalizeView(view));
     }
   }
 
   /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
   closeView(view: ViewType): void {
     if (view === 'chat') return;
-    this._openViews.update((views) => {
-      const next = new Set(views);
-      next.delete(view);
-      return next;
+    this.updateActiveViewSlice((slice) => {
+      if (!slice.openViews.has(view)) {
+        return slice.currentView === view
+          ? { ...slice, currentView: 'chat' }
+          : slice;
+      }
+      const openViews = new Set(slice.openViews);
+      openViews.delete(view);
+      return {
+        ...slice,
+        currentView: slice.currentView === view ? 'chat' : slice.currentView,
+        openViews,
+      };
     });
-    if (this._currentView() === view) {
-      this._currentView.set('chat');
-    }
   }
 
   setLoading(loading: boolean): void {
@@ -431,7 +568,10 @@ export class AppStateManager implements MessageHandler {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
     if (data.currentView) {
       const normalized = this.normalizeView(data.currentView);
-      this._currentView.set(normalized);
+      this.updateActiveViewSlice((slice) => ({
+        ...slice,
+        currentView: normalized,
+      }));
     }
     this.setConnected(true);
   }
@@ -439,28 +579,30 @@ export class AppStateManager implements MessageHandler {
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
 
-    view = this.normalizeView(view);
-
-    this._openViews.update((views) => {
-      const next = new Set(views);
-      next.add(view);
-      return next;
-    });
-    this._currentView.set(view);
+    this.openViewInActiveSlice(this.normalizeView(view));
   }
 
   handleError(error: string): void {
     this.setStatusMessage(`Error: ${error}`);
   }
 
-  /** Update the active Thoth hub tab. */
+  /** Update the active workspace's Thoth hub tab. */
   setThothActiveTab(tab: ThothActiveTabId): void {
-    this._thothActiveTab.set(tab);
+    this.updateActiveViewSlice((slice) =>
+      slice.thothActiveTab === tab ? slice : { ...slice, thothActiveTab: tab },
+    );
   }
 
-  /** Update the selected marketplace provider id (null to clear selection). */
+  /**
+   * Update the active workspace's selected marketplace provider id (null to
+   * clear the selection).
+   */
   setMarketplaceActiveProvider(id: string | null): void {
-    this._marketplaceActiveProvider.set(id);
+    this.updateActiveViewSlice((slice) =>
+      slice.marketplaceActiveProvider === id
+        ? slice
+        : { ...slice, marketplaceActiveProvider: id },
+    );
   }
 
   /**
@@ -477,12 +619,11 @@ export class AppStateManager implements MessageHandler {
 
   getStateSnapshot(): AppState {
     return {
-      currentView: this._currentView(),
+      currentView: this.currentView(),
       isLoading: this._isLoading(),
       statusMessage: this._statusMessage(),
       workspaceInfo: this._workspaceInfo(),
       isConnected: this._isConnected(),
-      isLicensed: this._isLicensed(),
     };
   }
 

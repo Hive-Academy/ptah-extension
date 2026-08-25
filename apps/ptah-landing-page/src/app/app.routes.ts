@@ -1,9 +1,10 @@
 import { Routes } from '@angular/router';
-import { LandingPageComponent } from './pages/landing-page.component';
-import { AdminAuthGuard } from './guards/admin-auth.guard';
-import { AuthGuard } from './guards/auth.guard';
-import { GuestGuard } from './guards/guest.guard';
-import { TrialStatusGuard } from './guards/trial-status.guard';
+import { provideMarkdownRendering } from '@ptah-extension/markdown';
+import { LandingPageComponent } from '@ptah-web/landing';
+import { AdminAuthGuard } from '@ptah-web/core';
+import { AuthGuard } from '@ptah-web/core';
+import { GuestGuard } from '@ptah-web/core';
+import { MemberGuard } from '@ptah-web/core';
 
 /**
  * Application Routes
@@ -18,7 +19,6 @@ import { TrialStatusGuard } from './guards/trial-status.guard';
  * Guards:
  * - AuthGuard: Protects authenticated routes, redirects guests to /login
  * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
- * - TrialStatusGuard: Redirects users with expired trials to /trial-ended
  */
 export const routes: Routes = [
   {
@@ -47,34 +47,63 @@ export const routes: Routes = [
   {
     path: 'pricing',
     loadComponent: () =>
-      import('./pages/pricing/pricing-page.component').then(
-        (m) => m.PricingPageComponent,
-      ),
-    canActivate: [TrialStatusGuard], // Redirect expired trials to /trial-ended
+      import('@ptah-web/pricing').then((m) => m.PricingPageComponent),
   },
   {
     path: 'login',
     loadComponent: () =>
-      import('./pages/auth/auth-page.component').then(
-        (m) => m.AuthPageComponent,
-      ),
+      import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
   },
   {
     path: 'signup',
     loadComponent: () =>
-      import('./pages/auth/auth-page.component').then(
-        (m) => m.AuthPageComponent,
-      ),
+      import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
   },
   {
     path: 'profile',
     loadComponent: () =>
-      import('./pages/profile/profile-page.component').then(
-        (m) => m.ProfilePageComponent,
-      ),
-    canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
+      import('@ptah-web/account').then((m) => m.ProfilePageComponent),
+    canActivate: [AuthGuard],
+  },
+  {
+    /**
+     * The Ptah Builders member panel (R9.5, F-6, AD-1).
+     *
+     * ⚠️ THE GUARD IS `MemberGuard`, NOT `AuthGuard`. It probes
+     * `GET /api/v1/members/entitlement` and routes the three outcomes apart:
+     * 401 → `/login?returnUrl=/members`, `{ entitled: false }` → `/pricing`,
+     * entitled → the hub, seeding `MemberSessionStore` on the way through.
+     * `AuthGuard` — which is what this route used before — can only tell
+     * logged-out from logged-in, so a member whose subscription had lapsed
+     * landed on a login page instead of a renewal page.
+     *
+     * ⚠️ IT IS IMPORTED FROM `@ptah-web/core`, NOT `@ptah-web/members`, AND
+     * THAT IS LOAD-BEARING. This file lazy-loads `@ptah-web/members` below, and
+     * `@nx/enforce-module-boundaries` errors on "Static imports of lazy-loaded
+     * libraries are forbidden" for any symbol pulled statically out of that
+     * same lib. `MemberGuard` and `MemberSessionStore` therefore live in
+     * `@ptah-web/core` — eagerly imported, never lazy — exactly like
+     * `AdminAuthGuard` below. Moving either of them back into the member lib
+     * re-breaks this line. `MEMBER_ROUTES` declares no guard of its own;
+     * declaring one there too would run the probe twice per navigation.
+     *
+     * ⚠️ THE `providers` ARRAY IS LOAD-BEARING (AD-1). It creates a route-level
+     * injector whose `MarkdownService` + `SANITIZE` shadow the app's `'basic'`
+     * pair for the member subtree ONLY. `provideMarkdown()` returns plain
+     * providers (its `MarkdownService` is a bare class provider, not
+     * `providedIn: 'root'`), so this needs no `app.config.ts` change and cannot
+     * leak the member sanitizer onto the marketing pages — or, more
+     * importantly, leak `'basic'` onto member-authored content. `'basic'`
+     * installs NO DOMPurify override at all and is not safe for UGC (NFR-S2).
+     */
+    path: 'members',
+    canActivate: [MemberGuard],
+    loadChildren: () =>
+      import('@ptah-web/members').then((m) => m.MEMBER_ROUTES),
+    providers: [provideMarkdownRendering({ extensions: 'member' })],
+    data: { hideFromNav: true },
   },
   {
     path: 'contact',
@@ -87,37 +116,22 @@ export const routes: Routes = [
   {
     path: 'terms-and-conditions',
     loadComponent: () =>
-      import('./pages/legal/terms-page.component').then(
-        (m) => m.TermsPageComponent,
-      ),
+      import('@ptah-web/legal').then((m) => m.TermsPageComponent),
   },
   {
     path: 'privacy',
     loadComponent: () =>
-      import('./pages/legal/privacy-page.component').then(
-        (m) => m.PrivacyPageComponent,
-      ),
+      import('@ptah-web/legal').then((m) => m.PrivacyPageComponent),
   },
   {
     path: 'refund',
     loadComponent: () =>
-      import('./pages/legal/refund-page.component').then(
-        (m) => m.RefundPageComponent,
-      ),
-  },
-  {
-    path: 'trial-ended',
-    loadComponent: () =>
-      import('./pages/trial-ended/trial-ended-page.component').then(
-        (m) => m.TrialEndedPageComponent,
-      ),
-    canActivate: [AuthGuard], // Must be logged in, but no trial check
+      import('@ptah-web/legal').then((m) => m.RefundPageComponent),
   },
   {
     path: 'admin',
     canActivate: [AdminAuthGuard],
-    loadChildren: () =>
-      import('./pages/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+    loadChildren: () => import('@ptah-web/admin').then((m) => m.ADMIN_ROUTES),
     data: { hideFromNav: true },
   },
   {

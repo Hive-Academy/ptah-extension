@@ -45,6 +45,29 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+
+// `fs/promises` exports are non-configurable, so `jest.spyOn` cannot stub them.
+// Only the two calls the handler makes when probing ~/.claude/projects are
+// replaced; everything else keeps its real implementation. Defaults simulate a
+// machine with no projects directory, which keeps the suite hermetic — without
+// this, the disk-touching branches read the developer's real ~/.claude.
+jest.mock('fs/promises', () => ({
+  ...jest.requireActual('fs/promises'),
+  access: jest.fn(),
+  readdir: jest.fn(),
+}));
+
+const mockAccess = fs.access as jest.MockedFunction<typeof fs.access>;
+const mockReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
+
+beforeEach(() => {
+  mockAccess.mockReset().mockRejectedValue(new Error('ENOENT'));
+  mockReaddir.mockReset().mockRejectedValue(new Error('ENOENT'));
+});
+
 import type {
   Logger,
   RpcHandler,
@@ -463,6 +486,135 @@ describe('SessionRpcHandlers', () => {
       const nonzero = result.sessions.find((s) => s.id === nonZeroId);
       expect(zero?.tokenUsage).toBeUndefined();
       expect(nonzero?.tokenUsage).toEqual({ input: 100, output: 50 });
+    });
+
+    describe('hasTranscript (Claude CLI transcript retention)', () => {
+      // The Claude CLI prunes ~/.claude/projects transcripts after
+      // `cleanupPeriodDays` (default 30) while `SessionMetadataStore` is never
+      // pruned, so metadata rows outlive their history and open empty. The
+      // sidebar needs to label those rows instead of presenting them as
+      // ordinary sessions.
+      // `os.homedir` is non-configurable under Node, so the real home is used
+      // and only `fs` is stubbed — nothing touches the disk either way.
+      const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+      /** `WORKSPACE` under the CLI's `[:\\/]` → `-` escaping. */
+      const ESCAPED_WORKSPACE_DIR = WORKSPACE.replace(/[:\\/]/g, '-');
+
+      /**
+       * Stub the projects directory so `resolveSessionsDir` matches
+       * `ESCAPED_WORKSPACE_DIR` exactly, and `listTranscriptIds` sees exactly
+       * `presentIds` as surviving transcripts.
+       */
+      function stubProjectsDir(
+        presentIds: string[],
+        opts: { projectDirs?: string[] } = {},
+      ): void {
+        mockAccess.mockResolvedValue(undefined);
+        mockReaddir.mockImplementation((async (target: unknown) =>
+          String(target) === PROJECTS_DIR
+            ? (opts.projectDirs ?? [ESCAPED_WORKSPACE_DIR])
+            : presentIds.map(
+                (id) => `${id}.jsonl`,
+              )) as unknown as typeof fs.readdir);
+      }
+
+      it('marks rows whose transcript survived vs. rows the CLI pruned', async () => {
+        const h = makeHarness();
+        const liveId = uuidForRow(30);
+        const prunedId = uuidForRow(31);
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({ sessionId: liveId, name: 'recent' }),
+          makeMetadata({ sessionId: prunedId, name: 'Tribunal: council' }),
+        ]);
+        stubProjectsDir([liveId]);
+        h.handlers.register();
+
+        const result = await call<{
+          sessions: Array<{ id: string; hasTranscript?: boolean }>;
+        }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+        expect(
+          result.sessions.find((s) => s.id === liveId)?.hasTranscript,
+        ).toBe(true);
+        expect(
+          result.sessions.find((s) => s.id === prunedId)?.hasTranscript,
+        ).toBe(false);
+      });
+
+      it('reads the sessions directory once regardless of row count', async () => {
+        const h = makeHarness();
+        const ids = Array.from({ length: 5 }, (_, i) => uuidForRow(40 + i));
+        h.metadataStore.getForWorkspace.mockResolvedValue(
+          ids.map((sessionId) => makeMetadata({ sessionId })),
+        );
+        stubProjectsDir(ids);
+        h.handlers.register();
+
+        await call(h, 'session:list', { workspacePath: WORKSPACE });
+
+        // One readdir for the projects dir + one for the resolved session dir.
+        expect(fs.readdir).toHaveBeenCalledTimes(2);
+      });
+
+      it('leaves hasTranscript undefined when the sessions directory is unresolvable', async () => {
+        // A wrong verdict is worse than no verdict: without a directory we
+        // cannot distinguish "pruned" from "never looked in the right place",
+        // so the sidebar must render these as ordinary sessions.
+        const h = makeHarness();
+        const id = uuidForRow(50);
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({ sessionId: id }),
+        ]);
+        stubProjectsDir([], { projectDirs: ['-some-other-project'] });
+        h.handlers.register();
+
+        const result = await call<{
+          sessions: Array<{ id: string; hasTranscript?: boolean }>;
+        }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+        expect(result.sessions[0].hasTranscript).toBeUndefined();
+      });
+
+      it('does not fall back to a loose basename match when indexing transcripts', async () => {
+        // `findSessionFile` tolerates a partial-match guess because a wrong
+        // directory just yields "not found". Indexing must not: matching an
+        // unrelated project directory would report every live session as
+        // pruned.
+        const h = makeHarness();
+        const id = uuidForRow(60);
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({ sessionId: id }),
+        ]);
+        stubProjectsDir([], { projectDirs: ['-other-workspace-clone'] });
+        h.handlers.register();
+
+        const result = await call<{
+          sessions: Array<{ id: string; hasTranscript?: boolean }>;
+        }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+        expect(result.sessions[0].hasTranscript).toBeUndefined();
+      });
+
+      it('omits hasTranscript when the sessions directory read throws', async () => {
+        const h = makeHarness();
+        const id = uuidForRow(70);
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({ sessionId: id }),
+        ]);
+        mockAccess.mockResolvedValue(undefined);
+        mockReaddir.mockRejectedValue(new Error('EACCES'));
+        h.handlers.register();
+
+        const response = await callRaw(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(response.success).toBe(true);
+        const sessions = (
+          response.data as { sessions: Array<{ hasTranscript?: boolean }> }
+        ).sessions;
+        expect(sessions[0].hasTranscript).toBeUndefined();
+      });
     });
 
     it('swallows corrupt sessionId rows and returns the valid remainder', async () => {
@@ -964,15 +1116,15 @@ describe('SessionRpcHandlers', () => {
       expect(result.cliSessions).toEqual([]);
     });
 
-    it('filters out ghost ptah-cli entries lacking a ptahCliId', async () => {
+    it('returns ptah-cli entries without a ptahCliId (parity with chat:resume)', async () => {
       const h = makeHarness();
       const realCli: CliSessionReference = {
         cli: 'ptah-cli',
         ptahCliId: 'real-cli-id',
       } as CliSessionReference;
-      const ghostCli = {
+      const mcpSpawned = {
         cli: 'ptah-cli',
-        // no ptahCliId — synthesized by the removed recoverMissingCliSessions()
+        // No ptahCliId — how MCP-spawned agents (tribunal panelists) persist.
       } as CliSessionReference;
       const codex = { cli: 'codex' } as CliSessionReference;
 
@@ -980,7 +1132,7 @@ describe('SessionRpcHandlers', () => {
         makeMetadata({
           sessionId: VALID_SESSION_ID,
           workspaceId: WORKSPACE,
-          cliSessions: [realCli, ghostCli, codex],
+          cliSessions: [realCli, mcpSpawned, codex],
         }) as never,
       );
       h.handlers.register();
@@ -991,8 +1143,7 @@ describe('SessionRpcHandlers', () => {
         { sessionId: VALID_SESSION_ID },
       );
 
-      // Real ptah-cli stays; ghost is filtered; non-ptah-cli passes through.
-      expect(result.cliSessions).toEqual([realCli, codex]);
+      expect(result.cliSessions).toEqual([realCli, mcpSpawned, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {
@@ -1579,7 +1730,7 @@ describe('SessionRpcHandlers', () => {
       h.sdkAdapter.isSessionActive.mockReturnValue(false);
       h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
         resumed: false,
-        error: 'workspace not premium',
+        error: 'SDK process failed to start',
       });
       h.handlers.register();
 

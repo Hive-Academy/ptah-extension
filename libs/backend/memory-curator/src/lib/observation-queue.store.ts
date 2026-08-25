@@ -7,6 +7,7 @@
  * curator transcript. Rows are marked processed only on curator success.
  */
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
@@ -116,7 +117,32 @@ export class ObservationQueueStore {
     private readonly connection: SqliteConnectionService,
   ) {}
 
+  /**
+   * Capture one observation.
+   *
+   * A row whose `sessionId` is empty is refused rather than written, because
+   * such a row is UN-DRAINABLE and UN-REAPABLE by construction: every read path
+   * here filters `WHERE session_id = ?` and nothing ever queries `''`, so it is
+   * never drained, never marked processed, and `purgeOlderThan` only deletes
+   * rows that WERE processed. It would sit in the table forever, counted by
+   * `countUnprocessed` for a session that cannot be curated.
+   */
   insert(row: ObservationQueueInsert): void {
+    // `blankToUndefined` is the refusal predicate AND the normaliser, and the
+    // NORMALISED value is what gets bound below. Testing the trimmed id and
+    // then binding the raw one is not a style wart — `memories.session_id` is
+    // written through `blankToNull` (trimmed), and `memory-search.service.ts`
+    // joins the two by handing that value to `peekForSession`, which filters
+    // `WHERE session_id = ?` here. Normalising one side of a join and not the
+    // other means a padded id writes a row this store can never read back.
+    const sessionId = blankToUndefined(row.sessionId);
+    if (sessionId === undefined) {
+      this.logger.warn(
+        '[memory-curator] observation-queue insert skipped — empty sessionId',
+        { kind: row.kind, workspaceRoot: row.workspaceRoot },
+      );
+      return;
+    }
     const db = this.connection.db;
     const stmt = db.prepare(
       `INSERT INTO observation_queue
@@ -130,7 +156,7 @@ export class ObservationQueueStore {
     const capturedAt = Date.now();
     try {
       stmt.run({
-        session_id: row.sessionId,
+        session_id: sessionId,
         workspace_root: row.workspaceRoot,
         prompt_number: row.promptNumber ?? null,
         kind: row.kind,
@@ -234,6 +260,73 @@ export class ObservationQueueStore {
       for (const id of ids) stmt.run(now, id);
     }) as (...args: unknown[]) => unknown);
     txn();
+  }
+
+  /**
+   * Re-point every `observation_queue` row from `fromId` to `toId`.
+   *
+   * Called synchronously by `MemoryTriggerService.rekeySession` when the SDK
+   * resolves a session's canonical UUID, so rows a residual tabId-bearing hook
+   * path captured before the resolve become drainable by the UUID-keyed drain
+   * (`drainForSession` filters `WHERE session_id = ?`, so an un-migrated row is
+   * un-drainable AND un-reapable — `purgeOlderThan` only deletes rows that were
+   * processed). TASK_2026_296 item 6, Part B.
+   *
+   * `observation_queue` carries **no UNIQUE constraint on `session_id`**
+   * (migration `0016`: the only unique key is the `INTEGER PRIMARY KEY`), so a
+   * plain `UPDATE` can never collide the way `skill_synthesis_queue`'s
+   * `UNIQUE(session_id, stage)` can. Rows already under `toId` are simply
+   * joined by the migrated ones; nothing is dropped and nothing is overwritten.
+   *
+   * NO id-shape predicate. A tabId is a UUID v4 (`TabId.create()`), so a
+   * `LIKE 'tab\_%'` filter would match only the retired legacy format and is
+   * wrong by construction — the ids are supplied by the caller, never guessed.
+   *
+   * Wrapped in a transaction so the statement commits as one unit even though
+   * it is a single UPDATE; the surrounding rekey handler holds no `await`, so
+   * the in-memory map migration and this write are not separated by a
+   * suspension point.
+   *
+   * @returns the number of rows re-pointed.
+   */
+  backfillSessionId(fromId: string, toId: string): number {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return 0;
+
+    const db = this.connection.db;
+    let changes = 0;
+    // Explicit `BEGIN IMMEDIATE` rather than `db.transaction(...)`: the same
+    // idiom `SkillQueueStore` uses, so both halves of a rekey commit the same
+    // way, and so the write lock is taken up front when two hosts share
+    // `~/.ptah/state/ptah.sqlite`.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      changes = Number(
+        db
+          .prepare(
+            `UPDATE observation_queue SET session_id = ? WHERE session_id = ?`,
+          )
+          .run(to, from).changes,
+      );
+      db.exec('COMMIT');
+    } catch (error: unknown) {
+      db.exec('ROLLBACK');
+      this.logger.warn('[memory-curator] observation-queue rekey failed', {
+        fromId: from,
+        toId: to,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 0;
+    }
+    if (changes > 0) {
+      this.logger.info('[memory-curator] observation-queue rows re-pointed', {
+        fromId: from,
+        toId: to,
+        changes,
+      });
+    }
+    return changes;
   }
 
   purgeOlderThan(thresholdMs: number): number {

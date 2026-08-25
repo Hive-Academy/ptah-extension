@@ -26,12 +26,24 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
+import { findModelPricing } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import { StreamTransformer, ResultModelUsage } from './stream-transformer';
+import type { NoActivityWatchdog } from './no-activity-watchdog';
+
+interface FakeWatchdog {
+  start: jest.Mock;
+  kick: jest.Mock;
+  stop: jest.Mock;
+}
+
+function makeFakeWatchdog(): FakeWatchdog {
+  return { start: jest.fn(), kick: jest.fn(), stop: jest.fn() };
+}
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -55,16 +67,26 @@ function makeMessageTransformer(): jest.Mocked<
 }
 
 function makeModelResolver(): jest.Mocked<
-  Pick<IModelResolver, 'resolveForPricing'>
+  Pick<
+    IModelResolver,
+    'resolveForPricing' | 'resolveForCost' | 'isSubscriptionCovered'
+  >
 > {
   return {
     resolveForPricing: jest.fn((m: string) => m || 'unknown'),
+    isSubscriptionCovered: jest.fn(() => false),
+    resolveForCost: jest.fn((m: string) => ({
+      modelId: m || 'unknown',
+      pricing: findModelPricing(m || 'unknown'),
+      subscriptionCovered: false,
+    })),
   };
 }
 
 function makePricingProvider(): jest.Mocked<IPricingProvider> {
   return {
     getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
   };
 }
 
@@ -542,5 +564,183 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(hitCost as number).toBeGreaterThan(0);
     expect(byModel.get('mystery-model-y')).toBeNull();
     expect(captured[0].cost).toBe(hitCost);
+  });
+});
+
+describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', () => {
+  it('starts the watchdog once, kicks it on EVERY SDK message, and stops it when the stream ends', async () => {
+    const { transformer } = makeHarness();
+    const watchdog = makeFakeWatchdog();
+
+    // Three heterogeneous events — a message_start (partial), a second
+    // message_start, and a result. Each must reset the inactivity window.
+    const messages: SDKMessage[] = [
+      messageStart(MODEL, { input_tokens: 100 }),
+      messageStart(MODEL, { input_tokens: 100 }),
+      resultMessage(MODEL, { inputTokens: 100, outputTokens: 10 }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      activityWatchdog: watchdog as unknown as NoActivityWatchdog,
+    });
+
+    await drain(iter);
+
+    expect(watchdog.start).toHaveBeenCalledTimes(1);
+    expect(watchdog.kick).toHaveBeenCalledTimes(messages.length);
+    expect(watchdog.stop).toHaveBeenCalledTimes(1);
+    // start() must precede the first kick (armed before the first event).
+    expect(watchdog.start.mock.invocationCallOrder[0]).toBeLessThan(
+      watchdog.kick.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('stops the watchdog even when the stream throws (error teardown path)', async () => {
+    const { transformer } = makeHarness();
+    const watchdog = makeFakeWatchdog();
+    const boom = new Error('stream exploded');
+
+    const explodingIterable: AsyncIterable<SDKMessage> = {
+      async *[Symbol.asyncIterator]() {
+        yield messageStart(MODEL, { input_tokens: 1 });
+        throw boom;
+      },
+    };
+
+    const iter = transformer.transform({
+      sdkQuery: explodingIterable,
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      activityWatchdog: watchdog as unknown as NoActivityWatchdog,
+    });
+
+    await expect(drain(iter)).rejects.toBe(boom);
+
+    expect(watchdog.start).toHaveBeenCalledTimes(1);
+    expect(watchdog.kick).toHaveBeenCalledTimes(1); // the one yielded message
+    expect(watchdog.stop).toHaveBeenCalledTimes(1); // finally cleanup on throw
+  });
+
+  it('is a no-op safe path when no watchdog is supplied', async () => {
+    const { transformer } = makeHarness();
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable([
+        resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 }),
+      ]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    await expect(drain(iter)).resolves.toBeUndefined();
+  });
+});
+
+describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => {
+  function taskSystemMessage(subtype: string): SDKMessage {
+    return {
+      type: 'system',
+      subtype,
+      task_id: 'task-1',
+      tool_use_id: 'toolu_1',
+      session_id: 'sess-1',
+      patch: {},
+      usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 },
+    } as unknown as SDKMessage;
+  }
+
+  it.each([
+    'task_started',
+    'task_progress',
+    'task_updated',
+    'task_notification',
+  ])('forwards %s system messages to the message transformer', async (sub) => {
+    const { transformer, messageTransformer } = makeHarness();
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable([taskSystemMessage(sub)]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    await drain(iter);
+
+    expect(messageTransformer.transform).toHaveBeenCalledTimes(1);
+    expect(messageTransformer.transform).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'system', subtype: sub }),
+      'sess-1',
+    );
+  });
+});
+
+describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
+  it('fires on the result message', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          messageStart(MODEL, { input_tokens: 10 }),
+          resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+        onTurnEnd,
+      }),
+    );
+
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when validateStats rejects the payload and onResultStats is skipped', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+    const onResultStats = jest.fn();
+
+    // cost > 100 → validateStats returns null → onResultStats never runs.
+    // The pump's turn claim must still be released, or the next follow-up is
+    // held until the 180s no-activity watchdog instead of the turn.
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          resultMessageMulti({
+            totalCostUsd: 500,
+            modelUsage: {
+              [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 500 },
+            },
+          }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+        onTurnEnd,
+      }),
+    );
+
+    expect(onResultStats).not.toHaveBeenCalled();
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire when no result message arrives', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 10 })]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+        onTurnEnd,
+      }),
+    );
+
+    expect(onTurnEnd).not.toHaveBeenCalled();
   });
 });

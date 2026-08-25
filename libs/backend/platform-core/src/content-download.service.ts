@@ -44,6 +44,21 @@ interface ContentManifest {
   };
 }
 
+/**
+ * First path segments under a mirror root that this manifest NEVER owns.
+ *
+ * `external` is `~/.ptah/plugins/external/`, where third-party marketplace
+ * plugins are installed after an explicit per-plugin consent dialog. The
+ * bundled content manifest has no business there, so prune must not reason
+ * about it at all.
+ *
+ * `@ptah-extension/plugin-marketplace` declares the same literal as
+ * `EXTERNAL_PLUGINS_DIRNAME`. The duplication is deliberate: `platform-core` is
+ * the leaf every other lib imports and must not import anything itself.
+ * Renaming one means renaming the other.
+ */
+const RESERVED_PRUNE_ROOTS: ReadonlySet<string> = new Set(['external']);
+
 /** Progress callback for UI integration */
 export type ContentProgressCallback = (
   phase: string,
@@ -137,6 +152,53 @@ export class ContentDownloadService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Wait, bounded, for content to become available.
+   *
+   * Every host starts `ensureContent()` fire-and-forget so a cold first run is
+   * not gated on the network. That leaves a window in which a session can start
+   * against an empty `~/.ptah/plugins`, which the harness reconciler reports as
+   * `pending-download` and the model experiences as "this project has no
+   * skills" (TASK_2026_278, E2). This is how the session-start preflight closes
+   * that window without re-introducing a blocking boot.
+   *
+   * It deliberately does NOT start a download. Kicking one off from a session
+   * path would turn a preflight into a network call on every cold start,
+   * including offline ones, where it would burn the whole budget failing. It
+   * waits on the download the HOST already started, and answers immediately
+   * when there is none.
+   *
+   * Never throws and never rejects — `ensureContent()`'s own promise already
+   * resolves on failure, and the return value is a fact about the disk rather
+   * than a verdict about the download.
+   *
+   * @returns whether content is on disk now.
+   */
+  async awaitContentReady(timeoutMs: number): Promise<boolean> {
+    if (this.isContentAvailable()) return true;
+
+    const pending = this.inFlightPromise;
+    if (pending === null || timeoutMs <= 0) return this.isContentAvailable();
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+      // Must not keep a short-lived `ptah` process alive past its work.
+      timer.unref?.();
+    });
+
+    try {
+      await Promise.race([pending, expiry]);
+    } catch {
+      // `ensureContent` swallows its own errors, so this is unreachable in
+      // practice; a caller waiting on content must never inherit a rejection.
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    return this.isContentAvailable();
   }
 
   /**
@@ -259,17 +321,97 @@ export class ContentDownloadService {
 
   /**
    * Remove cached files that are no longer listed in the manifest.
-   * Walks the local directory and deletes files whose relative path
-   * is not in the manifest file list.
+   *
+   * SCOPED PRUNE (TASK_2026_259). `localDir` is a mirror ROOT, not a
+   * mirror-only tree: `~/.ptah/plugins/` also holds user-authored content
+   * (the harness wizard writes `ptah-harness-<slug>/skills/<slug>/SKILL.md`
+   * there, and users sideload plugin folders). Deleting every unlisted file
+   * under the root destroyed that work silently. So we prune only inside the
+   * parts of the tree this manifest actually populates:
+   *
+   *   - a nested file is prunable only if its FIRST path segment is a
+   *     directory the manifest lists files under (e.g. `ptah-core/...`);
+   *   - a root-level file is prunable only if the manifest itself lists
+   *     root-level files (true for `templates/agents/`, whose manifest is
+   *     flat; false for `plugins/`, whose manifest is entirely nested).
+   *
+   * Anything the manifest does not claim is left alone. The trade-off is that
+   * a whole directory dropped from the manifest upstream is no longer swept —
+   * unavoidable without a ledger of what we previously wrote, because from
+   * disk alone a removed-upstream plugin and a locally-authored one are
+   * indistinguishable. Losing a stale directory is recoverable; losing user
+   * work is not.
+   *
+   * Individual unlink failures are logged and skipped, never thrown: prune
+   * runs BEFORE any download, so a single locked file used to abort the whole
+   * content refresh and recur identically on every launch.
+   *
+   * RESERVED ROOTS (TASK_2026_270). `external/` holds plugins the user
+   * installed from third-party marketplaces through an explicit consent flow.
+   * It is never populated by this manifest, so today the rule above already
+   * spares it — but only by coincidence, because `external` happens not to
+   * appear in `manifestRoots`. The day someone adds a bundled file under an
+   * `external/` path upstream, that coincidence turns into silent deletion of
+   * content the user deliberately installed. {@link RESERVED_PRUNE_ROOTS}
+   * makes the exemption a rule instead of an accident.
    */
   private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
     const manifestSet = new Set(manifestFiles);
+    const manifestRoots = new Set(
+      manifestFiles
+        .filter((file) => file.includes('/'))
+        .map((file) => file.split('/')[0]),
+    );
+    const manifestOwnsRootFiles = manifestFiles.some(
+      (file) => !file.includes('/'),
+    );
     const localFiles = this.walkLocalDir(localDir, localDir);
 
     for (const relPath of localFiles) {
-      if (!manifestSet.has(relPath)) {
-        const fullPath = path.join(localDir, ...relPath.split('/'));
+      if (manifestSet.has(relPath)) {
+        continue;
+      }
+
+      const segments = relPath.split('/');
+
+      // Reserved roots are never manifest-owned, whatever the manifest claims.
+      // Checked before the ownership test so a manifest cannot opt itself in.
+      if (RESERVED_PRUNE_ROOTS.has(segments[0])) {
+        continue;
+      }
+
+      const isManifestOwned =
+        segments.length === 1
+          ? manifestOwnsRootFiles
+          : manifestRoots.has(segments[0]);
+
+      if (!isManifestOwned) {
+        continue;
+      }
+
+      const fullPath = path.join(localDir, ...segments);
+      try {
         fs.unlinkSync(fullPath);
+        // STDERR, like every other diagnostic in this file — `console.warn`,
+        // never `console.debug`/`console.log`/`console.info`.
+        //
+        // Node's `console.debug` IS `console.log`: it writes to fd 1. This
+        // library is runtime-agnostic and one of its hosts is `ptah`, whose
+        // stdout is the JSON-RPC NDJSON channel and nothing else — one
+        // non-JSON line there corrupts the protocol for every consumer
+        // parsing it. `ensureContent()` is fire-and-forget on every
+        // `withEngine({ mode: 'full' })` boot, so this ran on `ptah doctor`
+        // and broke it the first time a boot found content an earlier boot
+        // had left, which is why the fresh-home case looked fine. Deleting a
+        // cached file the user never asked us to delete is worth surfacing —
+        // doing it silently is the defect TASK_2026_259 fixed — so the line
+        // stays; only the channel changes.
+        console.warn(`[ContentDownloadService] Pruned stale file: ${fullPath}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[ContentDownloadService] Failed to prune stale file ${fullPath}: ${message}`,
+        );
       }
     }
   }

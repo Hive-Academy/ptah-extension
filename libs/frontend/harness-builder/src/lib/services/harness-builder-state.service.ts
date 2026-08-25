@@ -1,4 +1,12 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import {
+  computed,
+  effect,
+  inject,
+  Injectable,
+  signal,
+  untracked,
+} from '@angular/core';
+import { AppStateManager } from '@ptah-extension/core';
 import {
   createEmptyStreamingState,
   type StreamingState,
@@ -27,6 +35,7 @@ import type {
   HarnessAnalyzeIntentResponse,
   HarnessConversationMessage,
 } from '@ptah-extension/shared';
+import { HarnessRpcService } from './harness-rpc.service';
 
 /**
  * Façade exposed to {@link HarnessStreamingService} so it can route flat
@@ -65,6 +74,12 @@ export interface HarnessSurfaceFacade {
 export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   private readonly streamRouter = inject(StreamRouter);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+  private readonly appState = inject(AppStateManager);
+  // Used to re-run `harness:initialize` when the active workspace switches
+  // while the builder is idle. Safe to inject: HarnessRpcService only depends
+  // on ClaudeRpcService (no path back to this store), so no inject() cycle —
+  // unlike HarnessWorkflowService, which this store must NOT inject.
+  private readonly rpc = inject(HarnessRpcService);
 
   private readonly _config = signal<Partial<HarnessConfig>>({});
   private readonly _availableAgents = signal<AvailableAgent[]>([]);
@@ -91,12 +106,74 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     languages: string[];
   } | null>(null);
 
+  /**
+   * The surface's streaming state slot.
+   *
+   * `equal: () => false` is load-bearing, not a micro-optimisation escape
+   * hatch. `StreamingAccumulatorCore` mutates this object IN PLACE and hands
+   * the SAME reference back through the adapter's `setState`, so the default
+   * reference equality would swallow every write and the transcript would only
+   * appear once the view component was re-created.
+   */
   private readonly _streamingState = signal<StreamingState>(
     createEmptyStreamingState(),
+    { equal: () => false },
   );
   private readonly _isStreaming = signal(false);
   private readonly _currentOperationId = signal<string | null>(null);
   private readonly _operationSurfaces = new Map<string, SurfaceId>();
+
+  /**
+   * Workspace root captured from `harness:initialize` and PINNED for the
+   * lifetime of the build session. `harness:apply` writes into this root even
+   * if the active workspace changes mid-build. `null` = no workspace pinned
+   * yet (or reset), in which case apply falls back to the active workspace.
+   */
+  private readonly _pinnedWorkspaceRoot = signal<string | null>(null);
+
+  /**
+   * True while a build session is underway (workflow started, not yet
+   * disposed/reset). Drives the "idle vs in-progress" decision when the active
+   * workspace switches. Set by {@link HarnessWorkflowService} — this store must
+   * NOT inject the workflow service (that would form an inject() cycle).
+   */
+  private readonly _buildInProgress = signal(false);
+
+  /**
+   * True when the active workspace was switched WHILE a build was in progress.
+   * The builder keeps operating on the pinned workspace; the view surfaces a
+   * non-blocking badge so the user knows apply still targets the original.
+   */
+  private readonly _workspaceSwitchedDuringBuild = signal(false);
+
+  /**
+   * Root the workspace-switch effect last observed. Captured SYNCHRONOUSLY at
+   * construction (see constructor) rather than lazily on first flush, so a
+   * workspace switch that lands in the window between construction and the
+   * effect's first flush is treated as a genuine switch instead of being
+   * silently recorded as the baseline (review Issue 7).
+   */
+  private lastObservedWorkspaceRoot: string | null;
+
+  /**
+   * True once `initialize()` has run for this session (page opened). Gates the
+   * idle-switch re-initialize: if the builder was never initialized there is
+   * nothing to follow, so a switch is a no-op. Kept `true` across idle-switch
+   * resets (so rapid switches keep following the active workspace) and only
+   * cleared by the hard `reset()` teardown (page close).
+   *
+   * Exposed as {@link hasInitialized} so the view can skip a redundant
+   * `harness:initialize` when it re-mounts on top of a live workflow — that
+   * call would re-pin the workspace root and clear the mid-build switch badge.
+   */
+  private readonly _hasInitialized = signal(false);
+
+  /**
+   * Monotonic stamp for idle-switch re-initializes. On rapid A→B→C switches
+   * every switch bumps the stamp; a resolving `harness:initialize` only applies
+   * if its stamp is still the latest, so only the newest workspace wins.
+   */
+  private reinitSeq = 0;
 
   public readonly config = this._config.asReadonly();
   public readonly availableAgents = this._availableAgents.asReadonly();
@@ -117,6 +194,84 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public readonly streamingState = this._streamingState.asReadonly();
   public readonly isConversing = this._isStreaming.asReadonly();
   public readonly currentOperationId = this._currentOperationId.asReadonly();
+  public readonly pinnedWorkspaceRoot = this._pinnedWorkspaceRoot.asReadonly();
+  public readonly buildInProgress = this._buildInProgress.asReadonly();
+  public readonly hasInitialized = this._hasInitialized.asReadonly();
+  public readonly workspaceSwitchedDuringBuild =
+    this._workspaceSwitchedDuringBuild.asReadonly();
+
+  public constructor() {
+    // Capture the baseline workspace root SYNCHRONOUSLY so a switch that lands
+    // before the effect's first flush counts as a real switch (review Issue 7).
+    this.lastObservedWorkspaceRoot = untracked(
+      () => this.appState.workspaceInfo()?.path ?? null,
+    );
+    // React to Electron active-workspace switches: act only on genuine changes
+    // relative to the synchronously-captured baseline above.
+    effect(() => {
+      const root = this.appState.workspaceInfo()?.path ?? null;
+      const prev = this.lastObservedWorkspaceRoot;
+      this.lastObservedWorkspaceRoot = root;
+      if (prev === root) return;
+      untracked(() => this.onWorkspaceSwitched());
+    });
+  }
+
+  /**
+   * Handle an active-workspace switch:
+   * - Build in progress → keep the pinned root so `harness:apply` still targets
+   *   the original workspace; flag the switch so the view can badge it.
+   * - Idle + previously initialized → the builder follows the active workspace:
+   *   wipe the old workspace's state and re-initialize for the new one so
+   *   agents/skills/presets/pin reflect it (review Issue 1). Guarded by a
+   *   monotonic stamp so only the latest of several rapid switches wins.
+   * - Idle + never initialized → no-op (page never opened, nothing to follow).
+   */
+  private onWorkspaceSwitched(): void {
+    if (this._buildInProgress()) {
+      this._workspaceSwitchedDuringBuild.set(true);
+      return;
+    }
+    if (!this._hasInitialized()) return;
+    this.resetSessionState();
+    void this.reinitialize();
+  }
+
+  /**
+   * Re-run `harness:initialize` for the now-active workspace after an idle
+   * switch. Stamped so a slower response from an earlier switch can never
+   * overwrite a newer one (rapid A→B→C → only C applies). On failure sets the
+   * error state so the view surfaces its retry affordance (review Issue 1).
+   */
+  private async reinitialize(): Promise<void> {
+    const seq = ++this.reinitSeq;
+    this._isLoading.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.rpc.initialize();
+      if (seq !== this.reinitSeq) return;
+      this.initialize(response);
+    } catch (err: unknown) {
+      if (seq !== this.reinitSeq) return;
+      this._error.set(
+        err instanceof Error
+          ? err.message
+          : 'Failed to re-initialize AI Team Builder',
+      );
+    } finally {
+      if (seq === this.reinitSeq) this._isLoading.set(false);
+    }
+  }
+
+  /**
+   * Marks whether a build session is underway. Called by
+   * {@link HarnessWorkflowService} on workflow start (`true`) and dispose
+   * (`false`) so the workspace-switch effect can distinguish idle from
+   * in-progress without this store depending on the workflow service.
+   */
+  public setBuildInProgress(inProgress: boolean): void {
+    this._buildInProgress.set(inProgress);
+  }
 
   public readonly configSummary = computed(() => {
     const cfg = this._config();
@@ -179,6 +334,13 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         merged.skills = {
           selectedSkills:
             updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
+          // Carried alongside the ids so `harness:apply` can install the
+          // skills.sh entries — dropping this would strip the origin the
+          // installer needs.
+          selectedSkillRefs:
+            updates.skills.selectedSkillRefs ??
+            cfg.skills?.selectedSkillRefs ??
+            [],
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };
@@ -319,7 +481,18 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._availableSkills.set(response.availableSkills);
     this._existingPresets.set(response.existingPresets);
     this._workspaceContext.set(response.workspaceContext);
+    // PIN the workspace root the backend resolved. Everything applied later in
+    // this session targets this root, decoupled from the active workspace.
+    this._pinnedWorkspaceRoot.set(response.workspaceRoot);
+    this._workspaceSwitchedDuringBuild.set(false);
+    // Keep the switch effect's baseline aligned with the workspace we just
+    // pinned so a redundant "switch" isn't detected right after initialize.
+    this.lastObservedWorkspaceRoot =
+      this.appState.workspaceInfo()?.path ?? null;
     this._error.set(null);
+    // Latch that the builder is live and following the active workspace so an
+    // idle switch re-initializes rather than leaving a silently-empty view.
+    this._hasInitialized.set(true);
   }
 
   /**
@@ -472,7 +645,14 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._currentOperationId.set(null);
   }
 
-  public reset(): void {
+  /**
+   * Wipe all per-workspace session state (config, agents/skills/presets, pin,
+   * streaming, conversation). Does NOT clear the `hasInitialized` follow latch,
+   * so an idle-switch reset keeps the builder tracking the active workspace
+   * (and re-initializing for it). Used by both the idle-switch handler and the
+   * hard `reset()` teardown.
+   */
+  private resetSessionState(): void {
     this._config.set({});
     this._availableAgents.set([]);
     this._availableSkills.set([]);
@@ -488,8 +668,23 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._intentInput.set('');
     this._conversationMessages.set([]);
     this._isConfigComplete.set(false);
+    this._pinnedWorkspaceRoot.set(null);
+    this._buildInProgress.set(false);
+    this._workspaceSwitchedDuringBuild.set(false);
     this.resetOperationSurfaces();
     this._isStreaming.set(false);
     this._currentOperationId.set(null);
+  }
+
+  /**
+   * Hard teardown (page close). Wipes session state AND clears the follow
+   * latch so a later workspace switch does NOT fire a stray re-initialize for
+   * a builder that is no longer mounted. Also supersedes any in-flight
+   * re-initialize by bumping the stamp.
+   */
+  public reset(): void {
+    this.resetSessionState();
+    this._hasInitialized.set(false);
+    this.reinitSeq++;
   }
 }

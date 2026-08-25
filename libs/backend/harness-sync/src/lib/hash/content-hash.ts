@@ -1,0 +1,187 @@
+/**
+ * Content hashing for harness artifacts.
+ *
+ * A hash is the identity of a desired artifact. Two properties matter and both
+ * are load-bearing for the reconciler:
+ *
+ * 1. **Stable across machines and separators.** Relative paths are normalized
+ *    to POSIX and sorted before they enter the digest, so the same skill
+ *    directory hashes identically on Windows and macOS. Without that, every
+ *    reconcile on a synced workspace would look like drift.
+ * 2. **Blind to Ptah's own bookkeeping.** `.ptah-origin.json` sidecars,
+ *    `.history/` snapshots and the synthesis `_candidates` staging directory
+ *    live inside source directories but are never copied to a target. Hashing
+ *    them would make an untouched skill appear changed the moment the mirror
+ *    rewrote a sidecar timestamp.
+ *
+ * Symlinks are skipped outright rather than followed — a symlink loop inside a
+ * skill directory must not turn a hash into a hang.
+ */
+
+import { createHash } from 'crypto';
+import { readdirSync, readFileSync, lstatSync } from 'fs';
+import { join } from 'path';
+import { QUARANTINE_DIR_NAME } from '../quarantine/quarantine';
+
+/** Guards against symlink loops and pathological nesting, mirroring the copy engine. */
+const MAX_DEPTH = 20;
+
+/**
+ * Entries excluded from both the hash and the copy.
+ *
+ * `.ptah-origin.json` is the user-layer provenance sidecar, `.history` is the
+ * enhancement snapshot store, `_candidates` is skill-synthesis staging. None of
+ * the three is part of a skill's content and none belongs in a target dir.
+ *
+ * `.ptah-quarantine` is the repair's undo store (TASK_2026_306 Batch 8). It
+ * only ever lands inside a TARGET directory, so the two target scans that could
+ * see it call `isQuarantineEntry` directly; listing it here as well is what
+ * makes "never scanned as a SOURCE either" structural rather than incidental —
+ * `HarnessManifestBuilder.listSkillSlugs` and `listMarkdownFiles` both filter
+ * through this set, and a user who moves a quarantine into `~/.ptah/user` by
+ * hand must not have it propagated back out to six targets.
+ */
+export const IGNORED_ENTRY_NAMES: ReadonlySet<string> = new Set([
+  '.ptah-origin.json',
+  '.history',
+  '_candidates',
+  QUARANTINE_DIR_NAME,
+]);
+
+/** True when a directory entry must not be hashed or copied. */
+export function isIgnoredEntry(name: string): boolean {
+  return IGNORED_ENTRY_NAMES.has(name);
+}
+
+/** sha256 of a buffer, hex-encoded. */
+function sha256(input: Buffer | string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
+/**
+ * Content hash of an in-memory string, comparable with {@link hashFileSync}.
+ *
+ * Needed by targets that TRANSFORM content on the way out: the hash of what
+ * will land on disk has to be known before the write, and it is not the hash of
+ * any file that exists yet. Encoded as UTF-8 so it equals `hashFileSync` of the
+ * same string written with `'utf-8'`.
+ */
+export function hashContent(content: string): string {
+  return sha256(Buffer.from(content, 'utf-8'));
+}
+
+/** Content hash of a single file. Returns `null` when it cannot be read. */
+export function hashFileSync(filePath: string): string | null {
+  try {
+    return sha256(readFileSync(filePath));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collect `relativePath -> absolutePath` for every regular file under `dir`,
+ * skipping ignored names and symlinks. Relative paths use POSIX separators.
+ */
+export function listContentFilesSync(
+  dir: string,
+  prefix = '',
+  depth = 0,
+): Map<string, string> {
+  const files = new Map<string, string>();
+  if (depth > MAX_DEPTH) return files;
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return files;
+  }
+
+  for (const entry of entries) {
+    if (isIgnoredEntry(entry)) continue;
+    const absolute = join(dir, entry);
+    const relative = prefix === '' ? entry : `${prefix}/${entry}`;
+    let stat;
+    try {
+      stat = lstatSync(absolute);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink()) continue;
+    if (stat.isDirectory()) {
+      for (const [nestedRel, nestedAbs] of listContentFilesSync(
+        absolute,
+        relative,
+        depth + 1,
+      )) {
+        files.set(nestedRel, nestedAbs);
+      }
+    } else if (stat.isFile()) {
+      files.set(relative, absolute);
+    }
+  }
+
+  return files;
+}
+
+/**
+ * The byte separator between a path and its content digest.
+ *
+ * NUL, because it is the one byte no path and no hex digest can contain: with a
+ * printable separator, `a/b` + hash and `a` + `/b` + hash could collide, and a
+ * directory could be made to hash equal to a different directory.
+ */
+const DIGEST_SEPARATOR = '\u0000';
+
+/**
+ * Fold a `relativePath -> absolutePath` map into one digest.
+ *
+ * Shared so that every "hash of a directory" in this lib produces the SAME
+ * format. {@link hashDirSync} hashes what is on disk and
+ * `hashTransformedDirSync` (`targets/copy-engine.ts`) hashes what a transformed
+ * copy WOULD be; the two are compared against each other to decide whether an
+ * unowned copy is Ptah's own work, so a difference in this loop — a different
+ * separator, a different order — would silently make every such comparison fail.
+ *
+ * @param hashOf content digest for one file, given its relative and absolute
+ *   paths. Returning a stand-in for an unreadable file is the caller's choice.
+ */
+export function digestFileMap(
+  files: ReadonlyMap<string, string>,
+  hashOf: (relative: string, absolute: string) => string,
+): string {
+  const digest = createHash('sha256');
+  for (const relative of [...files.keys()].sort()) {
+    const absolute = files.get(relative);
+    if (absolute === undefined) continue;
+    digest.update(relative);
+    digest.update(DIGEST_SEPARATOR);
+    digest.update(hashOf(relative, absolute));
+    digest.update(DIGEST_SEPARATOR);
+  }
+  return digest.digest('hex');
+}
+
+/**
+ * Content hash of a directory tree: sha256 over each sorted relative path
+ * followed by that file's own content digest.
+ *
+ * Returns `null` when the directory does not exist. An EMPTY directory hashes
+ * to a real (constant) digest rather than null — "present but empty" and
+ * "absent" are different states to the reconciler.
+ */
+export function hashDirSync(dir: string): string | null {
+  let stat;
+  try {
+    stat = lstatSync(dir);
+  } catch {
+    return null;
+  }
+  if (!stat.isDirectory()) return null;
+
+  return digestFileMap(
+    listContentFilesSync(dir),
+    (_relative, absolute) => hashFileSync(absolute) ?? 'unreadable',
+  );
+}

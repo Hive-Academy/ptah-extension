@@ -123,6 +123,8 @@ export class SqliteConnectionService {
   private vecPathFallbackResolver: SqliteVecPathResolver | null = null;
   /** Optional backup service — set via configure() or DI post-construction. */
   private backupService: IBackupService | undefined = undefined;
+  /** Subscribers to the open transition — see {@link onDidOpen}. */
+  private readonly openListeners = new Set<() => void>();
 
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly _dbPath: string,
@@ -228,6 +230,9 @@ export class SqliteConnectionService {
         applied: result.appliedVersions,
         finalVersion: result.finalVersion,
       });
+      // After the log line, so a subscriber's own output reads in causal order,
+      // and after migrations, so a subscriber that writes finds its tables.
+      this.fireDidOpen();
     } catch (err: unknown) {
       this.close();
       this.classifyMigrationFailure(err);
@@ -429,6 +434,54 @@ export class SqliteConnectionService {
   /** True iff the underlying connection is open. */
   get isOpen(): boolean {
     return Boolean(this.database?.open);
+  }
+
+  /**
+   * Subscribe to "the connection is now open and migrated".
+   *
+   * TASK_2026_306 defect E. Registration and opening are deliberately separated
+   * — `registerPersistenceSqliteServices` only registers the token, and the host
+   * calls {@link openAndMigrate} much later in its boot (464 log lines later in
+   * the captured Electron run). Consumers registered in between could therefore
+   * only discover the connection by writing to it and failing.
+   *
+   * This is the missing edge: the lifecycle owner announces the transition, so a
+   * consumer can wait for it instead of guessing at it or being manually
+   * re-ordered inside each host's boot sequence.
+   *
+   * Contract:
+   *  - Fires ONLY on a transition to open, after migrations succeed. The
+   *    already-open early return in {@link openAndMigrate} does not fire, and a
+   *    failed open does not fire.
+   *  - Fires again on a later reopen (e.g. the database-reset RPC), so a
+   *    subscriber must be idempotent.
+   *  - Does NOT fire for a subscriber that arrives when the connection is
+   *    already open. Check {@link isOpen} first; this method answers "tell me
+   *    when it changes", not "tell me the current state".
+   *  - A throwing listener is logged and swallowed — one bad subscriber must
+   *    not fail the open for everyone else.
+   */
+  onDidOpen(listener: () => void): { dispose(): void } {
+    this.openListeners.add(listener);
+    return {
+      dispose: () => {
+        this.openListeners.delete(listener);
+      },
+    };
+  }
+
+  /** Notify {@link onDidOpen} subscribers. Never throws. */
+  private fireDidOpen(): void {
+    for (const listener of [...this.openListeners]) {
+      try {
+        listener();
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[persistence-sqlite] onDidOpen listener threw (non-fatal)',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+    }
   }
 
   /**

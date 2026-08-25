@@ -7,7 +7,11 @@
  *  3. `setScopeFilter('workspace')` causes `refresh()` to pass the active
  *     workspace path through `MemoryRpcService.list`.
  *  4. `loadStats()` honors the same scope decision (passes `null` in `'all'`
- *     mode, the workspace path in `'workspace'` mode).
+ *     mode, the workspace path in `'workspace'` mode) AND forwards the explicit
+ *     `scope` wire field alongside it.
+ *  5. `loadSymbols()` forwards `scope` too — `'all'` there is expressed by an
+ *     ABSENT `workspaceRoot`, which the backend cannot tell apart from "no
+ *     folder open" without it (TASK_2026_315 A4 revision).
  */
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
@@ -80,11 +84,26 @@ describe('MemoryStateService — scopeFilter', () => {
   it('loadStats() passes null in "all" scope, the workspace path otherwise', async () => {
     service.setScopeFilter('all');
     await service.loadStats();
-    expect(statsMock).toHaveBeenLastCalledWith(null);
+    expect(statsMock).toHaveBeenLastCalledWith(null, 'all');
 
     service.setScopeFilter('workspace');
     await service.loadStats();
-    expect(statsMock).toHaveBeenLastCalledWith('D:/ws');
+    expect(statsMock).toHaveBeenLastCalledWith('D:/ws', 'workspace');
+  });
+
+  /**
+   * Regression for the A4 revision. `null` on its own means "global/unscoped
+   * rows only" to the backend; without the explicit `scope: 'all'` the stats
+   * tile's `codeIndex` reads a hard 0 in all-scope, because
+   * `code_symbols.workspace_root` is never NULL.
+   */
+  it('loadStats() in "all" scope sends scope:"all" so the total stays cross-workspace', async () => {
+    service.setScopeFilter('all');
+    await service.loadStats();
+
+    const [workspaceRoot, scope] = statsMock.mock.calls[0];
+    expect(workspaceRoot).toBeNull();
+    expect(scope).toBe('all');
   });
 
   it('switching scope "all" → "workspace" restores workspace-scoped list calls', async () => {
@@ -303,6 +322,75 @@ describe('MemoryStateService — workspace-scope race guard', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// MemoryStateService — stale-response race guard
+//
+// A workspace/scope switch fires a fresh refresh while an earlier one may still
+// be in flight. The slow (previous-workspace) response must never overwrite the
+// list the user is now looking at. Each loader stamps its request and drops a
+// superseded result.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStateService — stale-response race guard', () => {
+  let service: MemoryStateService;
+  let listMock: jest.Mock;
+  const workspaceSignal = signal<{
+    path: string;
+    name: string;
+    type: string;
+  } | null>({ path: 'D:/ws-a', name: 'a', type: 'workspace' });
+
+  beforeEach(() => {
+    listMock = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        MemoryStateService,
+        {
+          provide: MemoryRpcService,
+          useValue: {
+            list: listMock,
+            stats: jest.fn().mockResolvedValue({
+              core: 0,
+              recall: 0,
+              archival: 0,
+              codeIndex: 0,
+              lastCuratedAt: null,
+            }),
+          },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceSignal },
+        },
+      ],
+    });
+    service = TestBed.inject(MemoryStateService);
+  });
+
+  it('drops a slow refresh once a newer refresh has already resolved', async () => {
+    let resolveFirst: (v: unknown) => void = () => undefined;
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFirst = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce({
+      memories: [{ id: 'fresh', tier: 'core' }],
+    });
+
+    const slow = service.refresh(); // seq 1 — pending (previous workspace)
+    await service.refresh(); // seq 2 — resolves with the new workspace's list
+    expect(service.entries().map((m) => m.id)).toEqual(['fresh']);
+
+    // The stale seq-1 response lands last and must be ignored.
+    resolveFirst({ memories: [{ id: 'stale', tier: 'core' }] });
+    await slow;
+    expect(service.entries().map((m) => m.id)).toEqual(['fresh']);
+    expect(service.loading()).toBe(false);
+  });
+});
+
 describe('MemoryStateService — loadSymbols', () => {
   let service: MemoryStateService;
   let searchSymbolsMock: jest.Mock;
@@ -360,7 +448,33 @@ describe('MemoryStateService — loadSymbols', () => {
     expect(args.query).toBe('foo');
     expect(args.offset).toBe(100);
     expect(args.limit).toBe(50);
+    expect(args.scope).toBe('workspace');
     expect(service.symbolItems().length).toBe(1);
     expect(service.symbolTotal()).toBe(1);
+  });
+
+  /**
+   * Regression for the A4 revision. All-scope symbol search is expressed by
+   * OMITTING `workspaceRoot`, which the backend reads as "use the current
+   * root" — so without `scope: 'all'` the search silently narrowed from every
+   * indexed workspace to the active one.
+   */
+  it('loadSymbols() in "all" scope omits workspaceRoot AND sends scope:"all"', async () => {
+    service.setScopeFilter('all');
+    await service.loadSymbols();
+
+    const args = searchSymbolsMock.mock.calls[0][0];
+    expect(args.workspaceRoot).toBeUndefined();
+    expect(args.scope).toBe('all');
+  });
+
+  it('loadSymbols() in "all" scope works with no workspace open', async () => {
+    workspaceSignal.set(null);
+    service.setScopeFilter('all');
+    await service.loadSymbols();
+
+    expect(searchSymbolsMock).toHaveBeenCalledTimes(1);
+    expect(searchSymbolsMock.mock.calls[0][0].scope).toBe('all');
+    expect(service.symbolError()).toBeNull();
   });
 });

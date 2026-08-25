@@ -16,7 +16,7 @@
         {{ session().name }}
       </h3>
       <div class="flex items-center gap-2 mt-0.5">
-        <span class="text-[10px] text-base-content/50" [title]="formatDate(session().lastActivityAt)">
+        <span class="text-[10px] text-base-content-muted" [title]="formatDate(session().lastActivityAt)">
           {{ formatRelativeTime(session().lastActivityAt) || formatDate(session().lastActivityAt) }}
         </span>
         @if (session().status === 'error') {
@@ -37,7 +37,7 @@
 
   <div class="grid grid-cols-3 gap-1.5">
     <div class="bg-base-300/30 rounded px-2 py-1.5 border border-success/20">
-      <div class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight">
+      <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">
         Cost
       </div>
       <div class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5">
@@ -46,7 +46,7 @@
     </div>
 
     <div class="bg-base-300/30 rounded px-2 py-1.5 border border-info/20">
-      <div class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight">
+      <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">
         Messages
       </div>
       <div class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5">
@@ -55,10 +55,10 @@
     </div>
 
     <div class="bg-base-300/30 rounded px-2 py-1.5 border border-base-content/15">
-      <div class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight">
+      <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">
         $ / Msg
       </div>
-      <div class="text-sm font-semibold text-base-content/80 tabular-nums leading-tight mt-0.5">
+      <div class="text-sm font-semibold text-base-content-muted tabular-nums leading-tight mt-0.5">
         {{ formatCost(costPerMessage()) }}
       </div>
     </div>
@@ -66,9 +66,9 @@
 
   @if (totalTokens() > 0) {
     <div class="space-y-1.5">
-      <div class="flex items-center justify-between text-[10px] text-base-content/50">
+      <div class="flex items-center justify-between text-[10px] text-base-content-muted">
         <span class="uppercase tracking-wider">Token Composition</span>
-        <span class="tabular-nums text-base-content/70">{{ formatTokenCount(totalTokens()) }}</span>
+        <span class="tabular-nums text-base-content-muted">{{ formatTokenCount(totalTokens()) }}</span>
       </div>
       <div
         class="flex h-2 w-full rounded-full overflow-hidden bg-base-300/40"
@@ -85,7 +85,7 @@
       </div>
       <div class="flex flex-wrap gap-x-3 gap-y-1">
         @for (seg of visibleSegments(); track seg.key) {
-          <span class="flex items-center gap-1 text-[10px] text-base-content/60">
+          <span class="flex items-center gap-1 text-[10px] text-base-content-muted">
             <span class="w-2 h-2 rounded-full" [class]="seg.dotClass"></span>
             {{ seg.label }}
             <span class="tabular-nums" [class]="seg.textClass">{{ formatTokenCount(seg.value) }}</span>
@@ -97,13 +97,13 @@
 
   @if (showModelBreakdown()) {
     <div class="space-y-1 border-t border-base-300/60 pt-2">
-      <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+      <div class="text-[10px] uppercase tracking-wider text-base-content-muted">
         Per-Model Usage
       </div>
       @for (m of session().modelUsageList; track m.model) {
         <div class="flex items-center justify-between gap-2 text-[11px]">
-          <span class="truncate text-base-content/70" [title]="m.model">{{ m.modelDisplayName }}</span>
-          <span class="flex items-center gap-2 shrink-0 tabular-nums text-base-content/50">
+          <span class="truncate text-base-content-muted" [title]="m.model">{{ m.modelDisplayName }}</span>
+          <span class="flex items-center gap-2 shrink-0 tabular-nums text-base-content-muted">
             <span title="Input / Output tokens">
               {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
             </span>
@@ -134,9 +134,9 @@
         </span>
       }
       @if (session().tokens.cacheRead > 0) {
-        <span class="text-[10px] text-base-content/50 ml-auto">
+        <span class="text-[10px] text-base-content-muted ml-auto">
           Cache hit
-          <span class="text-base-content/70 tabular-nums">{{
+          <span class="text-base-content-muted tabular-nums">{{
             formatTokenCount(session().tokens.cacheRead)
           }}</span>
         </span>

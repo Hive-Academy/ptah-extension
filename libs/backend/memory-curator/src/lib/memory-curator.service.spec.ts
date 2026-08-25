@@ -65,7 +65,7 @@ function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
   const llm =
     opts?.llm ??
     ({
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM);
   return new MemoryCuratorService(
@@ -119,6 +119,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     const info = svc.lastRunInfo();
     expect(info.at).not.toBeNull();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -190,10 +191,10 @@ describe('MemoryCuratorService — event ring buffer', () => {
 
 describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', () => {
   it('concurrent curate calls for the same (workspaceRoot, sessionId) share a single llm.extract invocation', async () => {
-    const resolvers: ((value: unknown[]) => void)[] = [];
+    const resolvers: ((value: unknown) => void)[] = [];
     const extract = jest.fn(
       () =>
-        new Promise<unknown[]>((resolve) => {
+        new Promise<unknown>((resolve) => {
           resolvers.push(resolve);
         }),
     );
@@ -213,13 +214,15 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       transcript: 't',
     });
     expect(extract).toHaveBeenCalledTimes(1);
-    resolvers[0]([]);
+    resolvers[0]({ status: 'extracted', drafts: [] });
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
   });
 
   it('different sessions run in parallel', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -233,7 +236,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
   });
 
   it('in-flight map clears after run completes so a follow-up call runs fresh', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -247,7 +252,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
 
 describe('MemoryCuratorService — placeholder skip event', () => {
   it('curate() with empty transcript pushes curator-skipped-no-data and bypasses llm.extract', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const resolve = jest.fn().mockResolvedValue([]);
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const registry = {
@@ -273,7 +280,13 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       llm,
     );
     const stats = await svc.curate({ sessionId: 'sess-skip' });
-    expect(stats).toEqual({ extracted: 0, merged: 0, created: 0, skipped: 0 });
+    expect(stats).toEqual({
+      outcome: 'ran',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
     expect(extract).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
     const events = svc.recentEvents(5);
@@ -283,7 +296,9 @@ describe('MemoryCuratorService — placeholder skip event', () => {
   });
 
   it('curate() with whitespace-only transcript still skips (treated as placeholder)', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -327,7 +342,10 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
         'libs/backend/agent-sdk/src/lib/curator-llm-adapter/index.ts',
       ] as const,
     };
-    const extract = jest.fn().mockResolvedValue([populatedDraft]);
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [populatedDraft],
+    });
     const resolve = jest
       .fn()
       .mockResolvedValue([{ ...populatedDraft, mergeTargetId: null }]);
@@ -403,7 +421,9 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       files: [] as const,
     };
     const llm = {
-      extract: jest.fn().mockResolvedValue([draft]),
+      extract: jest
+        .fn()
+        .mockResolvedValue({ status: 'extracted', drafts: [draft] }),
       resolve: jest.fn().mockResolvedValue([{ ...draft, mergeTargetId: null }]),
     } as unknown as ICuratorLLM;
     const registry = {
@@ -555,6 +575,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -567,6 +588,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(typeof evt?.error).toBe('string');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -600,7 +622,10 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       concepts: ['x'] as const,
       files: [] as const,
     };
-    const extract = jest.fn().mockResolvedValue([draft, { ...draft }]);
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [draft, { ...draft }],
+    });
     const resolve = jest.fn().mockRejectedValue(new Error('transport down'));
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
@@ -611,6 +636,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -626,6 +652,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(evt?.error).toContain('transport down');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -655,7 +682,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
     const llm = {
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM;
     const svc = new MemoryCuratorService(
@@ -680,11 +707,330 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       transcript: 'real transcript content',
     });
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
       skipped: 0,
     });
     expect(tracer.spans).toContain('memory.curate');
+  });
+});
+
+/**
+ * TASK_2026_295 — an unusable session id must not coalesce two different
+ * sessions into one run.
+ *
+ * The in-flight map exists to stop the SAME session being curated twice
+ * concurrently. Its key used to be `${workspaceRoot}::${sessionId}`, so two
+ * unrelated sessions in one workspace that both arrived with `''` produced the
+ * identical key `"/ws::"`: the second caller was handed the FIRST session's
+ * promise, its transcript was never seen by the LLM, and it received the first
+ * session's `CuratorRunStats` and reported success. Silent curation loss.
+ *
+ * The LLM double gates on a promise so both runs are genuinely in flight at the
+ * same time — the only condition under which the old key could collide.
+ */
+describe('MemoryCuratorService — in-flight coalescing (TASK_2026_295)', () => {
+  function gatedLlm(): {
+    llm: ICuratorLLM;
+    transcripts: string[];
+    release: () => void;
+  } {
+    const transcripts: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const llm = {
+      extract: jest.fn(async (transcript: string) => {
+        transcripts.push(transcript);
+        await gate;
+        return { status: 'extracted', drafts: [] };
+      }),
+      resolve: jest.fn(async () => []),
+    } as unknown as ICuratorLLM;
+    return { llm, transcripts, release: () => release() };
+  }
+
+  it('does NOT share one run between two sessions that both arrive with an empty id', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const a = svc.curate({
+      sessionId: '',
+      workspaceRoot: '/ws',
+      transcript: 'session A transcript',
+    });
+    const b = svc.curate({
+      sessionId: '',
+      workspaceRoot: '/ws',
+      transcript: 'session B transcript',
+    });
+
+    release();
+    await Promise.all([a, b]);
+    // Before the fix this was ['session A transcript'] — B was handed A's
+    // in-flight promise and its transcript never reached the LLM at all.
+    expect(transcripts).toEqual([
+      'session A transcript',
+      'session B transcript',
+    ]);
+  });
+
+  it('still coalesces two concurrent runs for the SAME real session', async () => {
+    // The control. Without it, "does not coalesce" would also pass for an
+    // implementation that had simply deleted the in-flight map.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const first = svc.curate({
+      sessionId: 's-1',
+      workspaceRoot: '/ws',
+      transcript: 'first transcript',
+    });
+    const second = svc.curate({
+      sessionId: 's-1',
+      workspaceRoot: '/ws',
+      transcript: 'second transcript',
+    });
+
+    release();
+    const [statsFirst, statsSecond] = await Promise.all([first, second]);
+    // One run, and the second caller was served by it.
+    expect(transcripts).toEqual(['first transcript']);
+    expect(statsSecond).toEqual(statsFirst);
+  });
+
+  it('keeps different real sessions in the same workspace independent', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const a = svc.curate({
+      sessionId: 's-a',
+      workspaceRoot: '/ws',
+      transcript: 'transcript A',
+    });
+    const b = svc.curate({
+      sessionId: 's-b',
+      workspaceRoot: '/ws',
+      transcript: 'transcript B',
+    });
+
+    release();
+    await Promise.all([a, b]);
+    expect(transcripts).toEqual(['transcript A', 'transcript B']);
+  });
+});
+
+/**
+ * TASK_2026_296 item 6, Part B — a rekey landing mid-curate must not produce a
+ * double-curate.
+ *
+ * A residual hook path can start a curate under the **tabId**, because the SDK
+ * UUID does not exist until the system `init` message lands. When it does land,
+ * `MemoryTriggerService.rekeySession` fires and moves the in-flight coalescing
+ * key onto the UUID. If it did not, the guard would still be holding the old
+ * key and a curate triggered under the UUID would start a SECOND concurrent
+ * run of the same session (plan §6c Q3).
+ *
+ * Both ids here are real UUID v4 strings — a tabId IS one, so `tab_N` would
+ * make these pass for the wrong reason.
+ */
+describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
+  const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+  const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+  const OTHER_ID = 'f31c8a2d-55b6-4e19-9a07-1d8c4b2e6f93';
+
+  function gatedLlm(): {
+    llm: ICuratorLLM;
+    transcripts: string[];
+    release: () => void;
+  } {
+    const transcripts: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const llm = {
+      extract: jest.fn(async (transcript: string) => {
+        transcripts.push(transcript);
+        await gate;
+        return { status: 'extracted', drafts: [] };
+      }),
+      resolve: jest.fn(async () => []),
+    } as unknown as ICuratorLLM;
+    return { llm, transcripts, release: () => release() };
+  }
+
+  it('runs exactly one curate when the rekey lands mid-flight', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    // Armed under the tabId — the residual path.
+    const started = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'the one real run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    // The trigger now fires under the canonical id. Without the rekey this
+    // would miss the in-flight guard and start a second concurrent run.
+    const afterRekey = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'the double that must not happen',
+    });
+
+    release();
+    const [a, b] = await Promise.all([started, afterRekey]);
+
+    expect(transcripts).toEqual(['the one real run']);
+    expect(b).toEqual(a);
+  });
+
+  it('drains the migrated key when the run settles, so the session is curatable again', async () => {
+    // The migrated entry inherits a `.finally` that deletes the OLD key, so
+    // without a re-armed cleanup it would sit under `toId` forever and every
+    // later curate would be handed a long-settled promise.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const started = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'first run',
+    });
+    svc.rekeySession(TAB_ID, REAL_ID);
+    release();
+    await started;
+    await Promise.resolve();
+
+    await svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'second run',
+    });
+
+    expect(transcripts).toEqual(['first run', 'second run']);
+  });
+
+  it('refuses to overwrite an entry already held under toId', async () => {
+    // R4. The destination is a LIVE run; the fromId entry is discarded rather
+    // than clobbering it, and the destination's own promise still serves its
+    // callers.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const underTab = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'tab run',
+    });
+    const underReal = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'real run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    // The destination is unchanged: a further curate under REAL_ID still
+    // coalesces onto the run that was already there.
+    const third = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'must coalesce onto the real run',
+    });
+
+    release();
+    const [, realStats, thirdStats] = await Promise.all([
+      underTab,
+      underReal,
+      third,
+    ]);
+    expect(transcripts).toEqual(['tab run', 'real run']);
+    expect(thirdStats).toEqual(realStats);
+  });
+
+  // Paired-isolation siblings: the rekey must be inert where it has no
+  // business acting, and must leave every unrelated session alone.
+  it('is a no-op for a blank, identical or unrelated id', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const running = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'untouched run',
+    });
+
+    svc.rekeySession('', REAL_ID);
+    svc.rekeySession(TAB_ID, '   ');
+    svc.rekeySession(TAB_ID, TAB_ID);
+    svc.rekeySession(OTHER_ID, REAL_ID);
+
+    // Still coalescing under its original key — nothing moved.
+    const same = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'must coalesce',
+    });
+
+    release();
+    const [a, b] = await Promise.all([running, same]);
+    expect(transcripts).toEqual(['untouched run']);
+    expect(b).toEqual(a);
+  });
+
+  it('migrates only the matching workspace-scoped keys', async () => {
+    // The key is `${workspaceRoot ?? ''}::${sessionId}`, so one session can hold
+    // several entries. All of them move; a same-id entry in another workspace
+    // must not be left behind, and another session's entry must not move.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const inA = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'ws-a run',
+    });
+    const inB = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws-b',
+      transcript: 'ws-b run',
+    });
+    const other = svc.curate({
+      sessionId: OTHER_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'other session run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    const coalescedA = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'should coalesce onto ws-a',
+    });
+    const coalescedB = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws-b',
+      transcript: 'should coalesce onto ws-b',
+    });
+
+    release();
+    const [statsA, statsB, , cA, cB] = await Promise.all([
+      inA,
+      inB,
+      other,
+      coalescedA,
+      coalescedB,
+    ]);
+    expect(transcripts).toEqual(['ws-a run', 'ws-b run', 'other session run']);
+    expect(cA).toEqual(statsA);
+    expect(cB).toEqual(statsB);
   });
 });

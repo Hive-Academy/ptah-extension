@@ -1,0 +1,25 @@
+-- Drop the external-forum group name from member cohorts (TASK_2026_177,
+-- MG-2.4). Migration 1 of 5 for the native community platform.
+--
+-- `discourse_group` named a group on the self-hosted Discourse instance that a
+-- provisioning fan-out kept in sync: assigning a member to a cohort here caused
+-- that member to be added to the matching forum group there. That whole
+-- integration — SSO, the admin API provider, the provisioning service, and the
+-- four routes they served — was deleted in the same change.
+--
+-- FORWARD-ONLY, AND THE ORDER IS NOT NEGOTIABLE (§1.8). This migration lands
+-- AFTER every code reference to the column is gone, otherwise the running app
+-- compiles against a column that no longer exists. It also lands after the
+-- membership predicate was relocated to `libs/api/membership` and its tests went
+-- green (MG-2.2 / RK-4): relocate and prove first, delete second.
+--
+-- DATA LOSS IS INTENTIONAL AND BOUNDED. The column held forum group names, not
+-- membership. Cohort membership itself lives in `member_group_assignments` and
+-- is untouched — no assignment row is lost, and no member changes cohort.
+-- Cohort-scoped visibility is now resolved in-product from those same rows
+-- (`CohortResolver` → `cohortKeys`, AD-10), so nothing reads a forum group name
+-- again. There is no down migration; restoring the column would restore an empty
+-- column, not the integration.
+
+-- AlterTable
+ALTER TABLE "member_groups" DROP COLUMN "discourse_group";

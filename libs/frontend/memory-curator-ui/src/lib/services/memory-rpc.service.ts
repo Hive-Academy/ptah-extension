@@ -23,6 +23,7 @@ import type {
   MemoryPinResult,
   MemoryPurgeBySubjectPatternResult,
   MemoryPurgeJunkResult,
+  MemoryQueryScope,
   MemoryRebuildIndexResult,
   MemorySearchResult,
   MemorySearchSymbolsParams,
@@ -179,12 +180,22 @@ export class MemoryRpcService {
     throw new Error(result.error || 'memory:rebuildIndex failed');
   }
 
+  /**
+   * `scope` is optional and defaults server-side to `'workspace'`. Callers that
+   * mean "every workspace" MUST pass `'all'` — an omitted or null
+   * `workspaceRoot` no longer implies it (TASK_2026_315 A4). The dashboard tile
+   * deliberately omits `scope`: it wants the active workspace, not a union.
+   */
   public async stats(
     workspaceRoot?: string | null,
+    scope?: MemoryQueryScope,
   ): Promise<MemoryStatsResult> {
     const result = await this.rpc.call(
       'memory:stats',
-      { workspaceRoot: workspaceRoot ?? null },
+      {
+        workspaceRoot: workspaceRoot ?? null,
+        ...(scope !== undefined ? { scope } : {}),
+      },
       { timeout: MEMORY_RPC_TIMEOUTS.LIST_MS },
     );
 

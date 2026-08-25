@@ -10,7 +10,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type { CliType } from '@ptah-extension/shared';
+import type {
+  CliType,
+  McpInstallTarget,
+  McpServerConfig,
+} from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -56,6 +60,8 @@ import {
   buildHarnessCreateSkillTool,
   buildHarnessSearchMcpRegistryTool,
   buildHarnessListInstalledMcpTool,
+  buildHarnessInstallMcpTool,
+  buildHarnessProposeConfigTool,
   buildAstAnalyzeTool,
   buildContextEnrichFileTool,
   buildGetDependentsTool,
@@ -65,9 +71,15 @@ import {
   buildRelevanceRankFilesTool,
   buildProjectDetectMonorepoTool,
   buildGetSymbolIndexTool,
+  buildTaskCreateTool,
+  buildTaskUpdateTool,
+  buildTaskGetTool,
+  buildTaskListTool,
+  buildTaskCheckTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
+import { runWithMcpRequestContext } from './mcp-request-context';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -154,7 +166,10 @@ export async function handleMCPRequest(
         return handleToolsList(request, deps);
 
       case 'tools/call':
-        return await handleToolsCall(request, deps);
+        return await runWithMcpRequestContext(
+          { callerSessionId: request._callerSessionId },
+          () => handleToolsCall(request, deps),
+        );
 
       default:
         return createErrorResponse(
@@ -209,6 +224,13 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Always-on core tools (never disabled by namespace toggles):
  * - workspace_analyze, search_files, get_diagnostics, count_tokens,
  *   web_search, execute_code, approval_prompt
+ * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
+ *   in the core set on purpose and have NO entry in the namespace-toggle list
+ *   below: an agent that cannot rely on the task tools being present will fall
+ *   back to hand-writing task metadata, which is the exact failure that makes
+ *   task folders vanish from the board. There is no `set_section` tool — the
+ *   carrier is machine-owned metadata, prose is agent-owned, and a
+ *   section-writer would collapse that boundary.
  *
  * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
  * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
@@ -241,6 +263,12 @@ function handleToolsList(
     buildWebSearchTool(),
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
+    // Always-on: deliberately NOT wrapped in a `disabled.has(...)` guard.
+    buildTaskCreateTool(),
+    buildTaskUpdateTool(),
+    buildTaskGetTool(),
+    buildTaskListTool(),
+    buildTaskCheckTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -287,6 +315,8 @@ function handleToolsList(
           buildHarnessCreateSkillTool(),
           buildHarnessSearchMcpRegistryTool(),
           buildHarnessListInstalledMcpTool(),
+          buildHarnessInstallMcpTool(),
+          buildHarnessProposeConfigTool(),
         ]
       : []),
     ...(!disabled.has('code')
@@ -318,7 +348,6 @@ function handleToolsList(
  * behind the SDK's built-in tool-search tool.
  */
 const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
-  'execute_code',
   'ptah_search_files',
   'ptah_ast_analyze',
   'ptah_context_enrich_file',
@@ -1123,43 +1152,61 @@ async function handleIndividualTool(
       }
       case 'ptah_harness_search_skills': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              skills: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { skills: [] });
         }
-        const { query: skillQuery } = args as { query?: string };
-        const skills = await ptahAPI.harness.searchSkills(skillQuery);
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify({ skills, count: skills.length }),
-          deps,
+        const {
+          query: skillQuery,
+          limit: skillLimit,
+          offset: skillOffset,
+        } = args as {
+          query?: string;
+          limit?: number;
+          offset?: number;
+        };
+        const skillsResult = await ptahAPI.harness.searchSkills(
+          skillQuery,
+          skillLimit,
+          skillOffset,
         );
+        // A degraded search is surfaced as a TOOL ERROR, not as data. An empty
+        // list that reads like a valid negative is the one failure mode this
+        // whole contract exists to prevent.
+        return skillsResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(skillsResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(skillsResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_create_skill': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({ error: 'Harness namespace not available' }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, {});
         }
         const {
           name: skillName,
           description: skillDescription,
           content: skillContent,
           allowedTools,
+          scope: skillScope,
         } = args as {
           name: string;
           description: string;
           content: string;
           allowedTools?: string[];
+          scope?: 'user' | 'workspace';
         };
+
+        if (
+          skillScope !== undefined &&
+          !['user', 'workspace'].includes(skillScope)
+        ) {
+          return toolErrorResponse(
+            request,
+            `Error: "scope" must be "user" or "workspace" (got ${JSON.stringify(skillScope)}).`,
+          );
+        }
 
         if (!skillName || !skillDescription || !skillContent) {
           return {
@@ -1182,6 +1229,7 @@ async function handleIndividualTool(
           skillDescription,
           skillContent,
           allowedTools,
+          skillScope,
         );
         return createToolSuccessResponse(
           request,
@@ -1192,14 +1240,7 @@ async function handleIndividualTool(
 
       case 'ptah_harness_search_mcp_registry': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const { query: registryQuery, limit: registryLimit } = args as {
           query: string;
@@ -1226,23 +1267,18 @@ async function handleIndividualTool(
           registryQuery,
           registryLimit,
         );
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify(registryResult),
-          deps,
-        );
+        return registryResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(registryResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(registryResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_list_installed_mcp': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const installedServers =
           await ptahAPI.harness.listInstalledMcpServers();
@@ -1256,12 +1292,114 @@ async function handleIndividualTool(
         );
       }
 
+      case 'ptah_harness_install_mcp_server': {
+        if (!ptahAPI.harness) {
+          return harnessUnavailableResponse(request, { results: [] });
+        }
+        const {
+          serverName: mcpServerName,
+          config: mcpConfig,
+          serverKey: mcpServerKey,
+          targets: mcpTargets,
+        } = args as {
+          serverName?: string;
+          config?: McpServerConfig;
+          serverKey?: string;
+          targets?: McpInstallTarget[];
+        };
+
+        if (
+          typeof mcpServerName !== 'string' ||
+          mcpServerName.trim().length === 0
+        ) {
+          return missingStringArgResponse(request, 'serverName');
+        }
+        if (
+          mcpConfig === null ||
+          typeof mcpConfig !== 'object' ||
+          Array.isArray(mcpConfig)
+        ) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "config" is required and must be an MCP transport config object ({"type":"stdio"|"http"|"sse", ...}).',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        // Argument shapes beyond this point are validated by the namespace
+        // (zod) — a rejection surfaces as an isError tool result.
+        const installOutcome = await ptahAPI.harness.installMcpServer(
+          mcpServerName,
+          mcpConfig,
+          mcpServerKey,
+          mcpTargets,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(installOutcome),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_propose_config': {
+        if (!ptahAPI.harness) {
+          return harnessUnavailableResponse(request, {});
+        }
+        const { configUpdates, isConfigComplete } = args as {
+          configUpdates?: unknown;
+          isConfigComplete?: boolean;
+        };
+
+        if (
+          configUpdates === null ||
+          typeof configUpdates !== 'object' ||
+          Array.isArray(configUpdates)
+        ) {
+          return toolErrorResponse(
+            request,
+            'Error: "configUpdates" is required and must be a partial harness config object.',
+          );
+        }
+
+        // Field-level shape is settled by zod inside the namespace; a rejection
+        // arrives here as a throw and is reported with the offending path.
+        const proposeAck = await ptahAPI.harness.proposeConfig(
+          configUpdates as Parameters<
+            NonNullable<typeof ptahAPI.harness>['proposeConfig']
+          >[0],
+          isConfigComplete,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            ok: true,
+            isConfigComplete: isConfigComplete ?? false,
+            message: proposeAck,
+          }),
+          deps,
+        );
+      }
+
       case 'ptah_ast_analyze': {
-        const { file } = args as { file: string };
+        const { file, workspaceRoot } = args as {
+          file: string;
+          workspaceRoot?: string;
+        };
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
         }
-        const result = await ptahAPI.ast.analyze(file.trim());
+        const result = await ptahAPI.ast.analyze(
+          file.trim(),
+          typeof workspaceRoot === 'string' ? workspaceRoot.trim() : undefined,
+        );
         return createToolSuccessResponse(request, JSON.stringify(result), deps);
       }
 
@@ -1280,13 +1418,16 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'file');
         }
         await ensureDependencyGraphBuilt(ptahAPI);
-        const dependents = await ptahAPI.dependencies.getDependents(
+        const resolvedFile = await resolveDependencyQueryPath(
+          ptahAPI,
           file.trim(),
         );
+        const dependents =
+          await ptahAPI.dependencies.getDependents(resolvedFile);
         return createToolSuccessResponse(
           request,
           JSON.stringify({
-            file: file.trim(),
+            file: resolvedFile,
             dependents,
             count: dependents.length,
           }),
@@ -1300,14 +1441,18 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'file');
         }
         await ensureDependencyGraphBuilt(ptahAPI);
-        const dependencies = await ptahAPI.dependencies.getDependencies(
+        const resolvedFile = await resolveDependencyQueryPath(
+          ptahAPI,
           file.trim(),
+        );
+        const dependencies = await ptahAPI.dependencies.getDependencies(
+          resolvedFile,
           depth,
         );
         return createToolSuccessResponse(
           request,
           JSON.stringify({
-            file: file.trim(),
+            file: resolvedFile,
             dependencies,
             count: dependencies.length,
           }),
@@ -1398,6 +1543,37 @@ async function handleIndividualTool(
         );
       }
 
+      // -- Task specs (TASK_2026_179, step 17) ----------------------------
+      //
+      // Each of these returns its namespace result verbatim. The namespace
+      // validates its own arguments with Zod and converts every failure into a
+      // typed `{ ok: false, error }` object, so these cases stay thin and the
+      // agent gets a machine-readable refusal rather than a thrown string.
+      case 'ptah_task_create': {
+        const result = await ptahAPI.tasks.create(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_update': {
+        const result = await ptahAPI.tasks.update(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_get': {
+        const result = await ptahAPI.tasks.get(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_list': {
+        const result = await ptahAPI.tasks.list(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_check': {
+        const result = await ptahAPI.tasks.check();
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
       default:
         return null;
     }
@@ -1427,6 +1603,48 @@ async function handleIndividualTool(
 /**
  * Build a JSON-RPC tool error for a missing/empty required string argument.
  */
+/**
+ * Report a tool failure as an MCP tool error.
+ *
+ * Per the MCP spec this is still a successful JSON-RPC response carrying
+ * `isError: true` — the distinction that matters is that the agent sees an
+ * error rather than data it could mistake for an answer.
+ */
+function toolErrorResponse(request: MCPRequest, text: string): MCPResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      content: [{ type: 'text', text }],
+      isError: true,
+    },
+  };
+}
+
+/**
+ * The harness namespace is absent on this host.
+ *
+ * Reported as an ERROR carrying an empty collection of the shape the caller
+ * expected, never as a successful empty result: "the harness tools are not
+ * wired here" and "there is nothing to find" are different answers and were
+ * previously indistinguishable.
+ */
+function harnessUnavailableResponse(
+  request: MCPRequest,
+  shape: Record<string, unknown>,
+): MCPResponse {
+  return toolErrorResponse(
+    request,
+    JSON.stringify({
+      ...shape,
+      count: 0,
+      status: 'error',
+      error:
+        'Harness namespace not available on this host — this is a tool failure, not an empty result.',
+    }),
+  );
+}
+
 function missingStringArgResponse(
   request: MCPRequest,
   field: string,
@@ -1450,13 +1668,41 @@ function missingStringArgResponse(
  * Build the workspace import graph on first dependency query; reuse thereafter.
  */
 async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
-  if (await ptahAPI.dependencies.isBuilt()) return;
   const info = await ptahAPI.workspace.getInfo();
   const workspaceRoot = info?.path;
   if (!workspaceRoot) return;
+  // Guard on THIS workspace's graph so a second open workspace still builds its
+  // own graph rather than reusing the first workspace's cached result.
+  if (await ptahAPI.dependencies.isBuilt(workspaceRoot)) return;
   const files = await ptahAPI.search.findFiles('**/*.{ts,tsx,js,jsx}', 5000);
   if (files.length === 0) return;
-  await ptahAPI.dependencies.buildGraph(files, workspaceRoot);
+  // findFiles yields workspace-relative paths; the graph must be keyed by
+  // ABSOLUTE paths so its nodes match absolute-path queries (and so the graph
+  // reads real files rather than resolving relative paths against process.cwd).
+  const absoluteFiles = files.map((f) =>
+    toAbsoluteWorkspacePath(workspaceRoot, f),
+  );
+  await ptahAPI.dependencies.buildGraph(absoluteFiles, workspaceRoot);
+}
+
+/** Join a workspace-relative path to its root; pass absolute paths through. */
+function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
+  return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+}
+
+/**
+ * Resolve a dependency-tool `file` argument to an absolute path against the same
+ * workspace root the graph is built under, so a relative arg from the agent
+ * matches the graph's absolute node keys. Absolute args pass through unchanged.
+ */
+async function resolveDependencyQueryPath(
+  ptahAPI: PtahAPI,
+  file: string,
+): Promise<string> {
+  if (path.isAbsolute(file)) return file;
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
+  return workspaceRoot ? path.join(workspaceRoot, file) : file;
 }
 
 /**

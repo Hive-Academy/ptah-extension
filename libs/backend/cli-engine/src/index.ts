@@ -9,6 +9,7 @@ export type {
   WithEngineOptions,
   EngineContext,
   InitializeSdkAdapterResult,
+  SdkAgentLifecycle,
 } from './lib/bootstrap/with-engine.js';
 
 export { CliDIContainer } from './lib/container.js';
@@ -34,11 +35,7 @@ export { CliMessageTransport } from './lib/transport/cli-message-transport.js';
 export { CliWebviewManagerAdapter } from './lib/transport/cli-webview-manager-adapter.js';
 export { CliFireAndForgetHandler } from './lib/transport/cli-fire-and-forget-handler.js';
 
-export {
-  CliRpcMethodRegistrationService,
-  __CLI_EXCLUDED_RPC_METHODS_FOR_TEST,
-} from './lib/rpc/cli-rpc-method-registration.service.js';
-export { CliAgentRpcHandlers } from './lib/rpc/cli-agent-rpc.handlers.js';
+export { createCliRpcHostProfile } from './lib/rpc/cli-host-profile.js';
 
 export {
   CliPlatformCommands,
@@ -46,6 +43,10 @@ export {
   CliSaveDialog,
   CliModelDiscovery,
 } from './lib/platform/index.js';
+export type {
+  AuthCommandPushSink,
+  CliPlatformCommandsOptions,
+} from './lib/platform/cli-platform-commands.js';
 
 export {
   CliOutputManagerAdapter,

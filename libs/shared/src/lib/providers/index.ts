@@ -9,6 +9,7 @@
  */
 
 export * from './provider-registry';
+export * from './provider-base-url';
 export * from './proxy-token-placeholders';
 export {
   COPILOT_PROVIDER_ENTRY,
@@ -28,3 +29,4 @@ export {
   SAKANA_PROVIDER_ENTRY,
   SAKANA_DEFAULT_TIERS,
 } from './entries/sakana-provider-entry';
+export { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';

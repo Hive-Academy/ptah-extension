@@ -53,6 +53,7 @@ import type {
 } from '@ptah-extension/shared';
 import { StreamRouter } from './stream-router.service';
 import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
+import { WorkflowSessionClaimService } from './workflow-session-claim.service';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -1630,6 +1631,20 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(probe.state.messageEventIds).toContain(`msg-${SESSION_A}`);
     });
 
+    it('pushes every in-place mutation back through adapter.setState', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const slot = probe.state;
+
+      router.routeStreamEventForSurface(msgStart(SESSION_A), probe.surfaceId);
+
+      // The accumulator mutates the SAME object, so a signal-backed host only
+      // learns about the write through this call. Without it the harness
+      // transcript stayed blank for a whole run and only rendered once the
+      // view component was re-created.
+      expect(probe.setState).toHaveBeenCalledWith(slot);
+    });
+
     it('appends a new session to the conversation when the first event carries a different sessionId', () => {
       const probe = makeSurfaceProbe();
       const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
@@ -1940,6 +1955,116 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       warnSpy.mockRestore();
     });
 
+    // ---- correlation-id routing (TASK_2026_317) -------------------------
+    //
+    // A surface workflow hands `chat:start` a correlation id as `tabId`, and
+    // the backend derives BOTH prompt routing ids from it — for a new session
+    // the SDK UUID does not exist yet. So the prompt arrives carrying an id
+    // that is neither a bound TabId nor a session the ConversationRegistry
+    // knows. The claim map is the only thing that can resolve it, and until
+    // now only the stream-event path consulted it: questions fell through to
+    // the chat view's active-tile net and appeared on an unrelated canvas
+    // session while the workflow's own panel stayed empty.
+
+    it('routes a question carrying ONLY a correlation id to the claimed interactive surface', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+      // Deliberately NOT bound to any conversation: this is the pre-`init`
+      // state where the real session id does not exist yet.
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-correlation',
+          tabId: correlationId,
+          sessionId: correlationId,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-correlation',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+    });
+
+    it('routes a permission prompt carrying ONLY a correlation id to the claimed interactive surface', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({
+          id: 'perm-correlation',
+          tabId: correlationId,
+          sessionId: correlationId,
+        }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-correlation',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+    });
+
+    it('ignores a claim whose surface is NOT interactive — full-auto surfaces keep auto-answering', () => {
+      const probe = makeSurfaceProbe(); // registered without { interactive: true }
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-correlation-noninteractive',
+          tabId: correlationId,
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handleQuestionResponse).toHaveBeenCalledWith({
+        id: 'q-correlation-noninteractive',
+        answers: {},
+      });
+      warnSpy.mockRestore();
+    });
+
+    it('prefers a live bound TAB over a claim — a chat tile still wins its own prompts', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const tabId = TabId.create();
+      const convId = router.onTabCreated(tabId, SESSION_A);
+      expect(convId).toBeTruthy();
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        tabId as string,
+        probe.surfaceId,
+      );
+
+      const targets = router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-tab-wins',
+          tabId: tabId as string,
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(targets).toEqual([tabId]);
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-tab-wins',
+        [tabId],
+      );
+    });
+
     it('non-interactive surface keeps auto-deny behavior unchanged', () => {
       const probe = makeSurfaceProbe();
       router.onSurfaceCreated(probe.surfaceId, SESSION_A);
@@ -1956,6 +2081,157 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
         reason: expect.stringContaining('auto-deny'),
       });
       warnSpy.mockRestore();
+    });
+
+    // TASK_2026_263 — a question that arrives before the surface conversation
+    // knows the real session id must still find the surface, either on the
+    // next tick or on the SESSION_ID_RESOLVED / compaction refresh pass.
+    describe('late session resolution (TASK_2026_263)', () => {
+      function makeInteractiveProbe() {
+        const probe = {
+          surfaceId: SurfaceId.create(),
+          state: createEmptyStreamingState(),
+          getState: jest.fn<StreamingState, []>(),
+          setState: jest.fn<void, [StreamingState]>(),
+        };
+        probe.getState.mockImplementation(() => probe.state);
+        probe.setState.mockImplementation((next) => {
+          probe.state = next;
+        });
+        surfaceRegistry.register(
+          probe.surfaceId,
+          probe.getState,
+          probe.setState,
+          { interactive: true },
+        );
+        return probe;
+      }
+
+      it('microtask fallback attaches interactive surface targets when no tab appears', async () => {
+        const probe = makeInteractiveProbe();
+        const q = makeQuestion({
+          id: 'q-surface-defer',
+          sessionId: SESSION_A as unknown as string,
+        });
+
+        // Nothing knows SESSION_A yet → routing defers to a microtask.
+        const targets = router.routeQuestionPrompt(q);
+        expect(targets).toEqual([]);
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+
+        // Surface binds the session before the microtask drains.
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        await Promise.resolve();
+
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-defer',
+          [probe.surfaceId],
+        );
+        expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+      });
+
+      it('microtask fallback stays silent when the only surface is non-interactive', async () => {
+        const probe = makeSurfaceProbe();
+        router.routeQuestionPrompt(
+          makeQuestion({
+            id: 'q-surface-defer-noninteractive',
+            sessionId: SESSION_A as unknown as string,
+          }),
+        );
+
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        await Promise.resolve();
+
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('refreshQuestionTargetsForSession attaches surface targets when the session has no tabs', () => {
+        const probe = makeInteractiveProbe();
+        // Surface claimed before the backend reported a session id.
+        router.onSurfaceCreated(probe.surfaceId);
+
+        const q = makeQuestion({
+          id: 'q-surface-refresh',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+
+        // SESSION_ID_RESOLVED: the surface conversation gains the real session,
+        // then the handler asks the router to re-resolve pending questions.
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-refresh',
+          [probe.surfaceId],
+        );
+      });
+
+      it('refreshQuestionTargetsForSession does not stomp already-resolved surface targets', () => {
+        const probe = makeInteractiveProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+        const q = makeQuestion({
+          id: 'q-surface-resolved',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+        permissionHandler.attachQuestionTargets('q-surface-resolved', [
+          probe.surfaceId as unknown as string,
+        ]);
+        permissionHandler.attachQuestionTargets.mockClear();
+        permissionHandler.clearQuestionTargets.mockClear();
+
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.clearQuestionTargets).not.toHaveBeenCalled();
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('refreshQuestionTargetsForSession is a no-op for a non-interactive surface', () => {
+        const probe = makeSurfaceProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        permissionHandler._setQuestions([
+          makeQuestion({
+            id: 'q-surface-background',
+            sessionId: SESSION_A as unknown as string,
+          }),
+        ]);
+
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('compaction_complete re-resolves stale targets onto the interactive surface', () => {
+        const probe = makeInteractiveProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+        const q = makeQuestion({
+          id: 'q-surface-compact',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+        // Target left over from a tab that is no longer bound.
+        permissionHandler.attachQuestionTargets('q-surface-compact', [
+          'tab-stale-removed-from-binding',
+        ]);
+        permissionHandler.attachQuestionTargets.mockClear();
+        permissionHandler.clearQuestionTargets.mockClear();
+
+        router.routeStreamEventForSurface(
+          compactionComplete(SESSION_A),
+          probe.surfaceId,
+        );
+
+        expect(permissionHandler.clearQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-compact',
+        );
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-compact',
+          [probe.surfaceId],
+        );
+      });
     });
   });
 });

@@ -85,11 +85,30 @@ function tryListen(
 }
 
 /**
+ * Returns the configured port followed by its next two valid TCP ports.
+ *
+ * Port 0 remains supported when explicitly requested (notably by isolated
+ * lifecycle tests), but is never selected as a collision fallback: callers
+ * need a stable port that can be propagated to spawned agents.
+ */
+export function getMcpPortCandidates(configuredPort: number): number[] {
+  if (!Number.isInteger(configuredPort) || configuredPort < 1) {
+    return [configuredPort];
+  }
+
+  return Array.from(
+    { length: 3 },
+    (_, offset) => configuredPort + offset,
+  ).filter((port) => port <= 65_535);
+}
+
+/**
  * Start the HTTP MCP server.
  *
- * Tries the configured port first. If it fails (EACCES on Windows due to
- * Hyper-V port exclusions, or EADDRINUSE), retries with port 0 which lets
- * the OS assign a random available port.
+ * Tries the configured port first, then its next two valid ports when a port
+ * is unavailable. This keeps fallback selection deterministic so the actual
+ * listening port can be propagated to every MCP consumer. Port 0 is never
+ * used as a collision fallback.
  */
 export async function startHttpServer(
   config: HttpServerConfig,
@@ -100,18 +119,29 @@ export async function startHttpServer(
     handleHttpRequest(req, res, onMCPRequest);
   });
 
-  try {
-    return await tryListen(server, configuredPort, logger, workspaceState);
-  } catch (error) {
-    const errCode = (error as NodeJS.ErrnoException).code;
-    if (errCode === 'EACCES' || errCode === 'EADDRINUSE') {
-      logger.warn(
-        `MCP port ${configuredPort} unavailable (${errCode}), retrying with OS-assigned port`,
-      );
-      return await tryListen(server, 0, logger, workspaceState);
+  const candidates = getMcpPortCandidates(configuredPort);
+  let lastUnavailableError: NodeJS.ErrnoException | undefined;
+
+  for (const [index, port] of candidates.entries()) {
+    try {
+      return await tryListen(server, port, logger, workspaceState);
+    } catch (error: unknown) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') {
+        throw error;
+      }
+
+      lastUnavailableError = err;
+      const nextPort = candidates[index + 1];
+      if (nextPort !== undefined) {
+        logger.warn(
+          `MCP port ${port} unavailable (${err.code}), retrying with ${nextPort}`,
+        );
+      }
     }
-    throw error;
   }
+
+  throw lastUnavailableError ?? new Error('No valid MCP server port available');
 }
 
 /**

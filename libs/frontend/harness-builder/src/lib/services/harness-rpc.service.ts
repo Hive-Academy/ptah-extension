@@ -54,6 +54,7 @@ import type {
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
   HarnessStartNewProjectResult,
+  NewProjectIntake,
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
 } from '@ptah-extension/shared';
@@ -284,8 +285,12 @@ export class HarnessRpcService {
    * focuses the chat/main view, broadcasts HARNESS_OPEN_WORKFLOW with the
    * seed prompt, and disposes the wizard panel.
    */
-  public async startNewProject(): Promise<HarnessStartNewProjectResult> {
-    const result = await this.rpcService.call('harness:start-new-project', {});
+  public async startNewProject(
+    intake: NewProjectIntake,
+  ): Promise<HarnessStartNewProjectResult> {
+    const result = await this.rpcService.call('harness:start-new-project', {
+      intake,
+    });
     if (result.isSuccess() && result.data) {
       return result.data;
     }

@@ -11,8 +11,6 @@
  *   - `corpus:rebuild`  — re-run filter, diff membership
  *   - `corpus:delete`   — drop the corpus row
  *   - `corpus:suggest`  — read-only clustering pass → one-click corpus suggestions
- *
- * License gating: `corpus:` is NOT in `PRO_ONLY_METHOD_PREFIXES` — free tier.
  */
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';

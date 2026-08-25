@@ -1,12 +1,14 @@
 /**
  * Chat RPC Type Definitions
  *
- * Types for chat:start, chat:continue, chat:abort, chat:running-agents, chat:resume
+ * Types for chat:start, chat:continue, chat:abort, chat:running-agents,
+ * chat:resume, chat:pending-questions
  */
 
 import type { SessionId } from '../branded.types';
 import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
 import type { FlatStreamEventUnion } from '../execution';
+import type { AskUserQuestionRequest } from '../permission.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
 
 /**
@@ -181,6 +183,27 @@ export interface ChatRunningAgentsParams {
 export interface ChatRunningAgentsResult {
   /** List of currently running (non-background) agents */
   agents: { agentId: string; agentType: string }[];
+}
+
+/** Parameters for chat:pending-questions RPC method */
+export interface ChatPendingQuestionsParams {
+  /** Session whose still-unanswered AskUserQuestion requests to list */
+  sessionId: SessionId;
+}
+
+/**
+ * Response from chat:pending-questions RPC method.
+ *
+ * A webview reload destroys the rendered AskUserQuestion prompt while the
+ * backend stays parked on it. The reloaded UI calls this to recover the
+ * outstanding requests and re-render them, rather than leaving the session
+ * silently blocked until the idle timeout auto-picks an answer.
+ */
+export interface ChatPendingQuestionsResult {
+  success: boolean;
+  /** Still-pending requests. Empty when the session is not waiting on any. */
+  questions: AskUserQuestionRequest[];
+  error?: string;
 }
 
 /** Parameters for chat:resume RPC method */

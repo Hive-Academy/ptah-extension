@@ -39,6 +39,14 @@ Implementations: `ElectronFileSystemProvider`, `ElectronStateStorage`, `Electron
 
 - Constructors accept **injected API shims** (e.g. `SafeStorageApi`), not the global `electron` import, so unit tests stub them.
 - **Never import** `vscode` or other adapter libs.
+- **`createFileWatcher` must never hand its glob to chokidar.** chokidar removed
+  glob support in v4 (this repo is on 5.x), so a pattern reaches it as a literal
+  path: `getWatched()` returns `{}` and the watcher silently never fires — no
+  throw, no warning. Translate through `planGlobWatch` (platform-core), which
+  yields a real directory plus match/prune predicates. The same rule applies to
+  `ignored`: pass the plan's FUNCTION, not the caller's exclude globs, or
+  `node_modules` gets walked instead of pruned. `CliFileSystemProvider` is the
+  twin of this method — fix both, and keep the shared logic in `planGlobWatch`.
 - `ElectronSecretStorage` uses `safeStorage.encryptString` — fall back to plain storage only if `safeStorage.isEncryptionAvailable()` is false (document any fallback).
 - `ElectronUserInteraction` routes prompts through dialog APIs; shell links open via `ElectronShellApi.openExternal`.
 - `catch (error: unknown)`.
