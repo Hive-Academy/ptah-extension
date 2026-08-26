@@ -59,6 +59,22 @@ import type {
 export const MESSAGE_ID_NOT_FOUND_PHRASE =
   'not found in session history' as const;
 
+/**
+ * Bounds a history read to the END of the transcript.
+ *
+ * Absent `tailBytes` the whole transcript is read, which is what every UI and
+ * replay path wants. A caller that then throws most of it away — the memory
+ * curator keeps 32 KB — must pass a window instead, because the discarded
+ * work is a synchronous parse on the backend main thread that grows with the
+ * session (TASK_2026_323, B4).
+ */
+export interface TranscriptWindowOptions {
+  /** Read only the last N bytes of the JSONL. Omit to read everything. */
+  readonly tailBytes?: number;
+  /** Aborts the read between parse batches. */
+  readonly signal?: AbortSignal;
+}
+
 @injectable()
 export class SessionHistoryReaderService {
   /**
@@ -226,6 +242,7 @@ export class SessionHistoryReaderService {
   async readHistoryForCuration(
     sessionId: string,
     workspacePath: string,
+    options?: TranscriptWindowOptions,
   ): Promise<
     {
       id: string;
@@ -234,8 +251,11 @@ export class SessionHistoryReaderService {
       timestamp: number;
     }[]
   > {
-    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
-      this.eventFactory.extractContentForCuration(content),
+    return this.readHistoryMessages(
+      sessionId,
+      workspacePath,
+      (content) => this.eventFactory.extractContentForCuration(content),
+      options,
     );
   }
 
@@ -251,6 +271,7 @@ export class SessionHistoryReaderService {
     sessionId: string,
     workspacePath: string,
     extractContent: (content: unknown) => string,
+    options?: TranscriptWindowOptions,
   ): Promise<
     {
       id: string;
@@ -279,7 +300,20 @@ export class SessionHistoryReaderService {
         return [];
       }
       const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
-      const rawMessages = await this.jsonlReader.readJsonlMessages(sessionFile);
+      const tailBytes = options?.tailBytes;
+      // A caller that only wants the end of the transcript must say so, and
+      // then only the end is read and parsed. Reading 50 MB to keep the last
+      // 32 KB is what blocked the backend main thread per turn per session
+      // (TASK_2026_323, B4).
+      const rawMessages =
+        typeof tailBytes === 'number' && tailBytes > 0
+          ? await this.jsonlReader.readJsonlTail(sessionFile, {
+              maxBytes: tailBytes,
+              signal: options?.signal,
+            })
+          : await this.jsonlReader.readJsonlMessages(sessionFile, {
+              signal: options?.signal,
+            });
       let startIndex = 0;
       for (let i = rawMessages.length - 1; i >= 0; i--) {
         if (

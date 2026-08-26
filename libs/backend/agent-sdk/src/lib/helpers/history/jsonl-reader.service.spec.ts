@@ -9,15 +9,20 @@
  *     exact → lowercase → hyphen/underscore-normalized → partial matches.
  *   - `readJsonlMessages` — parses one message per non-blank line, skips
  *     malformed lines (with a `debug` log, never throws), and enforces a
- *     50 MB size cap via `SdkError` before allocating the read buffer.
+ *     50 MB size cap via `SdkError` before opening the file.
  *   - `loadAgentSessions` — prefers nested `<parent>/subagents/` layout and
  *     falls back to the legacy flat `agent-*.jsonl` layout. For the legacy
  *     layout it filters agent files whose first message's `sessionId`
  *     matches the parent session id.
  *
- * Both `node:fs/promises` (source uses `import * as fs from 'fs/promises'`)
- * and `node:os` are mocked at module-level so path resolution is
- * deterministic across the Windows + POSIX CI matrix.
+ * `node:fs/promises` (source uses `import * as fs from 'fs/promises'`),
+ * `node:fs` (for `createReadStream`) and `node:os` are mocked at module-level
+ * so path resolution is deterministic across the Windows + POSIX CI matrix.
+ *
+ * File CONTENT is primed through {@link primeFileContent}: since
+ * TASK_2026_323 the reader streams rather than `readFile`-ing, so a fixture is
+ * an in-memory `Readable` rather than a resolved string. The assertions below
+ * are unchanged — only the priming seam moved.
  *
  * Follows the direct-constructor style of
  * `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.spec.ts`.
@@ -25,6 +30,7 @@
 
 import 'reflect-metadata';
 import * as path from 'path';
+import { Readable } from 'node:stream';
 import { expectNormalizedPath } from '@ptah-extension/shared/testing';
 
 jest.mock('fs/promises', () => ({
@@ -34,12 +40,17 @@ jest.mock('fs/promises', () => ({
   stat: jest.fn(),
 }));
 
+jest.mock('node:fs', () => ({
+  createReadStream: jest.fn(),
+}));
+
 jest.mock('os', () => ({
   ...jest.requireActual('os'),
   homedir: jest.fn(() => '/home/testuser'),
 }));
 
 import * as fs from 'fs/promises';
+import { createReadStream } from 'node:fs';
 import * as os from 'os';
 import { JsonlReaderService } from './jsonl-reader.service';
 import { SdkError } from '../../errors';
@@ -65,6 +76,9 @@ const mockedReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
 const mockedReadFile = fs.readFile as jest.MockedFunction<typeof fs.readFile>;
 const mockedStat = fs.stat as jest.MockedFunction<typeof fs.stat>;
 const mockedHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
+const mockedCreateReadStream = createReadStream as jest.MockedFunction<
+  typeof createReadStream
+>;
 
 /**
  * Build a minimal `fs.Stats`-ish object. `readJsonlMessages` only reads
@@ -73,6 +87,29 @@ const mockedHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
  */
 function statsWithSize(size: number): Awaited<ReturnType<typeof fs.stat>> {
   return { size } as unknown as Awaited<ReturnType<typeof fs.stat>>;
+}
+
+/** One in-memory read stream carrying `content` as a single Buffer chunk. */
+function streamOf(content: string): ReturnType<typeof createReadStream> {
+  return Readable.from([Buffer.from(content, 'utf8')]) as unknown as ReturnType<
+    typeof createReadStream
+  >;
+}
+
+/**
+ * Queue file contents for the next N `createReadStream` calls, in order —
+ * the streaming equivalent of `readFile.mockResolvedValueOnce(...)`. A fresh
+ * `Readable` is built per call because a stream is consumed exactly once.
+ */
+function primeFileContent(...contents: readonly string[]): void {
+  for (const content of contents) {
+    mockedCreateReadStream.mockImplementationOnce(() => streamOf(content));
+  }
+}
+
+/** Same content for every `createReadStream` call (multi-file fixtures). */
+function primeFileContentAlways(content: string): void {
+  mockedCreateReadStream.mockImplementation(() => streamOf(content));
 }
 
 describe('JsonlReaderService', () => {
@@ -234,7 +271,7 @@ describe('JsonlReaderService', () => {
         }),
       ].join('\n');
       mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
-      mockedReadFile.mockResolvedValueOnce(jsonl);
+      primeFileContent(jsonl);
 
       const out = await service.readJsonlMessages('/tmp/session.jsonl');
 
@@ -260,7 +297,7 @@ describe('JsonlReaderService', () => {
         JSON.stringify({ uuid: 'good-2', type: 'assistant' }),
       ].join('\n');
       mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
-      mockedReadFile.mockResolvedValueOnce(jsonl);
+      primeFileContent(jsonl);
 
       const out = await service.readJsonlMessages('/tmp/session.jsonl');
 
@@ -280,7 +317,7 @@ describe('JsonlReaderService', () => {
         message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
       });
       mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
-      mockedReadFile.mockResolvedValueOnce(jsonl);
+      primeFileContent(jsonl);
 
       const out = await service.readJsonlMessages('/tmp/session.jsonl');
       expect(out).toHaveLength(1);
@@ -297,14 +334,15 @@ describe('JsonlReaderService', () => {
       await expect(promise).rejects.toThrow(SdkError);
       await expect(promise).rejects.toThrow(/too large/i);
 
-      // If the cap check is bypassed, a 51MB allocation lands in the
-      // extension host; assert we never even attempted readFile.
+      // If the cap check is bypassed, a 51MB parse lands on the backend main
+      // thread; assert we never even opened the file.
+      expect(mockedCreateReadStream).not.toHaveBeenCalled();
       expect(mockedReadFile).not.toHaveBeenCalled();
     });
 
     it('returns an empty array for an empty file', async () => {
       mockedStat.mockResolvedValueOnce(statsWithSize(0));
-      mockedReadFile.mockResolvedValueOnce('');
+      primeFileContent('');
 
       await expect(
         service.readJsonlMessages('/tmp/empty.jsonl'),
@@ -337,7 +375,7 @@ describe('JsonlReaderService', () => {
         message: { role: 'user', content: 'warmup' },
       });
       mockedStat.mockResolvedValue(statsWithSize(Buffer.byteLength(nestedMsg)));
-      mockedReadFile.mockResolvedValue(nestedMsg);
+      primeFileContentAlways(nestedMsg);
 
       const out = await service.loadAgentSessions(sessionsDir, parentId);
 
@@ -381,7 +419,7 @@ describe('JsonlReaderService', () => {
       mockedStat
         .mockResolvedValueOnce(statsWithSize(Buffer.byteLength(ours)))
         .mockResolvedValueOnce(statsWithSize(Buffer.byteLength(foreign)));
-      mockedReadFile.mockResolvedValueOnce(ours).mockResolvedValueOnce(foreign);
+      primeFileContent(ours, foreign);
 
       const out = await service.loadAgentSessions(sessionsDir, parentId);
 
@@ -414,7 +452,7 @@ describe('JsonlReaderService', () => {
       mockedStat.mockRejectedValueOnce(new Error('EACCES'));
       // Second file — succeeds.
       mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(ok)));
-      mockedReadFile.mockResolvedValueOnce(ok);
+      primeFileContent(ok);
 
       const out = await service.loadAgentSessions(sessionsDir, parentId);
 
