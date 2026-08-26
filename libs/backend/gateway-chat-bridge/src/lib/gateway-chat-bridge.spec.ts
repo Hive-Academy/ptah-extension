@@ -1833,6 +1833,16 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
     expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
+    // The Gateway tab has to learn about a fail-closed turn too (TASK_2026_271).
+    // Answering the user and marking the row while reporting nothing upward is
+    // the partial silence this task exists to close. The outcome lands AFTER
+    // `sendError` resolves, so wait for it rather than reading it off the same
+    // tick as the drain.
+    await flushUntil(() => h.gateway.recordTurnOutcome.mock.calls.length > 0);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: expect.stringContaining('workspace unresolved'),
+    });
   });
 
   it('an allowlisted conversation root that vanished on disk fails the turn closed', async () => {
@@ -1858,6 +1868,11 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
     expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
+    await flushUntil(() => h.gateway.recordTurnOutcome.mock.calls.length > 0);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: expect.stringContaining('workspace missing on disk'),
+    });
   });
 });
 
