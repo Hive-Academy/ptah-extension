@@ -19,12 +19,14 @@ process.on('uncaughtException', (err: unknown) => {
 
 import * as vscode from 'vscode';
 import {
+  type DiagnosticsHandle,
   type Logger,
   type RpcVerificationResult,
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
 import {
+  AgentProcessManager,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
@@ -35,6 +37,7 @@ import { wireRuntimeVscode } from './activation/wire-runtime';
 import { registerPostInit } from './activation/post-init';
 
 let ptahExtension: PtahExtension | undefined;
+let diagnostics: DiagnosticsHandle | undefined;
 
 /**
  * Activation API surface returned from `activate()`. Consumed by the
@@ -51,6 +54,7 @@ export async function activate(
 ): Promise<PtahActivationApi | undefined> {
   try {
     const boot = await bootstrapVscode(context);
+    diagnostics = boot.diagnostics;
 
     await wireRuntimeVscode(context, boot.logger, boot.licenseStatus);
     ptahExtension = await registerPostInit(
@@ -123,6 +127,22 @@ export async function deactivate(): Promise<void> {
   );
   ptahCliRegistry.disposeAll();
 
+  // Agents before proxies: a spawned CLI agent's subprocess is the expensive
+  // thing, and a completed continuation-capable agent holds one open until it is
+  // aborted. Without this, deactivate left every `claude.exe` a session ever
+  // spawned resident (TASK_2026_323 B11). `deactivate()` is awaited by VS Code,
+  // so this is the one host that can genuinely wait for the reap.
+  try {
+    const agentProcessManager = DIContainer.resolve<AgentProcessManager>(
+      TOKENS.AGENT_PROCESS_MANAGER,
+    );
+    await agentProcessManager.disposeAll();
+  } catch (error: unknown) {
+    logger.warn('Agent process disposal failed (non-fatal)', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   ptahExtension?.dispose();
   ptahExtension = undefined;
 
@@ -130,6 +150,18 @@ export async function deactivate(): Promise<void> {
     TOKENS.SENTRY_SERVICE,
   );
   await sentryService.flush(2000);
+
+  // After the Sentry flush, before the container is cleared: the flush is an
+  // awaited network call, and a deactivate that stalls there is exactly the
+  // kind of thing the lag log should still be recording.
+  try {
+    diagnostics?.dispose();
+  } catch (error: unknown) {
+    logger.warn('Diagnostics dispose failed (non-fatal)', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  diagnostics = undefined;
 
   DIContainer.clear();
 }

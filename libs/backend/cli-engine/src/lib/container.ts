@@ -55,7 +55,10 @@ import type {
 } from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
+import {
+  armDiagnostics,
+  registerVsCodeCorePlatformAgnostic,
+} from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
 import {
@@ -227,12 +230,42 @@ export class CliDIContainer {
   private static _fileSettings: { flushSync(): void } | undefined;
 
   /**
+   * The armed diagnostics handle, held statically for the same reason
+   * {@link _fileSettings} is: `apps/ptah-cli/src/main.ts` installs the
+   * SIGINT/SIGTERM handlers but never sees a container — `withEngine` owns
+   * every container it creates. A static is the only reference the signal
+   * handlers can reach. Undefined unless `setup({ verbose: true })` ran.
+   */
+  private static _diagnostics: { dispose(): void } | undefined;
+
+  /**
    * Synchronously flush any pending file-based settings writes to disk.
    * Safe to call from process.on('exit', ...) — never throws.
    * No-op if setup() has not been called yet.
    */
   static flushSync(): void {
     CliDIContainer._fileSettings?.flushSync();
+  }
+
+  /**
+   * Stop the event-loop lag sampler. Safe from a signal handler — never
+   * throws, and a no-op when diagnostics were never armed.
+   */
+  static disposeDiagnostics(): void {
+    try {
+      CliDIContainer._diagnostics?.dispose();
+    } catch (error: unknown) {
+      // Reported on stderr rather than through the logger: this runs from a
+      // signal handler, and the logger lives in the container that this static
+      // exists precisely to avoid touching mid-teardown. A teardown failure
+      // must not change the exit code the signal already chose.
+      process.stderr.write(
+        `[ptah] diagnostics dispose failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
+    CliDIContainer._diagnostics = undefined;
   }
 
   /**
@@ -287,6 +320,10 @@ export class CliDIContainer {
     registerPlatformCliServices(container, platformOptions);
     phaseEnd('0', phase0Start);
     const phase1Start = phaseStart('1');
+    // NOTE: diagnostics are armed at the END of Phase 1, once
+    // `registerVsCodeCorePlatformAgnostic` has registered the monitor. See
+    // below — this comment marks the phase, the arming has to follow the
+    // registration it depends on.
     const outputChannel = container.resolve<IOutputChannel>(
       PLATFORM_TOKENS.OUTPUT_CHANNEL,
     );
@@ -300,6 +337,25 @@ export class CliDIContainer {
     registerVsCodeCorePlatformAgnostic(container, logger, {
       includeLicensingAndAuth: true,
     });
+
+    // Verbose-only, unlike the desktop hosts. A one-shot `ptah` invocation that
+    // blocks the loop for 300 ms has not hung anything a user can perceive —
+    // there is no window to freeze — so sampling by default would only add a
+    // wakeup and a line of noise to every command. Under `--verbose` the caller
+    // has explicitly asked to watch the machinery, and `debug.perf.lag` sits
+    // alongside `debug.di.phase` in the same stream.
+    if (verbose) {
+      CliDIContainer._diagnostics = armDiagnostics({
+        container,
+        logsPath,
+        onLag: (sample) => {
+          pushAdapter.emit('debug.perf.lag', {
+            maxMs: sample.maxMs,
+            p99Ms: sample.p99Ms,
+          });
+        },
+      });
+    }
     container.register(TOKENS.GIT_INFO_SERVICE, {
       useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
     });

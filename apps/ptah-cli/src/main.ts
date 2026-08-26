@@ -66,6 +66,10 @@ function installSignalHandlers(): void {
     }
     shuttingDown = true;
     process.stderr.write(`\n[ptah] received ${signal}, exiting\n`);
+    // Stop the event-loop sampler before we start unwinding. Its interval is
+    // unref'd so it could never delay the exit, but leaving it running means
+    // lag warnings interleaved with shutdown output for no diagnostic gain.
+    CliDIContainer.disposeDiagnostics();
     process.exitCode = exitCode;
   };
 
@@ -73,6 +77,7 @@ function installSignalHandlers(): void {
   process.on('SIGTERM', onSignal('SIGTERM', 143));
   process.on('exit', () => {
     CliDIContainer.flushSync();
+    CliDIContainer.disposeDiagnostics();
   });
 }
 

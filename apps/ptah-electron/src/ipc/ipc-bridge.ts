@@ -120,6 +120,7 @@ export class IpcBridge {
     this.setupRpcHandler();
     this.setupStateHandlers();
     this.setupTerminalHandlers();
+    this.setupDiagnosticsHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
 
@@ -543,6 +544,34 @@ export class IpcBridge {
   }
 
   /**
+   * `diag:cpu-profile` — capture a CPU profile of the main process.
+   *
+   * A DIRECT `ipcMain.handle`, deliberately not an `rpc:` method. The whole
+   * point of this channel is to work when the app is wedged, and every RPC
+   * method runs through `RpcHandler.handleMessage` on the main-process event
+   * loop — the exact resource a hang has taken away. Electron delivers `invoke`
+   * on the same loop, so this is not magic; it is simply the shortest path,
+   * with no handler registry, no capability gate and no queue in front of it.
+   *
+   * `CpuProfileCapture` is resolved lazily per call rather than in the
+   * constructor: this bridge is built during bootstrap, and paying for an
+   * inspector-capable singleton on every launch to serve a channel almost
+   * nobody invokes is the wrong trade.
+   */
+  private setupDiagnosticsHandlers(): void {
+    ipcMain.handle(
+      'diag:cpu-profile',
+      async (_event, durationMs?: number): Promise<string> => {
+        const capture = this.container.resolve<{
+          captureFor(durationMs?: number): Promise<string>;
+        }>(TOKENS.CPU_PROFILE_CAPTURE);
+        return await capture.captureFor(durationMs);
+      },
+    );
+    console.log('[IpcBridge] Diagnostics IPC handlers initialized');
+  }
+
+  /**
    * Cleanup IPC listeners. Call on app shutdown.
    */
   dispose(): void {
@@ -552,6 +581,8 @@ export class IpcBridge {
     ipcMain.removeAllListeners('set-state');
     ipcMain.removeAllListeners('terminal:data-in');
     ipcMain.removeAllListeners('terminal:resize');
+    // `handle` channels need removeHandler, not removeAllListeners.
+    ipcMain.removeHandler('diag:cpu-profile');
     this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }

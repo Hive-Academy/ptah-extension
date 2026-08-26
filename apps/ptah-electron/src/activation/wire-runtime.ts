@@ -5,8 +5,12 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS, bringUpSubsystems } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  bringUpSubsystems,
+  armDiagnostics,
+} from '@ptah-extension/vscode-core';
+import type { Logger, DiagnosticsHandle } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
@@ -110,6 +114,13 @@ export interface WireRuntimeOptions {
   container: DependencyContainer;
   getMainWindow: () => BrowserWindow | null;
   startupWorkspaceRoot: string | undefined;
+  /**
+   * `app.getPath('logs')`, where `.cpuprofile` captures are written. Passed in
+   * rather than read here for the same reason every other Electron API in this
+   * activation path is passed in — this module must stay importable without an
+   * Electron runtime.
+   */
+  logsPath?: string;
 }
 
 export interface WireRuntimeResult {
@@ -146,15 +157,40 @@ export interface WireRuntimeResult {
      * can hang or throw. Null when the CLI agent runtime is not registered.
      */
     cliRegistry: { disposeAll: () => void } | null;
+    /**
+     * CLI agent process manager handle for orderly shutdown. Captured eagerly
+     * for the same reason as {@link cliRegistry}. This is the ref that actually
+     * ends spawned `claude.exe` / `codex` processes: a completed
+     * continuation-capable agent keeps its subprocess alive on purpose, so
+     * without a disposal here every agent a session ever spawned stays resident
+     * until the OS reaps it (TASK_2026_323 B11). Null when the CLI agent runtime
+     * is not registered.
+     */
+    agentProcessManager: { disposeAll: () => Promise<void> } | null;
+    /**
+     * Event-loop lag monitor + CPU profile capture. Never null — `armDiagnostics`
+     * degrades to a no-op handle rather than failing, so the `will-quit` chain
+     * can dispose it unconditionally.
+     */
+    diagnostics: DiagnosticsHandle;
   };
 }
 
 export async function wireRuntime(
   options: WireRuntimeOptions,
 ): Promise<WireRuntimeResult> {
-  const { container, getMainWindow, startupWorkspaceRoot } = options;
+  const { container, getMainWindow, startupWorkspaceRoot, logsPath } = options;
+
+  // FIRST, before anything heavy. In Electron the backend shares its event loop
+  // with BrowserWindow management, so a synchronous burst anywhere below this
+  // line freezes the whole app — and everything below this line is a candidate
+  // (plugin loading, SQLite open, memory curator, harness reconcile). Arming
+  // the monitor after the boot it is meant to observe would be instrumentation
+  // that is blind to the most expensive stretch of the process's life.
+  const diagnostics = armDiagnostics({ container, logsPath });
 
   const refs: WireRuntimeResult['refs'] = {
+    diagnostics,
     gitWatcher: null,
     sqliteConnection: null,
     memoryCurator: null,
@@ -166,6 +202,7 @@ export async function wireRuntime(
     symbolWatcher: null,
     statusBridgeDisposables: null,
     cliRegistry: null,
+    agentProcessManager: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -550,6 +587,23 @@ export async function wireRuntime(
         : String(cliRegistryError),
     );
     refs.cliRegistry = null;
+  }
+
+  // Same eager-capture rationale, and the same non-fatal fallback. Resolving the
+  // agent process manager during will-quit would build its dependency graph
+  // mid-teardown, at exactly the moment its job is to tear things down.
+  try {
+    refs.agentProcessManager = container.resolve<{
+      disposeAll: () => Promise<void>;
+    }>(TOKENS.AGENT_PROCESS_MANAGER);
+  } catch (agentManagerError) {
+    console.warn(
+      '[Ptah Electron] Agent process manager eager resolve failed (non-fatal):',
+      agentManagerError instanceof Error
+        ? agentManagerError.message
+        : String(agentManagerError),
+    );
+    refs.agentProcessManager = null;
   }
 
   /**

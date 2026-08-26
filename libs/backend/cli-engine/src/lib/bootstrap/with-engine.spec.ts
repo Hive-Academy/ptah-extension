@@ -37,6 +37,10 @@ interface FakeContainer extends Partial<DependencyContainer> {
   // override with arbitrary `jest.fn()` flavors and we don't care about the
   // arity match here.
   resolve: jest.Mock;
+  /** Registration probe. Defaults to "nothing is registered", which is what a
+   *  `mode: 'minimal'` bootstrap actually looks like; tests that exercise an
+   *  optional subsystem's teardown flip it per token. */
+  isRegistered: jest.Mock;
   /** Adapter returned by `resolve(AGENT_ADAPTER_TOKEN)`; tests can override. */
   __sdkAdapter: {
     initialize: jest.Mock;
@@ -65,6 +69,7 @@ function makeFakeContainer(
   const container: FakeContainer = {
     clearInstances: jest.fn(),
     resolve: jest.fn(() => sdkAdapter),
+    isRegistered: jest.fn(() => false),
     __sdkAdapter: sdkAdapter,
   };
   return container;
@@ -633,6 +638,68 @@ describe('withEngine', () => {
         async () => undefined,
       );
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * TASK_2026_323 B11 — a spawned CLI agent is a child of this process, and
+     * `process.exit` orphans anything still live. A completed
+     * continuation-capable agent holds its subprocess open by design, so
+     * nothing else in the teardown chain ends it.
+     */
+    it('disposes the agent process manager on the success teardown path', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const disposeAll = jest.fn(async () => undefined);
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.isRegistered = jest.fn(
+          (token: symbol) => token === Symbol.for('AgentProcessManager'),
+        );
+        c.resolve = jest.fn((token: symbol) =>
+          token === Symbol.for('AgentProcessManager')
+            ? { disposeAll }
+            : c.__sdkAdapter,
+        );
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(disposeAll).toHaveBeenCalledTimes(1);
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the agent process manager when it was never registered', async () => {
+      // `mode: 'minimal'` never registers the CLI agent runtime. Resolving the
+      // token anyway would turn an ordinary lightweight command's teardown into
+      // a stderr warning about a subsystem it never used.
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(captured?.isRegistered).toHaveBeenCalledWith(
+        Symbol.for('AgentProcessManager'),
+      );
+      expect(captured?.resolve).not.toHaveBeenCalledWith(
+        Symbol.for('AgentProcessManager'),
+      );
     });
 
     // The bootstrap-FAILURE teardown, which is a different code path from the

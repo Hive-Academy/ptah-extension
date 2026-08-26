@@ -11,6 +11,7 @@ import {
   TOKENS,
   type Logger,
   type SentryService,
+  type DiagnosticsHandle,
 } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -59,6 +60,8 @@ if (!gotLock) {
     null;
   let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
   let cliRegistry: { disposeAll: () => void } | null = null;
+  let agentProcessManager: { disposeAll: () => Promise<void> } | null = null;
+  let diagnostics: DiagnosticsHandle | null = null;
   // C5 (TASK_2026_180) — stays `null` unless `skillSynthesis.trayKeepalive` is
   // explicitly on AND the tray actually constructed. Nothing else may suppress
   // the quit (R10).
@@ -128,8 +131,10 @@ if (!gotLock) {
       container: boot.container,
       getMainWindow: () => mainWindow,
       startupWorkspaceRoot: boot.startupWorkspaceRoot,
+      logsPath: app.getPath('logs'),
     });
     resolvedStateStorage = wired.resolvedStateStorage;
+    diagnostics = wired.refs.diagnostics;
     gitWatcher = wired.refs.gitWatcher;
     sqliteConnection = wired.refs.sqliteConnection;
     memoryCurator = wired.refs.memoryCurator;
@@ -140,6 +145,7 @@ if (!gotLock) {
     symbolWatcher = wired.refs.symbolWatcher;
     statusBridgeDisposables = wired.refs.statusBridgeDisposables;
     cliRegistry = wired.refs.cliRegistry;
+    agentProcessManager = wired.refs.agentProcessManager;
     boot.gitWatcherRef.current = gitWatcher;
 
     const post = await registerPostWindow({
@@ -346,6 +352,26 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
+    // Agents BEFORE their translation proxies: the proxy exists to serve a live
+    // agent process, so stopping it first would leave the process alive and
+    // talking to a closed socket. Each release issues an abort and a tree-kill
+    // synchronously and only the settle is awaited, so the fire-and-forget shape
+    // (`will-quit` cannot block) still reaps — without this the desktop app left
+    // every completed CLI agent's process resident, which is how 16 idle
+    // `claude.exe` reached 99% of machine memory (TASK_2026_323 B11).
+    try {
+      void agentProcessManager?.disposeAll().catch((error) => {
+        console.warn(
+          '[Ptah Electron] Agent process disposal failed (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Agent process disposal threw synchronously (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     // Dispose the Ptah CLI registry ONLY if it was actually instantiated during
     // the app's lifetime (captured as a ref in wireRuntime). Resolving it from
     // the container here would force first-time construction of its dependency
@@ -357,6 +383,18 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] CLI registry dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // LAST, mirroring its position as the FIRST thing armed in wireRuntime.
+    // Beyond LIFO correctness this keeps lag warnings coming during teardown —
+    // a quit that hangs is a real failure mode, and the sampler is exactly the
+    // instrument that would name the subsystem refusing to stop.
+    try {
+      diagnostics?.dispose();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Diagnostics dispose failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
