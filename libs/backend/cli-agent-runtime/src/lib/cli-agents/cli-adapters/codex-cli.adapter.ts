@@ -500,19 +500,42 @@ export class CodexCliAdapter implements CliAdapter {
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
     const STARTUP_TIMEOUT_MS = 30_000;
-    const runTurn = async (prompt: string): Promise<number> => {
+
+    /**
+     * Start a turn under a startup watchdog, disarming the watchdog the moment
+     * the race settles either way.
+     *
+     * A watchdog must never outlive the thing it watches. The timer used to be
+     * armed and forgotten: once `runStreamed` won the race, its 30-second timer
+     * stayed in the event loop with nothing waiting on it. Rejecting a settled
+     * race is a harmless no-op, so this was invisible to correctness — but the
+     * handle keeps the process alive, and `continue()` re-enters `runTurn`, so
+     * it is one orphaned 30-second handle PER TURN. That is what made this
+     * lib's Jest run report "a worker process has failed to exit gracefully",
+     * and it is the same defect class as commit 5dc525f02.
+     */
+    const startStreamedTurn = async (prompt: string) => {
+      let startupTimer: NodeJS.Timeout | undefined;
       try {
-        const streamedTurn = await Promise.race([
+        return await Promise.race([
           thread.runStreamed(prompt, {
             signal: abortController.signal,
           }),
-          new Promise<never>((_, reject) =>
-            setTimeout(
+          new Promise<never>((_, reject) => {
+            startupTimer = setTimeout(
               () => reject(new Error('Codex SDK startup timed out after 30s')),
               STARTUP_TIMEOUT_MS,
-            ),
-          ),
+            );
+          }),
         ]);
+      } finally {
+        clearTimeout(startupTimer);
+      }
+    };
+
+    const runTurn = async (prompt: string): Promise<number> => {
+      try {
+        const streamedTurn = await startStreamedTurn(prompt);
 
         for await (const event of streamedTurn.events) {
           if (abortController.signal.aborted) {
