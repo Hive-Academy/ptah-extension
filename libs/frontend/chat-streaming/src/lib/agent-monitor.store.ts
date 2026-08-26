@@ -56,6 +56,57 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
 
+/**
+ * Maximum rich stream events retained per agent card.
+ *
+ * `stdout`/`stderr` have been capped at {@link MAX_FRONTEND_BUFFER} since this
+ * store was written; `streamEvents` was not capped at all, and it is the one
+ * that grows per TOKEN on the ptah-cli path. Three chatty agents in one session
+ * put hundreds of thousands of event objects in the renderer heap, each of
+ * which the agent card's execution-tree build walks.
+ *
+ * Deliberately far below the backend's own 50 000
+ * (`MAX_ACCUMULATED_STREAM_EVENTS`): that cap bounds what is PERSISTED for
+ * resume, this one bounds what a live card renders.
+ */
+const MAX_AGENT_STREAM_EVENTS = 2000;
+
+/**
+ * Recent events always kept regardless of type, so streaming text/thinking near
+ * the tail (an agent's final answer) survives capping. Mirrors the backend's
+ * `STREAM_EVENTS_TAIL_RESERVE`.
+ */
+const AGENT_STREAM_EVENTS_TAIL_RESERVE = 400;
+
+/**
+ * Overshoot tolerated before a re-cap runs. Capping the instant the array
+ * exceeds the limit would make every subsequent event pay the rebuild — the
+ * defect being fixed, in a new place. The slack amortizes each rebuild over
+ * this many events.
+ */
+const AGENT_STREAM_EVENTS_CAP_SLACK = 200;
+
+/**
+ * Event types that establish tree structure and are preserved ahead of plain
+ * deltas when capping. Mirrors the backend `LANDMARK_EVENT_TYPES` — duplicated
+ * rather than imported because a frontend lib may not depend on a backend lib.
+ */
+const LANDMARK_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'message_start',
+  'tool_start',
+  'tool_result',
+  'agent_start',
+  'thinking_start',
+  'message_complete',
+]);
+
+/**
+ * Maximum structured output segments retained per agent card (Codex/Copilot
+ * SDK adapters). Uncapped, a long agent run accumulated one segment per token
+ * AND re-copied the whole array on every delta.
+ */
+const MAX_AGENT_SEGMENTS = 500;
+
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 3;
 
@@ -343,9 +394,23 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
-  readonly agents = computed(() => {
-    return [...this._agents()].sort((a, b) => b.startedAt - a.startedAt);
-  });
+  /**
+   * All agents, newest first.
+   *
+   * The ORDER is an invariant of `_agents` itself — every insertion goes
+   * through {@link insertAgentSorted} and every other writer either replaces an
+   * entry in place or filters, both order-preserving. So this recomputes to a
+   * copy and nothing else.
+   *
+   * It used to `[...list].sort(...)` here. That ran on every output delta,
+   * because a delta replaces one agent object and so invalidates this computed
+   * — and it cascades into `activeTabAgents`, `pendingPermissions`,
+   * `activeTabPendingPermissions` and every template bound to them. Sorting is
+   * a function of membership and `startedAt`, neither of which a delta touches,
+   * so the work was pure waste. The copy remains: callers receive a mutable
+   * `MonitoredAgent[]` and must not be handed the backing array.
+   */
+  readonly agents = computed(() => [...this._agents()]);
 
   /**
    * Public byId index â€” exposed alongside `agents` for callers that need O(1)
@@ -650,10 +715,10 @@ export class AgentMonitorStore implements OnDestroy {
           workflowRunId: wf.workflowRunId,
           workflowName: wf.workflowName,
         };
-        return [
-          ...list.filter((a) => a.agentId !== oldCard.agentId),
+        return insertAgentSorted(
+          list.filter((a) => a.agentId !== oldCard.agentId),
           replacement,
-        ];
+        );
       }
 
       const order = this._expandOrder++;
@@ -680,7 +745,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
       };
-      return this.enforceMaxExpanded([...list, fresh]);
+      return this.enforceMaxExpanded(insertAgentSorted(list, fresh));
     });
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
@@ -750,6 +815,12 @@ export class AgentMonitorStore implements OnDestroy {
         } else {
           updated.segments = [...existing, ...incoming];
         }
+        // The copy above is unavoidable (the array identity is what tells the
+        // card's `@for` to re-diff), but the cap is what stops it from being a
+        // copy of an unbounded array on every token.
+        if (updated.segments.length > MAX_AGENT_SEGMENTS) {
+          updated.segments = updated.segments.slice(-MAX_AGENT_SEGMENTS);
+        }
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
         // Append in place — streamEvents shares its reference across deltas, so
@@ -758,6 +829,7 @@ export class AgentMonitorStore implements OnDestroy {
         for (const ev of delta.streamEvents) {
           updated.streamEvents.push(ev);
         }
+        capStreamEventsInPlace(updated.streamEvents);
         updated.streamRevision = agent.streamRevision + 1;
       }
 
@@ -1034,26 +1106,30 @@ export class AgentMonitorStore implements OnDestroy {
         if (existingIds.has(ref.agentId)) continue;
 
         const ts = new Date(ref.startedAt).getTime();
-        next = [
-          ...next,
-          {
-            agentId: ref.agentId,
-            cli: ref.cli,
-            task: ref.task,
-            status: ref.status,
-            startedAt: Number.isNaN(ts) ? Date.now() : ts,
-            stdout: ref.stdout ?? '',
-            stderr: '',
-            expanded: false,
-            segments: ref.segments ? [...ref.segments] : [],
-            streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
-            streamRevision: 0,
-            cliSessionId: ref.cliSessionId,
-            parentSessionId,
-            ptahCliId: ref.ptahCliId,
-            permissionQueue: [],
-          },
-        ];
+        const restoredEvents = ref.streamEvents ? [...ref.streamEvents] : [];
+        // A resumed session's persisted events come from the backend's 50 000
+        // budget, so they must meet the live card's cap on the way in.
+        capStreamEventsInPlace(restoredEvents);
+        const restoredSegments = ref.segments
+          ? ref.segments.slice(-MAX_AGENT_SEGMENTS)
+          : [];
+        next = insertAgentSorted(next, {
+          agentId: ref.agentId,
+          cli: ref.cli,
+          task: ref.task,
+          status: ref.status,
+          startedAt: Number.isNaN(ts) ? Date.now() : ts,
+          stdout: ref.stdout ?? '',
+          stderr: '',
+          expanded: false,
+          segments: restoredSegments,
+          streamEvents: restoredEvents,
+          streamRevision: 0,
+          cliSessionId: ref.cliSessionId,
+          parentSessionId,
+          ptahCliId: ref.ptahCliId,
+          permissionQueue: [],
+        });
         existingIds.add(ref.agentId);
       }
       return next;
@@ -1602,6 +1678,72 @@ export class AgentMonitorStore implements OnDestroy {
     );
     this._subagentRpcError.set(err);
   }
+}
+
+/**
+ * Trim an agent's stream-event buffer back to {@link MAX_AGENT_STREAM_EVENTS},
+ * IN PLACE, once it runs {@link AGENT_STREAM_EVENTS_CAP_SLACK} past the cap.
+ *
+ * In place because the array reference is shared across deltas and
+ * `streamRevision` — not the array identity — is the agent card's change
+ * signal (see {@link MonitoredAgent.streamEvents}). Reassigning it here would
+ * silently break that contract for any consumer holding the old reference.
+ *
+ * Shape mirrors the backend's `capStreamEvents`: the most recent events are
+ * kept whatever their type, and the remaining budget is filled with the most
+ * recent LANDMARK events before that tail, so the rendered tree keeps its
+ * structure instead of losing every `tool_start` that has no `tool_result` yet.
+ */
+/**
+ * Insert an agent so `_agents` stays ordered newest-first by `startedAt`.
+ *
+ * This is what lets {@link AgentMonitorStore.agents} drop its per-delta sort.
+ * The new entry goes AFTER every agent with a `startedAt` greater than or equal
+ * to its own, which reproduces exactly what a stable `sort` of the old
+ * append-then-sort code produced for ties (equal timestamps kept insertion
+ * order) — tests that spawn several agents in the same millisecond depend on
+ * that.
+ */
+function insertAgentSorted(
+  list: readonly MonitoredAgent[],
+  agent: MonitoredAgent,
+): MonitoredAgent[] {
+  let index = 0;
+  while (index < list.length && list[index].startedAt >= agent.startedAt) {
+    index++;
+  }
+  const next = [...list];
+  next.splice(index, 0, agent);
+  return next;
+}
+
+function capStreamEventsInPlace(events: FlatStreamEventUnion[]): void {
+  if (
+    events.length <=
+    MAX_AGENT_STREAM_EVENTS + AGENT_STREAM_EVENTS_CAP_SLACK
+  ) {
+    return;
+  }
+
+  const reserve = Math.min(
+    AGENT_STREAM_EVENTS_TAIL_RESERVE,
+    MAX_AGENT_STREAM_EVENTS,
+  );
+  const tailStart = events.length - reserve;
+  const headBudget = MAX_AGENT_STREAM_EVENTS - reserve;
+
+  const head: FlatStreamEventUnion[] = [];
+  for (let i = tailStart - 1; i >= 0 && head.length < headBudget; i--) {
+    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
+      head.push(events[i]);
+    }
+  }
+  head.reverse();
+
+  const tail = events.slice(tailStart);
+  events.length = 0;
+  for (const ev of head) events.push(ev);
+  for (const ev of tail) events.push(ev);
 }
 
 function capBuffer(str: string, max: number): string {

@@ -1,5 +1,10 @@
 import { Injectable, signal } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
+import {
+  buildPersistedTabState,
+  persistNeeded,
+  type PersistedSnapshot,
+} from './tab-persistence';
 
 /**
  * Internal type for a workspace's tab set stored in the workspace tab map.
@@ -114,6 +119,20 @@ export class TabWorkspacePartitionService {
     ReturnType<typeof setTimeout>
   >();
   private readonly BG_SAVE_DEBOUNCE_MS = 500;
+
+  /**
+   * Per-workspace max-wait timers. See `_debouncedBackgroundSave`: the trailing
+   * debounce above resets on every background streaming update, so without this
+   * a busy background workspace is only persisted in the gaps.
+   */
+  private readonly _backgroundMaxWaitTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly BG_SAVE_MAX_WAIT_MS = 5000;
+
+  /** Last bytes actually written per workspace — see `tab-persistence.ts`. */
+  private readonly _lastPersisted = new Map<string, PersistedSnapshot>();
 
   private _panelId: string | undefined;
 
@@ -366,6 +385,11 @@ export class TabWorkspacePartitionService {
       clearTimeout(pendingTimer);
       this._backgroundSaveTimers.delete(workspacePath);
     }
+    this._clearBackgroundMaxWait(workspacePath);
+    // Drop the write snapshot with the state it describes, so a workspace that
+    // is removed and re-added does not skip its first write against a stale
+    // comparison.
+    this._lastPersisted.delete(workspacePath);
     this._backendEncodedPaths.delete(workspacePath);
     const storageKey = this._getWorkspaceStorageKey(workspacePath);
 
@@ -512,12 +536,28 @@ export class TabWorkspacePartitionService {
   ): void {
     try {
       const key = this._getWorkspaceStorageKey(workspacePath);
-      const state = {
+      // Same projection + skip-if-unchanged rule as the active-workspace path.
+      // A background workspace streams through `updateBackgroundTab`, so this
+      // ran on the same per-flush cadence with the same discarded payload.
+      if (
+        !persistNeeded(
+          this._lastPersisted.get(workspacePath) ?? null,
+          key,
+          tabSet.tabs,
+          tabSet.activeTabId,
+        )
+      ) {
+        return;
+      }
+      localStorage.setItem(
+        key,
+        JSON.stringify(buildPersistedTabState(tabSet.tabs, tabSet.activeTabId)),
+      );
+      this._lastPersisted.set(workspacePath, {
+        key,
         tabs: tabSet.tabs,
         activeTabId: tabSet.activeTabId,
-        version: 2,
-      };
-      localStorage.setItem(key, JSON.stringify(state));
+      });
     } catch (error) {
       console.warn(
         `[TabWorkspacePartition] Failed to save background workspace tab state:`,
@@ -541,10 +581,35 @@ export class TabWorkspacePartitionService {
     }
     const timer = setTimeout(() => {
       this._backgroundSaveTimers.delete(workspacePath);
+      this._clearBackgroundMaxWait(workspacePath);
       this._saveWorkspaceTabsToStorage(workspacePath, tabSet);
     }, this.BG_SAVE_DEBOUNCE_MS);
 
     this._backgroundSaveTimers.set(workspacePath, timer);
+
+    // Trailing debounce with reset means a background workspace streaming
+    // without a 500 ms gap never persisted. The max-wait timer is started once
+    // per pending save and never reset.
+    if (!this._backgroundMaxWaitTimers.has(workspacePath)) {
+      const maxWait = setTimeout(() => {
+        this._backgroundMaxWaitTimers.delete(workspacePath);
+        const pending = this._backgroundSaveTimers.get(workspacePath);
+        if (pending) {
+          clearTimeout(pending);
+          this._backgroundSaveTimers.delete(workspacePath);
+        }
+        this._saveWorkspaceTabsToStorage(workspacePath, tabSet);
+      }, this.BG_SAVE_MAX_WAIT_MS);
+      this._backgroundMaxWaitTimers.set(workspacePath, maxWait);
+    }
+  }
+
+  private _clearBackgroundMaxWait(workspacePath: string): void {
+    const timer = this._backgroundMaxWaitTimers.get(workspacePath);
+    if (timer) {
+      clearTimeout(timer);
+      this._backgroundMaxWaitTimers.delete(workspacePath);
+    }
   }
 
   /**

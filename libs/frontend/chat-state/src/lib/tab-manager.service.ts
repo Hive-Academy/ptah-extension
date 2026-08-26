@@ -29,6 +29,11 @@ import {
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
 import { ClaudeSessionId, TabId } from './identity/ids';
+import {
+  buildPersistedTabState,
+  persistNeeded,
+  type PersistedSnapshot,
+} from './tab-persistence';
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
@@ -167,6 +172,27 @@ export class TabManagerService {
   // Debounce timer for localStorage saves (reduces spam during streaming)
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
+
+  /**
+   * Ceiling on how long a save may be postponed by the trailing debounce.
+   *
+   * `saveTabState()` resets its timer on every call, and it is called from
+   * `updateTabInternal` — i.e. on every streaming flush. A tab that streams
+   * without a 500 ms gap therefore never persisted at all; only the gaps
+   * between tool calls saved it. The max-wait timer is started on the FIRST
+   * pending save and never reset, so a save lands at least this often no
+   * matter how dense the traffic.
+   */
+  private _saveMaxWaitTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly SAVE_MAX_WAIT_MS = 5000;
+
+  /**
+   * What `_doSaveTabState` last actually wrote, per storage key. Compared
+   * against the current tabs to skip byte-identical writes — see
+   * `tab-persistence.ts` for why this is a field comparison and not a hash of
+   * the serialized string.
+   */
+  private _lastPersisted: PersistedSnapshot | null = null;
 
   /**
    * Per-tab AbortControllers for in-flight streaming RPCs.
@@ -1841,34 +1867,65 @@ export class TabManagerService {
     // Schedule debounced save (reduces 220+ writes to just a few during streaming)
     this._saveTimeout = setTimeout(() => {
       this._saveTimeout = null;
+      this._clearSaveMaxWait();
       this._doSaveTabState();
     }, this.SAVE_DEBOUNCE_MS);
+
+    // Started on the first pending save and deliberately NOT reset by later
+    // calls, so continuous streaming cannot starve persistence.
+    if (this._saveMaxWaitTimeout === null) {
+      this._saveMaxWaitTimeout = setTimeout(() => {
+        this._saveMaxWaitTimeout = null;
+        if (this._saveTimeout) {
+          clearTimeout(this._saveTimeout);
+          this._saveTimeout = null;
+        }
+        this._doSaveTabState();
+      }, this.SAVE_MAX_WAIT_MS);
+    }
+  }
+
+  private _clearSaveMaxWait(): void {
+    if (this._saveMaxWaitTimeout) {
+      clearTimeout(this._saveMaxWaitTimeout);
+      this._saveMaxWaitTimeout = null;
+    }
   }
 
   /**
    * Actually perform the localStorage save (called after debounce).
    * Saves to workspace-scoped key if a workspace is active, otherwise to legacy key.
+   *
+   * Two guards keep this off the streaming hot path:
+   *  - the payload drops `streamingState` (both readers null it on restore), so
+   *    no execution-tree or event-map walking happens here;
+   *  - a write is skipped entirely when the projected tabs are unchanged since
+   *    the last write, which is the case for every flush inside a turn.
+   * The in-memory partition mirror is synced either way — it is a `Map.set`,
+   * and letting it drift would hand a stale tab set to the next workspace
+   * switch.
    */
   private _doSaveTabState(): void {
     try {
-      const state = {
-        tabs: this._tabs(),
-        activeTabId: this._activeTabId(),
-        version: 2,
-      };
+      const tabs = this._tabs();
+      const activeTabId = this._activeTabId();
 
       const activeWsPath = this.workspacePartition.activeWorkspacePath;
       const key = activeWsPath
         ? this.workspacePartition.getStorageKeyForWorkspace(activeWsPath)
         : this._legacyStorageKey;
 
-      localStorage.setItem(key, JSON.stringify(state));
+      this.workspacePartition.syncActiveWorkspaceState(tabs, activeTabId);
 
-      // Also keep the partition service's in-memory map in sync with the signal
-      this.workspacePartition.syncActiveWorkspaceState(
-        this._tabs(),
-        this._activeTabId(),
+      if (!persistNeeded(this._lastPersisted, key, tabs, activeTabId)) {
+        return;
+      }
+
+      localStorage.setItem(
+        key,
+        JSON.stringify(buildPersistedTabState(tabs, activeTabId)),
       );
+      this._lastPersisted = { key, tabs, activeTabId };
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);
     }
