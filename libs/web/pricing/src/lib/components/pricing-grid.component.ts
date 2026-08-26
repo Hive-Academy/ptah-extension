@@ -189,11 +189,11 @@ import {
           </div>
 
           <p class="mt-5 max-w-md mx-auto text-sm text-ink-300 leading-relaxed">
-            Early adopters get
+            Approved early adopters get
             <span class="text-amber-400 font-semibold"
-              >70% off their first year</span
+              >a full year of Builders free</span
             >
-            — $8.70/mo or $87 for the year. Apply before the window closes.
+            — no card, now or later. Apply before the window closes.
           </p>
 
           <a [href]="buildersWaitlistHref()" class="cta-urgency mt-6">
@@ -253,9 +253,9 @@ import {
               @if (buildersCheckoutEnabled) {
                 Founding invite applied — your discount is ready at checkout.
               } @else {
-                Early Adopter program — founding members get 70% off their first
-                year of Builders ($8.70/mo or $87 for the year). Apply below and
-                we'll review your request.
+                Early Adopter program — approved founding members get a full
+                year of Builders free, with no card now or later. Apply below
+                and we'll review your request.
               }
             </span>
           </div>
@@ -303,7 +303,7 @@ import {
               List price {{ proPlan.price }} &middot; {{ proPlan.priceSubtext }}
             </div>
             <div class="mt-1 text-[10px] text-amber-500/70 leading-snug">
-              Early adopters: 70% off your first year
+              Early adopters: your first year is free
             </div>
           </div>
 
@@ -652,7 +652,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'Private builders community',
       'Member skill packs',
       'Priority support',
-      '70% off your first year — founding cohort',
+      'Free for a full year — founding cohort',
     ],
     ctaText: 'Apply for Early Adopter',
     ctaAction: 'checkout',

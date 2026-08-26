@@ -234,11 +234,14 @@ Test with an admin-allowlisted account (add your test email to `ADMIN_EMAILS` in
   `users, licenses, subscriptions, waitlist, session-requests, failed-webhooks, admin-audit-log, marketing-*`.
   Unknown slug → 400.
 - **7.3 Record detail/edit** — `GET`/`PATCH /admin/{model}/{id}`; read-only models → 405; empty body → 400.
-- **7.4 ⭐ Send Founding Invites** (`/admin/waitlist` → modal) — **selected ids** (table) OR **oldest N**
-  (batchSize, default 25) → `POST /api/v1/admin/waitlist/invite {ids?}|{batchSize?}` (10/min). `ids` wins.
-  Server emails founding-invite checkout links (with the founding discount ids), stamps `notifiedAt`,
-  skips already-notified → `{invited, skipped}` + `waitlist.invite` audit row. **Verify:** the email
-  link matches `${FRONTEND_URL}/pricing?promo=founding&cycle=…&d=…` (§3.5); re-invite skips notified rows.
+- **7.4 ⭐ Approve to Founding Cohort** (`/admin/waitlist` → modal) — **explicit ids only**, max 50 →
+  `POST /api/v1/admin/waitlist/approve {ids}`. There is no batch/"oldest N" mode and no invite
+  endpoint: the paid 70%-off invite wave was deleted in TASK_2026_201 because the founding cohort is
+  FREE. Each approved row gets a free 1-year `builders` licence, the `Founding Members` group, a
+  stamped `approvedAt` and one welcome email → per-outcome tally
+  (`approved | already_approved | already_paid | not_found | failed`) + a `waitlist.approve` audit row.
+  **Verify:** the welcome mail names no price, no percentage and no checkout link; re-approving a row
+  reports `already_approved` and issues no second licence.
 - **7.5 Issue complimentary license** — `POST /admin/licenses/complimentary` (20/min), `plan:'builders'`,
   duration preset 30d/1y/5y/custom/never; optional `LICENSE_EMAIL_FAILED` warning. **This is the fastest
   way to create a Builder for testing §4** without Paddle.

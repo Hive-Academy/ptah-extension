@@ -29,6 +29,19 @@ model. Items marked ✅ DEV are already configured locally by the dev session.
 
 ### 2.1 Live Paddle (mirror of the sandbox setup)
 
+> [!IMPORTANT]
+> **The discounts in this section are ON HOLD — the Early Adopter offer is a
+> free grant, not 70% off.** An admin approves a waitlist row at
+> `/admin/waitlist`, the server issues a free 1-year Builders licence, and the
+> person never reaches a Paddle checkout. The paid founding-invite wave was
+> deleted in TASK_2026_201.
+>
+> **Keep every row below.** The Early Adopter window is time-boxed. When it
+> closes, Builders switches to self-serve Paddle checkout and this setup is the
+> live path again. Do not delete the products, prices or discounts from Paddle,
+> and do not write new offer copy against the 70% figure while the window is
+> open.
+
 - [x] Create product **Ptah Builders** (Standard digital goods) at
       https://vendors.paddle.com → `pro_01kz1d03jqd00gt6jgmbv3a8ve` (2026-08-02).
 - [x] Price **$29.00/month** "Builders Monthly (Founding Member)", no trial →
