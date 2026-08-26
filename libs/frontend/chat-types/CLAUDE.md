@@ -17,7 +17,7 @@ Shared chat-domain TypeScript types and the `StreamingState` data model used by 
 Re-exports everything from `./lib/chat-types`. Notable exports:
 
 - **Types**: `TabState`, `SessionStatus`, `TabViewMode`, `StreamingState`, `NodeMaps`, `AgentContentBlock`, `SendMessageOptions`
-- **Helpers**: `createEmptyStreamingState()`, `setStreamingEventCapped(state, event)`
+- **Helpers**: `createEmptyStreamingState()`, `setStreamingEventCapped(state, event)`, `markStructuralChange(state)`
 - **Constants**: `STREAMING_EVENT_CAP` (5000)
 
 ## Internal Structure
@@ -29,7 +29,27 @@ Re-exports everything from `./lib/chat-types`. Notable exports:
 - `src/lib/chat-types.ts:55` — `StreamingState` interface. The flat event-based model that replaced the old `ExecutionNode` tree representation: events indexed by id (`Map<string, FlatStreamEventUnion>`), `messageEventIds[]` ordered list, `toolCallMap`, `textAccumulators`, `toolInputAccumulators`, `agentContentBlocksMap` (TASK_2025_102 — interleaved text/tool blocks from the agent file watcher), `eventsByMessage` (O(1) lookup), `pendingStats`.
 - `src/lib/chat-types.ts:111` — `createEmptyStreamingState()` — used by tab init and reset.
 - `src/lib/chat-types.ts:135` — `STREAMING_EVENT_CAP = 5000`. Long sessions can accumulate thousands of events; without a cap, signal-driven re-renders explode in cost.
-- `src/lib/chat-types.ts:157` — `setStreamingEventCapped`. FIFO-bounded write into `events`: updates existing ids in place; for new ids at the cap, evicts the oldest (Map insertion order). First eviction emits one `console.warn`; subsequent evictions are silent. Cascade-cleans the evicted eventId from every dependent collection (`eventsByMessage`, `toolCallMap`, `textAccumulators`, `toolInputAccumulators`, `agentContentBlocksMap`, `agentSummaryAccumulators`); empty parent buckets are deleted. O(1) amortized.
+- `src/lib/chat-types.ts:157` — `setStreamingEventCapped`. FIFO-bounded write into `events`: updates existing ids in place; for new ids at the cap, evicts the oldest (Map insertion order). First eviction emits one `console.warn`; subsequent evictions are silent. Cascade-cleans the evicted eventId from every dependent collection (`eventsByMessage`, `toolCallMap`, `textAccumulators`, `toolInputAccumulators`, `agentContentBlocksMap`, `agentSummaryAccumulators`, `messageEventIds`, `messageRevisions`); empty parent buckets are deleted. O(1) amortized.
+
+### The three revision counters (TASK_2026_323)
+
+`StreamingState` carries three OPTIONAL counters that exist so downstream
+derived caches can invalidate without diffing content. All three are written by
+`setStreamingEventCapped`; all three read as "untracked" when absent, which
+consumers MUST interpret as "always dirty", never as "unchanged".
+
+| Field                         | Bumped on                                                                                                                                                                                                                          | Read by                                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `revision`                    | every write into `events`                                                                                                                                                                                                          | fallback index key                                                                                         |
+| `messageRevisions[messageId]` | every write carrying that `messageId`                                                                                                                                                                                              | the tree builder's per-root-message dirty check — it rebuilds only the message subtrees whose events moved |
+| `structuralRevision`          | structural events (`message_start`, `message_complete`, `tool_start`, `tool_result`, `agent_start`), any cap eviction, and — via `markStructuralChange` from the accumulator — creating or clearing a `textAccumulators` block key | the tree builder's derived-index memo                                                                      |
+
+`structuralRevision` deliberately does NOT move for a plain `text_delta`. That
+is the whole point: a burst of deltas shares one `O(events)` index pass instead
+of paying for a fresh one per streamed chunk. It is also deliberately NOT
+initialised by `createEmptyStreamingState`, so a state that only ever received
+raw `events.set(...)` writes reads as untracked rather than as a counter that
+those writes silently bypassed.
 
 ## State Management Pattern
 
@@ -51,4 +71,6 @@ None — this lib is framework-agnostic TypeScript. No `@Injectable`, no signals
 2. **No services or classes with behavior** beyond pure helpers.
 3. **All writes into `StreamingState.events` go through `setStreamingEventCapped`** — never call `state.events.set(...)` directly from consumer code. The cap exists for performance reasons.
 4. **Cascade-clean is handled by `setStreamingEventCapped`**. When extending `StreamingState` with a new collection keyed by `eventId`, update the cascade-clean block in `setStreamingEventCapped` to remove the evicted id from the new collection (and drop the parent key when the bucket empties).
-5. Keep the file flat. Adding sub-folders is allowed only when the file grows past ~500 lines.
+5. **`eventsByMessage` buckets are in non-descending `timestamp` order.** The accumulator inserts in order (`StreamingAccumulatorCore.indexEventByMessage`); readers rely on it and must not sort. A `slice().sort()` at read time is exactly the R2 defect this replaced.
+6. **A writer that adds or removes a `textAccumulators` block key must call `markStructuralChange(state)`.** The KEY SET is indexed by the tree builder; the content is not. Miss the call and a brand-new text block never appears.
+7. Keep the file flat. Adding sub-folders is allowed only when the file grows past ~500 lines.

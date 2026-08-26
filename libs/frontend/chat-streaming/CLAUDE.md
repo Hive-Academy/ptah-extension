@@ -37,13 +37,16 @@ Tagged `scope:webview` + `type:feature`. The chat lib depends on this; this neve
 
 - `src/lib/streaming-handler.service.ts:50` — `tabManager` is now eagerly injected (Phase 3). The lazy `Injector.get` band-aid was removed because `STREAMING_CONTROL` is gone. `StreamingHandler → TabManager` is now a single-direction edge; DI bootstrap completes without NG0200.
 - `src/lib/accumulator-core.service.ts` — the shared write path. Mutates `StreamingState` in place for all events except `compaction_complete` (which returns a fresh state in `AccumulatorResult.replacementState`).
+- `src/lib/accumulator-core.service.ts` `indexEventByMessage` — keeps each `eventsByMessage` bucket in non-descending `timestamp` order (plain `push` on the hot path, binary insert only for a genuinely out-of-order replay). Readers must NOT sort; the message builder's old `slice().sort()` of every delta per rebuild was TASK_2026_323 R2.
+- `src/lib/execution-tree-builder.service.ts` — the rebuild is INCREMENTAL, in three layers. (1) `StreamingIndexes` derived once per state version, memoized per cacheKey on `structuralRevision` — which a `text_delta` does not bump, so a burst of deltas shares one `O(events)` pass. (2) A digest per ROOT message, folding every descendant message (a subagent's events carry the subagent's own `messageId`, so `rootMessageIdByMessageId` walks `message_start.parentToolUseId → tool_start.messageId` to attribute them); only roots whose digest moved reach `buildMessageNode`, and when none moved `buildTree` returns the previous ARRAY by reference. (3) Cheap 32-bit fingerprints keep object identity stable inside a rebuilt subtree. The predecessor keyed its memo on `events.size` — which every delta changes — and then `JSON.stringify`d every tool input/output per node, making one rebuild proportional to total transcript bytes.
+- `src/lib/execution-tree-builder.service.ts` `mixNumber` — signed (`| 0`), not unsigned (`>>> 0`), on purpose. An unsigned fold exceeds 2^31, leaves V8's small-integer range and boxes every intermediate; that alone made the fingerprint pass cost several times more than building the nodes it exists to skip.
 
 ## State Management Pattern
 
 - **Signals** for the two stores (`BackgroundAgentStore`, `AgentMonitorStore`).
 - **Direct mutation** of `StreamingState` maps inside the accumulator (deliberate — see chat-routing nudge pattern for the signal-equality consequence).
 - **RAF batching** in `BatchedUpdateService` — coalesces many event mutations into one signal flush per frame.
-- **Memo cache** on `ExecutionTreeBuilderService` keyed on streaming-state revision.
+- **Incremental tree build** on `ExecutionTreeBuilderService` — three layers, see its Key Files entry below.
 
 ## Dependencies
 
@@ -62,7 +65,7 @@ Tagged `scope:webview` + `type:feature`. The chat lib depends on this; this neve
 
 1. **Never import from `@ptah-extension/chat`** — the dependency edge is one-way (chat → chat-streaming).
 2. **In-place mutation of `StreamingState`** is the contract — see `accumulator-core.service.ts`. If you need a fresh state, do it explicitly via `AccumulatorResult.replacementState` (only `compaction_complete` does this today).
-3. **Builders stay pure** in `chat-execution-tree`. Any caching, memoization, or DI-bound logic belongs here in `ExecutionTreeBuilderService`.
+3. **Builders stay pure** in `chat-execution-tree`. Any caching, memoization, or DI-bound logic belongs here in `ExecutionTreeBuilderService` — including the `BuilderDeps.getIndexes` memo the builders call through.
 4. **`StreamingAccumulatorCore` is the single source of truth** for event handling — both the tab path (`StreamingHandlerService`) and the surface path (`StreamRouter`) go through it. Bug fixes here propagate to all consumers automatically.
 5. **Dedup cleanup must be paired with conversation teardown** — see the `StreamRouter.onSurfaceClosed` invariant in chat-routing.
 6. **Permissions and questions have SEPARATE target maps** in `PermissionHandlerService` (`_promptTargetTabs` vs `_questionTargetTabs`). A surface host filtering question cards must use `hasSurfaceQuestionTargets(q.id)` — `hasSurfaceTargets(id)` reads the permission map and silently returns false for every question, which hides the card while the agent blocks on `awaitQuestionResponse` (`timeoutAt: 0`) until the backend's 5-minute auto-pick. This was mis-wired three times (harness, tribunal, chat) before the predicate was lifted here.

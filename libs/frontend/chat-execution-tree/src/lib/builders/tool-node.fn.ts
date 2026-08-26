@@ -5,12 +5,18 @@
  * Recurses via `deps.buildAgentNode` and `deps.buildMessageNode`. No
  * direct imports of the other .fn modules — recursion is callback-driven
  * through {@link BuilderDeps} to keep file-level imports acyclic.
+ *
+ * TASK_2026_323 (R1): every relational lookup here used to be a
+ * `[...state.events.values()].filter/find(…)` — a full spread of the events Map
+ * PER NODE. They all now read {@link BuilderDeps.getIndexes}, which derives the
+ * same answers once per state version. Bucket order is `state.events` insertion
+ * order and single-value lookups keep the first match, so node ids, child order
+ * and statuses are byte-identical to the scans they replaced.
  */
 
 import type {
   AgentStartEvent,
   ExecutionNode,
-  MessageStartEvent,
   ToolResultEvent,
   ToolStartEvent,
 } from '@ptah-extension/shared';
@@ -37,13 +43,13 @@ export function collectTools(
   state: StreamingState,
   depth: number,
 ): ExecutionNode[] {
+  const indexes = deps.getIndexes(state);
   const tools: ExecutionNode[] = [];
-  const toolStarts = [...state.events.values()].filter((e) => {
-    if (e.eventType !== 'tool_start') return false;
-    if (e.messageId !== messageId) return false;
-    if (depth === 0 && e.parentToolUseId) return false;
-    return true;
-  }) as ToolStartEvent[];
+  const messageToolStarts = indexes.toolStartsByMessage.get(messageId) ?? [];
+  const toolStarts =
+    depth === 0
+      ? messageToolStarts.filter((e) => !e.parentToolUseId)
+      : messageToolStarts;
   const usedAgentEventIds = new Set<string>();
   const usedToolCallIds = new Set<string>();
 
@@ -63,11 +69,9 @@ export function collectTools(
     }
 
     if (isAgentDispatch) {
-      let agentStarts = [...state.events.values()].filter(
-        (e) =>
-          e.eventType === 'agent_start' &&
-          e.parentToolUseId === toolStart.toolCallId,
-      ) as AgentStartEvent[];
+      let agentStarts: AgentStartEvent[] = [
+        ...(indexes.agentStartsByParent.get(toolStart.toolCallId) ?? []),
+      ];
 
       if (agentStarts.length === 0) {
         const inputKey = `${toolStart.toolCallId}-input`;
@@ -76,14 +80,12 @@ export function collectTools(
 
         if (typeMatch) {
           const agentType = typeMatch[1];
-          agentStarts = [...state.events.values()].filter(
+          agentStarts = (indexes.agentStartsByType.get(agentType) ?? []).filter(
             (e) =>
-              e.eventType === 'agent_start' &&
-              (e as AgentStartEvent).agentType === agentType &&
-              (!e.parentToolUseId ||
-                e.parentToolUseId === toolStart.toolCallId ||
-                !e.parentToolUseId.startsWith('toolu_')),
-          ) as AgentStartEvent[];
+              !e.parentToolUseId ||
+              e.parentToolUseId === toolStart.toolCallId ||
+              !e.parentToolUseId.startsWith('toolu_'),
+          );
           agentStarts.sort(
             (a, b) =>
               Math.abs(a.timestamp - toolStart.timestamp) -
@@ -163,10 +165,9 @@ export function buildToolNode(
   state: StreamingState,
   depth = 0,
 ): ExecutionNode {
-  const resultEvent = [...state.events.values()].find(
-    (e) =>
-      e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId,
-  ) as ToolResultEvent | undefined;
+  const resultEvent: ToolResultEvent | undefined = deps
+    .getIndexes(state)
+    .toolResultByCallId.get(toolStart.toolCallId);
 
   const inputKey = `${toolStart.toolCallId}-input`;
   const inputString = state.toolInputAccumulators.get(inputKey) || '';
@@ -250,12 +251,9 @@ export function buildToolChildren(
   // tool_use id. Without the guard it renders as a subagent bubble nested
   // inside the Bash node. The producer-side fix lives in
   // `SystemMessageTransformer.transformTaskStarted`.
-  const agentStarts = [...state.events.values()].filter(
-    (e) =>
-      e.eventType === 'agent_start' &&
-      e.parentToolUseId === toolCallId &&
-      isAgentTaskType((e as AgentStartEvent).agentType),
-  ) as AgentStartEvent[];
+  const agentStarts = (
+    deps.getIndexes(state).agentStartsByParent.get(toolCallId) ?? []
+  ).filter((e) => isAgentTaskType(e.agentType));
 
   for (const agentStart of agentStarts) {
     const agentNode = deps.buildAgentNode(agentStart, toolCallId, state, depth);
@@ -296,11 +294,8 @@ function tryBuildPlaceholderAgent(
   | { kind: 'fallthrough' }
   | { kind: 'skip' }
   | { kind: 'placeholder'; node: ExecutionNode } {
-  const toolResult = [...state.events.values()].find(
-    (e) =>
-      e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId,
-  );
-  if (toolResult) {
+  const indexes = deps.getIndexes(state);
+  if (indexes.toolResultByCallId.has(toolStart.toolCallId)) {
     return { kind: 'fallthrough' };
   }
 
@@ -323,12 +318,8 @@ function tryBuildPlaceholderAgent(
   if (descMatch) {
     agentDescription = descMatch[1];
   }
-  const agentMessageStarts = [...state.events.values()].filter(
-    (e) =>
-      e.eventType === 'message_start' &&
-      e.parentToolUseId === toolStart.toolCallId &&
-      (e as MessageStartEvent).role === 'assistant',
-  ) as MessageStartEvent[];
+  const agentMessageStarts =
+    indexes.assistantMessageStartsByParent.get(toolStart.toolCallId) ?? [];
 
   const agentChildren: ExecutionNode[] = [];
   for (const msgStart of agentMessageStarts) {
@@ -343,20 +334,16 @@ function tryBuildPlaceholderAgent(
   }
   let hookAgentStart: AgentStartEvent | undefined;
   let bestPlaceholderTimeDiff = Infinity;
-  for (const e of state.events.values()) {
+  for (const e of indexes.hookAgentStartsByType.get(agentType) ?? []) {
     if (
-      e.eventType === 'agent_start' &&
-      e.source === 'hook' &&
-      (e as AgentStartEvent).agentType === agentType &&
       !usedAgentEventIds.has(e.id) &&
-      (!(e as AgentStartEvent).agentId ||
-        !usedAgentEventIds.has((e as AgentStartEvent).agentId ?? '')) &&
+      (!e.agentId || !usedAgentEventIds.has(e.agentId)) &&
       (!e.parentToolUseId || e.parentToolUseId === toolStart.toolCallId)
     ) {
       const timeDiff = Math.abs(e.timestamp - toolStart.timestamp);
       if (timeDiff < bestPlaceholderTimeDiff) {
         bestPlaceholderTimeDiff = timeDiff;
-        hookAgentStart = e as AgentStartEvent;
+        hookAgentStart = e;
       }
     }
   }
@@ -404,6 +391,7 @@ function tryBuildPlaceholderAgent(
   const placeholderStats = deps.agentStats.aggregateAgentStats(
     toolStart.toolCallId,
     state,
+    indexes,
   );
 
   const isPlaceholderBackground = deps.backgroundAgentStore.isBackgroundAgent(

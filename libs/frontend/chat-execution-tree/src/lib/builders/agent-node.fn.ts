@@ -10,14 +10,14 @@
  * - effectiveAgentId hook-fallback closest-by-timestamp tie-break (NOT first-by-iteration).
  * - Status from `tool_result` presence, not children-count.
  * - Field-spread order: ...stats then explicit `model: stats.agentModel`.
+ *
+ * TASK_2026_323 (R1): the three `[...state.events.values()]` scans that used to
+ * run PER AGENT NODE now read {@link BuilderDeps.getIndexes}. The hook-fallback
+ * bucket preserves events insertion order, so the strict `<` tie-break still
+ * picks the same event.
  */
 
-import type {
-  AgentStartEvent,
-  ExecutionNode,
-  MessageStartEvent,
-  ToolResultEvent,
-} from '@ptah-extension/shared';
+import type { AgentStartEvent, ExecutionNode } from '@ptah-extension/shared';
 import { createExecutionNode } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { MAX_DEPTH } from '../execution-tree.constants';
@@ -41,12 +41,9 @@ export function buildAgentNode(
     );
     return null;
   }
-  const agentMessageStarts = [...state.events.values()].filter(
-    (e) =>
-      e.eventType === 'message_start' &&
-      e.parentToolUseId === toolCallId &&
-      (e as MessageStartEvent).role === 'assistant',
-  ) as MessageStartEvent[];
+  const indexes = deps.getIndexes(state);
+  const agentMessageStarts =
+    indexes.assistantMessageStartsByParent.get(toolCallId) ?? [];
 
   const agentChildren: ExecutionNode[] = [];
   for (const msgStart of agentMessageStarts) {
@@ -65,17 +62,13 @@ export function buildAgentNode(
     let bestHookMatch: AgentStartEvent | undefined;
     let bestTimeDiff = Infinity;
 
-    for (const e of state.events.values()) {
-      if (
-        e.eventType === 'agent_start' &&
-        e.source === 'hook' &&
-        (e as AgentStartEvent).agentType === agentStart.agentType &&
-        (e as AgentStartEvent).agentId
-      ) {
+    for (const e of indexes.hookAgentStartsByType.get(agentStart.agentType) ??
+      []) {
+      if (e.agentId) {
         const timeDiff = Math.abs(e.timestamp - agentStart.timestamp);
         if (timeDiff < bestTimeDiff) {
           bestTimeDiff = timeDiff;
-          bestHookMatch = e as AgentStartEvent;
+          bestHookMatch = e;
         }
       }
     }
@@ -115,12 +108,8 @@ export function buildAgentNode(
   } else {
     finalChildren = [...agentChildren];
   }
-  const stats = deps.agentStats.aggregateAgentStats(toolCallId, state);
-  const hasTaskToolResult = [...state.events.values()].some(
-    (e) =>
-      e.eventType === 'tool_result' &&
-      (e as ToolResultEvent).toolCallId === toolCallId,
-  );
+  const stats = deps.agentStats.aggregateAgentStats(toolCallId, state, indexes);
+  const hasTaskToolResult = indexes.toolResultByCallId.has(toolCallId);
 
   const isBackground = deps.backgroundAgentStore.isBackgroundAgent(toolCallId);
 

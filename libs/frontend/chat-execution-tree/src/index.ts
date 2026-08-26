@@ -30,3 +30,8 @@ export type {
   BuilderDeps,
   BackgroundAgentLookup,
 } from './lib/builders/builder-deps';
+export { buildStreamingIndexes } from './lib/indexes/streaming-indexes';
+export type {
+  StreamingIndexes,
+  AccumulatedBlock,
+} from './lib/indexes/streaming-indexes';

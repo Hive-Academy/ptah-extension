@@ -10,8 +10,12 @@
  */
 
 import { Injectable } from '@angular/core';
-import type { MessageCompleteEvent } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  MessageCompleteEvent,
+} from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import type { StreamingIndexes } from './indexes/streaming-indexes';
 
 @Injectable({ providedIn: 'root' })
 export class AgentStatsService {
@@ -41,16 +45,21 @@ export class AgentStatsService {
 
   /**
    * Aggregate model, token usage, cost, and duration from child message events.
-   * Scans all message_complete events linked to this agent via parentToolUseId.
+   * Reads the message events linked to this agent via parentToolUseId.
    * Results are cached per toolCallId within a single buildTree() cycle.
    *
    * @param toolCallId - The agent's parent tool call ID
    * @param state - Current streaming state
+   * @param indexes - Derived indexes for `state`. When supplied, the agent's
+   *   child events come from `eventsByParent` in O(children) instead of a full
+   *   O(events) scan per agent (TASK_2026_323 R1). Omitting it keeps the legacy
+   *   scan so callers without indexes stay correct.
    * @returns Aggregated stats for the agent node
    */
   aggregateAgentStats(
     toolCallId: string,
     state: StreamingState,
+    indexes?: StreamingIndexes,
   ): {
     agentModel?: string;
     tokenUsage?: { input: number; output: number };
@@ -68,7 +77,11 @@ export class AgentStatsService {
     let earliestStart: number | undefined;
     let latestEnd: number | undefined;
 
-    for (const event of state.events.values()) {
+    const candidates: Iterable<FlatStreamEventUnion> = indexes
+      ? (indexes.eventsByParent.get(toolCallId) ?? [])
+      : state.events.values();
+
+    for (const event of candidates) {
       if (event.parentToolUseId !== toolCallId) continue;
 
       if (event.eventType === 'message_complete') {
