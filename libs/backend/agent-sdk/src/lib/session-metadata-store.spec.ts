@@ -31,7 +31,12 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type { CliSessionReference, AgentId } from '@ptah-extension/shared';
+import type {
+  AgentId,
+  CliOutputSegment,
+  CliSessionReference,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
 
@@ -40,6 +45,26 @@ function asLogger(mock: MockLogger): Logger {
 }
 
 const WORKSPACE = '/workspace/project';
+const METADATA_KEY = 'ptah.sessionMetadata';
+
+function segments(count: number): readonly CliOutputSegment[] {
+  return Array.from({ length: count }, (_, i) => ({
+    type: 'text' as const,
+    content: `segment-${i}`,
+  }));
+}
+
+function streamEvents(count: number): readonly FlatStreamEventUnion[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `evt-${i}`,
+    eventType: 'text_delta',
+    timestamp: i,
+    sessionId: 'sess-1',
+    messageId: 'msg-1',
+    source: 'stream',
+    text: 'x',
+  })) as unknown as readonly FlatStreamEventUnion[];
+}
 
 function cliRef(
   overrides: Partial<CliSessionReference> = {},
@@ -299,6 +324,181 @@ describe('SessionMetadataStore', () => {
       const md = await store.get('sess-1');
       const ids = md?.cliSessions?.map((c) => c.cliSessionId).sort();
       expect(ids).toEqual(['a', 'b', 'c']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Write coalescing + bulk-output split (TASK_2026_323 blocker B5)
+  //
+  // Every write rewrote the whole all-sessions blob, and every CLI session
+  // reference inside it carried up to 50 000 stream events. N agents spawning
+  // and exiting therefore cost O(N² × events) bytes of main-thread JSON.
+  // -------------------------------------------------------------------------
+
+  describe('write coalescing', () => {
+    function metadataWrites(): number {
+      return storage.update.mock.calls.filter(([key]) => key === METADATA_KEY)
+        .length;
+    }
+
+    it('serializes the blob ONCE for a burst of ten agent lifecycle writes', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const before = metadataWrites();
+
+      await Promise.all(
+        Array.from({ length: 10 }, (_unused, i) =>
+          store.addCliSession(
+            'sess-1',
+            cliRef({
+              cliSessionId: `cli-${i}`,
+              agentId: `agent-${i}` as AgentId,
+            }),
+          ),
+        ),
+      );
+
+      expect(metadataWrites() - before).toBe(1);
+
+      const md = await store.get('sess-1');
+      expect(md?.cliSessions).toHaveLength(10);
+    });
+
+    it('has reached storage by the time an awaited write resolves', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const persisted = storage.__state.entries.get(METADATA_KEY) as
+        | Array<{ sessionId: string }>
+        | undefined;
+      expect(persisted?.map((m) => m.sessionId)).toEqual(['sess-1']);
+    });
+
+    it('serves a staged mutation to readers before its flush completes', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const first = store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'a' }),
+      );
+      const second = store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'b' }),
+      );
+      await Promise.all([first, second]);
+
+      // Both survive: the second read-modify-write saw the first even though
+      // the first never reached storage on its own.
+      const md = await store.get('sess-1');
+      expect(md?.cliSessions?.map((c) => c.cliSessionId)).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('bulk agent output', () => {
+    const FAT_AGENT = 'agent-fat' as AgentId;
+
+    async function seedFatReference(): Promise<void> {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession(
+        'sess-1',
+        cliRef({
+          cliSessionId: 'cli-fat',
+          agentId: FAT_AGENT,
+          segments: segments(500),
+          streamEvents: streamEvents(5000),
+        }),
+      );
+    }
+
+    it('keeps streamEvents out of the all-sessions blob', async () => {
+      await seedFatReference();
+
+      const blob = storage.__state.entries.get(METADATA_KEY);
+      expect(JSON.stringify(blob)).not.toContain('streamEvents');
+
+      const md = await store.get('sess-1');
+      expect(md?.cliSessions?.[0].streamEvents).toBeUndefined();
+    });
+
+    it('trims inline segments to a bounded tail', async () => {
+      await seedFatReference();
+
+      const md = await store.get('sess-1');
+      expect(md?.cliSessions?.[0].segments).toHaveLength(200);
+      // The TAIL is what is kept — the newest output is the useful part.
+      expect(md?.cliSessions?.[0].segments?.[199].content).toBe('segment-499');
+    });
+
+    it('stores bulk output under a per-agent key, not the blob', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: segments(500),
+        streamEvents: streamEvents(5000),
+      });
+
+      expect(storage.update).toHaveBeenCalledWith(
+        `ptah.agentOutput:${FAT_AGENT}`,
+        expect.objectContaining({ agentId: FAT_AGENT }),
+      );
+      const stored = await store.getAgentOutput(FAT_AGENT);
+      expect(stored?.streamEvents).toHaveLength(5000);
+      expect(stored?.segments).toHaveLength(500);
+    });
+
+    it('writes nothing when there is no output to store', async () => {
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: [],
+        streamEvents: [],
+      });
+      expect(storage.update).not.toHaveBeenCalledWith(
+        `ptah.agentOutput:${FAT_AGENT}`,
+        expect.anything(),
+      );
+      await expect(store.getAgentOutput(FAT_AGENT)).resolves.toBeNull();
+    });
+
+    it('rehydrates the restore payload from the per-agent key', async () => {
+      await seedFatReference();
+      await store.saveAgentOutput(FAT_AGENT, {
+        segments: segments(500),
+        streamEvents: streamEvents(5000),
+      });
+
+      const refs = await store.getCliSessionsForRestore('sess-1');
+      expect(refs).toHaveLength(1);
+      expect(refs[0].streamEvents).toHaveLength(5000);
+      expect(refs[0].segments).toHaveLength(500);
+      // The reference's own identity fields survive the merge.
+      expect(refs[0].cliSessionId).toBe('cli-fat');
+    });
+
+    it('returns the lean reference when no bulk output was stored', async () => {
+      await seedFatReference();
+
+      const refs = await store.getCliSessionsForRestore('sess-1');
+      expect(refs[0].streamEvents).toBeUndefined();
+      expect(refs[0].segments).toHaveLength(200);
+    });
+
+    it('returns an empty list for a session with no CLI agents', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await expect(store.getCliSessionsForRestore('sess-1')).resolves.toEqual(
+        [],
+      );
+      await expect(store.getCliSessionsForRestore('missing')).resolves.toEqual(
+        [],
+      );
+    });
+
+    it('drops the per-agent output keys when the session is deleted', async () => {
+      await seedFatReference();
+      await store.saveAgentOutput(FAT_AGENT, {
+        streamEvents: streamEvents(10),
+      });
+      expect(storage.__state.entries.has(`ptah.agentOutput:${FAT_AGENT}`)).toBe(
+        true,
+      );
+
+      await store.delete('sess-1');
+
+      expect(storage.__state.entries.has(`ptah.agentOutput:${FAT_AGENT}`)).toBe(
+        false,
+      );
     });
   });
 

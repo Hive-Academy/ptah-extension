@@ -53,7 +53,9 @@ interface Suite {
   codeExecutionMcp: jest.Mocked<
     Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>
   >;
-  registry: jest.Mocked<Pick<PtahCliRegistry, 'getProfile' | 'listAgents'>>;
+  registry: jest.Mocked<
+    Pick<PtahCliRegistry, 'getProfile' | 'releaseProfile' | 'listAgents'>
+  >;
   agentAdapter: jest.Mocked<
     Pick<
       SdkAgentAdapter,
@@ -94,6 +96,7 @@ function makeSuite(): Suite {
 
   const registry = {
     getProfile: jest.fn().mockResolvedValue(profile),
+    releaseProfile: jest.fn().mockResolvedValue(undefined),
     listAgents: jest.fn().mockResolvedValue([
       {
         id: AGENT_ID,
@@ -108,7 +111,7 @@ function makeSuite(): Suite {
       },
     ]),
   } as unknown as jest.Mocked<
-    Pick<PtahCliRegistry, 'getProfile' | 'listAgents'>
+    Pick<PtahCliRegistry, 'getProfile' | 'releaseProfile' | 'listAgents'>
   >;
 
   const stream: AsyncIterable<unknown> = {
@@ -177,7 +180,9 @@ describe('ChatPtahCliService', () => {
 
       const out = await s.service.handleStart(params);
 
-      expect(s.registry.getProfile).toHaveBeenCalledWith(AGENT_ID);
+      // The tab id is the proxy lease key: each session holds its own lease
+      // on the agent's proxy, so a later session cannot stop it (B10 proxy).
+      expect(s.registry.getProfile).toHaveBeenCalledWith(AGENT_ID, TAB_UUID);
       expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
         expect.objectContaining({
           tabId: TAB_UUID,
@@ -297,6 +302,9 @@ describe('ChatPtahCliService', () => {
       expect(s.agentAdapter.endSession).toHaveBeenCalledWith(SESSION_UUID);
       expect(out).toEqual({ success: true });
       expect(s.service.hasSession(SESSION_UUID)).toBe(false);
+      // The lease was taken under the tab id at start; abort arrives under
+      // the real session id and must release that same lease.
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
     });
   });
 

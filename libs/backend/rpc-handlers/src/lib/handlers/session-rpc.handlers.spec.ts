@@ -103,12 +103,16 @@ import { SessionRpcHandlers } from './session-rpc.handlers';
 // ---------------------------------------------------------------------------
 
 type MockMetadataStore = jest.Mocked<
-  Pick<SessionMetadataStore, 'get' | 'getForWorkspace' | 'delete' | 'rename'>
+  Pick<
+    SessionMetadataStore,
+    'get' | 'getForWorkspace' | 'delete' | 'rename' | 'getCliSessionsForRestore'
+  >
 >;
 
 function createMockMetadataStore(): MockMetadataStore {
   return {
     get: jest.fn(),
+    getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
     getForWorkspace: jest.fn().mockResolvedValue([]),
     delete: jest.fn().mockResolvedValue(undefined),
     rename: jest.fn().mockResolvedValue(undefined),
@@ -1128,6 +1132,9 @@ describe('SessionRpcHandlers', () => {
       } as CliSessionReference;
       const codex = { cli: 'codex' } as CliSessionReference;
 
+      // `get` still backs the authorization check; the refs themselves come
+      // through `getCliSessionsForRestore`, which rehydrates per-agent output
+      // onto them (TASK_2026_323 B5).
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
           sessionId: VALID_SESSION_ID,
@@ -1135,6 +1142,11 @@ describe('SessionRpcHandlers', () => {
           cliSessions: [realCli, mcpSpawned, codex],
         }) as never,
       );
+      h.metadataStore.getCliSessionsForRestore.mockResolvedValue([
+        realCli,
+        mcpSpawned,
+        codex,
+      ]);
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(
@@ -1143,12 +1155,17 @@ describe('SessionRpcHandlers', () => {
         { sessionId: VALID_SESSION_ID },
       );
 
+      expect(h.metadataStore.getCliSessionsForRestore).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+      );
       expect(result.cliSessions).toEqual([realCli, mcpSpawned, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {
       const h = makeHarness();
-      h.metadataStore.get.mockRejectedValue(new Error('store boom'));
+      h.metadataStore.getCliSessionsForRestore.mockRejectedValue(
+        new Error('store boom'),
+      );
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(

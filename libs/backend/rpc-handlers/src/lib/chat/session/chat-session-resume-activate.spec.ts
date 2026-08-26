@@ -102,6 +102,7 @@ function makeService(params: {
   } as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
     get: jest.fn().mockResolvedValue(null),
+    getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
   };
   const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
