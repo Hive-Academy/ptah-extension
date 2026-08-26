@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_286
-status: in_review
+status: done
 type: feature
 title: >-
   Agents were the one artifact kind Ptah fanned out with nobody's permission —
@@ -19,6 +19,7 @@ description: >-
   flag defaulting to false makes the first routine reconcile after an upgrade
   DELETE every agent file Ptah had ever written, in every existing workspace,
   silently, reported as an ordinary clean pass.
+updated: '2026-08-25T21:16:27.165Z'
 ---
 
 # The agents consent gate

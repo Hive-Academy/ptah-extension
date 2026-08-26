@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_316
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Every workspace inherits every skill in the user layer, and disabling a
@@ -12,13 +12,13 @@ description: >-
   and Nx skill the user enabled in some other workspace months ago. Two distinct
   causes, one symptom. (1) `HarnessManifestBuilder.buildSkills`
   (`libs/backend/harness-sync/src/lib/manifest/harness-manifest.builder.ts:175`)
-  walks `sources.layout.skillsRoot` — the user-global
-  `~/.ptah/user/skills` — and filters it by `disabledSkillIds` alone. Nothing
-  asks whether this workspace wanted the skill; the only gate is opt-OUT, and
-  it is keyed per skill. (2) `disabledPluginIds` is applied only to the OVERLAY
-  loop at `:195-198`, never to the user-layer base, and the user-layer reaper
-  keeps a clone whose plugin directory still exists on disk (`classifyUpstream`
-  returns `check-plugin-dir`,
+  walks `sources.layout.skillsRoot` — the user-global `~/.ptah/user/skills` —
+  and filters it by `disabledSkillIds` alone. Nothing asks whether this
+  workspace wanted the skill; the only gate is opt-OUT, and it is keyed per
+  skill. (2) `disabledPluginIds` is applied only to the OVERLAY loop at
+  `:195-198`, never to the user-layer base, and the user-layer reaper keeps a
+  clone whose plugin directory still exists on disk (`classifyUpstream` returns
+  `check-plugin-dir`,
   `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-orphan-reaper.ts:123-127`).
   So unchecking a bundled plugin in the Configure modal drops it from
   `enabledPluginIds`, drops it from the overlay — and changes nothing, because
@@ -33,6 +33,7 @@ description: >-
   sequenced batches: restore the plugin gate, then add the per-workspace skill
   allowlist on the AgentSyncGate shape, including its evidence-based migration
   so existing workspaces are never reaped.
+updated: '2026-08-25T21:29:38.629Z'
 ---
 
 # Skills propagate into every workspace with no per-workspace consent

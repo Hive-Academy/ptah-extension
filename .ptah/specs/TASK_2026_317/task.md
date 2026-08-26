@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_317
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Surface workflows are routed by a correlation id no registry knows, so New
@@ -16,19 +16,21 @@ description: >-
   id IS a bound `TabId`; that is exactly why this only ever broke on the non-tab
   surfaces (New Project, harness builder, setup wizard) while canvas tiles have
   always worked. On a surface both of `StreamRouter.routeQuestionPrompt`'s
-  lookups miss, no targets are attached, and `ChatViewComponent`'s
-  "show it on the active tile" safety net paints the card onto whichever canvas
-  session happens to be focused while the workflow's own panel stays empty.
+  lookups miss, no targets are attached, and `ChatViewComponent`'s "show it on
+  the active tile" safety net paints the card onto whichever canvas session
+  happens to be focused while the workflow's own panel stays empty.
   `chat:pending-questions`, which looks up by real session id, could never
-  replay them after a reload either. Second, the 180s `NoActivityWatchdog` treats
-  a turn parked on `canUseTool` as a wedged provider: an AskUserQuestion emits
-  zero stream events by construction, so a user reading a card the UI labels
-  "No timeout" had the whole session aborted under them three minutes in —
-  inside the prompt's own 5-minute grace. Third, `WebviewNavigationService` kept
-  a private mirror of the current view that every direct `setCurrentView` caller
-  (each Electron navbar tab, the host's `switchView` message) left stale, and
-  `navigateToView` short-circuits against it — so "Resume New Project" reported
-  success and navigated nowhere. Evidence and full reasoning in `./context.md`.
+  replay them after a reload either. Second, the 180s `NoActivityWatchdog`
+  treats a turn parked on `canUseTool` as a wedged provider: an AskUserQuestion
+  emits zero stream events by construction, so a user reading a card the UI
+  labels "No timeout" had the whole session aborted under them three minutes in
+  — inside the prompt's own 5-minute grace. Third, `WebviewNavigationService`
+  kept a private mirror of the current view that every direct `setCurrentView`
+  caller (each Electron navbar tab, the host's `switchView` message) left stale,
+  and `navigateToView` short-circuits against it — so "Resume New Project"
+  reported success and navigated nowhere. Evidence and full reasoning in
+  `./context.md`.
+updated: '2026-08-25T22:05:39.937Z'
 ---
 
 # Surface workflows cannot receive the questions they ask

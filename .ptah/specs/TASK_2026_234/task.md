@@ -1,15 +1,16 @@
 ---
 id: TASK_2026_234
-status: in_review
+status: done
 type: BUGFIX
-title: 'Six TUI defects found by the TASK_2026_198 logic review'
+title: Six TUI defects found by the TASK_2026_198 logic review
 description: >-
   Six defects in apps/ptah-tui carried forward from the 2026-08-11 handoff
-  (section 3.1). Four are pure-logic and unit-testable: CRLF block parsing,
-  the dead Ctrl+M binding, intraword `_` emphasis eating characters, and
+  (section 3.1). Four are pure-logic and unit-testable: CRLF block parsing, the
+  dead Ctrl+M binding, intraword `_` emphasis eating characters, and
   TERM=xterm-256color resolving as truecolor. Two are interaction defects:
-  Escape closing two surfaces per press, and a mid-stream view switch
-  leaking a running turn with no way to abort it.
+  Escape closing two surfaces per press, and a mid-stream view switch leaking a
+  running turn with no way to abort it.
+updated: '2026-08-25T21:11:49.474Z'
 ---
 
 # Six TUI defects

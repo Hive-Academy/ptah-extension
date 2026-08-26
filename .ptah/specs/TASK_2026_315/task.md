@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_315
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Thirteen defects found in one Electron session log — no-workspace guardrails,
@@ -28,6 +28,7 @@ description: >-
   heap 23 percent over its stated budget with no action taken, and four repeated
   ENOENT / diagnostic emissions. Full evidence with log line numbers and code
   citations in `./context.md`.
+updated: '2026-08-25T21:29:37.885Z'
 ---
 
 # Thirteen defects from one Electron session log

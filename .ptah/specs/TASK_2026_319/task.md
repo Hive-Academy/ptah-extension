@@ -1,9 +1,8 @@
 ---
 id: TASK_2026_319
-status: in_review
+status: done
 type: BUGFIX
-title: >-
-  Booting Ptah issues LLM calls before the user has asked for anything
+title: Booting Ptah issues LLM calls before the user has asked for anything
 description: >-
   `MemoryTriggerService.runBootScan`
   (`libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts:805`)
@@ -26,6 +25,7 @@ description: >-
   of the original finding (the boot query ran before the MCP server existed and
   was therefore tool-less) is already fixed in commit `1ef31e8db`; only the
   spend itself remains. Recorded as F5 in TASK_2026_315's follow-ups.
+updated: '2026-08-25T21:04:56.773Z'
 ---
 
 # Boot issues LLM calls with no user action

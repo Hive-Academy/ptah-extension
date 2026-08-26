@@ -1,10 +1,10 @@
 ---
 id: TASK_2026_270
-status: in_review
+status: done
 type: feature
 title: >-
-  Stack Profile registry — multi-language New Project with first-class .NET,
-  C# AST support, and external plugin marketplaces
+  Stack Profile registry — multi-language New Project with first-class .NET, C#
+  AST support, and external plugin marketplaces
 description: >-
   New Project is hardwired to Nx + NestJS + Angular/React: the RPC force-enables
   `ptah-nx-saas`, the seed prompt names three TypeScript-only skills, the intake
@@ -16,8 +16,9 @@ description: >-
   (the grammar already ships in `@vscode/tree-sitter-wasm`); generalize the
   plugin loader to install from external `.claude-plugin/marketplace.json` repos
   so Microsoft's MIT-licensed `dotnet/skills` reaches users always-current; and
-  ship a thin `ptah-dotnet` glue plugin. Python and any later language become one
-  descriptor plus one glue plugin.
+  ship a thin `ptah-dotnet` glue plugin. Python and any later language become
+  one descriptor plus one glue plugin.
+updated: '2026-08-25T21:15:01.502Z'
 ---
 
 # Stack Profiles + first-class .NET

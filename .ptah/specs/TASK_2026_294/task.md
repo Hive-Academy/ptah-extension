@@ -1,9 +1,10 @@
 ---
 id: TASK_2026_294
-status: in_review
+status: done
 type: bugfix
 title: >-
-  Hold a follow-up message until the turn ends instead of handing it to the SDK queue
+  Hold a follow-up message until the turn ends instead of handing it to the SDK
+  queue
 description: >-
   A follow-up sent while a turn is generating is pushed straight into the live
   SDK input stream. The SDK logs `queue-operation: enqueue`, then
@@ -13,6 +14,7 @@ description: >-
   human-authored prompts since 2026-08-01. Fix is in `SessionStreamPump`: yield
   at most one queued message per turn and hold the rest until the turn's
   `result` arrives.
+updated: '2026-08-25T21:21:59.586Z'
 ---
 
 # Follow-up messages are dropped when sent mid-turn
