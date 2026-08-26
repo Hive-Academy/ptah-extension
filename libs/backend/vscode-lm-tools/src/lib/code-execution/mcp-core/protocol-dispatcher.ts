@@ -9,6 +9,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { performance } from 'node:perf_hooks';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   CliType,
@@ -153,7 +154,11 @@ export async function handleMCPRequest(
 ): Promise<MCPResponse> {
   const { logger } = deps;
 
-  logger.info(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
+  // `debug`, not `info` (TASK_2026_323). Every agent turn produces a burst of
+  // MCP requests, and at `info` this single line was the highest-volume writer
+  // in the log — which is precisely the log an operator has to read to find a
+  // stall. The interesting MCP signal is now the slow-tool warning below.
+  logger.debug(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
     id: request.id,
   });
 
@@ -391,11 +396,79 @@ function markEagerTools(
   }
 }
 
+export const MCP_SLOW_TOOL_WARN_MS_ENV = 'PTAH_MCP_SLOW_WARN_MS';
+
+/**
+ * 2000 ms — the same bar as the slow-RPC warning, for the same reason.
+ *
+ * MCP tool calls are the other way work reaches the backend, and on the
+ * Electron host they are the more dangerous one: a Codex or Copilot agent
+ * calling `ptah_get_diagnostics` over the HTTP MCP server makes the ELECTRON
+ * MAIN THREAD run `ts.createProgram`, which is tens of seconds of fully
+ * synchronous work with the UI frozen behind it (TASK_2026_323, blocker B3).
+ * Nothing logged that cost before this warning existed.
+ */
+export const DEFAULT_MCP_SLOW_TOOL_WARN_MS = 2000;
+
+/**
+ * Resolved once at module load.
+ *
+ * The identical parse lives in `vscode-core`'s `diagnostics/env-thresholds.ts`,
+ * and importing it would be the DRY-correct move — except that pulling a VALUE
+ * out of the `@ptah-extension/vscode-core` barrel drags in `error-handling`,
+ * which does `import * as vscode from 'vscode'`. In the CLI and Electron hosts
+ * that is shimmed at build time, but in this lib's Jest environment it is a
+ * `.d.ts` that Node tries to execute, and `protocol-dispatcher.spec.ts` dies on
+ * `SyntaxError: Unexpected identifier 'module'`. Six lines duplicated across a
+ * boundary that cannot be crossed at runtime beats a barrel dependency that
+ * breaks the suite.
+ */
+const mcpSlowToolWarnMs = ((): number => {
+  const raw = process.env[MCP_SLOW_TOOL_WARN_MS_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_MCP_SLOW_TOOL_WARN_MS;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MCP_SLOW_TOOL_WARN_MS;
+})();
+
+/**
+ * Time every `tools/call` and warn on the slow ones.
+ *
+ * A wrapper rather than inline timing because {@link dispatchToolsCall} has a
+ * dozen return statements across three tool families; bracketing at the single
+ * entry point is the only way to be sure no path escapes measurement, and
+ * `finally` covers the throwing paths too.
+ */
+async function handleToolsCall(
+  request: MCPRequest,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  const toolName =
+    typeof (request.params as { name?: unknown } | undefined)?.name === 'string'
+      ? (request.params as { name: string }).name
+      : 'unknown';
+  const startedAt = performance.now();
+  try {
+    return await dispatchToolsCall(request, deps);
+  } finally {
+    const elapsedMs = performance.now() - startedAt;
+    if (elapsedMs >= mcpSlowToolWarnMs) {
+      deps.logger.warn('[MCP] slow tool', {
+        tool: toolName,
+        durationMs: Math.round(elapsedMs * 10) / 10,
+      });
+    }
+  }
+}
+
 /**
  * Handle tools/call request
  * Routes to individual ptah_* tools, execute_code, or approval_prompt
  */
-async function handleToolsCall(
+async function dispatchToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {

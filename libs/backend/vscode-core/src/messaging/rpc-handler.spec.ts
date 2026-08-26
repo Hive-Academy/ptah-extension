@@ -32,6 +32,7 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
       {
         captureException,
       } as unknown as ConstructorParameters<typeof RpcHandler>[1],
+      undefined,
     );
   });
 
@@ -131,5 +132,145 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
 
     expect(response.success).toBe(true);
     expect(response.errorCode).toBeUndefined();
+  });
+});
+
+describe('RpcHandler.handleMessage — slow-handler warning (TASK_2026_323)', () => {
+  let logger: {
+    debug: jest.Mock;
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+  };
+  let addBreadcrumb: jest.Mock;
+
+  /**
+   * Builds a handler whose slow threshold is driven by the env var, so the
+   * tests can pick a bound low enough to cross with a real `await` rather than
+   * faking the clock. `slowWarnMs` is read in the field initialiser, so the env
+   * var must be set BEFORE construction — hence a factory, not a shared
+   * instance from `beforeEach`.
+   */
+  const buildHandler = (thresholdMs: number, withTracer = true): RpcHandler => {
+    process.env['PTAH_RPC_SLOW_WARN_MS'] = String(thresholdMs);
+    return new RpcHandler(
+      logger as unknown as ConstructorParameters<typeof RpcHandler>[0],
+      undefined,
+      withTracer
+        ? ({
+            addBreadcrumb,
+            startSpan: jest.fn(),
+          } as unknown as ConstructorParameters<typeof RpcHandler>[2])
+        : undefined,
+    );
+  };
+
+  beforeEach(() => {
+    logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    addBreadcrumb = jest.fn();
+  });
+
+  afterEach(() => {
+    delete process.env['PTAH_RPC_SLOW_WARN_MS'];
+  });
+
+  it('warns with method and duration when a handler exceeds the threshold', async () => {
+    // Threshold 0.0001 ms: any real handler crosses it, so the assertion does
+    // not depend on how fast the machine running the suite happens to be.
+    const handler = buildHandler(0.0001);
+    handler.registerMethod('memory:search', async () => ({ hits: [] }));
+
+    const response = await handler.handleMessage({
+      method: 'memory:search',
+      params: {},
+      correlationId: 'slow-1',
+    });
+
+    expect(response.success).toBe(true);
+    const slowWarning = logger.warn.mock.calls.find(
+      (call) => call[0] === '[RPC] slow handler',
+    );
+    expect(slowWarning).toBeDefined();
+    expect(slowWarning?.[1]).toEqual(
+      expect.objectContaining({ method: 'memory:search' }),
+    );
+    expect(
+      (slowWarning?.[1] as { durationMs: number }).durationMs,
+    ).toBeGreaterThanOrEqual(0);
+  });
+
+  it('stays quiet for a handler under the threshold', async () => {
+    const handler = buildHandler(60_000);
+    handler.registerMethod('session:list', async () => ({ sessions: [] }));
+
+    await handler.handleMessage({
+      method: 'session:list',
+      params: {},
+      correlationId: 'fast-1',
+    });
+
+    expect(
+      logger.warn.mock.calls.filter((call) => call[0] === '[RPC] slow handler'),
+    ).toHaveLength(0);
+    expect(addBreadcrumb).not.toHaveBeenCalled();
+  });
+
+  it('warns even when the slow handler throws', async () => {
+    const handler = buildHandler(0.0001);
+    handler.registerMethod('chat:sendMessage', async () => {
+      throw new Error('boom');
+    });
+
+    const response = await handler.handleMessage({
+      method: 'chat:sendMessage',
+      params: {},
+      correlationId: 'slow-throw',
+    });
+
+    expect(response.success).toBe(false);
+    expect(
+      logger.warn.mock.calls.some((call) => call[0] === '[RPC] slow handler'),
+    ).toBe(true);
+  });
+
+  it('records a tracer breadcrumb when a tracer is injected', async () => {
+    const handler = buildHandler(0.0001);
+    handler.registerMethod('workspace:analyze', async () => ({}));
+
+    await handler.handleMessage({
+      method: 'workspace:analyze',
+      params: {},
+      correlationId: 'trace-1',
+    });
+
+    expect(addBreadcrumb).toHaveBeenCalledWith(
+      'rpc',
+      'slow handler',
+      expect.objectContaining({
+        method: 'workspace:analyze',
+        correlationId: 'trace-1',
+      }),
+    );
+  });
+
+  it('still warns when no tracer is registered', async () => {
+    const handler = buildHandler(0.0001, false);
+    handler.registerMethod('workspace:analyze', async () => ({}));
+
+    await handler.handleMessage({
+      method: 'workspace:analyze',
+      params: {},
+      correlationId: 'no-tracer',
+    });
+
+    expect(
+      logger.warn.mock.calls.some((call) => call[0] === '[RPC] slow handler'),
+    ).toBe(true);
+    expect(addBreadcrumb).not.toHaveBeenCalled();
   });
 });

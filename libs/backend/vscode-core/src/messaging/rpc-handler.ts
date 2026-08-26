@@ -20,9 +20,13 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { performance } from 'node:perf_hooks';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ITracer } from '@ptah-extension/platform-core';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import type { SentryService } from '../services/sentry.service';
+import { readMsEnv, roundMs } from '../diagnostics/env-thresholds';
 import {
   RpcUserError,
   type RpcMessage,
@@ -85,6 +89,18 @@ export const ALLOWED_METHOD_PREFIXES = [
   'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
 ] as const;
 
+export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';
+
+/**
+ * 2000 ms. Deliberately under the renderer's 30 s RPC budget
+ * (`libs/frontend/core/.../rpc-call.util.ts`) — by the time that timeout fires
+ * the app has been unusable for half a minute and the log says only that ONE
+ * call gave up. Warning at 2 s names the slow handler while the process is
+ * still alive, which is the difference between "Ptah hung" and "`memory:search`
+ * took 9 s" (TASK_2026_323).
+ */
+export const DEFAULT_RPC_SLOW_WARN_MS = 2000;
+
 /**
  * RPC Handler service for routing RPC method calls
  * Manages registration and execution of RPC methods with security validation
@@ -93,10 +109,21 @@ export const ALLOWED_METHOD_PREFIXES = [
 export class RpcHandler {
   private handlers = new Map<string, BaseRpcMethodHandler>();
 
+  /**
+   * Resolved once. The threshold cannot change within a process lifetime, and
+   * `handleMessage` is the single hottest path in the backend — re-reading
+   * `process.env` per call would be measurable instrumentation overhead on the
+   * exact path this instrumentation exists to keep honest.
+   */
+  private readonly slowWarnMs =
+    readMsEnv(RPC_SLOW_WARN_MS_ENV) ?? DEFAULT_RPC_SLOW_WARN_MS;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE, { isOptional: true })
     private readonly sentryService: SentryService | undefined,
+    @inject(PLATFORM_TOKENS.TRACER, { isOptional: true })
+    private readonly tracer: ITracer | undefined,
   ) {
     this.logger.debug('RpcHandler: Initialized');
   }
@@ -180,6 +207,10 @@ export class RpcHandler {
       };
     }
 
+    // Timed in a `finally` rather than only on the success path: a handler that
+    // throws after 40 seconds is the MOST interesting case, and an error return
+    // gives no hint that the failure was preceded by a long block.
+    const startedAt = performance.now();
     try {
       const data = await handler(params);
       this.logger.debug(`RpcHandler: Method "${method}" succeeded`, {
@@ -211,6 +242,38 @@ export class RpcHandler {
         error: errorObj.message,
         correlationId,
       };
+    } finally {
+      this.warnIfSlow(method, performance.now() - startedAt, correlationId);
+    }
+  }
+
+  /**
+   * Emit a warning when a handler occupied the backend for too long.
+   *
+   * The tracer breadcrumb is best-effort and separately guarded: Sentry being
+   * unhappy must never turn a slow RPC into a failed RPC.
+   */
+  private warnIfSlow(
+    method: string,
+    elapsedMs: number,
+    correlationId: string | undefined,
+  ): void {
+    if (elapsedMs < this.slowWarnMs) return;
+    const durationMs = roundMs(elapsedMs);
+
+    this.logger.warn('[RPC] slow handler', { method, durationMs });
+
+    if (!this.tracer) return;
+    try {
+      this.tracer.addBreadcrumb('rpc', 'slow handler', {
+        method,
+        durationMs,
+        correlationId,
+      });
+    } catch (error: unknown) {
+      this.logger.debug('[RPC] slow-handler breadcrumb failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
