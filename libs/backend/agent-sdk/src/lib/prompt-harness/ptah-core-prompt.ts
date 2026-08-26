@@ -61,7 +61,7 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 |------|------|------|
 | Manual workspace exploration | ptah_workspace_analyze | Full project structure in one call |
 | Bash \`find\` / Glob tool | ptah_search_files | Respects .gitignore, workspace-indexed |
-| Running build to check errors | ptah_get_diagnostics | Live TS errors without compiling |
+| Running build to check errors | ptah_get_diagnostics | Workspace type-check; call once after edits, not on every step |
 | Grep for symbol usages | ptah_lsp_references | LSP-accurate, cross-file, rename-safe |
 | Navigating to find definitions | ptah_lsp_definitions | Go-to-definition via LSP |
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
@@ -107,7 +107,7 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 1. \`ptah_workspace_analyze\` — Understand the project
 2. \`ptah_search_files\` — Find relevant files
-3. \`ptah_get_diagnostics\` — Check for existing errors
+3. \`ptah_get_diagnostics\` — Check for errors AFTER you change files (a full type-check; do not call it as a first step)
 4. \`ptah_lsp_references\` — Before any refactoring
 5. \`ptah_web_search\` — Get current info from the internet when needed
 
@@ -301,7 +301,7 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 |------|------|------|
 | Manual workspace exploration | ptah_workspace_analyze | Full project structure in one call |
 | Bash \`find\` / Glob tool | ptah_search_files | Respects .gitignore, workspace-indexed |
-| Running build to check errors | ptah_get_diagnostics | Live TS errors without compiling |
+| Running build to check errors | ptah_get_diagnostics | Workspace type-check; call once after edits, not on every step |
 | Grep for symbol usages | ptah_lsp_references | LSP-accurate, cross-file, rename-safe |
 | Navigating to find definitions | ptah_lsp_definitions | Go-to-definition via LSP |
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
@@ -347,7 +347,7 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 1. \`ptah_workspace_analyze\` — Understand the project
 2. \`ptah_search_files\` — Find relevant files
-3. \`ptah_get_diagnostics\` — Check for existing errors
+3. \`ptah_get_diagnostics\` — Check for errors AFTER you change files (a full type-check; do not call it as a first step)
 4. \`ptah_lsp_references\` — Before any refactoring
 5. \`ptah_web_search\` — Get current info from the internet when needed
 

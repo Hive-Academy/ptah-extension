@@ -30,6 +30,7 @@ Indexing: `WorkspaceIndexerService`, `PatternMatcherService`, `IgnorePatternReso
 Files: `FileSystemService` (+ `FileSystemError`), `TokenCounterService`.
 AST: `TreeSitterParserService`, `AstAnalysisService`, `DependencyGraphService` (+ `DependencyGraph`, `FileNode`, `SymbolIndex`). Languages: JavaScript, TypeScript, Python, Go, C#. Adding one means a grammar in `scripts/copy-wasm.js`, the `SupportedLanguage` union, `EXTENSION_LANGUAGE_MAP`, a grammar load, and a query set reusing the shared capture names so the extraction layer needs no change.
 Toolchain: `probeToolchain` (`project-analysis/toolchain-probe.ts`) — answers whether a stack's CLI is installed, for `STACK_PROFILES` consumers.
+Diagnostics: `TypeScriptDiagnosticsProvider` (`IDiagnosticsProvider` for Electron/CLI, behind `ptah_get_diagnostics`). See "Type-check worker" below.
 Plus rich typing (`WorkspaceAnalysisResult`, `WorkspaceInfo`, `ContextRecommendations`, `OptimizedContext`, `IndexingProgress`, `FileSearchOptions`, AST query types, etc.) and a code-symbol indexer (TASK_2026_THOTH_CODE_INDEX).
 
 ## Internal Structure
@@ -44,6 +45,7 @@ Plus rich typing (`WorkspaceAnalysisResult`, `WorkspaceInfo`, `ContextRecommenda
 - `src/services/` — `TokenCounterService`, `FileSystemService`
 - `src/autocomplete/` — `AgentDiscoveryService` (`@` picker) + `CommandDiscoveryService`
   (`/` picker) + `workspace-folder-watchers.ts`. See "Autocomplete discovery" below
+- `src/diagnostics/` — `TypeScriptDiagnosticsProvider` + its type-check worker
 - `src/quality/` — additional capability bucket
 - `src/types/workspace.types.ts`
 - `src/di/`
@@ -81,6 +83,35 @@ once after the RPC surface is registered — `apps/ptah-extension-vscode`'s
 `bootstrap.ts` and `apps/ptah-electron`'s `wire-runtime.ts`. It is idempotent.
 The cache has no TTL, so a host that skips it serves the list captured at first
 use for the rest of the session.
+
+## Type-check worker (`ptah_get_diagnostics`)
+
+`ts.createProgram` + `ts.getPreEmitDiagnostics` is one synchronous call with no
+yield point — tens of seconds on this monorepo. It used to run inline on the
+caller's thread, which in Electron is the MAIN process, so a single
+`ptah_get_diagnostics` froze the window and back-pressured every agent
+subprocess (TASK_2026_323 blocker B3). Three rules now hold:
+
+- **The compile runs on a `worker_threads` Worker**, started from an inline
+  source string (`ts-diagnostics-worker-source.ts`) with `eval: true`. A real
+  worker entry file would need an esbuild target in every host that binds the
+  tool plus a host-implemented factory port to hand the lib the emitted path —
+  the `IEmbedderWorkerProcessFactory` shape in `memory-curator`. That is worth
+  paying for a native ONNX runtime; it is not worth paying for a pure-JS
+  compiler pass. The string is not type-checked, so it is covered by
+  `type-script-diagnostics-provider.spec.ts` driving every case through it.
+- **One worker process-wide**, `unref`'d while idle and `ref`'d while a run is
+  outstanding, terminated after 60 s idle. Requests need no queue: the compile
+  is synchronous inside the worker, so a second message waits in the worker's
+  own queue. Ids correlate replies.
+- **Single-flight per root plus a 30 s per-root result cache.** The core prompt
+  tells every agent to call this tool, so three agents in one session call it in
+  a burst; they share one compile, and a repeat inside the TTL pays nothing. The
+  cache is keyed by resolved root and LRU-capped at 8 — never a single slot.
+
+A dead, timed-out or throwing worker reports `unavailable`, never `available`
+with zero diagnostics. `available` + `[]` must only ever mean "checked, and
+clean" (TASK_2026_299 / TASK_2026_301).
 
 ## Dependencies
 
