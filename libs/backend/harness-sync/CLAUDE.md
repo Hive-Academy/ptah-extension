@@ -360,8 +360,11 @@ MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`,
 `PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`.
 Workspace: `resolveHarnessWorkspaceRoot`.
 Lock: `acquireWorkspaceLock`, `serializePerWorkspace`, `acquireFileLock`,
-`withFileLock`, `serializeByKey`. Hashing: `hashDirSync`,
-`hashFileSync`, `hashContent`. Rules: `isReservedSlug`, `canonicalSlug`.
+`withFileLock`, `serializeByKey`. Hashing: `hashDir`, `hashFile`, `hashContent`
+(the first two are ASYNC and take a `ContentHashOptions` — there is deliberately
+no synchronous variant, see "Preflight semantics" below). Cancellation:
+`HarnessPassAbortedError`, `isPassAbortedError`. Rules: `isReservedSlug`,
+`canonicalSlug`.
 Wiring: `createPluginConfigSourceResolver`, `createStaticSourceResolver`,
 `ALL_HARNESS_TARGET_FACTORIES`, `registerHarnessSyncServices`,
 `HARNESS_SYNC_TOKENS`.
@@ -451,12 +454,12 @@ CLI). Both guard the call in a `try/catch` even though the port promises never
 to throw — they sit inside blocks whose failure path aborts a session.
 
 Three properties make it safe on EVERY session start, and all three are pinned
-by `preflight/harness-preflight.service.spec.ts`: it races a timer and lets the
-losing pass finish in the background (never cancelled — it holds the workspace
-lock mid-copy); it throttles per workspace root (`minIntervalMs`, 60 s) so the
-skill-synthesis drain's dozens of nightly one-shot sessions do not each pay for
-a walk of `~/.ptah/user`; and it resolves the caller's cwd to the workspace root
-first (E14).
+by `preflight/harness-preflight.service.spec.ts`: it races a timer and CANCELS
+the losing pass (see "Preflight semantics" below — this was "lets it finish in
+the background" until TASK_2026_323); it throttles per workspace root
+(`minIntervalMs`, 60 s) so the skill-synthesis drain's dozens of nightly
+one-shot sessions do not each pay for a walk of `~/.ptah/user`; and it resolves
+the caller's cwd to the workspace root first (E14).
 
 ## What triggers a pass
 
@@ -486,11 +489,65 @@ host is shutting down.
 Preflight compares desired SOURCE hashes against the manifest and stats each
 owned path. It does not re-hash target directories. Three properties make that
 safe to run on every single session start, all pinned by
-`preflight/harness-preflight.service.spec.ts`: it races a timer and lets the
-losing pass finish in the background (never cancelled — it holds the workspace
-lock mid-copy); it throttles per workspace root (60 s) so the skill-synthesis
+`preflight/harness-preflight.service.spec.ts`: it races a timer and CANCELS the
+losing pass; it throttles per workspace root (60 s) so the skill-synthesis
 drain's nightly one-shot sessions do not each pay for a walk of `~/.ptah/user`;
 and it resolves the caller's cwd to the workspace root first (E14).
+
+#### Cancellation, and the commit point that makes it safe (TASK_2026_323 / B8)
+
+**The losing pass used to be left running, and that was the bug.** The stated
+reason — "it holds the workspace lock and is mid-copy, so aborting it would
+leave a target half populated with no manifest entry for what landed" — is true
+of the APPLY phase and false of everything before it. A preflight spends almost
+all of its time hashing: `HarnessManifestBuilder.build` walks `~/.ptah/user` and
+digests every byte of every skill, and then each detected target's `plan` (and,
+on the no-drift path, its `verify`, which IS `plan`) re-hashes every managed copy
+on disk. That is one source walk plus up to six target walks, per session start
+and per rival-CLI agent spawn, and it was synchronous — `readdirSync` +
+`lstatSync` + `readFileSync` + sha256, recursive to depth 20. In Electron the
+backend shares its event loop with every `BrowserWindow`, so a walk that outlives
+its session is measured in frozen UI. Three chat tabs with CLI agents is the
+reported symptom.
+
+Two mechanisms, in `abort/pass-abort.ts`:
+
+- **Async and yielding.** `hash/content-hash.ts` is `fs/promises` throughout,
+  yields via `setImmediate` once per directory and every 64 files, and takes a
+  `ContentHashOptions.signal`. There is deliberately **no synchronous variant
+  left** — a second spelling of this walk is how the blocking one grows back.
+  The one-level `readdirSync` listings in `HarnessManifestBuilder.listSkillSlugs`
+  / `listMarkdownFiles` are the deliberate exception: a handful of stat calls per
+  candidate whose cost does not grow with file size.
+- **A per-target commit point.** `HarnessReconcilerService.reconcileTarget` mints
+  a `HarnessPassSignal` per target and calls `commit()` immediately before the
+  first manifest write. Before it, an abort abandons the target and nothing has
+  been written; after it, the signal is detached and that target finishes
+  regardless. It is **per target, not per pass**, because each target persists
+  its own manifest right after its own apply — a pass-wide commit would let one
+  target needing one write make the other five uncancellable, which is most of
+  the hashing being cancelled. Pinned by
+  `reconciler/harness-reconciler.cancellation.spec.ts`.
+
+Three consequences worth not re-deriving:
+
+- **An aborted pass records nothing** — no `lastHealth`, no `health` event, no
+  manifest — so nothing downstream can mistake it for a completed one.
+  `HarnessPassAbortedError` is the ONE error `reconcileTarget` re-throws instead
+  of converting into a `writeFailed` row; reporting a session's expired budget
+  as a target malfunction would turn the badge red for a non-problem.
+- **The 60 s throttle stamp is deliberately KEPT on an aborted pass.** Clearing
+  it would make a workspace too large to hash inside the budget redo the whole
+  walk on the very next session start and abort again, forever. The next pass
+  past the throttle re-runs it, and every `mode: 'full'` trigger is unbounded
+  anyway.
+- **The gate migrations (`agentSyncEnabled`, `skillSyncMode`) do NOT commit the
+  pass**, even though they write `state.json`. Each is one atomic write of a
+  decision derived from manifest evidence a cancelled pass cannot have changed,
+  so "state.json written, pass abandoned" is consistent and the next pass
+  re-derives the same answer. Committing there would make the first preflight in
+  every new workspace uncancellable — precisely the workspace with the most
+  hashing to do.
 
 **The blind spot is deliberate and worth knowing.** Because preflight never
 re-hashes a target, a hand-edit to a managed COPY is invisible to it. The copy

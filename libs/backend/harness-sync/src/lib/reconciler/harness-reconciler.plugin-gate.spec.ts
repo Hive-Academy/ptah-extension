@@ -122,10 +122,10 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
     };
   }
 
-  const desiredSlugs = (state: HarnessSourceState): string[] =>
-    builder.build(state).skills.map((skill) => skill.slug);
+  const desiredSlugs = async (state: HarnessSourceState): Promise<string[]> =>
+    (await builder.build(state)).skills.map((skill) => skill.slug);
 
-  it('[316/2] a user-layer clone whose plugin is no longer enabled leaves the desired state', () => {
+  it('[316/2] a user-layer clone whose plugin is no longer enabled leaves the desired state', async () => {
     writeSkill(join(root, 'skills'), 'angular-patterns', {
       pluginId: 'ptah-angular',
     });
@@ -133,41 +133,41 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
       pluginId: 'ptah-nestjs',
     });
 
-    expect(desiredSlugs(knownOverlay(['ptah-nestjs']))).toEqual([
+    expect(await desiredSlugs(knownOverlay(['ptah-nestjs']))).toEqual([
       'nest-patterns',
     ]);
   });
 
-  it('[316/3] a ptah-harness-* clone is OPT-OUT, so absence from the enabled set never drops it', () => {
+  it('[316/3] a ptah-harness-* clone is OPT-OUT, so absence from the enabled set never drops it', async () => {
     writeSkill(join(root, 'skills'), 'release-notes', {
       pluginId: 'ptah-harness-release-notes',
     });
 
     // Nothing enabled at all, and the overlay is authoritative about that.
-    expect(desiredSlugs(knownOverlay([]))).toEqual(['release-notes']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual(['release-notes']);
   });
 
-  it('[316/4] a ptah-skillssh-* clone is OPT-OUT for the same reason — the user asked for it by clicking Install', () => {
+  it('[316/4] a ptah-skillssh-* clone is OPT-OUT for the same reason — the user asked for it by clicking Install', async () => {
     writeSkill(join(root, 'skills'), 'sh-installed', {
       pluginId: 'ptah-skillssh-acme-tools',
     });
 
-    expect(desiredSlugs(knownOverlay([]))).toEqual(['sh-installed']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual(['sh-installed']);
   });
 
-  it('[316/5] a clone with NO sidecar is user-authored and is never filtered', () => {
+  it('[316/5] a clone with NO sidecar is user-authored and is never filtered', async () => {
     writeSkill(join(root, 'skills'), 'my-own-skill');
 
-    expect(desiredSlugs(knownOverlay([]))).toEqual(['my-own-skill']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual(['my-own-skill']);
   });
 
-  it('[316/6] a clone whose sidecar names no plugin (synthesized skill) is never filtered', () => {
+  it('[316/6] a clone whose sidecar names no plugin (synthesized skill) is never filtered', async () => {
     writeSkill(join(root, 'skills'), 'synthesized', { pluginId: null });
 
-    expect(desiredSlugs(knownOverlay([]))).toEqual(['synthesized']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual(['synthesized']);
   });
 
-  it('[316/7] disabledPluginIds is the one filter that DOES apply to a harness plugin', () => {
+  it('[316/7] disabledPluginIds is the one filter that DOES apply to a harness plugin', async () => {
     writeSkill(join(root, 'skills'), 'release-notes', {
       pluginId: 'ptah-harness-release-notes',
     });
@@ -177,10 +177,10 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
       disabledPluginIds: ['ptah-harness-release-notes'],
     };
 
-    expect(desiredSlugs(state)).toEqual([]);
+    expect(await desiredSlugs(state)).toEqual([]);
   });
 
-  it('[316/1] an overlay the resolver could not vouch for filters nothing, even for a plugin that is plainly absent from it', () => {
+  it('[316/1] an overlay the resolver could not vouch for filters nothing, even for a plugin that is plainly absent from it', async () => {
     writeSkill(join(root, 'skills'), 'angular-patterns', {
       pluginId: 'ptah-angular',
     });
@@ -193,11 +193,11 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
       overlayPluginPathsKnown: undefined,
     };
 
-    expect(desiredSlugs(unknown)).toEqual(['angular-patterns']);
-    expect(desiredSlugs(knownOverlay([]))).toEqual([]);
+    expect(await desiredSlugs(unknown)).toEqual(['angular-patterns']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual([]);
   });
 
-  it('[316] a malformed sidecar reads as NO sidecar, so a corrupt file can never cause a delete', () => {
+  it('[316] a malformed sidecar reads as NO sidecar, so a corrupt file can never cause a delete', async () => {
     writeSkill(join(root, 'skills'), 'half-written', {
       pluginId: 'ptah-angular',
     });
@@ -207,10 +207,10 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
       'utf-8',
     );
 
-    expect(desiredSlugs(knownOverlay([]))).toEqual(['half-written']);
+    expect(await desiredSlugs(knownOverlay([]))).toEqual(['half-written']);
   });
 
-  it('[316] a filtered clone vacates its slug, so a DIFFERENT enabled plugin shipping it still wins the slot', () => {
+  it('[316] a filtered clone vacates its slug, so a DIFFERENT enabled plugin shipping it still wins the slot', async () => {
     writeSkill(join(root, 'skills'), 'shared-skill', {
       pluginId: 'ptah-angular',
       body: 'CLONE FROM DISABLED PLUGIN',
@@ -220,7 +220,7 @@ describe('HarnessManifestBuilder — the plugin gate over the user layer', () =>
       body: 'ENABLED PLUGIN CONTENT',
     });
 
-    const desired = builder.build(knownOverlay(['ptah-nestjs'])).skills;
+    const desired = (await builder.build(knownOverlay(['ptah-nestjs']))).skills;
 
     expect(desired.map((skill) => skill.slug)).toEqual(['shared-skill']);
     expect(desired[0]?.sourceDir).toBe(

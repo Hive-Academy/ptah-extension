@@ -26,7 +26,12 @@ import type {
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { hashDirSync, hashFileSync } from '../hash/content-hash';
+import { throwIfPassAborted } from '../abort/pass-abort';
+import {
+  hashDir,
+  hashFile,
+  type ContentHashOptions,
+} from '../hash/content-hash';
 import { plannedTargetHealth } from '../health/harness-health';
 import type { HarnessDesiredState } from '../manifest/desired-state.types';
 import {
@@ -139,19 +144,22 @@ export class ClaudeTarget implements IHarnessTarget {
     return desired.mcp.filter((server) => server.targets.includes(this.id));
   }
 
-  plan(
+  async plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
-  ): HarnessPlan {
+    signal?: AbortSignal,
+  ): Promise<HarnessPlan> {
+    const hashOptions: ContentHashOptions = { signal };
     const migrations: HarnessMigration[] = [];
     const baseEntries: ManagedEntries = { ...manifest.entries };
     const adopted: string[] = [];
-    this.adoptLegacyCommandManifest(
+    await this.adoptLegacyCommandManifest(
       workspaceRoot,
       baseEntries,
       migrations,
       adopted,
+      hashOptions,
     );
 
     const desiredRel = new Map<string, 'skill' | 'command'>();
@@ -178,14 +186,15 @@ export class ClaudeTarget implements IHarnessTarget {
 
     for (const skill of desired.skills) {
       const relPath = `${SKILLS_REL}/${skill.slug}`;
-      const outcome = this.planEntry(
+      const outcome = await this.planEntry(
         workspaceRoot,
         relPath,
         baseEntries,
         migrations,
         skill.contentHash,
-        (abs) => hashDirSync(abs),
+        (abs) => hashDir(abs, hashOptions),
         desired.sourceRoots,
+        hashOptions,
       );
       if (outcome === 'foreign') {
         // A DESIRED path can be foreign now that a user's own symlink is not
@@ -216,14 +225,15 @@ export class ClaudeTarget implements IHarnessTarget {
 
     for (const command of desired.commands) {
       const relPath = `${COMMANDS_REL}/${command.slug}.md`;
-      const outcome = this.planEntry(
+      const outcome = await this.planEntry(
         workspaceRoot,
         relPath,
         baseEntries,
         migrations,
         command.contentHash,
-        (abs) => hashFileSync(abs),
+        (abs) => hashFile(abs),
         desired.sourceRoots,
+        hashOptions,
       );
       if (outcome === 'foreign') {
         scanned.push(relPath);
@@ -427,11 +437,12 @@ export class ClaudeTarget implements IHarnessTarget {
   async verify(
     desired: HarnessDesiredState,
     workspaceRoot: string,
+    signal?: AbortSignal,
   ): Promise<HarnessTargetHealth> {
     const startedAt = Date.now();
     const manifest = this.manifestStore.load(workspaceRoot, this.id);
     return plannedTargetHealth(
-      this.plan(desired, workspaceRoot, manifest),
+      await this.plan(desired, workspaceRoot, manifest, signal),
       this.facets,
       // `detect()` is unconditionally true here — Claude Code reads
       // `{ws}/.claude` in any workspace — so there is nothing to await.
@@ -463,18 +474,21 @@ export class ClaudeTarget implements IHarnessTarget {
    *   forever. Adopting is safe precisely because the content already equals the
    *   desired content — the alternative action would have produced these bytes.
    */
-  private planEntry(
+  private async planEntry(
     workspaceRoot: string,
     relPath: string,
     baseEntries: ManagedEntries,
     migrations: HarnessMigration[],
     desiredHash: string,
-    hashOnDisk: (absolute: string) => string | null,
+    hashOnDisk: (absolute: string) => Promise<string | null>,
     sourceRoots: readonly string[],
-  ):
+    hashOptions: ContentHashOptions,
+  ): Promise<
     | 'foreign'
     | 'unchanged'
-    | { reason: 'create' | 'update'; overwritesLocalEdit: boolean } {
+    | { reason: 'create' | 'update'; overwritesLocalEdit: boolean }
+  > {
+    throwIfPassAborted(hashOptions.signal);
     const absolute = toAbsolute(workspaceRoot, relPath);
     const stat = lstatSyncOrNull(absolute);
 
@@ -490,7 +504,7 @@ export class ClaudeTarget implements IHarnessTarget {
       return { reason: 'create', overwritesLocalEdit: false };
     }
 
-    const actual = hashOnDisk(absolute);
+    const actual = await hashOnDisk(absolute);
     const owned = baseEntries[relPath];
     if (owned === undefined) {
       return actual !== null && actual === desiredHash
@@ -581,12 +595,13 @@ export class ClaudeTarget implements IHarnessTarget {
    * plan step compares that hash against the desired one and rewrites if they
    * differ.
    */
-  private adoptLegacyCommandManifest(
+  private async adoptLegacyCommandManifest(
     workspaceRoot: string,
     baseEntries: ManagedEntries,
     migrations: HarnessMigration[],
     adopted: string[],
-  ): void {
+    hashOptions: ContentHashOptions,
+  ): Promise<void> {
     const legacyPath = join(
       workspaceRoot,
       ...COMMANDS_REL.split('/'),
@@ -606,7 +621,8 @@ export class ClaudeTarget implements IHarnessTarget {
         if (!filename.toLowerCase().endsWith('.md')) continue;
         const relPath = `${COMMANDS_REL}/${filename}`;
         if (baseEntries[relPath] !== undefined) continue;
-        const hash = hashFileSync(toAbsolute(workspaceRoot, relPath));
+        throwIfPassAborted(hashOptions.signal);
+        const hash = await hashFile(toAbsolute(workspaceRoot, relPath));
         if (hash === null) continue;
         baseEntries[relPath] = managedEntry(hash, '', 'command');
         adopted.push(relPath);

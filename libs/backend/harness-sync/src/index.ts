@@ -282,13 +282,23 @@ export {
 } from './lib/fs/windows-retry';
 
 // Content hashing (shared with the targets; useful to specs and to Batch 4).
+// Asynchronous since TASK_2026_323 (B8) — see the file header for why there is
+// deliberately no synchronous variant to fall back to.
 export {
   hashContent,
-  hashDirSync,
-  hashFileSync,
+  hashDir,
+  hashFile,
   isIgnoredEntry,
   IGNORED_ENTRY_NAMES,
+  type ContentHashOptions,
 } from './lib/hash/content-hash';
+
+// Pass cancellation. Exported because a host that wants to bound its own
+// activation reconcile needs the same error predicate the preflight uses.
+export {
+  HarnessPassAbortedError,
+  isPassAbortedError,
+} from './lib/abort/pass-abort';
 
 // DI.
 export { HARNESS_SYNC_TOKENS, type HarnessSyncDIToken } from './lib/di/tokens';
