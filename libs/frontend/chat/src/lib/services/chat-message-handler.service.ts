@@ -230,9 +230,44 @@ export class ChatMessageHandler implements MessageHandler {
     }
   }
 
+  /**
+   * Memo for {@link workspaceFor}, invalidated whenever the tab array changes
+   * identity.
+   *
+   * `findTabBySessionIdAcrossWorkspaces` reads the tabs signal and linearly
+   * scans the active workspace's tabs (then every background partition on a
+   * miss). Cheap once — but `handleChatChunk` calls it for EVERY streamed
+   * chunk, of every session, purely to label a liveness ping. Under three
+   * concurrent sessions that is the scan running tens of times a second on
+   * the render thread.
+   *
+   * Only *hits* are memoized. A miss means the tab is not bound yet (the
+   * usual case before `SESSION_ID_RESOLVED` lands, on a partition whose
+   * mutation does not bump the active tabs signal), so caching it would pin a
+   * wrong `undefined` for the life of the session. A session never migrates
+   * between workspaces, so a hit stays true until the tab set is replaced.
+   */
+  private readonly _workspaceBySession = new Map<string, string>();
+  private _workspaceMemoTabs: readonly unknown[] | null = null;
+
   private workspaceFor(sessionId: string): string | undefined {
-    return this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
-      ?.workspacePath;
+    const tabs = this.tabManager.tabs();
+    if (tabs !== this._workspaceMemoTabs) {
+      this._workspaceMemoTabs = tabs;
+      this._workspaceBySession.clear();
+    }
+
+    const memoized = this._workspaceBySession.get(sessionId);
+    if (memoized !== undefined) return memoized;
+
+    const workspacePath =
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        sessionId,
+      )?.workspacePath;
+    if (workspacePath !== undefined) {
+      this._workspaceBySession.set(sessionId, workspacePath);
+    }
+    return workspacePath;
   }
 
   /**

@@ -5,6 +5,7 @@ export * from './agent';
 export * from './system';
 export * from './session';
 export * from './envelope';
+export * from './batch';
 export * from './payload-map';
 export * from './helpers';
 export * from './workspace';

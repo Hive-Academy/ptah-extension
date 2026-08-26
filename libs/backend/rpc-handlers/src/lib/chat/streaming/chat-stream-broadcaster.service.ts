@@ -10,6 +10,37 @@
  *   - Every `MESSAGE_TYPES.CHAT_*` payload shape.
  *   - Ptah-CLI child-session metadata save.
  *   - Background-agent registration on `background_agent_started` events.
+ *
+ * ## Chunk coalescing (TASK_2026_323 B7)
+ *
+ * `CHAT_CHUNK` messages are buffered by {@link StreamBatchBuffer} and delivered
+ * as `MESSAGE_TYPES.BATCH` envelopes. See that file for the ordering and
+ * failure rules. Two invariants live HERE rather than there:
+ *
+ *  - **Nothing in the loop awaits a chunk broadcast.** Awaiting each hop parks
+ *    the SDK stream drain behind the renderer, which is the actual mechanism
+ *    behind the reported freeze. Turn boundaries still await: the buffer is
+ *    flushed before `CHAT_COMPLETE` and before `CHAT_ERROR`, so a completion
+ *    can never overtake the chunks it completes.
+ *  - **All three transports unwrap a batch.** `MessageRouterService` for the
+ *    two webview hosts, `CliWebviewManagerAdapter` for CLI/TUI. The CLI one is
+ *    load-bearing and easy to miss: that transport emits the message `type` as
+ *    an EventEmitter event NAME, and four consumers subscribe to `'chat:chunk'`
+ *    by name (`chat-bridge`, `session-submit.service`, `anthropic-proxy.service`,
+ *    the TUI's `use-chat`). Without de-batching there they go silent — no
+ *    error, no fallback.
+ *
+ * ## The per-event debug log is NOT level-guarded, deliberately
+ *
+ * `Logger.log` already returns on `!shouldLog(level)` BEFORE it stringifies its
+ * args (`logger.ts:203`, ahead of the `JSON.stringify` at `:206-217`), so at the
+ * default production level nothing is serialised. A level guard here would
+ * therefore buy nothing, and `Logger` exposes no public level accessor to write
+ * one with (`minLevel` and `shouldLog` are both private). What a per-event call
+ * DOES cost unconditionally is the template literal, the rest-args array and the
+ * context object — small, but paid on every event of every session. Sampling
+ * every {@link DEBUG_LOG_EVERY_N_EVENTS}th event removes that without hiding
+ * anything: turn boundaries and errors log their own totals regardless.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -34,11 +65,18 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
+import { StreamBatchBuffer } from './stream-batch-buffer';
 
 export interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
   broadcastMessage(type: string, payload: unknown): Promise<void>;
 }
+
+/**
+ * Emit the per-event debug line once every N events. See the class doc for why
+ * this is sampling rather than a level guard.
+ */
+export const DEBUG_LOG_EVERY_N_EVENTS = 100;
 
 @injectable()
 export class ChatStreamBroadcaster {
@@ -103,18 +141,29 @@ export class ChatStreamBroadcaster {
     let streamExitedNormally = false;
 
     this.streamingSessionIds.add(sessionId as string);
+    const batch = new StreamBatchBuffer({
+      sink: (type, payload) =>
+        this.webviewManager.broadcastMessage(type, payload),
+      onError: (error: unknown) =>
+        this.logger.warn(
+          `[RPC] Failed to deliver a chat batch for session ${sessionId}`,
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+    });
     try {
       for await (const event of stream) {
         eventCount++;
-        this.logger.debug(
-          `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
-          {
-            sessionId,
-            tabId,
-            eventType: event.eventType,
-            messageId: event.messageId,
-          },
-        );
+        if (eventCount % DEBUG_LOG_EVERY_N_EVENTS === 0) {
+          this.logger.debug(
+            `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
+            {
+              sessionId,
+              tabId,
+              eventType: event.eventType,
+              messageId: event.messageId,
+            },
+          );
+        }
         if (
           isPtahCliSession &&
           !childMetadataSaved &&
@@ -144,11 +193,14 @@ export class ChatStreamBroadcaster {
             );
           }
         }
-        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
-          tabId, // For frontend tab routing
-          sessionId: event.sessionId, // Real SDK UUID from the event
-          event,
-          ...(surfaceMode ? { surfaceMode: true } : {}),
+        batch.push({
+          type: MESSAGE_TYPES.CHAT_CHUNK,
+          payload: {
+            tabId, // For frontend tab routing
+            sessionId: event.sessionId, // Real SDK UUID from the event
+            event,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
+          },
         });
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
@@ -167,6 +219,10 @@ export class ChatStreamBroadcaster {
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {
           turnCompleteSent = true;
+          // A turn boundary is the one place the buffer MUST NOT wait for its
+          // timer: `chat:complete` closes the turn in the UI, so it arriving
+          // ahead of the chunks it completes renders a truncated message.
+          await batch.flush();
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
@@ -179,6 +235,7 @@ export class ChatStreamBroadcaster {
         }
       }
 
+      await batch.flush();
       if (!turnCompleteSent) {
         await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,
@@ -192,6 +249,10 @@ export class ChatStreamBroadcaster {
       }
       streamExitedNormally = true;
     } catch (error) {
+      // Deliver whatever arrived before the failure. These chunks are real
+      // output the user already paid for, and the error message reads as a
+      // non-sequitur without them.
+      await batch.flush();
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       const lowerMessage = errorMessage.toLowerCase();
@@ -242,6 +303,10 @@ export class ChatStreamBroadcaster {
         });
       }
     } finally {
+      // Release the timer and let any size-triggered flush that is still in
+      // flight land before teardown ends the session underneath it.
+      batch.dispose();
+      await batch.settle();
       this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
