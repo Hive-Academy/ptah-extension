@@ -45,6 +45,7 @@ export type {
   ObservationKind,
   ObservationQueueInsert,
   ObservationQueueRow,
+  ObservationDraftRow,
   ObservationCaptureEvent,
   ObservationCaptureListener,
 } from './lib/observation-queue.store';

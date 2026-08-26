@@ -40,7 +40,7 @@ import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
 import {
   ObservationQueueStore,
-  type ObservationQueueRow,
+  type ObservationDraftRow,
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
@@ -99,8 +99,19 @@ export class MemoryTriggerService {
   private readonly inFlightCurates = new Set<string>();
   private readonly lastCurateAt = new Map<string, number>();
   private bootScanController: AbortController | null = null;
+  /**
+   * Compiled cue regexes, keyed by the JOINED cue list rather than the array's
+   * identity.
+   *
+   * Identity was wrong by construction: `readUserPromptSubmitCueList` goes
+   * through `IWorkspaceProvider.getConfiguration`, which returns a freshly
+   * parsed array on a miss, so the cache never hit and every prompt submit
+   * recompiled the whole cue list. The separator cannot
+   * occur in a settings-file string, so `['ab','c']` and `['a','bc']` cannot
+   * collide on one key. (NUL is the separator.)
+   */
   private cueCache: {
-    source: readonly string[];
+    key: string;
     compiled: RegExp[];
   } | null = null;
 
@@ -190,7 +201,7 @@ export class MemoryTriggerService {
       },
     );
 
-    if (this.readBootScanFlag()) {
+    if (this.readMemoryEnabled() && this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
       void this.runBootScan(this.bootScanController.signal);
     }
@@ -229,6 +240,10 @@ export class MemoryTriggerService {
     this.lastCurateAt.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
+    // Writes are batched now, so a stop with observations still pending would
+    // lose them. The store is a shared singleton (`MemorySearchService` reads
+    // it too), so flush it rather than dispose it.
+    this.observationQueue.flush();
     this.started = false;
     this.logger.info('[memory-curator] trigger service stopped');
   }
@@ -245,6 +260,7 @@ export class MemoryTriggerService {
    * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
@@ -358,8 +374,9 @@ export class MemoryTriggerService {
 
   /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
   private onStop(payload: StopPayload): void {
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
-    this.observationQueue.insert({
+    this.observationQueue.enqueue({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
       kind: 'assistant-turn',
@@ -384,9 +401,10 @@ export class MemoryTriggerService {
 
   /** Real SDK `PostToolUseFailure` hook — buffer the failure for episode context. */
   private onToolFailure(payload: ToolFailurePayload): void {
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.isInterrupt) return;
-    this.observationQueue.insert({
+    this.observationQueue.enqueue({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
       kind: 'tool-failure',
@@ -422,7 +440,10 @@ export class MemoryTriggerService {
    */
   private flushSessionEnd(sessionId: string, workspaceRoot: string): void {
     if (blankToUndefined(sessionId) === undefined) return;
-    if (this.readSessionEndEnabled()) {
+    // Deliberately NOT gated on `readMemoryEnabled()` as a whole: the teardown
+    // below must still run for state armed while memory was enabled. Only the
+    // curate is gated.
+    if (this.readMemoryEnabled() && this.readSessionEndEnabled()) {
       this.tryEpisodeCurate(
         sessionId,
         workspaceRoot,
@@ -437,8 +458,9 @@ export class MemoryTriggerService {
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) !== undefined) {
-      this.observationQueue.insert({
+      this.observationQueue.enqueue({
         sessionId: payload.sessionId,
         workspaceRoot: payload.workspaceRoot,
         kind: 'user-prompt',
@@ -500,8 +522,15 @@ export class MemoryTriggerService {
   }
 
   private onPostToolUse(payload: PostToolUsePayload): void {
+    // First, before the two `safeStringify` calls below — this is the hottest
+    // of the six capture sites (once per tool call per session), and with
+    // memory off the serialisation is pure waste.
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
-    this.observationQueue.insert({
+    // Serialised exactly once here; the store owns the byte caps
+    // (`OBSERVATION_TOOL_INPUT_MAX_BYTES` / `_TOOL_RESPONSE_MAX_BYTES`) so no
+    // second pass over the text happens on the way to SQLite.
+    this.observationQueue.enqueue({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
       kind: 'tool-use',
@@ -539,7 +568,7 @@ export class MemoryTriggerService {
     if (!command || !COMMIT_PATTERN.test(command)) return;
     if (!this.readPostToolUseEnabled()) return;
 
-    this.observationQueue.insert({
+    this.observationQueue.enqueue({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
       kind: 'commit',
@@ -554,10 +583,11 @@ export class MemoryTriggerService {
   }
 
   private onPreToolUseRead(payload: PreToolUsePayload): void {
+    if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.toolName !== 'Read') return;
     const filePath = extractFilePath(payload.toolInput);
-    this.observationQueue.insert({
+    this.observationQueue.enqueue({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
       kind: 'file-read',
@@ -582,7 +612,8 @@ export class MemoryTriggerService {
   }
 
   private getCompiledCues(source: readonly string[]): RegExp[] {
-    if (this.cueCache && this.cueCache.source === source) {
+    const key = source.join('\u0000');
+    if (this.cueCache && this.cueCache.key === key) {
       return this.cueCache.compiled;
     }
     const compiled: RegExp[] = [];
@@ -605,7 +636,7 @@ export class MemoryTriggerService {
         compiled.push(/(?!x)x/);
       }
     }
-    this.cueCache = { source, compiled };
+    this.cueCache = { key, compiled };
     return compiled;
   }
 
@@ -753,7 +784,9 @@ export class MemoryTriggerService {
     const limit = this.readMaxObservationsPerCurate();
     let jsonlText = '';
     try {
-      jsonlText = await this.transcriptReader.read(sessionId, workspaceRoot);
+      jsonlText = await this.transcriptReader.read(sessionId, workspaceRoot, {
+        tailBytes: TRANSCRIPT_TAIL_BYTES,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn('[memory-curator] transcript read failed', {
@@ -904,6 +937,24 @@ export class MemoryTriggerService {
     }
   }
 
+  /**
+   * The master switch. `ptah.memory.enabled`, default true.
+   *
+   * Checked FIRST in every hook handler, before any serialisation or SQLite
+   * work. Before TASK_2026_323 nothing gated the capture path at all: the six
+   * enqueue sites fired on every tool call, every assistant turn and every
+   * prompt submit of every session whether or not the user wanted memory, and
+   * the per-trigger `*.enabled` flags were all consulted AFTER the write.
+   */
+  private readMemoryEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.enabled,
+      MEMORY_TRIGGER_DEFAULTS.enabled,
+    );
+    return typeof v === 'boolean' ? v : MEMORY_TRIGGER_DEFAULTS.enabled;
+  }
+
   private readIdleMs(): number {
     const v = this.workspace.getConfiguration<number>(
       MEMORY_TRIGGER_SECTION,
@@ -1030,6 +1081,13 @@ export class MemoryTriggerService {
 }
 
 const MAX_JSONL_BYTES = 32 * 1024;
+
+/**
+ * Raw JSONL window read from the END of the transcript. Bounds RAW bytes
+ * (uuids, timestamps, usage); `MAX_JSONL_BYTES` bounds the FORMATTED excerpt
+ * `composeTranscript` keeps. 16x leaves margin for that ratio.
+ */
+const TRANSCRIPT_TAIL_BYTES = MAX_JSONL_BYTES * 16; // 512 KB
 const TOOL_INPUT_PREVIEW = 1000;
 const TOOL_RESPONSE_PREVIEW = 2500;
 const ASSISTANT_PREVIEW = 2000;
@@ -1067,7 +1125,7 @@ function extractFilePath(toolInput: unknown): string | null {
   return null;
 }
 
-function formatObservationRow(row: ObservationQueueRow): string {
+function formatObservationRow(row: ObservationDraftRow): string {
   switch (row.kind) {
     case 'tool-use':
       return `- [tool] ${row.toolName ?? '?'} input=${truncate(
@@ -1102,7 +1160,7 @@ interface EpisodeSummaryInput {
 
 function composeTranscript(
   jsonlText: string,
-  rows: readonly ObservationQueueRow[],
+  rows: readonly ObservationDraftRow[],
   snap: EpisodeSummaryInput | undefined,
 ): string {
   const sections: string[] = [];

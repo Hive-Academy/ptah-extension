@@ -4,6 +4,17 @@ import type { MemoryTriggersDto } from '@ptah-extension/shared';
 export const MEMORY_TRIGGER_SECTION = 'ptah';
 
 export const MEMORY_TRIGGER_KEYS = {
+  /**
+   * Master switch for the whole capture + curate path (TASK_2026_323, B2).
+   *
+   * Deliberately `memory.enabled`, NOT `memory.triggers.enabled`: it gates the
+   * observation queue as well as the triggers, and it is deliberately absent
+   * from `MemoryTriggersDto` / `MEMORY_TRIGGER_PREFIXES` — it is not one of the
+   * per-trigger toggles the Memory settings panel round-trips, it is the switch
+   * above them. Read through `IWorkspaceProvider.getConfiguration`, so it
+   * resolves from `~/.ptah/settings.json` on every host.
+   */
+  enabled: 'memory.enabled',
   preCompact: 'memory.triggers.preCompact',
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
@@ -47,6 +58,7 @@ export const DEFAULT_CUE_LIST: readonly string[] = [
 ];
 
 export const MEMORY_TRIGGER_DEFAULTS = {
+  enabled: true,
   preCompact: true,
   idleMs: 600000,
   turnThreshold: 20,

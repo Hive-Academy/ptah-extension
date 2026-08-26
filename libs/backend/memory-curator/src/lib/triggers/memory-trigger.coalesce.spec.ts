@@ -181,7 +181,8 @@ function makeNoopToolFailure(): ToolFailureCallbackRegistry {
 
 function makeNoopObservationQueue(): ObservationQueueStore {
   return {
-    insert: jest.fn(),
+    enqueue: jest.fn(),
+    flush: jest.fn(),
     drainForSession: jest.fn(() => []),
     markProcessed: jest.fn(),
     peekForSession: jest.fn(() => []),

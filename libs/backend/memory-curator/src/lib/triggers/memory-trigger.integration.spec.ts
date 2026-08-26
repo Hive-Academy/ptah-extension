@@ -136,7 +136,8 @@ function buildHarness(opts?: {
   const preToolUseRegistry = new PreToolUseCallbackRegistry(makeLogger());
   const sessionStartRegistry = new SessionStartCallbackRegistry(makeLogger());
   const observationQueue = {
-    insert: jest.fn(),
+    enqueue: jest.fn(),
+    flush: jest.fn(),
     drainForSession: jest.fn(() => []),
     markProcessed: jest.fn(),
     purgeOlderThan: jest.fn(() => 0),

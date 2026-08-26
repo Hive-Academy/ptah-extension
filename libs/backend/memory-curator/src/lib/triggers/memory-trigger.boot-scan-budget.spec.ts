@@ -160,7 +160,8 @@ function buildHarness(opts: {
     makeRegistry() as never,
     opts.rateLimiter,
     {
-      insert: jest.fn(),
+      enqueue: jest.fn(),
+      flush: jest.fn(),
       drainForSession: jest.fn(() => []),
       markProcessed: jest.fn(),
       purgeOlderThan: jest.fn(() => 0),
