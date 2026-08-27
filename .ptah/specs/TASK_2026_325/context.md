@@ -13,7 +13,7 @@ ever mean "checked, and clean".
    Required: when `outcome.errors.length > 0` and `programCount > 0`, return
    `status: 'available'` only if the caller can see the gap — add the errors to the
    result (`partial: true` + `reason` listing the failed configs, or `status:
-   'unavailable'` if the shared `DiagnosticsResult` type has no partial slot; check
+'unavailable'` if the shared `DiagnosticsResult` type has no partial slot; check
    `libs/backend/platform-core` for the port type and extend it additively).
    Spec: two configs, one clean, one malformed → result names the malformed config.
 
