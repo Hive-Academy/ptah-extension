@@ -24,6 +24,10 @@ import {
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
 import { CodeExecutionMCP } from '../code-execution/mcp-http/http-mcp-server.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
+import {
+  DIAGNOSTICS_CACHE_INVALIDATOR,
+  DiagnosticsCacheInvalidator,
+} from '../diagnostics/diagnostics-cache-invalidator.service';
 
 /**
  * Register vscode-lm-tools services in DI container
@@ -66,6 +70,14 @@ export function registerVsCodeLmToolsServices(
   }
 
   logger.info('[VS Code LM Tools] Registering services...');
+  // Registered BEFORE the API builder because the builder injects it and
+  // starts it: that is the whole mechanism keeping the diagnostics result
+  // cache honest across an agent's write-then-recheck loop. Registration order
+  // does not matter to tsyringe, but the coupling should be visible here.
+  container.registerSingleton(
+    DIAGNOSTICS_CACHE_INVALIDATOR,
+    DiagnosticsCacheInvalidator,
+  );
   container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
   container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
   const mcpStatusShim: IMcpServerStatus = {
@@ -92,6 +104,7 @@ export function registerVsCodeLmToolsServices(
 
   logger.info('[VS Code LM Tools] Services registered', {
     services: [
+      'DIAGNOSTICS_CACHE_INVALIDATOR',
       'PTAH_API_BUILDER',
       'CODE_EXECUTION_MCP',
       'MCP_SERVER_STATUS',

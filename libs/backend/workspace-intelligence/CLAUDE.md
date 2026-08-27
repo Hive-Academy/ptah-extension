@@ -100,18 +100,45 @@ subprocess (TASK_2026_323 blocker B3). Three rules now hold:
   paying for a native ONNX runtime; it is not worth paying for a pure-JS
   compiler pass. The string is not type-checked, so it is covered by
   `type-script-diagnostics-provider.spec.ts` driving every case through it.
-- **One worker process-wide**, `unref`'d while idle and `ref`'d while a run is
-  outstanding, terminated after 60 s idle. Requests need no queue: the compile
-  is synchronous inside the worker, so a second message waits in the worker's
-  own queue. Ids correlate replies.
-- **Single-flight per root plus a 30 s per-root result cache.** The core prompt
+- **One worker per COMPILER**, keyed by resolved `typescript` module path, each
+  `unref`'d while idle and `ref`'d while a run is outstanding, terminated after
+  60 s idle. Requests need no queue: the compile is synchronous inside the
+  worker, so a second message waits in the worker's own queue. Ids correlate
+  replies. A single process-wide worker was wrong once TypeScript began
+  resolving from the workspace: two roots on different compiler versions made
+  each spawn tear down the other's worker, so an arriving second root rejected
+  the first root's still-running compile (TASK_2026_325).
+- **Single-flight per root plus a 5 s per-root result cache.** The core prompt
   tells every agent to call this tool, so three agents in one session call it in
   a burst; they share one compile, and a repeat inside the TTL pays nothing. The
   cache is keyed by resolved root and LRU-capped at 8 — never a single slot.
+  Only COMPLETED checks are cached: an `unavailable` result is not, so one
+  transient worker death cannot answer for the whole window. The window is
+  short because the cache has no other change signal — the newest `mtimeMs`
+  across a monorepo's source roots costs the full walk the cache exists to
+  avoid — and `invalidate(root?)` lets a caller that just wrote say so.
 
 A dead, timed-out or throwing worker reports `unavailable`, never `available`
 with zero diagnostics. `available` + `[]` must only ever mean "checked, and
 clean" (TASK_2026_299 / TASK_2026_301).
+
+**A config that failed to compile is part of that rule, not an exception.** The
+worker returns a structured `ConfigFailure` per config it could not process, and
+the provider folds each one into `diagnostics` as an error entry ON the tsconfig
+that failed, ahead of the compiled findings — the same thing `tsc -b` does.
+Reporting it any other way loses it: the sole consumer,
+`buildDiagnosticsNamespace` (`vscode-lm-tools`), rebuilds the payload as
+`{status, source, diagnostics}` and drops every sibling field, so a `partial`
+flag beside the union would never reach the caller. Before this, one clean
+config beside one malformed config rendered as "No issues found"
+(TASK_2026_325).
+
+**Hand `readConfigFile` a forward-slashed path.** On Windows `ts.readConfigFile`
+normalizes internally and then asserts the parsed file name still matches, so an
+OS-native path made every MALFORMED tsconfig throw
+`Debug Failure. Expected C:/x/tsconfig.json === C:\x\tsconfig.json` instead of
+returning its diagnostic — which the outer catch then reported as a generic
+processing failure. Same for `parseJsonConfigFileContent`.
 
 ## Dependencies
 
