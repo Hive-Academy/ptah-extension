@@ -117,9 +117,13 @@ type CodexThreadItem =
       id: string;
       server: string;
       tool: string;
-      arguments?: string;
-      result?: string;
-      error?: string;
+      // The SDK types all three as structures, not strings:
+      // `arguments: unknown`, `result?: { content: ContentBlock[] }`,
+      // `error?: { message: string }`. Declaring them `string` here is how an
+      // MCP result reached the UI as `[object Object]`.
+      arguments?: unknown;
+      result?: unknown;
+      error?: unknown;
       status: string;
     }
   | { type: 'web_search'; id: string; query: string }
@@ -332,12 +336,83 @@ const SHELL_WRAPPER_PATTERN =
  * Codex look like it had no tools but the shell.
  */
 export function commandToolLabel(command: string): string {
-  const inner = command.replace(SHELL_WRAPPER_PATTERN, '');
-  const program = inner
-    .trim()
-    .replace(/^["'`]+/, '')
-    .split(/[\s;|&]/)[0];
+  const program = stripShellWrapper(command).split(/[\s;|&]/)[0];
   return program || 'Shell';
+}
+
+/**
+ * The command Codex actually wanted to run, without the host shell around it.
+ *
+ * The wrapper is the same 60 characters on every step, so it pushes the real
+ * command out of the visible width of every chip that shows it.
+ */
+export function stripShellWrapper(command: string): string {
+  const inner = command.replace(SHELL_WRAPPER_PATTERN, '').trim();
+  const quote = inner[0];
+  if ((quote === '"' || quote === "'") && inner.endsWith(quote)) {
+    return inner.slice(1, -1).trim();
+  }
+  return inner;
+}
+
+/** Tool name for a patched file, chosen so the UI renders the card it already has. */
+function fileChangeToolName(kind: string): string {
+  if (kind === 'add') return 'Write';
+  if (kind === 'delete') return 'Delete';
+  return 'Edit';
+}
+
+/**
+ * MCP arguments as a structured object.
+ *
+ * The SDK types this `unknown` and older builds send a JSON string. Anything
+ * that does not resolve to an object is kept as a summary line, so a call still
+ * shows its arguments instead of showing nothing.
+ */
+function mcpToolInput(args: unknown): Record<string, unknown> | undefined {
+  if (args === undefined || args === null) return undefined;
+  const parsed = typeof args === 'string' ? tryParseJson(args) : args;
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  return { __summary: typeof args === 'string' ? args : JSON.stringify(args) };
+}
+
+/**
+ * Readable text for an MCP result or error.
+ *
+ * A result is `{ content: ContentBlock[] }` and an error is `{ message }`.
+ * Both used to be interpolated straight into a template, which put
+ * `[object Object]` in the transcript for every MCP call Codex made.
+ */
+export function mcpResultText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return String(value);
+
+  const record = value as Record<string, unknown>;
+  if (typeof record['message'] === 'string') return record['message'];
+
+  const blocks = record['content'];
+  if (Array.isArray(blocks)) {
+    const text = blocks
+      .map((block) =>
+        block && typeof block === 'object' && 'text' in block
+          ? String((block as { text: unknown }).text)
+          : '',
+      )
+      .filter(Boolean)
+      .join('\n');
+    if (text) return text;
+  }
+  return JSON.stringify(value);
+}
+
+function tryParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Shape of ~/.codex/auth.json (both snake_case and SCREAMING_CASE variants exist across CLI versions) */
@@ -688,19 +763,30 @@ export class CodexCliAdapter implements CliAdapter {
   ): void {
     switch (item.type) {
       case 'command_execution':
+        // `Bash` + `{ command, description }` is the shape the tool card is
+        // built for: shell syntax highlighting, a copyable command, and the
+        // program (`rg`, `git`) as the chip's description. `toolArgs` alone
+        // reached the card as `__summary` and rendered as truncated text.
         emitSegment({
           type: 'tool-call',
-          toolName: commandToolLabel(item.command),
+          toolName: 'Bash',
           toolArgs: item.command,
+          toolInput: {
+            command: stripShellWrapper(item.command),
+            description: commandToolLabel(item.command),
+          },
           content: '',
           toolCallId: item.id,
         });
         break;
       case 'mcp_tool_call':
+        // `mcp__<server>__<tool>` is the name the UI already knows: the tool
+        // icon and the JSON view both key off that prefix.
         emitSegment({
           type: 'tool-call',
-          toolName: `${item.server}:${item.tool}`,
-          content: item.arguments ?? '',
+          toolName: `mcp__${item.server}__${item.tool}`,
+          toolInput: mcpToolInput(item.arguments),
+          content: '',
           toolCallId: item.id,
         });
         break;
@@ -823,31 +909,43 @@ export class CodexCliAdapter implements CliAdapter {
         break;
       }
       case 'file_change':
-        for (const change of item.changes) {
+        // Codex reports a patch only once it has been applied, so there is no
+        // started event to pair with. Emit the pair here: one card per file,
+        // named Write/Edit/Delete with a `file_path`, which is what makes the
+        // path a link instead of a line of grey text.
+        for (const [index, change] of item.changes.entries()) {
+          const changeCallId = `${item.id}:${index}`;
           emitOutput(`[${change.kind}] ${change.path}\n`);
           emitSegment({
-            type: 'file-change',
+            type: 'tool-call',
+            toolName: fileChangeToolName(change.kind),
+            toolInput: { file_path: change.path },
+            content: '',
+            toolCallId: changeCallId,
+          });
+          emitSegment({
+            type:
+              item.status === 'failed' ? 'tool-result-error' : 'file-change',
             content: change.path,
             changeKind: change.kind,
-            toolCallId: item.id,
+            toolCallId: changeCallId,
           });
         }
         break;
       case 'mcp_tool_call':
         if (item.error) {
-          emitOutput(
-            `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`,
-          );
+          const errorText = mcpResultText(item.error);
+          emitOutput(`[MCP Error] ${item.server}:${item.tool}: ${errorText}\n`);
           emitSegment({
             type: 'tool-result-error',
-            content: item.error,
+            content: errorText,
             toolCallId: item.id,
           });
         } else if (item.result) {
           emitOutput(`[MCP Result] ${item.server}:${item.tool}\n`);
           emitSegment({
             type: 'tool-result',
-            content: item.result,
+            content: mcpResultText(item.result),
             toolCallId: item.id,
           });
         } else {
@@ -866,8 +964,16 @@ export class CodexCliAdapter implements CliAdapter {
       case 'web_search':
         emitOutput(`[Web Search] ${item.query}\n`);
         emitSegment({
-          type: 'info',
-          content: `Web search: ${item.query}`,
+          type: 'tool-call',
+          toolName: 'WebSearch',
+          toolInput: { query: item.query },
+          content: '',
+          toolCallId: item.id,
+        });
+        emitSegment({
+          type: 'tool-result',
+          content: item.query,
+          toolCallId: item.id,
         });
         break;
       case 'todo_list': {
@@ -875,9 +981,26 @@ export class CodexCliAdapter implements CliAdapter {
           .map((i) => `${i.completed ? '[x]' : '[ ]'} ${i.text}`)
           .join('\n');
         emitOutput(`[Todo List]\n${formatted}\n`);
+        // `TodoWrite` + `{ todos }` routes to the task-list card the Claude
+        // path already uses. Codex tracks two states, so an item is
+        // `completed` or `pending` and never `in_progress`.
         emitSegment({
-          type: 'info',
-          content: `Todo list:\n${formatted}`,
+          type: 'tool-call',
+          toolName: 'TodoWrite',
+          toolInput: {
+            todos: item.items.map((i) => ({
+              content: i.text,
+              status: i.completed ? 'completed' : 'pending',
+              activeForm: i.text,
+            })),
+          },
+          content: '',
+          toolCallId: item.id,
+        });
+        emitSegment({
+          type: 'tool-result',
+          content: formatted,
+          toolCallId: item.id,
         });
         break;
       }

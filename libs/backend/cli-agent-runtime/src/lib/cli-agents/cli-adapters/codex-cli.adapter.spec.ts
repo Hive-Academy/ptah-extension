@@ -1014,6 +1014,180 @@ describe('CodexCliAdapter', () => {
     });
   });
 
+  describe('segment shapes the tool cards render', () => {
+    /** Run one item through the adapter and return the segments it produced. */
+    async function segmentsFor(event: unknown): Promise<
+      Array<{
+        type: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        content: string;
+        toolCallId?: string;
+      }>
+    > {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([event as FakeCodexEvent]),
+      });
+      const handle = await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+      });
+      const segments: Array<{
+        type: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        content: string;
+        toolCallId?: string;
+      }> = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+      return segments;
+    }
+
+    it('sends a command as Bash with a command and a description', async () => {
+      const segments = await segmentsFor({
+        type: 'item.started',
+        item: {
+          type: 'command_execution',
+          id: 'cmd1',
+          command:
+            '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg --files D:\\src"',
+          aggregated_output: '',
+          status: 'in_progress',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'Bash',
+        toolInput: { command: 'rg --files D:\\src', description: 'rg' },
+        toolCallId: 'cmd1',
+      });
+    });
+
+    it('names an MCP call the way the UI expects and parses its arguments', async () => {
+      const segments = await segmentsFor({
+        type: 'item.started',
+        item: {
+          type: 'mcp_tool_call',
+          id: 'mcp1',
+          server: 'ptah',
+          tool: 'ptah_search_files',
+          arguments: '{"pattern":"**/*.ts"}',
+          status: 'in_progress',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'mcp__ptah__ptah_search_files',
+        toolInput: { pattern: '**/*.ts' },
+      });
+    });
+
+    it('flattens a structured MCP result instead of rendering [object Object]', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'mcp_tool_call',
+          id: 'mcp1',
+          server: 'ptah',
+          tool: 'ptah_search_files',
+          result: { content: [{ type: 'text', text: 'two matches' }] },
+          status: 'completed',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-result',
+        content: 'two matches',
+      });
+    });
+
+    it('pairs each patched file with its own card', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'file_change',
+          id: 'fc1',
+          changes: [
+            { path: 'src/app.ts', kind: 'update' },
+            { path: 'src/new.ts', kind: 'add' },
+          ],
+          status: 'completed',
+        },
+      });
+
+      expect(segments).toMatchObject([
+        {
+          type: 'tool-call',
+          toolName: 'Edit',
+          toolInput: { file_path: 'src/app.ts' },
+          toolCallId: 'fc1:0',
+        },
+        { type: 'file-change', toolCallId: 'fc1:0' },
+        {
+          type: 'tool-call',
+          toolName: 'Write',
+          toolInput: { file_path: 'src/new.ts' },
+          toolCallId: 'fc1:1',
+        },
+        { type: 'file-change', toolCallId: 'fc1:1' },
+      ]);
+    });
+
+    it('sends a todo list as TodoWrite so it renders as a task list', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'todo_list',
+          id: 'todo1',
+          items: [
+            { text: 'Read the adapter', completed: true },
+            { text: 'Fix the labels', completed: false },
+          ],
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'TodoWrite',
+        toolInput: {
+          todos: [
+            {
+              content: 'Read the adapter',
+              status: 'completed',
+              activeForm: 'Read the adapter',
+            },
+            {
+              content: 'Fix the labels',
+              status: 'pending',
+              activeForm: 'Fix the labels',
+            },
+          ],
+        },
+      });
+      // The card only renders its output section when a result arrives.
+      expect(segments[1]).toMatchObject({ type: 'tool-result' });
+    });
+
+    it('sends a web search as a WebSearch card', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: { type: 'web_search', id: 'ws1', query: 'codex mcp deferral' },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'WebSearch',
+        toolInput: { query: 'codex mcp deferral' },
+      });
+    });
+  });
+
   describe('unknown thread items', () => {
     it('reports an item type this SDK version does not declare', async () => {
       mockRunStreamed.mockResolvedValue({
