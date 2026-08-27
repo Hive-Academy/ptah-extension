@@ -102,18 +102,6 @@ export class ChatPtahCliService {
       };
     }
 
-    const summaries = await this.ptahCliRegistry.listAgents();
-    const summary = summaries.find((s) => s.id === agentId);
-    const agentName = summary?.name ?? agentId;
-
-    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
-
-    this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
-      tabId,
-      ptahCliId: agentId,
-      mcpServerRunning,
-    });
-
     // Everything from here to the session entry runs under the lease taken by
     // `getProfile` above, and the lease is only ever given back from a session
     // entry (`handleAbort` / `deleteSession` read `entry.leaseKey`). So a throw
@@ -122,8 +110,26 @@ export class ChatPtahCliService {
     // refCount never returned to zero, its listening socket stayed up for the
     // life of the host, and the next attempt on the same agent took a second
     // one. Release on the failure path, then rethrow untouched (TASK_2026_326).
+    //
+    // The guard starts at the FIRST fallible call after the lease, not at the
+    // spawn. `listAgents()` reads the registry over the same transport the
+    // proxy uses, so it is exactly as able to reject as the start it precedes,
+    // and leaving it outside left the identical leak for that one caller.
     let stream: AsyncIterable<unknown>;
+    let agentName = agentId;
     try {
+      const summaries = await this.ptahCliRegistry.listAgents();
+      const summary = summaries.find((s) => s.id === agentId);
+      agentName = summary?.name ?? agentId;
+
+      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+
+      this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
+        tabId,
+        ptahCliId: agentId,
+        mcpServerRunning,
+      });
+
       if (mcpServerRunning) {
         // Awaited: the CLI spawned below reads `.mcp.json` to discover this
         // server, so the entry has to be on disk first (TASK_2026_318).

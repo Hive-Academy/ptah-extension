@@ -243,6 +243,26 @@ describe('ChatPtahCliService', () => {
       expect(s.service.hasSession(TAB_UUID)).toBe(false);
     });
 
+    it('releases the proxy lease when the registry listing rejects before the spawn', async () => {
+      const s = makeSuite();
+      const boom = new Error('registry unreachable');
+      s.registry.listAgents.mockRejectedValueOnce(boom);
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+        } as ChatStartParams),
+      ).rejects.toBe(boom);
+
+      expect(s.registry.releaseProfile).toHaveBeenCalledTimes(1);
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
+      expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+      expect(s.service.hasSession(TAB_UUID)).toBe(false);
+    });
+
     it('releases the proxy lease when the pre-spawn MCP registration rejects', async () => {
       const s = makeSuite();
       s.sdkContext.isMcpServerRunning.mockReturnValue(true);
