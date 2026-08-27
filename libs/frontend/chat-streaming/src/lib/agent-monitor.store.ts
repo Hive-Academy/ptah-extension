@@ -1659,8 +1659,23 @@ export class AgentMonitorStore implements OnDestroy {
       });
       return false;
     }
+    // `backgrounded: false` is the SDK saying the toolUseId matched no
+    // FOREGROUND task — the agent already finished, or it is already in the
+    // background. That is a refusal, not a success: clearing the error channel
+    // here made a no-op indistinguishable from a completed switch, and the
+    // button simply did nothing.
+    const backgrounded = result.data?.backgrounded ?? true;
+    if (!backgrounded) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: 'No running foreground task matched this agent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
     this._subagentRpcError.set(null);
-    return result.data?.backgrounded ?? true;
+    return true;
   }
 
   private findParentToolUseIdByTaskId(taskId: string): string | undefined {
@@ -1773,12 +1788,31 @@ function capStreamEventsInPlace(events: FlatStreamEventUnion[]): void {
 
   // The fold is bounded by distinct accumulator keys, not by dropped events,
   // so in practice it adds a handful of entries. It is still an addition, and
-  // the cap is the reason this function exists — an agent that somehow opened
-  // thousands of distinct text blocks gives up its OLDEST folded content
-  // rather than the bound.
-  const overflow =
+  // the cap is the reason this function exists — so when the two do not both
+  // fit, CONTENT WINS and the oldest STRUCTURE goes.
+  //
+  // Dropping folded entries first (the shape this replaces) reinstated the
+  // very defect the fold exists to remove, and did it worst exactly where it
+  // mattered most: `headBudget` is `MAX - reserve`, so an agent whose landmarks
+  // saturate the head — 1 600 message and tool events, which a long tool-heavy
+  // run reaches — made `overflow >= folded.length` and discarded EVERY folded
+  // entry. That is a card of empty message bodies and tool calls with no input,
+  // which is where this function started.
+  //
+  // A landmark dropped here takes its folded run with it: `dropUnanchoredRuns`
+  // removes any synthetic delta left with no surviving message or tool to
+  // attach to, so the trim never emits content for structure that is gone.
+  let overflow =
     folded.length + head.length + tail.length - MAX_AGENT_STREAM_EVENTS;
-  if (overflow > 0) folded.splice(0, overflow);
+  if (overflow > 0) {
+    head.splice(0, Math.min(overflow, head.length));
+    dropUnanchoredRuns(folded, head, tail);
+    overflow =
+      folded.length + head.length + tail.length - MAX_AGENT_STREAM_EVENTS;
+    // Backstop for the pathological case the head cannot absorb: thousands of
+    // distinct accumulator keys and almost no landmarks. Oldest folded first.
+    if (overflow > 0) folded.splice(0, overflow);
+  }
 
   events.length = 0;
   for (const ev of folded) events.push(ev);
@@ -1791,6 +1825,52 @@ interface DroppedRun {
   /** The first dropped event of the run — the template for the synthetic one. */
   readonly first: FlatStreamEventUnion;
   text: string;
+}
+
+/**
+ * Drop synthetic folded deltas whose anchor landmark was trimmed to make
+ * room for content.
+ *
+ * `capStreamEventsInPlace` now drops the oldest LANDMARKS first when the cap
+ * is tight, rather than the folded content. A folded text run keys itself on
+ * its `messageId` and a folded tool run on its `toolCallId`; if no surviving
+ * landmark in `head` or `tail` still carries that id, the run is content with
+ * nowhere to attach — the empty-card defect in a different shape. Removing it
+ * keeps the trim honest: what remains is always structure WITH its content, or
+ * nothing at all.
+ *
+ * Mutates `folded` in place.
+ */
+function dropUnanchoredRuns(
+  folded: FlatStreamEventUnion[],
+  head: readonly FlatStreamEventUnion[],
+  tail: readonly FlatStreamEventUnion[],
+): void {
+  if (folded.length === 0) return;
+
+  const survivingMessageIds = new Set<string>();
+  const survivingToolCallIds = new Set<string>();
+  for (const event of head) {
+    if (event.messageId) survivingMessageIds.add(event.messageId);
+    if (event.toolCallId) survivingToolCallIds.add(event.toolCallId);
+  }
+  for (const event of tail) {
+    if (event.messageId) survivingMessageIds.add(event.messageId);
+    if (event.toolCallId) survivingToolCallIds.add(event.toolCallId);
+  }
+
+  for (let i = folded.length - 1; i >= 0; i--) {
+    const event = folded[i];
+    const hasMessage = event.messageId
+      ? survivingMessageIds.has(event.messageId)
+      : true;
+    const hasTool = event.toolCallId
+      ? survivingToolCallIds.has(event.toolCallId)
+      : true;
+    if (!hasMessage || !hasTool) {
+      folded.splice(i, 1);
+    }
+  }
 }
 
 /**

@@ -305,4 +305,94 @@ describe('agent monitor — the 2 000-event cap keeps the card renderable', () =
     // failure mode being ruled out is the tail fragment being parsed alone.
     expect(tool?.toolInput).toEqual(TOOL_INPUT);
   });
+
+  it('keeps folded content when landmarks saturate the head budget', () => {
+    // The head budget is `MAX - reserve` = 1600 landmarks. A tool-heavy run
+    // reaches that: 1600 tool_start/tool_result pairs is 3200 landmarks, well
+    // past the line. The old overflow rule dropped folded entries first, and
+    // because `overflow >= folded.length` at saturation it discarded EVERY
+    // folded entry — reinstating the empty-card defect exactly where it
+    // mattered most. The new rule drops the oldest LANDMARKS instead, so the
+    // folded content that gives the survivors their body still lands.
+    clock = 0;
+    const events: FlatStreamEventUnion[] = [
+      event('message_start', {
+        id: 'evt-msg',
+        messageId: MESSAGE_ID,
+        role: 'assistant',
+      }),
+    ];
+
+    // 1600 distinct tools, each with a tool_delta the trim drops. That is more
+    // landmarks than the head budget, so the cap is genuinely tight.
+    const TOOL_COUNT = 1600;
+    const toolInputByCallId = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < TOOL_COUNT; i++) {
+      const toolCallId = `toolu_${i}`;
+      const input = { file_path: `/src/file_${i}.ts`, line: i };
+      toolInputByCallId.set(toolCallId, input);
+      const delta = JSON.stringify(input);
+      events.push(
+        event('tool_start', {
+          id: `evt-tool-start-${i}`,
+          messageId: MESSAGE_ID,
+          toolCallId,
+          toolName: 'Read',
+          isTaskTool: false,
+        }),
+        event('tool_delta', {
+          id: `evt-tool-delta-${i}`,
+          messageId: MESSAGE_ID,
+          toolCallId,
+          delta,
+        }),
+        event('tool_result', {
+          id: `evt-tool-result-${i}`,
+          messageId: MESSAGE_ID,
+          toolCallId,
+          output: 'ok',
+          isError: false,
+        }),
+      );
+    }
+
+    // Fill past the cap so the trim fires. The slack is 200, so 200 more
+    // text deltas push the total past the trigger line.
+    for (let i = 0; i < AGENT_STREAM_EVENTS_CAP_SLACK; i++) {
+      events.push(
+        event('text_delta', {
+          id: `evt-text-${i}`,
+          messageId: MESSAGE_ID,
+          blockIndex: 0,
+          delta: 'z',
+        }),
+      );
+    }
+
+    const trimmed = capped('saturated', events);
+    expect(trimmed.length).toBeLessThanOrEqual(MAX_AGENT_STREAM_EVENTS);
+
+    // The whole point: at saturation the folded content must NOT be the first
+    // thing dropped. A tool_start whose input arrived as dropped tool_deltas
+    // must still carry that input after the trim.
+    const startsWithFoldedInput = trimmed.filter(
+      (e) =>
+        e.eventType === 'tool_start' &&
+        (e as FlatStreamEventUnion & { toolInput?: unknown }).toolInput != null,
+    );
+    expect(startsWithFoldedInput.length).toBeGreaterThan(0);
+
+    // The surviving folded input must equal the bytes that were dropped — not
+    // a truncated or empty version of them.
+    const one = startsWithFoldedInput[0] as FlatStreamEventUnion & {
+      toolCallId?: string;
+      toolInput?: Record<string, unknown>;
+    };
+    const expectedInput = one.toolCallId
+      ? toolInputByCallId.get(one.toolCallId)
+      : undefined;
+    if (expectedInput) {
+      expect(one.toolInput).toEqual(expectedInput);
+    }
+  });
 });

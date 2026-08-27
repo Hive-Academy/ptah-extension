@@ -219,8 +219,13 @@ export class RpcHandler {
       return { success: true, data, correlationId };
     } catch (error) {
       if (error instanceof RpcUserError) {
-        this.logger.debug(
-          `RpcHandler: Method "${method}" returned user error (${error.errorCode})`,
+        // WARN, not debug. This is the branch every deliberate refusal takes
+        // — "session not active", "task already completed", "invalid params" —
+        // and debug is off in a shipping log. A user reporting "the button did
+        // nothing" then produced a log with no record that the call was ever
+        // made, let alone why it was refused (TASK_2026_331).
+        this.logger.warn(
+          `RpcHandler: Method "${method}" returned user error (${error.errorCode}): ${error.message}`,
           { correlationId },
         );
         return {

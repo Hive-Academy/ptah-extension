@@ -249,8 +249,17 @@ export function setStreamingEventCapped(
     markStructuralChange(state);
   }
   if (state.events.has(event.id)) {
+    // Capture the PREVIOUS event before the set overwrites it. A same-id
+    // write is a replacement, and the replacement may carry a DIFFERENT
+    // `messageId` than the one it supersedes (a hook `agent_start` backfilled
+    // with the real `toolu_*` id keeps its `messageId`; a metadata attach can
+    // re-parent one). When that happens the entry indexed under the OLD
+    // `messageId` is left pointing at a stale object that `events` no longer
+    // holds — a second reader of the old bucket sees the pre-replacement
+    // values forever (TASK_2026_327 finding 6).
+    const previous = state.events.get(event.id);
     state.events.set(event.id, event);
-    replaceInMessageBucket(state, event);
+    replaceInMessageBucket(state, event, previous);
     return;
   }
   if (state.events.size >= STREAMING_EVENT_CAP) {
@@ -311,16 +320,40 @@ function bumpRevisions(state: StreamingState, messageId?: string): void {
  * entry, so re-sorting or re-allocating would only cost work (guideline 5 of
  * this lib's CLAUDE.md).
  *
- * A no-op when the event was never indexed (the accumulator indexes only the
- * event types the tree reads) or when the replacement moved to a different
- * `messageId` — the old bucket entry is then dropped by the cap cascade or by
- * the message being rebuilt, and inventing a cross-bucket move here would
- * silently reorder a bucket a reader is allowed to trust.
+ * When the replacement carries a DIFFERENT `messageId` from the event it
+ * supersedes (`previous`), the entry indexed under the OLD `messageId` is
+ * removed from that bucket first. Without this, the old bucket kept the stale
+ * object forever — `events` had moved on but the old message's bucket still
+ * showed the pre-replacement values, a reader of the old message saw what the
+ * replacement was meant to repair (TASK_2026_327 finding 6). The new bucket is
+ * then repointed as usual; a no-op when neither bucket indexes the id.
  */
 function replaceInMessageBucket(
   state: StreamingState,
   event: FlatStreamEventUnion,
+  previous: FlatStreamEventUnion | undefined,
 ): void {
+  // If the replacement re-parented the event, drop the stale entry from the
+  // old bucket BEFORE repointing the new one. `previous` is the object
+  // `events` held a moment ago, so its `messageId` is the bucket the stale
+  // object lives in.
+  if (
+    previous &&
+    previous.messageId &&
+    previous.messageId !== event.messageId
+  ) {
+    const oldBucket = state.eventsByMessage.get(previous.messageId);
+    if (oldBucket) {
+      const staleIndex = oldBucket.findIndex((e) => e.id === event.id);
+      if (staleIndex >= 0) {
+        oldBucket.splice(staleIndex, 1);
+        if (oldBucket.length === 0) {
+          state.eventsByMessage.delete(previous.messageId);
+        }
+      }
+    }
+  }
+
   const bucket = event.messageId
     ? state.eventsByMessage.get(event.messageId)
     : undefined;
