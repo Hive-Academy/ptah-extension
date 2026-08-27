@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_326
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Dispose CLI agents and proxy leases on every host shutdown path and close the
   lease and kill gaps in the agent manager
 depends_on: []
 created: '2026-08-26T02:25:20.170Z'
-updated: '2026-08-27T16:47:47.730Z'
+updated: '2026-08-27T19:30:36.135Z'
 description: >-
   ptah-cli never calls disposeAll on SIGINT/SIGTERM; VS Code deactivate disposes
   proxies before agents; ChatPtahCliService.handleStart leaks the proxy lease on

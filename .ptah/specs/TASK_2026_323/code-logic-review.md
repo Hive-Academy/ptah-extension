@@ -34,7 +34,7 @@ container smoke specs (`ptah-cli`, `ptah-electron`, `ptah-extension-vscode`).
   directly. No queueing existed anywhere, so every caller — background or
   interactive — started its subprocess immediately.
 - **Now**: `execute()` first `await`s `InternalQueryConcurrencyGate.acquire(limit,
-  signal)`, `limit` defaulting to 1, and the gate is one process-wide singleton
+signal)`, `limit` defaulting to 1, and the gate is one process-wide singleton
   (`SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE` registered `Lifecycle.Singleton` in
   `di/register.ts:437-441`) shared by memory-curator, every skill-synthesis
   lane, `harness-llm-runner`, and every `agent-generation` wizard service. Two
@@ -78,18 +78,18 @@ container smoke specs (`ptah-cli`, `ptah-electron`, `ptah-extension-vscode`).
   (constructor)
 - **Before**: constructor took only `runner: SdkQueryRunner`.
 - **Now**: two more parameters, `@inject(TOKENS.LOGGER) logger: Logger | null =
-  null` and `@inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER) workspace:
-  IWorkspaceProvider | null = null` — neither `@inject()` call carries `{
-  isOptional: true }`. tsyringe resolves constructor injections by token
+null` and `@inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER) workspace:
+IWorkspaceProvider | null = null` — neither `@inject()` call carries `{
+isOptional: true }`. tsyringe resolves constructor injections by token
   regardless of a JS default value; only `isOptional: true` makes it pass
   `undefined` instead of throwing when the token isn't registered. The
   established convention for a genuinely optional dependency, in the very same
   file family, is `@inject(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER, { isOptional:
-  true })` (`sdk-internal-query.curator-llm.ts:130,132`) — not present here.
+true })` (`sdk-internal-query.curator-llm.ts:130,132`) — not present here.
 - **Reproduction (indirect)**: resolving `InternalQueryService` from a tsyringe
   container that has not yet registered `PLATFORM_TOKENS.WORKSPACE_PROVIDER`
   throws `UnresolvableDependencyError` instead of constructing with `workspace
-  = null` as the class's own `readMaxConcurrent()` fallback assumes. All three
+= null` as the class's own `readMaxConcurrent()` fallback assumes. All three
   current host container smoke specs (`apps/ptah-cli`, `apps/ptah-electron`,
   `apps/ptah-extension-vscode` — `src/di/container.smoke.spec.ts`) pass today,
   which only proves current registration ORDER happens to register
@@ -126,14 +126,14 @@ container smoke specs (`ptah-cli`, `ptah-electron`, `ptah-extension-vscode`).
   discarded line is the fragment the window cut in half") implicitly assumes
   there is always a real byte before the read start to borrow a newline
   decision from. That assumption is false in exactly the case `windowStart ===
-  1` (`maxBytes === stats.size - 1`): the read starts at byte 0, the true
+1` (`maxBytes === stats.size - 1`): the read starts at byte 0, the true
   start of the file, not mid-fragment, yet the first parsed "line" is still
   unconditionally discarded as if it were a boundary artifact — destroying a
   complete, valid, wanted record.
 - **Reproduction (executed)**: wrote a 12-byte file `AAA\nBBB\nCCC\n` to a
   temp dir, opened `createReadStream(filePath, { start: windowStart - 1 })`
   with `maxBytes = stats.size - 1 = 11` (⇒ `windowStart = 1`, `readStart =
-  0`); the stream yields the WHOLE file `"AAA\nBBB\nCCC\n"` starting at byte 0,
+0`); the stream yields the WHOLE file `"AAA\nBBB\nCCC\n"` starting at byte 0,
   so `readJsonlTail` would still drop the resulting first parsed line (`AAA`)
   and return only `['BBB', 'CCC']`. Confirmed against real
   `node:fs`/`node:fs/promises` semantics, not a mock.

@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_325
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Make ptah_get_diagnostics report partial compile failures and stop serving
   stale or failed results from cache
 depends_on: []
 created: '2026-08-26T02:25:16.577Z'
-updated: '2026-08-27T16:47:47.112Z'
+updated: '2026-08-27T19:18:07.762Z'
 description: >-
   Per-config errors are dropped once any config compiles; the 30 s cache is
   keyed on root only and returns pre-edit results; unavailable results are

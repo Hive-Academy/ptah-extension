@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_324
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Stop the session metadata store losing pre-branch stream events and unflushed
   writes
 depends_on: []
 created: '2026-08-26T02:25:13.743Z'
-updated: '2026-08-27T16:47:45.675Z'
+updated: '2026-08-27T19:30:16.429Z'
 description: >-
   Old session blobs lose inline streamEvents on the next incidental write;
   saveAgentOutput and addCliSession are unsequenced and unequally retried; no

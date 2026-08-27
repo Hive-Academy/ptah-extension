@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_323
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   App hangs with 3 sessions open and CLI agents running: add event-loop

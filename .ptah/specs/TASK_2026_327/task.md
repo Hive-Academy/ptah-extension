@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_327
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Bound the renderer tree caches and make tab restore and the agent monitor cap
   safe
 depends_on: []
 created: '2026-08-26T02:25:23.628Z'
-updated: '2026-08-27T16:47:49.159Z'
+updated: '2026-08-27T19:30:16.535Z'
 description: >-
   nodesById and fingerprintsById grow without bound past the event cap; the
   workspace-scoped tab loader keeps phantom statuses and stale queuedContent;

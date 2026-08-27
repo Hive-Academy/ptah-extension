@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_330
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   Move the memory-curator Read observation from PreToolUse to PostToolUse so a
   cancelled hook cannot cancel the tool
 depends_on: []
 created: '2026-08-26T02:25:32.259Z'
-updated: '2026-08-26T02:28:19.499Z'
+updated: '2026-08-27T17:45:27.304Z'
 description: >-
   Background subagents get Read cancelled with the canned "user doesn't want to
   take this action" text (toolDenialKind cancelled, 123 of 123 cases across 49
