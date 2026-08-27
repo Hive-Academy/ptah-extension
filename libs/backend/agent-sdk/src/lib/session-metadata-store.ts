@@ -716,25 +716,23 @@ export class SessionMetadataStore {
       // leans what it has written — trimming here as well would delete the
       // only copy before anything had a chance to migrate it.
       let updated: readonly CliSessionReference[];
+      // Re-association: the same `cliSessionId` resumed under a NEW agent. The
+      // slot is the only route to `ptah.agentOutput:<agentId>`, so the
+      // displaced agent's key becomes unreachable — a leak per resume, and
+      // `_deleteInternal` can never collect it either (TASK_2026_324
+      // finding 4). Collected here, deleted only once the replacement
+      // reference is durable: see the note at the delete site below.
+      let displacedAgentId: string | undefined;
       if (existingIndex >= 0) {
         const previous = existing[existingIndex];
         const mutable = [...existing];
         mutable[existingIndex] = cliSession;
         updated = mutable;
-        // Re-association: the same `cliSessionId` resumed under a NEW agent.
-        // The slot is the only route to `ptah.agentOutput:<agentId>`, so the
-        // displaced agent's key becomes unreachable — a leak per resume, and
-        // `_deleteInternal` can never collect it either (TASK_2026_324
-        // finding 4).
         if (
           blankToUndefined(previous.agentId) !== undefined &&
           previous.agentId !== cliSession.agentId
         ) {
-          await this.deleteAgentOutput(previous.agentId);
-          this.logger.info(
-            `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${previous.agentId}`,
-            { cliSessionId: cliSession.cliSessionId },
-          );
+          displacedAgentId = previous.agentId;
         }
         this.logger.info(
           `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`,
@@ -751,6 +749,27 @@ export class SessionMetadataStore {
         lastActiveAt: Date.now(),
         cliSessions: updated,
       });
+
+      // AFTER the replacement reference is DURABLE, never before. Deleting
+      // first leaves stored metadata pointing at an agent whose output key is
+      // already gone — the reference survives and its content does not, which
+      // reads to every consumer as an agent that produced nothing. Deleting
+      // second can only leak the key it was already leaking, and the next
+      // successful re-association collects it.
+      //
+      // `_saveInternal` only STAGES (see `stage`), so the flush has to be
+      // forced here: the queue drain that normally flushes runs after this
+      // callback returns, which is after the delete. Coalescing is untouched
+      // on every other path — a re-association under a new agent id happens
+      // once per resume, not once per event.
+      if (displacedAgentId !== undefined) {
+        await this.flush();
+        await this.deleteAgentOutput(displacedAgentId);
+        this.logger.info(
+          `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${displacedAgentId}`,
+          { cliSessionId: cliSession.cliSessionId },
+        );
+      }
       this.emitChange('updated', sessionId, metadata.workspaceId);
     });
   }

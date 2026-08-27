@@ -172,6 +172,17 @@ async function main(): Promise<void> {
     if (error instanceof Error && error.stack) {
       process.stderr.write(`${error.stack}\n`);
     }
+    // The command threw AFTER doing real work — a failed turn still ran CLI
+    // agents whose references are staged in the coalescing queue. This
+    // `process.exit` skips the flush above, and `process.on('exit')` cannot
+    // stand in for it: that hook is synchronous and the write is not
+    // (TASK_2026_324 finding 3). Never let a flush failure replace the exit
+    // code that reports the original fault.
+    try {
+      await flushSessionMetadataStores();
+    } catch {
+      // Best effort — the fatal error above is what the caller needs.
+    }
     process.exit(1);
   }
 }

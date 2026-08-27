@@ -695,6 +695,40 @@ describe('SessionMetadataStore', () => {
       );
     });
 
+    it('keeps the displaced output key when the replacement reference never reaches storage', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.saveAgentOutput('agent-first' as AgentId, {
+        streamEvents: streamEvents(10),
+      });
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'cli-a', agentId: 'agent-first' as AgentId }),
+      );
+      await store.saveAgentOutput('agent-second' as AgentId, {
+        streamEvents: streamEvents(4),
+      });
+
+      // The blob write fails on the re-association. Deleting the displaced key
+      // first would leave `cli-a` pointing at `agent-first` in STORED metadata
+      // — the reference readers still see — with its output already gone.
+      storage.update.mockImplementation(async (key: string, value: unknown) => {
+        if (key === METADATA_KEY) throw new Error('storage full');
+        if (value === undefined) storage.__state.entries.delete(key);
+        else storage.__state.entries.set(key, value);
+      });
+
+      await expect(
+        store.addCliSession(
+          'sess-1',
+          cliRef({ cliSessionId: 'cli-a', agentId: 'agent-second' as AgentId }),
+        ),
+      ).rejects.toThrow('storage full');
+
+      expect(storage.__state.entries.has('ptah.agentOutput:agent-first')).toBe(
+        true,
+      );
+    });
+
     it('keeps the output key when the same agent re-reports the same cliSessionId', async () => {
       await store.create('sess-1', WORKSPACE, 'parent');
       await store.saveAgentOutput('agent-same' as AgentId, {
