@@ -20,6 +20,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const RAW_SOURCE = readFileSync(join(__dirname, 'wire-runtime.ts'), 'utf8');
+const RAW_BOOTER_SOURCE = readFileSync(
+  join(__dirname, 'boot-heavy-services.ts'),
+  'utf8',
+);
 
 /**
  * The source with comments removed.
@@ -31,54 +35,44 @@ const RAW_SOURCE = readFileSync(join(__dirname, 'wire-runtime.ts'), 'utf8');
  * a regression. Only whole-line `//` comments are stripped, so a `//` inside a
  * URL or string literal survives.
  */
-const SOURCE = RAW_SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(
-  /^[ \t]*\/\/.*$/gm,
-  '',
-);
+function stripComments(raw: string): string {
+  return raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+}
+
+const SOURCE = stripComments(RAW_SOURCE);
+const BOOTER_SOURCE = stripComments(RAW_BOOTER_SOURCE);
 
 /** Index of a substring, asserting it exists so a rename fails loudly. */
-function at(needle: string): number {
-  const index = SOURCE.indexOf(needle);
+function at(needle: string, source: string = SOURCE): number {
+  const index = source.indexOf(needle);
   expect(index).toBeGreaterThanOrEqual(0);
   return index;
 }
 
-describe('wireRuntime — boot ordering (B1)', () => {
+describe('wireRuntimePreWindow — boot ordering (B1)', () => {
   it('brings MCP up BEFORE the heavy boot that issues the first LLM query', () => {
-    // `bootHeavyServices` → `bootThothRuntime` starts the memory boot scan,
-    // which dials a real curator query per unscanned session. With bring-up
-    // after it, those queries saw `mcpServerRunning: false` and ran tool-less
-    // while the identical query later in the same boot got the tools.
+    // The heavy boot → `bootThothRuntime` starts the memory boot scan, which
+    // dials a real curator query per unscanned session. With bring-up after it,
+    // those queries saw `mcpServerRunning: false` and ran tool-less while the
+    // identical query later in the same boot got the tools.
     // `resolveMcpSessionWiring` reads `IMcpServerStatus.getPort()` live at
     // query time, so this ordering is the whole of the guarantee.
     expect(at('await bringUpSubsystems(')).toBeLessThan(
-      at('await bootHeavyServices(startupWorkspaceRoot)'),
+      at('booter.startOrJoin(startupWorkspaceRoot)'),
     );
   });
 
-  it('registers the workspace-change listener after bring-up and immediately before the startup boot', () => {
-    // No `await` may sit between registering the listener and calling the
-    // startup boot: an interleaved folder-change event would otherwise win the
-    // one-shot latch and the awaited call would return before the boot it was
-    // supposed to wait for.
+  it('registers the workspace-change listener after bring-up and immediately before the startup RESERVATION', () => {
+    // No `await` may sit between registering the listener and reserving the
+    // startup root's latch: an interleaved folder-change event would otherwise
+    // create the entry for ITS root first, and the startup root would then
+    // start a second, concurrent boot (TASK_2026_331 risk 3).
     const listener = at('workspaceProvider.onDidChangeWorkspaceFolders(');
-    const startupBoot = at('await bootHeavyServices(startupWorkspaceRoot)');
+    const reservation = at('booter.startOrJoin(startupWorkspaceRoot)');
 
     expect(at('await bringUpSubsystems(')).toBeLessThan(listener);
-    expect(listener).toBeLessThan(startupBoot);
-    expect(SOURCE.slice(listener, startupBoot)).not.toContain('await ');
-  });
-
-  it('holds the one-shot heavy boot as a promise, not a boolean', () => {
-    // A boolean latch answers "has one started"; every caller here needs "has
-    // one finished". Under a boolean the workspace-change listener could win
-    // the race and `wireRuntime` would return with `refs.*` still null,
-    // leaving main.ts's will-quit chain nothing to dispose.
-    expect(SOURCE).toContain('let heavyServicesBoot: Promise<void> | null');
-    expect(SOURCE).toContain(
-      'heavyServicesBoot ??= bootHeavyServicesOnce(workspaceRoot)',
-    );
-    expect(SOURCE).not.toContain('hasBootedHeavyServices');
+    expect(listener).toBeLessThan(reservation);
+    expect(SOURCE.slice(listener, reservation)).not.toContain('await ');
   });
 
   it('has exactly one bringUpSubsystems call site', () => {
@@ -86,6 +80,60 @@ describe('wireRuntime — boot ordering (B1)', () => {
     // start MCP twice (idempotent, but the second call would also re-run
     // `ensureRegisteredForSubagents` against a moved workspace root).
     expect(SOURCE.split('bringUpSubsystems(').length - 1).toBe(1);
+  });
+
+  it('keeps the heavy boot out of the pre-window phase entirely', () => {
+    // The window is created by `registerPostWindow`, which runs between
+    // `wireRuntimePreWindow` and `postWindow()`. Anything that opens SQLite,
+    // reconciles the harness or imports sessions from inside the pre-window
+    // body would put itself back in front of the window.
+    expect(SOURCE).not.toContain('bootThothRuntime');
+    expect(SOURCE).not.toContain('scanAndImport');
+    expect(SOURCE).not.toContain('reconcileHarness');
+  });
+});
+
+describe('boot-heavy-services — the post-window boot (B1)', () => {
+  it('opens SQLite FIRST, before the harness and the session import', () => {
+    // Until the readiness contract lands there is no way for an RPC to learn
+    // that SQLite is not open yet, so the ONLY bound on that window is this
+    // ordering. `bootThothRuntime` awaits `openAndMigrate()` before its own
+    // scans, so being first here is what makes the window short.
+    const thoth = at('await bootThothRuntime(', BOOTER_SOURCE);
+    expect(thoth).toBeLessThan(at('mirrorUserLayer(', BOOTER_SOURCE));
+    expect(thoth).toBeLessThan(at('reconcileUserLayer(', BOOTER_SOURCE));
+    expect(thoth).toBeLessThan(at('reconcileHarness(', BOOTER_SOURCE));
+    expect(thoth).toBeLessThan(at('scanAndImport(', BOOTER_SOURCE));
+  });
+
+  it('keeps the deliberate double harness reconcile', () => {
+    // One pass before the network so a warm start has skills immediately, one
+    // after the download so a cold first run does not wait for the NEXT app
+    // start (TASK_2026_278). Collapsing them is defect 8.
+    expect(BOOTER_SOURCE.split('reconcileHarness(').length - 1).toBe(2);
+    expect(BOOTER_SOURCE.split('mirrorUserLayer(').length - 1).toBe(2);
+    expect(BOOTER_SOURCE.split('reconcileUserLayer(').length - 1).toBe(2);
+  });
+
+  it('holds the one-shot boot as a promise per root, not a boolean', () => {
+    // A boolean latch answers "has one started"; every caller needs "has one
+    // finished". Keyed by NORMALIZED root so two spellings of one directory
+    // join a single boot instead of starting two.
+    expect(BOOTER_SOURCE).toContain(
+      'const boots = new Map<string, Promise<void>>()',
+    );
+    expect(BOOTER_SOURCE).toContain('boots.set(key, reserved)');
+    expect(BOOTER_SOURCE).toContain('normalizeWorkspaceRoot(workspaceRoot)');
+    expect(BOOTER_SOURCE).not.toContain('hasBootedHeavyServices');
+  });
+
+  it('reserves synchronously — the map entry is created before any await', () => {
+    const reserveStart = at(
+      'startOrJoin(workspaceRoot: string | undefined): Promise<void> {',
+      BOOTER_SOURCE,
+    );
+    const setEntry = at('boots.set(key, reserved)', BOOTER_SOURCE);
+    expect(BOOTER_SOURCE.slice(reserveStart, setEntry)).not.toContain('await ');
   });
 });
 

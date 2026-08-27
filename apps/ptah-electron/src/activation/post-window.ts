@@ -20,6 +20,7 @@ import {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import type { BootCoordinator } from './boot-coordinator';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface PostWindowOptions {
@@ -29,11 +30,13 @@ export interface PostWindowOptions {
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
   /**
-   * Warmup callback from wireRuntime. Called once after the main window
-   * fires `did-finish-load` so the 3s idle timer starts from window-ready,
-   * not from bootHeavyServices completion. Optional — omit in tests.
+   * Owns the stable refs object and the embedder warmup barrier.
+   *
+   * Every long-lived handle created below is written into `coordinator.refs`
+   * so `will-quit` disposes it even though this phase now finishes BEFORE the
+   * heavy boot rather than after it (TASK_2026_331 B1.T6).
    */
-  scheduleWarmup?: () => void;
+  coordinator: BootCoordinator;
 }
 
 export interface PostWindowResult {
@@ -44,32 +47,14 @@ export interface PostWindowResult {
    * Null when UpdateManager.start() bails early (dev mode or already started).
    */
   updateCheckInterval: ReturnType<typeof setInterval> | null;
-  /**
-   * The started UpdateManager instance, captured so will-quit can dispose it
-   * by reference instead of re-resolving the singleton from the container
-   * (a re-resolve reconstructs it and needs WEBVIEW_MANAGER, which may be
-   * gone during teardown). Null when resolution failed.
-   */
-  updateManager: UpdateManager | null;
-  /**
-   * Messaging gateway service handle for orderly shutdown. Started after
-   * window creation so adapters have a stable mainWindow for approval prompts.
-   * Null when gateway.enabled is false or start() fails.
-   */
-  messagingGateway: GatewayService | null;
-  /**
-   * Gateway chat bridge handle for orderly shutdown. Started after the
-   * gateway so inbound events have a live subscriber. Null when the gateway
-   * failed to start or the bridge could not be resolved/started.
-   */
-  chatBridge: GatewayChatBridge | null;
 }
 
 export async function registerPostWindow(
   options: PostWindowOptions,
 ): Promise<PostWindowResult> {
-  const { container, resolvedStateStorage, setMainWindow, scheduleWarmup } =
+  const { container, resolvedStateStorage, setMainWindow, coordinator } =
     options;
+  const refs = coordinator.refs;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
@@ -110,11 +95,13 @@ export async function registerPostWindow(
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
-  if (scheduleWarmup) {
-    mainWindow.webContents.once('did-finish-load', () => {
-      scheduleWarmup();
-    });
-  }
+  // One half of the warmup barrier. The other half — the memory curator — is
+  // created inside the post-window boot, which has not even started yet, so
+  // this is a NOTIFICATION rather than a trigger. The coordinator waits for
+  // both before it starts the 3-second idle timer (TASK_2026_331 B1.T7).
+  mainWindow.webContents.once('did-finish-load', () => {
+    coordinator.notifyWindowLoaded();
+  });
   if (
     process.env['NODE_ENV'] === 'development' &&
     process.env['PTAH_NO_DEVTOOLS'] !== '1'
@@ -145,6 +132,8 @@ export async function registerPostWindow(
       chatBridge = null;
     }
   }
+  refs.messagingGateway = messagingGateway;
+  refs.chatBridge = chatBridge;
   // Started non-blocking: gateway I/O must not delay the updater or window.
   if (messagingGateway) {
     const gateway = messagingGateway;
@@ -197,6 +186,7 @@ export async function registerPostWindow(
     updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
     await updateManager.start();
     updateCheckInterval = updateManager.getCheckInterval();
+    refs.updateManager = updateManager;
     console.log('[Ptah Electron] UpdateManager started');
   } catch (error) {
     console.error(
@@ -232,8 +222,5 @@ export async function registerPostWindow(
   return {
     revalidationInterval,
     updateCheckInterval,
-    updateManager,
-    messagingGateway,
-    chatBridge,
   };
 }

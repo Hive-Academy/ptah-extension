@@ -84,6 +84,33 @@ function splitCompleteRecords(content: string, bytesRead: number): string[] {
 }
 
 /**
+ * Options for a scan.
+ *
+ * The signal exists because this scan moved behind the window
+ * (TASK_2026_331 B1.T5): it can now still be running when the user quits, and
+ * an import that keeps writing metadata after the host's disposal chain has run
+ * is exactly the shutdown race the boot coordinator exists to prevent.
+ */
+export interface ScanAndImportOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * Hand the event loop back.
+ *
+ * `setImmediate` rather than `await Promise.resolve()`: a resolved promise is a
+ * MICROtask, so a loop of them never lets an I/O callback or an IPC message run
+ * — the whole loop still executes in one turn. `setImmediate` is a macrotask
+ * queued behind pending I/O, which is what actually lets the renderer's RPCs be
+ * served while a long import is in progress.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+/**
  * Service to import existing Claude sessions
  */
 @injectable()
@@ -100,15 +127,28 @@ export class SessionImporterService {
    * Optimization: Only reads file stats to find recent files, then only
    * parses the first few KB of the most recent files to extract metadata.
    *
+   * Yields to the event loop between sessions. This scan runs AFTER the window
+   * is open (TASK_2026_331), so holding the loop for its whole duration would
+   * freeze a window the user is already looking at — an import of 50 sessions
+   * is 50 file opens, 50 reads and 50 store writes.
+   *
    * @param workspacePath - The workspace path to find sessions for
    * @param limit - Maximum number of sessions to import (default: 50)
+   * @param options - Optional abort signal, checked between sessions
    * @returns Number of sessions imported
    */
-  async scanAndImport(workspacePath: string, limit = 50): Promise<number> {
+  async scanAndImport(
+    workspacePath: string,
+    limit = 50,
+    options?: ScanAndImportOptions,
+  ): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,
       limit,
     });
+
+    const signal = options?.signal;
+    if (signal?.aborted === true) return 0;
 
     const sessionsDir = await this.findSessionsDirectory(workspacePath);
     if (!sessionsDir) {
@@ -121,6 +161,7 @@ export class SessionImporterService {
       sessionsDir,
       workspacePath,
       limit,
+      signal,
     );
     imported += indexImported;
     const remainingLimit = limit - imported;
@@ -129,11 +170,12 @@ export class SessionImporterService {
         sessionsDir,
         workspacePath,
         remainingLimit,
+        signal,
       );
       imported += fileImported;
     }
 
-    await this.pruneTitleOnlySessions(sessionsDir, workspacePath);
+    await this.pruneTitleOnlySessions(sessionsDir, workspacePath, signal);
 
     this.logger.info('[SessionImporter] Import complete', {
       imported,
@@ -157,11 +199,14 @@ export class SessionImporterService {
   private async pruneTitleOnlySessions(
     sessionsDir: string,
     workspacePath: string,
+    signal?: AbortSignal,
   ): Promise<number> {
     let pruned = 0;
     try {
       const stored = await this.metadataStore.getForWorkspace(workspacePath);
       for (const entry of stored) {
+        if (signal?.aborted === true) break;
+        await yieldToEventLoop();
         const filePath = path.join(sessionsDir, `${entry.sessionId}.jsonl`);
         try {
           await fs.promises.access(filePath);
@@ -235,6 +280,7 @@ export class SessionImporterService {
     sessionsDir: string,
     workspacePath: string,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<number> {
     const indexPath = path.join(sessionsDir, 'sessions-index.json');
 
@@ -278,6 +324,10 @@ export class SessionImporterService {
       let imported = 0;
 
       for (const entry of sortedEntries) {
+        if (signal?.aborted === true) break;
+        // One macrotask per session, so the renderer keeps being served while
+        // the import runs behind the already-open window.
+        await yieldToEventLoop();
         try {
           const sessionFilePath = path.join(
             sessionsDir,
@@ -374,11 +424,14 @@ export class SessionImporterService {
     sessionsDir: string,
     workspacePath: string,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<number> {
     const recentFiles = await this.getRecentSessionFiles(sessionsDir, limit);
 
     let imported = 0;
     for (const file of recentFiles) {
+      if (signal?.aborted === true) break;
+      await yieldToEventLoop();
       try {
         const sessionId = this.extractSessionIdFromFilename(file.filename);
         if (!sessionId) continue;

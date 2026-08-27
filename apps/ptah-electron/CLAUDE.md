@@ -13,14 +13,17 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 
 ## Entry Points
 
-- `src/main.ts` — single-instance lock, then on `app.whenReady`: `bootstrapElectron` -> `wireRuntime` -> `registerPostWindow`. Manages many disposable refs: skill junctions, git watcher, SQLite handle, memory curator, cron scheduler, messaging gateway, symbol watcher, license revalidation interval. LIFO cleanup wired in `app.on('will-quit')`.
+- `src/main.ts` — single-instance lock, then on `app.whenReady`: `bootstrapElectron` -> `wireRuntimePreWindow` -> `registerPostWindow` (the window opens here) -> `coordinator.startPostWindow(...)`. It holds ONE `BootCoordinator`, not a set of nullable refs: the heavy boot now runs behind the window, so services arrive after a copy would have been taken. `coordinator.refs` is the stable object the boot writes into and `will-quit` reads from. `app.on('will-quit')` is a branch-free delegation to `handleWillQuit` (`src/activation/shutdown.ts`).
 - `src/preload.ts` — built separately via `build-preload`, output `dist/apps/ptah-electron/preload.js`.
 
 ## Key Wiring
 
 - `src/activation/bootstrap.ts` — minimal DI, license/membership verify (non-blocking, identity-only — never gates bootstrap), full DI, workspace restore, SDK auth.
-- `src/activation/wire-runtime.ts` — `IpcBridge`, RPC registration, plugin loader, skill junctions, CLI sync, MCP code execution, git watcher, memory curator, cron scheduler, messaging gateway, symbol watcher.
-- `src/activation/post-window.ts` — startup config IPC handler, `BrowserWindow` creation, auto-updater (production only).
+- `src/activation/boot-coordinator.ts` — `BootRefs` (every long-lived handle), the boot `AbortSignal`, the bounded `awaitCompletion` drain and the embedder-warmup barrier (`did-finish-load` AND `refs.memoryCurator !== null`).
+- `src/activation/wire-runtime.ts` — the PRE-window half only: `armDiagnostics`, the IPC bridge, `registerRpcSurface`, `bringUpSubsystems`, the workspace-folders listener and the startup boot reservation. It returns a `postWindow()` closure.
+- `src/activation/boot-heavy-services.ts` — the POST-window half: `bootThothRuntime` FIRST (it awaits `openAndMigrate()`), then plugin loader, user-layer mirror, the deliberate double harness reconcile, session import, git watcher and cron. One-shot per normalized workspace root.
+- `src/activation/shutdown.ts` — `handleWillQuit` + the LIFO `disposeBootRefs` chain. A quit during the post-window boot is deferred, aborted and drained for at most 2 s before disposal.
+- `src/activation/post-window.ts` — startup config IPC handler, `BrowserWindow` creation, messaging gateway, auto-updater (production only).
 - `src/di/container.ts` — `ElectronDIContainer`, same phased pattern as VS Code.
 - `src/shims/vscode-shim.ts` — minimal `vscode` API stub; `tsconfig.build.json` `paths` maps the `vscode` module to it so `vscode-core` etc. compile unchanged.
 - `src/windows/main-window.ts` — sole window factory; persists bounds via `IStateStorage`.
@@ -46,7 +49,8 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 ## Guidelines
 
 - Keep `contextIsolation` and `sandbox` enabled. The renderer must never receive raw Node access — go through the preload contextBridge.
-- All cleanup in `will-quit` runs LIFO and synchronously. New long-lived resources must register a stop/close ref captured in `main.ts` and disposed in `will-quit`.
+- All cleanup in `will-quit` runs LIFO. New long-lived resources must add a field to `BootRefs` (`src/activation/boot-coordinator.ts`) and a `nonFatal(...)` line in `disposeBootRefs` (`src/activation/shutdown.ts`). Never copy a ref out of `coordinator.refs` into a local — the heavy boot fills the object AFTER `whenReady` returns, so a copy is a snapshot of nulls.
+- Nothing on the critical path may await the network or a disk scan. `wireRuntimePreWindow` holds only what the renderer needs the moment it loads; everything else belongs in `boot-heavy-services.ts` and must honour `coordinator.abortSignal`.
 - When a library reaches a `vscode` API the shim doesn't cover, extend `src/shims/vscode-shim.ts` — never add a runtime check in the caller.
 - `generatePackageJson: true` emits a trimmed `package.json` with the external deps; electron-builder installs from there.
 

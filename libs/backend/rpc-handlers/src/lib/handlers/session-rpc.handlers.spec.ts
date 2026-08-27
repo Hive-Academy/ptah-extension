@@ -1970,4 +1970,89 @@ describe('SessionRpcHandlers', () => {
       expect(h.historyReader.readSessionHistory).not.toHaveBeenCalled();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // session:list while the backend is still warming (TASK_2026_331 B1.T5)
+  //
+  // The session import moved behind the window, so the renderer's first
+  // `session:list` — issued during `ChatLifecycleService.bootstrap()` — now
+  // routinely lands BEFORE the import has finished. That is safe only because
+  // of two facts about this handler, and both are pinned here so a later batch
+  // cannot quietly change them:
+  //
+  //   1. It is NOT SQLite-backed. It reads `SessionMetadataStore`, which is
+  //      backed by `PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE`. So it must NOT
+  //      grow a SQLite readiness guard: an empty store is a legitimate,
+  //      successful answer.
+  //   2. It does not swallow failures into an empty list. A throw is re-thrown
+  //      as `Failed to list sessions: <message>`. Any future deferral that
+  //      relies on "a silent empty result" would be relying on behaviour this
+  //      handler has never had.
+  //
+  // The user-visible effect of the deferral is therefore a SHORT list that
+  // GROWS, never an error.
+  // -------------------------------------------------------------------------
+
+  describe('session:list during the deferred session import', () => {
+    it('returns an empty, successful result for an empty store — it does not throw', async () => {
+      const h = makeHarness();
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({
+        sessions: [],
+        total: 0,
+        hasMore: false,
+      });
+    });
+
+    it('grows as the import writes rows, with no contract change in between', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      const first = await call<{ sessions: unknown[]; total: number }>(
+        h,
+        'session:list',
+        { workspacePath: WORKSPACE },
+      );
+      expect(first.total).toBe(0);
+
+      h.metadataStore.getForWorkspace.mockResolvedValue([
+        makeMetadata({ sessionId: uuidForRow(0) }),
+        makeMetadata({ sessionId: uuidForRow(1) }),
+      ] as never);
+      const second = await call<{ sessions: unknown[]; total: number }>(
+        h,
+        'session:list',
+        { workspacePath: WORKSPACE },
+      );
+
+      expect(second.total).toBe(2);
+      expect(second.sessions).toHaveLength(2);
+    });
+
+    it('still surfaces a store failure as `Failed to list sessions:`', async () => {
+      const h = makeHarness();
+      h.metadataStore.getForWorkspace.mockRejectedValue(
+        new Error('storage unavailable'),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain(
+        'Failed to list sessions: storage unavailable',
+      );
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
 });

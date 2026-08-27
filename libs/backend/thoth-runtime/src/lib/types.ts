@@ -26,6 +26,20 @@ export interface BootThothRuntimeOptions {
   workspaceRoot: string | undefined;
   /** Console prefix. Defaults to {@link DEFAULT_THOTH_LOG_PREFIX}. */
   logPrefix?: string;
+  /**
+   * Shutdown signal for the whole boot (TASK_2026_331 B1.T4).
+   *
+   * With a window-first host, this boot runs AFTER the window is on screen and
+   * can therefore still be in flight when the user quits. Every step that is
+   * started rather than awaited checks this before it begins and stops at its
+   * next yield point once it fires, so a quit during boot does not create
+   * services after the host's disposal chain has already run.
+   *
+   * `openAndMigrate()` is deliberately NOT gated mid-flight: it is the first
+   * thing this boot does and interrupting a migration is worse than finishing
+   * it. An ALREADY-aborted signal skips it entirely.
+   */
+  signal?: AbortSignal;
 }
 
 export interface StartThothCronOptions {

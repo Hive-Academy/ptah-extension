@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_331
 
-**Total Tasks**: 46 | **Batches**: 8 (7 plan batches; Batch 2 splits into 2A backend and 2B frontend) | **Status**: 0/8 complete
+**Total Tasks**: 46 | **Batches**: 8 (7 plan batches; Batch 2 splits into 2A backend and 2B frontend) | **Status**: 1/8 complete (Batch 1 done)
 
 **Source plan**: `implementation-plan.md` (v2, approved 2026-08-27)
 **Branch**: `fix/electron-update-check-timeout`
@@ -54,7 +54,7 @@
 
 ## Batch 1: Boot coordinator and window-first reordering
 
-**Status**: IN PROGRESS
+**Status**: DONE (code merged; the manual `nx serve` timing run is still outstanding)
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -72,7 +72,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T1: Add the BootCoordinator class — PENDING
+### Task B1.T1: Add the BootCoordinator class — DONE
 
 **Files**
 
@@ -99,7 +99,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T2: Make the network calls in bootstrap fire-and-forget — PENDING
+### Task B1.T2: Make the network calls in bootstrap fire-and-forget — DONE
 
 **Files**
 
@@ -120,7 +120,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T3: Split wireRuntime into pre-window and post-window — PENDING
+### Task B1.T3: Split wireRuntime into pre-window and post-window — DONE
 
 **Files**
 
@@ -151,7 +151,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T4: Stop awaiting the boot scans and COUNT probes in bootThothRuntime — PENDING
+### Task B1.T4: Stop awaiting the boot scans and COUNT probes in bootThothRuntime — DONE
 
 **Files**
 
@@ -174,7 +174,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T5: Move the harness, user-layer and session import work after the window — PENDING
+### Task B1.T5: Move the harness, user-layer and session import work after the window — DONE
 
 **Files**
 
@@ -198,7 +198,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T6: Rewrite main.ts around the coordinator — PENDING
+### Task B1.T6: Rewrite main.ts around the coordinator — DONE
 
 **Files**
 
@@ -222,7 +222,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T7: Add the warmup promise barrier — PENDING
+### Task B1.T7: Add the warmup promise barrier — DONE
 
 **Files**
 
@@ -246,7 +246,7 @@ Until Batch 2 lands there is no readiness contract, so the renderer can call an 
 
 ---
 
-### Task B1.T8: Add the boot-order regression spec — PENDING
+### Task B1.T8: Add the boot-order regression spec — DONE
 
 **Files**
 

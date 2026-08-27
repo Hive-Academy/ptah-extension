@@ -17,24 +17,137 @@
  * the call below the disposals — there it would be started with no window left
  * at all.
  *
- * ## Why this spec does not import `main.ts`
+ * ## Why this is now a behavioural spec
  *
- * `main.ts` uses `import.meta.url` and `tsconfig.spec.json` compiles with
- * `module: commonjs`, so importing it fails with TS1343. Same reason, and the
- * same static-analysis approach, as `main.quit-path.spec.ts`.
+ * It used to read `main.ts` as text, because `main.ts` uses `import.meta.url`
+ * and `tsconfig.spec.json` compiles with `module: commonjs` (TS1343). The quit
+ * sequence moved into `activation/shutdown.ts` for exactly that reason
+ * (TASK_2026_331 B1.T6), so the ordering can now be OBSERVED instead of
+ * pattern-matched. The one thing still asserted textually is that `main.ts`
+ * delegates rather than keeping a second copy of the sequence.
  *
- * Source-under-test: apps/ptah-electron/src/main.ts
+ * Source-under-test: apps/ptah-electron/src/activation/shutdown.ts
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { BootRefs } from './activation/boot-coordinator';
+import { createEmptyBootRefs } from './activation/boot-coordinator';
+import { handleWillQuit } from './activation/shutdown';
+
 const MAIN_TS_PATH = path.resolve(__dirname, 'main.ts');
 
-const METADATA_FLUSH = 'flushSessionMetadataStores()';
-const PROXY_DISPOSE = 'providerProxyPool?.disposeAll()';
+interface Recorded {
+  order: string[];
+  refs: BootRefs;
+}
+
+function makeRefs(order: string[]): BootRefs {
+  const refs = createEmptyBootRefs();
+  refs.providerProxyPool = {
+    disposeAll: async () => {
+      order.push('providerProxyPool');
+    },
+  };
+  return refs;
+}
+
+function drive(order: string[], flush: () => void): Recorded {
+  const refs = makeRefs(order);
+  handleWillQuit({
+    refs,
+    abortBoot: () => order.push('abortBoot'),
+    isBootRunning: () => false,
+    awaitBootCompletion: async () => undefined,
+    flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
+    flushSessionMetadataStores: flush,
+    clearTimers: () => order.push('clearTimers'),
+    disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+    deferQuit: () => order.push('deferQuit'),
+    quit: () => order.push('quit'),
+  });
+  return { order, refs };
+}
 
 describe('will-quit session metadata flush', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('drains the coalesced write queue exactly once', () => {
+    const order: string[] = [];
+    const flush = jest.fn(() => order.push('flushSessionMetadataStores'));
+
+    drive(order, flush);
+
+    expect(flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts the flush before the disposals, so it has the teardown window', () => {
+    const order: string[] = [];
+    drive(order, () => order.push('flushSessionMetadataStores'));
+
+    expect(order.indexOf('flushSessionMetadataStores')).toBeLessThan(
+      order.indexOf('providerProxyPool'),
+    );
+  });
+
+  it('guards the flush — a quit must not be turned into a crash', () => {
+    const order: string[] = [];
+    const throwing = () => {
+      throw new Error('metadata store exploded');
+    };
+
+    expect(() => drive(order, throwing)).not.toThrow();
+    // ...and the rest of the teardown still ran.
+    expect(order).toContain('providerProxyPool');
+    expect(order).toContain('clearTimers');
+  });
+
+  it('still starts the flush first when the quit is DEFERRED for an in-flight boot', async () => {
+    const order: string[] = [];
+    const refs = makeRefs(order);
+    let releaseDrain!: () => void;
+
+    handleWillQuit({
+      refs,
+      abortBoot: () => order.push('abortBoot'),
+      isBootRunning: () => true,
+      awaitBootCompletion: () =>
+        new Promise<void>((resolve) => {
+          releaseDrain = resolve;
+        }),
+      flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
+      flushSessionMetadataStores: () =>
+        order.push('flushSessionMetadataStores'),
+      clearTimers: () => order.push('clearTimers'),
+      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+      deferQuit: () => order.push('deferQuit'),
+      quit: () => order.push('quit'),
+    });
+
+    // The flush is started immediately, NOT after the drain — the whole point
+    // of putting it first is that it gets the entire teardown window.
+    expect(order).toEqual([
+      'flushWorkspacePersistence',
+      'flushSessionMetadataStores',
+      'abortBoot',
+      'deferQuit',
+    ]);
+
+    releaseDrain();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toContain('providerProxyPool');
+  });
+});
+
+describe('main.ts delegates the quit sequence', () => {
   let willQuitBody: string;
 
   beforeAll(() => {
@@ -44,19 +157,13 @@ describe('will-quit session metadata flush', () => {
     willQuitBody = source.slice(start);
   });
 
-  it('drains the coalesced write queue exactly once', () => {
-    expect(willQuitBody.split(METADATA_FLUSH)).toHaveLength(2);
+  it('calls handleWillQuit and keeps no second copy of the chain', () => {
+    expect(willQuitBody).toContain('handleWillQuit({');
+    expect(willQuitBody).not.toContain('providerProxyPool?.disposeAll()');
+    expect(willQuitBody).not.toContain('diagnostics?.dispose()');
   });
 
-  it('starts the flush before the disposals, so it has the teardown window', () => {
-    expect(willQuitBody.indexOf(METADATA_FLUSH)).toBeLessThan(
-      willQuitBody.indexOf(PROXY_DISPOSE),
-    );
-  });
-
-  it('guards the flush — a quit must not be turned into a crash', () => {
-    const flushIndex = willQuitBody.indexOf(METADATA_FLUSH);
-    // The `try {` that opens the guarded block sits just above the call.
-    expect(willQuitBody.slice(flushIndex - 40, flushIndex)).toContain('try');
+  it('passes the session metadata flush through', () => {
+    expect(willQuitBody).toContain('flushSessionMetadataStores()');
   });
 });

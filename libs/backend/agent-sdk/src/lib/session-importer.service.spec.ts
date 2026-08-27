@@ -509,4 +509,94 @@ describe('SessionImporterService', () => {
       expect(all[0].name).toBe('already here'); // unchanged
     });
   });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_331 B1.T5 — the scan runs behind an OPEN window now, so it must
+  // hand the event loop back between sessions and stop when the app quits.
+  // -------------------------------------------------------------------------
+
+  describe('event-loop yielding and abort', () => {
+    /**
+     * Prime an index import with `count` entries whose `.jsonl` files all exist.
+     */
+    function primeIndexWith(count: number): void {
+      primeFindSessionsDir();
+      fsPromises.access
+        .mockResolvedValueOnce(undefined) // indexPath
+        .mockResolvedValue(undefined); // each session's .jsonl
+      fsPromises.readFile.mockResolvedValueOnce(
+        makeIndex(
+          Array.from({ length: count }, (_, i) => ({
+            sessionId: `sess-${i}`,
+            modified: `2026-01-0${i + 1}T00:00:00.000Z`,
+          })),
+        ),
+      );
+      // Empty flat scan so the fallback pass adds nothing.
+      fsPromises.readdir.mockResolvedValue(
+        [] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>,
+      );
+    }
+
+    it('schedules a macrotask between sessions, not just a microtask', async () => {
+      // A microtask loop never lets an I/O callback or an IPC message run —
+      // the whole import would still execute in one event-loop turn and the
+      // window would freeze exactly as it did before this change.
+      const setImmediateSpy = jest.spyOn(global, 'setImmediate');
+      primeIndexWith(3);
+
+      await importer.scanAndImport(WORKSPACE);
+
+      expect(setImmediateSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+      setImmediateSpy.mockRestore();
+    });
+
+    it('does not hold the event loop for the whole scan', async () => {
+      // A macrotask queued from the test runs BETWEEN sessions, not after all
+      // of them, which is the observable consequence of yielding.
+      primeIndexWith(3);
+
+      let ranDuringScan = false;
+      const scan = importer.scanAndImport(WORKSPACE);
+      setImmediate(() => {
+        ranDuringScan = true;
+      });
+      await scan;
+
+      expect(ranDuringScan).toBe(true);
+    });
+
+    it('imports nothing when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const imported = await importer.scanAndImport(WORKSPACE, 50, {
+        signal: controller.signal,
+      });
+
+      expect(imported).toBe(0);
+      expect(fsPromises.access).not.toHaveBeenCalled();
+    });
+
+    it('stops importing once the signal fires mid-scan', async () => {
+      const controller = new AbortController();
+      primeIndexWith(4);
+      // Abort as soon as the first session has been written.
+      const originalSave = store.save.bind(store);
+      jest
+        .spyOn(store, 'save')
+        .mockImplementation(
+          async (metadata: Parameters<typeof originalSave>[0]) => {
+            controller.abort();
+            return originalSave(metadata);
+          },
+        );
+
+      const imported = await importer.scanAndImport(WORKSPACE, 50, {
+        signal: controller.signal,
+      });
+
+      expect(imported).toBe(1);
+    });
+  });
 });
