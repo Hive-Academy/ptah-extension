@@ -57,7 +57,9 @@ function makeContainer(capture: FakeCapture): DependencyContainer {
   // during `initialize()`, so a single routed stub is enough.
   return {
     resolve: jest.fn((token: symbol) =>
-      token === TOKENS.CPU_PROFILE_CAPTURE ? capture : { captureFor: jest.fn() },
+      token === TOKENS.CPU_PROFILE_CAPTURE
+        ? capture
+        : { captureFor: jest.fn() },
     ),
     isRegistered: jest.fn(() => false),
   } as unknown as DependencyContainer;
