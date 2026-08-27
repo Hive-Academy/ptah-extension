@@ -132,7 +132,7 @@ jest.mock('fs', () => {
 
 // Import adapter AFTER mocks are declared
 import path from 'path';
-import { CodexCliAdapter } from './codex-cli.adapter';
+import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
 
 describe('CodexCliAdapter', () => {
@@ -230,6 +230,7 @@ describe('CodexCliAdapter', () => {
         approvalPolicy: 'never',
         sandboxMode: 'danger-full-access',
         skipGitRepoCheck: true,
+        webSearchEnabled: true,
       });
       expect(handle.abort).toBeInstanceOf(AbortController);
       expect(typeof handle.done.then).toBe('function');
@@ -952,6 +953,88 @@ describe('CodexCliAdapter', () => {
       expect(freshImportCount).toBe(1);
       // But the Codex constructor is called each time
       expect(freshMockConstructor).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Ptah MCP server wiring', () => {
+    function setupMockEvents(events: FakeCodexEvent[]): void {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator(events),
+      });
+    }
+
+    it('registers the Ptah server AND disables MCP tool deferral', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+        mcpPort: 51820,
+      });
+
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toEqual({
+        ptah: { url: 'http://localhost:51820' },
+      });
+      // Without this, codex-cli 0.150 connects to the server and still keeps
+      // every ptah_* tool out of the model's tool list until it runs a tool
+      // search — which the model has no reason to do, so it uses the shell.
+      expect(config.features).toEqual({
+        tool_search_always_defer_mcp_tools: false,
+      });
+    });
+
+    it('sets neither key when no MCP port is available', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({ task: 'Task', workingDirectory: '/project' });
+
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toBeUndefined();
+      expect(config.features).toBeUndefined();
+    });
+  });
+
+  describe('commandToolLabel()', () => {
+    it.each([
+      [
+        '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw D:\\a.md"',
+        'Get-Content',
+      ],
+      ['powershell.exe -Command "rg --files D:\\src"', 'rg'],
+      ['bash -lc "git status"', 'git'],
+      ["/bin/sh -c 'npm test'", 'npm'],
+      ['npm test', 'npm'],
+    ])('labels %s as %s', (command, expected) => {
+      expect(commandToolLabel(command)).toBe(expected);
+    });
+
+    it('falls back to Shell for an empty command', () => {
+      expect(commandToolLabel('   ')).toBe('Shell');
+    });
+  });
+
+  describe('unknown thread items', () => {
+    it('reports an item type this SDK version does not declare', async () => {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([
+          {
+            type: 'item.completed',
+            // A future Codex build; deliberately outside FakeCodexEvent.
+            item: { type: 'view_image', id: 'img1' },
+          } as unknown as FakeCodexEvent,
+        ]),
+      });
+
+      const handle = await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+      });
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+      await handle.done;
+
+      expect(output).toContain('[view_image]\n');
     });
   });
 });

@@ -81,6 +81,18 @@ Three rules hold it together, and all three are pinned by
 match `geminiRoot()`, so a test that reassigns `HOME` cannot reach the
 developer's real `~/.gemini`.
 
+**Codex connects to that server and then hides its tools.** Measured on
+codex-cli 0.150.1: with only `mcp_servers.ptah.url` set, `rmcp` logs
+`Service initialized as client … server_info: Implementation { name: "ptah" }`
+— the handshake succeeds — and a spawned agent asked to list the `ptah` tools
+answers **NONE**, then does the whole task with `powershell.exe` calls. The
+cause is the `ToolSearchAlwaysDeferMcpTools` feature: MCP tools stay out of the
+model's tool list until the model runs a tool search, which it has no reason to
+do. `CodexCliAdapter` therefore sends
+`features.tool_search_always_defer_mcp_tools = false` alongside the server
+entry; with it, the same prompt lists all 40+ `ptah_*` tools. A successful
+connection is NOT evidence that the tools arrived — only a tool listing is.
+
 ## Guidelines
 
 - **The official MCP registry's search parameter is `search`, and it needs `version=latest`.** An unrecognized parameter is ignored rather than rejected, so the old `q=` returned HTTP 200 with the alphabetical head of the entire catalogue — a search that looked like it worked and matched nothing anyone asked for. Without `version=latest` the registry returns every published version of every server, so one server occupies four rows of a scarce result window. Both are pinned by `mcp-registry.provider.spec.ts`.

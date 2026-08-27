@@ -59,6 +59,7 @@ interface CodexThreadOptions {
   approvalPolicy?: 'never' | 'on-request' | 'on-failure';
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
   modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  webSearchEnabled?: boolean;
 }
 
 interface CodexClient {
@@ -312,6 +313,33 @@ function resolveCodexNativeBinary(
   return undefined;
 }
 
+/**
+ * Shell wrappers Codex puts in front of the command it actually wants to run.
+ * Windows is the reason this exists: every command arrives as
+ * `C:\...\powershell.exe -Command "<real command>"`, so the first token of the
+ * raw string is the host shell for the whole session and says nothing about
+ * the step.
+ */
+const SHELL_WRAPPER_PATTERN =
+  /^["']?[^\s"']*(?:powershell|pwsh|cmd|bash|zsh|sh)(?:\.exe)?["']?\s+(?:-Command|-lc|-c|\/[cC])\s+/i;
+
+/**
+ * Label for a `command_execution` chip.
+ *
+ * Returns the program the step runs (`rg`, `git`, `Get-Content`), not the
+ * shell that hosts it. Labelling every step `Shell` made a mixed run of
+ * searches, reads and builds render as one repeated chip, which is what made
+ * Codex look like it had no tools but the shell.
+ */
+export function commandToolLabel(command: string): string {
+  const inner = command.replace(SHELL_WRAPPER_PATTERN, '');
+  const program = inner
+    .trim()
+    .replace(/^["'`]+/, '')
+    .split(/[\s;|&]/)[0];
+  return program || 'Shell';
+}
+
 /** Shape of ~/.codex/auth.json (both snake_case and SCREAMING_CASE variants exist across CLI versions) */
 interface CodexAuthFile {
   auth_mode?: 'ApiKey' | 'Chatgpt' | 'ChatgptAuthTokens' | string;
@@ -463,6 +491,16 @@ export class CodexCliAdapter implements CliAdapter {
           url: `http://localhost:${options.mcpPort}`,
         },
       };
+      // Codex connects to this server and then hides its tools. Measured on
+      // codex-cli 0.150.1: the `ToolSearchAlwaysDeferMcpTools` feature keeps
+      // every MCP tool OUT of the model's tool list until the model runs a
+      // tool search, so an agent asked to list the `ptah` tools answers NONE
+      // and does the whole task with shell commands instead. The connection
+      // itself is fine — `rmcp` logs `Service initialized as client
+      // server_info: Implementation { name: "ptah" }` either way, which is
+      // what makes the deferral invisible from our side. Turning the feature
+      // off puts `ptah_*` and `execute_code` in the tool list from turn one.
+      config['features'] = { tool_search_always_defer_mcp_tools: false };
     }
     codexOptions.config = config;
     const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
@@ -476,6 +514,10 @@ export class CodexCliAdapter implements CliAdapter {
       approvalPolicy: 'never',
       sandboxMode: 'danger-full-access',
       skipGitRepoCheck: true,
+      // `codex exec` leaves web search off unless it is asked for. Every other
+      // CLI Ptah spawns can reach the web, so leaving this unset was us
+      // removing a documented Codex capability by omission.
+      webSearchEnabled: true,
     };
     if (options.model) {
       threadOptions.model = options.model;
@@ -648,7 +690,7 @@ export class CodexCliAdapter implements CliAdapter {
       case 'command_execution':
         emitSegment({
           type: 'tool-call',
-          toolName: 'Shell',
+          toolName: commandToolLabel(item.command),
           toolArgs: item.command,
           content: '',
           toolCallId: item.id,
@@ -843,8 +885,18 @@ export class CodexCliAdapter implements CliAdapter {
         emitOutput(`[Error] ${item.message}\n`);
         emitSegment({ type: 'error', content: item.message });
         break;
-      default:
+      default: {
+        // A newer Codex build emits item types this SDK version does not
+        // declare. Dropping them silently is how work that DID run reads as
+        // work that never happened.
+        const unhandled = item as { type: string };
+        emitOutput(`[${unhandled.type}]\n`);
+        emitSegment({
+          type: 'info',
+          content: `Codex item: ${unhandled.type}`,
+        });
         break;
+      }
     }
   }
 
