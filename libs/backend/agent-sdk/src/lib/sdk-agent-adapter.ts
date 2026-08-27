@@ -771,6 +771,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.sessionLifecycle.find(sessionId as string) !== undefined;
   }
 
+  /**
+   * Opaque identity of the record currently registered under this id, or null.
+   * A re-registration under the same id (slash-command re-query) mints a new
+   * token, which is what lets a holder of the old one detect the swap.
+   */
+  getSessionToken(sessionId: SessionId): string | null {
+    return this.sessionLifecycle.getSessionToken(sessionId);
+  }
+
+  /**
+   * End the session only if `token` still identifies the registered record.
+   * Atomic inside the lifecycle layer — see
+   * `SessionControl.endSessionIfTokenMatches`.
+   */
+  async endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean> {
+    // Same pre-teardown flush `endSession` does, gated on the same token so a
+    // losing caller does not publish activity for a session that stays alive.
+    // This read is NOT the compare that matters — the decision to tear down is
+    // re-made atomically inside SessionControl, so a token that flips in
+    // between costs at most one early activity flush and never a teardown.
+    if (this.sessionLifecycle.getSessionToken(sessionId) === token) {
+      this.flushPendingUserActivityFor(sessionId);
+    }
+    return this.sessionLifecycle.endSessionIfTokenMatches(sessionId, token);
+  }
+
   private createSessionIdCallback(
     workspaceId: string,
     sessionName: string,

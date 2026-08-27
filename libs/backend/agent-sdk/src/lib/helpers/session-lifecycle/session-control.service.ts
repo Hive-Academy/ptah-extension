@@ -24,7 +24,10 @@ import type {
 
 import { SdkError } from '../../errors';
 import type { IModelResolver } from '../../auth-env.port';
-import type { SessionRegistry } from './session-registry.service';
+import type {
+  SessionRecord,
+  SessionRegistry,
+} from './session-registry.service';
 import {
   PERMISSION_MODE_MAP,
   LEVEL_FROM_SDK_MODE,
@@ -121,6 +124,45 @@ export class SessionControl {
       return;
     }
 
+    await this.endRecord(rec, sessionId);
+  }
+
+  /**
+   * End the session ONLY if the record registered under `sessionId` is still
+   * the one identified by `token`.
+   *
+   * The find-compare-teardown is atomic here on purpose. A caller that read the
+   * token, then called `endSession` separately, would still lose the race this
+   * exists to close: `executeSlashCommandQuery` ends the old record and
+   * registers a NEW one under the SAME id, so a late teardown from the old
+   * record's owner would abort the new record's AbortController and the fresh
+   * SDK query would start already aborted.
+   *
+   * @returns true when this call performed the teardown; false when nothing was
+   *   registered or a different record now owns the id (no side effects).
+   */
+  async endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean> {
+    const rec = this.registry.find(sessionId as string);
+    if (!rec || rec.token !== token) {
+      return false;
+    }
+
+    await this.endRecord(rec, sessionId);
+    return true;
+  }
+
+  /**
+   * The teardown itself, shared by both public entry points so the
+   * spec-asserted call order (cleanupPendingPermissions → markAllInterrupted →
+   * interrupt → abort → registry removal) has exactly one definition.
+   */
+  private async endRecord(
+    rec: SessionRecord,
+    sessionId: SessionId,
+  ): Promise<void> {
     this.logger.info(`[SessionLifecycle] Ending session: ${sessionId}`);
     this.permissionHandler.cleanupPendingPermissions(rec.tabId);
     const registrySessionId = rec.realSessionId ?? rec.tabId;

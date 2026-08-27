@@ -435,6 +435,25 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Token of the record currently registered under this id, or null.
+   * Delegates to SessionRegistry.getToken().
+   */
+  getSessionToken(sessionId: SessionId): string | null {
+    return this._registry.getToken(sessionId as string);
+  }
+
+  /**
+   * End the session only if `token` still identifies the registered record.
+   * Delegates to SessionControl.endSessionIfTokenMatches().
+   */
+  async endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean> {
+    return this._control.endSessionIfTokenMatches(sessionId, token);
+  }
+
+  /**
    * Cleanup all active sessions.
    * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
    * and marks all running subagents as interrupted for each session.

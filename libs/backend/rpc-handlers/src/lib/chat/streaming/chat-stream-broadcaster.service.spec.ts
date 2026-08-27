@@ -54,8 +54,15 @@ interface Harness {
   broadcaster: ChatStreamBroadcaster;
   webviewManager: jest.Mocked<WebviewManager>;
   sdkAdapter: jest.Mocked<
-    Pick<IAgentAdapter, 'isSessionActive' | 'endSession'>
+    Pick<
+      IAgentAdapter,
+      | 'isSessionActive'
+      | 'endSession'
+      | 'getSessionToken'
+      | 'endSessionIfTokenMatches'
+    >
   >;
+  logger: jest.Mocked<Pick<Logger, 'info' | 'debug' | 'warn' | 'error'>>;
   ptahCli: jest.Mocked<
     Pick<
       ChatPtahCliService,
@@ -70,10 +77,23 @@ function makeHarness(): Harness {
     sendMessage: jest.fn().mockResolvedValue(undefined),
     broadcastMessage: jest.fn().mockResolvedValue(undefined),
   };
+  // Default posture: nothing registered under the id, so the finally block has
+  // no record to tear down. Tests that exercise teardown opt in by making
+  // `getSessionToken` return a token.
   const sdkAdapter = {
     isSessionActive: jest.fn().mockReturnValue(false),
     endSession: jest.fn().mockResolvedValue(undefined),
-  } as jest.Mocked<Pick<IAgentAdapter, 'isSessionActive' | 'endSession'>>;
+    getSessionToken: jest.fn().mockReturnValue(null),
+    endSessionIfTokenMatches: jest.fn().mockResolvedValue(true),
+  } as jest.Mocked<
+    Pick<
+      IAgentAdapter,
+      | 'isSessionActive'
+      | 'endSession'
+      | 'getSessionToken'
+      | 'endSessionIfTokenMatches'
+    >
+  >;
   const subagentRegistry = {
     update: jest.fn(),
   } as unknown as SubagentRegistryService;
@@ -109,7 +129,7 @@ function makeHarness(): Harness {
     ptahCli as unknown as ChatPtahCliService,
   );
 
-  return { broadcaster, webviewManager, sdkAdapter, ptahCli };
+  return { broadcaster, webviewManager, sdkAdapter, ptahCli, logger };
 }
 
 function makeEvent(eventType: string): FlatStreamEventUnion {
@@ -180,9 +200,13 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
   // These cases yield one event before failing, so `eventCount > 0` and the
   // `isCorruptedResume` branch (eventCount === 0) cannot be what ends the
   // session — the assertion is non-vacuously about the finally block.
+  //
+  // Teardown now goes through `endSessionIfTokenMatches`, not a presence check:
+  // the loop tears down the record it STREAMED, identified by the token read at
+  // loop start, so a newer record registered under the same id survives.
   it('ends the session after a mid-stream ERROR, not just a clean exit', async () => {
     const h = makeHarness();
-    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
       yield makeEvent('message_start');
@@ -191,13 +215,16 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
-    expect(h.sdkAdapter.endSession).toHaveBeenCalledTimes(1);
-    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+    expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledTimes(1);
+    expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledWith(
+      SESSION_ID,
+      'T1',
+    );
   });
 
   it('ends the session after a USER ABORT', async () => {
     const h = makeHarness();
-    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
       yield makeEvent('message_start');
@@ -206,12 +233,15 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
-    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+    expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledWith(
+      SESSION_ID,
+      'T1',
+    );
   });
 
   it('still ends the session after a clean stream exit', async () => {
     const h = makeHarness();
-    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
       yield makeEvent('message_complete');
@@ -219,12 +249,15 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
-    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+    expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledWith(
+      SESSION_ID,
+      'T1',
+    );
   });
 
   it('does not end a session that is no longer registered', async () => {
     const h = makeHarness();
-    h.sdkAdapter.isSessionActive.mockReturnValue(false);
+    h.sdkAdapter.getSessionToken.mockReturnValue(null);
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
       yield makeEvent('message_start');
@@ -233,13 +266,14 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
+    expect(h.sdkAdapter.endSessionIfTokenMatches).not.toHaveBeenCalled();
     expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
   });
 
   it('swallows an endSession failure so the fire-and-forget loop cannot reject', async () => {
     const h = makeHarness();
-    h.sdkAdapter.isSessionActive.mockReturnValue(true);
-    h.sdkAdapter.endSession.mockImplementation(() =>
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
+    h.sdkAdapter.endSessionIfTokenMatches.mockImplementation(() =>
       Promise.reject(new Error('teardown blew up')),
     );
 
@@ -250,6 +284,37 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
     await expect(
       h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID),
     ).resolves.toBeUndefined();
+  });
+
+  // The bug this whole primitive exists for. `chat:continue` resumes an idle
+  // session and starts this loop; a follow-up `/slash` command then ends that
+  // record and registers a NEW one under the SAME id, spending ~2s on harness
+  // preflight before the fresh query starts. The old loop sees the end as a
+  // thrown abort and lands in `finally` in that window. A presence check by id
+  // says "active" — the new record IS — so the old loop used to abort the new
+  // record's controller and the slash command died with "Operation aborted".
+  it('does NOT end the session when a newer record owns the id before the stream throws (slash follow-up race)', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
+    h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('Request aborted by user');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledWith(
+      SESSION_ID,
+      'T1',
+    );
+    expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
+    expect(
+      h.logger.info.mock.calls.some(([message]) =>
+        String(message).includes('record was replaced before stream exit'),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -141,6 +141,10 @@ export class ChatStreamBroadcaster {
     let streamExitedNormally = false;
 
     this.streamingSessionIds.add(sessionId as string);
+    // Identity of the record this loop is the consumer OF, captured before the
+    // first event. The finally block compares against it so teardown can only
+    // ever hit the record streamed here.
+    const recordToken = this.sdkAdapter.getSessionToken(sessionId);
     const batch = new StreamBatchBuffer({
       sink: (type, payload) =>
         this.webviewManager.broadcastMessage(type, payload),
@@ -312,22 +316,38 @@ export class ChatStreamBroadcaster {
       this.ptahCli.deleteSession(tabId);
       // This loop is the session's ONLY consumer, so its exit â€” for any
       // reason, not just the clean `for await` completion â€” leaves nothing
-      // reading the SDK query. Gating cleanup on `streamExitedNormally` left
-      // the registry record alive after a mid-stream throw (provider drop,
-      // transport close), and `isSessionActive` (registry presence) then
-      // reported that corpse as active: the next `chat:continue` skipped
-      // auto-resume and pushed the user's message onto a queue nobody drains,
-      // hanging the turn with no events and no watchdog (the watchdog is armed
-      // by the stream transformer that just died). `isSessionActive` keeps this
-      // idempotent for the user-abort path, where `chat:abort` already ended
-      // the session.
-      if (this.sdkAdapter.isSessionActive(sessionId)) {
+      // reading the SDK query, and the record must be torn down.
+      //
+      // But it may tear down ONLY the record it actually streamed. Ids are
+      // reused: `executeSlashCommandQuery` ends the old record and registers a
+      // NEW one under the SAME id, then spends ~2s on harness preflight before
+      // the fresh query starts. The old loop sees that end as a thrown abort
+      // and arrives here meanwhile, while a presence check by id
+      // (`isSessionActive`) says "active", because the NEW record is. Ending on
+      // that answer aborted the replacement's AbortController and the
+      // follow-up slash command died with "Operation aborted".
+      // `endSessionIfTokenMatches` compares record identity and tears down
+      // atomically, so a newer record under the same id is never touched, while
+      // the idempotency that matters for the user-abort path (where
+      // `chat:abort` already ended the session) still holds: the record is gone
+      // and there is nothing to match.
+      if (recordToken !== null) {
         try {
-          await this.sdkAdapter.endSession(sessionId);
-          this.logger.info(
-            `[RPC] Session ${sessionId} cleaned up after stream exit`,
-            { normalExit: streamExitedNormally, eventCount },
+          const ended = await this.sdkAdapter.endSessionIfTokenMatches(
+            sessionId,
+            recordToken,
           );
+          if (ended) {
+            this.logger.info(
+              `[RPC] Session ${sessionId} cleaned up after stream exit`,
+              { normalExit: streamExitedNormally, eventCount },
+            );
+          } else {
+            this.logger.info(
+              `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`,
+              { normalExit: streamExitedNormally, eventCount },
+            );
+          }
         } catch (cleanupErr) {
           this.logger.warn(
             `[RPC] Failed to clean up session ${sessionId} after stream exit`,

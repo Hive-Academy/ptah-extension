@@ -927,6 +927,7 @@ describe('SdkAgentAdapter', () => {
 
       const existingQuery = createFakeQuery();
       h.sessionLifecycle.find.mockReturnValueOnce({
+        token: 'record-token-1',
         tabId: 'sess-1',
         realSessionId: null,
         query: existingQuery,
