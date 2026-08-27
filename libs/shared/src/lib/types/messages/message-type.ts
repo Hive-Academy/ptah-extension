@@ -102,4 +102,5 @@ export type StrictMessageType =
   | 'update:statusChanged'
   | 'indexing:progress'
   | 'indexing:complete'
+  | 'boot:readinessChanged'
   | string; // Allow extensibility for custom message types

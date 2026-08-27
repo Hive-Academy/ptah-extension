@@ -292,16 +292,98 @@ perf(electron): open the window before the heavy boot (TASK_2026_331 B1)
 
 ---
 
+## Batch 2 scoping evidence (measured 2026-08-28)
+
+The plan's premise — "the renderer issues SQLite-backed RPCs before SQLite is
+open" — was tested three ways. Read this before doing any of Batch 2A or 2B.
+
+### Three plan claims that are FALSE
+
+1. **`session:list` is not SQLite-backed.** `SessionMetadataStore` injects
+   `IStateStorage` (`session-metadata-store.ts:253`), implemented as JSON by
+   `electron-state-storage.ts`. Already recorded as RISK 1.
+2. **`session:stats-batch` is not SQLite-backed either** — the RISK 1 mitigation
+   says the response union "exists for `session:stats-batch`, which is". It is
+   not. It reads JSONL through `SessionHistoryReaderService`
+   (`session-rpc.handlers.ts:793`), whose seven injected deps contain no SQLite,
+   plus the same JSON metadata store. **`rpc-session.types.ts` needs no change
+   and `SessionRpcHandlers` needs no guard.**
+3. **`workspace:getInfo` / `workspace:switch` are not SQLite-backed**, so
+   B2B.T2's premise is wrong too. `workspace-rpc.handlers.ts:133` reads workspace
+   providers; `:317` swaps JSON-backed context and starts non-blocking work.
+
+### Measured boot window
+
+`apps/ptah-electron-e2e/scripts/measure-boot-rpcs.mjs` hooks the `rpc` IPC
+channel in the main process and records every call with its arrival time.
+Run against this repo as the workspace, fresh DB, initial view `chat`:
+
+| Marker                               | Time        |
+| ------------------------------------ | ----------- |
+| window (`Startup config registered`) | 2416 ms     |
+| `openAndMigrate()` started           | 2530 ms     |
+| SQLite open + migrated               | 3494 ms     |
+| **first renderer RPC**               | **6445 ms** |
+
+Readiness window: **1078 ms**. First call lands ~3 s AFTER it closes. Of 26
+calls across 20 methods, **none** was in `memory:`, `corpus:`, `mem:`,
+`skillSynthesis:`, `indexing:`, `cron:` or `gateway:`. Full trace:
+`tmp/boot-probe.json`.
+
+### The one real risk, found by an independent review
+
+`ThothStatusService` (`libs/frontend/dashboard`) is eagerly constructed at
+bootstrap — it is a message handler, and `MessageRouterService` instantiates all
+of them. Its `refresh()` calls `memory:stats`, `skillSynthesis:listCandidates`,
+`cron:list` and `gateway:listBindings` — four genuinely SQLite-backed methods
+(`job.store.ts:63`, `binding.store.ts:48`).
+
+It did NOT fire in the measured run, and the guard at `thoth-status.service.ts:166`
+says why: the constructor effect returns on its first observation
+(`prev === undefined`), and the preload supplies `workspaceRoot` synchronously
+through `get-startup-config`, so no transition occurs. The four calls happen only
+when the DASHBOARD renders and calls `refreshIfNeeded()`.
+
+**Residual uncertainty**: the measured run booted into `chat`. A profile whose
+initial view is `dashboard` would issue those four calls early, and on a large
+database — where `quick_check` widens the window to 2-20 s against a first call
+at ~6.4 s — they could land before SQLite is open. That is the ONLY scenario in
+which a readiness guard fires.
+
+### Corrected scope, if Batch 2 proceeds
+
+- Guard exactly four methods: `memory:stats`, `skillSynthesis:listCandidates`,
+  `cron:list`, `gateway:listBindings`. Not 77.
+- Do NOT touch `SessionRpcHandlers`, `WorkspaceRpcHandlers`,
+  `rpc-session.types.ts`, `session-loader.service.ts` or
+  `electron-layout.service.ts`. B2A.T3's session half, B2A.T4's session half,
+  B2B.T1 and B2B.T2 are all based on refuted premises.
+- Confirm the dashboard-first scenario before building anything: re-run the
+  probe with `initialView = dashboard` and a copy of a large database.
+- Batch 5 removes `quick_check` from the boot path, which shrinks the window
+  that makes even this scenario possible. Doing Batch 5 first may delete the
+  need for Batch 2 entirely.
+
+### Delivered regardless
+
+B2A.T1 and B2A.T2 are DONE and useful under every option: `db:health` in
+Batch 5 needs the same vocabulary, and the message type is the transport for
+any readiness signal.
+
+---
+
 ## Batch 2A: Readiness contracts in shared and backend
 
-**Status**: PENDING
+**Status**: BLOCKED — premise refuted, see the scoping evidence above.
+T1 and T2 are DONE; T3, T4 and T5 are on hold pending the dashboard-first
+measurement.
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
 **Rationale**: the type widening in `libs/shared` must land before the handlers compile against it. The handler edits are file-disjoint but share the new type, so one lane keeps the build green.
 **Tasks**: 5 | **Dependencies**: Batch 1
 
-### Task B2A.T1: Add the readiness types — PENDING
+### Task B2A.T1: Add the readiness types — DONE
 
 **Files**
 
@@ -316,7 +398,7 @@ perf(electron): open the window before the heavy boot (TASK_2026_331 B1)
 
 ---
 
-### Task B2A.T2: Add the BOOT_READINESS_CHANGED message type — PENDING
+### Task B2A.T2: Add the BOOT_READINESS_CHANGED message type — DONE
 
 **Files**
 

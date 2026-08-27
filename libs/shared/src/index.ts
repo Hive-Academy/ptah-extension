@@ -49,6 +49,7 @@ export * from './lib/types/wizard';
 export * from './lib/types/rpc/rpc-harness.types';
 export * from './lib/types/rpc/rpc-error-codes.types';
 export * from './lib/types/rpc/rpc-persistence.types';
+export * from './lib/types/rpc/rpc-readiness.types';
 export * from './lib/types/rpc/rpc-curator-diagnostics.types';
 export * from './lib/providers';
 export * from './lib/constants/environment.constants';
