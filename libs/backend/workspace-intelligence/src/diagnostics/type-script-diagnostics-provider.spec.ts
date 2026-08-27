@@ -416,6 +416,43 @@ describe('TypeScriptDiagnosticsProvider', () => {
       expect(result.reason).toContain('partial coverage');
     });
 
+    it('a workspace with more configs than the cap cannot report a clean result', async () => {
+      // Three genuine tsconfigs on disk, all clean. The mock honors
+      // `maxResults` the way the real `findFiles` does: it returns the first
+      // `maxConfigs` and drops the rest. So discovery reports a full page
+      // (length === cap) while two configs the provider never saw sit on disk.
+      const root = writeFixture({
+        'tsconfig.a.json': tsconfigContent({ include: ['a/**/*.ts'] }),
+        'tsconfig.b.json': tsconfigContent({ include: ['b/**/*.ts'] }),
+        'tsconfig.c.json': tsconfigContent({ include: ['c/**/*.ts'] }),
+        'a/index.ts': 'export const a: number = 1;\n',
+        'b/index.ts': 'export const b: number = 1;\n',
+        'c/index.ts': 'export const c: number = 1;\n',
+      });
+      const allConfigs = [
+        path.join(root, 'tsconfig.a.json'),
+        path.join(root, 'tsconfig.b.json'),
+        path.join(root, 'tsconfig.c.json'),
+      ];
+      const fsProvider = createMockFileSystemProvider({
+        findFiles: jest.fn(
+          async (_p: string, _e: unknown, maxResults: number) =>
+            allConfigs.slice(0, maxResults),
+        ),
+      });
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider, 1);
+
+      const result = await provider.getDiagnostics(root);
+
+      // The page is full (1 === 1) and two configs were dropped. A clean
+      // result from partial coverage is exactly the false clean TASK_2026_299
+      // was opened to remove.
+      expect(result.status).toBe('unavailable');
+      if (result.status !== 'unavailable') return;
+      expect(result.reason).toContain('maximum of 1 tsconfig');
+      expect(result.reason).toContain('partial coverage');
+    });
+
     it('saturated discovery + real diagnostics -> still available with those findings', async () => {
       const root = writeFixture({
         'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
