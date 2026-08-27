@@ -61,3 +61,4 @@ Constraints:
 
 - 2026-08-27: user chose architectural redesign over patches; codex CLI as helper.
 - 2026-08-27: codex hit its usage limit mid-audit. User directed: continue with Claude sub-agents only. `cli_delegation: disabled` from here on.
+- 2026-08-27: plan v1 reviewed by codex — REJECTED (8 wrong claims, 3 critical risks). Architect wrote v2 addressing every item. Codex re-review could not run (usage limit until 2026-08-28 00:42). User approved v2 ("commit and continue"). Proceeding to team-leader batching.
