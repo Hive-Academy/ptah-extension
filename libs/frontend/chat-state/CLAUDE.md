@@ -31,12 +31,14 @@ Tagged `scope:webview` + `type:data-access`. Per Nx module-boundary enforcement,
 - `src/lib/confirmation-dialog.service.ts` — signal-based modal dialog
 - `src/lib/model-refresh-control.ts` — `MODEL_REFRESH_CONTROL` `InjectionToken` (inverted dependency on core)
 - `src/lib/tab-state.types.ts` — payload types
+- `src/lib/tab-persistence.ts` — the persistence projection AND `sanitizeRestoredTab` (what is written, and what comes back)
 
 ## Key Files
 
 - `src/lib/tab-manager.service.ts:40` — `ClosedTabEvent`. Replaces the legacy `STREAMING_CONTROL` push API (Phase 3): `TabManager` emits structured close events on a `closedTab` signal; `StreamRouter` reacts via `effect()`. This deletes the NG0200 DI cycle that motivated the original inversion.
 - `src/lib/conversation-registry.service.ts` — central record of `ConversationId → { sessions, compaction state }`.
 - `src/lib/tab-session-binding.service.ts` — two separate maps (`_byTab`, `_bySurface`) so UI tab enumeration never accidentally surfaces wizard/harness state.
+- `src/lib/tab-persistence.ts` — `sanitizeRestoredTab` is the ONE definition of "restored tab", used by both readers: `TabManagerService.loadTabState` (legacy/active key) and `TabWorkspacePartitionService._loadWorkspaceTabsFromStorage` (per-workspace keys). It nulls `streamingState` and `attachedBinding` (the exact fields `projectTabForPersist` drops on the way out), clears `queuedContent`/`queuedOptions`, and coerces every in-flight status (`streaming | resuming | switching | awaiting-background`) to `loaded`. As two hand-written spreads they had drifted: the workspace reader coerced only two of the four statuses and never cleared the queue, so a reloaded background-workspace tab kept a spinner for a dead SDK query and auto-sent a days-old queued message at the next turn end (TASK_2026_327).
 
 ## State Management Pattern
 
@@ -62,3 +64,4 @@ Pure signals + `computed()`. No RxJS. No zone.js dependency. State updates are i
 3. **Closed-tab signal, not callback**: when adding tab-lifecycle hooks, emit on the `closedTab` signal — do not re-introduce a `STREAMING_CONTROL`-style push API.
 4. **Immutable updates**: never mutate signal values in place; use `update(state => ({ ...state, ... }))`.
 5. **Tab vs Surface**: this lib intentionally separates `_byTab` and `_bySurface` maps in `TabSessionBinding`. Do not collapse them.
+6. **Restore rules live in `sanitizeRestoredTab`, never in a loader.** There are two readers and there will be more; a field that must not survive a reload is added in one place or it is added in one place and forgotten in the other. Same for the write side: `projectTabForPersist` decides what is dropped, and the two functions are mirrors — a field nulled on restore should not be paying serialization cost on save.

@@ -500,6 +500,50 @@ describe('withEngine', () => {
       stderrSpy.mockRestore();
     });
 
+    /**
+     * TASK_2026_329 — pins the guard move in `shutdownAgentProcesses`
+     * (with-engine.ts:464-481). A partial container double that omits
+     * `isRegistered` (the headless spec's shape) used to convert an SDK init
+     * failure into a `TypeError: ...isRegistered is not a function` because the
+     * guard sat OUTSIDE the try and called `isRegistered` unconditionally. The
+     * guard now checks `typeof isRegistered === 'function'` INSIDE the try, so
+     * an init-failure teardown reaches `SdkInitFailedError` instead. This test
+     * does NOT change with-engine.ts — it only pins the guard.
+     */
+    it('rejects with SdkInitFailedError (ptahCode sdk_init_failed), not TypeError, when the container lacks isRegistered', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        // A partial double that omits `isRegistered` entirely.
+        delete (c as Partial<FakeContainer>).isRegistered;
+        c.__sdkAdapter.initialize = jest.fn(async () => false);
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      let caught: unknown;
+      try {
+        await withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        );
+      } catch (error: unknown) {
+        caught = error;
+      }
+
+      expect(caught).not.toBeInstanceOf(TypeError);
+      expect(caught).toBeInstanceOf(SdkInitFailedError);
+      expect((caught as SdkInitFailedError).ptahCode).toBe('sdk_init_failed');
+
+      stderrSpy.mockRestore();
+    });
+
     it('throws SdkInitFailedError when initialize() throws', async () => {
       const { bootstrap } = makeFakeBootstrap();
       const wrapped: typeof bootstrap = (options) => {
@@ -673,6 +717,52 @@ describe('withEngine', () => {
 
       expect(disposeAll).toHaveBeenCalledTimes(1);
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * TASK_2026_326 finding 1 — the proxy half. `PtahCliRegistry.disposeAll()`
+     * was called from nowhere in the CLI or the TUI, so every ptah-cli agent a
+     * command spawned left its proxy socket listening for the life of the
+     * process. Ordering matters: an agent subprocess speaks THROUGH the proxy.
+     */
+    it('disposes agent processes before ptah-cli proxies on the success teardown path', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
+      const agentDisposeAll = jest.fn(async () => {
+        order.push('agents');
+      });
+      const proxyDisposeAll = jest.fn(() => {
+        order.push('proxies');
+      });
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.isRegistered = jest.fn(
+          (token: symbol) =>
+            token === Symbol.for('AgentProcessManager') ||
+            token === Symbol.for('SdkPtahCliRegistry'),
+        );
+        c.resolve = jest.fn((token: symbol) => {
+          if (token === Symbol.for('AgentProcessManager')) {
+            return { disposeAll: agentDisposeAll };
+          }
+          if (token === Symbol.for('SdkPtahCliRegistry')) {
+            return { disposeAll: proxyDisposeAll };
+          }
+          return c.__sdkAdapter;
+        });
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(order).toEqual(['agents', 'proxies']);
+      expect(agentDisposeAll).toHaveBeenCalledTimes(1);
+      expect(proxyDisposeAll).toHaveBeenCalledTimes(1);
     });
 
     it('skips the agent process manager when it was never registered', async () => {

@@ -70,6 +70,29 @@ export const COMPLETED_AGENT_TTL = 30 * 60 * 1000;
 export const SDK_IDLE_RELEASE_MS = 5 * 60 * 1000;
 
 /**
+ * Floor for the user-configured idle window, in milliseconds.
+ *
+ * `ptah.agentOrchestration.sdkIdleReleaseMs` declares `"minimum": 10000` in the
+ * extension manifest, but that minimum is only enforced by the VS Code settings
+ * UI. Every other way the value reaches us — a hand-edited `settings.json`,
+ * `~/.ptah/settings.json`, the Electron and CLI settings stores — delivers it
+ * unchecked, and a 50 ms window releases a continuation-capable subprocess
+ * before the user has finished reading the answer they might follow up on.
+ * The floor makes the declared minimum true wherever the value comes from.
+ */
+export const MIN_SDK_IDLE_RELEASE_MS = 10_000;
+
+/**
+ * Bounded wait after aborting an SDK handle that exposes no child PID.
+ *
+ * See `AgentProcessManager.killProcess` — for those handles the abort IS the
+ * kill, and this is only how long we wait for the run to unwind before moving
+ * on. The timer behind it must be unref'd: it runs on host-shutdown paths, and
+ * a ref'd half-second is a half-second the process cannot exit.
+ */
+export const SDK_ABORT_SETTLE_MS = 500;
+
+/**
  * Upper bound on how long `disposeAll()` waits for every release to settle.
  *
  * Host shutdown is not a place to block indefinitely: Electron's `will-quit` is

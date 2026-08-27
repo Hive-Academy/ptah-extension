@@ -16,6 +16,7 @@ import {
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
+import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
@@ -222,6 +223,20 @@ if (!gotLock) {
   });
   app.on('will-quit', () => {
     flushWorkspacePersistence?.();
+    // FIRST, and started rather than awaited: `will-quit` cannot block, and
+    // the session metadata store coalesces a burst of writes into one update
+    // at the end of its queue drain. Starting the flush before the disposals
+    // gives the staged snapshot the whole teardown window to reach storage —
+    // without it nothing ever called `flush()` and a CLI agent that exited in
+    // the final seconds lost its reference (TASK_2026_324 finding 3).
+    try {
+      void flushSessionMetadataStores();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Session metadata flush failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     try {
       void providerProxyPool?.disposeAll();
     } catch (error) {

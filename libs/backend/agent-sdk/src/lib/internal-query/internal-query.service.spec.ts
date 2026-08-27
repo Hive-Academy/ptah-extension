@@ -3,7 +3,9 @@ import 'reflect-metadata';
 import {
   InternalQueryConcurrencyGate,
   InternalQueryService,
+  INTERNAL_QUERY_CONCURRENCY_KEY,
 } from './internal-query.service';
+import { InternalQueryQueueTimeoutError } from '../errors/internal-query-queue-timeout.error';
 import type { InternalQueryConfig } from './internal-query.types';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -211,8 +213,14 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       maxConcurrent === undefined
         ? null
         : ({
+            // Key-aware: return the configured limit only for the concurrency
+            // key, and the caller-supplied default for every other key. A mock
+            // that returned `maxConcurrent` for any key also overrode
+            // `queueTimeoutMs`, so a `makeGatedHarness(2)` waiter armed a 2ms
+            // ceiling and rejected unhandled into a neighbouring test.
             getConfiguration: jest.fn(
-              (_section: string, _key: string, _def: unknown) => maxConcurrent,
+              (_section: string, key: string, def: unknown) =>
+                key === INTERNAL_QUERY_CONCURRENCY_KEY ? maxConcurrent : def,
             ),
           } as unknown as IWorkspaceProvider);
 
@@ -347,6 +355,39 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
     expect(h.started()).toBe(0);
   });
 
+  /**
+   * TASK_2026_328 — the gate has a wait ceiling. A one-shot query queued
+   * behind a long-running one cannot block indefinitely: once
+   * `queueTimeoutMs` elapses without a slot, execute() rejects with the typed
+   * `InternalQueryQueueTimeoutError`. The rejected waiter must leave the gate
+   * consistent — removed from the queue, no slot leaked — so the next caller
+   * takes the freed slot. Follows the abort-while-queued structure above.
+   */
+  it('rejects a queued caller with InternalQueryQueueTimeoutError after the wait ceiling', async () => {
+    const h = makeGatedHarness();
+
+    const first = await h.service.execute(makeConfig());
+    const queued = h.service.execute(makeConfig({ queueTimeoutMs: 20 }));
+
+    await settle();
+    expect(h.started()).toBe(1);
+
+    await expect(queued).rejects.toThrow(InternalQueryQueueTimeoutError);
+    await expect(queued).rejects.toMatchObject({ queueTimeoutMs: 20 });
+
+    // Releasing the first slot must NOT hand it to the departed waiter: a third
+    // caller takes it instead, which is the observable form of "left the queue,
+    // no slot leaked".
+    const firstDrained = (async () => {
+      for await (const _msg of first.stream) break;
+    })();
+    h.finish(0);
+    await firstDrained;
+
+    await expect(h.service.execute(makeConfig())).resolves.toBeDefined();
+    expect(h.started()).toBe(2);
+  });
+
   it('honours a configured limit above the default', async () => {
     const h = makeGatedHarness(2);
 
@@ -393,6 +434,23 @@ describe('InternalQueryConcurrencyGate', () => {
     release();
     release();
 
+    expect(gate.inFlight).toBe(0);
+  });
+
+  it('rejects a queued waiter with InternalQueryQueueTimeoutError after the ceiling', async () => {
+    const gate = new InternalQueryConcurrencyGate();
+    const release = await gate.acquire(1);
+    const queued = gate.acquire(1, undefined, 20);
+
+    await expect(queued).rejects.toThrow(InternalQueryQueueTimeoutError);
+    await expect(queued).rejects.toMatchObject({ queueTimeoutMs: 20 });
+
+    // The departed waiter is gone from the queue, and the slot is still held
+    // by the first caller until it releases.
+    expect(gate.queued).toBe(0);
+    expect(gate.inFlight).toBe(1);
+
+    release();
     expect(gate.inFlight).toBe(0);
   });
 });

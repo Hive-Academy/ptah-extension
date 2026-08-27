@@ -317,6 +317,19 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // TASK_2026_180 Phase 1 — the four lane sub-trees, 8 fields each. Spread
   // from the same table that supplies their defaults below.
   ...Object.keys(SKILL_LANE_SETTINGS_DEFAULTS),
+  // The master switch above every `memory.triggers.*` toggle below: it gates
+  // the observation queue as well as the individual triggers
+  // (`MEMORY_TRIGGER_KEYS.enabled`, TASK_2026_323 B2). It sits in this section
+  // rather than beside `memory.curatorEnabled` because it is read by the same
+  // trigger config reader as the keys under it.
+  //
+  // It must be HERE and not only in `MEMORY_TRIGGER_KEYS`, because an unrouted
+  // key fails in the WRITE direction only: the read falls through to
+  // `FILE_BASED_SETTINGS_DEFAULTS` and looks correct, while the write is handed
+  // to a store that does not own the key and is dropped with no error — so a
+  // user turning memory off would see it redraw as off and the next trigger
+  // would capture anyway.
+  'memory.enabled',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -549,6 +562,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // TASK_2026_180 Phase 1 — see SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING. Both
   // halves (key list + defaults) come from that one table on purpose.
   ...SKILL_LANE_SETTINGS_DEFAULTS,
+  // Matches `MEMORY_TRIGGER_DEFAULTS.enabled` — memory capture is on unless the
+  // user turns it off.
+  'memory.enabled': true,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,

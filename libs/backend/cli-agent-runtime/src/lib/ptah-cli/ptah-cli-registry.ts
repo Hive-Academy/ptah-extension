@@ -774,6 +774,16 @@ export class PtahCliRegistry {
       }
     });
 
+    // No `getPid`, deliberately, and it is not an oversight the way it looks.
+    // Every other adapter here spawns its own `child_process` and can hand the
+    // manager a PID to tree-kill. This path does not spawn anything: `query()`
+    // owns the `claude` child, exposes no handle to it anywhere in the SDK's
+    // public surface, and reaps it itself when `abortController` fires — which
+    // is also what closes the prompt mailbox above and ends the stream loop. So
+    // for this handle the abort IS the kill, and `AgentProcessManager.killProcess`
+    // waits on `done` rather than tree-killing a PID it cannot be given.
+    // Inventing one (e.g. from a process scan) would be guessing at which
+    // `claude.exe` on the machine is ours.
     const handle: SdkHandle = {
       abort: abortController,
       done: turn1Done,

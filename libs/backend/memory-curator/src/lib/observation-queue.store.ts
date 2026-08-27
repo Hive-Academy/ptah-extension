@@ -1,7 +1,7 @@
 /**
  * ObservationQueueStore — typed CRUD over the `observation_queue` table.
  *
- * Captures hook-side observations (PreToolUse Read, PostToolUse, ToolFailure,
+ * Captures hook-side observations (PostToolUse Read/tool results, ToolFailure,
  * Stop, UserPromptSubmit) BEFORE the cue-match/threshold gates inside
  * `MemoryTriggerService`, then drained inside `invokeCurate` to compose the
  * curator transcript. Rows are marked processed only on curator success.

@@ -32,6 +32,7 @@ import { ClaudeSessionId, TabId } from './identity/ids';
 import {
   buildPersistedTabState,
   persistNeeded,
+  sanitizeRestoredTabs,
   type PersistedSnapshot,
 } from './tab-persistence';
 
@@ -1949,23 +1950,7 @@ export class TabManagerService {
       }
 
       if (state.tabs && Array.isArray(state.tabs)) {
-        const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-          ...tab,
-          streamingState: null,
-          status:
-            tab.status === 'streaming' ||
-            tab.status === 'resuming' ||
-            tab.status === 'switching' ||
-            tab.status === 'awaiting-background'
-              ? 'loaded'
-              : tab.status,
-          queuedContent: null,
-          queuedOptions: null,
-          // Messaging attachment is a live, push-driven flag — a restored tab
-          // is never attached. Clear so a stale flag can't leave it read-only.
-          attachedBinding: null,
-        }));
-        this._tabs.set(sanitizedTabs);
+        this._tabs.set(sanitizeRestoredTabs(state.tabs as TabState[]));
         this._activeTabId.set(state.activeTabId ?? null);
       }
     } catch (error) {

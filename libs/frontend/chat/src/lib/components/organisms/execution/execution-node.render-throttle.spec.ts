@@ -79,17 +79,31 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
    */
   let frames: Array<() => void>;
   let cancelled: number[];
+  /**
+   * Every frame callback ever queued, by the handle rAF handed back.
+   *
+   * Kept separately from {@link frames} (which `flushFrames` empties) so a test
+   * can replay ONE specific callback — the component's — long after the queue
+   * it was in has been drained or abandoned.
+   */
+  let frameByHandle: Map<number, () => void>;
+  let nextFrameHandle: number;
 
   beforeEach(() => {
     frames = [];
     cancelled = [];
+    frameByHandle = new Map();
+    nextFrameHandle = 0;
     MarkdownStub.renders.length = 0;
 
     jest
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
-        frames.push(() => cb(0));
-        return frames.length;
+        const handle = ++nextFrameHandle;
+        const run = (): void => cb(0);
+        frames.push(run);
+        frameByHandle.set(handle, run);
+        return handle;
       });
     jest
       .spyOn(window, 'cancelAnimationFrame')
@@ -128,6 +142,15 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
    */
   function renders(): string[] {
     return MarkdownStub.renders.filter((value) => value !== '');
+  }
+
+  /** The value the component has actually published to the renderer. */
+  function published(): string {
+    return (
+      fixture.componentInstance as unknown as {
+        renderedContent: () => string;
+      }
+    ).renderedContent();
   }
 
   function flipDisabled(): boolean {
@@ -227,12 +250,52 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
     expect(flipDisabled()).toBe(true);
   });
 
-  it('cancels its queued frame on destroy', () => {
+  it('cancels its queued frame on destroy, and that frame renders nothing if it fires anyway', () => {
     pushContent('mid-stream', 'streaming');
-    const cancelledBeforeDestroy = cancelled.length;
+    // The throttle is holding the content back, so nothing has rendered yet —
+    // which is what makes the replay below a real test: if the abandoned frame
+    // still published, this count would move.
+    expect(renders()).toHaveLength(0);
+
+    // Angular's own scheduler also queues and cancels frames here, so
+    // "something was cancelled" identifies nothing. Wrap the COMPONENT's own
+    // handle so the assertion below is about its frame and no other.
+    const componentFrame = (
+      fixture.componentInstance as unknown as {
+        pendingFrame: { cancel(): void } | null;
+      }
+    ).pendingFrame;
+    expect(componentFrame).not.toBeNull();
+
+    let componentHandle: number | undefined;
+    const realCancel = componentFrame?.cancel.bind(componentFrame);
+    if (componentFrame && realCancel) {
+      componentFrame.cancel = (): void => {
+        const before = cancelled.length;
+        realCancel();
+        componentHandle = cancelled[before];
+      };
+    }
 
     fixture.destroy();
 
-    expect(cancelled.length).toBeGreaterThan(cancelledBeforeDestroy);
+    // The teardown hook cancelled the component's own frame.
+    expect(componentHandle).toBeDefined();
+
+    // Cancelling is a REQUEST. A frame the host already dispatched — or a host
+    // that ignores `cancelAnimationFrame` at all — still runs the callback, and
+    // a callback that writes a signal on a destroyed component is how a
+    // "cancelled" throttle becomes an NG0911 at teardown. Replay exactly the
+    // frame the component gave up.
+    const abandonedFrame = frameByHandle.get(componentHandle as number);
+    expect(abandonedFrame).toBeDefined();
+    abandonedFrame?.();
+
+    // The destroy hook dropped the pending content, so the replayed callback
+    // has nothing left to publish. Asserted on the signal, not only on the
+    // markdown stub: a destroyed view no longer propagates to the template, so
+    // `renders()` alone would stay flat even for a component that DID write.
+    expect(published()).toBe('');
+    expect(renders()).toHaveLength(0);
   });
 });

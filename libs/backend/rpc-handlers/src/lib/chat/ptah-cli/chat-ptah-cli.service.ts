@@ -114,27 +114,41 @@ export class ChatPtahCliService {
       mcpServerRunning,
     });
 
-    if (mcpServerRunning) {
-      // Awaited: the CLI spawned below reads `.mcp.json` to discover this
-      // server, so the entry has to be on disk first (TASK_2026_318).
-      await this.codeExecutionMcp.ensureRegisteredForSubagents();
+    // Everything from here to the session entry runs under the lease taken by
+    // `getProfile` above, and the lease is only ever given back from a session
+    // entry (`handleAbort` / `deleteSession` read `entry.leaseKey`). So a throw
+    // in between — `ensureRegisteredForSubagents` failing to write `.mcp.json`,
+    // or the spawn itself — used to strand the reference forever: the proxy's
+    // refCount never returned to zero, its listening socket stayed up for the
+    // life of the host, and the next attempt on the same agent took a second
+    // one. Release on the failure path, then rethrow untouched (TASK_2026_326).
+    let stream: AsyncIterable<unknown>;
+    try {
+      if (mcpServerRunning) {
+        // Awaited: the CLI spawned below reads `.mcp.json` to discover this
+        // server, so the entry has to be on disk first (TASK_2026_318).
+        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+      }
+
+      const enhancedPromptsContent =
+        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+
+      stream = (await this.agentAdapter.startChatSession({
+        tabId,
+        workspaceId: workspacePath,
+        systemPrompt: options?.systemPrompt,
+        projectPath: workspacePath,
+        name,
+        prompt,
+        files: options?.files,
+        mcpServerRunning,
+        enhancedPromptsContent,
+        providerProfile: profile,
+      })) as AsyncIterable<unknown>;
+    } catch (error: unknown) {
+      await this.releaseLeaseAfterFailedStart(leaseKey, error);
+      throw error;
     }
-
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-
-    const stream = await this.agentAdapter.startChatSession({
-      tabId,
-      workspaceId: workspacePath,
-      systemPrompt: options?.systemPrompt,
-      projectPath: workspacePath,
-      name,
-      prompt,
-      files: options?.files,
-      mcpServerRunning,
-      enhancedPromptsContent,
-      providerProfile: profile,
-    });
 
     this.ptahCliSessions.set(tabId, { agentId, agentName, leaseKey });
 
@@ -146,9 +160,37 @@ export class ChatPtahCliService {
 
     return {
       result: { success: true },
-      stream: stream as AsyncIterable<unknown>,
+      stream,
       tabId,
     };
+  }
+
+  /**
+   * Give back the lease taken for a start that never produced a session.
+   *
+   * Awaited but never allowed to throw: the caller is about to rethrow the
+   * REAL failure, and a release problem replacing "the CLI would not spawn"
+   * with "could not stop a proxy" would hide the thing the user needs to see.
+   */
+  private async releaseLeaseAfterFailedStart(
+    leaseKey: string,
+    cause: unknown,
+  ): Promise<void> {
+    try {
+      await this.ptahCliRegistry.releaseProfile(leaseKey);
+    } catch (releaseError: unknown) {
+      this.logger.warn(
+        '[RPC] Ptah CLI proxy lease release failed after a failed start',
+        {
+          leaseKey,
+          cause: cause instanceof Error ? cause.message : String(cause),
+          error:
+            releaseError instanceof Error
+              ? releaseError.message
+              : String(releaseError),
+        },
+      );
+    }
   }
 
   async handleContinue(

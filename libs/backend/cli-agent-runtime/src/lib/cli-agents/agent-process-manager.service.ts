@@ -56,6 +56,8 @@ import {
   MAX_TIMEOUT,
   COMPLETED_AGENT_TTL,
   SDK_IDLE_RELEASE_MS,
+  MIN_SDK_IDLE_RELEASE_MS,
+  SDK_ABORT_SETTLE_MS,
   DISPOSE_RELEASE_TIMEOUT_MS,
   OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
@@ -658,7 +660,17 @@ export class AgentProcessManager {
   }
 
   /**
-   * Read agent output (stdout + stderr)
+   * Read agent output (stdout + stderr).
+   *
+   * `lineCount` describes the STRINGS THIS CALL RETURNS, not the buffers behind
+   * them. `tracked.stdoutLineCount` counts what is in the raw buffer, which is
+   * the same number only when no adapter rewrote the text and no `tail` was
+   * asked for. `readOutput(id, 20)` used to answer with the buffer's several
+   * thousand lines next to twenty lines of output, and the two callers that
+   * surface the number — `agent-tool.dispatcher` and the MCP response
+   * formatter's `**Lines:**` row — both present it as a description of the
+   * text on screen. There is no consumer of the buffered count, so none is
+   * returned.
    */
   readOutput(agentId: string, tail?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
@@ -683,7 +695,7 @@ export class AgentProcessManager {
       agentId: AgentId.from(agentId),
       stdout,
       stderr,
-      lineCount: tracked.stdoutLineCount + tracked.stderrLineCount,
+      lineCount: countNewlines(stdout) + countNewlines(stderr),
       truncated: tracked.truncated,
     };
   }
@@ -1311,6 +1323,14 @@ export class AgentProcessManager {
    * Read through the same settings surface as `maxConcurrentAgents`, so a user
    * who lives on long follow-up threads can widen it (or set it very large to
    * get the old hold-forever behaviour back) without a rebuild.
+   *
+   * Two guards, and they answer different questions. A value that is not a
+   * usable number at all — a string from a hand-edited settings file, `NaN`,
+   * zero or negative — is not a preference, so the DEFAULT is used. A value
+   * that is a real preference but below {@link MIN_SDK_IDLE_RELEASE_MS} is
+   * raised to the floor rather than discarded: the user asked for "as short as
+   * possible" and gets the shortest window the setting is declared to allow,
+   * not five minutes.
    */
   private getSdkIdleReleaseMs(): number {
     const configured = this.workspace.getConfiguration<number>(
@@ -1318,9 +1338,14 @@ export class AgentProcessManager {
       'agentOrchestration.sdkIdleReleaseMs',
       SDK_IDLE_RELEASE_MS,
     );
-    return typeof configured === 'number' && configured > 0
-      ? configured
-      : SDK_IDLE_RELEASE_MS;
+    if (
+      typeof configured !== 'number' ||
+      !Number.isFinite(configured) ||
+      configured <= 0
+    ) {
+      return SDK_IDLE_RELEASE_MS;
+    }
+    return Math.max(configured, MIN_SDK_IDLE_RELEASE_MS);
   }
 
   /**
@@ -1546,8 +1571,14 @@ export class AgentProcessManager {
           // process (and group) is gone — no separate settle wait needed.
           await killProcessTree(sdkPid, 'SIGTERM', captureTreeKillError);
         } else {
-          // No live child PID exposed — give the abort a brief moment to settle.
-          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+          // No live child PID to kill, and none is missing. A handle without
+          // `getPid` never spawned a child of its own: it handed that job to an
+          // SDK that owns the process and reaps it from the same abort signal we
+          // just fired (see the `SdkHandle` comment in `ptah-cli-registry.ts`).
+          // So the abort IS the kill here, and all that is left is waiting for
+          // the run to unwind — bounded, because a host on its way out cannot
+          // wait forever for a run that already lost its prompt source.
+          await this.waitForSdkSettle(tracked);
         }
       }
       return;
@@ -1558,6 +1589,42 @@ export class AgentProcessManager {
     // Legacy tracked-ChildProcess branch: single shared tree-kill implementation
     // (Windows taskkill /T /F; POSIX process-group kill escalating to SIGKILL).
     await killProcessTree(child.pid, 'SIGTERM', captureTreeKillError);
+  }
+
+  /**
+   * Wait for an aborted PID-less SDK run to unwind, for at most
+   * {@link SDK_ABORT_SETTLE_MS}.
+   *
+   * The handle's `done` is what actually says "the run has ended", so it wins
+   * the race whenever it can; the timer is only the ceiling. Both halves matter
+   * for shutdown: the timer is unref'd so it can never be the reason a host
+   * stays alive, and it is cleared the moment `done` wins so a settled kill
+   * leaves nothing pending behind it.
+   *
+   * A rejected `done` counts as settled — a run that failed is a run that is
+   * over, and killProcess has no error to report to.
+   */
+  private async waitForSdkSettle(tracked: TrackedAgent): Promise<void> {
+    let settleTimer: NodeJS.Timeout | undefined;
+    const bounded = new Promise<void>((resolve) => {
+      settleTimer = this.unrefTimer(setTimeout(resolve, SDK_ABORT_SETTLE_MS));
+    });
+    try {
+      const done = tracked.sdkHandle?.done;
+      await (done
+        ? Promise.race([
+            done.then(
+              () => undefined,
+              () => undefined,
+            ),
+            bounded,
+          ])
+        : bounded);
+    } finally {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+    }
   }
 
   private getRunningCount(): number {
@@ -1575,7 +1642,7 @@ export class AgentProcessManager {
   /**
    * The concurrent-agent cap.
    *
-   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 10, both
+   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
    * declared in the extension's `package.json`. Prompt text and docs that say
    * "max 3 concurrent" are stale and describe a limit that has not existed for
    * some time; the number here is the one the runtime enforces.

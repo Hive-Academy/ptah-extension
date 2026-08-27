@@ -90,6 +90,13 @@ interface DynamicSection {
  * 4. Substitute remaining {{VARS}} outside sections with analysis values
  * 5. STATIC sections are never touched — they stay exactly as authored
  */
+/**
+ * Ceiling on a single content-generation SDK query, covering the queue wait for
+ * a concurrency slot AND the stream. Armed before `execute()` so a caller
+ * queued behind a long one-shot cannot block indefinitely.
+ */
+const CONTENT_GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
+
 @injectable()
 export class ContentGenerationService implements IContentGenerationService {
   constructor(
@@ -208,6 +215,8 @@ export class ContentGenerationService implements IContentGenerationService {
     templateName: string,
     sdkConfig?: ContentGenerationSdkConfig,
   ): Promise<{ content: string; description: string }> {
+    const abortController = new AbortController();
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const prompt = this.buildAllSectionsPrompt(
         sections,
@@ -270,6 +279,12 @@ OUTPUT FORMAT:
           )}`;
         }
       }
+      // Arm the timeout BEFORE execute() so the budget covers the queue wait
+      // for a concurrency slot, not just the stream after the handle resolves.
+      timeoutHandle = setTimeout(
+        () => abortController.abort(),
+        CONTENT_GENERATION_TIMEOUT_MS,
+      );
       const handle = await this.internalQueryService.execute({
         cwd: context.rootPath,
         model,
@@ -279,6 +294,7 @@ OUTPUT FORMAT:
         // from the workspace-intelligence tools like any other session.
         ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 25,
+        abortController,
         outputFormat: { type: 'json_schema', schema: outputSchema },
       });
 
@@ -339,6 +355,8 @@ OUTPUT FORMAT:
           error: error instanceof Error ? error.message : String(error),
         },
       );
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
     let processed = content;
     for (const section of sections) {

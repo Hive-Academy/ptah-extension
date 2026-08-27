@@ -23,7 +23,6 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
-  PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -189,16 +188,6 @@ function makeNoopObservationQueue(): ObservationQueueStore {
   } as unknown as ObservationQueueStore;
 }
 
-function makeNoopPreToolUse(): PreToolUseCallbackRegistry {
-  return {
-    register: jest.fn(() => () => undefined),
-    notifyAll: jest.fn(),
-    get size() {
-      return 0;
-    },
-  } as unknown as PreToolUseCallbackRegistry;
-}
-
 function makeNoopSessionStart(): SessionStartCallbackRegistry {
   return {
     register: jest.fn(() => () => undefined),
@@ -289,7 +278,6 @@ function buildService(opts?: {
     sessionEndHook.registry,
     rateLimiter,
     makeNoopObservationQueue(),
-    makeNoopPreToolUse(),
     makeNoopSessionStart(),
     makeNoopTranscriptReader(),
     makeNoopSessionIdResolved(),

@@ -36,7 +36,7 @@
  *    keep object identity stable for OnPush inside a rebuilt subtree.
  *
  * Owns:
- * - The memoization cache (treeCache + LRU eviction)
+ * - The memoization cache (treeCache + LRU eviction + node-map pruning)
  * - The per-cacheKey index memo
  * - The streaming-rebuild dedup Set for unmatched-Task warnings
  * - The assistant-message merge loop in {@link buildTree}
@@ -76,6 +76,13 @@ import {
  * stale entry for a node that later disappears can never cause a wrong reuse —
  * reuse requires the fingerprint to match, and a matching fingerprint means the
  * node renders identically.
+ *
+ * They are, however, PRUNED — see
+ * {@link ExecutionTreeBuilderService.pruneNodeMaps}. "Cannot cause a wrong
+ * reuse" is not the same as "may be kept forever": every message evicted at
+ * `STREAMING_EVENT_CAP` leaves its nodes behind in both maps, so a long session
+ * accumulated one dead entry per node it had ever rendered while the tree
+ * itself stayed capped.
  */
 interface TreeCacheEntry {
   /** Fold of the state-wide inputs no per-message revision can observe. */
@@ -91,6 +98,12 @@ interface TreeCacheEntry {
   nodesById: Map<string, ExecutionNode>;
   /** Every node id → its structural fingerprint from the previous build. */
   fingerprintsById: Map<string, number>;
+  /**
+   * Number of nodes the tree actually held at the last prune. The next prune
+   * is due once the maps have grown {@link NODE_MAP_PRUNE_GROWTH}× past it —
+   * see {@link ExecutionTreeBuilderService.pruneNodeMaps}.
+   */
+  liveNodeCount: number;
   /** Derived indexes, valid while `indexState`/`indexVersion` still match. */
   indexes: StreamingIndexes | null;
   indexState: StreamingState | null;
@@ -111,6 +124,26 @@ const VALUE_ENTRY_BUDGET = 24;
 
 /** How deep {@link ExecutionTreeBuilderService.mixValue} descends. */
 const VALUE_DEPTH_BUDGET = 2;
+
+/**
+ * Node-map size below which pruning is not worth a tree walk.
+ *
+ * A conversation this small is nowhere near the event cap, so it has nothing
+ * dead in its maps yet; the floor keeps a short session from paying an O(nodes)
+ * sweep on every single rebuild for entries that do not exist.
+ */
+const NODE_MAP_PRUNE_FLOOR = 512;
+
+/**
+ * How far past the live node count the maps may grow before a prune runs.
+ *
+ * The prune costs O(live nodes) and only fires once the maps have DOUBLED
+ * relative to the last one, so its cost is amortized O(1) per node added —
+ * the same slack-then-rebuild shape `AgentMonitorStore` uses for its stream
+ * buffer. Pruning on every build instead would put a full tree walk back on
+ * the hot path that the incremental rebuild exists to keep off it.
+ */
+const NODE_MAP_PRUNE_GROWTH = 2;
 
 @Injectable({ providedIn: 'root' })
 export class ExecutionTreeBuilderService {
@@ -333,6 +366,13 @@ export class ExecutionTreeBuilderService {
       if (owner) nodeByRoot.set(owner, reuseRoots[i]);
     }
 
+    const liveNodeCount = this.pruneNodeMaps(
+      reuseRoots,
+      nodesById,
+      fingerprintsById,
+      cached?.liveNodeCount ?? 0,
+    );
+
     if (!cached && this.treeCache.size >= this.MAX_CACHE_SIZE) {
       const firstKey = this.treeCache.keys().next().value;
       if (firstKey) {
@@ -348,12 +388,68 @@ export class ExecutionTreeBuilderService {
       tree: reuseRoots,
       nodesById,
       fingerprintsById,
+      liveNodeCount,
       indexes,
       indexState: streamingState,
       indexVersion: indexVersionOf(streamingState),
     });
 
     return reuseRoots;
+  }
+
+  /**
+   * Drop `nodesById` / `fingerprintsById` entries whose node id is no longer
+   * anywhere in the rebuilt tree, and return the live node count.
+   *
+   * ## Why the maps needed a bound at all
+   *
+   * They are keyed by node id and written on every rebuilt subtree, but nothing
+   * ever removed a key. `StreamingState.events` is capped at
+   * `STREAMING_EVENT_CAP`, and the cap's cascade drops the evicted message from
+   * `messageEventIds` — so the TREE shrinks while these two maps keep the
+   * nodes that tree no longer contains. Over a long session that is one dead
+   * entry (plus one retained `ExecutionNode`, with its `toolInput` and
+   * `toolOutput` payloads) per node ever rendered: the exact unbounded growth
+   * the event cap exists to prevent, moved one layer down.
+   *
+   * ## Why it is amortized, not every build
+   *
+   * Collecting live ids is O(nodes in tree) — precisely the whole-tree walk the
+   * incremental rebuild is built to avoid on the streaming hot path. So the
+   * walk runs only once the maps have grown {@link NODE_MAP_PRUNE_GROWTH}×
+   * past the live count measured at the previous prune (and never below
+   * {@link NODE_MAP_PRUNE_FLOOR}). Each prune therefore pays for at least as
+   * many map insertions as it costs, leaving the maps bounded by a constant
+   * multiple of the live tree instead of by the session's whole history.
+   *
+   * Deleting during `Map` key iteration is well-defined: entries already
+   * visited or being visited may be removed without disturbing the walk.
+   */
+  private pruneNodeMaps(
+    tree: readonly ExecutionNode[],
+    nodesById: Map<string, ExecutionNode>,
+    fingerprintsById: Map<string, number>,
+    liveNodeCount: number,
+  ): number {
+    const threshold = Math.max(
+      NODE_MAP_PRUNE_FLOOR,
+      liveNodeCount * NODE_MAP_PRUNE_GROWTH,
+    );
+    if (nodesById.size < threshold && fingerprintsById.size < threshold) {
+      return liveNodeCount;
+    }
+
+    const live = new Set<string>();
+    collectNodeIds(tree, live);
+
+    for (const id of nodesById.keys()) {
+      if (!live.has(id)) nodesById.delete(id);
+    }
+    for (const id of fingerprintsById.keys()) {
+      if (!live.has(id)) fingerprintsById.delete(id);
+    }
+
+    return live.size;
   }
 
   /**
@@ -639,6 +735,17 @@ function indexVersionOf(state: StreamingState): string {
   return state.structuralRevision !== undefined
     ? `s${state.structuralRevision}`
     : `f${state.events.size}:${state.revision ?? -1}`;
+}
+
+/** Collect every node id in `nodes` and their descendants into `into`. */
+function collectNodeIds(
+  nodes: readonly ExecutionNode[],
+  into: Set<string>,
+): void {
+  for (const node of nodes) {
+    into.add(node.id);
+    collectNodeIds(node.children, into);
+  }
 }
 
 function sameOrder(a: readonly string[], b: readonly string[]): boolean {

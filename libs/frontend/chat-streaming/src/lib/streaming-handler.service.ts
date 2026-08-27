@@ -87,14 +87,6 @@ export class StreamingHandlerService {
   }
 
   /**
-   * Force immediate flush of pending updates
-   * Use when you need the UI to update immediately (e.g., before finalization)
-   */
-  flushUpdatesSync(): void {
-    this.batchedUpdate.flushSync();
-  }
-
-  /**
    * Process flat streaming event from SDK
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.

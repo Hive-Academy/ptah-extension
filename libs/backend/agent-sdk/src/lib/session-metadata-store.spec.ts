@@ -25,7 +25,10 @@
  */
 
 import 'reflect-metadata';
-import { SessionMetadataStore } from './session-metadata-store';
+import {
+  SessionMetadataStore,
+  flushSessionMetadataStores,
+} from './session-metadata-store';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
@@ -390,6 +393,70 @@ describe('SessionMetadataStore', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // TASK_2026_324 finding 3 — the host shutdown flush.
+  //
+  // `flush()` had no external caller. A failed flush keeps its snapshot staged
+  // — visible to readers, durable nowhere — and waits for a later write that,
+  // at shutdown, never comes. `flushSessionMetadataStores()` is what the three
+  // host teardown paths call; it reaches every live store without needing a
+  // container, because the CLI installs its signal handlers before one exists.
+  // -------------------------------------------------------------------------
+
+  describe('flushSessionMetadataStores (host shutdown path)', () => {
+    /** Fail the next all-sessions write only; everything else behaves. */
+    function failNextMetadataWrite(): void {
+      let armed = true;
+      storage.update.mockImplementation(async (key: string, value: unknown) => {
+        if (armed && key === METADATA_KEY) {
+          armed = false;
+          throw new Error('storage busy');
+        }
+        if (value === undefined) storage.__state.entries.delete(key);
+        else storage.__state.entries.set(key, value);
+      });
+    }
+
+    function persistedNames(): string[] {
+      const blob = storage.__state.entries.get(METADATA_KEY) as
+        | Array<{ name: string }>
+        | undefined;
+      return (blob ?? []).map((m) => m.name);
+    }
+
+    it('writes a staged snapshot that no later write would have carried', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      failNextMetadataWrite();
+
+      await expect(store.rename('sess-1', 'Renamed')).rejects.toThrow(
+        'storage busy',
+      );
+      // Staged, not stored: the reader sees it, the disk does not.
+      expect(persistedNames()).toEqual(['parent']);
+      expect((await store.get('sess-1'))?.name).toBe('Renamed');
+
+      await flushSessionMetadataStores();
+
+      expect(persistedNames()).toEqual(['Renamed']);
+    });
+
+    it('never throws out of a teardown, even when storage is already gone', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      failNextMetadataWrite();
+      await expect(store.rename('sess-1', 'Renamed')).rejects.toThrow(
+        'storage busy',
+      );
+
+      storage.update.mockRejectedValue(new Error('storage closed'));
+
+      await expect(flushSessionMetadataStores()).resolves.toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Shutdown flush failed'),
+        expect.anything(),
+      );
+    });
+  });
+
   describe('bulk agent output', () => {
     const FAT_AGENT = 'agent-fat' as AgentId;
 
@@ -469,6 +536,11 @@ describe('SessionMetadataStore', () => {
 
     it('returns the lean reference when no bulk output was stored', async () => {
       await seedFatReference();
+      // The store now migrates what it leans (TASK_2026_324 finding 1), so the
+      // "nothing stored" case has to be made by DROPPING the key — which is
+      // also the real one: an agent whose output was deleted, or a reference
+      // written by a build that predates the per-agent split.
+      await store.deleteAgentOutput(FAT_AGENT);
 
       const refs = await store.getCliSessionsForRestore('sess-1');
       expect(refs[0].streamEvents).toBeUndefined();
@@ -482,6 +554,161 @@ describe('SessionMetadataStore', () => {
       );
       await expect(store.getCliSessionsForRestore('missing')).resolves.toEqual(
         [],
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_324 finding 1 — a fat reference is MIGRATED, never dropped.
+    //
+    // `addCliSession` is not the only way a reference gets into a record. A
+    // blob written before the per-agent split still carries inline
+    // `streamEvents`, and `save` / `addStats` / `rename` /
+    // `propagateStatsToParent` all round-trip that record through
+    // `_saveInternal`. Leaning without migrating meant the first incidental
+    // write — a cost update on an unrelated turn — silently deleted an
+    // agent's whole execution tree.
+    // -----------------------------------------------------------------------
+
+    const OLD_FORMAT_AGENT = 'agent-old-format' as AgentId;
+
+    /**
+     * Seed the blob directly, so the fat reference reaches the store the one
+     * way the bug needs: NOT through `addCliSession`.
+     */
+    function seedOldFormatBlob(ref: Partial<CliSessionReference> = {}): void {
+      storage.__state.seed(METADATA_KEY, [
+        {
+          sessionId: 'sess-1',
+          name: 'parent',
+          workspaceId: WORKSPACE,
+          createdAt: 1,
+          lastActiveAt: 1,
+          totalCost: 0,
+          totalTokens: { input: 0, output: 0 },
+          cliSessions: [
+            cliRef({
+              cliSessionId: 'cli-old',
+              agentId: OLD_FORMAT_AGENT,
+              segments: segments(500),
+              streamEvents: streamEvents(400),
+              ...ref,
+            }),
+          ],
+        },
+      ]);
+    }
+
+    it('migrates an old-format inline reference on an unrelated stats write', async () => {
+      seedOldFormatBlob();
+
+      await store.addStats('sess-1', {
+        cost: 0.01,
+        tokens: { input: 1, output: 1 },
+      });
+
+      // The blob is lean — that half already worked.
+      const blob = storage.__state.entries.get(METADATA_KEY);
+      expect(JSON.stringify(blob)).not.toContain('streamEvents');
+
+      // ...and the bulk is still readable, which is the half that did not.
+      const refs = await store.getCliSessionsForRestore('sess-1');
+      expect(refs[0].streamEvents).toHaveLength(400);
+      expect(refs[0].segments).toHaveLength(500);
+    });
+
+    it('leaves a reference with no agentId untouched — there is no key to migrate to', async () => {
+      seedOldFormatBlob({ agentId: '' as AgentId });
+
+      await store.addStats('sess-1', {
+        cost: 0.01,
+        tokens: { input: 1, output: 1 },
+      });
+
+      // Fat in the blob is the lesser evil: `ptah.agentOutput:<agentId>` IS
+      // the destination, and there is no id to name it by.
+      const md = await store.get('sess-1');
+      expect(md?.cliSessions?.[0].streamEvents).toHaveLength(400);
+      expect(md?.cliSessions?.[0].segments).toHaveLength(500);
+    });
+
+    it('never lets a migration shrink an already-stored snapshot', async () => {
+      await store.saveAgentOutput(OLD_FORMAT_AGENT, {
+        segments: segments(500),
+        streamEvents: streamEvents(5000),
+      });
+      // A re-persist arriving with only the tail the agent still held.
+      seedOldFormatBlob({ streamEvents: streamEvents(12) });
+
+      await store.rename('sess-1', 'Renamed');
+
+      const stored = await store.getAgentOutput(OLD_FORMAT_AGENT);
+      expect(stored?.streamEvents).toHaveLength(5000);
+    });
+
+    it('keeps the reference fat when the migration write fails', async () => {
+      seedOldFormatBlob();
+      storage.update.mockImplementation(async (key: string, value: unknown) => {
+        if (key.startsWith('ptah.agentOutput:')) {
+          throw new Error('storage busy');
+        }
+        if (value === undefined) storage.__state.entries.delete(key);
+        else storage.__state.entries.set(key, value);
+      });
+
+      await store.rename('sess-1', 'Renamed');
+
+      const md = await store.get('sess-1');
+      expect(md?.name).toBe('Renamed');
+      expect(md?.cliSessions?.[0].streamEvents).toHaveLength(400);
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_324 finding 4 — re-association must not orphan a key.
+    // -----------------------------------------------------------------------
+
+    it('deletes the displaced agent output key when a cliSessionId is re-associated', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.saveAgentOutput('agent-first' as AgentId, {
+        streamEvents: streamEvents(10),
+      });
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'cli-a', agentId: 'agent-first' as AgentId }),
+      );
+
+      // Same CLI session resumed under a NEW agent: the slot is the only route
+      // to `ptah.agentOutput:agent-first`, so replacing it strands that key.
+      await store.saveAgentOutput('agent-second' as AgentId, {
+        streamEvents: streamEvents(4),
+      });
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ cliSessionId: 'cli-a', agentId: 'agent-second' as AgentId }),
+      );
+
+      expect(storage.__state.entries.has('ptah.agentOutput:agent-first')).toBe(
+        false,
+      );
+      expect(storage.__state.entries.has('ptah.agentOutput:agent-second')).toBe(
+        true,
+      );
+    });
+
+    it('keeps the output key when the same agent re-reports the same cliSessionId', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.saveAgentOutput('agent-same' as AgentId, {
+        streamEvents: streamEvents(10),
+      });
+      const ref = cliRef({
+        cliSessionId: 'cli-a',
+        agentId: 'agent-same' as AgentId,
+      });
+      await store.addCliSession('sess-1', { ...ref, status: 'running' });
+      await store.addCliSession('sess-1', { ...ref, status: 'completed' });
+
+      expect(storage.__state.entries.has('ptah.agentOutput:agent-same')).toBe(
+        true,
       );
     });
 

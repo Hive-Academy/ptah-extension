@@ -10,7 +10,9 @@
  *   compilable program (so `available` + zero diagnostics can only ever mean
  *   "checked, and clean").
  * - `available` with zero diagnostics for a clean project.
- * - `available` with diagnostics for a project with errors.
+ * - `available` with diagnostics for a project with errors — including an
+ *   error entry per discovered config that could NOT be checked, so partial
+ *   coverage is never delivered with the confidence of complete coverage.
  * - Throws only for genuine execution failures (e.g. a filesystem read error
  *   out of `findFiles`).
  *
@@ -28,7 +30,9 @@
  * **A short result cache** (`RESULT_CACHE_TTL_MS`, per root): a burst of agent
  * calls at the start of a session pays once. The cache is keyed by resolved
  * root and capped, so a workspace switch is never answered from another
- * workspace's result.
+ * workspace's result. It holds only COMPLETED checks — an `unavailable` result
+ * is never cached — and `invalidate(root)` drops an entry for a caller that
+ * has just written to the workspace.
  */
 
 import * as path from 'path';
@@ -43,6 +47,7 @@ import { DEFAULT_WORKSPACE_EXCLUDES } from '../file-indexing/workspace-default-e
 import {
   tsDiagnosticsWorker,
   type CollectedDiagnostic,
+  type ConfigFailure,
   type TsDiagnosticsRunOutcome,
 } from './ts-diagnostics-worker';
 
@@ -69,11 +74,24 @@ const DEFAULT_MAX_CONFIGS = 2000;
 /**
  * How long a result stays servable for a given root.
  *
- * Short enough that an agent which just fixed an error sees the fix on its next
- * turn; long enough that the burst of `ptah_get_diagnostics` calls three agents
- * make on the same workspace within a few seconds costs one compile.
+ * This was 30 s, and 30 s was too long to be honest (TASK_2026_325 finding 2).
+ * The cache key is the root, and nothing in the key moves when a source file
+ * does — so an agent that read diagnostics, applied a fix and asked again (the
+ * exact loop the core prompt instructs) was answered from before its own edit,
+ * for half a minute, with no signal that the answer was stale.
+ *
+ * The change signal that would fix this properly is not affordable here: the
+ * newest `mtimeMs` across a monorepo's source roots costs a full walk, which is
+ * the work the cache exists to avoid, and this provider is handed no file
+ * watcher to subscribe to. So the two cheap halves are used instead — the
+ * window is cut to the width of one agent's burst, and `invalidate()` lets a
+ * caller that just wrote a file say so explicitly.
+ *
+ * 5 s still collapses the burst the cache was added for: three agents calling
+ * `ptah_get_diagnostics` at the start of a session land inside it, and one
+ * compile serves all three.
  */
-const RESULT_CACHE_TTL_MS = 30_000;
+const RESULT_CACHE_TTL_MS = 5_000;
 
 /**
  * Roots retained in the cache, evicted least-recently-used. Matches the bound
@@ -154,6 +172,25 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
   }
 
   /**
+   * Drop the cached result for one root, or for every root when called with no
+   * argument.
+   *
+   * A caller that has just written to the workspace knows something this
+   * provider cannot cheaply discover (see `RESULT_CACHE_TTL_MS`), and this is
+   * how it says so. Mirrors `invalidateCache(root?)` on the autocomplete
+   * discovery services in this lib, for the same reason and with the same
+   * shape. Never re-runs the check — warming a result nobody has asked for is
+   * work for an answer that may never be requested.
+   */
+  invalidate(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) {
+      this.cache.clear();
+      return;
+    }
+    this.cache.delete(normalizeRoot(workspaceRoot));
+  }
+
+  /**
    * Release the shared type-check worker. Optional — the worker is `unref`'d
    * while idle and self-terminates — but hosts with an explicit shutdown path
    * can call it to reclaim the compiler's memory immediately. Resolves once the
@@ -168,7 +205,16 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     normRoot: string,
   ): Promise<DiagnosticsResult> {
     const result = await this.compute(workspaceRoot, normRoot);
-    this.writeCache(normRoot, result);
+
+    // Never cache a failure (TASK_2026_325 finding 3). `unavailable` reports a
+    // condition, not a measurement: a dead worker, a compiler that was not
+    // installed yet, a config being edited at that instant. Caching it gives
+    // every caller in the next window the same failure without retrying the
+    // one thing that could clear it, and the retry costs nothing when the
+    // cause has not gone away. Only a completed check is worth reusing.
+    if (result.status === 'available') {
+      this.writeCache(normRoot, result);
+    }
     return result;
   }
 
@@ -222,12 +268,26 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     if (outcome.programCount === 0) {
       return unavailable(
         outcome.errors.length > 0
-          ? outcome.errors.join('; ')
+          ? outcome.errors.map(describeFailure).join('; ')
           : 'No tsconfig produced a compilable project (all discovered configs were reference-only with no resolvable root files).',
       );
     }
 
-    const diagnostics = groupByFile(outcome.collected);
+    // A config that failed while its siblings compiled is still a hole in the
+    // coverage, and it used to vanish: `outcome.errors` was read only on the
+    // `programCount === 0` path, so one malformed tsconfig beside one healthy
+    // one produced `available` + the healthy project's (possibly empty) list
+    // (TASK_2026_325 finding 1). Each failure is reported as an error
+    // diagnostic ON the config that failed — which is what it is, and what
+    // `tsc -b` reports too. That keeps the gap visible through every consumer
+    // this result reaches, none of which carry a side-channel: the MCP
+    // formatter renders it in the error list, and the `execute_code` payload
+    // carries it as an ordinary entry. It also means a run whose only finding
+    // is a broken config can never render as "No issues found".
+    const diagnostics = withConfigFailures(
+      groupByFile(outcome.collected),
+      outcome.errors,
+    );
 
     // A saturated discovery may have dropped configs, so "clean" is the one
     // claim this pass is not entitled to make (TASK_2026_301). `available` +
@@ -286,6 +346,52 @@ function normalizeRoot(workspaceRoot: string): string {
 
 function unavailable(reason: string): DiagnosticsResult {
   return { status: 'unavailable', source: SOURCE, reason };
+}
+
+/** One failed config as a single line, for an `unavailable` reason string. */
+function describeFailure(failure: ConfigFailure): string {
+  return `${failure.config}: ${failure.message}`;
+}
+
+/**
+ * Fold per-config failures into the diagnostics list as error entries on the
+ * config that failed, ahead of the compiled findings.
+ *
+ * Failures lead because they describe what was NOT checked, and that bounds how
+ * much the rest of the list is worth. Merging rather than appending blindly
+ * keeps one file to one `FileDiagnostics` entry, which is the shape every
+ * consumer groups on.
+ */
+function withConfigFailures(
+  files: FileDiagnostics[],
+  failures: readonly ConfigFailure[],
+): FileDiagnostics[] {
+  if (failures.length === 0) return files;
+
+  const byFile = new Map(files.map((entry) => [entry.file, entry]));
+  const added: FileDiagnostics[] = [];
+
+  for (const failure of failures) {
+    const entry: DiagnosticEntry = {
+      message: failure.message,
+      line: 0,
+      severity: 'error',
+      ...(failure.code !== undefined ? { code: failure.code } : {}),
+    };
+    const existing = byFile.get(failure.config);
+    if (existing) {
+      existing.diagnostics.unshift(entry);
+      continue;
+    }
+    const created: FileDiagnostics = {
+      file: failure.config,
+      diagnostics: [entry],
+    };
+    byFile.set(failure.config, created);
+    added.push(created);
+  }
+
+  return [...added, ...files];
 }
 
 /**

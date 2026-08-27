@@ -761,6 +761,42 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('memory.enabled — the capture master switch (TASK_2026_328)', () => {
+    /**
+     * `MEMORY_TRIGGER_KEYS.enabled` gates the observation queue AND every
+     * trigger, and it is read through `IWorkspaceProvider.getConfiguration`
+     * like its `memory.triggers.*` siblings — all of which are routed here.
+     *
+     * Unrouted, it would fail in the WRITE direction only: the read falls
+     * through to `FILE_BASED_SETTINGS_DEFAULTS` and looks correct while the
+     * write is dropped with no error, so "memory off" would redraw as off and
+     * capture anyway on the next trigger.
+     */
+    it('registers memory.enabled in FILE_BASED_SETTINGS_KEYS', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.enabled')).toBe(true);
+    });
+
+    it('routes memory.enabled through isFileBasedSettingKey', () => {
+      expect(isFileBasedSettingKey('memory.enabled')).toBe(true);
+    });
+
+    it('declares memory.enabled default true, matching MEMORY_TRIGGER_DEFAULTS', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          'memory.enabled',
+        ),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['memory.enabled']).toBe(true);
+    });
+
+    it('keeps memory.enabled distinct from memory.triggers.* — it is not a per-trigger toggle', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.triggers.enabled')).toBe(
+        false,
+      );
+    });
+  });
+
   describe('llm.vscode.model — removed dead key (TASK_2026_250 follow-up B)', () => {
     /**
      * `ptah.llm.vscode.model` was the VS Code Language Model `vendor/family`

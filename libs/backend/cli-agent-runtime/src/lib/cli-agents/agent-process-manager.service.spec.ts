@@ -99,6 +99,7 @@ import {
   COMPLETED_AGENT_TTL,
   DEFAULT_TIMEOUT,
   MAX_BUFFER_SIZE,
+  MIN_SDK_IDLE_RELEASE_MS,
   SDK_IDLE_RELEASE_MS,
   countNewlines,
 } from './agent-process-manager-helpers';
@@ -1300,6 +1301,58 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(() => manager.getStatus(agentId)).not.toThrow();
     });
 
+    // -----------------------------------------------------------------------
+    // TASK_2026_326 — the manifest declares `"minimum": 10000` for
+    // `sdkIdleReleaseMs`, but that minimum is enforced only by the VS Code
+    // settings UI. A hand-edited settings.json, `~/.ptah/settings.json`, or the
+    // Electron/CLI stores all deliver the number unchecked.
+    // -----------------------------------------------------------------------
+
+    it('raises a configured window below the declared minimum to the floor', async () => {
+      setupVscodeConfig({ maxConcurrentAgents: 3, sdkIdleReleaseMs: 500 });
+      await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // 3.1 s of the window is already gone (graceful-exit delay). Past the
+      // configured 500 ms many times over, and still held — the floor, not the
+      // setting, is what the countdown is running on.
+      jest.advanceTimersByTime(6_000);
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      // Past MIN_SDK_IDLE_RELEASE_MS (3.1 s + 6 s + 1.5 s), and NOT anywhere
+      // near the five-minute default — a too-small value is clamped, not
+      // discarded.
+      jest.advanceTimersByTime(1_500);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a non-number', 'soon' as unknown as number],
+      ['zero', 0],
+      ['a negative number', -1],
+      ['NaN', Number.NaN],
+    ])('falls back to the default window for %s', async (_label, value) => {
+      setupVscodeConfig({
+        maxConcurrentAgents: 3,
+        sdkIdleReleaseMs: value,
+      });
+      await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // Well past the floor: an unusable value is not a preference to clamp.
+      jest.advanceTimersByTime(MIN_SDK_IDLE_RELEASE_MS * 2);
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('releases at TTL for a handle that never supported continuation', async () => {
       // No idle timer is armed for these — nothing about them is meant to
       // outlive the turn — so the cleanup sweep is their only backstop, and
@@ -1538,6 +1591,52 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(output.lineCount).toBeLessThan(linesEmitted);
     });
 
+    // -----------------------------------------------------------------------
+    // TASK_2026_326 — `lineCount` describes the strings THIS CALL RETURNS.
+    // It used to be read straight off the buffer counters, so the two callers
+    // that surface it (`agent-tool.dispatcher`, the MCP formatter's `**Lines:**`
+    // row) printed the buffer's thousands next to a twenty-line tail.
+    // -----------------------------------------------------------------------
+
+    it('counts the tail it returns, not the buffer behind it', async () => {
+      const agentId = await spawnAgent();
+
+      for (let i = 0; i < 50; i++) {
+        sdkControls.emitOutput(`line ${i}\n`);
+      }
+
+      const tailed = manager.readOutput(agentId, 5);
+
+      // `tailLines` slices the trailing empty element `split('\n')` leaves
+      // behind, so a 5-line tail carries 4 newlines. The number reported has to
+      // agree with THAT, not with the 50 in the buffer.
+      expect(tailed.lineCount).toBe(countNewlines(tailed.stdout));
+      expect(tailed.lineCount).toBeLessThan(6);
+
+      // The full read still reports all 50 — the tail shrank the answer, not
+      // the buffer.
+      expect(manager.readOutput(agentId).lineCount).toBe(50);
+    });
+
+    it('counts what the adapter parsed out, not the raw bytes', async () => {
+      // A real adapter's `parseOutput` strips protocol framing; every dropped
+      // line was being counted as if the reader could see it.
+      (sdkAdapter.parseOutput as jest.Mock).mockImplementation((raw: string) =>
+        raw
+          .split('\n')
+          .filter((line) => !line.startsWith('#'))
+          .join('\n'),
+      );
+      const agentId = await spawnAgent();
+
+      sdkControls.emitOutput('#framing\nreal one\n#framing\nreal two\n');
+
+      const output = manager.readOutput(agentId);
+
+      expect(output.lineCount).toBe(countNewlines(output.stdout));
+      expect(output.lineCount).toBe(2);
+    });
+
     describe('append cost past saturation', () => {
       beforeEach(() => {
         // The measurement below needs a real clock, and jest's modern fake
@@ -1636,6 +1735,66 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(tracked.exitEmitHandle?.hasRef()).toBe(false);
       expect(tracked.cleanupHandle).toBeDefined();
       expect(tracked.cleanupHandle?.hasRef()).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_326 — the post-abort settle wait is a timer too.
+   *
+   * `killProcess` tree-kills by PID when the handle exposes one. The ptah-cli
+   * handle does not: `query()` owns the `claude` child and reaps it from the
+   * same abort we fire, so there is nothing to kill and only the unwind to wait
+   * for. That wait used to be a bare `setTimeout(resolve, 500)` — the one timer
+   * in this file that skipped `unrefTimer`, on the exact path a host takes on
+   * its way out.
+   */
+  describe("killProcess settle wait is unref'd (TASK_2026_326)", () => {
+    it("arms no ref'd timer for a handle that exposes no PID", async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      // The shape this test is about: abort, no `getPid`.
+      expect(sdkControls.handle.getPid).toBeUndefined();
+
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+      try {
+        const stopPromise = manager.stop(result.agentId);
+        sdkControls.resolve(1);
+        jest.advanceTimersByTime(600);
+        await stopPromise;
+
+        const armed = setTimeoutSpy.mock.results
+          .map((r) => r.value as { hasRef?: () => boolean })
+          .filter((timer) => typeof timer?.hasRef === 'function');
+
+        // Guards against a vacuous pass: the stop path really does arm timers,
+        // so an empty `armed` would mean the assertion below checked nothing.
+        expect(armed.length).toBeGreaterThan(0);
+        expect(armed.filter((timer) => timer.hasRef?.() === true)).toEqual([]);
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
+    });
+
+    it('settles on the handle rather than waiting out the full ceiling', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      // The run is already over before the stop arrives, so `done` is the
+      // answer and no clock has to move for the kill to be considered settled.
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await expect(manager.stop(result.agentId)).resolves.toEqual(
+        expect.objectContaining({ agentId: result.agentId }),
+      );
     });
   });
 

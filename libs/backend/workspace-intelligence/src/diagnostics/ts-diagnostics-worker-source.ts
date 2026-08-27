@@ -33,8 +33,15 @@
  * Protocol (see `ts-diagnostics-worker.ts` for the typed mirror):
  *   request:  { id, configPaths: string[], normRoot: string }
  *   response: { id, ok: true, collected: CollectedDiagnostic[],
- *               errors: string[], programCount: number }
+ *               errors: ConfigFailure[], programCount: number }
  *           | { id, ok: false, error: string }
+ *
+ * `errors` carries STRUCTURED per-config failures — `{ config, message, code? }`
+ * — not prose (TASK_2026_325 finding 1). A run where one config is malformed
+ * and another compiles used to drop the failure on the floor, because the host
+ * only read `errors` when `programCount === 0`. The host now renders every
+ * failure as an error diagnostic bound to the tsconfig that failed, which needs
+ * the config's PATH, not a `basename(...)` already baked into a sentence.
  */
 export const TS_DIAGNOSTICS_WORKER_SOURCE = String.raw`
 'use strict';
@@ -91,7 +98,31 @@ function run(request) {
     if (visitedConfigs.has(normConfig)) return;
     visitedConfigs.add(normConfig);
 
-    const configFile = ts.readConfigFile(configPath, function (p) {
+    // Guard each config on its OWN frame. Guarding the top-level loop instead
+    // attributed a throw three project references deep to the discovered entry
+    // point, which sent the caller to a file that was fine.
+    try {
+      checkConfig(normConfig);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      errors.push({
+        config: normConfig,
+        message: 'This project was not type-checked: ' + msg,
+      });
+    }
+  }
+
+  function checkConfig(normConfig) {
+    // Hand TypeScript the FORWARD-SLASHED path, never the OS-native one.
+    // ts.readConfigFile normalizes the name internally and then asserts the
+    // parsed source file's name still matches what it was given, so on Windows
+    // a backslashed path throws
+    //   Debug Failure. Expected C:/x/tsconfig.json === C:\x\tsconfig.json
+    // the moment the config is malformed enough to need an error node. A valid
+    // config never reaches that assert, which is why this only ever showed up
+    // on the broken-config path -- as a thrown exception standing in for the
+    // 'Malformed tsconfig' diagnostic the caller was supposed to get.
+    const configFile = ts.readConfigFile(normConfig, function (p) {
       try {
         return nodeFs.readFileSync(p, 'utf-8');
       } catch (readError) {
@@ -100,21 +131,22 @@ function run(request) {
     });
 
     if (configFile.error) {
-      errors.push(
-        'Malformed ' +
-          nodePath.basename(configPath) +
-          ': ' +
-          configFile.error.messageText
-      );
+      errors.push({
+        config: normConfig,
+        code: configFile.error.code,
+        message:
+          'Malformed tsconfig, so this project was not type-checked: ' +
+          ts.flattenDiagnosticMessageText(configFile.error.messageText, '\n'),
+      });
       return;
     }
 
     const parsed = ts.parseJsonConfigFileContent(
       configFile.config,
       ts.sys,
-      nodePath.dirname(configPath),
+      nodePath.dirname(normConfig),
       undefined,
-      configPath
+      normConfig
     );
 
     const rootFileNames = parsed.fileNames.filter(function (f) {
@@ -146,14 +178,7 @@ function run(request) {
   }
 
   for (const configPath of configPaths) {
-    try {
-      collectFromConfig(configPath);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      errors.push(
-        'Failed to process ' + nodePath.basename(configPath) + ': ' + msg
-      );
-    }
+    collectFromConfig(configPath);
   }
 
   return {

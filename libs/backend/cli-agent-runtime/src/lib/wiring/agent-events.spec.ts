@@ -209,7 +209,7 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     );
   });
 
-  it('omits streamEvents from the reference and stores them per agent on exit', () => {
+  it('omits streamEvents from the reference and stores them per agent on exit', async () => {
     const readOutput = jest.fn().mockReturnValue(buildOutput());
     const { container, addCliSession, saveAgentOutput } = harness(readOutput);
 
@@ -225,6 +225,10 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
       }),
       undefined,
     );
+
+    // The reference write now WAITS for the bulk write (TASK_2026_324
+    // finding 2), so it lands a microtask later rather than synchronously.
+    await Promise.resolve();
 
     const ref = addCliSession.mock.calls[0][1];
     expect(ref.streamEvents).toBeUndefined();
@@ -270,6 +274,123 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     );
 
     expect(addCliSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * TASK_2026_324 finding 2 — the two writes are sequenced, and share one retry.
+ *
+ * `ref.agentId` is the ONLY route to `ptah.agentOutput:<agentId>`: the restore
+ * path reads the key the reference names and nothing enumerates the rest. The
+ * bulk write used to be fired off unretried while the reference got three
+ * attempts, so one transient storage failure on the bulk left a durable
+ * reference pointing at a key that was never written — the agent's execution
+ * tree gone, with a `warn` as the only trace.
+ */
+describe('persistCliSessionReference — bulk write gates the reference', () => {
+  const AGENT_ID = 'agent-42' as AgentId;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('does not write the reference until the bulk write succeeds', async () => {
+    const readOutput = jest.fn().mockReturnValue({
+      stdout: 'tail',
+      segments: [{ type: 'text', content: 'segment-0' }],
+      streamEvents: [{ id: 'evt-0', eventType: 'text_delta' }],
+    });
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const saveAgentOutput = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('storage busy'))
+      .mockResolvedValue(undefined);
+    const container = buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          saveAgentOutput,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+
+    persistCliSessionReference(
+      container,
+      createMockLogger() as unknown as Logger,
+      '[test]',
+      buildInfo({
+        agentId: AGENT_ID,
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'completed',
+      }),
+      undefined,
+    );
+
+    // First attempt: the bulk rejected, so the reference must not exist yet.
+    await jest.advanceTimersByTimeAsync(0);
+    expect(saveAgentOutput).toHaveBeenCalledTimes(1);
+    expect(addCliSession).not.toHaveBeenCalled();
+
+    // The retry covers BOTH writes — the bulk is a whole-record overwrite, so
+    // re-running it is idempotent.
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(saveAgentOutput).toHaveBeenCalledTimes(2);
+    expect(addCliSession).toHaveBeenCalledTimes(1);
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({ cliSessionId: 'cli-sess-1' }),
+    );
+  });
+
+  it('never writes the reference when the bulk write keeps failing', async () => {
+    const readOutput = jest.fn().mockReturnValue({
+      stdout: 'tail',
+      segments: [{ type: 'text', content: 'segment-0' }],
+      streamEvents: [{ id: 'evt-0', eventType: 'text_delta' }],
+    });
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const saveAgentOutput = jest
+      .fn()
+      .mockRejectedValue(new Error('storage busy'));
+    const logger = createMockLogger();
+    const container = buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          saveAgentOutput,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+
+    persistCliSessionReference(
+      container,
+      logger as unknown as Logger,
+      '[test]',
+      buildInfo({
+        agentId: AGENT_ID,
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        status: 'completed',
+      }),
+      undefined,
+    );
+
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    expect(saveAgentOutput).toHaveBeenCalledTimes(4); // 1 + 3 retries
+    expect(addCliSession).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalled();
   });
 });
 

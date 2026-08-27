@@ -21,8 +21,6 @@ import {
   type JsonlReaderService,
   type PostToolUseCallbackRegistry,
   type PostToolUsePayload,
-  type PreToolUseCallbackRegistry,
-  type PreToolUsePayload,
   type SessionIdResolvedCallbackRegistry,
   type SessionStartCallbackRegistry,
   type SessionStartPayload,
@@ -91,7 +89,6 @@ export class MemoryTriggerService {
   private stopDisposer: (() => void) | null = null;
   private toolFailureDisposer: (() => void) | null = null;
   private sessionEndHookDisposer: (() => void) | null = null;
-  private preToolUseDisposer: (() => void) | null = null;
   private sessionStartDisposer: (() => void) | null = null;
   private sessionIdResolvedDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
@@ -145,8 +142,6 @@ export class MemoryTriggerService {
     private readonly rateLimiter: CuratorRateLimitService,
     @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
     private readonly observationQueue: ObservationQueueStore,
-    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY)
-    private readonly preToolUseRegistry: PreToolUseCallbackRegistry,
     @inject(SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY)
     private readonly sessionStartRegistry: SessionStartCallbackRegistry,
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
@@ -184,9 +179,6 @@ export class MemoryTriggerService {
         this.onSessionEndHook(payload);
       },
     );
-    this.preToolUseDisposer = this.preToolUseRegistry.register((payload) => {
-      this.onPreToolUseRead(payload);
-    });
     this.sessionStartDisposer = this.sessionStartRegistry.register(
       (payload) => {
         this.onSessionStart(payload);
@@ -218,7 +210,6 @@ export class MemoryTriggerService {
     this.stopDisposer?.();
     this.toolFailureDisposer?.();
     this.sessionEndHookDisposer?.();
-    this.preToolUseDisposer?.();
     this.sessionStartDisposer?.();
     this.sessionIdResolvedDisposer?.();
     this.activityDisposer = null;
@@ -228,7 +219,6 @@ export class MemoryTriggerService {
     this.stopDisposer = null;
     this.toolFailureDisposer = null;
     this.sessionEndHookDisposer = null;
-    this.preToolUseDisposer = null;
     this.sessionStartDisposer = null;
     this.sessionIdResolvedDisposer = null;
     for (const state of this.sessions.values()) {
@@ -542,6 +532,15 @@ export class MemoryTriggerService {
           : safeStringify(payload.toolOutput),
     });
 
+    if (payload.toolName === 'Read') {
+      this.observationQueue.enqueue({
+        sessionId: payload.sessionId,
+        workspaceRoot: payload.workspaceRoot,
+        kind: 'file-read',
+        filePath: extractFilePath(payload.toolInput),
+      });
+    }
+
     if (payload.success) {
       const recovered = this.episodes.recordToolSuccess(
         payload.sessionId,
@@ -580,19 +579,6 @@ export class MemoryTriggerService {
       'commit-detect',
       'commit-detect',
     );
-  }
-
-  private onPreToolUseRead(payload: PreToolUsePayload): void {
-    if (!this.readMemoryEnabled()) return;
-    if (blankToUndefined(payload.sessionId) === undefined) return;
-    if (payload.toolName !== 'Read') return;
-    const filePath = extractFilePath(payload.toolInput);
-    this.observationQueue.enqueue({
-      sessionId: payload.sessionId,
-      workspaceRoot: payload.workspaceRoot,
-      kind: 'file-read',
-      filePath,
-    });
   }
 
   private onSessionStart(_payload: SessionStartPayload): void {

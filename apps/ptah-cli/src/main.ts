@@ -31,6 +31,7 @@ import { buildRouter } from './cli/router.js';
 import { finalizeExit, resolveExitCode } from './cli/io/finalize-exit.js';
 import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
 import { CliDIContainer } from '@ptah-extension/cli-engine';
+import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 fixPath();
 
 let shuttingDown = false;
@@ -66,6 +67,28 @@ function installSignalHandlers(): void {
     }
     shuttingDown = true;
     process.stderr.write(`\n[ptah] received ${signal}, exiting\n`);
+    // Started, not awaited — a signal handler is synchronous, and
+    // `process.on('exit')` below is too late for an async storage write. This
+    // is the head start; `main()` awaits the same call before `finalizeExit`,
+    // which is where a signalled run actually ends (TASK_2026_324 finding 3).
+    void flushSessionMetadataStores();
+    // End the spawned CLI agent subprocesses, then the ptah-cli proxy leases
+    // they were speaking through. A signalled run never reaches `withEngine`'s
+    // `finally`, so without this the children of an interrupted `ptah` are
+    // orphaned and their proxy sockets stay listening.
+    //
+    // THIS BELONGS IN THE SIGNAL HANDLER, NOT IN `exit` BELOW. `exit` is
+    // synchronous end-to-end: Node runs the listener and then terminates
+    // without turning the event loop, so anything after the first `await`
+    // inside `disposeAll()` simply never happens. Only the synchronous prefix
+    // — the `abort()` calls — would land there, and because the agent half is
+    // awaited before the proxy half, an `exit`-path call would drop the proxy
+    // teardown entirely. Here the awaits do complete, so both halves run in
+    // the order that keeps a live child from being stranded on a dead proxy.
+    //
+    // Started, not awaited, for the same reason as the metadata flush above:
+    // a signal handler cannot be async, and `main()` is already unwinding.
+    void CliDIContainer.disposeHostRuntime();
     // Stop the event-loop sampler before we start unwinding. Its interval is
     // unref'd so it could never delay the exit, but leaving it running means
     // lag warnings interleaved with shutdown output for no diagnostic gain.
@@ -75,6 +98,11 @@ function installSignalHandlers(): void {
 
   process.on('SIGINT', onSignal('SIGINT', 130));
   process.on('SIGTERM', onSignal('SIGTERM', 143));
+  // Only synchronous work is useful here (see the note in `onSignal`).
+  // `flushSync` writes settings straight to disk and `disposeDiagnostics`
+  // clears an interval — both complete within the listener. Host-runtime
+  // disposal is deliberately absent: the normal exit path already ran it
+  // inside `withEngine`'s `finally`, and the signalled path ran it above.
   process.on('exit', () => {
     CliDIContainer.flushSync();
     CliDIContainer.disposeDiagnostics();
@@ -128,6 +156,12 @@ async function main(): Promise<void> {
   try {
     const router = buildRouter();
     await router.parseAsync(process.argv);
+    // Before `finalizeExit` calls `process.exit`: the session metadata store
+    // coalesces a burst of writes into one update at the end of its queue
+    // drain, and a CLI agent that exited on the last turn can still have its
+    // reference staged. `process.on('exit')` cannot help — that hook is
+    // synchronous and the write is not (TASK_2026_324 finding 3).
+    await flushSessionMetadataStores();
     // Commands that own their own shutdown (`interact`, `mcp-serve`,
     // `session start --once`) have already exited by here; for everything else
     // this is the only thing that ends the process.

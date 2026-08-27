@@ -42,7 +42,6 @@ import {
   type WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
 import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-handler';
@@ -559,8 +558,6 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionEndHookHandler: SessionEndHookHandler,
     @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
     private readonly toolFailureHookHandler: ToolFailureHookHandler,
-    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER)
-    private readonly preToolUseHookHandler: PreToolUseHookHandler,
     @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
@@ -1306,10 +1303,6 @@ export class SdkQueryOptionsBuilder {
       sessionId,
       cwd,
     );
-    const preToolUseHooks = this.preToolUseHookHandler.createHooks(
-      sessionId,
-      cwd,
-    );
     const sessionStartHooks = this.sessionStartHookHandler.createHooks(
       sessionId,
       cwd,
@@ -1332,7 +1325,6 @@ export class SdkQueryOptionsBuilder {
       stopFailureHooks,
       sessionEndHooks,
       toolFailureHooks,
-      preToolUseHooks,
       sessionStartHooks,
       subagentStopHooks,
       teammateLifecycleHooks,

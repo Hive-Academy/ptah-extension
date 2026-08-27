@@ -169,7 +169,6 @@ function buildHarness(opts: {
       backfillSessionId: jest.fn(() => 0),
     } as unknown as ObservationQueueStore,
     makeRegistry() as never,
-    makeRegistry() as never,
     { read: jest.fn().mockResolvedValue('') } as unknown as ITranscriptReader,
     makeRegistry() as never,
   );

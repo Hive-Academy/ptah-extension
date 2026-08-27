@@ -6,6 +6,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkQueryRunner } from '../helpers/sdk-query-runner.service';
+import { InternalQueryQueueTimeoutError } from '../errors/internal-query-queue-timeout.error';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import type {
   InternalQueryConfig,
@@ -18,6 +19,9 @@ const CONCURRENCY_SECTION = 'ptah';
 
 /** `ptah.internalQuery.maxConcurrent` — see {@link DEFAULT_MAX_CONCURRENT}. */
 export const INTERNAL_QUERY_CONCURRENCY_KEY = 'internalQuery.maxConcurrent';
+
+/** `ptah.internalQuery.queueTimeoutMs` — see {@link DEFAULT_QUEUE_TIMEOUT_MS}. */
+export const INTERNAL_QUERY_QUEUE_TIMEOUT_KEY = 'internalQuery.queueTimeoutMs';
 
 /**
  * How many one-shot queries may be in flight at once, across every caller.
@@ -32,6 +36,17 @@ export const INTERNAL_QUERY_CONCURRENCY_KEY = 'internalQuery.maxConcurrent';
  * (TASK_2026_323, blocker B6).
  */
 export const DEFAULT_MAX_CONCURRENT = 1;
+
+/**
+ * How long a one-shot query may wait for a concurrency slot before
+ * `execute()` rejects with `InternalQueryQueueTimeoutError`.
+ *
+ * The gate serializes subprocesses host-wide, so a caller queued behind a
+ * long query would otherwise block indefinitely. This ceiling is the bound:
+ * a waiter that does not reach the front within this window is removed from
+ * the queue and rejected, leaving the gate consistent for the next waiter.
+ */
+export const DEFAULT_QUEUE_TIMEOUT_MS = 60_000;
 
 /** Thrown to a waiter whose `AbortSignal` fires before it reaches the front. */
 function abortError(): Error {
@@ -81,9 +96,18 @@ export class InternalQueryConcurrencyGate {
    *               `AbortError`. A waiter that already holds a slot is NOT
    *               affected — the caller's own abort controller reaches the SDK
    *               query directly, and the slot is released when its stream ends.
+   * @param queueTimeoutMs  ceiling on how long the waiter may stay queued. When
+   *               it elapses the waiter is removed from the queue and rejected
+   *               with `InternalQueryQueueTimeoutError` — no slot leaks and the
+   *               next waiter is woken. Defaults to
+   *               {@link DEFAULT_QUEUE_TIMEOUT_MS}.
    * @returns an idempotent release function.
    */
-  acquire(limit: number, signal?: AbortSignal): Promise<() => void> {
+  acquire(
+    limit: number,
+    signal?: AbortSignal,
+    queueTimeoutMs?: number,
+  ): Promise<() => void> {
     this.limit =
       Number.isFinite(limit) && limit >= 1
         ? Math.floor(limit)
@@ -96,6 +120,11 @@ export class InternalQueryConcurrencyGate {
       return Promise.resolve(this.makeRelease());
     }
 
+    const effectiveTimeoutMs =
+      Number.isFinite(queueTimeoutMs) && (queueTimeoutMs as number) > 0
+        ? Math.floor(queueTimeoutMs as number)
+        : DEFAULT_QUEUE_TIMEOUT_MS;
+
     return new Promise<() => void>((resolve, reject) => {
       const waiter: Waiter = {
         settled: false,
@@ -103,17 +132,45 @@ export class InternalQueryConcurrencyGate {
         reject,
         detach: () => undefined,
       };
+      const timeoutId: ReturnType<typeof setTimeout> = setTimeout(
+        () =>
+          settleReject(new InternalQueryQueueTimeoutError(effectiveTimeoutMs)),
+        effectiveTimeoutMs,
+      );
+      // The ceiling must not keep the host alive: a waiter queued at shutdown
+      // should not pin the event loop. unref lets the timer fire only while the
+      // loop is otherwise alive (the normal case), and drops it on exit.
+      (timeoutId as { unref?: () => void }).unref?.();
+      let removeAbort: (() => void) | undefined;
+
+      const removeFromQueue = (): void => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+      };
+
+      // detach clears BOTH the abort listener and the queue timeout. It is
+      // called by drain() when the waiter reaches the front, and by
+      // settleReject when the waiter leaves the queue via abort or timeout —
+      // so a settled waiter never leaves a dangling timer or listener behind.
+      waiter.detach = () => {
+        if (removeAbort) removeAbort();
+        clearTimeout(timeoutId);
+      };
+
+      const settleReject = (error: Error): void => {
+        if (waiter.settled) return;
+        waiter.settled = true;
+        removeFromQueue();
+        waiter.detach();
+        reject(error);
+      };
+
       if (signal) {
-        const onAbort = (): void => {
-          if (waiter.settled) return;
-          waiter.settled = true;
-          const index = this.waiters.indexOf(waiter);
-          if (index >= 0) this.waiters.splice(index, 1);
-          reject(abortError());
-        };
+        const onAbort = (): void => settleReject(abortError());
         signal.addEventListener('abort', onAbort, { once: true });
-        waiter.detach = () => signal.removeEventListener('abort', onAbort);
+        removeAbort = () => signal.removeEventListener('abort', onAbort);
       }
+
       this.waiters.push(waiter);
     });
   }
@@ -147,9 +204,9 @@ export class InternalQueryService {
   constructor(
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
     private readonly runner: SdkQueryRunner,
-    @inject(TOKENS.LOGGER)
+    @inject(TOKENS.LOGGER, { isOptional: true })
     private readonly logger: Logger | null = null,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
     private readonly workspace: IWorkspaceProvider | null = null,
   ) {}
 
@@ -209,6 +266,7 @@ export class InternalQueryService {
 
   private async acquireSlot(config: InternalQueryConfig): Promise<() => void> {
     const limit = this.readMaxConcurrent();
+    const queueTimeoutMs = this.resolveQueueTimeoutMs(config);
     if (this.gate.inFlight >= limit) {
       this.logger?.debug(
         `${SERVICE_TAG} one-shot query waiting for a concurrency slot`,
@@ -220,7 +278,11 @@ export class InternalQueryService {
         },
       );
     }
-    return this.gate.acquire(limit, config.abortController?.signal);
+    return this.gate.acquire(
+      limit,
+      config.abortController?.signal,
+      queueTimeoutMs,
+    );
   }
 
   private holdSlotUntilDone(
@@ -278,6 +340,34 @@ export class InternalQueryService {
         },
       );
       return DEFAULT_MAX_CONCURRENT;
+    }
+  }
+
+  private resolveQueueTimeoutMs(config: InternalQueryConfig): number {
+    if (config.queueTimeoutMs !== undefined) {
+      return Number.isFinite(config.queueTimeoutMs) && config.queueTimeoutMs > 0
+        ? Math.floor(config.queueTimeoutMs)
+        : DEFAULT_QUEUE_TIMEOUT_MS;
+    }
+    if (!this.workspace) return DEFAULT_QUEUE_TIMEOUT_MS;
+    try {
+      const value = this.workspace.getConfiguration<number>(
+        CONCURRENCY_SECTION,
+        INTERNAL_QUERY_QUEUE_TIMEOUT_KEY,
+        DEFAULT_QUEUE_TIMEOUT_MS,
+      );
+      return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.floor(value)
+        : DEFAULT_QUEUE_TIMEOUT_MS;
+    } catch (error: unknown) {
+      this.logger?.warn(
+        `${SERVICE_TAG} could not read ${INTERNAL_QUERY_QUEUE_TIMEOUT_KEY}; using the default`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          fallback: DEFAULT_QUEUE_TIMEOUT_MS,
+        },
+      );
+      return DEFAULT_QUEUE_TIMEOUT_MS;
     }
   }
 }

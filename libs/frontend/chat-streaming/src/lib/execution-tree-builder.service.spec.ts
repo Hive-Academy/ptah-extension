@@ -51,6 +51,12 @@ import { SessionManager } from './session-manager.service';
 
 const SESSION_ID = 'session-323';
 
+/**
+ * Mirrors `NODE_MAP_PRUNE_GROWTH` in the service: how far past the live node
+ * count the identity maps are allowed to run before a prune sweeps them.
+ */
+const NODE_MAP_PRUNE_GROWTH = 2;
+
 describe('ExecutionTreeBuilderService — incremental rebuild', () => {
   let builder: ExecutionTreeBuilderService;
   let accumulator: StreamingAccumulatorCore;
@@ -150,6 +156,33 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       deps as { buildMessageNode: BuilderDeps['buildMessageNode'] }
     ).buildMessageNode = spy;
     return spy;
+  };
+
+  /**
+   * The service's private memo slot for `cacheKey`. Reached directly because
+   * the retention bound it enforces has no public surface — the maps are an
+   * implementation detail whose SIZE is the contract (TASK_2026_327).
+   */
+  const cacheEntry = (
+    cacheKey: string,
+  ): {
+    nodesById: Map<string, ExecutionNode>;
+    fingerprintsById: Map<string, number>;
+  } => {
+    const cache = (
+      builder as unknown as {
+        treeCache: Map<
+          string,
+          {
+            nodesById: Map<string, ExecutionNode>;
+            fingerprintsById: Map<string, number>;
+          }
+        >;
+      }
+    ).treeCache;
+    const entry = cache.get(cacheKey);
+    if (!entry) throw new Error(`no tree-cache entry for "${cacheKey}"`);
+    return entry;
   };
 
   beforeEach(() => {
@@ -318,6 +351,93 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     }
   });
 
+  it('keeps nodesById / fingerprintsById bounded when the event cap evicts repeatedly', () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      // Three events per message (start + tool + result) → each message
+      // contributes a message node and a tool node to the tree.
+      const EVENTS_PER_MESSAGE = 3;
+      const MESSAGES = Math.ceil(
+        (STREAMING_EVENT_CAP * 3) / EVENTS_PER_MESSAGE,
+      );
+      const REBUILD_EVERY = 100;
+
+      let everBuiltNodeIds = 0;
+      for (let i = 0; i < MESSAGES; i++) {
+        const messageId = `msg-${i}`;
+        feed(messageStart(messageId, 'assistant'));
+        feed(toolStart(messageId, `toolu_${i}`));
+        feed(toolResult(messageId, `toolu_${i}`));
+        everBuiltNodeIds += 2;
+        if (i % REBUILD_EVERY === 0) builder.buildTree(state, 'k');
+      }
+      const tree = builder.buildTree(state, 'k');
+
+      // The cap did bite: the transcript is far longer than what survives.
+      expect(state.events.size).toBeLessThanOrEqual(STREAMING_EVENT_CAP);
+      expect(everBuiltNodeIds).toBeGreaterThan(STREAMING_EVENT_CAP);
+
+      const entry = cacheEntry('k');
+      const liveIds = new Set<string>();
+      collectIds(tree, liveIds);
+
+      // The tree really did shrink — most of what was rendered is gone.
+      expect(liveIds.size).toBeLessThan(everBuiltNodeIds / 2);
+
+      // …and the maps shrank with it. The bound is the prune's own growth
+      // factor: a sweep leaves the maps at exactly the live count, and the next
+      // one fires before they have doubled. Measured here: ~1.4× live, against
+      // ~3× live when nothing prunes — because nothing ever removed the entry
+      // (or the retained `ExecutionNode`, with its tool payloads) for a node the
+      // event cap had already evicted.
+      expect(entry.nodesById.size).toBeLessThan(
+        liveIds.size * NODE_MAP_PRUNE_GROWTH,
+      );
+      expect(entry.fingerprintsById.size).toBeLessThan(
+        liveIds.size * NODE_MAP_PRUNE_GROWTH,
+      );
+
+      // The maps still cover the whole live tree, so pruning has not quietly
+      // disabled the identity reuse they exist for.
+      for (const id of liveIds) {
+        expect(entry.nodesById.has(id)).toBe(true);
+        expect(entry.fingerprintsById.has(id)).toBe(true);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('still reuses node identity across rebuilds after a prune has run', () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      // Enough messages to push the maps past the prune floor.
+      for (let i = 0; i < 400; i++) {
+        const messageId = `msg-${i}`;
+        feed(messageStart(messageId, 'user'));
+        feed(textDelta(messageId, 0, `q${i}`));
+      }
+      builder.buildTree(state, 'k');
+      const pruned = builder.buildTree(state, 'k');
+      expect(cacheEntry('k').nodesById.size).toBeGreaterThan(0);
+
+      // A brand-new message must not disturb the identity of the old ones.
+      feed(messageStart('msg-new', 'assistant'));
+      feed(textDelta('msg-new', 0, 'answer'));
+      const after = builder.buildTree(state, 'k');
+
+      expect(after).toHaveLength(pruned.length + 1);
+      expect(after[0]).toBe(pruned[0]);
+      expect(after[pruned.length - 1]).toBe(pruned[pruned.length - 1]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('builds ~5 000 deltas across 50 tool calls well under a second', () => {
     const TOOL_COUNT = 50;
     const DELTA_COUNT = 4_800;
@@ -390,6 +510,14 @@ function medianSweepMs(state: StreamingState): number {
   }
   samples.sort((a, b) => a - b);
   return samples[2];
+}
+
+/** Every node id in `nodes` and their descendants. */
+function collectIds(nodes: readonly ExecutionNode[], into: Set<string>): void {
+  for (const node of nodes) {
+    into.add(node.id);
+    collectIds(node.children, into);
+  }
 }
 
 /** Depth-first search for the first node of `type`. */

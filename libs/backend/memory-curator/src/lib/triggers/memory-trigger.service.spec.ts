@@ -25,8 +25,6 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
-  PreToolUseCallbackRegistry,
-  PreToolUsePayload,
   SessionStartCallbackRegistry,
   SessionStartPayload,
   SessionIdResolvedCallbackRegistry,
@@ -354,7 +352,6 @@ function buildService(opts?: {
     SessionEndHookPayload,
     SessionEndHookCallbackRegistry
   >;
-  preToolUse: SetRegistryHarness<PreToolUsePayload, PreToolUseCallbackRegistry>;
   sessionStart: SetRegistryHarness<
     SessionStartPayload,
     SessionStartCallbackRegistry
@@ -376,7 +373,6 @@ function buildService(opts?: {
   const stop = makeSetRegistry<StopPayload>();
   const toolFailure = makeSetRegistry<ToolFailurePayload>();
   const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
-  const preToolUse = makeSetRegistry<PreToolUsePayload>();
   const sessionStart = makeSetRegistry<SessionStartPayload>();
   const sessionIdResolved = makeSetRegistry<SessionIdResolvedPayload>();
   const curator = opts?.curator ?? makeCurator();
@@ -401,7 +397,6 @@ function buildService(opts?: {
     sessionEndHook.registry as unknown as SessionEndHookCallbackRegistry,
     rateLimiter,
     queue.store,
-    preToolUse.registry as unknown as PreToolUseCallbackRegistry,
     sessionStart.registry as unknown as SessionStartCallbackRegistry,
     transcriptReader,
     sessionIdResolved.registry as unknown as SessionIdResolvedCallbackRegistry,
@@ -423,10 +418,6 @@ function buildService(opts?: {
     sessionEndHook: sessionEndHook as unknown as SetRegistryHarness<
       SessionEndHookPayload,
       SessionEndHookCallbackRegistry
-    >,
-    preToolUse: preToolUse as unknown as SetRegistryHarness<
-      PreToolUsePayload,
-      PreToolUseCallbackRegistry
     >,
     sessionStart: sessionStart as unknown as SetRegistryHarness<
       SessionStartPayload,
@@ -1779,12 +1770,15 @@ describe('MemoryTriggerService — observation queue side effects', () => {
     );
   });
 
-  it('onPreToolUseRead inserts a file-read row only when toolName is Read', () => {
-    const { service, preToolUse, queue } = buildService();
+  it('PostToolUse Read inserts the same file-read observation row', () => {
+    const { service, postToolUse, queue } = buildService();
     service.start();
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Read',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 1,
@@ -1796,14 +1790,19 @@ describe('MemoryTriggerService — observation queue side effects', () => {
       }),
     );
     queue.inserts.length = 0;
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Edit',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'updated',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 2,
     });
-    expect(queue.inserts).toHaveLength(0);
+    expect(
+      queue.inserts.filter((row) => row.kind === 'file-read'),
+    ).toHaveLength(0);
   });
 
   it('commit-detect path inserts a commit row in addition to the tool-use row', () => {
@@ -2352,20 +2351,23 @@ describe('MemoryTriggerService — capture gating and caches (TASK_2026_323)', (
     makeWorkspace({ 'memory.enabled': false });
 
   it('memory.enabled=false captures nothing from any hook', () => {
-    const { service, stop, postToolUse, userPromptSubmit, preToolUse, queue } =
+    const { service, stop, postToolUse, userPromptSubmit, queue } =
       buildService({ workspace: disabled() });
     service.start();
 
     stop.fire(stopPayload());
     postToolUse.fire(postToolUsePayload());
     userPromptSubmit.fire(userPromptPayload());
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Read',
       toolInput: { file_path: '/a.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 3000,
-    } as unknown as PreToolUsePayload);
+    });
 
     expect(queue.inserts).toHaveLength(0);
     expect(queue.store.enqueue).not.toHaveBeenCalled();

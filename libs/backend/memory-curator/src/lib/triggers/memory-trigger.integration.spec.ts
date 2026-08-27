@@ -10,7 +10,6 @@ import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
 import {
   CuratorRateLimitService,
   PostToolUseCallbackRegistry,
-  PreToolUseCallbackRegistry,
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   SessionStartCallbackRegistry,
@@ -133,7 +132,6 @@ function buildHarness(opts?: {
   const sessionEndHookRegistry = new SessionEndHookCallbackRegistry(
     makeLogger(),
   );
-  const preToolUseRegistry = new PreToolUseCallbackRegistry(makeLogger());
   const sessionStartRegistry = new SessionStartCallbackRegistry(makeLogger());
   const observationQueue = {
     enqueue: jest.fn(),
@@ -165,7 +163,6 @@ function buildHarness(opts?: {
     sessionEndHookRegistry,
     rateLimiter,
     observationQueue,
-    preToolUseRegistry,
     sessionStartRegistry,
     transcriptReader,
     sessionIdResolvedRegistry,

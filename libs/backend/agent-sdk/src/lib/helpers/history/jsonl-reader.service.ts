@@ -214,12 +214,19 @@ export class JsonlReaderService {
    * proportional to session length (TASK_2026_323, B4).
    *
    * The window starts one byte EARLIER than requested and the first line is
-   * then always discarded. That is what makes the partial-line rule exact: if
-   * the extra byte is a newline the discarded "line" is empty and the first
-   * full line survives intact; otherwise the discarded line is the fragment
-   * that the window cut in half. Reading from `size - maxBytes` and dropping
-   * the first line unconditionally would eat a complete line whenever the
-   * window happened to land on a boundary.
+   * then discarded. That is what makes the partial-line rule exact: if the
+   * extra byte is a newline the discarded "line" is empty and the first full
+   * line survives intact; otherwise the discarded line is the fragment that the
+   * window cut in half. Reading from `size - maxBytes` and dropping the first
+   * line unconditionally would eat a complete line whenever the window happened
+   * to land on a boundary.
+   *
+   * The drop is conditional on the read actually starting past byte 0. When
+   * `windowStart` is exactly 1 the extra byte pulls the read back to the start
+   * of the file, so there is no truncated fragment to discard and the "first
+   * line" is a real one — dropping it silently lost a turn. Repro:
+   * `AAA\nBBB\nCCC\n` with `maxBytes = 11` returned `['BBB','CCC']`
+   * (TASK_2026_328).
    *
    * Deliberately NOT subject to {@link MAX_SESSION_FILE_SIZE}: that guard
    * exists to bound memory, and a tail read is bounded by `maxBytes` by
@@ -255,14 +262,15 @@ export class JsonlReaderService {
     }
 
     const windowStart = stats.size - maxBytes;
+    const readStart = windowStart - 1;
     return this.parseJsonlStream(
       createReadStream(filePath, {
         encoding: 'utf8',
         highWaterMark: this.READ_CHUNK_BYTES,
-        start: windowStart - 1,
+        start: readStart,
       }),
       filePath,
-      { dropFirstLine: true, signal: options.signal },
+      { dropFirstLine: readStart > 0, signal: options.signal },
     );
   }
 

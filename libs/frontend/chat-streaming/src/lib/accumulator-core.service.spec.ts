@@ -570,6 +570,49 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(sessionManager.registerAgent).not.toHaveBeenCalled();
       expect(onAgentStart).not.toHaveBeenCalled();
     });
+
+    // TASK_2026_327: a same-id write replaced the object in `events` only, so
+    // the two maps disagreed about the same event id. Every builder reads the
+    // per-message bucket, which meant the backfilled `toolu_*` id — the whole
+    // point of the backfill — never reached the tool→agent match.
+    it('backfill repoints the eventsByMessage bucket at the same object as events', () => {
+      // A hook-sourced agent_start carries the SDK's UUID, not the toolu_* id.
+      core.process(
+        state,
+        agentStart({ toolCallId: 'uuid-from-hook', source: 'hook' }),
+        makeCtx(),
+      );
+
+      const beforeBackfill = state.events.get('evt-agent-start');
+      expect(beforeBackfill).toBeDefined();
+      expect(state.eventsByMessage.get(MESSAGE_ID)).toContain(beforeBackfill);
+
+      // The subagent's first message_start is what carries the real toolu_* id.
+      core.process(
+        state,
+        msgStart({
+          id: 'evt-sub-msg-start',
+          messageId: 'msg-sub',
+          parentToolUseId: 'toolu_real_id',
+        }),
+        makeCtx(),
+      );
+
+      const afterBackfill = state.events.get(
+        'evt-agent-start',
+      ) as AgentStartEvent;
+      expect(afterBackfill.toolCallId).toBe('toolu_real_id');
+      expect(afterBackfill).not.toBe(beforeBackfill);
+
+      const indexed = state.eventsByMessage
+        .get(MESSAGE_ID)
+        ?.find((event) => event.id === 'evt-agent-start');
+      expect(indexed).toBe(afterBackfill);
+      // …and the stale copy is gone from the bucket entirely.
+      expect(state.eventsByMessage.get(MESSAGE_ID)).not.toContain(
+        beforeBackfill,
+      );
+    });
   });
 
   // ---- Dedup-source-replay: the wizard/harness regression cases ----------

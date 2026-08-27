@@ -63,6 +63,13 @@ export interface InternalQueryConfig {
   /** Abort controller for cancellation (created internally if not provided) */
   abortController?: AbortController;
 
+  /**
+   * Maximum time to wait for a concurrency slot before rejecting with
+   * `InternalQueryQueueTimeoutError`. Defaults to the
+   * `ptah.internalQuery.queueTimeoutMs` setting (60 000 ms) when omitted.
+   */
+  queueTimeoutMs?: number;
+
   auth?: OneShotAuthOverride;
 }
 

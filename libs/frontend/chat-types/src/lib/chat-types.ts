@@ -197,9 +197,11 @@ let __streamingCapWarned = false;
  * `state.events.set(id, event)` calls so every writer enforces the cap.
  *
  * Behavior:
- * - If `id` already exists, the entry is updated in place (size unchanged).
- *   This preserves the backfill path in StreamingHandlerService where an
- *   existing event is replaced with an updated copy (same id).
+ * - If `id` already exists, the entry is updated in place (size unchanged) and
+ *   the matching `eventsByMessage` entry is repointed at the same object. This
+ *   preserves the backfill path in StreamingHandlerService where an existing
+ *   event is replaced with an updated copy (same id) — see
+ *   {@link replaceInMessageBucket} for why both maps must move together.
  * - If `id` is new and size is at the cap, the oldest entry (first iterated
  *   key in the Map's insertion order) is deleted before insert.
  * - First eviction emits a one-shot console.warn so we know the cap was hit
@@ -248,6 +250,7 @@ export function setStreamingEventCapped(
   }
   if (state.events.has(event.id)) {
     state.events.set(event.id, event);
+    replaceInMessageBucket(state, event);
     return;
   }
   if (state.events.size >= STREAMING_EVENT_CAP) {
@@ -290,6 +293,44 @@ function bumpRevisions(state: StreamingState, messageId?: string): void {
     messageId,
     (state.messageRevisions.get(messageId) ?? 0) + 1,
   );
+}
+
+/**
+ * Point the `eventsByMessage` bucket at the SAME object `events` now holds.
+ *
+ * A same-id write is a replacement, not an append — `StreamingAccumulatorCore`
+ * uses it to backfill an `agent_start` with the real `toolu_*` tool id, and
+ * `StreamingHandlerService` uses it to attach late tool metadata. `events` got
+ * the new object; the bucket kept the old one, so the two maps disagreed about
+ * the same event id and every reader that goes through `eventsByMessage` (the
+ * message-node builder, the derived indexes) still saw the pre-backfill values
+ * — which is exactly the tool→agent match the backfill exists to repair.
+ *
+ * Written by index assignment rather than by rebuilding the array: the bucket
+ * is `timestamp`-ordered by construction and a replacement never moves an
+ * entry, so re-sorting or re-allocating would only cost work (guideline 5 of
+ * this lib's CLAUDE.md).
+ *
+ * A no-op when the event was never indexed (the accumulator indexes only the
+ * event types the tree reads) or when the replacement moved to a different
+ * `messageId` — the old bucket entry is then dropped by the cap cascade or by
+ * the message being rebuilt, and inventing a cross-bucket move here would
+ * silently reorder a bucket a reader is allowed to trust.
+ */
+function replaceInMessageBucket(
+  state: StreamingState,
+  event: FlatStreamEventUnion,
+): void {
+  const bucket = event.messageId
+    ? state.eventsByMessage.get(event.messageId)
+    : undefined;
+  if (!bucket) return;
+  for (let i = 0; i < bucket.length; i++) {
+    if (bucket[i].id === event.id) {
+      if (bucket[i] !== event) bucket[i] = event;
+      return;
+    }
+  }
 }
 
 function cascadeCleanForEvictedEvent(

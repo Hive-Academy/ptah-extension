@@ -637,4 +637,293 @@ describe('TypeScriptDiagnosticsProvider', () => {
       expect(resultB.diagnostics).toEqual([]);
     });
   });
+
+  /**
+   * TASK_2026_325 finding 1. `outcome.errors` was consulted ONLY when
+   * `programCount === 0`, so a workspace where one tsconfig is broken and
+   * another compiles reported the healthy project's result and threw the
+   * failure away. With the healthy project clean that rendered as "No issues
+   * found" — the same false clean TASK_2026_299 and TASK_2026_301 each removed
+   * from a different path into this function.
+   *
+   * A config that could not be checked is reported as an error diagnostic on
+   * that config file, which survives every consumer: the MCP formatter lists
+   * it, and the `execute_code` payload carries it as an ordinary entry. There
+   * is no side-channel on `DiagnosticsResult` for a caller to miss.
+   */
+  describe('a config that failed to compile is never dropped', () => {
+    it('two configs, one clean and one malformed -> the result names the malformed config', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'tsconfig.broken.json': '{ "compilerOptions": { invalid json,',
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([
+          path.join(root, 'tsconfig.json'),
+          path.join(root, 'tsconfig.broken.json'),
+        ]),
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      // The clean config DID produce a program, so the run is `available` —
+      // its findings are real and worth returning.
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      const failure = result.diagnostics.find((entry) =>
+        entry.file.endsWith('/tsconfig.broken.json'),
+      );
+      expect(failure).toBeDefined();
+      expect(failure?.diagnostics[0].severity).toBe('error');
+      expect(failure?.diagnostics[0].message).toContain('Malformed tsconfig');
+      // TypeScript's own code for the syntax error, which is only available
+      // when `readConfigFile` returns a diagnostic instead of throwing. On
+      // Windows it threw, because it was handed a backslashed path.
+      expect(typeof failure?.diagnostics[0].code).toBe('number');
+    });
+
+    it('a broken config beside a clean project cannot render as "No issues found"', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'tsconfig.broken.json': '{ "compilerOptions": { invalid json,',
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([
+          path.join(root, 'tsconfig.json'),
+          path.join(root, 'tsconfig.broken.json'),
+        ]),
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      // The compiled half is clean; the result is still not empty, because
+      // "checked, and clean" is not what happened here.
+      expect(result.diagnostics).toHaveLength(1);
+    });
+
+    it('real diagnostics and a config failure are reported together, failure first', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'tsconfig.broken.json': '{ "compilerOptions": { invalid json,',
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([
+          path.join(root, 'tsconfig.json'),
+          path.join(root, 'tsconfig.broken.json'),
+        ]),
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics).toHaveLength(2);
+      // What was NOT checked bounds how much the rest of the list is worth,
+      // so it leads.
+      expect(result.diagnostics[0].file.endsWith('/tsconfig.broken.json')).toBe(
+        true,
+      );
+      expect(result.diagnostics[1].file.endsWith('/src/index.ts')).toBe(true);
+      expect(result.diagnostics[1].diagnostics[0].code).toBe(2322);
+    });
+
+    it('every discovered config failing -> unavailable, with each failure named', async () => {
+      const root = writeFixture({
+        'tsconfig.json': '{ "compilerOptions": { invalid json,',
+        'tsconfig.other.json': '{ "compilerOptions": { also broken,',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([
+          path.join(root, 'tsconfig.json'),
+          path.join(root, 'tsconfig.other.json'),
+        ]),
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      // Nothing compiled, so there is no finding to report and no clean claim
+      // to make either.
+      expect(result.status).toBe('unavailable');
+      if (result.status !== 'unavailable') return;
+      expect(result.reason).toContain('tsconfig.json');
+      expect(result.reason).toContain('tsconfig.other.json');
+    });
+  });
+
+  /**
+   * TASK_2026_325 finding 2. The cache key is the root, and nothing in the key
+   * moves when a source file does — so the agent loop the core prompt
+   * prescribes (read diagnostics, fix, read again) was answered from before its
+   * own edit. The affordable halves of a fix: a window narrow enough to be one
+   * agent's burst rather than one agent's turn, and an explicit `invalidate`
+   * for the caller that knows it just wrote.
+   */
+  describe('an edit is not hidden behind the result cache', () => {
+    it('invalidate(root) makes the next call within the TTL reflect the edit', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const before = await provider.getDiagnostics(root);
+      expect(before.status).toBe('available');
+      if (before.status === 'available') {
+        expect(before.diagnostics).toHaveLength(1);
+      }
+
+      // The agent applies the fix and asks again immediately — well inside the
+      // TTL, which is exactly when the stale answer used to be served.
+      fs.writeFileSync(
+        path.join(root, 'src', 'index.ts'),
+        'export const ok: number = 1;\n',
+      );
+      provider.invalidate(root);
+
+      const after = await provider.getDiagnostics(root);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+      expect(after.status).toBe('available');
+      if (after.status !== 'available') return;
+      expect(after.diagnostics).toEqual([]);
+    });
+
+    it('invalidate() with no argument drops every cached root', async () => {
+      const rootA = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      const rootB = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const y: number = 2;\n',
+      });
+      const fsProvider = createMockFileSystemProvider({
+        findFiles: jest.fn(async (_pattern, _exclude, _maxResults, cwd) =>
+          cwd === rootA
+            ? [path.join(rootA, 'tsconfig.json')]
+            : [path.join(rootB, 'tsconfig.json')],
+        ),
+      });
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      await provider.getDiagnostics(rootA);
+      await provider.getDiagnostics(rootB);
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+
+      provider.invalidate();
+
+      await provider.getDiagnostics(rootA);
+      await provider.getDiagnostics(rootB);
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(4);
+    });
+
+    it('the TTL is short enough that a call six seconds later recompiles', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const realNow = Date.now.bind(Date);
+      let clockOffsetMs = 0;
+      const nowSpy = jest
+        .spyOn(Date, 'now')
+        .mockImplementation(() => realNow() + clockOffsetMs);
+
+      try {
+        await provider.getDiagnostics(root);
+        fs.writeFileSync(
+          path.join(root, 'src', 'index.ts'),
+          'export const ok: number = 1;\n',
+        );
+        // Six seconds: inside the OLD 30 s window, outside the current one.
+        clockOffsetMs = 6_000;
+
+        const fresh = await provider.getDiagnostics(root);
+
+        expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+        expect(fresh.status).toBe('available');
+        if (fresh.status !== 'available') return;
+        expect(fresh.diagnostics).toEqual([]);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+  });
+
+  /**
+   * TASK_2026_325 finding 3. `unavailable` reports a condition, not a
+   * measurement — a dead worker, a compiler mid-install, a config being saved
+   * at that instant. Caching it handed the same failure to every caller in the
+   * window without retrying the one thing that could clear it.
+   */
+  describe('a failed run is never cached', () => {
+    it('an unavailable result is not served from cache: the next call re-runs the check', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      let discovered: string[] = [];
+      const fsProvider = createMockFileSystemProvider({
+        findFiles: jest.fn(async () => discovered),
+      });
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const missing = await provider.getDiagnostics(root);
+      expect(missing.status).toBe('unavailable');
+
+      // The workspace finishes checking out / the config lands.
+      discovered = [path.join(root, 'tsconfig.json')];
+
+      const found = await provider.getDiagnostics(root);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+      expect(found.status).toBe('available');
+    });
+
+    it('a rejected worker run is not cached: the next call recompiles', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const runSpy = jest
+        .spyOn(tsDiagnosticsWorker, 'run')
+        .mockRejectedValueOnce(new Error('worker died mid-compile'));
+
+      try {
+        const failed = await provider.getDiagnostics(root);
+        expect(failed.status).toBe('unavailable');
+        if (failed.status === 'unavailable') {
+          expect(failed.reason).toContain('worker died mid-compile');
+        }
+
+        // The spy falls back to the real implementation after the one
+        // rejection, so this call is a genuine compile.
+        const recovered = await provider.getDiagnostics(root);
+
+        expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+        expect(recovered.status).toBe('available');
+        if (recovered.status !== 'available') return;
+        expect(recovered.diagnostics).toHaveLength(1);
+      } finally {
+        runSpy.mockRestore();
+      }
+    });
+  });
 });

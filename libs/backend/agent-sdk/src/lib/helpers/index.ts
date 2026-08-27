@@ -76,12 +76,6 @@ export {
 } from './post-tool-use-callback-registry';
 export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
 export {
-  PreToolUseCallbackRegistry,
-  type PreToolUseCallback,
-  type PreToolUsePayload,
-} from './pre-tool-use-callback-registry';
-export { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
-export {
   SessionStartCallbackRegistry,
   type SessionStartCallback,
   type SessionStartPayload,

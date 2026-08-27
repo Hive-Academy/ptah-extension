@@ -48,7 +48,7 @@
  * the whole lib rests on, so it is one bug, not two.
  */
 
-import type { TabState } from '@ptah-extension/chat-types';
+import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
 
 /**
  * Storage-format version. UNCHANGED at 2 across the projection: the projection
@@ -102,6 +102,61 @@ export function buildPersistedTabState(
     activeTabId,
     version: PERSISTED_TAB_STATE_VERSION,
   };
+}
+
+/**
+ * Statuses that describe work IN FLIGHT and therefore cannot survive a reload.
+ *
+ * Each one is a promise the process that made it can no longer keep:
+ * `streaming` and `resuming` name an SDK query that died with the old page,
+ * `switching` names a half-finished tab switch, and `awaiting-background` names
+ * background tasks whose completion event will never arrive. A tab restored in
+ * any of them shows a spinner and a stop button forever, and the composer stays
+ * gated on a turn that already ended.
+ */
+const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
+  'streaming',
+  'resuming',
+  'switching',
+  'awaiting-background',
+]);
+
+/**
+ * Bring one stored tab back to a state the running app can own.
+ *
+ * The single definition of "restored tab", used by BOTH readers —
+ * `TabManagerService.loadTabState` (legacy/active-workspace key) and
+ * `TabWorkspacePartitionService._loadWorkspaceTabsFromStorage` (per-workspace
+ * keys). They were two hand-written object spreads that had already drifted:
+ * the workspace loader coerced only `streaming` and `awaiting-background`
+ * (leaving `resuming`/`switching` to restore as phantom in-flight tabs) and
+ * never cleared `queuedContent`/`queuedOptions`, so a message the user typed
+ * during a turn in a background workspace was auto-sent on the next turn
+ * completion — days later, into whatever session the tab had by then.
+ *
+ * The projection written by {@link projectTabForPersist} is the mirror of this:
+ * `streamingState` and `attachedBinding` are dropped on the way out and nulled
+ * on the way back in, so neither can arrive from an older blob either.
+ */
+export function sanitizeRestoredTab(tab: TabState): TabState {
+  return {
+    ...tab,
+    // The live flat-event model belongs to a process that no longer exists.
+    streamingState: null,
+    status: NON_RESTORABLE_STATUSES.has(tab.status) ? 'loaded' : tab.status,
+    // Queued input is auto-sent when the CURRENT turn finishes. There is no
+    // current turn after a reload, so the queue has nothing to attach to.
+    queuedContent: null,
+    queuedOptions: null,
+    // Messaging attachment is a live, push-driven flag — a restored tab is
+    // never attached. Clear so a stale flag can't leave it read-only.
+    attachedBinding: null,
+  };
+}
+
+/** Bring a whole stored tab set back. See {@link sanitizeRestoredTab}. */
+export function sanitizeRestoredTabs(tabs: readonly TabState[]): TabState[] {
+  return tabs.map(sanitizeRestoredTab);
 }
 
 /**

@@ -147,7 +147,7 @@ export interface AgentOutput {
   readonly agentId: AgentId;
   readonly stdout: string;
   readonly stderr: string;
-  /** Total lines captured */
+  /** Lines in the returned stdout + stderr */
   readonly lineCount: number;
   /** Whether output was truncated due to buffer limit */
   readonly truncated: boolean;

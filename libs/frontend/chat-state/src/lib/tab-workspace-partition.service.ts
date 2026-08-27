@@ -3,6 +3,7 @@ import { TabState } from '@ptah-extension/chat-types';
 import {
   buildPersistedTabState,
   persistNeeded,
+  sanitizeRestoredTabs,
   type PersistedSnapshot,
 } from './tab-persistence';
 
@@ -505,20 +506,8 @@ export class TabWorkspacePartitionService {
         return null;
       }
 
-      const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-        ...tab,
-        streamingState: null,
-        status:
-          tab.status === 'streaming' || tab.status === 'awaiting-background'
-            ? 'loaded'
-            : tab.status,
-        // Messaging attachment is a live, push-driven flag — a restored tab is
-        // never attached. Clear so a stale flag can't leave it read-only.
-        attachedBinding: null,
-      }));
-
       return {
-        tabs: sanitizedTabs,
+        tabs: sanitizeRestoredTabs(state.tabs as TabState[]),
         activeTabId: state.activeTabId ?? null,
       };
     } catch {

@@ -230,6 +230,30 @@ describe('JsonlReaderService — streaming and tail reads', () => {
       expect(out.map((m) => m.uuid)).toEqual(['b', 'c']);
     });
 
+    it('keeps the real first line when the window reaches back to byte 0 (TASK_2026_328)', async () => {
+      const lines = [
+        line('a', 'first'),
+        line('b', 'second'),
+        line('c', 'third'),
+      ];
+      const content = `${lines.join('\n')}\n`;
+      const filePath = await write('one-byte-short.jsonl', content);
+
+      // One byte short of the whole file: `windowStart` is exactly 1, so the
+      // extra byte the tail always reads pulls the read back to byte 0. There
+      // is no truncated fragment at the front, and the old unconditional drop
+      // ate a complete turn — the `AAA\nBBB\nCCC\n` / `maxBytes = 11` repro.
+      const out = await service.readJsonlTail(filePath, {
+        maxBytes: Buffer.byteLength(content) - 1,
+      });
+
+      expect(out.map((m) => m.uuid)).toEqual(['a', 'b', 'c']);
+      expect(logger.debug).not.toHaveBeenCalledWith(
+        expect.stringContaining('Skipping malformed JSONL line'),
+        expect.anything(),
+      );
+    });
+
     it('parses a CRLF tail without treating the \\r as content', async () => {
       const lines = [
         line('a', 'first'),

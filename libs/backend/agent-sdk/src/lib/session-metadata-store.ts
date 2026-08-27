@@ -145,6 +145,12 @@ function agentOutputKey(agentId: string): string {
  * all-sessions blob. `streamEvents` never belongs there; `segments` is trimmed
  * to a tail. Returns the SAME object when nothing needed removing so callers
  * can cheaply detect a no-op.
+ *
+ * Leaning is DESTRUCTIVE — the removed events exist nowhere else once the blob
+ * is rewritten — so nothing calls this directly on a reference that may still
+ * be the only copy. {@link SessionMetadataStore.leanCliSessions} migrates the
+ * bulk to `ptah.agentOutput:<agentId>` first and only leans what it has
+ * safely written.
  */
 function leanCliSessionRef(ref: CliSessionReference): CliSessionReference {
   const segmentCount = ref.segments?.length ?? 0;
@@ -162,13 +168,35 @@ function leanCliSessionRef(ref: CliSessionReference): CliSessionReference {
   return lean as unknown as CliSessionReference;
 }
 
-/** Apply {@link leanCliSessionRef} across a record's `cliSessions`. */
-function withLeanCliSessions(metadata: SessionMetadata): SessionMetadata {
-  const refs = metadata.cliSessions;
-  if (!refs || refs.length === 0) return metadata;
-  const lean = refs.map(leanCliSessionRef);
-  const unchanged = lean.every((ref, i) => ref === refs[i]);
-  return unchanged ? metadata : { ...metadata, cliSessions: lean };
+/**
+ * Every live store, so a host's shutdown path can drain the coalesced write
+ * queue without holding a container reference.
+ *
+ * `apps/ptah-cli/src/main.ts` installs its signal handlers before any container
+ * exists — `withEngine` owns every container it builds — which is the same
+ * reason `CliDIContainer` keeps its `flushSync` target in a static. Weak
+ * references so a discarded container's store is still collectable.
+ */
+const LIVE_STORES = new Set<WeakRef<SessionMetadataStore>>();
+
+/**
+ * Flush every live {@link SessionMetadataStore}'s staged snapshot.
+ *
+ * The store coalesces a burst of mutations into one `IStateStorage.update` at
+ * the end of the write-queue drain. That is durable for anything awaited, but a
+ * failed flush stays staged and a mutation made by a fire-and-forget caller can
+ * still be in flight when the host is told to quit — so every shutdown path
+ * calls this (TASK_2026_324 finding 3). Never throws: a host teardown must not
+ * be derailed by a storage that is already going away.
+ */
+export async function flushSessionMetadataStores(): Promise<void> {
+  const live: SessionMetadataStore[] = [];
+  for (const weak of LIVE_STORES) {
+    const store = weak.deref();
+    if (store) live.push(store);
+    else LIVE_STORES.delete(weak);
+  }
+  await Promise.all(live.map((store) => store.flushForShutdown()));
 }
 
 /**
@@ -226,7 +254,9 @@ export class SessionMetadataStore {
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private storage: IStateStorage,
     @inject(TOKENS.LOGGER) private logger: Logger,
-  ) {}
+  ) {
+    LIVE_STORES.add(new WeakRef(this));
+  }
 
   /**
    * Subscribe to session metadata change events.
@@ -278,7 +308,7 @@ export class SessionMetadataStore {
 
     if (index >= 0) {
       const existing = all[index];
-      all[index] = withLeanCliSessions({
+      all[index] = await this.leanCliSessions({
         ...metadata,
         ...(existing.isChildSession && !metadata.isChildSession
           ? { isChildSession: true }
@@ -288,13 +318,114 @@ export class SessionMetadataStore {
           : {}),
       });
     } else {
-      all.push(withLeanCliSessions(metadata));
+      all.push(await this.leanCliSessions(metadata));
     }
 
     this.stage(all);
     this.logger.debug(
       `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
+  }
+
+  /**
+   * Lean a record's `cliSessions` for the blob, MIGRATING whatever leaning
+   * removes to `ptah.agentOutput:<agentId>` first.
+   *
+   * This is the one place a fat reference can be made lean, and the order is
+   * the whole point. `addCliSession` is not the only way a reference gets into
+   * a record: a blob written before the per-agent split still carries inline
+   * `streamEvents`, and `save` / `addStats` / `rename` /
+   * `propagateStatsToParent` all round-trip that record. Leaning first and
+   * writing the bulk never (the shape this replaces) meant the first
+   * incidental write — a cost update on an unrelated turn — silently deleted
+   * an agent's entire execution tree (TASK_2026_324 finding 1).
+   *
+   * Two refs are left fat on purpose:
+   *  - one with no `agentId`, because `ptah.agentOutput:<agentId>` IS the
+   *    destination and there is no id to key it by;
+   *  - one whose migration failed, so the only copy stays where readers can
+   *    still see it and the next write retries.
+   */
+  private async leanCliSessions(
+    metadata: SessionMetadata,
+  ): Promise<SessionMetadata> {
+    const refs = metadata.cliSessions;
+    if (!refs || refs.length === 0) return metadata;
+
+    const lean: CliSessionReference[] = [];
+    let changed = false;
+    for (const ref of refs) {
+      const leanRef = leanCliSessionRef(ref);
+      if (leanRef === ref) {
+        lean.push(ref);
+        continue;
+      }
+      if (blankToUndefined(ref.agentId) === undefined) {
+        this.logger.warn(
+          '[SessionMetadataStore] CLI session reference carries bulk output but no agentId — left inline',
+          { cliSessionId: ref.cliSessionId, cli: ref.cli },
+        );
+        lean.push(ref);
+        continue;
+      }
+      if (!(await this.migrateRefOutput(ref))) {
+        lean.push(ref);
+        continue;
+      }
+      lean.push(leanRef);
+      changed = true;
+    }
+    return changed ? { ...metadata, cliSessions: lean } : metadata;
+  }
+
+  /**
+   * Move one fat reference's bulk output onto its per-agent key.
+   *
+   * Returns true only when the bulk is durable there — either because this
+   * call wrote it, or because the stored snapshot already holds at least as
+   * much. Agent output is append-only, so "longer wins" per field can only
+   * ever ADD: a re-persist that arrives with a truncated tail cannot overwrite
+   * the complete snapshot an earlier `saveAgentOutput` stored.
+   *
+   * False means the caller must keep the reference fat. A failed migration is
+   * a warning, not a throw — the write it is part of carries other mutations
+   * (stats, a rename) that are still worth persisting.
+   */
+  private async migrateRefOutput(ref: CliSessionReference): Promise<boolean> {
+    const agentId = ref.agentId;
+    try {
+      const stored = await this.getAgentOutput(agentId);
+      const refSegments = ref.segments ?? [];
+      const refStreamEvents = ref.streamEvents ?? [];
+      const storedSegments = stored?.segments ?? [];
+      const storedStreamEvents = stored?.streamEvents ?? [];
+
+      const segmentsWin = refSegments.length > storedSegments.length;
+      const streamEventsWin =
+        refStreamEvents.length > storedStreamEvents.length;
+      if (!segmentsWin && !streamEventsWin) return true;
+
+      await this.saveAgentOutput(agentId, {
+        segments: segmentsWin ? refSegments : storedSegments,
+        streamEvents: streamEventsWin ? refStreamEvents : storedStreamEvents,
+      });
+      this.logger.info(
+        `[SessionMetadataStore] Migrated inline CLI output for agent ${agentId} to its own key`,
+        {
+          segments: segmentsWin ? refSegments.length : storedSegments.length,
+          streamEvents: streamEventsWin
+            ? refStreamEvents.length
+            : storedStreamEvents.length,
+        },
+      );
+      return true;
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[SessionMetadataStore] Could not migrate inline CLI output for agent ${agentId} — reference kept fat`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return false;
+    }
   }
 
   /**
@@ -327,6 +458,25 @@ export class SessionMetadataStore {
     await this.storage.update(STORAGE_KEY, snapshot);
     if (this.pendingAll === snapshot) {
       this.pendingAll = null;
+    }
+  }
+
+  /**
+   * {@link flush} for a host teardown: never throws, always logs.
+   *
+   * The three shutdown paths reach this through
+   * {@link flushSessionMetadataStores}. A quit must not be turned into a crash
+   * by a storage that is already closing, and there is no caller left to hand
+   * the rejection to.
+   */
+  async flushForShutdown(): Promise<void> {
+    try {
+      await this.flush();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionMetadataStore] Shutdown flush failed — staged session metadata lost',
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 
@@ -367,7 +517,14 @@ export class SessionMetadataStore {
    */
   async getAll(): Promise<SessionMetadata[]> {
     if (this.pendingAll) return [...this.pendingAll];
-    return (await this.storage.get<SessionMetadata[]>(STORAGE_KEY)) || [];
+    // Copied, not handed through. `_saveInternal` replaces entries in what it
+    // gets back, and `IStateStorage.get` returns the adapter's own cached
+    // array (`vscode.Memento` included) — so returning it directly let a
+    // staged-but-unflushed mutation appear as if it had been stored, and a
+    // failed flush left the "unwritten" value already in place.
+    return [
+      ...((await this.storage.get<SessionMetadata[]>(STORAGE_KEY)) ?? []),
+    ];
   }
 
   /**
@@ -553,21 +710,37 @@ export class SessionMetadataStore {
       const existingIndex = existing.findIndex(
         (s) => s.cliSessionId === cliSession.cliSessionId,
       );
-      // Bulk output goes to its own key (`saveAgentOutput`), never into the
-      // all-sessions blob. Callers that hand us a fat reference are trimmed
-      // here rather than trusted.
-      const lean = leanCliSessionRef(cliSession);
 
+      // The reference goes in as handed to us. Bulk output belongs on its own
+      // key, and `_saveInternal` is the single place that moves it there and
+      // leans what it has written — trimming here as well would delete the
+      // only copy before anything had a chance to migrate it.
       let updated: readonly CliSessionReference[];
       if (existingIndex >= 0) {
+        const previous = existing[existingIndex];
         const mutable = [...existing];
-        mutable[existingIndex] = lean;
+        mutable[existingIndex] = cliSession;
         updated = mutable;
+        // Re-association: the same `cliSessionId` resumed under a NEW agent.
+        // The slot is the only route to `ptah.agentOutput:<agentId>`, so the
+        // displaced agent's key becomes unreachable — a leak per resume, and
+        // `_deleteInternal` can never collect it either (TASK_2026_324
+        // finding 4).
+        if (
+          blankToUndefined(previous.agentId) !== undefined &&
+          previous.agentId !== cliSession.agentId
+        ) {
+          await this.deleteAgentOutput(previous.agentId);
+          this.logger.info(
+            `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${previous.agentId}`,
+            { cliSessionId: cliSession.cliSessionId },
+          );
+        }
         this.logger.info(
           `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`,
         );
       } else {
-        updated = [...existing, lean];
+        updated = [...existing, cliSession];
         this.logger.info(
           `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`,
         );

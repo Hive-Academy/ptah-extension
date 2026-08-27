@@ -1681,20 +1681,6 @@ export class AgentMonitorStore implements OnDestroy {
 }
 
 /**
- * Trim an agent's stream-event buffer back to {@link MAX_AGENT_STREAM_EVENTS},
- * IN PLACE, once it runs {@link AGENT_STREAM_EVENTS_CAP_SLACK} past the cap.
- *
- * In place because the array reference is shared across deltas and
- * `streamRevision` — not the array identity — is the agent card's change
- * signal (see {@link MonitoredAgent.streamEvents}). Reassigning it here would
- * silently break that contract for any consumer holding the old reference.
- *
- * Shape mirrors the backend's `capStreamEvents`: the most recent events are
- * kept whatever their type, and the remaining budget is filled with the most
- * recent LANDMARK events before that tail, so the rendered tree keeps its
- * structure instead of losing every `tool_start` that has no `tool_result` yet.
- */
-/**
  * Insert an agent so `_agents` stays ordered newest-first by `startedAt`.
  *
  * This is what lets {@link AgentMonitorStore.agents} drop its per-delta sort.
@@ -1717,6 +1703,48 @@ function insertAgentSorted(
   return next;
 }
 
+/**
+ * Trim an agent's stream-event buffer back to {@link MAX_AGENT_STREAM_EVENTS},
+ * IN PLACE, once it runs {@link AGENT_STREAM_EVENTS_CAP_SLACK} past the cap.
+ *
+ * In place because the array reference is shared across deltas and
+ * `streamRevision` — not the array identity — is the agent card's change
+ * signal (see {@link MonitoredAgent.streamEvents}). Reassigning it here would
+ * silently break that contract for any consumer holding the old reference.
+ *
+ * Shape mirrors the backend's `capStreamEvents`: the most recent events are
+ * kept whatever their type, and the remaining budget is filled with the most
+ * recent LANDMARK events before that tail, so the rendered tree keeps its
+ * structure instead of losing every `tool_start` that has no `tool_result` yet.
+ *
+ * ## Why the dropped deltas are folded rather than simply dropped
+ *
+ * `AgentMonitorTreeBuilderService` does not render the events; it renders the
+ * ACCUMULATORS it folds them into — text per `${messageId}-block-${blockIndex}`
+ * and tool input per `${toolCallId}-input`. Keeping only landmarks therefore
+ * kept the message and tool NODES while deleting everything that gives them
+ * content: an agent past 2 000 events showed a card of empty message bodies and
+ * tool calls with no input, and — because the builder is incremental and folds
+ * each event exactly once — nothing could ever restore them.
+ *
+ * So the delta content that is about to disappear is folded back into the
+ * surviving structure before the array is rewritten:
+ *
+ * - `text_delta` / `thinking_delta` → ONE synthetic delta per accumulator key,
+ *   carrying the concatenation of every dropped delta for that key, placed
+ *   ahead of the kept head. Any deltas for the same key that survive in the
+ *   tail then append onto it exactly as they did before the trim.
+ * - `tool_delta` → the concatenated partial JSON is parsed and written onto the
+ *   surviving `tool_start` as its `toolInput`, which is the builder's fallback
+ *   when a tool has no accumulated input string. When some of that tool's
+ *   deltas DO survive in the tail, a synthetic `tool_delta` carrying the
+ *   dropped prefix is emitted instead — otherwise the tail fragment would be
+ *   parsed on its own as a truncated JSON document.
+ *
+ * The fold is bounded by the number of distinct keys, not by the number of
+ * dropped events, and it runs only on the trim (once per
+ * {@link AGENT_STREAM_EVENTS_CAP_SLACK} events).
+ */
 function capStreamEventsInPlace(events: FlatStreamEventUnion[]): void {
   if (
     events.length <=
@@ -1741,9 +1769,159 @@ function capStreamEventsInPlace(events: FlatStreamEventUnion[]): void {
   head.reverse();
 
   const tail = events.slice(tailStart);
+  const folded = foldDroppedDeltas(events, tailStart, tail, head);
+
+  // The fold is bounded by distinct accumulator keys, not by dropped events,
+  // so in practice it adds a handful of entries. It is still an addition, and
+  // the cap is the reason this function exists — an agent that somehow opened
+  // thousands of distinct text blocks gives up its OLDEST folded content
+  // rather than the bound.
+  const overflow =
+    folded.length + head.length + tail.length - MAX_AGENT_STREAM_EVENTS;
+  if (overflow > 0) folded.splice(0, overflow);
+
   events.length = 0;
+  for (const ev of folded) events.push(ev);
   for (const ev of head) events.push(ev);
   for (const ev of tail) events.push(ev);
+}
+
+/** A delta run that was dropped, keyed by the accumulator it fed. */
+interface DroppedRun {
+  /** The first dropped event of the run — the template for the synthetic one. */
+  readonly first: FlatStreamEventUnion;
+  text: string;
+}
+
+/**
+ * Build the synthetic delta events that stand in for everything dropped from
+ * `events[0, tailStart)`, and patch `head` in place where a dropped run is
+ * better expressed as tool input on a surviving `tool_start`.
+ *
+ * Returns the synthetic events oldest-run-first, to be placed ahead of `head`
+ * so the surviving tail deltas still append after them.
+ */
+function foldDroppedDeltas(
+  events: readonly FlatStreamEventUnion[],
+  tailStart: number,
+  tail: readonly FlatStreamEventUnion[],
+  head: FlatStreamEventUnion[],
+): FlatStreamEventUnion[] {
+  const kept = new Set<FlatStreamEventUnion>(head);
+  const textRuns = new Map<string, DroppedRun>();
+  const toolRuns = new Map<string, DroppedRun>();
+
+  for (let i = 0; i < tailStart; i++) {
+    const event = events[i];
+    if (kept.has(event)) continue;
+
+    const delta = (event as { delta?: unknown }).delta;
+    if (typeof delta !== 'string' || delta.length === 0) continue;
+
+    if (
+      event.eventType === 'text_delta' ||
+      event.eventType === 'thinking_delta'
+    ) {
+      accumulateRun(
+        textRuns,
+        `${event.eventType}:${event.messageId}:${event.blockIndex ?? 0}`,
+        event,
+        delta,
+      );
+    } else if (event.eventType === 'tool_delta' && event.toolCallId) {
+      accumulateRun(toolRuns, event.toolCallId, event, delta);
+    }
+  }
+
+  const synthetic: FlatStreamEventUnion[] = [];
+  for (const [key, run] of textRuns) {
+    synthetic.push(syntheticDelta(run, `folded-${key}`));
+  }
+
+  // A tool whose input still has surviving deltas must keep receiving the
+  // dropped bytes as a delta, or the two halves would be parsed separately.
+  const toolCallIdsInTail = new Set<string>();
+  for (const event of tail) {
+    if (event.eventType === 'tool_delta' && event.toolCallId) {
+      toolCallIdsInTail.add(event.toolCallId);
+    }
+  }
+
+  for (const [toolCallId, run] of toolRuns) {
+    if (
+      toolCallIdsInTail.has(toolCallId) ||
+      !foldToolInputOntoStart(head, toolCallId, run.text)
+    ) {
+      synthetic.push(syntheticDelta(run, `folded-tool-${toolCallId}`));
+    }
+  }
+
+  synthetic.sort((a, b) => a.timestamp - b.timestamp);
+  return synthetic;
+}
+
+function accumulateRun(
+  runs: Map<string, DroppedRun>,
+  key: string,
+  event: FlatStreamEventUnion,
+  delta: string,
+): void {
+  const existing = runs.get(key);
+  if (existing) {
+    existing.text += delta;
+    return;
+  }
+  runs.set(key, { first: event, text: delta });
+}
+
+/**
+ * One event carrying a whole dropped run. Copied from the run's FIRST event so
+ * it keeps that run's `messageId`, `blockIndex`, `toolCallId` and timestamp —
+ * everything the tree builder keys on — and differs only in `id` and `delta`.
+ */
+function syntheticDelta(run: DroppedRun, id: string): FlatStreamEventUnion {
+  return { ...run.first, id, delta: run.text } as FlatStreamEventUnion;
+}
+
+/**
+ * Replace the surviving `tool_start` for `toolCallId` with a copy carrying the
+ * dropped input, when it parses to a JSON object and the start has none of its
+ * own. Returns false when no such landmark survived (or the bytes are not a
+ * usable object), so the caller falls back to a synthetic delta.
+ */
+function foldToolInputOntoStart(
+  head: FlatStreamEventUnion[],
+  toolCallId: string,
+  inputJson: string,
+): boolean {
+  const index = head.findIndex(
+    (event) =>
+      event.eventType === 'tool_start' && event.toolCallId === toolCallId,
+  );
+  if (index === -1) return false;
+
+  const toolStart = head[index] as FlatStreamEventUnion & {
+    toolInput?: Record<string, unknown>;
+  };
+  if (toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0) {
+    return true;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return false;
+  }
+
+  head[index] = {
+    ...toolStart,
+    toolInput: parsed as Record<string, unknown>,
+  } as FlatStreamEventUnion;
+  return true;
 }
 
 function capBuffer(str: string, max: number): string {

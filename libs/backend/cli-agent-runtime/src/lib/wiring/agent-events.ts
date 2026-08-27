@@ -410,21 +410,32 @@ export function persistCliSessionReference(
       ...(sdkSessionId ? { sdkSessionId } : {}),
     };
 
-    if (agentHasFinished && persistedOutput && metadataStore.saveAgentOutput) {
-      metadataStore
-        .saveAgentOutput(info.agentId, {
+    // Bulk FIRST, reference SECOND, both inside ONE retry.
+    //
+    // The reference is the only route to `ptah.agentOutput:<agentId>` — the
+    // restore path reads the key named by `ref.agentId` and nothing else
+    // enumerates it. Firing the bulk write off unretried while the reference
+    // got three attempts meant a single transient storage failure on the bulk
+    // left a durable reference pointing at a key that was never written, and
+    // the agent's execution tree was gone with a `warn` as the only trace
+    // (TASK_2026_324 finding 2). Sequencing them makes the reference the
+    // receipt for the bulk: it cannot become durable first, and a retry
+    // re-runs the bulk, which is a whole-record overwrite and so idempotent.
+    const persistBulkThenReference = async (): Promise<void> => {
+      if (
+        agentHasFinished &&
+        persistedOutput &&
+        metadataStore.saveAgentOutput
+      ) {
+        await metadataStore.saveAgentOutput(info.agentId, {
           segments: persistedOutput.segments,
           streamEvents: persistedOutput.streamEvents,
-        })
-        .catch((error) => {
-          logger.warn(
-            `${tag} Failed to persist agent output for ${info.agentId}`,
-            error instanceof Error ? error : new Error(String(error)),
-          );
         });
-    }
+      }
+      await metadataStore.addCliSession(parentSessionId, ref);
+    };
 
-    retryWithBackoff(() => metadataStore.addCliSession(parentSessionId, ref), {
+    retryWithBackoff(persistBulkThenReference, {
       retries: 3,
       initialDelay: 1000,
       shouldRetry: (error: unknown) => {

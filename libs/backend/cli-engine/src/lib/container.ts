@@ -93,6 +93,7 @@ import {
   readCliManageGitignore,
   readCliPreflightTimeoutMs,
 } from './bootstrap/harness-boot';
+import { shutdownHostRuntime } from './bootstrap/shutdown-host-runtime.js';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import {
   registerCliAgentRuntimeServices,
@@ -239,6 +240,20 @@ export class CliDIContainer {
   private static _diagnostics: { dispose(): void } | undefined;
 
   /**
+   * The child container the most recent {@link setup} built, held statically
+   * for exactly the reason {@link _diagnostics} is — and here the reason is
+   * load-bearing rather than convenient. `setup()` registers
+   * `AgentProcessManager` and `SdkPtahCliRegistry` on the CHILD container it
+   * creates, never on tsyringe's global one, so a signal handler that reaches
+   * for the global container gets `isRegistered === false` for both tokens and
+   * any teardown routed through it is a permanent, silent no-op. This static
+   * is the only reference `apps/ptah-cli/src/main.ts` can reach.
+   *
+   * Undefined before `setup()` runs and after {@link disposeHostRuntime}.
+   */
+  private static _container: DependencyContainer | undefined;
+
+  /**
    * Synchronously flush any pending file-based settings writes to disk.
    * Safe to call from process.on('exit', ...) — never throws.
    * No-op if setup() has not been called yet.
@@ -269,6 +284,32 @@ export class CliDIContainer {
   }
 
   /**
+   * The container most recently built by {@link setup}, or undefined if
+   * `setup()` has not run (or its runtime has already been disposed).
+   * Read-only for callers; the CLI's signal handlers are the reason it exists.
+   */
+  static get activeContainer(): DependencyContainer | undefined {
+    return CliDIContainer._container;
+  }
+
+  /**
+   * End the OS-level resources the active container owns — spawned CLI agent
+   * subprocesses first, then the ptah-cli proxy leases they were speaking
+   * through. Safe from a signal handler: never throws, and a no-op when
+   * `setup()` never ran.
+   *
+   * Clears the static before doing the work, for the same reason
+   * {@link disposeDiagnostics} clears its own: a second signal (or the `exit`
+   * hook firing after a signalled teardown) must not re-enter a disposal that
+   * has already been started.
+   */
+  static async disposeHostRuntime(): Promise<void> {
+    const container = CliDIContainer._container;
+    CliDIContainer._container = undefined;
+    await shutdownHostRuntime(container);
+  }
+
+  /**
    * Setup and orchestrate all service registrations for the TUI.
    *
    * @param options - Bootstrap options (paths)
@@ -276,6 +317,10 @@ export class CliDIContainer {
    */
   static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
     const container = globalContainer.createChildContainer();
+    // Recorded before any registration runs, not after: a bootstrap that
+    // throws part-way through may already have spawned something, and the
+    // signal handlers need a reference to it either way.
+    CliDIContainer._container = container;
 
     container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
     const userDataPath =
