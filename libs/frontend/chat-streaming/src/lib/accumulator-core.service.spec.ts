@@ -613,6 +613,41 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         beforeBackfill,
       );
     });
+
+    // TASK_2026_327 finding 6: a same-id replacement that changes `messageId`
+    // left the stale object in the OLD bucket. The old bucket kept pointing at
+    // a pre-replacement event the reader was never told had moved.
+    it('removes the stale entry from the old bucket when a same-id write re-parents the message', () => {
+      // A message_start arrives under msg-a.
+      core.process(
+        state,
+        msgStart({ id: 'evt-msg-shared', messageId: 'msg-a' }),
+        makeCtx(),
+      );
+
+      const before = state.events.get('evt-msg-shared');
+      expect(before).toBeDefined();
+      expect(state.eventsByMessage.get('msg-a')).toContain(before);
+
+      // The same event id is re-processed under a different message — a
+      // re-parent that the accumulator replays through setStreamingEventCapped.
+      core.process(
+        state,
+        msgStart({ id: 'evt-msg-shared', messageId: 'msg-b' }),
+        makeCtx(),
+      );
+
+      const after = state.events.get('evt-msg-shared');
+      expect(after).toBeDefined();
+
+      // The old bucket no longer holds the stale object. It may have been
+      // deleted entirely when the last entry was removed — that is correct.
+      const oldBucket = state.eventsByMessage.get('msg-a');
+      expect(oldBucket ?? []).not.toContain(before);
+      // The new bucket holds the current object.
+      const newBucket = state.eventsByMessage.get('msg-b');
+      expect(newBucket).toContain(after);
+    });
   });
 
   // ---- Dedup-source-replay: the wizard/harness regression cases ----------
