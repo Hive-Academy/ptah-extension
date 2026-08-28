@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_278
 status: done
-type: refactor
+type: REFACTORING
 title: >-
   Harness reconciler — one declarative, verified fan-out of skills, commands,
   agents and MCP to the Claude SDK and every connected CLI agent
