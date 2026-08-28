@@ -26,6 +26,7 @@ import { SkillTriggerService } from '../triggers/skill-trigger.service';
 import { SkillSynthesisDiagnosticsService } from '../diagnostics.service';
 import { SkillInvocationRecorder } from '../skill-invocation-recorder';
 import { SkillRegistryStore } from '../skill-registry.store';
+import { SkillMdMigrationStateStore } from '../skill-md-migration-state.store';
 import { SkillRegistryCatalogService } from '../skill-registry-catalog.service';
 import { SkillEnhancerService } from '../skill-enhancer.service';
 import { SkillSynthesizerService } from '../skill-synthesizer.service';
@@ -73,6 +74,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillSynthesisDiagnosticsService);
   container.registerSingleton(SkillInvocationRecorder);
   container.registerSingleton(SkillRegistryStore);
+  container.registerSingleton(SkillMdMigrationStateStore);
   container.registerSingleton(SkillRegistryCatalogService);
   container.registerSingleton(SkillEnhancerService);
   container.registerSingleton(SkillSynthesizerService);
@@ -127,6 +129,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, {
     useToken: SkillRegistryStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_MD_MIGRATION_STATE_STORE, {
+    useToken: SkillMdMigrationStateStore,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE, {
     useToken: SkillRegistryCatalogService,

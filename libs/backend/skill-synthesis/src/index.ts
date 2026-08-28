@@ -102,8 +102,13 @@ export {
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,
+  SKILL_MD_MIGRATION_VERSION,
+  SKILL_MD_MIGRATION_RESCAN_INTERVAL_MS,
   type MigrationResult,
+  type SkillMdMigrationMarkerState,
+  type SkillMdMigrationMarkerStore,
 } from './lib/skill-md-migration';
+export { SkillMdMigrationStateStore } from './lib/skill-md-migration-state.store';
 export {
   SkillSynthesizerService,
   SYNTHESIZED_SKILL_JSON_SCHEMA,

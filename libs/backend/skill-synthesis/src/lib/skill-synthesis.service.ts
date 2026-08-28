@@ -73,7 +73,10 @@ import { SkillSynthesizerService } from './skill-synthesizer.service';
 import type { SessionVerdictStore } from './archaeology/session-verdict.store';
 import type { SessionVerdict } from './archaeology/session-verdict.types';
 import { SkillRegistryStore } from './skill-registry.store';
-import { migrateSkillMdFiles } from './skill-md-migration';
+import {
+  migrateSkillMdFiles,
+  type SkillMdMigrationMarkerStore,
+} from './skill-md-migration';
 import { readCandidateBodyFile } from './candidate-body';
 import type { SkillQueueStore } from './queue/skill-queue.store';
 import type { EnqueueOutcome } from './queue/skill-queue.types';
@@ -256,6 +259,20 @@ export class SkillSynthesisService {
       isOptional: true,
     })
     private readonly stageHandlers: SkillStageHandlersService | null = null,
+    /**
+     * The per-root marker that lets the one-time SKILL.md content migration
+     * below stop re-walking `~/.ptah/skills` on every launch (migration `0041`,
+     * TASK_2026_331 B4).
+     *
+     * Optional for the same reason the queue is: a host without persistence, or
+     * a spec that constructs the service by hand, resolves `null` and gets the
+     * pre-marker behaviour — the full walk, every time. Absent is never allowed
+     * to mean "skip".
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_MD_MIGRATION_STATE_STORE, {
+      isOptional: true,
+    })
+    private readonly mdMigrationState: SkillMdMigrationMarkerStore | null = null,
   ) {}
 
   /**
@@ -301,14 +318,29 @@ export class SkillSynthesisService {
           },
         );
       }
-      const activeResult = migrateSkillMdFiles(activeRoot, this.logger);
+      // The marker is read INSIDE `migrateSkillMdFiles`, before it touches the
+      // disk. `openAndMigrate()` above guarantees the `0041` table exists by
+      // now, which is why this needs no sidecar file. Each root carries its own
+      // marker row: the candidates root defaults to a subdirectory of the
+      // active root but can be repointed by `skillSynthesis.candidatesDir`, and
+      // a failure in the second walk must not be masked by the first one's
+      // success.
+      const activeResult = migrateSkillMdFiles(
+        activeRoot,
+        this.logger,
+        this.mdMigrationState,
+      );
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (active root)',
         {
           ...activeResult,
         },
       );
-      const candidatesResult = migrateSkillMdFiles(candidatesRoot, this.logger);
+      const candidatesResult = migrateSkillMdFiles(
+        candidatesRoot,
+        this.logger,
+        this.mdMigrationState,
+      );
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (candidates root)',
         {
