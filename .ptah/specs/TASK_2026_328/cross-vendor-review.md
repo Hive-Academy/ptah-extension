@@ -54,6 +54,62 @@ the one this task already used and is the consistent choice.
 - `jsonl-reader.streaming.spec.ts` — the no-trailing-newline case is covered for
   `readJsonlMessages` at `:146-154` but not for `readJsonlTail`.
 
+## Resolution — 2026-08-28
+
+Fixed, and the finding turned out to be twice as wide as reported.
+
+The reviewer named `internalQuery.queueTimeoutMs`. A repo-wide grep found that
+**neither** `internalQuery` key was registered anywhere:
+
+- `internalQuery.maxConcurrent` — absent from `FILE_BASED_SETTINGS_KEYS`, and
+  absent from `apps/ptah-extension-vscode/package.json contributes.configuration`.
+- `internalQuery.queueTimeoutMs` — same, as reported.
+
+`maxConcurrent` is the more consequential of the two. It is the limit on the
+process-wide gate that TASK_2026_323 B6 introduced, pinned at
+`DEFAULT_MAX_CONCURRENT = 1`. The prior `code-logic-review.md` rated the
+interactive-wizard stall behind that gate as its SERIOUS finding 1. A user who
+wanted to raise the limit to 2 to relieve it had no way to do so on any host.
+
+### What changed
+
+- `libs/backend/platform-core/src/file-settings-keys.ts` — both keys added to
+  `FILE_BASED_SETTINGS_KEYS`, with defaults `1` and `60000` matching
+  `DEFAULT_MAX_CONCURRENT` and `DEFAULT_QUEUE_TIMEOUT_MS` in
+  `agent-sdk/src/lib/internal-query/internal-query.service.ts:38,49`.
+- `libs/backend/platform-core/src/file-settings-keys.spec.ts` — a new
+  `internalQuery.*` block, three tests: registration, routing through
+  `isFileBasedSettingKey`, and defaults matching the gate constants.
+
+The defaults are hard-coded in the spec rather than imported. `platform-core` is
+L0.5 and imports nothing from `@ptah-extension/*`, so it cannot reach the
+`agent-sdk` constants. The test exists to catch that drift.
+
+### Verified reachable on all three hosts
+
+The service calls `getConfiguration('ptah', 'internalQuery.maxConcurrent', …)`.
+All three adapters branch on the same predicate with the same key spelling, in
+both the read and the write direction:
+
+| Adapter                          | Read     | Write              |
+| -------------------------------- | -------- | ------------------ |
+| `vscode-workspace-provider.ts`   | `:80-84` | `setConfiguration` |
+| `electron-workspace-provider.ts` | `:95`    | `:217`             |
+| `cli-workspace-provider.ts`      | `:89`    | `:109`             |
+
+### Tests
+
+`npx nx run-many -t test -p @ptah-extension/platform-core @ptah-extension/agent-sdk`
+— 2 of 2 projects ran, 30 suites, 537 passed, 4 todo, 0 failed. `typecheck`
+passed for both. The three new tests were confirmed to execute by running the
+suite filtered to `internalQuery`: 3 passed, 538 skipped.
+
+### Left open
+
+The three `readJsonlTail` boundary cases in "Test gaps recorded" above are still
+missing. They are test coverage for behaviour already proven correct, not
+defects, so they do not hold the task open.
+
 ## Outcome
 
-Status stays `in_review`. Close it after the `queueTimeoutMs` key is registered.
+Status moved `in_review` → `done`. The review queue is empty.

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_328
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Register memory.enabled as a file-based key, bound the internal-query queue
