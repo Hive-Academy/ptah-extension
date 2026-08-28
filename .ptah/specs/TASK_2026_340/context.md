@@ -1,105 +1,80 @@
-# Context
+# Context — TASK_2026_340
 
-## What the user reported
+## Where this came from
 
-"Most of the work is done on large monorepos with deep libraries and
-architecture and we shouldn't have a laggy editor that intervenes with the main
-process or degrades performance."
+Raised by the TASK_2026_308 implementer as a limit of their own fix, then sized
+independently during that task's review on 2026-08-28. Verdict: **user-visible**.
 
-Surfaced by the boot probe built for TASK_2026_331: `editor:getFileTree` was
-issued at 9563 ms and had not answered 65 seconds later on this repo. It
-answered normally on a smaller project (10.7 s and 21.9 s on property-hub), so
-the cost scales with the tree.
+The implementer declined to widen the prune unasked, which was correct. A
+broader deletion rule over a user's session history is exactly the kind of change
+that should not be added quietly as a side effect of a different fix.
 
-## Measurement (2026-08-28)
+## The gap
 
-Replicating `buildFileTree`'s exact algorithm — sequential recursion,
-`TREE_HIDDEN_DIRS` applied — against two real workspaces:
+TASK_2026_308 fixed the producer: the importer no longer mints a phantom
+`Session <date>` entry for a contentless file.
 
-| Workspace      | dirs read | entries | walk    | payload  |
-| -------------- | --------- | ------- | ------- | -------- |
-| ptah-extension | 10738     | 69487   | 3945 ms | 10.91 MB |
-| property-hub   | 1731      | 10328   | 591 ms  | 1.49 MB  |
+It did nothing for entries already on disk, and the existing sweep cannot reach
+them.
 
-Cost by depth, on ptah-extension:
+`pruneTitleOnlySessions`
+(`libs/backend/agent-sdk/src/lib/session-importer.service.ts:282-317`) delegates
+to `isTitleOnlySidecar` (`:325-353`). That predicate returns true only when a
+parsed `ai-title` line is present and no `system` or `user` line is.
 
-| depth | dirs read | walk    | payload  |
-| ----- | --------- | ------- | -------- |
-| 1     | 1         | 10 ms   | 0.01 MB  |
-| 2     | 25        | 4 ms    | 0.03 MB  |
-| 3     | 120       | 21 ms   | 0.34 MB  |
-| 4     | 998       | 104 ms  | 0.96 MB  |
-| 6     | 10738     | 1071 ms | 10.91 MB |
+A whitespace-only file has **zero parseable lines**. `sawAiTitle` never becomes
+true, so the predicate returns false unconditionally, so the entry is never
+pruned. It survives every future scan for the life of the store.
 
-Sequential vs parallel siblings at depth 6: 1071 ms -> 349 ms.
+## What the user sees
 
-## Diagnosis
+A session in the list that opens to nothing, forever, with no affordance to
+remove it. Only users who already hit the bug before TASK_2026_308 shipped are
+affected, and only for the specific files that triggered it — but for those users
+it does not age out.
 
-Three compounding causes, in order of impact.
+## The cleanup, and the constraint that shapes it
 
-1. **The default depth is 6.** That materializes 69487 entries the user will
-   never look at. A file explorer paints the root's children collapsed. Depth 2
-   is a 360x payload reduction and a 430x reduction in directory reads.
-2. **Sibling recursion is sequential.** `buildFileTree` awaits each child
-   directory inside a `for` loop, so 10738 reads happen one at a time. Under
-   contention with the post-window boot — SQLite migration, harness reconcile,
-   session import and the file-index build all doing disk I/O on the same event
-   loop — a few ms per read is what turns 4 s into more than 65 s.
-3. **No cap.** Nothing bounds the response, so a pathological tree has no
-   backstop.
+**Positive re-classification only.** Open the entry's backing file, re-run the
+corrected guard from TASK_2026_308, and delete the entry only when the file
+definitely matches — the whole file in hand, no session content, nothing
+parseable.
 
-## Why the fix is safe
+**Do not key on the entry's name.** `Session <date>` is a legitimate name for a
+real session whose first user message produced no usable title text — see the
+`sessionName || 'Session ${date}'` fallback at `:736`. A name heuristic would
+delete real history.
 
-The lazy path already exists and is already used at the depth-6 boundary today.
-A directory at the boundary returns `{ needsLoad: true, children: [] }`, and
-`EditorWorkspaceHelper.loadDirectoryChildren` fetches it through
-`editor:getDirectoryChildren` on expand. `mergeLoadedSubtrees` carries
-already-loaded subtrees across a reload, so lowering the depth moves the
-boundary closer and changes nothing else.
+This is the same principle `isTitleOnlySidecar` already documents in its own
+comment: a truncated or unparseable real-session file must FAIL the positive test
+rather than be misclassified. Preserve that. The cost of a false negative here is
+one stale row. The cost of a false positive is a user losing a conversation.
 
-`node_modules` and `dist` were NOT the problem — `TREE_HIDDEN_DIRS` already
-excludes them at every depth. An earlier assumption that the walk descended into
-`node_modules` was wrong.
+## A dependency worth checking first
 
-## Result (measured after the fix, same method as before)
+The TASK_2026_308 review found the corrected guard itself had to be revised: an
+early version keyed on `parsedRecords`, which conflated "no session content" with
+"could not parse", and would have dropped a real session whose only line failed
+`JSON.parse` — a leading UTF-8 BOM is enough. The final discriminator is whether
+the file held any non-whitespace bytes at all.
 
-| Workspace      | dirs read   | walk             | payload           |
-| -------------- | ----------- | ---------------- | ----------------- |
-| ptah-extension | 10738 -> 25 | 3945 ms -> 12 ms | 10.91 MB -> 28 KB |
-| property-hub   | 1731 -> 27  | 591 ms -> 6 ms   | 1.49 MB -> 50 KB  |
+**Use the final version.** If this cleanup re-runs the earlier, wrong test
+against stored entries, it will delete real sessions rather than merely fail to
+import them. Read `session-importer.service.ts` as it stands rather than
+reproducing the guard from memory.
 
-429x fewer directory reads and a 399x smaller payload on this repo.
+Also note the bound: a whitespace-only file of exactly `METADATA_PREFIX_BYTES`
+may or may not be covered depending on what TASK_2026_308 settled on for that
+case. Check before assuming.
 
-## What shipped
+## Verification
 
-1. `FILE_TREE_INITIAL_DEPTH = 2`, replacing the inline `6`. The constant carries
-   the per-depth measurement table so the next person can see what raising it
-   costs.
-2. `buildFileTree` fans siblings out with `Promise.all` instead of awaiting each
-   child inside the loop. Result order is unchanged — `Promise.all` preserves
-   input order and the sort still runs before the fan-out.
-
-Nothing else changed. `TREE_HIDDEN_DIRS` filtering, the explicit-access
-asymmetry, `getDirectoryChildren` and `mergeLoadedSubtrees` are all untouched.
-
-## Tests
-
-`editor-file-tree-cost.spec.ts` asserts COUNTS and ORDERING, never timings — a
-wall-clock assertion on a directory walk is a flake generator, and the two
-things that regressed here are countable.
-
-- Read count does not grow with tree depth: 5 reads at fixture depths 3, 6 and
-  10 alike. This is the defect's signature — cost scaling with the tree rather
-  than with the level being shown.
-- The depth-2 boundary is where it should be: the root's children carry real
-  listings, their children carry `needsLoad: true`.
-- Siblings are genuinely concurrent: the in-flight read count reaches the full
-  fanout. The sequential form cannot exceed 1 by construction, whatever the
-  fanout, so this test cannot pass on the old code.
-- Result order is unchanged.
-- `getDirectoryChildren` still returns the same shape, so expanding feels the
-  same at every level.
-
-Verified failing before the change: 5 of the 6 new cases failed against the
-unfixed handler. The sixth is the `getDirectoryChildren` guard, which was
-already correct and is there to catch the fix over-reaching.
+- A stored entry whose backing file is whitespace-only is removed by the sweep.
+- A stored entry whose backing file is a real session named `Session <date>`
+  (because no title text was extractable) is **kept**. This is the test that
+  matters — it is the one that fails if someone reaches for a name heuristic.
+- A stored entry whose backing file is a real session that fails to parse is
+  **kept**.
+- A stored entry whose backing file no longer exists — decide deliberately and
+  write the reason down. Deleting on absence is defensible; doing it by accident
+  is not.
