@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_331
 
-**Total Tasks**: 46 | **Batches**: 8 (7 plan batches; Batch 2 splits into 2A backend and 2B frontend) | **Status**: 1/8 complete (Batch 1 done)
+**Total Tasks**: 46 (8 cancelled after measurement) | **Batches**: 8 | **Status**: Batch 1 done; Batch 2 cancelled on evidence; Batches 3-7 pending
 
 **Source plan**: `implementation-plan.md` (v2, approved 2026-08-27)
 **Branch**: `fix/electron-update-check-timeout`
@@ -312,23 +312,25 @@ open" — was tested three ways. Read this before doing any of Batch 2A or 2B.
    B2B.T2's premise is wrong too. `workspace-rpc.handlers.ts:133` reads workspace
    providers; `:317` swaps JSON-backed context and starts non-blocking work.
 
-### Measured boot window
+### Measured boot window — three runs, three configurations
 
 `apps/ptah-electron-e2e/scripts/measure-boot-rpcs.mjs` hooks the `rpc` IPC
 channel in the main process and records every call with its arrival time.
-Run against this repo as the workspace, fresh DB, initial view `chat`:
 
-| Marker                               | Time        |
-| ------------------------------------ | ----------- |
-| window (`Startup config registered`) | 2416 ms     |
-| `openAndMigrate()` started           | 2530 ms     |
-| SQLite open + migrated               | 3494 ms     |
-| **first renderer RPC**               | **6445 ms** |
+| Workspace      | Database    | Window  | SQLite open | Window width | First RPC | Margin   |
+| -------------- | ----------- | ------- | ----------- | ------------ | --------- | -------- |
+| ptah-extension | fresh       | 2416 ms | 3494 ms     | 1078 ms      | 6445 ms   | +2951 ms |
+| property-hub   | fresh       | 6443 ms | 7058 ms     | 615 ms       | 16283 ms  | +9225 ms |
+| property-hub   | 997 MB copy | 2515 ms | 4457 ms     | 1942 ms      | 7632 ms   | +3175 ms |
 
-Readiness window: **1078 ms**. First call lands ~3 s AFTER it closes. Of 26
-calls across 20 methods, **none** was in `memory:`, `corpus:`, `mem:`,
-`skillSynthesis:`, `indexing:`, `cron:` or `gateway:`. Full trace:
-`tmp/boot-probe.json`.
+**No RPC arrived before SQLite was open in any run.** The renderer's first call
+never lands closer than ~3 s AFTER the window closes.
+
+The third run settles it. The plan expected `quick_check` on a large database to
+widen the window to 2-20 s. Measured against a COPY of the real 997 MB
+`ptah.sqlite`, `openAndMigrate()` took **1942 ms** — the window stays under 2 s
+and the margin to the first renderer call is still over 3 s. The large-database
+scenario the readiness contract was designed for does not occur.
 
 ### The one real risk, found by an independent review
 
@@ -344,25 +346,31 @@ says why: the constructor effect returns on its first observation
 through `get-startup-config`, so no transition occurs. The four calls happen only
 when the DASHBOARD renders and calls `refreshIfNeeded()`.
 
-**Residual uncertainty**: the measured run booted into `chat`. A profile whose
-initial view is `dashboard` would issue those four calls early, and on a large
-database — where `quick_check` widens the window to 2-20 s against a first call
-at ~6.4 s — they could land before SQLite is open. That is the ONLY scenario in
-which a readiness guard fires.
+Two of those calls WERE observed — `skillSynthesis:listCandidates` and
+`skillSynthesis:stats` at 28 s in the property-hub / fresh-DB run — which
+confirms the code path is live. They landed 21 s AFTER SQLite was open.
 
-### Corrected scope, if Batch 2 proceeds
+**The residual scenario was tested and does not occur.** The concern was a large
+database widening the window past the first call. Run 3 measured exactly that
+and the window was 1942 ms against a first call at 7632 ms. No configuration
+tested puts a SQLite-backed call inside the window.
 
-- Guard exactly four methods: `memory:stats`, `skillSynthesis:listCandidates`,
-  `cron:list`, `gateway:listBindings`. Not 77.
-- Do NOT touch `SessionRpcHandlers`, `WorkspaceRpcHandlers`,
-  `rpc-session.types.ts`, `session-loader.service.ts` or
-  `electron-layout.service.ts`. B2A.T3's session half, B2A.T4's session half,
-  B2B.T1 and B2B.T2 are all based on refuted premises.
-- Confirm the dashboard-first scenario before building anything: re-run the
-  probe with `initialView = dashboard` and a copy of a large database.
-- Batch 5 removes `quick_check` from the boot path, which shrinks the window
-  that makes even this scenario possible. Doing Batch 5 first may delete the
-  need for Batch 2 entirely.
+### Verdict: do not build Batch 2A.T3-T5 or Batch 2B
+
+Batch 1 already closed this gap. It opened the window at 2.4 s AND kept
+`openAndMigrate()` as the first awaited call of the post-window boot, so SQLite
+is usable ~2 s later — well before the renderer finishes its own bootstrap and
+issues anything. A readiness guard would be dead code on every measured path.
+
+If a future change reopens the window — a slower migration, an extra awaited
+step in front of `openAndMigrate()`, or a renderer that calls earlier — re-run
+the probe first. Build the guards only against a run that shows a call inside
+the window, and then only for the methods that run shows.
+
+Do NOT touch `SessionRpcHandlers`, `WorkspaceRpcHandlers`,
+`rpc-session.types.ts`, `session-loader.service.ts` or
+`electron-layout.service.ts` under any scope. Those targets rest on refuted
+premises, not on a window that happens to be narrow today.
 
 ### Delivered regardless
 
@@ -413,7 +421,7 @@ measurement.
 
 ---
 
-### Task B2A.T3: Widen the SQLite-backed RPC result contracts — PENDING
+### Task B2A.T3: Widen the SQLite-backed RPC result contracts — CANCELLED (premise refuted)
 
 **Files**
 
@@ -433,7 +441,7 @@ measurement.
 
 ---
 
-### Task B2A.T4: Add readiness guards to the SQLite-backed handlers — PENDING
+### Task B2A.T4: Add readiness guards to the SQLite-backed handlers — CANCELLED (premise refuted)
 
 **Files**
 
@@ -455,7 +463,7 @@ measurement.
 
 ---
 
-### Task B2A.T5: Broadcast the readiness transition — PENDING
+### Task B2A.T5: Broadcast the readiness transition — CANCELLED (premise refuted)
 
 **Files**
 
@@ -488,14 +496,14 @@ feat(shared,rpc-handlers): return typed readiness errors while the backend warms
 
 ## Batch 2B: Frontend readiness retry
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: frontend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
 **Rationale**: Angular signal work in `libs/frontend`. Different skill set and different file set from 2A. It starts only after 2A publishes the types.
 **Tasks**: 3 | **Dependencies**: Batch 2A
 
-### Task B2B.T1: Retry the session load on a readiness error — PENDING
+### Task B2B.T1: Retry the session load on a readiness error — CANCELLED (premise refuted)
 
 **Files**
 
@@ -516,7 +524,7 @@ feat(shared,rpc-handlers): return typed readiness errors while the backend warms
 
 ---
 
-### Task B2B.T2: Handle readiness in the layout sync — PENDING
+### Task B2B.T2: Handle readiness in the layout sync — CANCELLED (premise refuted)
 
 **Files**
 
@@ -530,7 +538,7 @@ feat(shared,rpc-handlers): return typed readiness errors while the backend warms
 
 ---
 
-### Task B2B.T3: Route the readiness message to the frontend — PENDING
+### Task B2B.T3: Route the readiness message to the frontend — CANCELLED (premise refuted)
 
 **Files**
 
@@ -562,7 +570,7 @@ feat(chat,core): retry startup RPCs when the backend reports it is warming (TASK
 
 ## Batch 3: Crash-resumable transcript chunking
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -670,7 +678,7 @@ perf(memory-curator,skill-synthesis): read transcripts in resumable chunks (TASK
 
 ## Batch 4: SKILL.md migration marker
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -746,7 +754,7 @@ perf(skill-synthesis): skip the SKILL.md re-walk with a persisted marker (TASK_2
 
 ## Batch 5: Maintenance worker and SQLite operations
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: backend-developer, with devops-engineer for T2 and T11
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -958,7 +966,7 @@ perf(persistence-sqlite): move integrity checks, purge and backup to a maintenan
 
 ## Batch 6: CPU worker pool, file index and hashing
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: backend-developer, with devops-engineer for T2
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential for T1 to T5; T6 and T7 (harness hashing) may run in parallel with T5 because they are file-disjoint
@@ -1105,7 +1113,7 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ## Batch 7: Harness abort signal and deduplication
 
-**Status**: PENDING
+**Status**: CANCELLED — see the Batch 2 scoping evidence above
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential

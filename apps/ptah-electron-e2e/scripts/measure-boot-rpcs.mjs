@@ -25,14 +25,14 @@
  * renderer issues the same startup calls either way — so the default empty-DB
  * run already answers the question of which methods need a guard.
  *
- * ## QUIT THE INSTALLED PTAH APP FIRST
+ * ## It coexists with the installed app
  *
- * `main.ts` takes `app.requestSingleInstanceLock()` and calls `app.quit()` when
- * it loses. With the installed app running, this probe's Electron exits during
- * startup and the first `evaluate` fails with "Execution context was destroyed"
- * — which reads like a harness bug and is not one. Measured 2026-08-28: the run
- * that happened while no installed app was open produced a full trace; the two
- * after it launched produced nothing.
+ * `main.ts` takes `app.requestSingleInstanceLock()`, but the lock is keyed by
+ * userData and `--user-data-dir` gives this run its own — measured 2026-08-28
+ * with the installed Ptah open throughout. If the first `evaluate` ever fails
+ * with "Execution context was destroyed", the app quit during startup for some
+ * OTHER reason; read the stdout the probe already captured rather than assuming
+ * a lock collision.
  *
  * ## Usage
  *
@@ -209,9 +209,8 @@ async function main() {
       error instanceof Error ? error.message : String(error),
     );
     console.error(
-      '[probe] The usual cause is the INSTALLED Ptah app being open — this run\n' +
-        '[probe] loses the single-instance lock and quits during startup. Close it\n' +
-        '[probe] and try again.',
+      '[probe] The app quit during startup. Read the stdout above — it is\n' +
+        '[probe] captured before this point and names the reason.',
     );
     await app.close().catch(() => undefined);
     process.exit(1);
