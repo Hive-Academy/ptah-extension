@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_332
-status: backlog
+status: in_progress
 type: BUGFIX
 title: >-
   CodeExecutionMCP workspace re-pointing has no operation queue, and the
