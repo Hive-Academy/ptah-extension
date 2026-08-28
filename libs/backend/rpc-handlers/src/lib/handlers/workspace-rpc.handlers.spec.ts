@@ -275,6 +275,38 @@ describe('WorkspaceRpcHandlers — workspace:switch import deferral', () => {
     expect(result).toEqual({ success: false, error: 'path is required' });
     expect(s.sessionImporter.scanAndImport).not.toHaveBeenCalled();
   });
+
+  // TASK_2026_331 B7 — the guards above are a POLICY about how often a switch is
+  // worth paying for. The guarantee that one root is never scanned twice AT ONCE
+  // moved into `SessionImporterService`, which is the object this handler and the
+  // Electron boot both resolve. These two pin that the move left the handler's
+  // own contract intact.
+
+  it('still hands the RAW path to the importer, not its normalized guard key', async () => {
+    const s = buildSuite();
+    s.sessionImporter.scanAndImport.mockResolvedValue(0);
+
+    await s.switchHandler({ path: WS_A });
+    await flushMicrotasks();
+
+    // The guard key is lowercased and slash-folded; the importer escapes the
+    // path it is given into a `~/.claude/projects` directory name, so handing it
+    // the key would send it looking in the wrong place. Normalization is the
+    // service's business, and it does its own.
+    expect(s.sessionImporter.scanAndImport).toHaveBeenCalledWith(WS_A, 50);
+  });
+
+  it('recency guard still spans separator and case variants of one root', async () => {
+    const s = buildSuite();
+    s.sessionImporter.scanAndImport.mockResolvedValue(1);
+
+    await s.switchHandler({ path: WS_A });
+    await flushMicrotasks();
+    await s.switchHandler({ path: 'd:/Projects/Alpha' });
+    await flushMicrotasks();
+
+    expect(s.sessionImporter.scanAndImport).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**

@@ -402,12 +402,19 @@ function formatHarnessLine(
  *
  * Non-fatal by contract: a workspace that cannot be written must never block
  * boot. Failures land in the health report instead.
+ *
+ * `options.signal` is forwarded to the reconciler, which honours it only while
+ * HASHING — it is detached per target the moment that target is about to write
+ * (`abort/pass-abort.ts`). So an abort abandons a pass that is still reading and
+ * never one that is mid-copy; a target either finishes with its manifest or was
+ * never touched. `options` is optional and unchanged for callers that pass
+ * neither field.
  */
 export async function reconcileHarness(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
   reason: string,
-  options: { downloadPending?: boolean } = {},
+  options: { downloadPending?: boolean; signal?: AbortSignal } = {},
 ): Promise<void> {
   if (workspaceRoot === undefined) {
     return;
@@ -420,6 +427,7 @@ export async function reconcileHarness(
       mode: 'full',
       reason,
       ...(options.downloadPending === true ? { downloadPending: true } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     });
     console.log(formatHarnessLine('reconciled', reason, health));
   } catch (error) {

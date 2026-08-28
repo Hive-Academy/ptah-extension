@@ -599,4 +599,180 @@ describe('SessionImporterService', () => {
       expect(imported).toBe(1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_331 B7 — one scan per workspace root at a time.
+  //
+  // Two independent callers resolve this same service and both call
+  // `scanAndImport` for the startup workspace: the Electron boot
+  // (`boot-heavy-services.ts`) and the `workspace:switch` RPC handler. The
+  // handler's own recency/backoff/in-flight guards read maps only the HANDLER
+  // writes, so the boot import was invisible to them and the same root was
+  // scanned twice on every launch. The dedup therefore lives here, in the one
+  // object both callers share.
+  // -------------------------------------------------------------------------
+
+  describe('in-flight deduplication by normalized workspace root', () => {
+    const PROJECTS_SUFFIX = '/.claude/projects';
+
+    // The overload sets on `fs.promises.readdir` / `readFile` are unusable with
+    // `mockImplementation`, so address them as plain mocks. The `slash` helper
+    // exists because `path.join` produces `\` on win32 and `/` elsewhere, and
+    // these assertions must read the same on both.
+    const readdirMock = fsPromises.readdir as unknown as jest.Mock;
+    const readFileMock = fsPromises.readFile as unknown as jest.Mock;
+
+    function slash(value: unknown): string {
+      return String(value).replace(/\\/g, '/');
+    }
+
+    /** How many times a scan walked `~/.claude/projects` — i.e. scans started. */
+    function scansStarted(): number {
+      return readdirMock.mock.calls.filter((call) =>
+        slash(call[0]).endsWith(PROJECTS_SUFFIX),
+      ).length;
+    }
+
+    /** How many times a scan read a `sessions-index.json`. */
+    function indexReads(): number {
+      return readFileMock.mock.calls.filter((call) =>
+        slash(call[0]).endsWith('sessions-index.json'),
+      ).length;
+    }
+
+    function entriesFor(ids: string[]): string {
+      return makeIndex(
+        ids.map((sessionId, i) => ({
+          sessionId,
+          modified: `2026-01-0${i + 1}T00:00:00.000Z`,
+        })),
+      );
+    }
+
+    /**
+     * Serve `~/.claude/projects` from `projectDirs` and each project's
+     * `sessions-index.json` from `indexByDir`. Every other `readdir` (the flat
+     * `.jsonl` fallback) is empty, and every `access` resolves.
+     *
+     * Implementations rather than `*Once` queues: two concurrent scans consume
+     * a shared queue in an order the test cannot predict.
+     */
+    function primeProjects(
+      projectDirs: string[],
+      indexByDir: Record<string, string[]>,
+    ): void {
+      fsPromises.access.mockResolvedValue(undefined);
+      readdirMock.mockImplementation((target: unknown) =>
+        slash(target).endsWith(PROJECTS_SUFFIX)
+          ? Promise.resolve(projectDirs)
+          : Promise.resolve([]),
+      );
+      readFileMock.mockImplementation((target: unknown) => {
+        const seen = slash(target);
+        const dir = Object.keys(indexByDir).find((d) => seen.includes(d));
+        return dir === undefined
+          ? Promise.reject(new Error(`unexpected readFile: ${seen}`))
+          : Promise.resolve(entriesFor(indexByDir[dir]));
+      });
+    }
+
+    beforeEach(() => {
+      // `jest.clearAllMocks()` in the outer hook clears CALLS but keeps
+      // implementations, and earlier blocks in this file install persistent
+      // ones. Reset so each case below starts from a blank fs.
+      fsPromises.access.mockReset();
+      readdirMock.mockReset();
+      readFileMock.mockReset();
+      (fsPromises.open as unknown as jest.Mock).mockReset();
+    });
+
+    it('runs ONE scan for two concurrent calls and gives both the same count', async () => {
+      primeProjects([ESCAPED], { [ESCAPED]: ['sess-a', 'sess-b'] });
+
+      const [first, second] = await Promise.all([
+        importer.scanAndImport(WORKSPACE),
+        importer.scanAndImport(WORKSPACE),
+      ]);
+
+      expect(scansStarted()).toBe(1);
+      expect(indexReads()).toBe(1);
+      // Both are 2 — not 2 and 0. A second scan would find every session
+      // already in the store and report an honest-looking zero, which is
+      // exactly how the duplicate stayed invisible.
+      expect(first).toBe(2);
+      expect(second).toBe(2);
+    });
+
+    it('runs a separate scan for each distinct root', async () => {
+      const ALPHA = '/workspace/alpha';
+      const BETA = '/workspace/beta';
+      primeProjects(['-workspace-alpha', '-workspace-beta'], {
+        '-workspace-alpha': ['alpha-1', 'alpha-2'],
+        '-workspace-beta': ['beta-1'],
+      });
+
+      const [alpha, beta] = await Promise.all([
+        importer.scanAndImport(ALPHA),
+        importer.scanAndImport(BETA),
+      ]);
+
+      expect(scansStarted()).toBe(2);
+      expect(alpha).toBe(2);
+      expect(beta).toBe(1);
+    });
+
+    it('joins a Windows and a POSIX spelling of the same directory', async () => {
+      // The startup root and the root the renderer echoes back through
+      // `workspace:switch` differ by separator, trailing separator and drive
+      // case on Windows. Keyed raw, these are two roots and two scans.
+      primeProjects(['c--repos-x-'], { 'c--repos-x-': ['win-1'] });
+
+      const [fromBoot, fromSwitch] = await Promise.all([
+        importer.scanAndImport('C:\\Repos\\X\\'),
+        importer.scanAndImport('c:/repos/x'),
+      ]);
+
+      expect(scansStarted()).toBe(1);
+      expect(fromBoot).toBe(1);
+      expect(fromSwitch).toBe(1);
+    });
+
+    it('clears the entry once a scan settles, so a later call scans again', async () => {
+      primeProjects([ESCAPED], { [ESCAPED]: ['sess-a'] });
+
+      await importer.scanAndImport(WORKSPACE);
+      expect(scansStarted()).toBe(1);
+
+      // A real re-scan — switching away and back — must still work. This is
+      // deliberately NOT a permanent "already imported" latch; how OFTEN a
+      // completed import is worth repeating is the RPC handler's time-based
+      // policy, not this map's.
+      await importer.scanAndImport(WORKSPACE);
+      expect(scansStarted()).toBe(2);
+    });
+
+    it('propagates a rejection to every joined caller and clears the entry', async () => {
+      // `findSessionsDirectory` guards `access` but not `readdir`, so a failing
+      // projects directory rejects out of the whole scan.
+      fsPromises.access.mockResolvedValue(undefined);
+      readdirMock.mockRejectedValue(new Error('projects unreadable'));
+
+      // Handlers attached at creation: the shared promise must never be a
+      // moment away from an unhandled rejection just because a joiner is slow.
+      const first = importer.scanAndImport(WORKSPACE).catch((e: unknown) => e);
+      const second = importer.scanAndImport(WORKSPACE).catch((e: unknown) => e);
+
+      const [firstError, secondError] = await Promise.all([first, second]);
+
+      expect(scansStarted()).toBe(1);
+      expect(firstError).toBeInstanceOf(Error);
+      expect(secondError).toBeInstanceOf(Error);
+      expect((firstError as Error).message).toBe('projects unreadable');
+      expect((secondError as Error).message).toBe('projects unreadable');
+
+      // A failure must not wedge the root shut.
+      await importer.scanAndImport(WORKSPACE).catch(() => undefined);
+      expect(scansStarted()).toBe(2);
+    });
+  });
 });

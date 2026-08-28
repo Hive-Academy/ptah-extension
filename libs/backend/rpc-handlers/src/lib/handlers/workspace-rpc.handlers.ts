@@ -420,9 +420,15 @@ export class WorkspaceRpcHandlers {
    * - **in-flight** — skip when a previous scan for this path has not resolved
    *   yet, so rapid re-switches during a slow scan do not stack.
    *
-   * Both are per-process only: a fresh process re-imports on the first switch,
-   * and the separate boot-time import (app activation) is unaffected because
-   * it calls `scanAndImport` directly, not through this handler.
+   * All three are per-process and see only THIS handler's runs, so a fresh
+   * process re-imports on the first switch. They are a POLICY about how often a
+   * switch is worth paying for, not a concurrency mechanism — the guarantee that
+   * one root is never scanned twice at once belongs to
+   * `SessionImporterService.scanAndImport`, which keys an in-flight map by the
+   * normalized root and is the one object every importer shares. That is what
+   * closes the gap this docblock used to admit: the boot-time import (app
+   * activation) calls `scanAndImport` directly, stamps none of the maps below,
+   * and so was invisible to all three guards.
    */
   /**
    * Rebuild the `@`-mention file index for the newly-activated workspace, OFF
@@ -506,6 +512,11 @@ export class WorkspaceRpcHandlers {
       return;
     }
 
+    // Kept as a cheap local short-circuit, no longer as the defence. A second
+    // scan of the same root can no longer happen even if this misses: the
+    // service joins the in-flight one (TASK_2026_331 B7). What this still buys
+    // is skipping the log line and the promise plumbing for a switch that would
+    // resolve to a scan already under way.
     if (this.importsInFlight.has(key)) {
       this.logger.debug(
         '[RPC] workspace:switch skipping session import (already in flight)',

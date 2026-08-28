@@ -96,6 +96,27 @@ export interface ScanAndImportOptions {
 }
 
 /**
+ * Collapse a workspace path to the key the in-flight map is keyed by.
+ *
+ * Three rules, applied in order: strip trailing separators, fold backslashes to
+ * forward slashes, lowercase. Deliberately a LOCAL reimplementation of
+ * `normalizeWorkspaceRoot` in
+ * `apps/ptah-electron/src/activation/boot-heavy-services.ts` — a backend lib
+ * must not import from an app, and this is three lines rather than a new shared
+ * module. The semantics must stay identical to that function's: the two callers
+ * this dedup exists for are the Electron boot (which keys its own one-shot latch
+ * with it) and the `workspace:switch` RPC, and the root the renderer echoes back
+ * differs from the startup root by separator and case on Windows. Two spellings
+ * of one directory must join one scan, not start two.
+ */
+function normalizeWorkspaceKey(workspacePath: string): string {
+  return workspacePath
+    .replace(/[\\/]+$/, '')
+    .replace(/\\/g, '/')
+    .toLowerCase();
+}
+
+/**
  * Hand the event loop back.
  *
  * `setImmediate` rather than `await Promise.resolve()`: a resolved promise is a
@@ -115,6 +136,25 @@ function yieldToEventLoop(): Promise<void> {
  */
 @injectable()
 export class SessionImporterService {
+  /**
+   * The scan currently running per normalized workspace root.
+   *
+   * This service is the ONE thing the two independent importers share
+   * (`SDK_TOKENS.SDK_SESSION_IMPORTER`, resolved by the Electron boot and by the
+   * `workspace:switch` RPC handler), which is why the concurrency state lives
+   * here rather than in either caller. The handler's own guards could only ever
+   * see the handler's own runs — the boot import stamped none of them — so the
+   * same root was scanned twice on every launch that switched into it
+   * (TASK_2026_331 B7).
+   *
+   * Deliberately NOT a "already imported" latch. The entry is cleared the
+   * instant the scan settles, so a genuine re-scan — switching away and back —
+   * still works. Whether a completed import is recent enough to skip is a
+   * different question with a different owner: the time-based guards in
+   * `WorkspaceRpcHandlers.deferSessionImport`.
+   */
+  private readonly scansInFlight = new Map<string, Promise<number>>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -122,7 +162,7 @@ export class SessionImporterService {
   ) {}
 
   /**
-   * Scan and import existing Claude sessions for a workspace
+   * Scan and import existing Claude sessions for a workspace.
    *
    * Optimization: Only reads file stats to find recent files, then only
    * parses the first few KB of the most recent files to extract metadata.
@@ -132,14 +172,57 @@ export class SessionImporterService {
    * freeze a window the user is already looking at — an import of 50 sessions
    * is 50 file opens, 50 reads and 50 store writes.
    *
+   * **A call for a root that is already being scanned JOINS that scan** and
+   * resolves with its count. It does not start a second one. Different roots run
+   * independently. A rejection reaches every joined caller, and clears the entry
+   * either way.
+   *
+   * **The FIRST caller's `limit` and `signal` govern the whole scan**, and that
+   * is the deliberate choice rather than an oversight. The alternatives are
+   * worse: honouring a joiner's abort would let one caller truncate another's
+   * import, and refusing to join callers whose options differ would reinstate
+   * the duplicate scan this dedup exists to remove — the two real call sites
+   * differ in exactly that way (the boot passes the shutdown signal, the RPC
+   * passes none) and both ask for the same 50. The only signal in play means
+   * "the host is quitting", so a joined caller receiving a truncated count is
+   * the correct answer to a question the process is no longer around to use.
+   * The reverse — a signalled caller joining an unsignalled scan and so not
+   * being able to cut it short — is bounded by the scan's own `setImmediate`
+   * yielding and by the boot coordinator's own drain deadline.
+   *
    * @param workspacePath - The workspace path to find sessions for
    * @param limit - Maximum number of sessions to import (default: 50)
    * @param options - Optional abort signal, checked between sessions
    * @returns Number of sessions imported
    */
-  async scanAndImport(
+  scanAndImport(
     workspacePath: string,
     limit = 50,
+    options?: ScanAndImportOptions,
+  ): Promise<number> {
+    const key = normalizeWorkspaceKey(workspacePath);
+    const joined = this.scansInFlight.get(key);
+    if (joined !== undefined) {
+      this.logger.debug(
+        '[SessionImporter] Joining the scan already in flight for this workspace',
+        { workspacePath },
+      );
+      return joined;
+    }
+
+    // Reserved synchronously. `runScan` is async, so it returns at its first
+    // await and the map is populated in the same turn as the call that started
+    // it — a second caller in the same tick cannot slip past into a second scan.
+    const scan = this.runScan(workspacePath, limit, options).finally(() => {
+      this.scansInFlight.delete(key);
+    });
+    this.scansInFlight.set(key, scan);
+    return scan;
+  }
+
+  private async runScan(
+    workspacePath: string,
+    limit: number,
     options?: ScanAndImportOptions,
   ): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
