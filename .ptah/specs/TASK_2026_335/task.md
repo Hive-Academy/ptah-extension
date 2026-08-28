@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_335
-status: in_progress
+status: done
 type: BUGFIX
 title: >-
   Three places the renderer silently loses a user's own content — the segment

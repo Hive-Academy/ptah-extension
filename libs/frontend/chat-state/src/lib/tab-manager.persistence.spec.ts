@@ -181,4 +181,118 @@ describe('TabManagerService — persistence payload + write cadence', () => {
 
     expect(setItem).toHaveBeenCalledTimes(1);
   });
+
+  // ==========================================================================
+  // Teardown flush (TASK_2026_335 / defect 2)
+  //
+  // `setTimeout` timers do not survive a document unload or an injector
+  // destroy. Without a flush, finishing a turn and closing the panel inside
+  // the 500 ms debounce — or inside the 5 s ceiling under a live stream —
+  // silently dropped the last finalized assistant message and its execution
+  // tree, and the resume path does not bring them back.
+  // ==========================================================================
+
+  describe('flush on teardown', () => {
+    /** Queue a save and return the message that must survive. */
+    function queuePendingSave(): string {
+      const tabId = service.createTab('closing');
+      jest.advanceTimersByTime(600);
+      setItem.mockClear();
+
+      service.setMessages(tabId, [makeMessage('last-reply')]);
+      // Deliberately NOT advancing timers: this is the race — the panel is
+      // closing while the trailing debounce is still pending.
+      expect(setItem).not.toHaveBeenCalled();
+      return tabId;
+    }
+
+    function storedMessageIds(): string[] {
+      return (readStored().tabs[0].messages as ExecutionChatMessage[]).map(
+        (m) => m.id,
+      );
+    }
+
+    it('flushPendingSave() writes the pending save immediately', () => {
+      queuePendingSave();
+
+      service.flushPendingSave();
+
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(storedMessageIds()).toEqual(['last-reply']);
+    });
+
+    it('flushPendingSave() is a no-op when nothing is pending', () => {
+      service.createTab('idle');
+      jest.advanceTimersByTime(600);
+      setItem.mockClear();
+
+      service.flushPendingSave();
+      service.flushPendingSave();
+
+      expect(setItem).not.toHaveBeenCalled();
+    });
+
+    it('pagehide flushes — the webview document being torn down', () => {
+      queuePendingSave();
+
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(storedMessageIds()).toEqual(['last-reply']);
+    });
+
+    it('beforeunload flushes — Electron closing the renderer window', () => {
+      queuePendingSave();
+
+      window.dispatchEvent(new Event('beforeunload'));
+
+      expect(storedMessageIds()).toEqual(['last-reply']);
+    });
+
+    it('the document going hidden flushes — a webview may be discarded next', () => {
+      queuePendingSave();
+
+      const original = Object.getOwnPropertyDescriptor(
+        Document.prototype,
+        'visibilityState',
+      );
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'hidden',
+      });
+      try {
+        document.dispatchEvent(new Event('visibilitychange'));
+      } finally {
+        delete (document as unknown as Record<string, unknown>)[
+          'visibilityState'
+        ];
+        if (original) {
+          Object.defineProperty(
+            Document.prototype,
+            'visibilityState',
+            original,
+          );
+        }
+      }
+
+      expect(storedMessageIds()).toEqual(['last-reply']);
+    });
+
+    it('injector destroy flushes — the Electron/canvas shell tearing the app down', () => {
+      queuePendingSave();
+
+      TestBed.resetTestingModule();
+
+      expect(storedMessageIds()).toEqual(['last-reply']);
+    });
+
+    it('several teardown signals in one unload still write only once', () => {
+      queuePendingSave();
+
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('beforeunload'));
+      service.flushPendingSave();
+
+      expect(setItem).toHaveBeenCalledTimes(1);
+    });
+  });
 });

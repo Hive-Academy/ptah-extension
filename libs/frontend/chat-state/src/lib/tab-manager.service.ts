@@ -1,4 +1,10 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  signal,
+  computed,
+  inject,
+} from '@angular/core';
 import {
   TabState,
   SessionStatus,
@@ -122,6 +128,7 @@ export class TabManagerService {
    * `type:data-access → type:core`.
    */
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -186,6 +193,12 @@ export class TabManagerService {
    */
   private _saveMaxWaitTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_MAX_WAIT_MS = 5000;
+
+  /**
+   * Teardown listeners registered on `window` / `document`, kept so the
+   * DestroyRef hook can take them back off again. Empty in a non-DOM host.
+   */
+  private readonly _teardownListeners: Array<() => void> = [];
 
   /**
    * What `_doSaveTabState` last actually wrote, per storage key. Compared
@@ -531,6 +544,70 @@ export class TabManagerService {
     // No default tab creation -- the empty state is shown when there are no tabs.
     // A tab is created on-demand when the user sends their first message
     // (ConversationService.startNewConversation auto-creates a tab if none exists).
+
+    this._armTeardownFlush();
+  }
+
+  /**
+   * Make the debounced `localStorage` write survive teardown.
+   *
+   * `saveTabState()` is a 500 ms trailing debounce with a 5 s ceiling, and
+   * `setTimeout` timers do not survive a document unload or an injector
+   * destroy. Finish a turn and close the panel inside that window and the
+   * just-finalized assistant message, its `ExecutionNode` tree and the tab
+   * metadata were never written — and they do not come back on restore either,
+   * because `SessionLoaderService.refreshResumableSubagentsForSession`
+   * deliberately discards what `chat:resume` returns as already cached
+   * (TASK_2026_335 / defect 2).
+   *
+   * Three signals, because no single one covers every host:
+   *
+   * - `pagehide` — the webview document being unloaded. This is the VS Code
+   *   panel-dispose case: by the time the extension host's `onDidDispose` runs
+   *   the webview is already gone, so the host cannot ask us to flush; the
+   *   webview has to notice for itself.
+   * - `beforeunload` — Electron closes a `BrowserWindow` (including via
+   *   `app.quit()` from `before-quit`) by unloading the renderer, which fires
+   *   this synchronously. `localStorage.setItem` is synchronous too, so the
+   *   write completes inside the handler.
+   * - `visibilitychange` to `hidden` — a VS Code webview created without
+   *   `retainContextWhenHidden` can be discarded after it is hidden, and the
+   *   discard does not reliably announce itself. Flushing on hide costs one
+   *   skipped-write check (`persistNeeded`) when nothing is pending.
+   *
+   * All three funnel into the same idempotent `flushPendingSave()`, so firing
+   * several of them in one teardown writes at most once.
+   */
+  private _armTeardownFlush(): void {
+    const flush = (): void => this.flushPendingSave();
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('pagehide', flush);
+      window.addEventListener('beforeunload', flush);
+      this._teardownListeners.push(() => {
+        window.removeEventListener('pagehide', flush);
+        window.removeEventListener('beforeunload', flush);
+      });
+    }
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      const onVisibility = (): void => {
+        if (document.visibilityState === 'hidden') flush();
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      this._teardownListeners.push(() =>
+        document.removeEventListener('visibilitychange', onVisibility),
+      );
+    }
+
+    this.destroyRef.onDestroy(() => {
+      // Injector teardown — the Electron shell or a canvas host destroying the
+      // Angular application. Flush BEFORE dropping the listeners: this hook is
+      // the last point at which the pending save can still be written.
+      this.flushPendingSave();
+      for (const remove of this._teardownListeners) remove();
+      this._teardownListeners.length = 0;
+    });
   }
 
   /** Clear the pending session load signal after it has been consumed. */
@@ -1884,6 +1961,31 @@ export class TabManagerService {
         this._doSaveTabState();
       }, this.SAVE_MAX_WAIT_MS);
     }
+  }
+
+  /**
+   * Write a pending debounced save NOW, cancelling its timers.
+   *
+   * Idempotent and cheap: with nothing pending it returns without touching
+   * storage, and `_doSaveTabState` skips byte-identical writes anyway. Safe to
+   * call from several teardown signals in the same unload.
+   *
+   * Public because teardown is not only ours to detect — a host that knows it
+   * is about to be torn down (an Electron `before-quit` relayed to the
+   * renderer, an e2e harness closing a surface) should be able to force the
+   * write rather than race the 500 ms debounce.
+   */
+  flushPendingSave(): void {
+    const pending =
+      this._saveTimeout !== null || this._saveMaxWaitTimeout !== null;
+    if (!pending) return;
+
+    if (this._saveTimeout) {
+      clearTimeout(this._saveTimeout);
+      this._saveTimeout = null;
+    }
+    this._clearSaveMaxWait();
+    this._doSaveTabState();
   }
 
   private _clearSaveMaxWait(): void {

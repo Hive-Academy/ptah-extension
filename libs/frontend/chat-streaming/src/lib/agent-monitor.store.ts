@@ -32,6 +32,12 @@ import type {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
+import {
+  MAX_FRONTEND_BUFFER,
+  capBuffer,
+  capSegments,
+  capStreamEventsInPlace,
+} from './agent-output-retention';
 
 /**
  * TODO: remove once the shared agent lifecycle events (AgentStartEvent,
@@ -52,60 +58,6 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   const s = (src ?? {}) as WorkflowRunFields;
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
-
-/** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
-const MAX_FRONTEND_BUFFER = 50 * 1024;
-
-/**
- * Maximum rich stream events retained per agent card.
- *
- * `stdout`/`stderr` have been capped at {@link MAX_FRONTEND_BUFFER} since this
- * store was written; `streamEvents` was not capped at all, and it is the one
- * that grows per TOKEN on the ptah-cli path. Three chatty agents in one session
- * put hundreds of thousands of event objects in the renderer heap, each of
- * which the agent card's execution-tree build walks.
- *
- * Deliberately far below the backend's own 50 000
- * (`MAX_ACCUMULATED_STREAM_EVENTS`): that cap bounds what is PERSISTED for
- * resume, this one bounds what a live card renders.
- */
-const MAX_AGENT_STREAM_EVENTS = 2000;
-
-/**
- * Recent events always kept regardless of type, so streaming text/thinking near
- * the tail (an agent's final answer) survives capping. Mirrors the backend's
- * `STREAM_EVENTS_TAIL_RESERVE`.
- */
-const AGENT_STREAM_EVENTS_TAIL_RESERVE = 400;
-
-/**
- * Overshoot tolerated before a re-cap runs. Capping the instant the array
- * exceeds the limit would make every subsequent event pay the rebuild — the
- * defect being fixed, in a new place. The slack amortizes each rebuild over
- * this many events.
- */
-const AGENT_STREAM_EVENTS_CAP_SLACK = 200;
-
-/**
- * Event types that establish tree structure and are preserved ahead of plain
- * deltas when capping. Mirrors the backend `LANDMARK_EVENT_TYPES` — duplicated
- * rather than imported because a frontend lib may not depend on a backend lib.
- */
-const LANDMARK_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'message_start',
-  'tool_start',
-  'tool_result',
-  'agent_start',
-  'thinking_start',
-  'message_complete',
-]);
-
-/**
- * Maximum structured output segments retained per agent card (Codex/Copilot
- * SDK adapters). Uncapped, a long agent run accumulated one segment per token
- * AND re-copied the whole array on every delta.
- */
-const MAX_AGENT_SEGMENTS = 500;
 
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 3;
@@ -817,10 +769,10 @@ export class AgentMonitorStore implements OnDestroy {
         }
         // The copy above is unavoidable (the array identity is what tells the
         // card's `@for` to re-diff), but the cap is what stops it from being a
-        // copy of an unbounded array on every token.
-        if (updated.segments.length > MAX_AGENT_SEGMENTS) {
-          updated.segments = updated.segments.slice(-MAX_AGENT_SEGMENTS);
-        }
+        // copy of an unbounded array on every token. `capSegments` folds the
+        // prose it drops and marks what it could not fold — this used to be a
+        // bare `slice(-MAX)` that silently deleted a long agent's opening plan.
+        updated.segments = capSegments(updated.segments);
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
         // Append in place — streamEvents shares its reference across deltas, so
@@ -1110,8 +1062,11 @@ export class AgentMonitorStore implements OnDestroy {
         // A resumed session's persisted events come from the backend's 50 000
         // budget, so they must meet the live card's cap on the way in.
         capStreamEventsInPlace(restoredEvents);
+        // Same treatment on the way back in as on the live path: a resumed
+        // card was where the old bare `slice` did its permanent damage, since
+        // the persisted record is the last copy of the dropped segments.
         const restoredSegments = ref.segments
-          ? ref.segments.slice(-MAX_AGENT_SEGMENTS)
+          ? capSegments([...ref.segments])
           : [];
         next = insertAgentSorted(next, {
           agentId: ref.agentId,
@@ -1119,7 +1074,10 @@ export class AgentMonitorStore implements OnDestroy {
           task: ref.task,
           status: ref.status,
           startedAt: Number.isNaN(ts) ? Date.now() : ts,
-          stdout: ref.stdout ?? '',
+          // Persisted stdout is kept to 100 KB by the backend, twice the live
+          // card's budget. Capping it here rather than on the next delta means
+          // a restored card states its truncation from the moment it appears.
+          stdout: capBuffer(ref.stdout ?? '', MAX_FRONTEND_BUFFER),
           stderr: '',
           expanded: false,
           segments: restoredSegments,
@@ -1716,297 +1674,4 @@ function insertAgentSorted(
   const next = [...list];
   next.splice(index, 0, agent);
   return next;
-}
-
-/**
- * Trim an agent's stream-event buffer back to {@link MAX_AGENT_STREAM_EVENTS},
- * IN PLACE, once it runs {@link AGENT_STREAM_EVENTS_CAP_SLACK} past the cap.
- *
- * In place because the array reference is shared across deltas and
- * `streamRevision` — not the array identity — is the agent card's change
- * signal (see {@link MonitoredAgent.streamEvents}). Reassigning it here would
- * silently break that contract for any consumer holding the old reference.
- *
- * Shape mirrors the backend's `capStreamEvents`: the most recent events are
- * kept whatever their type, and the remaining budget is filled with the most
- * recent LANDMARK events before that tail, so the rendered tree keeps its
- * structure instead of losing every `tool_start` that has no `tool_result` yet.
- *
- * ## Why the dropped deltas are folded rather than simply dropped
- *
- * `AgentMonitorTreeBuilderService` does not render the events; it renders the
- * ACCUMULATORS it folds them into — text per `${messageId}-block-${blockIndex}`
- * and tool input per `${toolCallId}-input`. Keeping only landmarks therefore
- * kept the message and tool NODES while deleting everything that gives them
- * content: an agent past 2 000 events showed a card of empty message bodies and
- * tool calls with no input, and — because the builder is incremental and folds
- * each event exactly once — nothing could ever restore them.
- *
- * So the delta content that is about to disappear is folded back into the
- * surviving structure before the array is rewritten:
- *
- * - `text_delta` / `thinking_delta` → ONE synthetic delta per accumulator key,
- *   carrying the concatenation of every dropped delta for that key, placed
- *   ahead of the kept head. Any deltas for the same key that survive in the
- *   tail then append onto it exactly as they did before the trim.
- * - `tool_delta` → the concatenated partial JSON is parsed and written onto the
- *   surviving `tool_start` as its `toolInput`, which is the builder's fallback
- *   when a tool has no accumulated input string. When some of that tool's
- *   deltas DO survive in the tail, a synthetic `tool_delta` carrying the
- *   dropped prefix is emitted instead — otherwise the tail fragment would be
- *   parsed on its own as a truncated JSON document.
- *
- * The fold is bounded by the number of distinct keys, not by the number of
- * dropped events, and it runs only on the trim (once per
- * {@link AGENT_STREAM_EVENTS_CAP_SLACK} events).
- */
-function capStreamEventsInPlace(events: FlatStreamEventUnion[]): void {
-  if (
-    events.length <=
-    MAX_AGENT_STREAM_EVENTS + AGENT_STREAM_EVENTS_CAP_SLACK
-  ) {
-    return;
-  }
-
-  const reserve = Math.min(
-    AGENT_STREAM_EVENTS_TAIL_RESERVE,
-    MAX_AGENT_STREAM_EVENTS,
-  );
-  const tailStart = events.length - reserve;
-  const headBudget = MAX_AGENT_STREAM_EVENTS - reserve;
-
-  const head: FlatStreamEventUnion[] = [];
-  for (let i = tailStart - 1; i >= 0 && head.length < headBudget; i--) {
-    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      head.push(events[i]);
-    }
-  }
-  head.reverse();
-
-  const tail = events.slice(tailStart);
-  const folded = foldDroppedDeltas(events, tailStart, tail, head);
-
-  // The fold is bounded by distinct accumulator keys, not by dropped events,
-  // so in practice it adds a handful of entries. It is still an addition, and
-  // the cap is the reason this function exists — so when the two do not both
-  // fit, CONTENT WINS and the oldest STRUCTURE goes.
-  //
-  // Dropping folded entries first (the shape this replaces) reinstated the
-  // very defect the fold exists to remove, and did it worst exactly where it
-  // mattered most: `headBudget` is `MAX - reserve`, so an agent whose landmarks
-  // saturate the head — 1 600 message and tool events, which a long tool-heavy
-  // run reaches — made `overflow >= folded.length` and discarded EVERY folded
-  // entry. That is a card of empty message bodies and tool calls with no input,
-  // which is where this function started.
-  //
-  // A landmark dropped here takes its folded run with it: `dropUnanchoredRuns`
-  // removes any synthetic delta left with no surviving message or tool to
-  // attach to, so the trim never emits content for structure that is gone.
-  let overflow =
-    folded.length + head.length + tail.length - MAX_AGENT_STREAM_EVENTS;
-  if (overflow > 0) {
-    head.splice(0, Math.min(overflow, head.length));
-    dropUnanchoredRuns(folded, head, tail);
-    overflow =
-      folded.length + head.length + tail.length - MAX_AGENT_STREAM_EVENTS;
-    // Backstop for the pathological case the head cannot absorb: thousands of
-    // distinct accumulator keys and almost no landmarks. Oldest folded first.
-    if (overflow > 0) folded.splice(0, overflow);
-  }
-
-  events.length = 0;
-  for (const ev of folded) events.push(ev);
-  for (const ev of head) events.push(ev);
-  for (const ev of tail) events.push(ev);
-}
-
-/** A delta run that was dropped, keyed by the accumulator it fed. */
-interface DroppedRun {
-  /** The first dropped event of the run — the template for the synthetic one. */
-  readonly first: FlatStreamEventUnion;
-  text: string;
-}
-
-/**
- * Drop synthetic folded deltas whose anchor landmark was trimmed to make
- * room for content.
- *
- * `capStreamEventsInPlace` now drops the oldest LANDMARKS first when the cap
- * is tight, rather than the folded content. A folded text run keys itself on
- * its `messageId` and a folded tool run on its `toolCallId`; if no surviving
- * landmark in `head` or `tail` still carries that id, the run is content with
- * nowhere to attach — the empty-card defect in a different shape. Removing it
- * keeps the trim honest: what remains is always structure WITH its content, or
- * nothing at all.
- *
- * Mutates `folded` in place.
- */
-function dropUnanchoredRuns(
-  folded: FlatStreamEventUnion[],
-  head: readonly FlatStreamEventUnion[],
-  tail: readonly FlatStreamEventUnion[],
-): void {
-  if (folded.length === 0) return;
-
-  const survivingMessageIds = new Set<string>();
-  const survivingToolCallIds = new Set<string>();
-  for (const event of head) {
-    if (event.messageId) survivingMessageIds.add(event.messageId);
-    if (event.toolCallId) survivingToolCallIds.add(event.toolCallId);
-  }
-  for (const event of tail) {
-    if (event.messageId) survivingMessageIds.add(event.messageId);
-    if (event.toolCallId) survivingToolCallIds.add(event.toolCallId);
-  }
-
-  for (let i = folded.length - 1; i >= 0; i--) {
-    const event = folded[i];
-    const hasMessage = event.messageId
-      ? survivingMessageIds.has(event.messageId)
-      : true;
-    const hasTool = event.toolCallId
-      ? survivingToolCallIds.has(event.toolCallId)
-      : true;
-    if (!hasMessage || !hasTool) {
-      folded.splice(i, 1);
-    }
-  }
-}
-
-/**
- * Build the synthetic delta events that stand in for everything dropped from
- * `events[0, tailStart)`, and patch `head` in place where a dropped run is
- * better expressed as tool input on a surviving `tool_start`.
- *
- * Returns the synthetic events oldest-run-first, to be placed ahead of `head`
- * so the surviving tail deltas still append after them.
- */
-function foldDroppedDeltas(
-  events: readonly FlatStreamEventUnion[],
-  tailStart: number,
-  tail: readonly FlatStreamEventUnion[],
-  head: FlatStreamEventUnion[],
-): FlatStreamEventUnion[] {
-  const kept = new Set<FlatStreamEventUnion>(head);
-  const textRuns = new Map<string, DroppedRun>();
-  const toolRuns = new Map<string, DroppedRun>();
-
-  for (let i = 0; i < tailStart; i++) {
-    const event = events[i];
-    if (kept.has(event)) continue;
-
-    const delta = (event as { delta?: unknown }).delta;
-    if (typeof delta !== 'string' || delta.length === 0) continue;
-
-    if (
-      event.eventType === 'text_delta' ||
-      event.eventType === 'thinking_delta'
-    ) {
-      accumulateRun(
-        textRuns,
-        `${event.eventType}:${event.messageId}:${event.blockIndex ?? 0}`,
-        event,
-        delta,
-      );
-    } else if (event.eventType === 'tool_delta' && event.toolCallId) {
-      accumulateRun(toolRuns, event.toolCallId, event, delta);
-    }
-  }
-
-  const synthetic: FlatStreamEventUnion[] = [];
-  for (const [key, run] of textRuns) {
-    synthetic.push(syntheticDelta(run, `folded-${key}`));
-  }
-
-  // A tool whose input still has surviving deltas must keep receiving the
-  // dropped bytes as a delta, or the two halves would be parsed separately.
-  const toolCallIdsInTail = new Set<string>();
-  for (const event of tail) {
-    if (event.eventType === 'tool_delta' && event.toolCallId) {
-      toolCallIdsInTail.add(event.toolCallId);
-    }
-  }
-
-  for (const [toolCallId, run] of toolRuns) {
-    if (
-      toolCallIdsInTail.has(toolCallId) ||
-      !foldToolInputOntoStart(head, toolCallId, run.text)
-    ) {
-      synthetic.push(syntheticDelta(run, `folded-tool-${toolCallId}`));
-    }
-  }
-
-  synthetic.sort((a, b) => a.timestamp - b.timestamp);
-  return synthetic;
-}
-
-function accumulateRun(
-  runs: Map<string, DroppedRun>,
-  key: string,
-  event: FlatStreamEventUnion,
-  delta: string,
-): void {
-  const existing = runs.get(key);
-  if (existing) {
-    existing.text += delta;
-    return;
-  }
-  runs.set(key, { first: event, text: delta });
-}
-
-/**
- * One event carrying a whole dropped run. Copied from the run's FIRST event so
- * it keeps that run's `messageId`, `blockIndex`, `toolCallId` and timestamp —
- * everything the tree builder keys on — and differs only in `id` and `delta`.
- */
-function syntheticDelta(run: DroppedRun, id: string): FlatStreamEventUnion {
-  return { ...run.first, id, delta: run.text } as FlatStreamEventUnion;
-}
-
-/**
- * Replace the surviving `tool_start` for `toolCallId` with a copy carrying the
- * dropped input, when it parses to a JSON object and the start has none of its
- * own. Returns false when no such landmark survived (or the bytes are not a
- * usable object), so the caller falls back to a synthetic delta.
- */
-function foldToolInputOntoStart(
-  head: FlatStreamEventUnion[],
-  toolCallId: string,
-  inputJson: string,
-): boolean {
-  const index = head.findIndex(
-    (event) =>
-      event.eventType === 'tool_start' && event.toolCallId === toolCallId,
-  );
-  if (index === -1) return false;
-
-  const toolStart = head[index] as FlatStreamEventUnion & {
-    toolInput?: Record<string, unknown>;
-  };
-  if (toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0) {
-    return true;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(inputJson);
-  } catch {
-    return false;
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return false;
-  }
-
-  head[index] = {
-    ...toolStart,
-    toolInput: parsed as Record<string, unknown>,
-  } as FlatStreamEventUnion;
-  return true;
-}
-
-function capBuffer(str: string, max: number): string {
-  if (str.length <= max) return str;
-  const excess = str.length - max;
-  const idx = str.indexOf('\n', excess);
-  return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
 }

@@ -27,6 +27,7 @@ import type {
 const MAX_AGENT_STREAM_EVENTS = 2000;
 const AGENT_STREAM_EVENTS_CAP_SLACK = 200;
 const MAX_AGENT_SEGMENTS = 500;
+const AGENT_SEGMENTS_CAP_SLACK = 100;
 
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
 const mockTabManager = {
@@ -50,6 +51,29 @@ function streamEvent(index: number, eventType: string): FlatStreamEventUnion {
 
 function textSegment(index: number): CliOutputSegment {
   return { type: 'tool', content: `segment-${index}` } as CliOutputSegment;
+}
+
+/** Matches the marker `capSegments` puts at the head of a trimmed card. */
+const SEGMENT_MARKER =
+  /^… (\d+) earlier output segments were trimmed to bound this card \((\d+) preserved below, (\d+) dropped\)\.$/;
+
+/** Matches the notice `capBuffer` puts at the head of a trimmed byte buffer. */
+const BUFFER_NOTICE =
+  /^… (\d+) characters of earlier output were dropped to bound this card\.$/;
+
+function markerOf(segments: readonly CliOutputSegment[]): RegExpExecArray {
+  const markers = segments.filter((s) => SEGMENT_MARKER.test(s.content));
+  expect(markers).toHaveLength(1);
+  expect(segments[0]).toBe(markers[0]);
+  return SEGMENT_MARKER.exec(markers[0].content) as RegExpExecArray;
+}
+
+/** Everything a reader of the card would actually see as prose. */
+function proseOf(segments: readonly CliOutputSegment[]): string {
+  return segments
+    .filter((s) => s.type === 'text' || s.type === 'thinking')
+    .map((s) => s.content)
+    .join('');
 }
 
 describe('AgentMonitorStore — retention bounds', () => {
@@ -151,9 +175,28 @@ describe('AgentMonitorStore — retention bounds', () => {
     expect(agentOf('a4').streamRevision).toBeGreaterThan(firstRevision);
   });
 
+  it('tolerates the segment slack before re-trimming', () => {
+    spawn('a5-slack');
+    const total = MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK;
+    for (let i = 0; i < total; i++) {
+      store.onAgentOutput({
+        agentId: 'a5-slack',
+        segments: [textSegment(i)],
+      } as AgentOutputDelta);
+    }
+
+    // Past the cap but inside the slack — untouched, so no delta pays for a
+    // rebuild. The predecessor `slice(-500)` re-copied on every delta here.
+    expect(agentOf('a5-slack').segments.length).toBe(total);
+  });
+
   it('caps segments', () => {
     spawn('a5');
-    for (let i = 0; i < MAX_AGENT_SEGMENTS + 120; i++) {
+    for (
+      let i = 0;
+      i < MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK + 120;
+      i++
+    ) {
       store.onAgentOutput({
         agentId: 'a5',
         segments: [textSegment(i)],
@@ -161,10 +204,166 @@ describe('AgentMonitorStore — retention bounds', () => {
     }
 
     const segments = agentOf('a5').segments;
-    expect(segments.length).toBe(MAX_AGENT_SEGMENTS);
+    expect(segments.length).toBeLessThanOrEqual(
+      MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK,
+    );
+    expect(segments.length).toBeLessThan(
+      MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK + 120,
+    );
     // The most recent segments are the ones kept.
     expect(segments[segments.length - 1].content).toBe(
-      `segment-${MAX_AGENT_SEGMENTS + 119}`,
+      `segment-${MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK + 119}`,
+    );
+  });
+
+  // ==========================================================================
+  // The segment cap, from the reader's side (TASK_2026_335 / defect 1)
+  //
+  // These push ALTERNATING types on purpose: `onAgentOutput` merges a run of
+  // same-typed `text`/`thinking` segments into one, so a stream of nothing but
+  // text never reaches the cap at all. Interleaved prose and tool calls — a
+  // real Codex or Copilot run — is what does.
+  // ==========================================================================
+
+  function pushInterleaved(agentId: string, pairs: number): void {
+    for (let i = 0; i < pairs; i++) {
+      store.onAgentOutput({
+        agentId,
+        segments: [{ type: 'text', content: `chunk-${i} ` }],
+      } as AgentOutputDelta);
+      store.onAgentOutput({
+        agentId,
+        segments: [
+          { type: 'tool-call', content: '', toolName: `tool-${i}` },
+        ] as CliOutputSegment[],
+      } as AgentOutputDelta);
+    }
+  }
+
+  it("folds the prose it drops — the agent's opening plan is still readable", () => {
+    spawn('fold');
+    pushInterleaved('fold', 400); // 800 segments, well past the 500 cap
+
+    const segments = agentOf('fold').segments;
+    const prose = proseOf(segments);
+
+    // The earliest reasoning is the whole point: a bare slice(-500) deleted it
+    // and nothing on the card said so.
+    expect(prose).toContain('chunk-0 ');
+    expect(prose).toContain('chunk-1 ');
+    // ...and the most recent prose is still there, in order, after it.
+    expect(prose).toContain('chunk-399 ');
+    expect(prose.indexOf('chunk-0 ')).toBeLessThan(prose.indexOf('chunk-399 '));
+  });
+
+  it('states at the head of the card that a trim happened, and what it cost', () => {
+    spawn('marked');
+    pushInterleaved('marked', 400);
+
+    const segments = agentOf('marked').segments;
+    const [, trimmed, preserved, dropped] = markerOf(segments).map(Number);
+
+    expect(trimmed).toBeGreaterThan(0);
+    expect(preserved + dropped).toBe(trimmed);
+    // Prose was foldable, so some of the trim is preserved rather than lost.
+    expect(preserved).toBeGreaterThan(0);
+  });
+
+  it('marks the trim even when nothing at all can be folded', () => {
+    spawn('unfoldable');
+    for (
+      let i = 0;
+      i < MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK + 120;
+      i++
+    ) {
+      // `tool` is not a foldable prose type and carries no structure the
+      // builder can re-attach content to — there is nothing to fold.
+      store.onAgentOutput({
+        agentId: 'unfoldable',
+        segments: [textSegment(i)],
+      } as AgentOutputDelta);
+    }
+
+    const segments = agentOf('unfoldable').segments;
+    const [, trimmed, preserved, dropped] = markerOf(segments).map(Number);
+
+    expect(preserved).toBe(0);
+    expect(dropped).toBe(trimmed);
+    expect(trimmed).toBeGreaterThan(0);
+  });
+
+  it('a second trim rolls into the first marker instead of stacking a new one', () => {
+    spawn('twice');
+    pushInterleaved('twice', 400);
+    const first = Number(markerOf(agentOf('twice').segments)[1]);
+
+    pushInterleaved('twice', 400);
+    const segments = agentOf('twice').segments;
+    const [, trimmed] = markerOf(segments).map(Number);
+
+    // markerOf already asserts there is exactly ONE marker and that it leads
+    // the card — an `info` marker is a landmark, so a naive re-cap would keep
+    // the old one and stack a new one on top of it on every trim.
+    expect(trimmed).toBeGreaterThan(first);
+    expect(segments.length).toBeLessThanOrEqual(
+      MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK,
+    );
+  });
+
+  // ==========================================================================
+  // The stdout/stderr byte cap (TASK_2026_335 / defect 3)
+  // ==========================================================================
+
+  it('says at the head of the buffer how much earlier stdout was dropped', () => {
+    spawn('buffered');
+    const chunk = `${'x'.repeat(999)}\n`;
+    for (let i = 0; i < 80; i++) {
+      store.onAgentOutput({
+        agentId: 'buffered',
+        stdoutDelta: chunk,
+      } as AgentOutputDelta);
+    }
+
+    const stdout = agentOf('buffered').stdout;
+    const firstLine = stdout.slice(0, stdout.indexOf('\n'));
+    const match = BUFFER_NOTICE.exec(firstLine);
+
+    expect(match).not.toBeNull();
+    expect(Number((match as RegExpExecArray)[1])).toBeGreaterThan(0);
+  });
+
+  it('keeps the dropped-character count cumulative across repeated trims', () => {
+    spawn('cumulative');
+    const chunk = `${'x'.repeat(999)}\n`;
+    const readCount = (): number =>
+      Number(
+        (
+          BUFFER_NOTICE.exec(
+            agentOf('cumulative').stdout.split('\n')[0],
+          ) as RegExpExecArray
+        )[1],
+      );
+
+    for (let i = 0; i < 80; i++) {
+      store.onAgentOutput({
+        agentId: 'cumulative',
+        stdoutDelta: chunk,
+      } as AgentOutputDelta);
+    }
+    const afterFirst = readCount();
+
+    for (let i = 0; i < 40; i++) {
+      store.onAgentOutput({
+        agentId: 'cumulative',
+        stdoutDelta: chunk,
+      } as AgentOutputDelta);
+    }
+
+    // The notice reports the agent's total loss, not the size of the most
+    // recent trim — and it is never itself eaten by a later trim.
+    expect(readCount()).toBeGreaterThan(afterFirst);
+    expect(agentOf('cumulative').stdout.length).toBeLessThanOrEqual(
+      50 * 1024 + 200,
     );
   });
 
