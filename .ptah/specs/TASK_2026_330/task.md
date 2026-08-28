@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_330
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Move the memory-curator Read observation from PreToolUse to PostToolUse so a

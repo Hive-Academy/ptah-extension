@@ -1,6 +1,6 @@
 ﻿---
 id: TASK_2026_314
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   startTaskSpecsIndex silently no-ops its SQLite upgrade if the connection token

@@ -1,6 +1,6 @@
 ﻿---
 id: TASK_2026_318
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   CodeExecutionMCP is a second, unlocked writer on .mcp.json, and TASK_2026_315
