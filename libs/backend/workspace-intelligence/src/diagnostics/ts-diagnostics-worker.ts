@@ -74,6 +74,16 @@ export interface TsDiagnosticsRunRequest {
   readonly configPaths: readonly string[];
   /** Workspace root, already resolved and forward-slashed. */
   readonly normRoot: string;
+  /**
+   * Platform whose path-casing rules apply to the compile-scope check inside
+   * the worker (win32 folds case, everything else does not).
+   *
+   * The worker cannot import `isPathWithinRoots` — it has no module resolution
+   * — so this is how the host keeps that check in step with the real predicate
+   * it applies to the returned diagnostics, and how a spec drives the win32
+   * rule from a Linux CI runner.
+   */
+  readonly platform: NodeJS.Platform;
 }
 
 export interface TsDiagnosticsRunOutcome {
@@ -180,6 +190,7 @@ export class TsDiagnosticsWorker {
         id,
         configPaths: [...request.configPaths],
         normRoot: request.normRoot,
+        platform: request.platform,
       });
     });
   }

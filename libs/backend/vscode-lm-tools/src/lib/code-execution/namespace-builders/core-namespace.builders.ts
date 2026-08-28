@@ -163,7 +163,13 @@ export function buildSearchNamespace(
       // `{ success: false, error }` rather than throwing, so a resolved
       // failure must be propagated explicitly or it degrades to `[]` —
       // indistinguishable from "no relevant files" (TASK_2026_299).
-      if (result.success === false) {
+      //
+      // Truthiness, not `=== false`: `success` is a REQUIRED boolean on
+      // `GetFileSuggestionsResult`, so an absent one is a malformed result and
+      // should be rejected rather than read through. This had to be written
+      // `=== false` in TASK_2026_299 only because two mocks in this builder's
+      // spec omitted `success` entirely; they now carry it (TASK_2026_303).
+      if (!result.success) {
         throw new Error(
           result.error?.message ?? 'getFileSuggestions failed for query.',
         );

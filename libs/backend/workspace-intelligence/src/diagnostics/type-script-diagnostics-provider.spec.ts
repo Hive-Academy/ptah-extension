@@ -385,6 +385,72 @@ describe('TypeScriptDiagnosticsProvider', () => {
   });
 
   /**
+   * TASK_2026_303 finding 1. Pins the case rule of root containment end to end
+   * — through the real worker, the real compiler and a real on-disk fixture —
+   * for all three checks that now share it: the worker's compile scope, the
+   * worker's pre-`postMessage` transport bound, and the host's authoritative
+   * `isPathWithinRoots` call.
+   *
+   * Honest scope: this does NOT reproduce a defect in the pre-TASK_2026_303
+   * code. The task was opened believing `path.relative` is case-sensitive on
+   * win32; it is not (`path.win32.relative` lower-cases both operands), so the
+   * old form passed this case too on a Windows host. The pair is still worth
+   * having — the second case is what stops an unconditional case fold, which
+   * would wrongly match `/WS/ROOT` against `/ws/root` on a case-sensitive
+   * filesystem — but it is a rule pin, not a regression test.
+   *
+   * `platform` is passed explicitly rather than read from `process.platform`,
+   * because CI is ubuntu: a `process.platform === 'win32'` guard would make
+   * this a no-op exactly where it needs to run.
+   */
+  describe('root containment folds case on win32 only', () => {
+    it('keeps diagnostics when the requested root differs from disk only in casing', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+        undefined,
+        'win32',
+      );
+
+      // Discovery still yields the real, correctly-cased config path; only the
+      // caller's root is mis-cased, which is the real-world shape of this bug.
+      const result = await provider.getDiagnostics(root.toUpperCase());
+
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0].diagnostics[0].message).toContain(
+        'not assignable',
+      );
+    });
+
+    it('does NOT fold case on a case-sensitive platform', async () => {
+      // Same fixture and same mis-cased root, but a platform where `/A` and
+      // `/a` are genuinely different directories. Nothing is in scope, so no
+      // program is built — and the provider reports `unavailable`, never
+      // `available` + `[]`.
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+        undefined,
+        'linux',
+      );
+
+      const result = await provider.getDiagnostics(root.toUpperCase());
+
+      expect(result.status).toBe('unavailable');
+    });
+  });
+
+  /**
    * TASK_2026_301. `findFiles` took a bare limit of 200 and nothing downstream
    * could tell "every config in the workspace" from "the first 200 of an
    * unknown larger number". Configs past the cap were never parsed, never

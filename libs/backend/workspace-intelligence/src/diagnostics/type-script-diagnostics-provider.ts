@@ -36,6 +36,7 @@
  */
 
 import * as path from 'path';
+import { isPathWithinRoots } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   DiagnosticsResult,
@@ -136,10 +137,14 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
   /**
    * @param maxConfigs discovery ceiling. Parameterized so a spec can prove the
    *   saturation rule without writing 2000 files; hosts never pass it.
+   * @param platform Node platform string, for the same reason
+   *   {@link isPathWithinRoots} takes one — so a spec can drive the win32
+   *   case-fold rule on a Linux CI runner. Hosts never pass it either.
    */
   constructor(
     private readonly fs: IFileSystemProvider,
     maxConfigs: number = DEFAULT_MAX_CONFIGS,
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {
     this.maxConfigs = maxConfigs;
   }
@@ -253,6 +258,7 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
         tsModulePath,
         configPaths,
         normRoot,
+        platform: this.platform,
       });
     } catch (error: unknown) {
       // The worker died, timed out, or the compiler threw. Nothing was
@@ -284,8 +290,36 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     // formatter renders it in the error list, and the `execute_code` payload
     // carries it as an ordinary entry. It also means a run whose only finding
     // is a broken config can never render as "No issues found".
+    //
+    // Root containment is decided HERE, and this is the AUTHORITATIVE decision
+    // (TASK_2026_303 finding 1). The worker has already applied a coarse filter
+    // of its own, but that one is a transport bound — it exists so a reference
+    // graph's worth of diagnostics does not cross `postMessage` to be
+    // deserialized on the main thread — not the answer. The answer comes from
+    // `platform-core`'s `isPathWithinRoots`: the same tested predicate the
+    // terminal spawn guard and the VS Code diagnostics adapter use.
+    //
+    // Both used to be one hand-rolled `path.relative(root, file)
+    // .startsWith('..')` inside the worker. Contrary to the premise
+    // TASK_2026_303 was opened on, that form was NOT dropping in-root
+    // diagnostics on a casing mismatch — `path.win32.relative` lower-cases both
+    // operands, so it agreed with this helper on every measured case. The
+    // reason to consolidate is narrower and structural: the rule now has one
+    // tested, platform-explicit owner instead of three hand-rolled copies, one
+    // of which was silently relying on that undocumented Node behaviour.
+    //
+    // The worker's copy cannot be removed (no module resolution under
+    // `eval: true`), so it is held to this one by
+    // `ts-diagnostics-worker-containment.spec.ts`, which drives both over a
+    // shared truth table. That test is the real protection here: it is what
+    // stops the worker's pre-`postMessage` filter drifting into dropping
+    // something this filter would have kept.
     const diagnostics = withConfigFailures(
-      groupByFile(outcome.collected),
+      groupByFile(
+        outcome.collected.filter((d) =>
+          isPathWithinRoots(d.file, [normRoot], this.platform),
+        ),
+      ),
       outcome.errors,
     );
 

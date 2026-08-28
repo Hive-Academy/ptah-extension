@@ -31,10 +31,43 @@
  * to do with the workspace being checked.
  *
  * Protocol (see `ts-diagnostics-worker.ts` for the typed mirror):
- *   request:  { id, configPaths: string[], normRoot: string }
+ *   request:  { id, configPaths: string[], normRoot: string,
+ *               platform: NodeJS.Platform }
  *   response: { id, ok: true, collected: CollectedDiagnostic[],
  *               errors: ConfigFailure[], programCount: number }
  *           | { id, ok: false, error: string }
+ *
+ * **Root containment is checked in TWO places, doing two different jobs**
+ * (TASK_2026_303 finding 1). Neither is redundant and neither replaces the
+ * other:
+ *
+ *   1. HERE, as a TRANSPORT BOUND. `ts.getPreEmitDiagnostics(program)` takes no
+ *      file argument — it walks all of `program.getSourceFiles()`, which is the
+ *      full transitive closure reachable from the entry points through imports
+ *      and resolved project references. `rootFileNames` bounds the ENTRY
+ *      POINTS, not what gets diagnosed. So opening `apps/ptah-electron` as the
+ *      root, whose tsconfig reaches `libs/backend/*` through references and
+ *      `paths`, diagnoses every one of those libs. Without a filter here, all
+ *      of that crosses `parentPort.postMessage` uncapped — and the
+ *      DESERIALIZATION runs on the main thread, which is the exact loop
+ *      TASK_2026_323 moved this work off. Filtering before the boundary keeps
+ *      the payload proportional to the root instead of to the reference graph.
+ *   2. On the HOST, as the AUTHORITATIVE decision, through `platform-core`'s
+ *      `isPathWithinRoots` — the shared, tested predicate that also guards the
+ *      terminal spawn path and the VS Code diagnostics adapter.
+ *
+ * A third check, on `parsed.fileNames`, decides which files are worth COMPILING.
+ * It cannot move to the host, which never sees a `fileNames` list.
+ *
+ * An eval'd worker has no module resolution, so it CANNOT import
+ * `isPathWithinRoots`; the twin below is the price. A worker-side filter that
+ * drops too much is UNRECOVERABLE — it runs before `postMessage`, so the host
+ * can never ask for what it discarded — which makes an unchecked hand-kept twin
+ * the most dangerous shape this file could take. So it is not left as a promise:
+ * `ts-diagnostics-worker-containment.spec.ts` evals `WORKER_CONTAINMENT_SOURCE`
+ * and asserts row-by-row that it agrees with the real helper. `platform` is on
+ * the request so both sides fold case identically and a spec can drive the win32
+ * rule from a Linux CI runner.
  *
  * `errors` carries STRUCTURED per-config failures — `{ config, message, code? }`
  * — not prose (TASK_2026_325 finding 1). A run where one config is malformed
@@ -43,7 +76,41 @@
  * failure as an error diagnostic bound to the tsconfig that failed, which needs
  * the config's PATH, not a `basename(...)` already baked into a sentence.
  */
-export const TS_DIAGNOSTICS_WORKER_SOURCE = String.raw`
+/**
+ * The worker's root-containment predicate, as source text.
+ *
+ * A structural twin of `normalize()` + `isContainedIn()` in `platform-core`'s
+ * `utils/path-containment.ts` — resolve, forward-slash, win32-only case fold,
+ * strip trailing slashes, then compare with a separator boundary so `/foo/bar`
+ * cannot match the sibling `/foo/barbaz`. Both operands go through the SAME
+ * normalization, which is what the helper does and what the old
+ * `nodePath.relative(root, file).startsWith('..')` form did not.
+ *
+ * Split out of {@link TS_DIAGNOSTICS_WORKER_SOURCE} for exactly one reason: so
+ * `ts-diagnostics-worker-containment.spec.ts` can eval THIS EXACT TEXT and
+ * prove, row by row, that it still agrees with `isPathWithinRoots`. It is not a
+ * module and must never become one — the worker is started with `eval: true`
+ * and has no module resolution, so an `import` here would not survive the trip.
+ *
+ * Free variable: `nodePath`. The worker prelude below binds it via
+ * `require('node:path')`; the spec injects it as a `new Function` parameter.
+ */
+export const WORKER_CONTAINMENT_SOURCE = String.raw`
+function normalizeForContainment(p, platform) {
+  const resolved = nodePath.resolve(p.replace(/\\/g, '/')).replace(/\\/g, '/');
+  const cased = platform === 'win32' ? resolved.toLowerCase() : resolved;
+  return cased.replace(/\/+$/, '');
+}
+
+function isWithinRoot(normRoot, normFile, platform) {
+  const target = normalizeForContainment(normFile, platform);
+  const root = normalizeForContainment(normRoot, platform);
+  return target === root || target.startsWith(root + '/');
+}
+`;
+
+export const TS_DIAGNOSTICS_WORKER_SOURCE =
+  String.raw`
 'use strict';
 
 const { parentPort, workerData } = require('node:worker_threads');
@@ -58,35 +125,44 @@ function categoryToSeverity(category) {
   if (category === ts.DiagnosticCategory.Suggestion) return 'info';
   return 'hint';
 }
-
-function isWithinRoot(normRoot, normFile) {
-  const rel = nodePath.relative(normRoot, normFile);
-  return !rel.startsWith('..') && !nodePath.isAbsolute(rel);
-}
-
-function flattenDiagnostic(diag, normRoot, out) {
-  let current = diag;
-  while (current) {
-    if (current.file && current.start !== undefined) {
-      const filePath = current.file.fileName.replace(/\\/g, '/');
-      if (isWithinRoot(normRoot, filePath)) {
-        const pos = current.file.getLineAndCharacterOfPosition(current.start);
-        out.push({
-          file: filePath,
-          line: pos.line,
-          severity: categoryToSeverity(current.category),
-          code: current.code,
-          message: ts.flattenDiagnosticMessageText(current.messageText, '\n'),
-        });
-      }
-    }
-    current = current.next;
-  }
+` +
+  WORKER_CONTAINMENT_SOURCE +
+  String.raw`
+// Convert one ts.Diagnostic to the wire shape, when it carries a file position
+// and falls inside the root.
+//
+// The containment call here is a TRANSPORT BOUND, not the authoritative answer
+// -- see the header. getPreEmitDiagnostics walks the whole program, so on this
+// monorepo an entry point in one app pulls in diagnostics for every lib its
+// references reach; those must not cross postMessage to be dropped on the main
+// thread afterwards. The host re-decides with the real isPathWithinRoots.
+//
+// The message chain IS flattened -- by ts.flattenDiagnosticMessageText, which
+// walks the DiagnosticMessageChain hanging off messageText and joins it with
+// newlines. That chain is the only '.next' chain in play. This used to be a
+// 'while (current) { ...; current = current.next; }' loop over the DIAGNOSTIC,
+// which named a mechanism that cannot run: ts.Diagnostic has no .next field, so
+// the cast always yielded undefined and the body ran exactly once
+// (TASK_2026_303 finding 2). Output was already correct; the loop only made a
+// reader trust a walk that never happened.
+function collectDiagnostic(diag, normRoot, platform, out) {
+  if (!diag.file || diag.start === undefined) return;
+  const filePath = diag.file.fileName.replace(/\\/g, '/');
+  if (!isWithinRoot(normRoot, filePath, platform)) return;
+  const pos = diag.file.getLineAndCharacterOfPosition(diag.start);
+  out.push({
+    file: filePath,
+    line: pos.line,
+    severity: categoryToSeverity(diag.category),
+    code: diag.code,
+    message: ts.flattenDiagnosticMessageText(diag.messageText, '\n'),
+  });
 }
 
 function run(request) {
   const configPaths = request.configPaths || [];
   const normRoot = request.normRoot;
+  const platform = request.platform;
 
   const visitedConfigs = new Set();
   const visitedPrograms = new Set();
@@ -150,7 +226,11 @@ function run(request) {
     );
 
     const rootFileNames = parsed.fileNames.filter(function (f) {
-      return isWithinRoot(normRoot, nodePath.resolve(f).replace(/\\/g, '/'));
+      return isWithinRoot(
+        normRoot,
+        nodePath.resolve(f).replace(/\\/g, '/'),
+        platform
+      );
     });
 
     if (rootFileNames.length > 0) {
@@ -164,7 +244,7 @@ function run(request) {
 
       const diags = ts.getPreEmitDiagnostics(program);
       for (const diag of diags) {
-        flattenDiagnostic(diag, normRoot, collected);
+        collectDiagnostic(diag, normRoot, platform, collected);
       }
     }
 

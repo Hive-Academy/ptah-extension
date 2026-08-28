@@ -389,6 +389,7 @@ describe('buildSearchNamespace', () => {
   it('getRelevantFiles() delegates to contextOrchestration (fuzzy) and propagates failures', async () => {
     const orchestration = createContextOrchestrationMock();
     orchestration.getFileSuggestions.mockResolvedValue({
+      success: true,
       files: [{ relativePath: 'lib/x.ts' }, { relativePath: 'lib/y.ts' }],
     } as never);
 
@@ -438,7 +439,10 @@ describe('buildSearchNamespace', () => {
 
   it('getRelevantFiles() forwards the session-aware root', async () => {
     const orchestration = createContextOrchestrationMock();
-    orchestration.getFileSuggestions.mockResolvedValue({ files: [] } as never);
+    orchestration.getFileSuggestions.mockResolvedValue({
+      success: true,
+      files: [],
+    } as never);
 
     const ns = buildSearchNamespace(
       createDeps(

@@ -103,6 +103,7 @@ function request(tsModulePath: string, root = '/ws') {
     tsModulePath,
     configPaths: [`${root}/tsconfig.json`],
     normRoot: root,
+    platform: 'linux' as NodeJS.Platform,
   };
 }
 
