@@ -21,7 +21,7 @@ Additional requirements for all platforms:
 
 - **Memory**: 4 GB RAM minimum, 8 GB recommended
 - **Disk**: 500 MB for the app, plus space for workspace caches and downloaded plugins
-- **Network**: Internet connection for license verification, provider APIs, and plugin downloads
+- **Network**: Internet connection for provider APIs and plugin downloads. Ptah needs no license check to run.
 - **Node.js** (optional): Required only if you plan to run local MCP servers or the built-in ptah-cli
 
 :::note[Apple Silicon]

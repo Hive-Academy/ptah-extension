@@ -13,11 +13,17 @@ CLI agents are external command-line assistants that Ptah spawns as subprocesses
 
 Ptah auto-detects these CLIs on your `PATH` at startup:
 
-| CLI             | Binary    | Notes                                |
-| --------------- | --------- | ------------------------------------ |
-| **ptah-cli**    | `ptah`    | First-party CLI, deepest integration |
-| **Codex CLI**   | `codex`   | OpenAI Codex, SDK adapter            |
-| **Copilot CLI** | `copilot` | GitHub Copilot, SDK adapter          |
+| CLI             | Binary         | Notes                                                          |
+| --------------- | -------------- | -------------------------------------------------------------- |
+| **ptah-cli**    | —              | Not a binary. A user-configured Anthropic-compatible provider. |
+| **Codex CLI**   | `codex`        | OpenAI Codex, SDK adapter                                      |
+| **Copilot CLI** | `copilot`      | GitHub Copilot, SDK adapter                                    |
+| **Cursor CLI**  | `cursor-agent` | Cursor's agent CLI                                             |
+| **Antigravity** | `agy`          | Antigravity agent CLI                                          |
+| **OpenCode**    | `opencode`     | OpenCode agent CLI                                             |
+| **Pi**          | `pi`           | Pi agent CLI                                                   |
+
+Only the CLIs you have installed are detected. An absent CLI is not an error.
 
 :::note[Windows gotcha]
 npm-installed CLIs on Windows are `.cmd` wrapper scripts. Ptah handles this automatically by routing non-`.exe` paths through a shell. No configuration needed.
@@ -53,13 +59,17 @@ This lets the parent continue working (or spawn more CLIs) while helpers run. Th
 
 ## Concurrency limits
 
-To keep your machine responsive, Ptah caps concurrent CLI agents:
+To keep your machine responsive, Ptah caps concurrent CLI agents. The cap is
+`agentOrchestration.maxConcurrentAgents`.
 
-:::caution[Max 3 concurrent]
-You can run **up to 3 CLI agents simultaneously**. Attempting a 4th returns a `CONCURRENCY_LIMIT` error — wait for one to finish or stop it explicitly.
-:::
+| Setting | Value |
+| ------- | ----- |
+| Default | 5     |
+| Maximum | 20    |
 
-This limit applies across all CLIs combined, not per-CLI.
+A spawn beyond the cap fails with a "Maximum concurrent agent limit reached"
+error. Wait for a running agent to finish, stop one explicitly, or raise the
+setting. The limit applies across all CLIs combined, not per CLI.
 
 ## Writing self-contained prompts
 

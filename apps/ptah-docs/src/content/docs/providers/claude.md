@@ -18,9 +18,12 @@ Claude is Ptah's default reasoning provider. It supports the full feature set: t
 
 | Model                 | Good for                                                | Context | Thinking |
 | --------------------- | ------------------------------------------------------- | ------- | -------- |
-| **Claude Opus 4.7**   | The hardest reasoning tasks, long multi-file refactors. | 200k    | Yes      |
-| **Claude Sonnet 4.6** | Daily development work — best speed/quality balance.    | 200k    | Yes      |
+| **Claude Opus 4.8**   | The hardest reasoning tasks, long multi-file refactors. | 1M      | Yes      |
+| **Claude Sonnet 4.6** | Daily development work — best speed/quality balance.    | 1M      | Yes      |
 | **Claude Haiku 4.5**  | Quick edits, autocompletion, low-latency chat.          | 200k    | Limited  |
+
+The model picker reads the live catalog from your account, so a newer model
+appears there before this table names it.
 
 ## Configuration
 
