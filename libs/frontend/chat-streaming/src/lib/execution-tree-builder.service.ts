@@ -497,7 +497,24 @@ export class ExecutionTreeBuilderService {
    * keyed by agentId, not by message) and the background-agent flag set.
    *
    * Accumulator map sizes are folded in too so this subsumes every field the
-   * pre-TASK_2026_323 memo fingerprint checked.
+   * pre-TASK_2026_323 memo fingerprint checked. A SIZE is a legitimate fold
+   * only where a size-preserving change is impossible or is already visible
+   * through another input:
+   *
+   * - `agentSummaryAccumulators` / `agentContentBlocksMap` fold total content
+   *   length and total block count, not size, and their only writer appends —
+   *   so an in-place change always moves the number.
+   * - `textAccumulators` / `toolInputAccumulators` fold size, and their
+   *   content DOES change in place — but every writer of both also routes the
+   *   event through `setStreamingEventCapped`, so the owning message's digest
+   *   moves and the epoch does not have to see it.
+   * - the background-agent set folded its SIZE and had neither property: its
+   *   membership decides `isBackground` (read live per node), the
+   *   `background_agent_*` events write no streaming event at all, and a
+   *   member can be swapped for another within one frame at constant
+   *   cardinality. It now folds `BackgroundAgentStore.revision` — a monotonic
+   *   per-mutation counter — which is O(1) and cannot be defeated by a
+   *   size-preserving swap (TASK_2026_333).
    */
   private computeGlobalEpoch(streamingState: StreamingState): number {
     let agentSummaryTotalLength = 0;
@@ -515,10 +532,7 @@ export class ExecutionTreeBuilderService {
     hash = mixNumber(hash, agentContentBlocksCount);
     hash = mixNumber(hash, streamingState.textAccumulators.size);
     hash = mixNumber(hash, streamingState.toolInputAccumulators.size);
-    hash = mixNumber(
-      hash,
-      this.backgroundAgentStore.backgroundToolCallIds().size,
-    );
+    hash = mixNumber(hash, this.backgroundAgentStore.revision());
     return hash;
   }
 

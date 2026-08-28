@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_333
-status: in_progress
+status: done
 type: BUGFIX
 title: >-
   The execution-tree cache folds the background-agent set by size, so two agents

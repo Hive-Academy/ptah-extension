@@ -494,7 +494,403 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     const sweepMs = medianSweepMs(state);
     expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 4);
   });
+
+  /**
+   * THE ORACLE (TASK_2026_333).
+   *
+   * Every test above compares two snapshots taken from the SAME cache key, so
+   * none of them has an independent baseline: a stale reuse is invisible when
+   * the only thing you compare it against is the previous stale reuse. The
+   * full-rebuild path that could have served as that baseline was deleted in
+   * TASK_2026_323, which is why a cache that folded the background-agent set
+   * by SIZE shipped — a size-preserving membership swap moved no digest and
+   * every card kept the previous frame's `isBackground`.
+   *
+   * These tests reconstruct the baseline: replay a sequence through the
+   * incremental build, then build the SAME state on a cache key the service
+   * has never seen (nothing to reuse — that is a full rebuild by
+   * construction), and require the two to be structurally identical.
+   */
+  describe('equivalence oracle — incremental build vs full rebuild', () => {
+    /** The key the incremental build accumulates on for a whole test. */
+    const INCREMENTAL_KEY = 'oracle-incremental';
+
+    /**
+     * Mirrors `MAX_COMPLETED_AGENTS` in `background-agent.store.ts`: the point
+     * at which one more finished agent evicts the oldest one — the store's
+     * only membership change that is driven purely by `background_agent_*`
+     * events and leaves the set's cardinality untouched.
+     */
+    const MAX_COMPLETED_AGENTS = 50;
+
+    let freshBuilds: number;
+    let nowSpy: jest.SpyInstance<number, []>;
+
+    beforeEach(() => {
+      freshBuilds = 0;
+      // `buildMessageNode` falls back to `Date.now()` for a text block with no
+      // surviving anchor delta. Pin it so the two builds can never disagree
+      // for a reason that has nothing to do with caching.
+      nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+    });
+
+    /**
+     * The production reuse key for a whole tree: `fingerprintNode` folded over
+     * every node, computed POST-ORDER so each parent reads its children's
+     * numbers exactly the way `reuseUnchangedSubtree` feeds them to it.
+     *
+     * Reached through the private method on purpose — this is the drift guard.
+     * {@link shapeOf} compares every own field a node carries, so it already
+     * covers everything the fingerprint folds today; going through the real
+     * method means a field added to `fingerprintNode` tomorrow is picked up by
+     * the oracle without anyone remembering to update this spec, and a rename
+     * or signature change fails loudly here instead of silently comparing
+     * less. A fingerprint is lossy by design (bounded string sampling, a depth
+     * budget on tool payloads), so it can only ever miss a difference, never
+     * invent one — which is why it is the second opinion and `shapeOf` is the
+     * verdict.
+     */
+    const fingerprintTree = (nodes: readonly ExecutionNode[]): number[] => {
+      const service = builder as unknown as {
+        fingerprintNode?: (
+          node: ExecutionNode,
+          fingerprintsById: ReadonlyMap<string, number>,
+        ) => number;
+      };
+      if (typeof service.fingerprintNode !== 'function') {
+        throw new Error(
+          'ExecutionTreeBuilderService.fingerprintNode is gone — the oracle has ' +
+            'lost its coupling to the production reuse key and must be rewired.',
+        );
+      }
+      const fingerprintNode = service.fingerprintNode.bind(builder);
+      const fingerprints = new Map<string, number>();
+      const walk = (node: ExecutionNode): number => {
+        for (const child of node.children) {
+          fingerprints.set(child.id, walk(child));
+        }
+        return fingerprintNode(node, fingerprints);
+      };
+      return nodes.map(walk);
+    };
+
+    /**
+     * Build `state` twice — once incrementally on the key this test has been
+     * feeding all along, once on a never-before-seen key — and require both
+     * structural equality and equality of the production reuse key. Returns
+     * the incremental tree so callers can assert on it directly.
+     *
+     * The throwaway key is dropped again so a long replay cannot push the LRU
+     * past `MAX_CACHE_SIZE` and evict the incremental entry it is testing.
+     */
+    const expectEquivalent = (): ExecutionNode[] => {
+      const incremental = builder.buildTree(state, INCREMENTAL_KEY);
+      const freshKey = `oracle-fresh-${++freshBuilds}`;
+      const fresh = builder.buildTree(state, freshKey);
+      builder.clearCache(freshKey);
+      expect(shapeOf(incremental)).toEqual(shapeOf(fresh));
+      expect(fingerprintTree(incremental)).toEqual(fingerprintTree(fresh));
+      return incremental;
+    };
+
+    const agentStart = (
+      messageId: string,
+      toolCallId: string,
+      agentId: string,
+    ): FlatStreamEventUnion =>
+      ({
+        id: `evt-agent-${toolCallId}`,
+        eventType: 'agent_start',
+        timestamp: nextTimestamp(),
+        sessionId: SESSION_ID,
+        source: 'stream',
+        messageId,
+        parentToolUseId: toolCallId,
+        toolCallId,
+        agentType: 'general-purpose',
+        agentDescription: `work on ${toolCallId}`,
+        agentId,
+      }) as FlatStreamEventUnion;
+
+    const messageComplete = (messageId: string): FlatStreamEventUnion =>
+      ({
+        id: `evt-complete-${messageId}`,
+        eventType: 'message_complete',
+        timestamp: nextTimestamp(),
+        sessionId: SESSION_ID,
+        source: 'stream',
+        messageId,
+      }) as FlatStreamEventUnion;
+
+    const backgroundStarted = (
+      toolCallId: string,
+      agentId: string,
+    ): FlatStreamEventUnion =>
+      ({
+        id: `evt-bg-start-${agentId}`,
+        eventType: 'background_agent_started',
+        timestamp: nextTimestamp(),
+        sessionId: SESSION_ID,
+        source: 'stream',
+        toolCallId,
+        agentId,
+        agentType: 'general-purpose',
+      }) as FlatStreamEventUnion;
+
+    const backgroundCompleted = (
+      toolCallId: string,
+      agentId: string,
+    ): FlatStreamEventUnion =>
+      ({
+        id: `evt-bg-done-${agentId}`,
+        eventType: 'background_agent_completed',
+        timestamp: nextTimestamp(),
+        sessionId: SESSION_ID,
+        source: 'stream',
+        toolCallId,
+        agentId,
+        agentType: 'general-purpose',
+      }) as FlatStreamEventUnion;
+
+    /** Two assistant roots, one agent each, separated by a user turn. */
+    const seedTwoAgents = (): void => {
+      feed(messageStart('msg-a', 'assistant'));
+      feed(toolStart('msg-a', 'toolu_a'));
+      feed(agentStart('msg-a', 'toolu_a', 'agent-a'));
+      feed(messageStart('msg-u', 'user'));
+      feed(textDelta('msg-u', 0, 'carry on'));
+      feed(messageStart('msg-b', 'assistant'));
+      feed(toolStart('msg-b', 'toolu_b'));
+      feed(agentStart('msg-b', 'toolu_b', 'agent-b'));
+    };
+
+    it('agrees with a full rebuild when one agent joins the background set as another is evicted from it', () => {
+      seedTwoAgents();
+
+      // Fill the finished set to exactly the eviction threshold, oldest first
+      // being the agent rendered on the FIRST root.
+      feed(backgroundCompleted('toolu_a', 'bg-a'));
+      for (let i = 1; i < MAX_COMPLETED_AGENTS; i++) {
+        feed(backgroundCompleted(`toolu_filler_${i}`, `bg-filler-${i}`));
+      }
+      const store = ctx.backgroundAgentStore;
+      expect(store.backgroundToolCallIds().size).toBe(MAX_COMPLETED_AGENTS);
+
+      const before = expectEquivalent();
+      expect(agentNodeFor(before, 'toolu_a')?.isBackground).toBe(true);
+      expect(agentNodeFor(before, 'toolu_b')?.isBackground).toBeUndefined();
+
+      // ONE `BatchedUpdateService` frame: the agent on the second root
+      // finishes, which is the (MAX + 1)-th finished agent and evicts the
+      // oldest — the one on the first root. The set loses `toolu_a` and gains
+      // `toolu_b`; its SIZE never moves, and neither event writes a streaming
+      // event, so no per-message digest moves either. Folding the size left
+      // both cards showing the opposite of the truth.
+      feed(backgroundCompleted('toolu_b', 'bg-b'));
+      expect(store.backgroundToolCallIds().size).toBe(MAX_COMPLETED_AGENTS);
+      expect(store.isBackgroundAgent('toolu_a')).toBe(false);
+      expect(store.isBackgroundAgent('toolu_b')).toBe(true);
+
+      const after = expectEquivalent();
+      expect(agentNodeFor(after, 'toolu_a')?.isBackground).toBeUndefined();
+      expect(agentNodeFor(after, 'toolu_b')?.isBackground).toBe(true);
+    });
+
+    it('agrees with a full rebuild when one agent is backgrounded as a finished one is cleared', () => {
+      seedTwoAgents();
+
+      feed(backgroundStarted('toolu_b', 'bg-b'));
+      const before = expectEquivalent();
+      expect(agentNodeFor(before, 'toolu_a')?.isBackground).toBeUndefined();
+      expect(agentNodeFor(before, 'toolu_b')?.isBackground).toBe(true);
+
+      // ONE frame: the backgrounded agent finishes and the tray is cleared
+      // while the user backgrounds the other one. `{toolu_b}` → `{toolu_a}`,
+      // size 1 on both sides of the swap.
+      const store = ctx.backgroundAgentStore;
+      feed(backgroundCompleted('toolu_b', 'bg-b'));
+      store.clearCompleted();
+      feed(backgroundStarted('toolu_a', 'bg-a'));
+      expect(store.backgroundToolCallIds().size).toBe(1);
+
+      const after = expectEquivalent();
+      expect(agentNodeFor(after, 'toolu_a')?.isBackground).toBe(true);
+      expect(agentNodeFor(after, 'toolu_b')?.isBackground).toBeUndefined();
+    });
+
+    it('agrees with a full rebuild when a child message_start precedes its owning tool_start', () => {
+      feed(messageStart('msg-root', 'assistant'));
+      // The subagent's own message lands BEFORE the tool_use that owns it, so
+      // for one build it belongs to no root at all.
+      feed({
+        ...messageStart('msg-nested', 'assistant'),
+        parentToolUseId: 'toolu_task',
+      } as MessageStartEvent);
+      feed(textDelta('msg-nested', 0, 'sub'));
+      const orphaned = expectEquivalent();
+      expect(orphaned).toHaveLength(1);
+      expect(findByType(orphaned, 'agent')).toBeUndefined();
+
+      // The owning tool (and its agent) arrive late; the already-buffered
+      // child events must now be attributed to the root.
+      feed(toolStart('msg-root', 'toolu_task'));
+      feed(agentStart('msg-root', 'toolu_task', 'agent-late'));
+      const adopted = expectEquivalent();
+      expect(findByType(adopted, 'agent')?.toolCallId).toBe('toolu_task');
+      expect(findByType(adopted, 'text')?.content).toBe('sub');
+
+      feed(textDelta('msg-nested', 1, 'more'));
+      const grown = expectEquivalent();
+      expect(findByType(grown, 'text')?.content).toBe('submore');
+    });
+
+    it('agrees with a full rebuild when a node is updated after its message was finalized', () => {
+      feed(messageStart('msg-a', 'assistant'));
+      feed(toolStart('msg-a', 'toolu_1'));
+      feed(
+        toolDelta('msg-a', 'toolu_1', JSON.stringify({ file_path: '/a.txt' })),
+      );
+      feed(messageComplete('msg-a'));
+
+      const finalized = expectEquivalent();
+      expect(findByType(finalized, 'tool')?.status).toBe('streaming');
+
+      // The result lands AFTER the message was finalized — the node has to
+      // move from streaming to complete on an already-settled root.
+      feed(toolResult('msg-a', 'toolu_1'));
+      const updated = expectEquivalent();
+      expect(findByType(updated, 'tool')?.status).toBe('complete');
+      expect(findByType(updated, 'tool')?.toolInput).toEqual({
+        file_path: '/a.txt',
+      });
+    });
+
+    it('agrees with a full rebuild when a duplicate event id is replayed', () => {
+      // Held rather than re-minted: a genuine duplicate is the SAME event
+      // re-sent (a second surface bound to the session, a reconnect that
+      // replays the tail), so it carries the same id AND the same timestamp.
+      // Minting a fresh timestamp under an existing id is a REPLACEMENT, not a
+      // duplicate — a different path, with its own contract (see below).
+      const start = messageStart('msg-a', 'assistant');
+      const tool = toolStart('msg-a', 'toolu_1');
+      const result = toolResult('msg-a', 'toolu_1');
+      feed(start);
+      feed(tool);
+      feed(result);
+
+      const before = expectEquivalent();
+      expect(countByType(before, 'tool')).toBe(1);
+
+      feed(start);
+      feed(tool);
+      feed(result);
+
+      const after = expectEquivalent();
+      expect(countByType(after, 'tool')).toBe(1);
+      expect(after).toHaveLength(1);
+    });
+
+    it('agrees with a full rebuild while a resumed session replays persisted history', () => {
+      // A resumed session arrives as `history`-source events against a cold
+      // cache — no prior build, no prior state object.
+      const persisted: FlatStreamEventUnion[] = [
+        { ...messageStart('msg-h1', 'user'), source: 'history' },
+        { ...textDelta('msg-h1', 0, 'what changed?'), source: 'history' },
+        { ...messageStart('msg-h2', 'assistant'), source: 'history' },
+        { ...toolStart('msg-h2', 'toolu_h'), source: 'history' },
+        {
+          ...toolDelta('msg-h2', 'toolu_h', JSON.stringify({ pattern: 'x' })),
+          source: 'history',
+        },
+        { ...toolResult('msg-h2', 'toolu_h'), source: 'history' },
+        { ...textDelta('msg-h2', 0, 'here is the diff'), source: 'history' },
+        messageComplete('msg-h2'),
+      ] as FlatStreamEventUnion[];
+
+      for (const event of persisted) {
+        feed(event);
+        expectEquivalent();
+      }
+
+      // Live streaming resumes on top of the replayed transcript.
+      feed(messageStart('msg-live', 'assistant'));
+      feed(textDelta('msg-live', 0, 'and now'));
+      const resumed = expectEquivalent();
+
+      // Two roots, not three: the live assistant message merges into the
+      // replayed assistant turn, which is the same merge the live path does.
+      expect(resumed).toHaveLength(2);
+      expect(countByType(resumed, 'tool')).toBe(1);
+      expect(findByType(resumed, 'tool')?.status).toBe('complete');
+      expect(resumed[1].children.map((c) => c.content)).toContain('and now');
+    });
+  });
 });
+
+/**
+ * A tree reduced to everything that is NOT object identity: every own field
+ * each node carries, with `children` recursed into.
+ *
+ * Deliberately NOT a hand-listed set of fields. The cache's reuse decision is
+ * made by `fingerprintNode`, which folds `cost`, `duration`, `model`,
+ * `tokenUsage`, `agentDescription`, `error` and the rest alongside `status`
+ * and `content`. A hand-listed shape drifts from that the moment anyone adds
+ * a field — and a field the CACHE keys on but the ORACLE does not compare is
+ * precisely a stale-render bug this suite would pass in silence, which is the
+ * failure mode TASK_2026_333 exists to close. Enumerating the node instead
+ * means the comparison widens automatically with `ExecutionNode`, and
+ * `fingerprintTree` pins the coupling from the other direction.
+ *
+ * `undefined` values are dropped so "absent" and "present but undefined"
+ * compare equal — they render the same. `isBackground` is then normalised to
+ * a boolean so the flag at the centre of this task prints as `false` vs
+ * `true` in a diff rather than as a missing key.
+ */
+function shapeOf(
+  nodes: readonly ExecutionNode[],
+): Array<Record<string, unknown>> {
+  return nodes.map((node) => {
+    const shape: Record<string, unknown> = {};
+    for (const key of Object.keys(node)) {
+      if (key === 'children') continue;
+      const value = (node as unknown as Record<string, unknown>)[key];
+      if (value !== undefined) shape[key] = value;
+    }
+    shape.isBackground = node.isBackground === true;
+    shape.children = shapeOf(node.children);
+    return shape;
+  });
+}
+
+/** The agent node spawned by `toolCallId`, anywhere in the tree. */
+function agentNodeFor(
+  nodes: readonly ExecutionNode[],
+  toolCallId: string,
+): ExecutionNode | undefined {
+  for (const node of nodes) {
+    if (node.type === 'agent' && node.toolCallId === toolCallId) return node;
+    const nested = agentNodeFor(node.children, toolCallId);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+/** How many nodes of `type` the tree holds, at any depth. */
+function countByType(
+  nodes: readonly ExecutionNode[],
+  type: ExecutionNode['type'],
+): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (node.type === type) count++;
+    count += countByType(node.children, type);
+  }
+  return count;
+}
 
 /**
  * Median cost of ONE full pass over `state.events` — the unit the old builder

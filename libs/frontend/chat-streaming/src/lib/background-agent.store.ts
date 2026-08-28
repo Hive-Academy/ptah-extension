@@ -80,6 +80,29 @@ export class BackgroundAgentStore implements OnDestroy {
    */
   private readonly warnedFallbackIds = new Set<string>();
 
+  private readonly _revision = signal(0);
+
+  /**
+   * Monotonic counter bumped once by every mutation that actually replaced the
+   * agent map — the store's *membership* version.
+   *
+   * Exists for `ExecutionTreeBuilderService.computeGlobalEpoch`, which has to
+   * decide whether a cached execution-tree node may be reused. `isBackground`
+   * is read LIVE per node (`isBackgroundAgent(toolCallId)`), so the cache must
+   * invalidate on any membership change — but the `background_agent_*` events
+   * write no streaming event, so they move no per-message digest and this
+   * counter is the ONLY signal the epoch has. Folding
+   * `backgroundToolCallIds().size` instead was wrong precisely because a set
+   * can swap a member for another without changing cardinality: one agent
+   * entering the set while another is evicted or cleared in the same
+   * `BatchedUpdateService` frame left every cached node rendering the previous
+   * frame's background flags (TASK_2026_333).
+   *
+   * Read it as a signal — that is also what keeps the tree computed subscribed
+   * to this store.
+   */
+  readonly revision = this._revision.asReadonly();
+
   /** Shared tick signal incremented every 1s while agents are running. */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
@@ -160,6 +183,29 @@ export class BackgroundAgentStore implements OnDestroy {
   }
 
   /**
+   * Single write path: apply `reducer`, bump {@link revision} when it produced
+   * a genuinely new map, then resync the tick.
+   *
+   * The identity check is what keeps the counter honest — a reducer that
+   * declines the write (a duplicate `background_agent_started` for an agent
+   * already running, a `clearSession` that matched nothing) returns the SAME
+   * map, so it neither notifies `_agents` subscribers nor forces a full
+   * execution-tree rebuild.
+   */
+  private applyMutation(
+    reducer: (
+      map: Map<BackgroundAgentId, BackgroundAgentEntry>,
+    ) => Map<BackgroundAgentId, BackgroundAgentEntry>,
+  ): void {
+    const before = this._agents();
+    this._agents.update(reducer);
+    if (this._agents() !== before) {
+      this._revision.update((r) => r + 1);
+    }
+    this.syncTick();
+  }
+
+  /**
    * Resolve the storage key for an event. Prefers the SDK-issued `agentId`;
    * falls back to `toolCallId` if absent (and warns once per offending id).
    *
@@ -236,7 +282,7 @@ export class BackgroundAgentStore implements OnDestroy {
 
   onStarted(event: BackgroundAgentStartedEvent): void {
     const key = this.resolveKey(event.agentId, event.toolCallId);
-    this._agents.update((map) => {
+    this.applyMutation((map) => {
       const existing = map.get(key);
       if (existing && existing.status === 'running') {
         return map;
@@ -258,12 +304,11 @@ export class BackgroundAgentStore implements OnDestroy {
       });
       return next;
     });
-    this.syncTick();
   }
 
   onCompleted(event: BackgroundAgentCompletedEvent): void {
     const key = this.resolveKey(event.agentId, event.toolCallId);
-    this._agents.update((map) => {
+    this.applyMutation((map) => {
       const agent = map.get(key);
 
       const next = new Map(map);
@@ -296,12 +341,11 @@ export class BackgroundAgentStore implements OnDestroy {
 
       return this.evictOldCompleted(next);
     });
-    this.syncTick();
   }
 
   onStopped(event: BackgroundAgentStoppedEvent): void {
     const key = this.resolveKey(event.agentId, event.toolCallId);
-    this._agents.update((map) => {
+    this.applyMutation((map) => {
       const agent = map.get(key);
 
       const next = new Map(map);
@@ -328,7 +372,6 @@ export class BackgroundAgentStore implements OnDestroy {
 
       return this.evictOldCompleted(next);
     });
-    this.syncTick();
   }
 
   private evictOldCompleted(
@@ -360,20 +403,24 @@ export class BackgroundAgentStore implements OnDestroy {
   }
 
   clearCompleted(): void {
-    this._agents.update((map) => {
+    this.applyMutation((map) => {
+      let removed = 0;
       const next = new Map(map);
       for (const [id, agent] of next) {
         if (agent.status !== 'running') {
           next.delete(id);
+          removed++;
         }
       }
-      return next;
+      // Same "decline the write" shape `clearSession` already uses: with
+      // nothing to clear the caller must not see a new map, or every no-op
+      // clear would notify subscribers and bump `revision`.
+      return removed > 0 ? next : map;
     });
-    this.syncTick();
   }
 
   clearSession(sessionId: string): void {
-    this._agents.update((map) => {
+    this.applyMutation((map) => {
       let removed = 0;
       const next = new Map(map);
       for (const [id, agent] of next) {
@@ -384,6 +431,5 @@ export class BackgroundAgentStore implements OnDestroy {
       }
       return removed > 0 ? next : map;
     });
-    this.syncTick();
   }
 }
