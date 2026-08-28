@@ -551,6 +551,13 @@ export class ChatMessageHandler implements MessageHandler {
       }) ?? {};
 
     if (realSessionId) {
+      // The stream keeps carrying the placeholder id (the tab id) after this
+      // resolve, while turn-end / stats / failure arrive under the real uuid.
+      // Fold the two into one liveness entry, or the placeholder stays
+      // `'streaming'` forever and the workspace dot never clears.
+      if (tabId) {
+        this.liveness.rekey(tabId, realSessionId);
+      }
       const claimedSurface = this.renderedSurfaceFor(tabId);
       if (claimedSurface) {
         // The surface conversation was minted before the backend knew the

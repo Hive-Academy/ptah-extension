@@ -65,9 +65,22 @@ export class SessionStatsAggregatorService {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    const targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
+    let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
       SessionId.from(stats.sessionId),
     );
+    if (targetTabs.length === 0) {
+      // `findTabsBySessionId` resolves active-workspace tabs only. A turn that
+      // ends while its tab sits in a BACKGROUND workspace (user switched
+      // folders mid-stream) still owns these stats. Every tab setter below
+      // routes through the workspace-aware `updateTabInternal`, and
+      // `streamingHandler.handleSessionStats` has its own background branch,
+      // so the normal path is safe for a partitioned tab — mirrors
+      // `TurnEndHandlerService` / `StreamingHandlerService`.
+      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        stats.sessionId,
+      );
+      if (lookup) targetTabs = [lookup.tab];
+    }
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
