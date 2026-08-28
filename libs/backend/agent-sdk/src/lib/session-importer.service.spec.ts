@@ -488,6 +488,357 @@ describe('SessionImporterService', () => {
         expect(imported).toBe(0);
         expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
       });
+
+      // ---------------------------------------------------------------------
+      // TASK_2026_308 F3-1 — the sidecar guard had a hole underneath it.
+      //
+      // The guard skipped itself when NOTHING complete parsed, because that is
+      // what a first record larger than the whole 8 KB prefix looks like and a
+      // real session must not be thrown away on no evidence. But "nothing
+      // parsed" also describes a whitespace-only file, and a SHORT read means
+      // the whole file is in hand — there is no record past byte 8192 to give
+      // it the benefit of the doubt. Such a file walked straight through to
+      // the filename fallback and was imported as the exact phantom
+      // "Session <date>" entry the guard exists to prevent.
+      //
+      // The refusal is a CONJUNCTION of two signals that were both already in
+      // hand: non-whitespace bytes (does this file hold anything?) and
+      // `bytesRead < METADATA_PREFIX_BYTES` (have we seen all of it?). Neither
+      // alone is sound. `parsedRecords` cannot serve as the first, because it
+      // counts parse SUCCESSES and so reads zero for a file we merely failed
+      // to parse. Dropping the second would rest the guard on "no producer
+      // writes 8 KB of leading blank lines", which is an assumption about
+      // producers, not a proof — and false for a file that is whitespace
+      // through byte 8192 and a real session afterwards.
+      //
+      // So: refuse only with the whole file in hand and nothing in it. The
+      // cases below are the boundary that draws, including the two it
+      // deliberately declines to close.
+      // ---------------------------------------------------------------------
+      describe('short contentless files (TASK_2026_308 F3-1)', () => {
+        it('does not import a whitespace-only file shorter than the prefix', async () => {
+          // 7 bytes: no complete record, and the short read proves there is
+          // nothing else in the file. Not a session.
+          const content = Buffer.from('\n   \n\t\n');
+          expect(content.length).toBeLessThan(8192);
+
+          primeFlatScan('whitespace-only.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(0);
+          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+
+        it('still falls back to the filename when a short read was NOT the whole file', async () => {
+          // Same "nothing parsed" symptom, opposite cause: one 12 KB record,
+          // so the prefix is full and the session marker sits past its end.
+          // The gate must key on `bytesRead`, not on the empty record list,
+          // or this legitimate file is discarded with the phantom.
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'system',
+              subtype: 'init',
+              session_id: 'unreachable',
+              payload: 'C'.repeat(12000),
+            }) + '\n',
+          );
+
+          primeFlatScan('prefix-full.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['prefix-full']);
+        });
+
+        // THE SPEC THAT STOPS THE GUARD BEING "IMPROVED" INTO DATA LOSS.
+        //
+        // A whitespace prefix is only evidence of an empty file when the whole
+        // file is in hand. Drop the `bytesRead` conjunct — on the tempting
+        // grounds that 8 KB of blank lines cannot be a session — and this file
+        // is refused on a full prefix nobody can see past, and a real session
+        // disappears from the sidebar.
+        it('imports a session whose real content begins past a whitespace prefix', async () => {
+          const content = Buffer.concat([
+            Buffer.alloc(8192, 0x20),
+            Buffer.from(
+              JSON.stringify({
+                type: 'system',
+                subtype: 'init',
+                session_id: 'late-start-id',
+              }) + '\n',
+            ),
+          ]);
+          expect(content.length).toBeGreaterThan(8192);
+
+          primeFlatScan('late-start.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          // The session marker is unreachable inside the prefix, so the
+          // filename carries the id — which for a CLI-written file IS the real
+          // session id. Badly named beats absent.
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['late-start']);
+        });
+
+        // ACCEPTED LIMITATION, pinned so it is a decision and not a surprise.
+        //
+        // At exactly the prefix length `bytesRead === METADATA_PREFIX_BYTES`,
+        // which is indistinguishable from a truncated read — this file and the
+        // one above are byte-identical for the first 8192 bytes. Nothing here
+        // can separate them without a second read, and refusing both would
+        // sacrifice the real session above to suppress the phantom below. A
+        // phantom is cosmetic; a dropped session is not. If you are here to
+        // close this case, a second read is the only sound way, and it is not
+        // worth a syscall on every import for a file shape nobody produces.
+        it('still imports a whitespace-only file of exactly the prefix length (accepted phantom)', async () => {
+          const content = Buffer.alloc(8192, 0x20);
+          expect(content.length).toBe(8192);
+
+          primeFlatScan('whitespace-8192.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['whitespace-8192']);
+          expect(all[0].name).toMatch(/^Session /);
+        });
+
+        it('imports a BOM-prefixed session with its real id and name', async () => {
+          // `Buffer.toString('utf-8')` does not strip a UTF-8 BOM and
+          // `JSON.parse` throws on a leading U+FEFF, so the system-init record
+          // carrying the session id is unparseable. This is a REAL session and
+          // must not be lost — and the right outcome is the real id from the
+          // record, not a filename guess.
+          const content = Buffer.from(
+            String.fromCharCode(0xfeff) +
+              JSON.stringify({
+                type: 'system',
+                subtype: 'init',
+                session_id: 'bom-real-id',
+              }) +
+              '\n' +
+              JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: 'Ship the thing' },
+              }) +
+              '\n',
+          );
+
+          primeFlatScan('bom-session.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['bom-real-id']);
+          expect(all[0].name).toBe('Ship the thing');
+        });
+
+        // The single-line case, which behaves DIFFERENTLY from the two-line one
+        // above and is the more common shape for a fresh session.
+        //
+        // With only one record there is no second, parseable line to carry the
+        // file. Before the BOM strip that record failed to parse, so
+        // `parsedRecords === 0` with `lines.length === 1` and the file was
+        // discarded by the `No parseable records` branch — a real session lost
+        // with only a debug-level warn to show for it. Stripping at decode
+        // rescues it AND recovers the canonical `session_id`, which the
+        // filename fallback could only have guessed at.
+        it('imports a single-record BOM-prefixed session with its real id', async () => {
+          const content = Buffer.from(
+            String.fromCharCode(0xfeff) +
+              JSON.stringify({
+                type: 'system',
+                subtype: 'init',
+                session_id: 'bom-solo-id',
+              }) +
+              '\n',
+          );
+
+          primeFlatScan('bom-solo.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['bom-solo-id']);
+          expect(logger.warn).not.toHaveBeenCalledWith(
+            expect.stringContaining('No parseable records'),
+            expect.anything(),
+          );
+        });
+
+        // Pins the boundary the new discriminator must NOT move. A short file
+        // whose one complete record is real but unparseable has been handled
+        // by the `No parseable records` branch above this guard since
+        // TASK_2026_306 — that branch is deliberate ("corrupt rather than
+        // merely truncated") and runs FIRST, so the content signal never sees
+        // this file. Passes before and after the F3-1 change by construction;
+        // it exists to keep that true.
+        it('still refuses a short file whose only record is unparseable, and warns', async () => {
+          const content = Buffer.from('{"type":"user","message":{"cont\n');
+
+          primeFlatScan('half-written.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(0);
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('No parseable records'),
+            expect.objectContaining({ completeLines: 1 }),
+          );
+        });
+
+        it('still imports a short file that does hold a user turn', async () => {
+          // The gate keys on session CONTENT, not on file size. A tiny real
+          // session with no reachable `session_id` still resolves its id from
+          // the filename, exactly as before.
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'user',
+              message: { role: 'user', content: 'Hi there' },
+            }) + '\n',
+          );
+
+          primeFlatScan('tiny-real-session.jsonl');
+          mockPositionalRead(content);
+
+          const imported = await importer.scanAndImport(WORKSPACE);
+
+          expect(imported).toBe(1);
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['tiny-real-session']);
+          expect(all[0].name).toBe('Hi there');
+        });
+      });
+
+      // ---------------------------------------------------------------------
+      // The prune pass under a BOM (TASK_2026_308).
+      //
+      // `decodePrefix` is shared with `isTitleOnlySidecar`, so making the
+      // importer BOM-aware made the PRUNE BOM-aware in the same stroke — and
+      // the prune DELETES stored session metadata. Its refusal to touch a real
+      // session rests on two things: it returns true only on a positive
+      // `ai-title` sighting, and it bails the moment it sees a system or user
+      // line. Both were previously vacuous for a BOM-prefixed file, because
+      // nothing parsed at all. Now that records really do parse, that
+      // reasoning is load-bearing and needs to be held down by tests rather
+      // than by argument.
+      // ---------------------------------------------------------------------
+      describe('title-only prune under a BOM (TASK_2026_308)', () => {
+        afterEach(() => {
+          fsPromises.access.mockReset();
+          fsPromises.open.mockReset();
+          fsPromises.readdir.mockReset();
+          fsPromises.stat.mockReset();
+        });
+
+        function mockPositionalRead(fileContent: Buffer): void {
+          fsPromises.open.mockResolvedValue({
+            read: jest.fn(
+              async (buf: Buffer, off: number, len: number, pos: number) => {
+                const end = Math.min(fileContent.length, pos + len);
+                const bytesRead = Math.max(0, end - pos);
+                if (bytesRead > 0) fileContent.copy(buf, off, pos, end);
+                return { bytesRead, buffer: buf };
+              },
+            ),
+            close: jest.fn(async () => undefined),
+          } as unknown as Awaited<ReturnType<typeof fsPromises.open>>);
+        }
+
+        /**
+         * A scan that discovers nothing new, so the only pass with any effect
+         * is `pruneTitleOnlySessions` over what is already in the store.
+         */
+        function primePruneOnlyScan(): void {
+          primeFindSessionsDir();
+          fsPromises.access.mockRejectedValueOnce(new Error('ENOENT')); // no index
+          fsPromises.readdir.mockResolvedValueOnce(
+            [] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>,
+          );
+          fsPromises.access.mockResolvedValue(undefined); // backing file exists
+        }
+
+        it('does not prune a BOM-prefixed real session', async () => {
+          await store.create('bom-keep', WORKSPACE, 'Real work');
+          const content = Buffer.from(
+            String.fromCharCode(0xfeff) +
+              JSON.stringify({
+                type: 'system',
+                subtype: 'init',
+                session_id: 'bom-keep',
+              }) +
+              '\n',
+          );
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['bom-keep']);
+        });
+
+        it('does not prune a BOM-prefixed file that carries both a title and a turn', async () => {
+          // The mixed shape is the one that could go wrong: the `ai-title`
+          // sighting is now real, so only the system/user bail stops the
+          // delete. It must win regardless of record order.
+          await store.create('bom-mixed', WORKSPACE, 'Titled work');
+          const content = Buffer.from(
+            String.fromCharCode(0xfeff) +
+              JSON.stringify({ type: 'ai-title', title: 'Some title' }) +
+              '\n' +
+              JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: 'Real turn' },
+              }) +
+              '\n',
+          );
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['bom-mixed']);
+        });
+
+        // The positive counterpart. Without it the two specs above would pass
+        // against a prune that had been accidentally disabled altogether, and
+        // this is the one of the three that actually changed behaviour: before
+        // the BOM strip this sidecar parsed to nothing and survived forever.
+        it('prunes a BOM-prefixed title-only sidecar', async () => {
+          await store.create('bom-title', WORKSPACE, 'Session 1/1/2026');
+          const content = Buffer.from(
+            String.fromCharCode(0xfeff) +
+              JSON.stringify({ type: 'ai-title', title: 'Some title' }) +
+              '\n',
+          );
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+      });
     });
 
     it('does not re-import sessions already in the metadata store', async () => {

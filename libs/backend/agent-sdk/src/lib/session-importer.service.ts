@@ -67,6 +67,31 @@ interface SessionsIndex {
 const METADATA_PREFIX_BYTES = 8192;
 
 /**
+ * U+FEFF, the UTF-8 byte-order mark.
+ *
+ * Built from its code point rather than written as a literal: a raw BOM in
+ * source is `no-irregular-whitespace`, and an escape is easy to mistake for a
+ * typo at a glance.
+ */
+const UTF8_BOM = String.fromCharCode(0xfeff);
+
+/**
+ * Decode a file prefix read from byte 0, dropping a leading UTF-8 BOM.
+ *
+ * `Buffer.toString('utf-8')` does not strip a BOM and `JSON.parse` throws on
+ * one, so a BOM makes the FIRST record of a session unparseable — and the
+ * first record is the system `init` line carrying the session id. The file
+ * still imports off its later records, but under the FILENAME instead of the
+ * id the SDK wrote, which is the one identity the rest of the system treats as
+ * canonical. A BOM can only legally sit at byte 0 and every read here starts
+ * there, so one strip at decode covers every caller.
+ */
+function decodePrefix(buffer: Buffer, bytesRead: number): string {
+  const text = buffer.toString('utf-8', 0, bytesRead);
+  return text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text;
+}
+
+/**
  * Split a byte-bounded file prefix into the JSONL records that are certainly
  * complete, dropping a trailing record that the byte bound cut in half.
  *
@@ -331,7 +356,7 @@ export class SessionImporterService {
 
       if (bytesRead === 0) return false;
 
-      const content = buffer.toString('utf-8', 0, bytesRead);
+      const content = decodePrefix(buffer, bytesRead);
       const lines = splitCompleteRecords(content, bytesRead);
 
       let sawAiTitle = false;
@@ -651,7 +676,7 @@ export class SessionImporterService {
 
       if (bytesRead === 0) return null;
 
-      const content = buffer.toString('utf-8', 0, bytesRead);
+      const content = decodePrefix(buffer, bytesRead);
       const lines = splitCompleteRecords(content, bytesRead);
 
       let sessionId: string | null = null;
@@ -701,16 +726,58 @@ export class SessionImporterService {
         return null;
       }
 
-      // Skip sidecar files that hold no conversation — e.g. the CLI's
-      // title-only `{"type":"ai-title",...}` files. They carry no system
-      // init or user turn, so importing them produces phantom
-      // "Session <date>" entries in the session list.
+      // Nothing here said "session". Three ways to arrive in that state, and
+      // they do NOT get the same answer:
       //
-      // Gated on having actually read a record: when the first record alone
-      // exceeds the prefix there is nothing to judge from, and a real session
-      // must not be discarded as a sidecar on no evidence. Sidecars are tiny,
-      // so they are always read whole and always reach this guard.
-      if (parsedRecords > 0 && !sawSessionContent) return null;
+      //   1. Complete records were present and none was a system/user line
+      //      (`parsedRecords > 0`). That is a sidecar — the CLI's title-only
+      //      `{"type":"ai-title",...}` file. Skip it, or it imports as a
+      //      phantom "Session <date>" entry in the session list.
+      //   2. The WHOLE FILE is in hand and holds no non-whitespace byte at
+      //      all. There is nothing in this file to BE a session. Skip it —
+      //      this is TASK_2026_308 F3-1, the case that used to walk straight
+      //      into the filename fallback and out as the same phantom.
+      //   3. Anything else. The file must FALL THROUGH to the filename
+      //      fallback, because we have not proved it is empty. Discarding it
+      //      would trade a phantom for a lost session, which is the worse
+      //      failure by a wide margin.
+      //
+      // Case 2 is a CONJUNCTION, and both halves earn their place:
+      //
+      //   - Non-whitespace bytes, not `parsedRecords`, is the content signal.
+      //     `parsedRecords` counts parse SUCCESSES, so it cannot tell "there
+      //     is nothing in this file" from "I could not parse what is in this
+      //     file" — a BOM-prefixed, truncated or corrupt record all read as
+      //     zero — and only the first of those is evidence of absence.
+      //   - `bytesRead < METADATA_PREFIX_BYTES` is what makes the whitespace
+      //     conclusive. A SHORT read means the entire file is in the buffer.
+      //     Without it the guard would rest on "no producer writes 8 KB of
+      //     leading blank lines" — an assumption about producers stated
+      //     nowhere, and false for a file that is whitespace through byte 8192
+      //     and a real session afterwards. That file gets refused on a full
+      //     prefix we cannot see past, which is data loss.
+      //
+      // Together they read as: REFUSE ONLY WHEN WE HAVE SEEN THE WHOLE FILE
+      // AND THERE IS NOTHING IN IT. That is true by construction at any file
+      // size, which is the whole point — it is not a claim about what
+      // producers do.
+      //
+      // KNOWN AND ACCEPTED, out of scope: a whitespace-only file of EXACTLY
+      // 8192 bytes or larger still imports as a phantom. `bytesRead ===
+      // METADATA_PREFIX_BYTES` is indistinguishable from a truncated read, so
+      // no signal available here separates "8192 bytes of whitespace and
+      // nothing more" from "8192 bytes of whitespace and a session after it"
+      // without a second read. Do not add that read: a phantom is cosmetic, a
+      // dropped session is not, and it would cost a syscall on every import
+      // for a file shape nobody produces.
+      const wholeFileInHand = bytesRead < METADATA_PREFIX_BYTES;
+      const prefixHasContent = content.trim().length > 0;
+      if (
+        !sawSessionContent &&
+        (parsedRecords > 0 || (!prefixHasContent && wholeFileInHand))
+      ) {
+        return null;
+      }
 
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));
