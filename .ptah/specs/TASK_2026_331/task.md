@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_331
-status: in_progress
+status: done
 type: REFACTORING
 title: >-
   Move Electron boot-time work off the main process and open the window first

@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_331
 
-**Total Tasks**: 46 | **Batches**: 8 | **Status**: Batch 1 DONE. Batches 2, 3 and most of 5/6/7 CANCELLED on measured evidence. Remaining: B6.T1 (done), B5.T8-backup, B7.T3, B7.T1-residual, Batch 4 (measure first).
+**Total Tasks**: 46 | **Batches**: 8 | **Status**: COMPLETE. Batches 1, 4 and 7 shipped; 2, 3, 5 and 6 cancelled on measured evidence, except the two real defects inside 5 and 6 which shipped.
 
 **Source plan**: `implementation-plan.md` (v2, approved 2026-08-27)
 **Branch**: `fix/electron-update-check-timeout`
@@ -54,7 +54,7 @@
 
 ## Batch 1: Boot coordinator and window-first reordering
 
-**Status**: DONE (code merged; the manual `nx serve` timing run is still outstanding)
+**Status**: DONE — verified by the boot probe: window at 2416 ms (was 73 s)
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -382,7 +382,7 @@ any readiness signal.
 
 ## Batch 2A: Readiness contracts in shared and backend
 
-**Status**: BLOCKED — premise refuted, see the scoping evidence above.
+**Status**: T1 and T2 DONE (vocabulary kept); T3-T5 CANCELLED, premise refuted
 T1 and T2 are DONE; T3, T4 and T5 are on hold pending the dashboard-first
 measurement.
 **Recommended Executor**: backend-developer
@@ -570,7 +570,7 @@ feat(chat,core): retry startup RPCs when the backend reports it is warming (TASK
 
 ## Batch 3: Crash-resumable transcript chunking
 
-**Status**: CANCELLED — premise refuted by the Batches 3-7 audit below
+**Status**: CANCELLED — premise refuted by the Batches 3-7 audit
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -678,14 +678,14 @@ perf(memory-curator,skill-synthesis): read transcripts in resumable chunks (TASK
 
 ## Batch 4: SKILL.md migration marker
 
-**Status**: ON HOLD — real shape, unmeasured cost. Measure before building.
+**Status**: DONE — marker shipped, 388 ms/launch removed
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
 **Rationale**: three tasks in two files. Small and coupled.
 **Tasks**: 3 | **Dependencies**: Batch 3 (shares the migration numbering)
 
-### Task B4.T1: Add the skill_md_migration_state migration — PENDING
+### Task B4.T1: Add the skill_md_migration_state migration — DONE (migration 0041)
 
 **Files**
 
@@ -700,7 +700,7 @@ perf(memory-curator,skill-synthesis): read transcripts in resumable chunks (TASK
 
 ---
 
-### Task B4.T2: Read the marker before the SKILL.md walk — PENDING
+### Task B4.T2: Read the marker before the SKILL.md walk — DONE
 
 **Files**
 
@@ -720,7 +720,7 @@ perf(memory-curator,skill-synthesis): read transcripts in resumable chunks (TASK
 
 ---
 
-### Task B4.T3: Add the boot-cost regression spec — PENDING
+### Task B4.T3: Add the boot-cost regression spec — DONE
 
 **Files**
 
@@ -754,7 +754,7 @@ perf(skill-synthesis): skip the SKILL.md re-walk with a persisted marker (TASK_2
 
 ## Batch 5: Maintenance worker and SQLite operations
 
-**Status**: CANCELLED except the T8 backup half — see the Batches 3-7 audit
+**Status**: CANCELLED except the T8 backup half, which SHIPPED
 **Recommended Executor**: backend-developer, with devops-engineer for T2 and T11
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -966,7 +966,7 @@ perf(persistence-sqlite): move integrity checks, purge and backup to a maintenan
 
 ## Batch 6: CPU worker pool, file index and hashing
 
-**Status**: CANCELLED except T1 — T1 is a real defect at TWO sites (fixed)
+**Status**: CANCELLED except T1, which SHIPPED (real defect, two sites)
 **Recommended Executor**: backend-developer, with devops-engineer for T2
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential for T1 to T5; T6 and T7 (harness hashing) may run in parallel with T5 because they are file-disjoint
@@ -1113,14 +1113,14 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ## Batch 7: Harness abort signal and deduplication
 
-**Status**: RE-SCOPED — T1 is now one line, T3 survives, T2 and T4 cancelled
+**Status**: DONE — T1 became one argument, T3 shipped, T2 and T4 cancelled
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
 **Rationale**: the in-flight registry is shared by the importer, the index and the `workspace:switch` handler. One lane keeps the contract consistent.
 **Tasks**: 4 | **Dependencies**: Batches 1, 5, 6
 
-### Task B7.T1: Add the abort signal to the harness reconciler — PENDING
+### Task B7.T1: Add the abort signal to the harness reconciler — DONE (one argument; the signal already existed)
 
 **Files**
 
@@ -1135,7 +1135,7 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ---
 
-### Task B7.T2: Add the in-flight registry — PENDING
+### Task B7.T2: Add the in-flight registry — CANCELLED (folded into T3)
 
 **Files**
 
@@ -1149,7 +1149,7 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ---
 
-### Task B7.T3: Deduplicate the session import — PENDING
+### Task B7.T3: Deduplicate the session import — DONE (state lives in SessionImporterService)
 
 **Files**
 
@@ -1164,7 +1164,7 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ---
 
-### Task B7.T4: Deduplicate the file index start — PENDING
+### Task B7.T4: Deduplicate the file index start — CANCELLED (depends on cancelled B6.T5)
 
 **Files**
 
