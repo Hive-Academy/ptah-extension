@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_309
-status: in_progress
+status: done
 type: BUGFIX
 title: >-
   The non-destructive-wording guard is a verb denylist, so "purge" and "wipe"

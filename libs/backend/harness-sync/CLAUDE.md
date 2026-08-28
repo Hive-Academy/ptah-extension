@@ -802,6 +802,55 @@ for a user who does not want the repair: **move** the occupant aside — not
 delete it — then re-run `ptah harness doctor --fix`. Move is reversible and
 delete is not, and `--fix` writes Ptah's copy into whatever gap the move leaves.
 
+##### The wording is guarded by an ALLOWLIST, in `shared` (TASK_2026_309)
+
+**SIX** surfaces say how a blocked path gets cleared — this lib's reconcile
+WARN, the Marketplace popover, the Dashboard card, the repair dialog,
+`HarnessHealthStore`'s repair-failure message, and
+**`HarnessRepairPathResult.reason`** — and each must say MOVE. The guard used
+to be a DENYLIST of eight regexes, and only two surfaces carried even that:
+"purge", "wipe", "drop", "nuke", "clear out" and "get rid of" all passed it,
+and "remove the occupant" would have shipped on the others with a green suite.
+It is now an exact-match allowlist in
+`libs/shared/src/lib/types/harness-blocked-wording.ts`
+(`HARNESS_BLOCKED_APPROVED_ACTIONS`, `HARNESS_BLOCKED_APPROVED_PROSE`,
+`HARNESS_REPAIR_REASONS`, `harnessBlockedWordingViolations`), which is `shared`
+for `summarizeHarnessHealth`'s exact reason: a frontend lib cannot import this
+one, and private copies of the sentence is how the wordings drifted apart.
+
+**`reason` is PROSE, not data, and that is what hid it.** Every value
+`HarnessBlockedRepairService` puts in that field (`blocked-repair.service.ts`
+:230, :318, :334, :399, :406) is a Ptah-authored sentence, rendered
+unconditionally at `harness-repair-dialog.component.ts:276-280`. The first
+version of the guard never saw one, because the only `reason` any spec
+exercised was an invented fixture passed as `data` — and `data` is struck
+before the residue is judged. So the five literals are on the allowlist and
+pinned from BOTH sides: `blocked-repair.service.spec.ts` asserts the service
+emits them, and `harness-repair-dialog.spec.ts` renders them and asserts the
+dialog stays clean. Neither half is sufficient alone. The two templates
+(`move-failed`, `restore-failed`) approve only the fixed HEAD — the tail is
+`describeError(error)`, which is the OS talking.
+
+**Brittleness is the feature.** Any rewording of these strings — the action,
+the WARN's `note`, either per-path `reason`, a repair `reason`, a button label
+or an outcome line — fails its surface spec, so the new wording gets
+re-approved by a human editing the allowlist rather than re-scanned by a regex
+it happens to slip past. Adding a legitimate phrasing means editing
+`HARNESS_BLOCKED_RECONCILE_STEPS`, `HARNESS_REPAIR_REASONS` or
+`HARNESS_BLOCKED_APPROVED_PROSE`; there is no other door.
+
+**Two denylists survive underneath it, and both are sound in that position
+only.** `containsDestructiveVerb` runs on the residue AFTER the approved
+sentences are struck, so it can only ever ADD a failure and can never grant
+permission — which is what makes it safe and is exactly what the guard it
+replaced was not. It exists because the residue rule needs four consecutive
+words (below that, "Claude Code" and "13 blocked paths" would each need
+approving), so a two-word button label like "Delete these" is structurally
+invisible to it. The same function is turned on the ALLOWLIST itself, so a
+destructive verb cannot become approved wording by being typed into that file
+— the one path the two-sided pin cannot close on its own. `read it before you
+discard anything` is the single sanctioned exemption.
+
 #### Consent-gated repair + the quarantine convention — BACKEND SHIPPED (Batch 8), consent UI PLANNED (Batch 9)
 
 **The repair is real code.** `HarnessBlockedRepairService`

@@ -24,6 +24,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   blockedTargetPaths,
+  harnessBlockedWordingViolations,
+  HARNESS_BLOCKED_APPROVED_ACTIONS,
+  HARNESS_BLOCKED_WARN_MESSAGE,
   type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -54,8 +57,12 @@ function grantSkillSync(workspaceRoot: string): void {
   });
 }
 
-const BLOCKED_MESSAGE =
-  '[harness-sync] Blocked: desired paths an unowned file occupies — refused, not failed';
+/**
+ * The message the WARN is logged under, from the shared allowlist rather than
+ * a copy. It is prose on the same line as the action, so it is under the same
+ * guard, and this suite finds the payload by it.
+ */
+const BLOCKED_MESSAGE = HARNESS_BLOCKED_WARN_MESSAGE;
 const SUMMARY_GAPS = '[harness-sync] Reconcile finished with gaps';
 const SUMMARY_CLEAN = '[harness-sync] Reconcile complete';
 
@@ -102,6 +109,24 @@ function warnPayloads(logger: FakeLogger, message: string): unknown[] {
   return logger.warn.mock.calls
     .filter((call) => call[0] === message)
     .map((call) => call[1]);
+}
+
+/**
+ * Every string anywhere in the logged payload, however deeply nested.
+ *
+ * Collected structurally rather than by naming `note`, `action` and each
+ * path's `reason`, so a prose field added to this payload later is under the
+ * wording guard the day it lands. `JSON.stringify` is not used because it
+ * escapes the quotes inside the action ("Your harness is short"), which would
+ * make the approved sentence unfindable in its own line.
+ */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value).flatMap(stringsIn);
+  }
+  return [];
 }
 
 function blockedDetail(logger: FakeLogger): BlockedDetail {
@@ -273,36 +298,39 @@ describe('HarnessReconcilerService — the blocked-path line', () => {
     // Nothing about these paths proves Ptah wrote them, and `--fix` writes over
     // whatever the move leaves behind. Advising deletion would trade the user's
     // possibly-irreplaceable work for a tidier count.
+    //
+    // Kept as substrings even though the line below pins the sentence WHOLE:
+    // they document WHY the string says what it says, and they survive the
+    // switch to equality at no cost.
     expect(action).toMatch(/^Move the occupant aside/);
     expect(action).toContain('may be your own work');
     expect(action).toContain('read it before you discard anything');
     expect(action).toContain('ptah harness doctor --fix');
 
-    // Over the WHOLE line, not just the action clause. Task 12.1 inserted a
-    // sentence into the middle of this paragraph, and the destructive-verb ban
-    // is worth exactly as much as the surface it covers: a rewrite that moved
-    // "delete the occupant" into `note` or into a per-path `reason` would have
-    // passed the action-only check this case used to make.
+    // The guard proper: an exact-match ALLOWLIST, not a denylist of verbs.
     //
-    // The synonym list closes Batch 7's recorded m1 hole. `not.toContain('delete')`
-    // alone let "remove", "erase", "trash" and "rm" through, and any of the four
-    // reads as the same instruction to a user.
-    const wholeLine = `${BLOCKED_MESSAGE} ${JSON.stringify(detail)}`;
-    // The original substring form, kept verbatim and widened to the whole line
-    // so nothing this case used to assert is traded away for the regex set.
-    expect(wholeLine.toLowerCase()).not.toContain('delete');
-    for (const verb of [
-      /\bdelete[ds]?\b/i,
-      /\bdeleting\b/i,
-      /\bdeletion\b/i,
-      /\bremove[ds]?\b/i,
-      /\bremoving\b/i,
-      /\berase[ds]?\b/i,
-      /\btrash\b/i,
-      /\brm\b/i,
-    ]) {
-      expect(wholeLine).not.toMatch(verb);
-    }
+    // This case used to scan the line for eight regexes. A denylist can only
+    // ban the phrasings somebody thought of, and "purge", "wipe", "drop",
+    // "nuke", "clear out" and "get rid of" all passed it while reading to a
+    // user as exactly the instruction the rule forbids. So the check is
+    // inverted: the sentence must ALREADY be on the list in
+    // `libs/shared/src/lib/types/harness-blocked-wording.ts`, character for
+    // character. Brittleness is the feature — a reworded safety-critical
+    // instruction should be re-approved by a human, not re-scanned by a regex.
+    //
+    // The scope stays the WHOLE line, not the action clause. Task 12.1
+    // inserted a sentence into the middle of this paragraph, and a destructive
+    // verb moved into `note` or into a per-path `reason` would have passed an
+    // action-only check. Every string in the payload is collected, so a NEW
+    // prose field added later is covered without this case being touched.
+    expect(action).toBe(HARNESS_BLOCKED_APPROVED_ACTIONS['reconcile-warn']);
+    expect(
+      harnessBlockedWordingViolations({
+        surface: 'reconcile-warn',
+        action,
+        wholeText: [BLOCKED_MESSAGE, ...stringsIn(detail)].join(' | '),
+      }),
+    ).toEqual([]);
   });
 
   it('names the Dashboard harness card, so the line is not a dead end for a user without a terminal', async () => {
