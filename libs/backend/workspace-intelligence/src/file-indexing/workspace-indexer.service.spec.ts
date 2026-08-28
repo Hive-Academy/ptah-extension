@@ -161,6 +161,23 @@ describe('WorkspaceIndexerService', () => {
     jest.clearAllMocks();
   });
 
+  /**
+   * The indexer wired to the REAL `PatternMatcherService`, for the exclude-path
+   * cases. Everything else stays mocked; only the collaborator whose return
+   * contract is under test is real.
+   */
+  function serviceWithRealMatcher(): WorkspaceIndexerService {
+    return new WorkspaceIndexerService(
+      fileSystemService,
+      new PatternMatcherService(),
+      ignoreResolver,
+      fileClassifier,
+      tokenCounter,
+      mockFsProvider,
+      logger,
+    );
+  }
+
   describe('indexWorkspace', () => {
     it('should index all files in workspace', async () => {
       mockFsProvider.findFiles.mockResolvedValue([
@@ -368,15 +385,16 @@ describe('WorkspaceIndexerService', () => {
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
 
-      // Mock returns only the files that match the exclude pattern
+      // One result per INPUT path, matched and unmatched alike — the real
+      // `matchFiles` contract. This mock used to `.filter()` the unmatched
+      // entries away, which is a contract the service does not have and is
+      // what let the caller read `excluded.length > 0` as "excluded".
       patternMatcher.matchFiles.mockImplementation((paths: string[]) => {
-        return paths
-          .map((path) => ({
-            path,
-            matched: path.includes('test'),
-            matchedPatterns: path.includes('test') ? ['**/test/**'] : [],
-          }))
-          .filter((result) => result.matched);
+        return paths.map((path) => ({
+          path,
+          matched: path.includes('test'),
+          matchedPatterns: path.includes('test') ? ['**/test/**'] : [],
+        }));
       });
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -392,6 +410,75 @@ describe('WorkspaceIndexerService', () => {
 
       expect(result.files).toHaveLength(1);
       expect(result.files[0].path).toBe('/workspace/src/app.ts');
+    });
+
+    // TASK_2026_331 B6.T1. `matchFiles` returns one `PatternMatchResult` per
+    // INPUT path, so for a single-path call its length is 1 whatever the
+    // patterns say. Reading that length as "this file is excluded" dropped
+    // EVERY file the moment `excludePatterns` was non-empty, and the index came
+    // back empty. These two cases run the REAL `PatternMatcherService` rather
+    // than a hand-written mock, because a mock is free to invent the contract
+    // that hid the defect in the first place.
+    it('indexes a file that matches no exclude pattern', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/test/app.test.ts',
+      ]);
+
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 1000,
+      });
+
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+
+      const result = await serviceWithRealMatcher().indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+        excludePatterns: ['**/test/**'],
+      });
+
+      expect(result.files.map((file) => file.path)).toContain(
+        '/workspace/src/app.ts',
+      );
+    });
+
+    it('excludes a file that matches an exclude pattern', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/test/app.test.ts',
+      ]);
+
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 1000,
+      });
+
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+
+      const result = await serviceWithRealMatcher().indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+        excludePatterns: ['**/test/**'],
+      });
+
+      expect(result.files.map((file) => file.path)).toEqual([
+        '/workspace/src/app.ts',
+      ]);
     });
 
     // TASK_2026_200 task 3.5: `workspaceFolder` no longer falls back to the
@@ -436,6 +523,41 @@ describe('WorkspaceIndexerService', () => {
       expect(files).toHaveLength(2);
       expect(files[0].path).toBe('/workspace/file1.ts');
       expect(files[1].path).toBe('/workspace/file2.ts');
+    });
+
+    // The stream path carried the same length-vs-result defect as
+    // `indexWorkspace` (TASK_2026_331 B6.T1), and it is the path
+    // `WorkspaceFileIndexService.build` actually uses.
+    it('yields files that match no exclude pattern and skips those that do', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/test/app.test.ts',
+      ]);
+
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 1000,
+      });
+
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+
+      const yielded: string[] = [];
+      for await (const file of serviceWithRealMatcher().indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+        excludePatterns: ['**/test/**'],
+      })) {
+        yielded.push(file.path);
+      }
+
+      expect(yielded).toEqual(['/workspace/src/app.ts']);
     });
 
     it('should respect ignore patterns in stream mode', async () => {

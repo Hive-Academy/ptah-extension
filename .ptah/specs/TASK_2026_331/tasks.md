@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_331
 
-**Total Tasks**: 46 (8 cancelled after measurement) | **Batches**: 8 | **Status**: Batch 1 done; Batch 2 cancelled on evidence; Batches 3-7 pending
+**Total Tasks**: 46 | **Batches**: 8 | **Status**: Batch 1 DONE. Batches 2, 3 and most of 5/6/7 CANCELLED on measured evidence. Remaining: B6.T1 (done), B5.T8-backup, B7.T3, B7.T1-residual, Batch 4 (measure first).
 
 **Source plan**: `implementation-plan.md` (v2, approved 2026-08-27)
 **Branch**: `fix/electron-update-check-timeout`
@@ -570,7 +570,7 @@ feat(chat,core): retry startup RPCs when the backend reports it is warming (TASK
 
 ## Batch 3: Crash-resumable transcript chunking
 
-**Status**: CANCELLED — see the Batch 2 scoping evidence above
+**Status**: CANCELLED — premise refuted by the Batches 3-7 audit below
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -678,7 +678,7 @@ perf(memory-curator,skill-synthesis): read transcripts in resumable chunks (TASK
 
 ## Batch 4: SKILL.md migration marker
 
-**Status**: CANCELLED — see the Batch 2 scoping evidence above
+**Status**: ON HOLD — real shape, unmeasured cost. Measure before building.
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -754,7 +754,7 @@ perf(skill-synthesis): skip the SKILL.md re-walk with a persisted marker (TASK_2
 
 ## Batch 5: Maintenance worker and SQLite operations
 
-**Status**: CANCELLED — see the Batch 2 scoping evidence above
+**Status**: CANCELLED except the T8 backup half — see the Batches 3-7 audit
 **Recommended Executor**: backend-developer, with devops-engineer for T2 and T11
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -966,7 +966,7 @@ perf(persistence-sqlite): move integrity checks, purge and backup to a maintenan
 
 ## Batch 6: CPU worker pool, file index and hashing
 
-**Status**: CANCELLED — see the Batch 2 scoping evidence above
+**Status**: CANCELLED except T1 — T1 is a real defect at TWO sites (fixed)
 **Recommended Executor**: backend-developer, with devops-engineer for T2
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential for T1 to T5; T6 and T7 (harness hashing) may run in parallel with T5 because they are file-disjoint
@@ -1113,7 +1113,7 @@ perf(workspace-intelligence,harness-sync): move index build and hashing to worke
 
 ## Batch 7: Harness abort signal and deduplication
 
-**Status**: CANCELLED — see the Batch 2 scoping evidence above
+**Status**: RE-SCOPED — T1 is now one line, T3 survives, T2 and T4 cancelled
 **Recommended Executor**: backend-developer
 **Fallback Executor**: general-purpose
 **Execution Mode**: sequential
@@ -1206,3 +1206,140 @@ perf(harness-sync,agent-sdk): abort in-flight reconciles and deduplicate workspa
 | Session import before the window | 30 to 60 s                 | 0 s                  | `Imported N sessions` appears after `Startup config registered` |
 | Session import runs              | 2                          | 1                    | one `Imported N sessions` line                                  |
 | Embedder warmup                  | only if the curator exists | always               | `[Ptah Electron] Embedder warmup complete`                      |
+
+---
+
+## Batches 3-7 audit (2026-08-28)
+
+Same standard of evidence as the Batch 2 section: every claim checked against the
+code before anyone builds on it. Result — most of the remaining plan is dead.
+
+### Batch 3 — CANCELLED, premise refuted
+
+The plan's RISK 7 says the boot scans read transcripts tail-only and therefore
+"permanently skip data in completed sessions". They do not.
+
+- The memory boot scan calls `transcriptReader.read(sessionId, workspaceRoot)`
+  with **no `tailBytes`** (`memory-trigger.service.ts:880-883`), and the port
+  states plainly: "Omitting `tailBytes` reads the whole transcript"
+  (`transcript-reader.port.ts:4`). Tail-only is the INTERACTIVE path
+  (`memory-trigger.service.ts:773-775`), not the boot path.
+- The skills boot scan reads no JSONL at all — it enqueues
+  (`skill-trigger.service.ts:808-814`). The later read is already streaming and
+  yielding: 64 KiB chunks, `setImmediate`, yield every 200 lines, 50 MB refusal
+  (`jsonl-reader.service.ts:44-50`, `:83-89`).
+- The throttling B3.T3 would add already exists: 200 ms inter-session throttle
+  (`boot-scan-runner.ts:209-211`), per-item abort check (`:162-169`), persisted
+  mtime watermark (`:239-293`), 7-day cold-start floor, stalled-outcome stop.
+
+There is no data loss to fix and no event loop to unblock. **Delete RISK 7 from
+the table above — it is refuted, not mitigated.** The real cost of the memory
+boot scan is one LLM curate per eligible session, already charged to
+`maxCuratesPerHour` (`memory-trigger.service.ts:859-876`).
+
+### Batch 4 — ON HOLD, measure first
+
+No marker exists — that part is true. `findSkillMdFiles` is a synchronous
+recursive `readdirSync` (`skill-md-migration.ts:83`) with a synchronous
+`readFileSync` per hit (`:47`), run unconditionally on every `start()`, **twice**
+(`skill-synthesis.service.ts:304` and `:311`).
+
+But two corrections. It walks only `~/.ptah/skills` active + candidates roots,
+NOT "every SKILL.md on disk". And the "~2 s" that sizes the whole batch **exists
+nowhere in the repo** — only in the plan. Synchronous main-thread fs is a real
+shape worth fixing; build it only after measuring `skill-synthesis.service.ts:304`
+to `:317`.
+
+### Batch 5 — CANCELLED except the T8 backup half
+
+`runBootChecks` is two non-fatal pragmas (`sqlite-connection.service.ts:604`,
+`:618`). The 1942 ms measured above is `openAndMigrate()` **in total** — factory
+open, pragmas, sqlite-vec load, quick_check, foreign_key_check AND the full
+migration run. `quick_check` is a fraction of it. Since B1 it also runs AFTER the
+window is on screen (`boot-heavy-services.ts:138`), so it costs zero
+time-to-window.
+
+Eleven tasks — build target, protocol, client, worker entry, migration, state
+store, a 10-state compaction machine, crash recovery, an Electron factory — plus
+a documented exception to the single-writable-connection rule, to move a sub-2 s
+post-window pragma pair off-thread. Not justified by any measurement in this repo.
+
+**B5.T8 survives, backup half only, and it is the most valuable item in the whole
+audit.** `backup()` swallows every failure and returns `null`
+(`backup.service.ts:127-133`) — including a failure AFTER `db.backup(dest)` has
+written a partial file — while `rotate()` deletes purely by filename sort with no
+validity check (`:146-151`). A truncated file counts as one of the `keep` newest
+and evicts a valid older one. This is the only claim in Batches 3-7 that risks
+losing user data, and it is one file with no worker.
+
+Note for any future worker work: `EmbedderWorkerClient` has lazy spawn,
+correlation, a crash-loop guard and idle teardown — but **no per-request
+deadlines**. B5.T4 said to follow it for deadlines; there is nothing there to
+follow.
+
+### Batch 6 — CANCELLED except T1 (done)
+
+**B6.T1 was real and worse than reported.** The inverted condition appears at
+TWO sites, not one: `workspace-indexer.service.ts:295-303` (`indexWorkspace`) and
+`:409-417` (`indexWorkspaceStream` — the path `WorkspaceFileIndexService.build`
+actually consumes). `matchFiles` returns one entry per INPUT path and never
+filters (`pattern-matcher.service.ts:206-240`), so `excluded.length > 0` was a
+constant `true` and any non-empty `excludePatterns` dropped every file silently.
+
+The existing test `should apply exclude patterns` **passed on the broken code**:
+its mock ended in `.filter((r) => r.matched)`, inventing a contract the real
+service does not have. That fake is almost certainly how the defect shipped. Both
+sites now read `excluded[0]?.matched`, the mock is de-faked, and the new cases
+drive the real `PatternMatcherService`.
+
+No production caller passes `excludePatterns` today, so there was no live
+user-visible breakage — but the next caller that passes one would have got an
+empty index with no error.
+
+The rest of Batch 6 is cancelled. The "~1.5 M pattern checks" figure appears only
+in the plan; the boot index passes no `excludePatterns`, so `matchFiles` is never
+called on that path at all. B6.T6/T7 are already done: `hashDir`/`hashFile` moved
+to `fs/promises` with `setImmediate` yields under TASK_2026_323 B8.
+
+### Batch 7 — RE-SCOPED
+
+- **B7.T1 — already shipped.** `reconcileHarness` has taken an `AbortSignal`
+  since TASK_2026_323 B8 (`harness-reconciler.service.ts:93`, consumed at `:545`,
+  `:550`, `:568`, `:575`). The only residual is that the Electron caller passes
+  none. That is ONE argument at `boot-heavy-services.ts:210`, not a task.
+- **B7.T2 — CANCELLED.** A general in-flight registry for two known call sites.
+  Fold the state into T3.
+- **B7.T3 — SURVIVES, re-scoped.** The B1 latch fixed boot-vs-boot
+  (`boot-heavy-services.ts:63-69`, `:351-364`) but NOT the measured duplicate,
+  which comes from the RPC path: `workspace:switch` → `deferSessionImport`
+  (`workspace-rpc.handlers.ts:346`, `:482-543`) calls `scanAndImport` at `:518`
+  behind guards only IT writes. The handler's own docblock admits the gap at
+  `:423-425`. Cost has changed though: both runs are now post-window and
+  fire-and-forget, so the damage is duplicated disk + SQLite I/O, not 21 s of
+  pre-window blocking.
+- **B7.T4 — CANCELLED.** Depends on B6.T5 (cancelled), and
+  `WorkspaceFileIndexService` already carries the generation counter.
+
+### Corrections to this document
+
+- RISK 7 (row 7 above) is REFUTED. Do not mitigate it; delete it.
+- RISK 5 understates B6.T1: the defect is at two sites, and the path in the plan
+  (`src/lib/file-indexing/`) does not exist — the real path has no `lib/` segment.
+- The final acceptance table's "`quick_check` on boot: 2 to 20 s" is wrong.
+  Measured: 1942 ms for ALL of `openAndMigrate()` against a 997 MB database,
+  post-window.
+- Several Batch 5/6 CREATE paths in the plan assume a `src/lib/` segment that
+  does not exist in `workspace-intelligence`. Check every path against disk
+  before handing a task to an executor.
+
+### What actually remains
+
+| Work                    | Why it survives                               | Size           |
+| ----------------------- | --------------------------------------------- | -------------- |
+| B6.T1 exclusion fix     | Real inverted condition, two sites, fake test | DONE           |
+| B5.T8 backup validation | Only data-loss risk found                     | one file       |
+| B7.T3 import dedup      | RPC path still duplicates the boot import     | two call sites |
+| B7.T1 residual          | Pass `coordinator.abortSignal`                | one argument   |
+| Batch 4                 | Sync main-thread fs, but unmeasured           | measure first  |
+
+Everything else in Batches 3-7 is cancelled.

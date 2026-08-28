@@ -297,7 +297,10 @@ export class WorkspaceIndexerService {
           [relativePath],
           options.excludePatterns,
         );
-        if (excluded && excluded.length > 0) {
+        // `matchFiles` returns one result per INPUT path, so its length is 1
+        // for this single-path call whether or not the path matched. Read the
+        // per-file `matched` flag; the length says only that we asked.
+        if (excluded && excluded[0]?.matched) {
           continue; // Skip excluded files
         }
       }
@@ -411,7 +414,8 @@ export class WorkspaceIndexerService {
             [relativePath],
             options.excludePatterns,
           );
-          if (excluded && excluded.length > 0) {
+          // One result per INPUT path — see `indexWorkspace` above.
+          if (excluded && excluded[0]?.matched) {
             continue;
           }
         }
