@@ -393,7 +393,7 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+      let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
         mcpServerRunning,
@@ -404,7 +404,21 @@ export class ChatSessionService {
         // Awaited: subagents spawned by this session discover the server
         // through `.mcp.json`, so the entry must be on disk before the session
         // starts (TASK_2026_318).
-        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        //
+        // And the outcome is READ (TASK_2026_332). The call used to resolve
+        // with `undefined` whether or not it wrote anything, so a contended
+        // config lock started this session claiming MCP was available while the
+        // entry subagents look for was absent. `false` is the honest answer and
+        // the SDK path already supports it.
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        if (!registration.registered) {
+          mcpServerRunning = false;
+          this.logger.warn(
+            '[ptah.main] chat:start - .mcp.json entry absent, starting session without MCP',
+            { reason: registration.reason },
+          );
+        }
       }
 
       const enhancedPromptsContent =
@@ -528,8 +542,21 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      // Threaded into the resume below rather than dropped: `autoResumeIfInactive`
+      // re-derives `mcpServerRunning` from `isMcpServerRunning()`, which only
+      // says the HTTP server is up — it cannot know whether the `.mcp.json`
+      // entry was actually written (TASK_2026_332).
+      let mcpRegisteredForSubagents = true;
       if (this.sdkContext.isMcpServerRunning()) {
-        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        mcpRegisteredForSubagents = registration.registered;
+        if (!registration.registered) {
+          this.logger.warn(
+            '[ptah.main] chat:continue - .mcp.json entry absent, resuming without MCP',
+            { reason: registration.reason },
+          );
+        }
       }
       const resumeOutcome = await this.autoResumeIfInactive(
         sessionId,
@@ -537,6 +564,7 @@ export class ChatSessionService {
         workspacePath,
         prompt,
         params,
+        mcpRegisteredForSubagents,
       );
       if ('error' in resumeOutcome) return resumeOutcome.error;
       const justResumed = resumeOutcome.justResumed;
@@ -960,6 +988,16 @@ export class ChatSessionService {
     workspacePath: string,
     prompt: string,
     params: AutoResumePreflight,
+    /**
+     * Whether the caller confirmed a `ptah` entry is on disk (TASK_2026_332).
+     *
+     * Defaults to `true` because the two other callers
+     * (`chat:resume --activate`, `ensureSessionActiveForRewind`) never call
+     * `ensureRegisteredForSubagents` at all, so they have nothing to report and
+     * must not be silently downgraded. Only the `chat:continue` path, which
+     * does register, passes the real answer.
+     */
+    mcpRegisteredForSubagents = true,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { justResumed: false };
@@ -990,7 +1028,8 @@ export class ChatSessionService {
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
 
-    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+    const mcpServerRunning =
+      this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;
 
     this.logger.info('[ptah.main] chat:continue resume - session config', {
       mcpServerRunning,

@@ -96,11 +96,22 @@ jest.mock('fs', () => ({
 // separately via `mock.invocationCallOrder` (see "takes the harness-sync config
 // lock" below). Never delete that assertion with this mock in place: without it
 // the stub would let a future unlocked write pass unnoticed.
-jest.mock('@ptah-extension/harness-sync', () => ({
-  withMcpConfigLock: jest.fn(
-    async (_configPath: string, task: () => Promise<unknown>) => task(),
-  ),
-}));
+jest.mock('@ptah-extension/harness-sync', () => {
+  // `FileLockTimeoutError` / `isFileLockTimeoutError` are the REAL ones. The
+  // SUT branches on `isFileLockTimeoutError`, which is an `instanceof` check, so
+  // a local look-alike would silently fall through to the generic I/O branch and
+  // this spec would happily certify the wrong one.
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/harness-sync')
+  >('@ptah-extension/harness-sync');
+  return {
+    withMcpConfigLock: jest.fn(
+      async (_configPath: string, task: () => Promise<unknown>) => task(),
+    ),
+    FileLockTimeoutError: actual.FileLockTimeoutError,
+    isFileLockTimeoutError: actual.isFileLockTimeoutError,
+  };
+});
 
 import * as http from 'http';
 import * as fs from 'fs';
@@ -128,7 +139,10 @@ import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type { PtahAPI, MCPRequest, MCPResponse } from '../types';
 import { handleMCPRequest as handleMCPRequestMock } from '../mcp-core';
-import { withMcpConfigLock as withMcpConfigLockMock } from '@ptah-extension/harness-sync';
+import {
+  FileLockTimeoutError,
+  withMcpConfigLock as withMcpConfigLockMock,
+} from '@ptah-extension/harness-sync';
 import {
   startHttpServer as startHttpServerMock,
   stopHttpServer as stopHttpServerMock,
@@ -276,6 +290,13 @@ beforeEach(() => {
   fsExistsSyncMock.mockReturnValue(false);
   fsReadFileSyncMock.mockReturnValue('{}');
   fsWriteFileSyncMock.mockReturnValue(undefined);
+  // `jest.clearAllMocks()` clears CALLS, not implementations, and several tests
+  // below replace this one (`deferConfigLock`, the per-path timeout). Restore
+  // the straight-through default explicitly so a leak cannot make an unrelated
+  // test fail three files later.
+  (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+    async (_configPath: string, task: () => Promise<unknown>) => task(),
+  );
 });
 
 afterEach(() => {
@@ -563,16 +584,19 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
   });
 
-  it('warns but does not throw when .mcp.json is unparseable', async () => {
+  it('warns and reports write-failed, without throwing, when .mcp.json is unparseable', async () => {
     fsExistsSyncMock.mockReturnValue(true);
     fsReadFileSyncMock.mockReturnValue('{not json');
 
     const { service, logger } = build({ folders: ['/ws'] });
     await service.start();
 
-    await expect(
-      service.ensureRegisteredForSubagents(),
-    ).resolves.toBeUndefined();
+    // Does not throw — but no longer resolves as SUCCESS either, which was the
+    // whole defect (TASK_2026_332).
+    await expect(service.ensureRegisteredForSubagents()).resolves.toEqual({
+      registered: false,
+      reason: 'write-failed',
+    });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Failed to register in .mcp.json'),
       'CodeExecutionMCP',
@@ -610,7 +634,15 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     expect(lockOrder).toBeLessThan(writeOrder);
   });
 
-  it('takes the same lock to REMOVE the entry', async () => {
+  /**
+   * The removal half of the same rule. This used to assert only that the lock
+   * was CALLED, which a lock taken around nothing at all would satisfy — and
+   * the removal is the side that needs the critical section MOST: deciding
+   * `ptah` is present and then deleting it are two halves of one decision, so
+   * a read outside the lock is a stale read written back over a reconcile.
+   * Asserted the way the register test above does it.
+   */
+  it('takes the same lock to REMOVE the entry, with the read AND the write inside it', async () => {
     fsExistsSyncMock.mockReturnValue(true);
     fsReadFileSyncMock.mockReturnValue(
       JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
@@ -618,7 +650,12 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     const { service } = build({ folders: ['/ws'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
+
+    // Count only the unregister's calls, not the registration's.
     (withMcpConfigLockMock as unknown as jest.Mock).mockClear();
+    fsExistsSyncMock.mockClear();
+    fsReadFileSyncMock.mockClear();
+    fsWriteFileSyncMock.mockClear();
 
     await service.stop();
 
@@ -626,6 +663,145 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
       expect.stringContaining('.mcp.json'),
       expect.any(Function),
     );
+
+    const lockOrder = (withMcpConfigLockMock as unknown as jest.Mock).mock
+      .invocationCallOrder[0];
+    const existsOrder = fsExistsSyncMock.mock.invocationCallOrder[0];
+    const readOrder = fsReadFileSyncMock.mock.invocationCallOrder[0];
+    const writeOrder = fsWriteFileSyncMock.mock.invocationCallOrder[0];
+
+    // Ordering, not just presence. The read is the half that matters: a lock
+    // taken after it protects a decision already made on stale data.
+    expect(lockOrder).toBeLessThan(existsOrder);
+    expect(lockOrder).toBeLessThan(readOrder);
+    expect(readOrder).toBeLessThan(writeOrder);
+    // ...and the lock is released only after the write, i.e. exactly one
+    // critical section covers both.
+    expect(withMcpConfigLockMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * TASK_2026_332 — the CONTRACT, not just the log line.
+   *
+   * The first version of this test asserted `.resolves.toBeUndefined()` together
+   * with "no write happened", and in doing so certified the bug: the method
+   * reported success while the entry a subagent reads did not exist. That is
+   * strictly worse than the lost update the lock was added to prevent, because
+   * it attaches a false assurance to the same missing entry. What must be
+   * asserted is that the caller can TELL.
+   */
+  it('reports registered:false with a lock-timeout reason when the config lock times out', async () => {
+    (withMcpConfigLockMock as unknown as jest.Mock).mockRejectedValueOnce(
+      new FileLockTimeoutError('/ws/.mcp.json.ptah-lock', 2000),
+    );
+
+    const { service, logger } = build({ folders: ['/ws'] });
+    await service.start();
+
+    const registration = await service.ensureRegisteredForSubagents();
+
+    expect(registration).toEqual({
+      registered: false,
+      reason: 'lock-timeout',
+    });
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    // A lock timeout is reported as its own thing, not folded into the generic
+    // I/O warning — that distinction is the production consumer of
+    // `isFileLockTimeoutError`.
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('held the config lock'),
+      'CodeExecutionMCP',
+    );
+
+    // Loud AND retryable: no registration was recorded, so the next call tries
+    // again rather than believing an entry it never wrote.
+    const retry = await service.ensureRegisteredForSubagents();
+    expect(retry).toEqual({ registered: true });
+    expect(fsWriteFileSyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports write-failed — distinct from lock-timeout — for an ordinary I/O error', async () => {
+    fsExistsSyncMock.mockReturnValue(false);
+    fsWriteFileSyncMock.mockImplementationOnce(() => {
+      throw new Error('EACCES: permission denied');
+    });
+
+    const { service, logger } = build({ folders: ['/ws'] });
+    await service.start();
+
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: false,
+      reason: 'write-failed',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to register in .mcp.json'),
+      'CodeExecutionMCP',
+    );
+  });
+
+  it('reports registered:true on the happy path and on the idempotent repeat', async () => {
+    const { service } = build({ folders: ['/ws'] });
+    await service.start();
+
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: true,
+    });
+    // The second call writes nothing, and must still say the entry is there.
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: true,
+    });
+    expect(fsWriteFileSyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports not-started before start() and no-workspace with no folder open', async () => {
+    const withoutServer = build({ folders: ['/ws'] });
+    expect(await withoutServer.service.ensureRegisteredForSubagents()).toEqual({
+      registered: false,
+      reason: 'not-started',
+    });
+
+    const withoutFolder = build({ folders: [] });
+    await withoutFolder.service.start();
+    expect(await withoutFolder.service.ensureRegisteredForSubagents()).toEqual({
+      registered: false,
+      reason: 'no-workspace',
+    });
+  });
+
+  /**
+   * A failed removal must not be followed by a write into the NEW file: that
+   * leaves a live `ptah` entry in both, and overwrites the record of the stale
+   * one so nothing can ever clean it up.
+   */
+  it('does not register in the new workspace when the old entry could not be removed', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    // Contention on A's config file specifically, for as long as it lasts. Both
+    // the fire-and-forget re-point and the explicit call below have to refuse.
+    (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+      async (configPath: string, task: () => Promise<unknown>) => {
+        if (configPath === ROOT_A) {
+          throw new FileLockTimeoutError(`${ROOT_A}.ptah-lock`, 2000);
+        }
+        return task();
+      },
+    );
+
+    workspaceProvider.__state.setFolders(['/wsB']);
+    await settleMcpJsonWrites();
+
+    const registration = await service.ensureRegisteredForSubagents();
+
+    expect(registration).toEqual({ registered: false, reason: 'lock-timeout' });
+    expect(serversIn(disk, ROOT_B)).toBeUndefined();
+    // A's entry is still there — which is exactly why we refused to add a
+    // second one — and the record of it survives so a retry can remove it.
+    expect(serversIn(disk, ROOT_A)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
   });
 });
 
@@ -767,6 +943,81 @@ describe('CodeExecutionMCP â€” unregister idempotency', () => {
 });
 
 // ===========================================================================
+// Shared .mcp.json helpers (sections 5 and 6)
+// ===========================================================================
+
+const ROOT_A = path.join('/wsA', '.mcp.json');
+const ROOT_B = path.join('/wsB', '.mcp.json');
+const ROOT_C = path.join('/wsC', '.mcp.json');
+
+/** Back `fs` with a path-keyed in-memory disk so per-file state is real. */
+function useVirtualDisk(
+  seed: Record<string, string> = {},
+): Map<string, string> {
+  const disk = new Map<string, string>(Object.entries(seed));
+  fsExistsSyncMock.mockImplementation((p) => disk.has(String(p)));
+  fsReadFileSyncMock.mockImplementation((p) => {
+    const content = disk.get(String(p));
+    if (content === undefined) {
+      throw new Error(`ENOENT: no such file or directory, open '${String(p)}'`);
+    }
+    return content;
+  });
+  fsWriteFileSyncMock.mockImplementation((p, data) => {
+    disk.set(String(p), String(data));
+  });
+  return disk;
+}
+
+function serversIn(disk: Map<string, string>, file: string): unknown {
+  const raw = disk.get(file);
+  if (raw === undefined) return undefined;
+  return (JSON.parse(raw) as { mcpServers?: Record<string, unknown> })
+    .mcpServers;
+}
+
+/**
+ * Drain the fire-and-forget re-point that `onDidChangeWorkspaceFolders`
+ * triggers. The `.mcp.json` writes became async in TASK_2026_318 (they take
+ * `harness-sync`'s config-file lock), and the folder event has no promise to
+ * hand back — so a `setFolders` followed by a synchronous disk assertion reads
+ * the state from BEFORE the re-point.
+ *
+ * Several turns, not one: TASK_2026_332 put the re-point behind an
+ * operation-level queue, so a settled state is several promise hops away rather
+ * than exactly one.
+ */
+const settleMcpJsonWrites = async (): Promise<void> => {
+  for (let turn = 0; turn < 8; turn++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+};
+
+/**
+ * Hold every `.mcp.json` mutation at the config lock until the returned
+ * function is called.
+ *
+ * This is what makes the TASK_2026_332 races observable at all. The lock stub
+ * installed at the top of this file runs its task straight through, so a
+ * mutation completes within one microtask and two of them can never actually be
+ * in flight together — a queue defect would pass unnoticed. Deferring the lock
+ * widens the window the way a real contended `withMcpConfigLock` does.
+ */
+function deferConfigLock(): () => void {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+    async (_configPath: string, task: () => Promise<unknown>) => {
+      await gate;
+      return task();
+    },
+  );
+  return release;
+}
+
+// ===========================================================================
 // 5. .mcp.json path symmetry across a workspace switch â€” TASK_2026_315 A3
 // ===========================================================================
 
@@ -786,47 +1037,6 @@ describe('CodeExecutionMCP â€” unregister idempotency', () => {
  * must survive both register and unregister untouched.
  */
 describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace switch', () => {
-  const ROOT_A = path.join('/wsA', '.mcp.json');
-  const ROOT_B = path.join('/wsB', '.mcp.json');
-
-  /** Back `fs` with a path-keyed in-memory disk so per-file state is real. */
-  function useVirtualDisk(
-    seed: Record<string, string> = {},
-  ): Map<string, string> {
-    const disk = new Map<string, string>(Object.entries(seed));
-    fsExistsSyncMock.mockImplementation((p) => disk.has(String(p)));
-    fsReadFileSyncMock.mockImplementation((p) => {
-      const content = disk.get(String(p));
-      if (content === undefined) {
-        throw new Error(
-          `ENOENT: no such file or directory, open '${String(p)}'`,
-        );
-      }
-      return content;
-    });
-    fsWriteFileSyncMock.mockImplementation((p, data) => {
-      disk.set(String(p), String(data));
-    });
-    return disk;
-  }
-
-  function serversIn(disk: Map<string, string>, file: string): unknown {
-    const raw = disk.get(file);
-    if (raw === undefined) return undefined;
-    return (JSON.parse(raw) as { mcpServers?: Record<string, unknown> })
-      .mcpServers;
-  }
-
-  /**
-   * Drain the fire-and-forget re-point that `onDidChangeWorkspaceFolders`
-   * triggers. The `.mcp.json` writes became async in TASK_2026_318 (they take
-   * `harness-sync`'s config-file lock), and the folder event has no promise to
-   * hand back — so a `setFolders` followed by a synchronous disk assertion
-   * reads the state from BEFORE the re-point.
-   */
-  const settleMcpJsonWrites = (): Promise<void> =>
-    new Promise((resolve) => setImmediate(resolve));
-
   it("stop() after a workspace switch removes ptah from the ORIGINAL root's .mcp.json", async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
@@ -947,5 +1157,147 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
 
     expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
     expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// 6. The re-pointing operation queue â€” TASK_2026_332 defect 1
+// ===========================================================================
+
+/**
+ * TASK_2026_315 A3 made re-pointing correct and asynchronous. Nothing then
+ * ordered those async operations against each other, and `withMcpConfigLock`
+ * could not: it is keyed per FILE and the racing writes target DIFFERENT files.
+ *
+ * Every test here defers the config lock (`deferConfigLock`) so more than one
+ * mutation is genuinely in flight at once. Without that the straight-through
+ * lock stub completes each mutation inside a microtask and neither race is
+ * reachable, which is why the pre-existing switch specs above passed against
+ * the defective code.
+ */
+describe('CodeExecutionMCP â€” re-pointing queue', () => {
+  it('A -> B -> C leaves NO ptah entry in the intermediate workspace', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    // Both changes land while the first re-point is still stuck at the lock.
+    // Unqueued, both operations read `registeredMcpJsonPath` as A and then
+    // write B and C independently â€” B keeps a live entry for a server that no
+    // longer serves it, and nothing ever removes it.
+    const release = deferConfigLock();
+    workspaceProvider.__state.setFolders(['/wsB']);
+    workspaceProvider.__state.setFolders(['/wsC']);
+    release();
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_C)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    // B was never written at all â€” the superseded re-point is dropped before
+    // it touches disk, so there is no transient entry to strand.
+    expect(serversIn(disk, ROOT_B)).toBeUndefined();
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+  });
+
+  it('the last requested workspace wins even when the changes arrive back to back', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    const release = deferConfigLock();
+    workspaceProvider.__state.setFolders(['/wsB']);
+    workspaceProvider.__state.setFolders(['/wsC']);
+    workspaceProvider.__state.setFolders(['/wsB']);
+    release();
+    await settleMcpJsonWrites();
+
+    // Exactly one workspace advertises this server, and it is the current one.
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    expect(serversIn(disk, ROOT_C)).toBeUndefined();
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+  });
+
+  it('stop() immediately after a switch cancels the re-point and leaves no entry anywhere', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    // Scenario (b): the stop finishes unregistering A while the outstanding
+    // event writes B back â€” with a port that is about to die.
+    const release = deferConfigLock();
+    workspaceProvider.__state.setFolders(['/wsB']);
+    const stopping = service.stop();
+    release();
+    await stopping;
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_B)).toBeUndefined();
+  });
+
+  it('a folder change that fires DURING stop() is dropped too', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    const release = deferConfigLock();
+    const stopping = service.stop();
+    // The generation bump cannot cover this one â€” it was requested after the
+    // stop â€” so the stopped flag has to.
+    workspaceProvider.__state.setFolders(['/wsB']);
+    release();
+    await stopping;
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_B)).toBeUndefined();
+  });
+
+  it('a restart after stop() re-arms re-pointing', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    await service.stop();
+
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    workspaceProvider.__state.setFolders(['/wsB']);
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+  });
+
+  it('ensureRegisteredForSubagents() joins the queue instead of racing a re-point', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    // A session start and a folder event, overlapping. Both used to read
+    // `registeredMcpJsonPath` as A and then write different files.
+    const release = deferConfigLock();
+    workspaceProvider.__state.setFolders(['/wsB']);
+    const explicit = service.ensureRegisteredForSubagents();
+    release();
+    await explicit;
+    await settleMcpJsonWrites();
+
+    // The awaited call still resolves only once ITS write has landed, which is
+    // the contract `ChatSessionService` depends on before spawning a subagent.
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 });

@@ -91,7 +91,11 @@ function makeSuite(): Suite {
   };
 
   const codeExecutionMcp = {
-    ensureRegisteredForSubagents: jest.fn(),
+    // Resolves with an outcome since TASK_2026_332 — `registered: false` is a
+    // normal answer the caller must read, not an exception it can wait for.
+    ensureRegisteredForSubagents: jest
+      .fn()
+      .mockResolvedValue({ registered: true }),
   } as jest.Mocked<Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>>;
 
   const registry = {
@@ -282,6 +286,55 @@ describe('ChatPtahCliService', () => {
 
       expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
       expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+    });
+
+    /**
+     * TASK_2026_332. `ensureRegisteredForSubagents` used to resolve with
+     * `undefined` whether or not it wrote anything — every failure was absorbed
+     * into a warn two layers down — so this spawn passed `mcpServerRunning:
+     * true` while `.mcp.json` had no `ptah` key. The CLI then started believing
+     * it had Ptah tools and had none, with a warn line as the only trace.
+     */
+    it('spawns with mcpServerRunning FALSE when the .mcp.json entry was not written', async () => {
+      const s = makeSuite();
+      s.sdkContext.isMcpServerRunning.mockReturnValue(true);
+      s.codeExecutionMcp.ensureRegisteredForSubagents.mockResolvedValue({
+        registered: false,
+        reason: 'lock-timeout',
+      });
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+      } as ChatStartParams);
+
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ mcpServerRunning: false }),
+      );
+      // The spawn still happens — a contended config file must not cost the
+      // user their turn, which is why this reports instead of rejecting.
+      expect(s.registry.releaseProfile).not.toHaveBeenCalled();
+    });
+
+    it('spawns with mcpServerRunning TRUE once the entry is confirmed on disk', async () => {
+      const s = makeSuite();
+      s.sdkContext.isMcpServerRunning.mockReturnValue(true);
+      s.codeExecutionMcp.ensureRegisteredForSubagents.mockResolvedValue({
+        registered: true,
+      });
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+      } as ChatStartParams);
+
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ mcpServerRunning: true }),
+      );
     });
 
     it('still surfaces the original failure when the lease release itself fails', async () => {

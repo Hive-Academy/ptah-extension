@@ -35,12 +35,55 @@ import { type IIDECapabilities } from '../namespace-builders';
 import { PermissionPromptService } from '../../permission/permission-prompt.service';
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
-import { withMcpConfigLock } from '@ptah-extension/harness-sync';
+import {
+  isFileLockTimeoutError,
+  withMcpConfigLock,
+} from '@ptah-extension/harness-sync';
 import {
   startHttpServer,
   stopHttpServer,
   getConfiguredPort,
 } from './http-server.handler';
+
+/** Why the `ptah` entry is not on disk. */
+export type McpRegistrationFailure =
+  /** The HTTP server is not running, or is being torn down. */
+  | 'not-started'
+  /** No workspace folder is open, so there is no `.mcp.json` to write. */
+  | 'no-workspace'
+  /**
+   * Another process held the config-file lock past its deadline, so the write
+   * was REFUSED rather than performed unlocked (TASK_2026_332). Distinct from
+   * `write-failed` because it is transient by construction and a retry a moment
+   * later is expected to succeed.
+   */
+  | 'lock-timeout'
+  /** The read-modify-write itself failed (permissions, unparseable JSON, …). */
+  | 'write-failed';
+
+/**
+ * The outcome of {@link CodeExecutionMCP.ensureRegisteredForSubagents}.
+ *
+ * **`registered: false` is a normal, expected answer and callers must read it.**
+ * Every caller already threads an `mcpServerRunning` boolean into the session it
+ * is about to start; that boolean is only honest if it is ANDed with this one.
+ * Reporting "the server is up" while the entry a subagent reads is absent means
+ * the subagent spawns believing it has Ptah tools and silently has none.
+ */
+export interface McpSubagentRegistration {
+  /** True only when a `ptah` entry is on disk for the CURRENT workspace. */
+  registered: boolean;
+  /** Present exactly when `registered` is false. */
+  reason?: McpRegistrationFailure;
+}
+
+const REGISTERED: McpSubagentRegistration = { registered: true };
+
+function notRegistered(
+  reason: McpRegistrationFailure,
+): McpSubagentRegistration {
+  return { registered: false, reason };
+}
 
 @injectable()
 export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
@@ -64,6 +107,45 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
 
   /** The port recorded in `registeredMcpJsonPath`, for re-write on port change. */
   private registeredPort: number | null = null;
+
+  /**
+   * The tail of the re-pointing queue. Every `.mcp.json` OWNERSHIP mutation
+   * this service performs joins it, so no two of them can interleave.
+   *
+   * `withMcpConfigLock` cannot do this job and adding a second lock would not
+   * either: it is keyed per FILE, and the racing mutations here target
+   * DIFFERENT files. Two concrete failures it cannot see (TASK_2026_332):
+   *
+   *  a. The user switches workspace A -> B -> C quickly. Both re-points read
+   *     `registeredMcpJsonPath` as A — the first has not finished updating it
+   *     when the second starts — and then write B and C independently. B is
+   *     left with a live `ptah` entry pointing at a server that no longer
+   *     serves B, and nothing ever removes it.
+   *  b. `stop()` arrives right after a switch. The stop unregisters A while the
+   *     outstanding event writes B, so B ends up advertising a dead port.
+   *
+   * So the queue is over the OPERATION, not the file, and it has two rules:
+   *
+   *  - **Serialized.** A job reads `registeredMcpJsonPath` only after every
+   *    previously queued job has finished updating it. That alone kills the
+   *    stale-read half of (a).
+   *  - **Latest wins.** Each re-point captures {@link repointGeneration} and is
+   *    dropped before it touches disk if a newer request has superseded it, so
+   *    the intermediate workspace in (a) is never written at all. `stop()`
+   *    bumps the generation as well, which is what cancels (b).
+   */
+  private mcpOpQueue: Promise<void> = Promise.resolve();
+
+  /** Monotonic request counter; only the newest re-point is allowed to run. */
+  private repointGeneration = 0;
+
+  /**
+   * True between `stop()` and the next `start()`. Re-points enqueued in that
+   * window are dropped rather than superseded: the generation guard covers work
+   * queued BEFORE the stop, and this covers a folder event that fires while the
+   * stop is still draining.
+   */
+  private stopped = false;
 
   private readonly workspaceFoldersSubscription: IDisposable;
 
@@ -95,20 +177,55 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     this.hasIDECapabilities = ideCapabilities !== undefined;
     this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
-    // The event has nowhere to return a promise to, so this one call site is
-    // genuinely fire-and-forget. Nothing waits on the re-point: it only moves
-    // an entry that is already correct for the workspace being left.
+    // The event has nowhere to return a promise to, so this call site stays
+    // fire-and-forget — but it is no longer UNORDERED. `queueRepoint` puts it
+    // behind every other `.mcp.json` mutation and lets a later change, or a
+    // `stop()`, supersede it before it writes. See `mcpOpQueue`.
     this.workspaceFoldersSubscription =
       this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
-        void this.syncMcpJsonRegistration().catch((error: unknown) => {
-          this.logger.warn(
-            `[CodeExecutionMCP] Failed to re-point .mcp.json after a workspace change: ${
-              error instanceof Error ? error.message : error
-            }`,
-            'CodeExecutionMCP',
-          );
-        });
+        void this.queueRepoint();
       });
+  }
+
+  /**
+   * Run `job` after every `.mcp.json` mutation already queued on this instance.
+   *
+   * Mirrors `harness-sync`'s `serializeByKey`: the chain is kept alive past a
+   * rejection so one failed mutation cannot poison the next one. The jobs here
+   * already catch and log their own failures; the chain must not depend on that
+   * staying true.
+   */
+  private enqueueMcpOp<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.mcpOpQueue.then(job, job);
+    this.mcpOpQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * Enqueue a re-point for the workspace as it stands when the job actually
+   * RUNS, and drop the job if a newer request has landed in the meantime.
+   */
+  private queueRepoint(): Promise<void> {
+    const generation = ++this.repointGeneration;
+    return this.enqueueMcpOp(async () => {
+      // Superseded while queued — a later workspace change, or a `stop()`, has
+      // already asked for a different final state. Writing the intermediate one
+      // here is exactly the entry that gets stranded.
+      if (this.stopped || generation !== this.repointGeneration) return;
+      try {
+        await this.syncMcpJsonRegistration();
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[CodeExecutionMCP] Failed to re-point .mcp.json after a workspace change: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          'CodeExecutionMCP',
+        );
+      }
+    });
   }
 
   /**
@@ -120,6 +237,9 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
       this.logger.warn('CodeExecutionMCP already started', 'CodeExecutionMCP');
       return this.port as number;
     }
+
+    // A restart re-arms re-pointing that `stop()` disabled.
+    this.stopped = false;
 
     const configuredPort = getConfiguredPort(this.workspaceProvider);
 
@@ -167,23 +287,53 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * (`ChatSessionService`, `ChatPtahCliService`, `GatewayChatBridge`) depend on
    * the entry being on disk before the subagent looks for it. Fire-and-forget
    * here is a race, not an optimisation.
+   *
+   * It joins the same queue as the workspace-change re-points (see
+   * `mcpOpQueue`), so an explicit registration and a folder event cannot both
+   * capture the same "from" root and then write two different files. The
+   * returned promise still resolves only once THIS call's write has landed.
+   *
+   * **It resolves with an outcome instead of rejecting, and the outcome is not
+   * optional to read** (TASK_2026_332). It used to resolve with `undefined`
+   * whatever happened, because both mutation helpers swallowed every failure
+   * into a warn — so a lock timeout, which means the entry was deliberately NOT
+   * written, was indistinguishable from success at every call site. A rejection
+   * was rejected as the shape because three of the five callers have no local
+   * catch and would abort a whole chat session over a two-second contention on
+   * a config file; `mcpServerRunning: false` is the honest degraded mode the SDK
+   * path already supports. AND this result into the `mcpServerRunning` you pass
+   * to the session.
    */
-  async ensureRegisteredForSubagents(): Promise<void> {
-    if (!this.port) return;
+  async ensureRegisteredForSubagents(): Promise<McpSubagentRegistration> {
+    return this.enqueueMcpOp(() => this.ensureRegisteredNow());
+  }
+
+  /** The body of {@link ensureRegisteredForSubagents}, already serialized. */
+  private async ensureRegisteredNow(): Promise<McpSubagentRegistration> {
+    // `stop()` nulls `this.port` in its own continuation, OUTSIDE the queue, so
+    // the port can still be non-null here for a registration that queued right
+    // behind the stop's unregister. Writing an entry for a server being torn
+    // down is exactly the dead-port entry this task exists to remove.
+    if (this.stopped || !this.port) return notRegistered('not-started');
 
     const target = this.getMcpJsonPath();
-    if (!target) return;
+    if (!target) return notRegistered('no-workspace');
     if (
       this.registeredMcpJsonPath === target &&
       this.registeredPort === this.port
     ) {
-      return;
+      return REGISTERED;
     }
 
     if (this.registeredMcpJsonPath && this.registeredMcpJsonPath !== target) {
-      await this.unregisterFromMcpJson();
+      // A failed removal must NOT be followed by a write into the new file:
+      // that leaves a live entry in both, and overwrites the record of the
+      // stale one so nothing can ever clean it up. Report and let the next call
+      // retry the whole move.
+      const removalFailure = await this.unregisterFromMcpJson();
+      if (removalFailure !== null) return notRegistered(removalFailure);
     }
-    await this.registerInMcpJson(target, this.port);
+    return this.registerInMcpJson(target, this.port);
   }
 
   /**
@@ -197,6 +347,10 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * Going to ZERO folders is a real case — `getMcpJsonPath()` returns null and
    * we unregister without re-registering, which is what stops a dead-port entry
    * outliving the workspace it was written into.
+   *
+   * **Call it only from inside `enqueueMcpOp`** (`queueRepoint` is the one
+   * caller). It reads `registeredMcpJsonPath` and then awaits twice, so running
+   * two of these concurrently is the stale-read race the queue exists to close.
    */
   private async syncMcpJsonRegistration(): Promise<void> {
     if (this.registeredMcpJsonPath === null) return;
@@ -204,17 +358,35 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     const target = this.getMcpJsonPath();
     if (target === this.registeredMcpJsonPath) return;
 
-    await this.unregisterFromMcpJson();
+    // Same rule as `ensureRegisteredNow`: if the old entry could not be
+    // removed, do not write a second one somewhere else. Both helpers log their
+    // own failure, and the next re-point or `ensureRegisteredForSubagents`
+    // retries the move.
+    if ((await this.unregisterFromMcpJson()) !== null) return;
     if (target && this.port) {
       await this.registerInMcpJson(target, this.port);
     }
   }
 
   /**
-   * Stop MCP server and clean up resources
+   * Stop MCP server and clean up resources.
+   *
+   * The two statements before the unregister are the cancellation half of
+   * TASK_2026_332 and are not bookkeeping: without them a re-point that was
+   * queued a moment earlier still runs, and writes a `ptah` entry into the new
+   * workspace pointing at the port this call is about to close.
    */
   async stop(): Promise<void> {
-    await this.unregisterFromMcpJson();
+    // Drop re-points queued after this point...
+    this.stopped = true;
+    // ...and supersede the ones already queued before it.
+    this.repointGeneration++;
+
+    // Joins the queue rather than jumping it: a re-point that already STARTED
+    // has to finish, or this would remove the entry from the file it recorded
+    // and the re-point would then write a fresh one into another.
+    await this.enqueueMcpOp(() => this.unregisterFromMcpJson());
+
     await stopHttpServer(this.server, this.workspaceState, this.logger);
     this.server = null;
     this.port = null;
@@ -279,7 +451,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private async registerInMcpJson(
     mcpJsonPath: string,
     port: number,
-  ): Promise<void> {
+  ): Promise<McpSubagentRegistration> {
     try {
       // `harness-sync` also writes this file (it is the `claude` target's MCP
       // facet), so the read-modify-write below runs inside that lib's
@@ -321,13 +493,28 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
         'CodeExecutionMCP',
       );
-    } catch (error) {
+      return REGISTERED;
+    } catch (error: unknown) {
+      // A lock timeout is NOT an ordinary I/O failure and must not be folded
+      // into the same branch. `harness-sync` refuses the write when another
+      // process holds the config file past the deadline (TASK_2026_332), which
+      // means the entry is definitely absent and definitely retryable — as
+      // opposed to an EACCES, which is likely to fail the same way next time.
+      if (isFileLockTimeoutError(error)) {
+        this.logger.warn(
+          `[CodeExecutionMCP] Did not register in .mcp.json — another process ` +
+            `held the config lock: ${error.message}`,
+          'CodeExecutionMCP',
+        );
+        return notRegistered('lock-timeout');
+      }
       this.logger.warn(
         `[CodeExecutionMCP] Failed to register in .mcp.json: ${
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : String(error)
         }`,
         'CodeExecutionMCP',
       );
+      return notRegistered('write-failed');
     }
   }
 
@@ -339,10 +526,14 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * current workspace root here was the second half of the A3 defect: after a
    * workspace switch (or after the last folder was removed) it either edited
    * the wrong repository or gave up entirely, leaving the written entry behind.
+   *
+   * Returns `null` on success — including the "we owned nothing" case — and the
+   * failure reason otherwise, so a caller that was about to write somewhere ELSE
+   * can decline rather than leave a live entry in two files.
    */
-  private async unregisterFromMcpJson(): Promise<void> {
+  private async unregisterFromMcpJson(): Promise<McpRegistrationFailure | null> {
     const mcpJsonPath = this.registeredMcpJsonPath;
-    if (!mcpJsonPath) return;
+    if (!mcpJsonPath) return null;
 
     try {
       // Under the same lock as registration, and for the same reason — see
@@ -376,13 +567,28 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
           'CodeExecutionMCP',
         );
       }
-    } catch (error) {
+      return null;
+    } catch (error: unknown) {
+      // Distinguished for the same reason registration distinguishes it, and
+      // with a sharper consequence: a lock timeout means the entry is STILL ON
+      // DISK, pointing at a port that may be about to die. `clearRegistration`
+      // is deliberately skipped on every failure path, so the record survives
+      // and a later `stop()` or re-point retries the removal.
+      if (isFileLockTimeoutError(error)) {
+        this.logger.warn(
+          `[CodeExecutionMCP] Did not unregister from ${mcpJsonPath} — another ` +
+            `process held the config lock; the ptah entry is still on disk: ${error.message}`,
+          'CodeExecutionMCP',
+        );
+        return 'lock-timeout';
+      }
       this.logger.warn(
         `[CodeExecutionMCP] Failed to unregister from .mcp.json: ${
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : String(error)
         }`,
         'CodeExecutionMCP',
       );
+      return 'write-failed';
     }
   }
 

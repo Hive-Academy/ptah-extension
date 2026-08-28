@@ -113,8 +113,11 @@ export {
   acquireFileLock,
   serializeByKey,
   withFileLock,
+  FileLockTimeoutError,
+  isFileLockTimeoutError,
   DEFAULT_MAX_WAIT_MS,
   type FileLockOptions,
+  type LockUnavailableReason,
 } from './lib/lock/file-lock';
 
 // Targets.

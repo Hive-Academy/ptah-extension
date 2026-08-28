@@ -614,10 +614,24 @@ export class GatewayChatBridge {
       mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       if (mcpServerRunning) {
         // Awaited: the turn's session starts once this context resolves, and
-        // its subagents read `.mcp.json` (TASK_2026_318). The existing catch
-        // already degrades a failure to `mcpServerRunning = false`, which is
-        // the honest answer when the entry could not be written.
-        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        // its subagents read `.mcp.json` (TASK_2026_318).
+        //
+        // The RESULT is read, not just awaited (TASK_2026_332). The catch below
+        // was written believing a failed write would reject through to it, and
+        // it never did: both mutation helpers absorbed every failure into a
+        // warn and resolved normally, so `mcpServerRunning` stayed `true` from
+        // the `getPort()` line above while the entry a subagent reads did not
+        // exist. The call now reports its outcome instead, and that outcome is
+        // what decides the flag.
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        mcpServerRunning = registration.registered;
+        if (!registration.registered) {
+          this.logger.warn(
+            '[gateway-chat-bridge] MCP running but .mcp.json entry absent — subagents get no Ptah tools this turn',
+            { reason: registration.reason },
+          );
+        }
       }
     } catch (error: unknown) {
       mcpServerRunning = false;

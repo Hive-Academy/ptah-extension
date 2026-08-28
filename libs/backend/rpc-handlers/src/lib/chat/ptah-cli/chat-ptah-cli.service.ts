@@ -122,7 +122,7 @@ export class ChatPtahCliService {
       const summary = summaries.find((s) => s.id === agentId);
       agentName = summary?.name ?? agentId;
 
-      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+      let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
         tabId,
@@ -132,8 +132,19 @@ export class ChatPtahCliService {
 
       if (mcpServerRunning) {
         // Awaited: the CLI spawned below reads `.mcp.json` to discover this
-        // server, so the entry has to be on disk first (TASK_2026_318).
-        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        // server, so the entry has to be on disk first (TASK_2026_318) — and
+        // the outcome decides the flag we pass to the spawn (TASK_2026_332).
+        // Telling the CLI the server is running when the file it reads has no
+        // `ptah` key is the false assurance this replaces.
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        if (!registration.registered) {
+          mcpServerRunning = false;
+          this.logger.warn(
+            '[RPC] chat:start - .mcp.json entry absent, spawning Ptah CLI without MCP',
+            { tabId, ptahCliId: agentId, reason: registration.reason },
+          );
+        }
       }
 
       const enhancedPromptsContent =
@@ -218,7 +229,17 @@ export class ChatPtahCliService {
     });
 
     if (this.sdkContext.isMcpServerRunning()) {
-      await this.codeExecutionMcp.ensureRegisteredForSubagents();
+      // The already-running CLI keeps whatever MCP wiring it was spawned with,
+      // so there is no flag to correct here — but a failure still has to be
+      // visible rather than resolving as success (TASK_2026_332).
+      const registration =
+        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+      if (!registration.registered) {
+        this.logger.warn(
+          '[RPC] chat:continue - .mcp.json entry absent for Ptah CLI turn',
+          { sessionId, tabId, reason: registration.reason },
+        );
+      }
     }
 
     if (!this.agentAdapter.isSessionActive(sessionId)) {

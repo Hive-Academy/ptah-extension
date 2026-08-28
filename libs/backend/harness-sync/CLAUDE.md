@@ -119,6 +119,36 @@ The one overlap is a user installing a server whose key is literally `ptah`.
 That is the ordinary collision rule — a desired key an unowned entry occupies is
 `foreign` and `blocked`, never overwritten.
 
+### The lock deadline FAILS the mutation; it does not write unlocked (TASK_2026_332)
+
+`acquireFileLock` retries with backoff until `maxWaitMs` (2 s for an MCP config,
+short because one caller is a CLI SPAWN and a user waiting on `agy` must not pay
+five seconds for somebody else's reconcile). It used to return an unheld handle
+on expiry and `withFileLock` **ran the task anyway** — so two hosts contending
+for longer than the deadline both proceeded unlocked and lost each other's key,
+silently. That is the exact failure the section above describes, restored
+through the one door the lock left open.
+
+The bound itself is right: blocking forever on a stale lock is worse than a rare
+lost update, which is why it exists. So the fix was the DECISION at expiry, not
+a longer timeout. `withFileLock` now throws `FileLockTimeoutError`, naming the
+file and the wait duration. Affordable because every caller already treats a
+failed mutation as transient and retries on its own schedule — `applyMcpFacet`
+records a `writeFailed` row that the next `mode: 'full'` pass re-attempts,
+`AntigravityCliAdapter` documents its spawn-time write as non-fatal and the next
+spawn rewrites it, and `CodeExecutionMCP` logs and keeps no ownership record so
+a later call retries. What is traded away is liveness for ONE mutation under
+real cross-process contention.
+
+Two things deliberately did NOT change. **`acquireFileLock` still returns an
+unheld handle** rather than throwing, because `acquireWorkspaceLock` builds on
+it and the reconciler inspects `lock.acquired` to proceed degraded on purpose.
+And **an uncreatable lock DIRECTORY is not a timeout** (`reason:
+'no-lock-directory'`): nobody holds anything, and that directory is the one the
+guarded file lives in, so the caller's own write is about to fail and report the
+real permission problem — masking it with a lock error would make that two
+errors for one cause. Pinned by `lock/file-lock.spec.ts`.
+
 **Atomicity was not enough, so there is a lock.** `atomicWriteWithRetry`
 guarantees no reader sees half a file; it guarantees nothing about two writers
 that each READ, each edit their own key, and each rename their own copy over the
@@ -401,7 +431,7 @@ permanently amber badge nobody can clear.
 - `targets/link-ownership.ts` — is a symlink at a desired path Ptah's leftover
   junction, or the user's own link?
 - `lock/file-lock.ts` — the lock MECHANISM: `O_EXCL` create, stale reclaim,
-  in-process queue, and "proceed unlocked past the deadline"
+  in-process queue, and "FAIL past the deadline" (see below)
 - `lock/workspace-lock.ts` — the per-workspace POLICY over it:
   `{ws}/.ptah/harness/.lock`
 - `targets/harness-target.port.ts` — `detect → preflightKeys → plan → apply → verify`

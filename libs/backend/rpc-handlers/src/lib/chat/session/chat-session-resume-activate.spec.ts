@@ -76,6 +76,7 @@ function makeService(params: {
   isSessionActive?: jest.Mock;
   resumeSession?: jest.Mock;
   isStreaming?: jest.Mock;
+  mcpServerRunning?: boolean;
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -105,7 +106,9 @@ function makeService(params: {
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
   };
   const sdkContext = {
-    isMcpServerRunning: jest.fn().mockReturnValue(false),
+    isMcpServerRunning: jest
+      .fn()
+      .mockReturnValue(params.mcpServerRunning ?? false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
   };
@@ -219,6 +222,40 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(result.activated).toBe(true);
     expect(result.activationError).toBeUndefined();
     expect(result.activationErrorCode).toBeUndefined();
+  });
+
+  /**
+   * TASK_2026_332. `autoResumeIfInactive` gained an
+   * `mcpRegisteredForSubagents` parameter so the `chat:continue` path can pass
+   * down what `ensureRegisteredForSubagents` actually reported. It DEFAULTS to
+   * `true`, and that default is load-bearing: this caller and
+   * `ensureSessionActiveForRewind` never register at all, so they have nothing
+   * to report and must not be silently downgraded into starting every resumed
+   * session without MCP.
+   */
+  it('does not downgrade mcpServerRunning on the activate path, which never registers', async () => {
+    const resumeSession = jest.fn().mockResolvedValue(
+      (async function* () {
+        /* no events */
+      })(),
+    );
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      resumeSession,
+      mcpServerRunning: true,
+    });
+
+    await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+      activate: true,
+    });
+
+    expect(resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ mcpServerRunning: true }),
+    );
   });
 
   it('omits activation fields when activate:true is not requested', async () => {
