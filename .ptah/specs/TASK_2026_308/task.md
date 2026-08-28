@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_308
-status: backlog
+status: in_progress
 type: BUGFIX
 title: >-
   Three latent defects in agent-sdk session import and adapter lifecycle, each
