@@ -113,9 +113,18 @@ function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
 
   const exitMock = jest.fn((_code: number) => undefined as never);
 
+  // The teardown halves are INJECTED, not `jest.mock`ed. The module mocks
+  // below still stand, because they keep two heavy barrels out of this file's
+  // module graph — but they are no longer what the ordering test reads. On
+  // Linux CI the bridge reached `exitFn`, which it can only do once
+  // `teardownBeforeExit` has called both halves, while `mockFlushMetadata`
+  // recorded nothing: the module mock the assertion read was not the function
+  // the bridge called. An override cannot drift from the call that way.
   const bridge = new ApprovalBridge(adapter, jsonrpc, permissionHandler, {
     timeoutMs: options?.timeoutMs,
     exit: exitMock as unknown as (code: number) => never,
+    disposeRuntime: mockDisposeHostRuntime,
+    flushMetadata: mockFlushMetadata,
   });
   activeBridges.push(bridge);
 
@@ -141,24 +150,10 @@ function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
  * at how many turns it takes. The guess held most runs and broke the rest,
  * stalling between the dispose and the flush. `whenTimeoutSettled()` hands back
  * the actual promise, so this waits on the thing itself.
- *
- * One read of that promise is still not enough, which is what the CI failure
- * showed: `whenTimeoutSettled()` returns whatever `timeoutChain` holds AT CALL
- * TIME, and the expiry callback is what replaces the placeholder every bridge
- * starts life with. A read that lands on the placeholder resolves immediately
- * and reports a teardown that is still in flight — the dispose recorded, the
- * flush not yet. So await the observable end STATE (`exitFn` was called), and
- * re-read the chain each turn. The loop is bounded so a teardown that genuinely
- * never exits fails by name instead of hanging until the suite timeout.
  */
 async function advanceToApprovalExit(env: FakeBridgeEnv): Promise<void> {
   await jest.advanceTimersByTimeAsync(300_001);
-  for (let turn = 0; turn < 100; turn++) {
-    await env.bridge.whenTimeoutSettled();
-    if (env.exitMock.mock.calls.length > 0) return;
-    await jest.advanceTimersByTimeAsync(0);
-  }
-  throw new Error('the approval timeout never reached exitFn');
+  await env.bridge.whenTimeoutSettled();
 }
 
 function makePermissionPayload(

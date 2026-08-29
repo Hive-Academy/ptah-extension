@@ -106,6 +106,21 @@ export class ApprovalBridge {
   private readonly timeoutMs: number;
   private readonly exitFn: (code: number) => never;
   /**
+   * The two halves of the pre-exit teardown, injected rather than reached
+   * through their modules.
+   *
+   * They were `jest.mock`ed module functions, and the ordering test that
+   * exists to pin "dispose BEFORE flush" could not see the flush on Linux CI —
+   * `exitFn` was reached, which is only possible once `teardownBeforeExit` has
+   * called both, so the mock the assertion read was not the function the
+   * bridge called. That resolution difference never reproduced on Windows and
+   * was not worth chasing: an override is the seam `exit` already uses one
+   * field up, for the same reason — a process-level side effect a test must
+   * observe without performing.
+   */
+  private readonly disposeRuntime: () => Promise<void>;
+  private readonly flushMetadata: () => Promise<void>;
+  /**
    * The in-flight timeout chain, retained so a caller can await it.
    *
    * A timeout fires from a `setTimeout` callback, which cannot await: the
@@ -139,11 +154,21 @@ export class ApprovalBridge {
       readonly timeoutMs?: number;
       /** Override `process.exit` (used in tests). */
       readonly exit?: (code: number) => never;
+      /** Override the runtime disposal half of the teardown (used in tests). */
+      readonly disposeRuntime?: () => Promise<void>;
+      /** Override the metadata flush half of the teardown (used in tests). */
+      readonly flushMetadata?: () => Promise<void>;
     },
   ) {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.exitFn =
       options?.exit ?? ((code: number): never => process.exit(code));
+    this.disposeRuntime =
+      options?.disposeRuntime ??
+      ((): Promise<void> => CliDIContainer.disposeHostRuntime());
+    this.flushMetadata =
+      options?.flushMetadata ??
+      ((): Promise<void> => flushSessionMetadataStores());
   }
 
   /**
@@ -252,7 +277,7 @@ export class ApprovalBridge {
       reason: 'timeout',
     };
     this.permissionHandler.handleResponse(id, denyResponse);
-    await teardownBeforeExit();
+    await teardownBeforeExit(this.disposeRuntime, this.flushMetadata);
     this.exitFn(ExitCode.AuthRequired);
   }
 
@@ -313,7 +338,7 @@ export class ApprovalBridge {
       answers: {},
     };
     this.permissionHandler.handleQuestionResponse(cancelResponse);
-    await teardownBeforeExit();
+    await teardownBeforeExit(this.disposeRuntime, this.flushMetadata);
     this.exitFn(ExitCode.AuthRequired);
   }
 }
@@ -334,14 +359,17 @@ export class ApprovalBridge {
  * about to grow. Both halves are best effort — an approval timeout must exit
  * `auth_required`, never a crash in its own teardown.
  */
-async function teardownBeforeExit(): Promise<void> {
+async function teardownBeforeExit(
+  disposeRuntime: () => Promise<void>,
+  flushMetadata: () => Promise<void>,
+): Promise<void> {
   try {
-    await CliDIContainer.disposeHostRuntime();
+    await disposeRuntime();
   } catch {
     // Never throws by contract; guarded anyway — see the note above.
   }
   try {
-    await flushSessionMetadataStores();
+    await flushMetadata();
   } catch {
     // Best effort: the exit code carries the reason the process is ending.
   }
