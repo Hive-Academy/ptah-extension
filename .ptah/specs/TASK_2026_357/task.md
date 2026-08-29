@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_357
-status: in_progress
+status: done
 type: FEATURE
 title: >-
   Checkpointed fleet workflow: artifact-based resume for multi-agent
   orchestration
 depends_on: []
 created: '2026-08-29T04:30:45.079Z'
-updated: '2026-08-29T04:31:34.805Z'
+updated: '2026-08-29T04:42:25.468Z'
 description: >-
   The log-audit fleet showed that Workflow resume replays the longest unchanged
   PREFIX of agent() calls; parallel() starts calls in non-deterministic order,
