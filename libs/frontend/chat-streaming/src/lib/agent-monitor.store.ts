@@ -477,15 +477,24 @@ export class AgentMonitorStore implements OnDestroy {
   readonly panelOpen = this._panelOpen.asReadonly();
 
   /**
-   * Monotonic "open the panel" request counter. Bumped by {@link requestPanelOpen}.
-   * The global-mode panel reads `panelOpen()` directly, but the embedded panel
-   * in `ChatViewComponent` drives its own local open signal — it watches THIS
-   * counter so a deep-tree caller (the "Workflow launched" chip) can force the
-   * panel open reliably even after the user manually closed it (a plain
-   * `panelOpen` set would not re-notify when it is already `true`).
+   * Latest "open the panel" request. `seq` is monotonic and bumped by
+   * {@link requestPanelOpen}. The global-mode panel reads `panelOpen()`
+   * directly, but the embedded panel in `ChatViewComponent` drives its own
+   * local open signal — it watches THIS so a deep-tree caller (the "Workflow
+   * launched" chip) can force the panel open reliably even after the user
+   * manually closed it (a plain `panelOpen` set would not re-notify when it
+   * is already `true`).
+   *
+   * `tabId` is the surface the request came from. It used to be a bare
+   * counter, and every embedded panel reacted to it — so one chip opened the
+   * Agents sidebar in every open canvas tile. `null` means the request came
+   * from the main panel (no SESSION_CONTEXT), which is itself a scope.
    */
-  private readonly _panelOpenRequests = signal(0);
-  readonly panelOpenRequests = this._panelOpenRequests.asReadonly();
+  private readonly _panelOpenRequest = signal<{
+    readonly seq: number;
+    readonly tabId: string | null;
+  }>({ seq: 0, tabId: null });
+  readonly panelOpenRequest = this._panelOpenRequest.asReadonly();
 
   ngOnDestroy(): void {
     this.stopTick();
@@ -532,14 +541,16 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Force the monitor panel open from anywhere (global OR embedded mode).
    * Sets `panelOpen` for global consumers, clears the "explicitly closed"
-   * latch, and bumps `panelOpenRequests` so the embedded `ChatViewComponent`
-   * panel re-opens even if it was previously dismissed. Used by the
-   * "Workflow launched" chat chip.
+   * latch, and publishes a new {@link panelOpenRequest} so the embedded
+   * `ChatViewComponent` panel of `tabId` re-opens even if it was previously
+   * dismissed. Used by the "Workflow launched" chat chip.
+   *
+   * @param tabId the requesting surface's tab id, or `null` from the main panel
    */
-  requestPanelOpen(): void {
+  requestPanelOpen(tabId: string | null = null): void {
     this._userExplicitlyClosed = false;
     this._panelOpen.set(true);
-    this._panelOpenRequests.update((n) => n + 1);
+    this._panelOpenRequest.update((r) => ({ seq: r.seq + 1, tabId }));
   }
 
   closePanel(): void {

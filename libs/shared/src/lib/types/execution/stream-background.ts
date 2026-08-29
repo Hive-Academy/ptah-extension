@@ -105,8 +105,6 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
-  /** Short agent identifier from the SDK SubagentStart hook, when known */
-  readonly agentId?: string;
   /** Short present-tense description of current work */
   readonly description: string;
   /** AI-generated rolling summary from SDK (requires agentProgressSummaries: true) */
@@ -119,6 +117,14 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   readonly toolUses: number;
   /** Elapsed time in milliseconds */
   readonly durationMs: number;
+  /**
+   * SDK short-hex agent id from the SubagentStart hook, when the registry
+   * knows it by the time this event is built. The hook fires AFTER
+   * `task_started` for most agents, so `agent_start` usually lacks the id and
+   * the progress/status/completed events are what finally carry it to the
+   * monitor store — which is what the transcript read is keyed on.
+   */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -141,8 +147,6 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
-  /** Short agent identifier from the SDK SubagentStart hook, when known */
-  readonly agentId?: string;
   /** New lifecycle status from the SDK patch */
   readonly status:
     | 'pending'
@@ -155,6 +159,8 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly description?: string;
   /** Error text if status is 'failed' */
   readonly errorMessage?: string;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -178,8 +184,6 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
-  /** Short agent identifier from the SDK SubagentStart hook, when known */
-  readonly agentId?: string;
   /** Final disposition */
   readonly status: 'completed' | 'failed' | 'stopped';
   /** Short prose summary of what the agent accomplished */
@@ -192,6 +196,8 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly toolUses?: number;
   /** Total elapsed time in milliseconds */
   readonly durationMs?: number;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is

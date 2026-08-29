@@ -414,6 +414,33 @@ describe('SystemMessageTransformer', () => {
       expect(events[0].eventType).toBe('agent_progress');
     });
 
+    it('carries the registry agentId once the SubagentStart hook has minted it', () => {
+      state.getTaskParentToolUseId.mockReturnValue('tool-progress');
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        toolCallId: 'tool-progress',
+        agentId: 'a01fea2eb1b977576',
+      });
+      const msg = {
+        task_id: 'task-p',
+        description: 'desc',
+        usage: { total_tokens: 10, tool_uses: 2, duration_ms: 100 },
+      } as never;
+
+      const [event] = transformer.transformTaskProgress(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(helpers.subagentRegistry.get).toHaveBeenCalledWith('tool-progress');
+      expect(event).toMatchObject({
+        eventType: 'agent_progress',
+        agentId: 'a01fea2eb1b977576',
+      });
+    });
+
     it('returns [] when no parent tool use id', () => {
       const helpers = makeHelpers();
       const msg = {
@@ -568,7 +595,8 @@ describe('SystemMessageTransformer', () => {
       const events = transformer.transformTaskUpdated(msg, state, helpers);
 
       expect(events.map((e) => e.eventType)).toEqual(['agent_status']);
-      expect(helpers.subagentRegistry.get).not.toHaveBeenCalled();
+      // A read-only registry lookup (for the agentId) is fine; what must not
+      // happen without `is_backgrounded` is the background status WRITE.
       expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
     });
   });

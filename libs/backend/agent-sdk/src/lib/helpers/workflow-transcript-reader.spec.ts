@@ -126,9 +126,9 @@ describe('workflow-transcript-reader', () => {
         limit: 2,
       });
 
-      expect(
-        page.map((l) => (l.message as { content: string }).content),
-      ).toEqual(['m2', 'm3']);
+      expect(page.map((l) => (l.message as { content: string }).content)).toEqual(
+        ['m2', 'm3'],
+      );
     });
   });
 });

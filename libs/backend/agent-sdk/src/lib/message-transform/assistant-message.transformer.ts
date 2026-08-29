@@ -229,6 +229,7 @@ export class AssistantMessageTransformer {
             agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
+            agentId: helpers.subagentRegistry.get(block.id)?.agentId,
             teammateName,
             parentToolUseId: block.id,
             workflowRunId: workflowRun?.runId,
