@@ -6,73 +6,53 @@ This guide documents workflows for generating production-ready visual assets usi
 
 ---
 
+## First: Find Out What You Can Actually Run
+
+**There is no built-in image generator.** Do not assume one exists, and never
+call a generation tool you have not seen in your own tool list — a fabricated
+tool call fails the task at the step the user cares about most.
+
+Establish the real capability before promising any asset:
+
+1. **Read your tool list.** If an image-generation tool is present in this
+   harness (from an MCP server the user has installed — Replicate, Fal,
+   OpenAI images, a local Stable Diffusion bridge, or similar), use it, and
+   follow the schema in that tool's own description rather than any signature
+   written here.
+2. **Ask the runtime.** Where the Ptah agent tools are available,
+   `ptah_agent_list` reports the configured CLI agents and providers, some of
+   which can generate images. Discover; do not hardcode a vendor.
+3. **If nothing is available, say so plainly** and switch to the handoff
+   workflow below. This is the common case, and it is a perfectly good outcome —
+   the valuable output of this skill is the _specification_, not the pixels.
+
+### Handoff Workflow (no generation tool available)
+
+Do not stall, and do not produce a placeholder image. Instead:
+
+1. Write the finished prompt for each asset, using the SCSM formula below.
+2. Tell the user which external tool suits each asset (see the matrix below).
+3. Give each asset its target filename, dimensions, and format.
+4. Ask the user to generate them externally and drop the files into the
+   project's `assets/` directory under those names.
+5. Continue with everything that does not need the binary: tokens, layout,
+   component specs, and the markup that references the agreed paths. The work
+   stays unblocked and the assets slot in when they arrive.
+
 ## Tool Selection Matrix
 
-| Asset Type               | Best Tool                         | Why                               |
-| ------------------------ | --------------------------------- | --------------------------------- |
-| **Quick visual assets**  | **Ptah Native (built-in)**        | Zero setup, integrated, instant   |
-| **Hero illustrations**   | Ptah Native, Midjourney, DALL-E 3 | Complex scenes, unique art styles |
-| **Icons**                | Ptah Native, Midjourney           | Consistent style sets             |
-| **3D elements**          | Three.js, Spline                  | Interactive, animated             |
-| **Marketing graphics**   | Ptah Native, Canva                | Templates, quick iterations       |
-| **UI mockups**           | Figma, Framer                     | Developer handoff                 |
-| **Backgrounds/patterns** | Ptah Native, Midjourney           | Unique, tileable                  |
-| **Product screenshots**  | Screen Studio, CleanShot          | Polished presentations            |
-| **Photorealistic**       | Ptah Native (Imagen model)        | High-quality photorealistic       |
+Use this when recommending an external tool to the user.
 
----
-
-## Ptah Native Image Generation (RECOMMENDED FIRST)
-
-Ptah has **built-in AI image generation** powered by Google Gemini and Imagen. This is the fastest option since it requires no external tools or browser -- it runs directly inside VS Code.
-
-### MCP Tool: `ptah_generate_image`
-
-Use the `ptah_generate_image` MCP tool for quick, one-shot image generation:
-
-```
-Tool: ptah_generate_image
-Input: {
-  "prompt": "A golden ankh symbol on deep black background, sacred tech aesthetic, minimal",
-  "model": "gemini-2.5-flash-preview-06-25"
-}
-```
-
-Images are saved to `.ptah/generated-images/` in the workspace and file paths are returned.
-
-### Programmatic: `ptah.image.generate()`
-
-For batch generation or programmatic workflows via `execute_code`:
-
-```typescript
-// Generate a single image
-const result = await ptah.image.generate('A minimalist logo, dark background, gold accents');
-return result.images.map((img) => img.path);
-
-// Generate with options
-const result = await ptah.image.generate('Product hero banner, futuristic tech', {
-  model: 'imagen-4.0-generate-001', // photorealistic model
-  aspectRatio: '16:9',
-  numberOfImages: 2,
-});
-
-// Check availability
-const available = await ptah.image.isAvailable();
-```
-
-### Model Selection
-
-| Model                                      | Best For                                            | Notes                                |
-| ------------------------------------------ | --------------------------------------------------- | ------------------------------------ |
-| `gemini-2.5-flash-preview-06-25` (default) | Logos, icons, illustrations, diagrams, creative art | Fast, artistic                       |
-| `imagen-4.0-generate-001`                  | Photorealistic images, product shots, backgrounds   | Supports aspectRatio, numberOfImages |
-
-### When to Use External Tools Instead
-
-- **Complex multi-iteration workflows** with specific art direction: Midjourney
-- **Template-based marketing materials**: Canva
-- **Interactive 3D elements**: Three.js, Spline
-- **Developer handoff mockups**: Figma, Framer
+| Asset Type               | Best Tool                | Why                               |
+| ------------------------ | ------------------------ | --------------------------------- |
+| **Hero illustrations**   | Midjourney, DALL-E 3     | Complex scenes, unique art styles |
+| **Icons**                | Midjourney, icon sets    | Consistent style sets             |
+| **3D elements**          | Three.js, Spline         | Interactive, animated             |
+| **Marketing graphics**   | Canva                    | Templates, quick iterations       |
+| **UI mockups**           | Figma, Framer            | Developer handoff                 |
+| **Backgrounds/patterns** | Midjourney               | Unique, tileable                  |
+| **Product screenshots**  | Screen Studio, CleanShot | Polished presentations            |
+| **Photorealistic**       | DALL-E 3, Midjourney     | High-quality photorealistic       |
 
 ---
 

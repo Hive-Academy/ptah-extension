@@ -212,13 +212,11 @@ The generated `package.json` is used in Stage 2 of the Docker build:
 COPY --from=builder /app/dist/apps/my-api/package.json ./
 
 # Install production deps from generated package.json
-# PLUS manually add webpack externals
+# PLUS manually add your own webpack externals — replace the list below with
+# the packages YOUR build marks external (see the reference table further down)
 RUN npm install --omit=dev \
     @prisma/client \
     prisma \
-    @workos-inc/node \
-    @paddle/paddle-node-sdk \
-    resend \
     pg
 ```
 

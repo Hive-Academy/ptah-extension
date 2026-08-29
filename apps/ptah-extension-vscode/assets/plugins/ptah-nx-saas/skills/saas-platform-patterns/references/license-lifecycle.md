@@ -37,7 +37,8 @@ Adapt the prefix to your product:
 
 ```typescript
 // Per-product prefix
-const key = generateLicenseKey('ptah'); // ptah_a3f8b2c1...
+// The prefix is your product's own namespace -- pick one and keep it stable.
+const key = generateLicenseKey('acme'); // acme_a3f8b2c1...
 const key = generateLicenseKey('myapp'); // myapp_a3f8b2c1...
 
 // Per-tier prefix (useful for quick log identification)
@@ -52,7 +53,7 @@ model License {
   id         String    @id @default(uuid())
   userId     String
   licenseKey String    @unique
-  plan       String    // community | pro | enterprise | trial_pro | trial_enterprise
+  plan       String    // community | pro | enterprise
   status     String    @default("active") // active | expired | revoked | paused
   expiresAt  DateTime?
   createdBy  String    // admin | system | webhook_{eventId} | trial_start | trial_expired
@@ -68,7 +69,7 @@ model License {
 
 **Field notes:**
 
-- `plan`: Stores the plan slug. Trial plans use `trial_` prefix (`trial_pro`).
+- `plan`: Stores the plan slug. A trial is not its own plan -- it is a period on the subscription (`status: 'trialing'` plus a `trialEnd` date), so a trialing user holds a license for the ordinary paid slug.
 - `status`: One of four values, managed by the status machine below.
 - `expiresAt`: Null for non-expiring licenses (e.g., lifetime deals). Set for subscription-based and trial licenses.
 - `createdBy`: Audit trail -- tracks who/what created the license. Format: `admin`, `system`, `webhook_{eventId}`, `trial_start`.
@@ -316,8 +317,7 @@ export class LicenseVerificationService {
     }
 
     // Resolve plan features
-    const planSlug = license.plan.replace(/^trial_/, '');
-    const plan = getPlanDefinition(planSlug);
+    const plan = getPlanDefinition(license.plan);
 
     const result: VerificationResult = {
       valid: true,
