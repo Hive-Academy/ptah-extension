@@ -185,3 +185,61 @@ describe('SessionControl.endSessionIfTokenMatches', () => {
     expect(h.cleanupPendingPermissions).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * `endSession` on an id nothing is registered under — the state
+ * `executeSlashCommandQuery` now sees when `chat:continue` routes a slash
+ * command WITHOUT resuming first (TASK_2026_350).
+ *
+ * This is the half of that fix which lives here: the reason it is safe to hand
+ * `executeSlashCommandQuery` an inactive session is that its opening
+ * `endSession` finds no record and returns before ever reaching the interrupt
+ * race. The pre-fix path resumed first, so the record DID exist, and the
+ * teardown spent the full 5 s on `Interrupt timed out (5s)` (log.log:2335).
+ *
+ * Fake timers, never advanced, are the assertion: a call that awaited the 5 s
+ * race would not settle. No wall-clock budget is measured — that would test the
+ * host, not the code.
+ */
+describe('SessionControl.endSession — unregistered id (TASK_2026_350)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('resolves without waiting on any timer and runs no teardown', async () => {
+    const h = makeHarness();
+
+    await expect(h.control.endSession(KEY_ID)).resolves.toBeUndefined();
+
+    expect(h.cleanupPendingPermissions).not.toHaveBeenCalled();
+    expect(h.markAllInterrupted).not.toHaveBeenCalled();
+    expect(h.notifyAll).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('non-vacuity — a REGISTERED record whose interrupt never settles does arm the 5s timer', async () => {
+    const h = makeHarness();
+
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    // A query whose interrupt() never settles: the only thing that can release
+    // `endRecord` is the 5s leg of the Promise.race.
+    rec.query = {
+      interrupt: () => new Promise<void>(() => undefined),
+    } as unknown as typeof rec.query;
+
+    let settled = false;
+    const pending = h.control.endSession(KEY_ID).then(() => {
+      settled = true;
+    });
+
+    // Flush microtasks: without the timer, nothing can complete the race.
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(5000);
+    await pending;
+
+    expect(settled).toBe(true);
+    expect(h.markAllInterrupted).toHaveBeenCalledWith(KEY);
+  });
+});

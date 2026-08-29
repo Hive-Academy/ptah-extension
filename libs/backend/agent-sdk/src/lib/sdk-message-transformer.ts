@@ -22,6 +22,7 @@ import {
   isSystemInit,
   isStreamEvent,
   isUserMessage,
+  isReplayMessage,
   isAssistantMessage,
   isCompactBoundary,
   isLocalCommandOutput,
@@ -181,6 +182,26 @@ export class SdkMessageTransformer implements TransformerState {
           this.helpers,
           sessionId,
         );
+      }
+
+      // Replayed transcript turns. `isUserMessage` deliberately excludes them
+      // (`claude-sdk.types.ts:371`), so without this branch every one of them
+      // falls past all narrowing below and lands on the `Unknown message type`
+      // warn — which is how a resumed `/orchestrate` produced
+      // `<command-message>orchestrate</command-message>` at WARN level
+      // (log.log:2376, TASK_2026_350).
+      //
+      // Dropping is the correct handling, not merely the current one: the SDK
+      // replays the prior transcript on every resume, while Ptah has already
+      // rendered that history from JSONL via `chat:resume`. Emitting a replayed
+      // turn would duplicate it in the UI. What changes here is only the
+      // classification — a known message quietly skipped instead of an unknown
+      // one warned about.
+      if (isReplayMessage(sdkMessage)) {
+        this.logger.debug(
+          '[SdkMessageTransformer] Skipping replayed user message (history already rendered from JSONL)',
+        );
+        return [];
       }
 
       if (isSystemInit(sdkMessage)) {

@@ -558,16 +558,46 @@ export class ChatSessionService {
           );
         }
       }
-      const resumeOutcome = await this.autoResumeIfInactive(
-        sessionId,
-        tabId,
-        workspacePath,
-        prompt,
-        params,
-        mcpRegisteredForSubagents,
-      );
-      if ('error' in resumeOutcome) return resumeOutcome.error;
-      const justResumed = resumeOutcome.justResumed;
+      // Slash commands are classified BEFORE the resume decision, not after it
+      // (TASK_2026_350).
+      //
+      // `autoResumeIfInactive` on an inactive session starts a full SDK query in
+      // `idle+streamInput` mode — it never forwards the prompt as an
+      // `initialPrompt`, so the executor cannot know a slash command is coming.
+      // The router below then calls `executeSlashCommand`, whose first act is to
+      // end the session that was started milliseconds earlier: measured cost was
+      // two CLI spawns plus a full `Interrupt timed out (5s)`, an 8524ms
+      // `chat:continue` for one `/orchestrate` (log.log:2292-2364).
+      //
+      // `SessionQueryExecutor` already serves "slash command + resume" in ONE
+      // query (`isSlashCommand && isResume` → `string (slash command + resume)`),
+      // and `executeSlashCommandQuery` handles a session with no registered
+      // record — `SessionControl.endSession` returns on `if (!rec)` with no
+      // interrupt. So the whole fix is to not ask for the resume.
+      //
+      // The pure static regex is used rather than `intercept()` so this decision
+      // cannot drift from the router's, and so the interceptor still logs
+      // `Command intercepted` exactly once.
+      //
+      // Every non-passthrough action of `routeFollowUpSlashCommand` is terminal,
+      // so nothing downstream of it needs a live session either.
+      const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
+
+      let justResumed = false;
+      if (isSlashCommand) {
+        await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
+      } else {
+        const resumeOutcome = await this.autoResumeIfInactive(
+          sessionId,
+          tabId,
+          workspacePath,
+          prompt,
+          params,
+          mcpRegisteredForSubagents,
+        );
+        if ('error' in resumeOutcome) return resumeOutcome.error;
+        justResumed = resumeOutcome.justResumed;
+      }
 
       const files = params.files ?? [];
       if (files.length > 0) {
@@ -1102,6 +1132,64 @@ export class ChatSessionService {
           error: message,
         },
       };
+    }
+  }
+
+  /**
+   * Tear down a DEAD session record before routing a slash command into it.
+   *
+   * The slash path skips `autoResumeIfInactive`, and with it that method's
+   * corpse-cleanup branch — so this is the third state, the one neither the
+   * "live" nor the "nothing registered" case covers: `isSessionActive` is true
+   * because a record exists, but its broadcast loop already exited, so
+   * `hasLiveSessionStream` is false. `SessionRegistry.find` resolves by tabId OR
+   * realSessionId, so a corpse registered under a tabId really is visible here
+   * under the SDK UUID `chat:continue` carries.
+   *
+   * Why this must AWAIT a teardown rather than fire one off:
+   * `IAIProvider.endSession` returns `void` (ai-provider.types.ts:280) — the
+   * `await` in `autoResumeIfInactive`'s corpse branch awaits `undefined` and
+   * does not wait for the teardown to finish. Using it here would leave the
+   * corpse registered when `executeSlashCommandQuery` runs its own unconditional
+   * `endSession`, and the SAME record would be torn down twice concurrently:
+   * two interrupt races for one query. `interruptSession` is the awaitable
+   * teardown (`Promise<void>`), so by the time the router runs, the registry no
+   * longer holds the record and the slash query's `endSession` returns on
+   * `if (!rec)` — exactly one teardown, exactly one query.
+   *
+   * It also restores a flush the direct path drops: the adapter's
+   * `interruptSession` calls `flushPendingUserActivityFor`, whereas
+   * `executeSlashCommandQuery` reaches `SessionControl.endSession` directly and
+   * bypasses that wrapper, silently discarding the dead session's buffered
+   * activity.
+   *
+   * No-op — and therefore behaviour-preserving — for both judged slash
+   * quadrants: a live session returns at the `hasLiveSessionStream` check, and
+   * a session with no record at all returns at the `isSessionActive` check.
+   */
+  private async endDeadRecordBeforeSlashCommand(
+    sessionId: SessionId,
+    tabId: string,
+  ): Promise<void> {
+    if (!this.sdkAdapter.isSessionActive(sessionId)) return;
+    if (this.hasLiveSessionStream(sessionId, tabId)) return;
+
+    this.logger.warn(
+      '[RPC] Session is registered but has no attached stream — ending the dead record before the slash command',
+      { sessionId, tabId },
+    );
+    try {
+      await this.sdkAdapter.interruptSession(sessionId);
+    } catch (cleanupError: unknown) {
+      // Non-fatal by design: the slash query re-registers under this id anyway,
+      // and its own `endSession` is a second chance at the teardown. Failing the
+      // user's command because a corpse would not die is the worse outcome.
+      this.logger.warn(
+        '[RPC] Failed to end dead session record before the slash command',
+        cleanupError instanceof Error
+          ? cleanupError
+          : new Error(String(cleanupError)),
+      );
     }
   }
 
