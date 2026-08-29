@@ -3,7 +3,10 @@ import 'reflect-metadata';
 import {
   InternalQueryConcurrencyGate,
   InternalQueryService,
+  DEFAULT_MAX_CONCURRENT,
+  DEFAULT_MAX_CONCURRENT_PER_LANE,
   INTERNAL_QUERY_CONCURRENCY_KEY,
+  INTERNAL_QUERY_LANE_CONCURRENCY_KEY,
 } from './internal-query.service';
 import { InternalQueryQueueTimeoutError } from '../errors/internal-query-queue-timeout.error';
 import type { InternalQueryConfig } from './internal-query.types';
@@ -192,7 +195,10 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
     started(): number;
   }
 
-  function makeGatedHarness(maxConcurrent?: number): GatedHarness {
+  function makeGatedHarness(
+    maxConcurrent?: number,
+    maxConcurrentPerLane?: number,
+  ): GatedHarness {
     const finishers: Array<() => void> = [];
     let started = 0;
 
@@ -209,18 +215,26 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       return { stream, abort: jest.fn(), close: jest.fn() };
     });
 
+    const overrides = new Map<string, number>();
+    if (maxConcurrent !== undefined) {
+      overrides.set(INTERNAL_QUERY_CONCURRENCY_KEY, maxConcurrent);
+    }
+    if (maxConcurrentPerLane !== undefined) {
+      overrides.set(INTERNAL_QUERY_LANE_CONCURRENCY_KEY, maxConcurrentPerLane);
+    }
+
     const workspace =
-      maxConcurrent === undefined
+      overrides.size === 0
         ? null
         : ({
-            // Key-aware: return the configured limit only for the concurrency
-            // key, and the caller-supplied default for every other key. A mock
+            // Key-aware: return a configured limit only for the key it belongs
+            // to, and the caller-supplied default for every other key. A mock
             // that returned `maxConcurrent` for any key also overrode
             // `queueTimeoutMs`, so a `makeGatedHarness(2)` waiter armed a 2ms
             // ceiling and rejected unhandled into a neighbouring test.
             getConfiguration: jest.fn(
               (_section: string, key: string, def: unknown) =>
-                key === INTERNAL_QUERY_CONCURRENCY_KEY ? maxConcurrent : def,
+                overrides.has(key) ? overrides.get(key) : def,
             ),
           } as unknown as IWorkspaceProvider);
 
@@ -389,30 +403,124 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
   });
 
   it('honours a configured limit above the default', async () => {
-    const h = makeGatedHarness(2);
+    // Both ceilings raised: the global one alone would not let a THIRD query on
+    // one lane through, which is the per-lane limit doing its job.
+    const h = makeGatedHarness(3, 3);
 
     await h.service.execute(makeConfig());
     await h.service.execute(makeConfig());
-    const third = h.service.execute(makeConfig());
+    await h.service.execute(makeConfig());
+    const fourth = h.service.execute(makeConfig());
 
     await settle();
-    expect(h.started()).toBe(2);
+    expect(h.started()).toBe(3);
 
-    void third;
+    void fourth;
+  });
+
+  /**
+   * TASK_2026_352. The memory curator and skill-synthesis are unrelated
+   * pipelines that shared one host-wide slot, so each waited on the other —
+   * nine times on one boot (`tmp/logs/log.log:938 … 1424`, every line reading
+   * `limit:1, inFlight:1`).
+   */
+  describe('lanes', () => {
+    it('runs two different lanes concurrently at the defaults', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+
+      await settle();
+      expect(h.started()).toBe(2);
+    });
+
+    it('still serialises two queries on the SAME lane', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+      const queued = h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+
+      await settle();
+      expect(h.started()).toBe(1);
+
+      void queued;
+    });
+
+    it('holds a third lane at the global ceiling', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+      const third = h.service.execute(makeConfig({ lane: 'default' }));
+
+      await settle();
+      expect(h.started()).toBe(DEFAULT_MAX_CONCURRENT);
+
+      void third;
+    });
+
+    it('treats a lane name as case- and whitespace-insensitive', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      const queued = h.service.execute(
+        makeConfig({ lane: '  Memory-Curator ' }),
+      );
+
+      // A near-miss must NOT mint a second lane with its own ceiling — that
+      // would be the defect this mechanism exists to prevent, arriving as a typo.
+      await settle();
+      expect(h.started()).toBe(1);
+
+      void queued;
+    });
+
+    it('charges a caller that names no lane to the shared default', async () => {
+      const h = makeGatedHarness();
+
+      await h.service.execute(makeConfig());
+      const queued = h.service.execute(makeConfig({ lane: '   ' }));
+
+      await settle();
+      expect(h.started()).toBe(1);
+
+      void queued;
+    });
   });
 });
 
 describe('InternalQueryConcurrencyGate', () => {
+  /** One-lane acquire at the classic single-slot setting. */
+  function acquire(
+    gate: InternalQueryConcurrencyGate,
+    opts: {
+      limit?: number;
+      perLaneLimit?: number;
+      lane?: string;
+      signal?: AbortSignal;
+      queueTimeoutMs?: number;
+    } = {},
+  ): Promise<() => void> {
+    return gate.acquire({
+      limit: opts.limit ?? 1,
+      perLaneLimit: opts.perLaneLimit ?? 1,
+      lane: opts.lane ?? 'default',
+      signal: opts.signal,
+      queueTimeoutMs: opts.queueTimeoutMs,
+    });
+  }
+
   it('hands slots out in FIFO order', async () => {
     const gate = new InternalQueryConcurrencyGate();
     const order: number[] = [];
 
-    const release = await gate.acquire(1);
-    const second = gate.acquire(1).then((r) => {
+    const release = await acquire(gate);
+    const second = acquire(gate).then((r) => {
       order.push(2);
       return r;
     });
-    const third = gate.acquire(1).then((r) => {
+    const third = acquire(gate).then((r) => {
       order.push(3);
       return r;
     });
@@ -429,7 +537,7 @@ describe('InternalQueryConcurrencyGate', () => {
 
   it('treats release as idempotent', async () => {
     const gate = new InternalQueryConcurrencyGate();
-    const release = await gate.acquire(1);
+    const release = await acquire(gate);
 
     release();
     release();
@@ -437,10 +545,108 @@ describe('InternalQueryConcurrencyGate', () => {
     expect(gate.inFlight).toBe(0);
   });
 
+  describe('per-lane ceilings', () => {
+    it('admits two lanes at once but only one call per lane', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+
+      await acquire(gate, { limit: 2, lane: 'a' });
+      await acquire(gate, { limit: 2, lane: 'b' });
+      const queued = acquire(gate, { limit: 2, lane: 'a' });
+
+      expect(gate.inFlight).toBe(2);
+      expect(gate.inFlightForLane('a')).toBe(1);
+      expect(gate.inFlightForLane('b')).toBe(1);
+      expect(gate.queued).toBe(1);
+
+      void queued;
+    });
+
+    /**
+     * The reason `drain` scans instead of waking the head. With a strict FIFO
+     * pop, the lane-`a` waiter at the front — inadmissible, because lane `a` is
+     * already at its ceiling — would block the lane-`b` waiter behind it, which
+     * is the cross-pipeline coupling the lanes exist to remove.
+     */
+    it('a lane-blocked waiter does not block an admissible one behind it', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const woken: string[] = [];
+
+      const releaseA = await acquire(gate, { limit: 2, lane: 'a' });
+      const releaseB = await acquire(gate, { limit: 2, lane: 'b' });
+
+      const queuedA = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
+        woken.push('a');
+        return r;
+      });
+      const queuedB = acquire(gate, { limit: 2, lane: 'b' }).then((r) => {
+        woken.push('b');
+        return r;
+      });
+
+      // Free lane b's slot. Only the lane-b waiter is admissible.
+      releaseB();
+      (await queuedB)();
+
+      expect(woken).toEqual(['b']);
+
+      releaseA();
+      (await queuedA)();
+      expect(woken).toEqual(['b', 'a']);
+      expect(gate.inFlight).toBe(0);
+    });
+
+    it('keeps FIFO order within one lane', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const order: number[] = [];
+
+      let release = await acquire(gate, { limit: 2, lane: 'a' });
+      const first = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
+        order.push(1);
+        return r;
+      });
+      const second = acquire(gate, { limit: 2, lane: 'a' }).then((r) => {
+        order.push(2);
+        return r;
+      });
+
+      release();
+      release = await first;
+      release();
+      (await second)();
+
+      expect(order).toEqual([1, 2]);
+    });
+
+    it('forgets a lane once its last holder releases', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+      const release = await acquire(gate, { lane: 'transient' });
+
+      expect(gate.inFlightForLane('transient')).toBe(1);
+      release();
+      // The map is keyed by caller-supplied strings; an entry that outlived its
+      // last holder would be an unbounded leak on a host with dynamic lanes.
+      expect(gate.inFlightForLane('transient')).toBe(0);
+    });
+
+    it('falls back to the defaults for a nonsensical limit', async () => {
+      const gate = new InternalQueryConcurrencyGate();
+
+      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'a' });
+      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'b' });
+      const queued = gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'c' });
+
+      expect(gate.inFlight).toBe(DEFAULT_MAX_CONCURRENT);
+      expect(gate.inFlightForLane('a')).toBe(DEFAULT_MAX_CONCURRENT_PER_LANE);
+      expect(gate.queued).toBe(1);
+
+      void queued;
+    });
+  });
+
   it('rejects a queued waiter with InternalQueryQueueTimeoutError after the ceiling', async () => {
     const gate = new InternalQueryConcurrencyGate();
-    const release = await gate.acquire(1);
-    const queued = gate.acquire(1, undefined, 20);
+    const release = await acquire(gate);
+    const queued = acquire(gate, { queueTimeoutMs: 20 });
 
     await expect(queued).rejects.toThrow(InternalQueryQueueTimeoutError);
     await expect(queued).rejects.toMatchObject({ queueTimeoutMs: 20 });

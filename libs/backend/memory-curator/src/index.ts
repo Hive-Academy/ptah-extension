@@ -92,6 +92,11 @@ export type {
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
 } from './lib/curator-llm/curator-llm.interface';
+export {
+  clampTranscript,
+  CURATOR_TRANSCRIPT_MAX_CHARS,
+} from './lib/curator-llm/clamp-transcript';
+export type { ClampedTranscript } from './lib/curator-llm/clamp-transcript';
 export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
 export type {
   Disposable,

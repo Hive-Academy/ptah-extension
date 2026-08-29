@@ -89,6 +89,11 @@ function makeSqlite(state: WatermarkState): SqliteConnectionService {
 function makeWorkspace(maxCuratesPerHour: number): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
     'memory.triggers.bootScan': true,
+    // TASK_2026_352 defers the scan by five minutes so it cannot run during the
+    // host's first minutes. This suite is about the hourly BUDGET, not about
+    // when the scan starts, so it opts out of the delay rather than driving a
+    // timer — the deferral has its own spec.
+    'memory.triggers.bootScanDelayMs': 0,
     'memory.triggers.idleMs': 600000,
     'memory.triggers.maxCuratesPerHour': maxCuratesPerHour,
     'memory.triggers.maxObservationsPerCurate': 500,

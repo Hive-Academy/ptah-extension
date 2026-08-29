@@ -19,6 +19,19 @@ export const MEMORY_TRIGGER_KEYS = {
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
   bootScan: 'memory.triggers.bootScan',
+  /**
+   * How long after `start()` the boot scan waits before its first attempt.
+   *
+   * Not in `MemoryTriggersDto` / `MEMORY_TRIGGER_PREFIXES` on purpose, exactly
+   * like `maxObservationsPerCurate`: it is a cost/latency tuning knob, not one
+   * of the per-trigger toggles the Memory settings panel round-trips.
+   */
+  bootScanDelayMs: 'memory.triggers.bootScanDelayMs',
+  /**
+   * How recent foreground chat activity has to be for a due boot scan to
+   * re-arm instead of running. See `MemoryTriggerService.scheduleBootScan`.
+   */
+  bootScanIdleBackoffMs: 'memory.triggers.bootScanIdleBackoffMs',
   userPromptSubmit: {
     enabled: 'memory.triggers.userPromptSubmit.enabled',
     cueList: 'memory.triggers.userPromptSubmit.cueList',
@@ -63,6 +76,22 @@ export const MEMORY_TRIGGER_DEFAULTS = {
   idleMs: 600000,
   turnThreshold: 20,
   bootScan: true,
+  /**
+   * Five minutes. The window the boot scan must stay out of is the one where
+   * the host is still starting: on the baseline boot the memory scan's inline
+   * `curator.curate` calls interleaved with skill-synthesis drains that ran for
+   * 122 s and 156 s (`tmp/logs/log.log:1095,1453`), all inside the first
+   * minutes after launch. The backlog is by definition not urgent — it is
+   * sessions that ended before this process started.
+   */
+  bootScanDelayMs: 300000,
+  /**
+   * Matches `skillSynthesis.drain.foregroundBackoffMs` (also 5 min). The two
+   * gates answer the same question about the same user, and disagreeing about
+   * the answer would mean one background pipeline runs while the other holds
+   * off, for no reason a user could name.
+   */
+  bootScanIdleBackoffMs: 300000,
   userPromptSubmit: {
     enabled: true,
     cueList: DEFAULT_CUE_LIST,

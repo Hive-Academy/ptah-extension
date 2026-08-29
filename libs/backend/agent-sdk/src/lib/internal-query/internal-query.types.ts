@@ -70,6 +70,21 @@ export interface InternalQueryConfig {
    */
   queueTimeoutMs?: number;
 
+  /**
+   * Which caller this query belongs to, for concurrency accounting.
+   *
+   * The gate holds a per-lane ceiling as well as a global one, so two
+   * unrelated background pipelines no longer serialise into each other
+   * (TASK_2026_352). Case- and whitespace-insensitive; omitted means
+   * `'default'`, the shared bucket for user-initiated callers.
+   *
+   * The two background pipelines name themselves: `'memory-curator'` and
+   * `'skill-synthesis'`. A caller that invents a new lane gets its own slot,
+   * which is the intended way to add one — but it also gets counted against
+   * the GLOBAL ceiling, so adding lanes is not a way to buy concurrency.
+   */
+  lane?: string;
+
   auth?: OneShotAuthOverride;
 }
 

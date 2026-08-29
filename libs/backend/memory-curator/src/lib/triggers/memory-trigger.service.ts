@@ -96,6 +96,16 @@ export class MemoryTriggerService {
   private readonly inFlightCurates = new Set<string>();
   private readonly lastCurateAt = new Map<string, number>();
   private bootScanController: AbortController | null = null;
+  private bootScanTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * When the last chat turn was observed, or `null` when none has been in this
+   * process. `null` — not `0` — because the boot-scan deferral reads "more
+   * recent than the backoff means someone is working"; a fresh process with no
+   * activity must not look busy, or the scan would never run on a host the user
+   * launched and walked away from. Same reasoning as
+   * `ForegroundActivityTracker.msSinceLastActivity` returning `Infinity`.
+   */
+  private lastActivityAt: number | null = null;
   /**
    * Compiled cue regexes, keyed by the JOINED cue list rather than the array's
    * identity.
@@ -195,7 +205,7 @@ export class MemoryTriggerService {
 
     if (this.readMemoryEnabled() && this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
-      void this.runBootScan(this.bootScanController.signal);
+      this.scheduleBootScan(this.bootScanController.signal);
     }
 
     this.logger.info('[memory-curator] trigger service started');
@@ -228,8 +238,11 @@ export class MemoryTriggerService {
     this.episodes.clear();
     this.inFlightCurates.clear();
     this.lastCurateAt.clear();
+    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
+    this.bootScanTimer = null;
     this.bootScanController?.abort();
     this.bootScanController = null;
+    this.lastActivityAt = null;
     // Writes are batched now, so a stop with observations still pending would
     // lose them. The store is a shared singleton (`MemorySearchService` reads
     // it too), so flush it rather than dispose it.
@@ -252,6 +265,13 @@ export class MemoryTriggerService {
   private onActivity(payload: SessionActivityPayload): void {
     if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
+
+    // Stamped ABOVE the `idleMs` guard, because this is the only foreground
+    // signal the boot-scan deferral has and it must not be silenced by an
+    // unrelated setting. `idleMs <= 0` disables the per-session idle TIMER; it
+    // does not mean the user stopped typing.
+    this.lastActivityAt = Date.now();
+
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 
@@ -821,6 +841,81 @@ export class MemoryTriggerService {
     }
   }
 
+  /**
+   * Arm the boot scan instead of running it inside `start()`.
+   *
+   * The scan's callback calls `curator.curate` INLINE — one LLM round trip per
+   * eligible session, bounded only by a 200 ms throttle and the hourly limiter.
+   * Firing that from `start()` put every one of those calls in the first
+   * seconds after launch, competing with window creation, the SDK boot and the
+   * skill-synthesis drains that ran 122 s and 156 s on the same boot
+   * (`tmp/logs/log.log:676,678,1095,1453`). None of that work is urgent: every
+   * session it reads ended before this process existed.
+   *
+   * Two conditions, and they are different questions. The DELAY answers "has
+   * the host settled"; the re-arm answers "is the user working right now".
+   * The re-arm is deliberately unbounded — it only ever continues while chat
+   * activity keeps arriving, so it terminates as soon as the user stops, and a
+   * host where the user never stops is one where the backlog genuinely should
+   * keep waiting. `stop()` clears the timer, so it cannot outlive the service.
+   *
+   * `unref` keeps a pending scan from holding the process alive at shutdown.
+   */
+  private scheduleBootScan(signal: AbortSignal, delayMs?: number): void {
+    if (signal.aborted) return;
+    const wait = delayMs ?? this.readBootScanDelayMs();
+    if (wait <= 0) {
+      void this.runBootScan(signal);
+      return;
+    }
+    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
+    const timer = setTimeout(() => {
+      this.bootScanTimer = null;
+      if (signal.aborted) return;
+      const backoff = this.readBootScanIdleBackoffMs();
+      const sinceActivity =
+        this.lastActivityAt === null
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, Date.now() - this.lastActivityAt);
+      if (backoff > 0 && sinceActivity < backoff) {
+        this.logger.debug(
+          '[memory-curator] boot scan deferred — foreground chat is active',
+          { sinceActivityMs: sinceActivity, backoffMs: backoff },
+        );
+        this.scheduleBootScan(signal, backoff);
+        return;
+      }
+      void this.runBootScan(signal);
+    }, wait);
+    (timer as { unref?: () => void }).unref?.();
+    this.bootScanTimer = timer;
+    this.logger.debug('[memory-curator] boot scan armed', { delayMs: wait });
+  }
+
+  private readBootScanDelayMs(): number {
+    return this.readPositiveMs(
+      MEMORY_TRIGGER_KEYS.bootScanDelayMs,
+      MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs,
+    );
+  }
+
+  private readBootScanIdleBackoffMs(): number {
+    return this.readPositiveMs(
+      MEMORY_TRIGGER_KEYS.bootScanIdleBackoffMs,
+      MEMORY_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
+    );
+  }
+
+  /** `0` is a legal value — it disables the gate — so only NaN falls back. */
+  private readPositiveMs(key: string, fallback: number): number {
+    const v = this.workspace.getConfiguration<number>(
+      MEMORY_TRIGGER_SECTION,
+      key,
+      fallback,
+    );
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  }
+
   private async runBootScan(signal: AbortSignal): Promise<void> {
     const root = this.workspace.getWorkspaceRoot();
     if (!root) return;
@@ -877,9 +972,19 @@ export class MemoryTriggerService {
 
           let transcript = '';
           try {
+            // `tailBytes` is not optional here, whatever the parameter's
+            // optionality suggests. Omitting it read and formatted the WHOLE
+            // session file, and this callback also skips `composeTranscript` —
+            // the only other clamp on this path — so a 268-turn session became
+            // the 170 655-character prompt at `tmp/logs/log.log:1017`. The
+            // window matches the live trigger path (`invokeCurate`) exactly;
+            // `MemoryCuratorService` clamps the FORMATTED result to
+            // `CURATOR_TRANSCRIPT_MAX_CHARS` after this returns, so the two
+            // bounds compose the same way they do there.
             transcript = await this.transcriptReader.read(
               scanSessionId,
               scanWorkspaceRoot,
+              { tailBytes: TRANSCRIPT_TAIL_BYTES },
             );
           } catch (err: unknown) {
             this.logger.warn(
