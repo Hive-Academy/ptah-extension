@@ -286,3 +286,89 @@ user is watching.
 — header `Running target test for 2 projects`; **rpc-handlers 91/91 suites,
 2534 passed; agent-sdk 81/81 suites, 1251 passed**. `typecheck` 2 projects clean;
 `lint` 2 projects, 0 errors.
+
+## Follow-up (judge round 2)
+
+Landed after `2b83f9219`. Both recommendations taken; the second turned out to
+fix a race rather than tidy a call.
+
+### 1. `endRecord` now deregisters unconditionally
+
+`SessionControl.endRecord` reached `registry.remove(rec)` only after
+`cleanupPendingPermissions` → `beginSessionTeardown` → `markAllInterrupted`, and
+the first two sat outside ANY `try`. A synchronous throw from any of them
+rejected the teardown **with the record still registered** — so
+`interruptSession` rejected, the id stayed live, and
+`executeSlashCommandQuery`'s own `endSession` then found a live `rec` and paid a
+second full interrupt race. The stall this task removes, reachable through the
+error path.
+
+Abort + removal moved into a `deregister()` closure, called at its normal place
+and again from an outer `finally`. Happy-path call order is byte-identical
+(`cleanupPendingPermissions → markAllInterrupted → interrupt → abort → removal
+→ endSessionTeardown → notifyAll`); only the throwing path changes.
+
+Two ordering properties deliberately preserved:
+
+- **The SessionEnd notification stays outside the `finally`**, after the
+  try/finally, so a failed teardown rethrows WITHOUT announcing a clean session
+  end. Making removal unconditional does not mean making the notification
+  unconditional.
+- **`deregister` is once-only rather than relying on idempotence.**
+  `registry.remove` deletes by `rec.tabId` with no identity check, so a second
+  call is only harmless while no NEW record holds that key. Running it once
+  removes the question instead of depending on the answer.
+
+### 2. The plain-text corpse branch — done, and it closed a real race
+
+`autoResumeIfInactive`'s corpse cleanup did `await this.sdkAdapter.endSession(...)`.
+`IAIProvider.endSession` returns **`void`** (`ai-provider.types.ts:280`) and the
+adapter fires the lifecycle teardown with a bare `.catch()`, so that `await`
+awaited `undefined` and returned immediately.
+
+That is not merely a slow-path cosmetic. `resumeSession` runs next and registers
+the replacement under the **same tabId**, while the corpse's teardown is still in
+flight — and `SessionRegistry.remove` deletes by `rec.tabId` with **no identity
+check**. The corpse's late removal therefore evicts the REPLACEMENT: a live
+session absent from the registry. That is precisely the hazard
+`endSessionIfTokenMatches` exists to prevent on the slash path, unguarded here.
+
+One line — `endSession` → `interruptSession` (`Promise<void>`, genuinely awaits
+`sessionLifecycle.endSession`). Scope did not widen: the branch's `try/catch`,
+its warn, and every caller signature are unchanged, and both corpse paths now
+kill the record the same way and differ only in what they do afterwards.
+
+Cost accepted: `chat:continue` on a dead record now waits for that teardown
+instead of racing it. Correctness over latency — and the session was already in
+a degraded state by construction.
+
+### Tests (+5; agent-sdk `session-control` 7 → 10, `chat/session` 30 → 31)
+
+`session-control.service.spec.ts`:
+
+- throwing `cleanupPendingPermissions` → registry empty, controller aborted, AND
+  still rejects. Both halves asserted together: "registry empty" alone would
+  pass if the method swallowed the error, and swallowing is not wanted.
+- throwing `markAllInterrupted` (the deepest of the three) → same
+- happy path deregisters **exactly once** — the guard against the new `finally`
+  double-removing
+
+`chat-continue-slash-before-resume.spec.ts`:
+
+- dead record + plain text now asserts `interruptSession`, with `endSession`
+  asserted NOT called on either corpse path
+- new ordering test: the teardown is fully complete **before** `resumeSession`
+  registers the replacement. Written with a real `await` boundary inside the
+  teardown mock, so a fire-and-forget implementation fails it.
+
+### Verification (round 2)
+
+`npx nx run-many -t test -p @ptah-extension/rpc-handlers @ptah-extension/agent-sdk`
+— header `Running target test for 2 projects`; **rpc-handlers 91/91 suites,
+2535 passed; agent-sdk 81/81 suites (1 file skipped), 1263 passed**.
+`typecheck` 2 projects clean; `lint` 2 projects, 0 errors.
+
+One run also printed Jest's "a worker process has failed to exit gracefully"
+warning. It did not reproduce on a re-run and comes from the real worker threads
+the `off-thread-process-spawner` specs start (TASK_2026_341), not from anything
+here.

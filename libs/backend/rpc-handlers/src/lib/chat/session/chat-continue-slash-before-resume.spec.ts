@@ -410,16 +410,47 @@ describe('chat:continue — dead record (registered, not streaming)', () => {
     expect(h.routeFollowUpSlashCommand).toHaveBeenCalledTimes(1);
   });
 
-  it('plain text: unchanged — falls to autoResumeIfInactive, which owns its own corpse cleanup', async () => {
+  it('plain text: autoResumeIfInactive tears the corpse down with the AWAITED teardown, then resumes', async () => {
     const h = makeHarness(DEAD_RECORD);
 
     await h.service.continueSession(params('keep going'));
 
-    // The slash-only helper must not fire for plain text; the resume path's
-    // existing `endSession` branch handles the corpse there.
-    expect(h.interruptSession).not.toHaveBeenCalled();
-    expect(h.endSession).toHaveBeenCalledWith(SESSION_ID);
+    expect(h.interruptSession).toHaveBeenCalledWith(SESSION_ID);
+    // The void, fire-and-forget teardown is not used on either corpse path.
+    expect(h.endSession).not.toHaveBeenCalled();
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Ordering is the correctness content here, not a style preference.
+   *
+   * `resumeSession` registers the replacement under the SAME tabId, and
+   * `SessionRegistry.remove` deletes by `rec.tabId` with no identity check. So a
+   * corpse teardown still in flight when the replacement registers would evict
+   * the replacement — a live session missing from the registry. The teardown
+   * must be COMPLETE before the resume, which is only true if it was awaited.
+   */
+  it('plain text: the corpse is fully dead BEFORE the replacement registers', async () => {
+    const h = makeHarness(DEAD_RECORD);
+
+    let teardownFinishedFirst = false;
+    let teardownDone = false;
+    h.interruptSession.mockImplementation(async () => {
+      // Force a real await boundary: a fire-and-forget teardown would let
+      // resumeSession run before this resolves.
+      await Promise.resolve();
+      teardownDone = true;
+    });
+    h.resumeSession.mockImplementation(async () => {
+      teardownFinishedFirst = teardownDone;
+      return (async function* () {
+        /* no events */
+      })();
+    });
+
+    await h.service.continueSession(params('keep going'));
+
+    expect(teardownFinishedFirst).toBe(true);
   });
 });

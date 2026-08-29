@@ -1037,13 +1037,24 @@ export class ChatSessionService {
     // message against a dead query, so tear it down first and fall through to
     // a real resume — otherwise `executeQuery` would re-register over the
     // stale record and leave its abort controller dangling.
+    //
+    // `interruptSession`, not `endSession`, and the difference is load-bearing
+    // rather than stylistic: `IAIProvider.endSession` returns `void`
+    // (ai-provider.types.ts:280) and the adapter fires the teardown with a bare
+    // `.catch()`, so the `await` here awaited `undefined` and the teardown was
+    // still running when `resumeSession` below registered the NEW record — under
+    // the SAME tabId. `SessionRegistry.remove` deletes by `rec.tabId` with no
+    // identity check, so the corpse's late removal would evict the replacement:
+    // a live session, absent from the registry, exactly the failure
+    // `endSessionIfTokenMatches` was introduced to prevent elsewhere. Awaiting
+    // the real teardown closes that window (judge round 2).
     if (this.sdkAdapter.isSessionActive(sessionId)) {
       this.logger.warn(
         '[RPC] Session is registered but has no attached stream — ending the dead record before resume',
         { sessionId, tabId },
       );
       try {
-        await this.sdkAdapter.endSession(sessionId);
+        await this.sdkAdapter.interruptSession(sessionId);
       } catch (cleanupError) {
         this.logger.warn(
           '[RPC] Failed to end dead session record before resume',
@@ -1146,16 +1157,20 @@ export class ChatSessionService {
    * realSessionId, so a corpse registered under a tabId really is visible here
    * under the SDK UUID `chat:continue` carries.
    *
-   * Why this must AWAIT a teardown rather than fire one off:
-   * `IAIProvider.endSession` returns `void` (ai-provider.types.ts:280) — the
-   * `await` in `autoResumeIfInactive`'s corpse branch awaits `undefined` and
-   * does not wait for the teardown to finish. Using it here would leave the
-   * corpse registered when `executeSlashCommandQuery` runs its own unconditional
-   * `endSession`, and the SAME record would be torn down twice concurrently:
-   * two interrupt races for one query. `interruptSession` is the awaitable
-   * teardown (`Promise<void>`), so by the time the router runs, the registry no
-   * longer holds the record and the slash query's `endSession` returns on
-   * `if (!rec)` — exactly one teardown, exactly one query.
+   * Why this must AWAIT a real teardown rather than fire one off:
+   * `IAIProvider.endSession` returns `void` (ai-provider.types.ts:280) and the
+   * adapter fires the lifecycle teardown with a bare `.catch()`, so awaiting it
+   * awaits `undefined`. Using it here would leave the corpse registered when
+   * `executeSlashCommandQuery` runs its own unconditional `endSession`, and the
+   * SAME record would be torn down twice concurrently: two interrupt races for
+   * one query. `interruptSession` is the awaitable teardown (`Promise<void>`),
+   * so by the time the router runs the registry no longer holds the record and
+   * the slash query's `endSession` returns on `if (!rec)` — exactly one
+   * teardown, exactly one query.
+   *
+   * `autoResumeIfInactive`'s corpse branch takes the same `interruptSession` for
+   * the same reason (judge round 2); the two paths differ only in what they do
+   * afterwards, not in how they kill the record.
    *
    * It also restores a flush the direct path drops: the adapter's
    * `interruptSession` calls `flushPendingUserActivityFor`, whereas

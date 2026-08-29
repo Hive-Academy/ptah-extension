@@ -243,3 +243,67 @@ describe('SessionControl.endSession — unregistered id (TASK_2026_350)', () => 
     expect(h.markAllInterrupted).toHaveBeenCalledWith(KEY);
   });
 });
+
+/**
+ * The teardown must deregister the record even when it fails (judge round 2).
+ *
+ * `cleanupPendingPermissions`, `beginSessionTeardown` and `markAllInterrupted`
+ * are synchronous calls into collaborators, and they used to sit OUTSIDE any
+ * `try`. A throw from one of them rejected `endRecord` with the record still in
+ * the registry — so the caller saw a failed teardown AND the id stayed live.
+ * `executeSlashCommandQuery` always runs its own `endSession` next, which would
+ * then find that live `rec` and pay a second full interrupt race: the exact
+ * stall TASK_2026_350 exists to remove, reachable through the error path.
+ *
+ * Both halves are asserted together on purpose. "Registry empty" alone would
+ * pass if the method swallowed the error, and swallowing is NOT wanted — the
+ * caller must still learn the teardown failed.
+ */
+describe('SessionControl.endSession — teardown failure still deregisters', () => {
+  it('a throwing cleanupPendingPermissions leaves the registry empty AND rejects', async () => {
+    const h = makeHarness();
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    h.cleanupPendingPermissions.mockImplementation(() => {
+      throw new Error('permission handler exploded');
+    });
+
+    await expect(h.control.endSession(KEY_ID)).rejects.toThrow(
+      'permission handler exploded',
+    );
+
+    expect(h.registry.find(KEY)).toBeUndefined();
+    expect(rec.abortController.signal.aborted).toBe(true);
+    // A failed teardown must not announce a clean session end.
+    expect(h.notifyAll).not.toHaveBeenCalled();
+  });
+
+  it('a throwing markAllInterrupted — the deepest of the three — also deregisters and rejects', async () => {
+    const h = makeHarness();
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    h.markAllInterrupted.mockImplementation(() => {
+      throw new Error('subagent registry exploded');
+    });
+
+    await expect(h.control.endSession(KEY_ID)).rejects.toThrow(
+      'subagent registry exploded',
+    );
+
+    expect(h.registry.find(KEY)).toBeUndefined();
+    expect(rec.abortController.signal.aborted).toBe(true);
+  });
+
+  it('deregisters exactly once on the happy path (the finally must not double-remove)', async () => {
+    const h = makeHarness();
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    const remove = jest.spyOn(h.registry, 'remove');
+
+    await h.control.endSession(KEY_ID);
+
+    // `registry.remove` deletes by `rec.tabId` with no identity check, so a
+    // second call is only harmless while no NEW record holds that key. Calling
+    // it once is what makes that irrelevant.
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(rec);
+    expect(h.notifyAll).toHaveBeenCalledTimes(1);
+  });
+});
