@@ -189,6 +189,120 @@ describe('BootCoordinator — abort and bounded completion', () => {
   });
 });
 
+describe('BootCoordinator — persistence gate', () => {
+  /** Resolve-tracking wrapper — the gate must be PENDING, not just falsy. */
+  function track<T>(promise: Promise<T>): () => boolean {
+    let done = false;
+    void promise.then(() => {
+      done = true;
+    });
+    return () => done;
+  }
+
+  it('stays pending until markPersistenceSettled is called', async () => {
+    const coordinator = new BootCoordinator();
+    const gateSettled = track(coordinator.whenPersistenceSettled());
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(gateSettled()).toBe(false);
+
+    coordinator.markPersistenceSettled({ sqliteOpen: true });
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: true,
+    });
+  });
+
+  it('returns the same promise to every caller', () => {
+    const coordinator = new BootCoordinator();
+    expect(coordinator.whenPersistenceSettled()).toBe(
+      coordinator.whenPersistenceSettled(),
+    );
+  });
+
+  it('lets the FIRST mark win and ignores later ones', async () => {
+    const coordinator = new BootCoordinator();
+
+    coordinator.markPersistenceSettled({ sqliteOpen: true });
+    coordinator.markPersistenceSettled({ sqliteOpen: false });
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: true,
+    });
+  });
+
+  it('is settled by a boot that never marks — false when SQLite never arrived', async () => {
+    // The no-workspace-root launch: the booter body never runs, so nothing on
+    // the normal path ever marks. Without the `.finally` backstop a gated
+    // consumer would wait for the rest of the session.
+    const coordinator = new BootCoordinator();
+    coordinator.startPostWindow(async () => undefined);
+    await coordinator.awaitCompletion(1000);
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+  });
+
+  it('is settled by a boot that never marks — true when refs hold an open connection', async () => {
+    const coordinator = new BootCoordinator();
+    coordinator.startPostWindow(async () => {
+      coordinator.refs.sqliteConnection = {
+        isOpen: true,
+      } as unknown as typeof coordinator.refs.sqliteConnection;
+    });
+    await coordinator.awaitCompletion(1000);
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: true,
+    });
+  });
+
+  it('is settled by a REJECTED boot', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const coordinator = new BootCoordinator();
+
+    coordinator.startPostWindow(async () => {
+      throw new Error('boom');
+    });
+    await coordinator.awaitCompletion(1000);
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('is settled by abort(), so a quit during boot strands no waiter', async () => {
+    const coordinator = new BootCoordinator();
+    const gateSettled = track(coordinator.whenPersistenceSettled());
+
+    await Promise.resolve();
+    expect(gateSettled()).toBe(false);
+
+    coordinator.abort();
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+  });
+
+  it('does not let the boot backstop overwrite an earlier mark', async () => {
+    // The real sequence: the heavy boot marks `true` mid-flight, and the
+    // `.finally` backstop then runs against refs that may already be torn down.
+    const coordinator = new BootCoordinator();
+    coordinator.startPostWindow(async () => {
+      coordinator.markPersistenceSettled({ sqliteOpen: true });
+      coordinator.refs.sqliteConnection = null;
+    });
+    await coordinator.awaitCompletion(1000);
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: true,
+    });
+  });
+});
+
 describe('BootCoordinator — warmup barrier', () => {
   beforeEach(() => {
     jest.useFakeTimers();

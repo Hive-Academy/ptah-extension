@@ -17,10 +17,10 @@ import {
   GATEWAY_CHAT_BRIDGE_TOKENS,
   type GatewayChatBridge,
 } from '@ptah-extension/gateway-chat-bridge';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 import type { BootCoordinator } from './boot-coordinator';
+import { startMessagingGateway } from './start-messaging-gateway';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface PostWindowOptions {
@@ -134,53 +134,33 @@ export async function registerPostWindow(
   }
   refs.messagingGateway = messagingGateway;
   refs.chatBridge = chatBridge;
-  // Started non-blocking: gateway I/O must not delay the updater or window.
+  // Started non-blocking — gateway I/O must not delay the updater or window —
+  // and DEFERRED behind the persistence gate: `GatewayService.start()` runs
+  // voice GC against `gateway_messages` and the bridge claims interrupted
+  // turns, both SQLite writes. This phase runs BEFORE the heavy boot opens the
+  // database, so without the gate both landed on a closed or mid-migration
+  // connection (TASK_2026_347).
   if (messagingGateway) {
     const gateway = messagingGateway;
     const bridge = chatBridge;
-    void (async () => {
-      try {
-        await gateway.start();
-        console.log('[Ptah Electron] Messaging gateway started');
-
-        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-          broadcastMessage(type: string, payload: unknown): Promise<void>;
-        };
-        const status = gateway.status();
-        void webviewManager.broadcastMessage(
-          MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
-          {
-            status: {
-              enabled: status.enabled,
-              adapters: status.adapters.map((a) => ({
-                platform: a.platform,
-                running: a.running,
-                ...(a.lastError ? { lastError: a.lastError } : {}),
-              })),
-            },
-            origin: null,
-          },
-        );
-      } catch (error) {
-        console.warn(
-          '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
-          error instanceof Error ? error.message : String(error),
-        );
-        return;
-      }
-
-      if (bridge) {
-        try {
-          bridge.start();
-          console.log('[Ptah Electron] Gateway chat bridge started');
-        } catch (error) {
-          console.warn(
-            '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      }
-    })();
+    void startMessagingGateway({
+      gateway,
+      bridge,
+      coordinator,
+      // Resolved lazily, as it was inside the old IIFE: this phase must not
+      // fail activation because the webview manager is not registered yet.
+      broadcast: (type, payload) =>
+        (
+          container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+            broadcastMessage(type: string, payload: unknown): Promise<void>;
+          }
+        ).broadcastMessage(type, payload),
+    }).catch((error: unknown) => {
+      console.warn(
+        '[Ptah Electron] Messaging gateway start failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
   try {
     updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);

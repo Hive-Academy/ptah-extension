@@ -13,12 +13,11 @@ import {
 
 import {
   initPluginLoader,
-  mirrorUserLayer,
   reconcileHarness,
-  reconcileUserLayer,
-  syncSkillRegistryCatalog,
+  refreshUserLayer,
 } from './plugin-activation';
 import type { BootCoordinator } from './boot-coordinator';
+import { normalizeWorkspaceRoot } from './workspace-root-key';
 
 /**
  * The heavy half of Electron activation, extracted from `wire-runtime.ts`
@@ -39,7 +38,10 @@ import type { BootCoordinator } from './boot-coordinator';
  *    window in which a renderer RPC can arrive before SQLite is open. Until the
  *    readiness contract lands, that window is the whole failure mode, so
  *    nothing — not the harness reconcile, not the user-layer mirror, not
- *    `scanAndImport` — may be moved in front of it.
+ *    `scanAndImport` — may be moved in front of it. The line right after it is
+ *    `coordinator.markPersistenceSettled(...)`, which is what releases the
+ *    post-window consumers that write to SQLite (the messaging gateway and the
+ *    chat bridge). Nothing may be inserted between the two.
  * 2. **The latch is reserved synchronously, released later.** `startOrJoin`
  *    creates the entry for a workspace root the instant it is called, but the
  *    body does not begin until {@link HeavyServicesBooter.openWindowGate} has
@@ -50,38 +52,13 @@ import type { BootCoordinator } from './boot-coordinator';
  */
 
 /**
- * Latch key for "no folder open".
- *
- * Cannot collide with any real key: {@link normalizeWorkspaceRoot} only ever
- * returns this constant or a lowercased ABSOLUTE path, and no absolute path
- * begins with `::` on either platform.
- *
- * This was a literal NUL byte until TASK_2026_331 B7. It worked, but a raw
- * `\0` makes git classify the whole file as binary — no diffs, no merges, and
- * the format hook skips it — and the byte was invisible in every editor view,
- * so nothing surfaced it. A control character is still a legitimate choice here
- * — write it as a unicode escape in the source, never as the raw byte.
+ * Re-exported so the boot latch and every existing importer keep one name for
+ * one concept. The definition moved to `workspace-root-key.ts` in
+ * TASK_2026_345 because the user-layer coalescer in `plugin-activation.ts`
+ * needs the SAME key — and this module imports that one, so the function could
+ * not live here without making the pair a cycle.
  */
-const NO_WORKSPACE_KEY = '::no-workspace';
-
-/**
- * Normalized latch key for a workspace root.
- *
- * The one-shot boot is keyed by this rather than by the raw string, because the
- * startup root and the root the renderer echoes back through `workspace:switch`
- * differ by separator and case on Windows. Two spellings of the same directory
- * must join one boot, not start two.
- *
- * `undefined` (no folder open) is its own key: it is a real, distinct boot
- * state, not a missing value.
- */
-export function normalizeWorkspaceRoot(root: string | undefined): string {
-  if (root === undefined) return NO_WORKSPACE_KEY;
-  return root
-    .replace(/[\\/]+$/, '')
-    .replace(/\\/g, '/')
-    .toLowerCase();
-}
+export { normalizeWorkspaceRoot } from './workspace-root-key';
 
 export interface HeavyServicesBooter {
   /**
@@ -94,6 +71,21 @@ export interface HeavyServicesBooter {
    * Reservation is synchronous. Nothing runs until `openWindowGate()`.
    */
   startOrJoin(workspaceRoot: string | undefined): Promise<void>;
+  /**
+   * Whether a boot for this root has ALREADY been reserved — in flight,
+   * finished or failed.
+   *
+   * The workspace-folder listener asks this before it reserves, because a root
+   * that is booting for the first time already gets the full user-layer pass
+   * and its own `activation` harness reconcile from the boot itself. Firing a
+   * propagation beside it was the second of the two concurrent passes in
+   * `tmp/logs/log.log:1206-1223` (TASK_2026_345). A root that HAS booted before
+   * — the second and every later switch back to it — still needs the
+   * propagation, and that is the case this predicate exists to distinguish.
+   *
+   * Must be read BEFORE the matching `startOrJoin`, synchronously.
+   */
+  isReserved(workspaceRoot: string | undefined): boolean;
   /**
    * Release every reserved boot. Called exactly once, from
    * `wireRuntimePostWindow`, after `createMainWindow` has run.
@@ -141,6 +133,9 @@ export function createHeavyServicesBooter(
       console.log(
         '[Ptah Electron] Deferred backend services skipped — shutdown already started',
       );
+      // Nothing below will run, so nothing will ever open the database. Release
+      // the gated consumers with the terminal answer instead of parking them.
+      coordinator.markPersistenceSettled({ sqliteOpen: false });
       return;
     }
     console.log(
@@ -156,6 +151,14 @@ export function createHeavyServicesBooter(
       signal,
     });
     refs.sqliteConnection = thoth.sqliteConnection;
+    // The persistence gate opens HERE and nowhere else on the happy path.
+    // `bootThothRuntime` awaits `openAndMigrate()` to completion, so this line
+    // is the first instant at which the database is open AND migrated —
+    // `isOpen` alone is true from the moment the handle is assigned, which is
+    // before the migration runner applies anything (TASK_2026_347).
+    coordinator.markPersistenceSettled({
+      sqliteOpen: thoth.sqliteConnection?.isOpen ?? false,
+    });
     refs.memoryCurator = thoth.memoryCurator;
     refs.memoryTrigger = thoth.memoryTrigger;
     refs.skillSynthesis = thoth.skillSynthesis;
@@ -169,18 +172,17 @@ export function createHeavyServicesBooter(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
     initPluginLoader(container, contentDownload.getPluginsPath());
-    await mirrorUserLayer(container, workspaceRoot);
-    const sqliteOpen =
-      refs.sqliteConnection !== null && refs.sqliteConnection.isOpen;
     // Pre-network, so a warm start detects divergence and reaps deleted
     // upstreams with no download at all. The post-download callback below runs
     // the same pass again against the refreshed sources; this one is what makes
     // an offline or fully-cached start still notice a clone the user edited
     // (defect 8). Both passes are a directory walk plus a content hash.
-    await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
-    if (sqliteOpen) {
-      void syncSkillRegistryCatalog(container);
-    }
+    //
+    // `refreshUserLayer` is the whole pass — mirror, reconcile, catalog sync —
+    // behind a per-root coalescer (TASK_2026_345). The three separate calls
+    // that used to stand here ran the catalog sync twice on their own and
+    // raced the folder listener's propagation for the other two.
+    await refreshUserLayer(container, workspaceRoot, 'activation');
     contentDownload
       .ensureContent()
       .then(async (result) => {
@@ -191,12 +193,21 @@ export function createHeavyServicesBooter(
             result.error ?? 'Unknown error',
           );
         }
-        await mirrorUserLayer(container, workspaceRoot);
         // Unconditional: the `!result.fromCache` gate that used to sit here is
         // defect 8. A cached download still needs the sweep, because what
         // changed may be the CLONE (a user edit) or the upstream's absence,
         // neither of which the download result knows anything about.
-        await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+        //
+        // A download that lands INSIDE the activation pass's coalescing window
+        // joins that pass instead of running a second one — which is correct,
+        // because the pass has not started reading yet and will therefore see
+        // the freshly downloaded content. A download that lands later, which is
+        // every real network fetch, gets its own pass.
+        await refreshUserLayer(
+          container,
+          workspaceRoot,
+          'content-download-complete',
+        );
         // Re-reconcile against the post-download user layer. The pass below
         // this block runs before the network is done — so on a cold first run
         // it sees an empty user layer and copies nothing, and on a content
@@ -385,6 +396,9 @@ export function createHeavyServicesBooter(
       );
       boots.set(key, reserved);
       return reserved;
+    },
+    isReserved(workspaceRoot: string | undefined): boolean {
+      return boots.has(normalizeWorkspaceRoot(workspaceRoot));
     },
     openWindowGate(): void {
       if (gateOpened) return;

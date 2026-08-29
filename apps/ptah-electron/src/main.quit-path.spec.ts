@@ -32,7 +32,12 @@
 import { handleWindowAllClosed } from './services/tray/tray.service';
 import { createEmptyBootRefs } from './activation/boot-coordinator';
 import type { BootRefs } from './activation/boot-coordinator';
-import { BOOT_DRAIN_BUDGET_MS, handleWillQuit } from './activation/shutdown';
+import {
+  BOOT_DRAIN_BUDGET_MS,
+  GATEWAY_STOP_BUDGET_MS,
+  handleWillQuit,
+  requiresDeferredDisposal,
+} from './activation/shutdown';
 
 /** Every platform Electron ships for, so the oracle is exercised on all of them. */
 const PLATFORMS: readonly NodeJS.Platform[] = [
@@ -174,8 +179,22 @@ describe('R10 fail-safe — liveness, not the setting, gates the suppression', (
 // ---------------------------------------------------------------------------
 
 /**
- * The disposal order, as a list of ref field names, exactly as `main.ts` ran it
- * before this task. Written out here so a reorder fails loudly and by name.
+ * The disposal order, as a list of ref field names. Written out here so a
+ * reorder fails loudly and by name.
+ *
+ * One position moved since TASK_2026_331: `chatBridge` and `messagingGateway`
+ * now come BEFORE `sqliteConnection`. They used to start during
+ * `registerPostWindow`, i.e. before SQLite was open, so LIFO put their stop
+ * behind the close. They now start behind the persistence gate — after SQLite
+ * is open and migrated — so LIFO puts their stop in front of it, and
+ * `GatewayService.stop()` (which drains outbound delivery and settles turn
+ * state through `gateway_messages`) no longer writes into a closed connection
+ * (TASK_2026_347).
+ *
+ * The position alone is not the guarantee — the chain AWAITS the stop before it
+ * closes, and {@link drainingGatewayStop} is written so that this list can only
+ * come out in this order if it really did. See the "gateway drain gates the
+ * SQLite close" group below.
  */
 const EXPECTED_LIFO_ORDER: readonly string[] = [
   'providerProxyPool',
@@ -189,14 +208,35 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'cronScheduler',
   'memoryTrigger',
   'memoryCurator',
-  'sqliteConnection',
   'chatBridge',
   'messagingGateway',
+  'sqliteConnection',
   'disposeVoiceWorker',
   'agentProcessManager',
   'cliRegistry',
   'diagnostics',
 ];
+
+/**
+ * A `GatewayService.stop()` stand-in that behaves like the real one.
+ *
+ * The real stop is `cancelAllReconnects()` -> `await outbound.drainAll()` ->
+ * `StreamCoalescer.drainAll()` -> `await lifecycle.stopAdapters()`: it settles
+ * several microtask turns later, and the buffered flush it performs on the way
+ * out WRITES to `gateway_messages`. So the recorded name is pushed AFTER the
+ * awaits, not as the first statement.
+ *
+ * That detail is the whole point of this mock. A stop recorded on entry pins
+ * only the invocation order and passes just as happily against a fire-and-forget
+ * `void gateway.stop()` followed by a same-tick `SQLite close` — which is the
+ * defect this spec exists to catch (TASK_2026_347 round 2).
+ */
+async function drainingGatewayStop(order: string[]): Promise<void> {
+  await Promise.resolve(); // outbound.drainAll()
+  await Promise.resolve(); // StreamCoalescer.drainAll()
+  await Promise.resolve(); // lifecycle.stopAdapters()
+  order.push('messagingGateway'); // the persistence write, last
+}
 
 /** A fully-populated refs object whose every handle records its own name. */
 function makeFullRefs(order: string[]): BootRefs {
@@ -244,9 +284,7 @@ function makeFullRefs(order: string[]): BootRefs {
     stop: record('chatBridge'),
   } as unknown as BootRefs['chatBridge'];
   refs.messagingGateway = {
-    stop: async () => {
-      order.push('messagingGateway');
-    },
+    stop: () => drainingGatewayStop(order),
   } as unknown as BootRefs['messagingGateway'];
   refs.agentProcessManager = {
     disposeAll: async () => {
@@ -260,6 +298,26 @@ function makeFullRefs(order: string[]): BootRefs {
   return refs;
 }
 
+/** Let every already-queued microtask run. Deterministic; no timers involved. */
+async function flushMicrotasks(turns = 12): Promise<void> {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+/** The parts of `QuitSequenceDeps` no ordering test cares about. */
+function inertDeps(order: string[]) {
+  return {
+    abortBoot: jest.fn(),
+    isBootRunning: () => false,
+    awaitBootCompletion: async () => undefined,
+    flushWorkspacePersistence: jest.fn(),
+    flushSessionMetadataStores: jest.fn(),
+    clearTimers: () => order.push('clearTimers'),
+    disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+  };
+}
+
 describe('will-quit — LIFO disposal order', () => {
   beforeEach(() => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -269,27 +327,25 @@ describe('will-quit — LIFO disposal order', () => {
     jest.restoreAllMocks();
   });
 
-  it('disposes every handle in the pre-change order', () => {
+  it('disposes every handle in the pre-change order', async () => {
     const order: string[] = [];
     const refs = makeFullRefs(order);
+    const quit = jest.fn();
 
     handleWillQuit({
+      ...inertDeps(order),
       refs,
-      abortBoot: jest.fn(),
-      isBootRunning: () => false,
-      awaitBootCompletion: async () => undefined,
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: () => order.push('clearTimers'),
-      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit: jest.fn(),
-      quit: jest.fn(),
+      quit,
     });
 
+    await flushMicrotasks();
+
     expect(order).toEqual(EXPECTED_LIFO_ORDER);
+    expect(quit).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps disposing after one handle throws', () => {
+  it('keeps disposing after one handle throws', async () => {
     const order: string[] = [];
     const refs = makeFullRefs(order);
     refs.sqliteConnection = {
@@ -299,43 +355,197 @@ describe('will-quit — LIFO disposal order', () => {
     } as unknown as BootRefs['sqliteConnection'];
 
     handleWillQuit({
+      ...inertDeps(order),
       refs,
-      abortBoot: jest.fn(),
-      isBootRunning: () => false,
-      awaitBootCompletion: async () => undefined,
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: () => order.push('clearTimers'),
-      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit: jest.fn(),
       quit: jest.fn(),
     });
+
+    await flushMicrotasks();
 
     // Diagnostics is LAST, so reaching it proves nothing after the throw was
     // skipped.
     expect(order[order.length - 1]).toBe('diagnostics');
   });
 
-  it('does not defer the quit when no boot is in flight', () => {
+  it('stays fully synchronous when there is nothing to await', () => {
+    // No gateway means no `await` anywhere in the chain, which is the
+    // pre-change shape: one synchronous listener, no `preventDefault`, no
+    // re-issued quit. This is the parity case, and it must produce the same
+    // order as the deferred path minus the entry that forced the deferral.
     const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.messagingGateway = null;
     const deferQuit = jest.fn();
     const quit = jest.fn();
 
-    handleWillQuit({
-      refs: makeFullRefs(order),
-      abortBoot: jest.fn(),
-      isBootRunning: () => false,
-      awaitBootCompletion: async () => undefined,
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: jest.fn(),
-      disposeVoiceWorker: jest.fn(),
+    const ranSynchronously = handleWillQuit({
+      ...inertDeps(order),
+      refs,
       deferQuit,
       quit,
     });
 
+    expect(ranSynchronously).toBe(true);
+    expect(order).toEqual(
+      EXPECTED_LIFO_ORDER.filter((name) => name !== 'messagingGateway'),
+    );
     expect(deferQuit).not.toHaveBeenCalled();
     expect(quit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The gateway drain GATES the SQLite close (TASK_2026_347, round 2).
+//
+// Reordering the statements was not enough: `void gateway.stop()` followed by a
+// same-tick `refs.sqliteConnection.close()` still closed the database before the
+// drain's awaits resolved, so the flush that persists the final streamed reply
+// landed on a closed handle — the very defect this task exists to close, moved
+// from startup to shutdown. The quit is therefore DEFERRED whenever a gateway
+// exists, and the close waits for the stop to settle (bounded).
+// ---------------------------------------------------------------------------
+
+describe('will-quit — the gateway drain gates the SQLite close', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('defers the quit for the gateway stop even with no boot in flight', () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    const deferQuit = jest.fn();
+    const quit = jest.fn();
+
+    const ranSynchronously = handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit,
+      quit,
+    });
+
+    // Electron tears the process down the moment a synchronous listener
+    // returns, so the deferral is what buys the drain its microtasks.
+    expect(ranSynchronously).toBe(false);
+    expect(deferQuit).toHaveBeenCalledTimes(1);
+    // The head of the chain still ran synchronously...
+    expect(order).toContain('providerProxyPool');
+    expect(order).toContain('chatBridge');
+    // ...and nothing past the gateway has run yet.
+    expect(order).not.toContain('messagingGateway');
+    expect(order).not.toContain('sqliteConnection');
+    expect(quit).not.toHaveBeenCalled();
+  });
+
+  it('waits for a drain that spans a real timer before closing SQLite', async () => {
+    // The strongest form of the guard: the stop settles 50 ms later, so no
+    // number of microtask turns can smuggle the close in front of it.
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.messagingGateway = {
+      stop: () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push('messagingGateway');
+            resolve();
+          }, 50);
+        }),
+    } as unknown as BootRefs['messagingGateway'];
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+    });
+
+    await flushMicrotasks();
+    expect(order).not.toContain('sqliteConnection');
+
+    await jest.advanceTimersByTimeAsync(50);
+    await flushMicrotasks();
+
+    expect(order.indexOf('messagingGateway')).toBeLessThan(
+      order.indexOf('sqliteConnection'),
+    );
+    expect(order).toEqual(EXPECTED_LIFO_ORDER);
+  });
+
+  it('closes anyway once a wedged stop exceeds its budget', async () => {
+    // A quit that hangs is worse than a lost final delivery: the wait is
+    // bounded, and it warns rather than silently dropping the write.
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.messagingGateway = {
+      stop: () => new Promise<void>(() => undefined),
+    } as unknown as BootRefs['messagingGateway'];
+    const quit = jest.fn();
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit,
+    });
+
+    await flushMicrotasks();
+    expect(order).not.toContain('sqliteConnection');
+    expect(quit).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(GATEWAY_STOP_BUDGET_MS);
+    await flushMicrotasks();
+
+    expect(order).toContain('sqliteConnection');
+    expect(order[order.length - 1]).toBe('diagnostics');
+    expect(quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Messaging gateway stop exceeded'),
+    );
+  });
+
+  it('closes anyway when the stop rejects, and does not crash the quit', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.messagingGateway = {
+      stop: async () => {
+        await Promise.resolve();
+        throw new Error('adapter socket already dead');
+      },
+    } as unknown as BootRefs['messagingGateway'];
+    const quit = jest.fn();
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit,
+    });
+
+    await flushMicrotasks();
+
+    expect(order).toContain('sqliteConnection');
+    expect(order[order.length - 1]).toBe('diagnostics');
+    expect(quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      '[Ptah Electron] Messaging gateway stop failed (non-fatal):',
+      'adapter socket already dead',
+    );
+  });
+
+  it('names the gateway as the reason the quit must be deferred', () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+
+    expect(requiresDeferredDisposal(refs)).toBe(true);
+
+    refs.messagingGateway = null;
+    expect(requiresDeferredDisposal(refs)).toBe(false);
   });
 });
 
@@ -367,14 +577,11 @@ describe('will-quit — quit during the post-window boot', () => {
     );
 
     handleWillQuit({
+      ...inertDeps(order),
       refs,
       abortBoot,
       isBootRunning: () => true,
       awaitBootCompletion,
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: () => order.push('clearTimers'),
-      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit,
       quit,
     });
@@ -385,10 +592,8 @@ describe('will-quit — quit during the post-window boot', () => {
     expect(awaitBootCompletion).toHaveBeenCalledWith(BOOT_DRAIN_BUDGET_MS);
     expect(order).toEqual([]);
 
-    jest.advanceTimersByTime(BOOT_DRAIN_BUDGET_MS);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(BOOT_DRAIN_BUDGET_MS);
+    await flushMicrotasks();
 
     expect(order).toEqual(EXPECTED_LIFO_ORDER);
     // The re-issued quit is what lets Electron finish; `main.ts` short-circuits
@@ -396,22 +601,19 @@ describe('will-quit — quit during the post-window boot', () => {
     expect(quit).toHaveBeenCalledTimes(1);
   });
 
-  it('aborts BEFORE anything is disposed, so no scan writes to a stopped service', () => {
+  it('aborts BEFORE anything is disposed, so no scan writes to a stopped service', async () => {
     const order: string[] = [];
     handleWillQuit({
+      ...inertDeps(order),
       refs: makeFullRefs(order),
       abortBoot: () => order.push('abortBoot'),
-      isBootRunning: () => false,
-      awaitBootCompletion: async () => undefined,
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: () => order.push('clearTimers'),
-      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit: jest.fn(),
       quit: jest.fn(),
     });
 
     expect(order[0]).toBe('abortBoot');
+
+    await flushMicrotasks();
   });
 
   it('disposes a service the boot created AFTER the quit arrived', async () => {
@@ -422,17 +624,13 @@ describe('will-quit — quit during the post-window boot', () => {
     refs.gitWatcher = null;
 
     handleWillQuit({
+      ...inertDeps(order),
       refs,
-      abortBoot: jest.fn(),
       isBootRunning: () => true,
       awaitBootCompletion: (timeoutMs: number) =>
         new Promise<void>((resolve) => {
           setTimeout(resolve, timeoutMs);
         }),
-      flushWorkspacePersistence: jest.fn(),
-      flushSessionMetadataStores: jest.fn(),
-      clearTimers: () => order.push('clearTimers'),
-      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit: jest.fn(),
       quit: jest.fn(),
     });
@@ -443,10 +641,8 @@ describe('will-quit — quit during the post-window boot', () => {
       switchWorkspace: jest.fn(),
     };
 
-    jest.advanceTimersByTime(BOOT_DRAIN_BUDGET_MS);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(BOOT_DRAIN_BUDGET_MS);
+    await flushMicrotasks();
 
     expect(order).toContain('gitWatcher');
   });

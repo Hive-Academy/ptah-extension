@@ -26,6 +26,13 @@
  * - **Bounded wait.** `awaitCompletion(2000)` gives the aborted boot a short
  *   grace period to unwind before disposal starts. It never throws and never
  *   waits longer than the budget.
+ * - **Persistence gate.** The post-window phase creates services (the messaging
+ *   gateway, the chat bridge) that write to SQLite, but it runs BEFORE the heavy
+ *   boot opens the database. `whenPersistenceSettled()` is the one signal those
+ *   consumers await; the heavy boot calls `markPersistenceSettled()` the instant
+ *   `bootThothRuntime` returns, which is after `openAndMigrate()` has RESOLVED.
+ *   It deliberately does not key on `SqliteConnectionService.isOpen`: that flag
+ *   is set before the migration runner applies anything.
  * - **Warmup barrier.** With a window-first boot, `did-finish-load` fires
  *   BEFORE the memory curator exists, so the old `if (refs.memoryCurator ===
  *   null) return;` guard in `scheduleWarmup` would skip the embedder warmup on
@@ -53,6 +60,20 @@ import type { UpdateManager } from '../services/update/update-manager';
  * vocabulary to be stable from the start.
  */
 export type BootReadiness = 'warming' | 'ready' | 'degraded' | 'failed';
+
+/**
+ * The state of persistence at the moment the boot stopped being able to change
+ * it.
+ *
+ * `sqliteOpen: false` is a REAL, terminal answer — not "not yet". It is what a
+ * waiter receives when the boot failed, when it aborted, or when there is no
+ * workspace root to boot for. Consumers must treat it as "run degraded", never
+ * as a reason to keep waiting.
+ */
+export interface PersistenceReadiness {
+  /** `true` only when SQLite is open AND its migrations have been applied. */
+  sqliteOpen: boolean;
+}
 
 /**
  * Every long-lived handle the activation path produces.
@@ -168,6 +189,21 @@ export class BootCoordinator {
   private postWindowPromise: Promise<void> | null = null;
   private pending = false;
 
+  /**
+   * The persistence gate's resolver, captured out of the promise's executor.
+   *
+   * Both fields are initialized HERE, in the field initializer, rather than in a
+   * constructor body or lazily on first await: `registerPostWindow` runs before
+   * `startPostWindow`, so a consumer can call `whenPersistenceSettled()` before
+   * any boot exists and must still get the same promise the boot will resolve.
+   */
+  private resolvePersistence: ((state: PersistenceReadiness) => void) | null =
+    null;
+  private readonly persistenceSettled: Promise<PersistenceReadiness> =
+    new Promise<PersistenceReadiness>((resolve) => {
+      this.resolvePersistence = resolve;
+    });
+
   private warmupRun: (() => void | Promise<void>) | null = null;
   private warmupArmed = false;
   private warmupSettled = false;
@@ -236,7 +272,43 @@ export class BootCoordinator {
       })
       .finally(() => {
         this.pending = false;
+        // BACKSTOP, not the normal path. `boot-heavy-services.ts` marks the gate
+        // at the real transition; this covers every route that never reaches it
+        // — a rejected boot, a launch with no workspace root (where the booter
+        // body never runs and SQLite is never opened), and any future step that
+        // returns early before the mark. Without it a gated consumer would wait
+        // for the rest of the session. Idempotent, so on the normal path it is a
+        // no-op.
+        this.markPersistenceSettled({
+          sqliteOpen: this.refs.sqliteConnection?.isOpen ?? false,
+        });
       });
+  }
+
+  /**
+   * Declare persistence settled. First call wins; later calls are ignored.
+   *
+   * Called by the heavy boot immediately after `bootThothRuntime` returns —
+   * i.e. after `openAndMigrate()` has RESOLVED, which is the only moment at
+   * which the database is both open and migrated.
+   */
+  markPersistenceSettled(state: PersistenceReadiness): void {
+    const resolve = this.resolvePersistence;
+    if (resolve === null) return;
+    this.resolvePersistence = null;
+    resolve(state);
+  }
+
+  /**
+   * Wait for persistence to settle.
+   *
+   * Resolves — never rejects — with the first state passed to
+   * {@link markPersistenceSettled}. Anything in the post-window phase that
+   * touches SQLite must await this instead of polling
+   * `SqliteConnectionService.isOpen`, which is true before migrations finish.
+   */
+  whenPersistenceSettled(): Promise<PersistenceReadiness> {
+    return this.persistenceSettled;
   }
 
   /**
@@ -247,6 +319,10 @@ export class BootCoordinator {
   abort(): void {
     this.warmupSettled = true;
     this.clearBarrierTimers();
+    // A quit during boot must release every gated consumer rather than leave it
+    // parked on a promise the boot will never resolve. `false` is the honest
+    // answer: whatever the database is doing, nothing may start against it now.
+    this.markPersistenceSettled({ sqliteOpen: false });
     if (this.warmupIdleTimer !== null) {
       clearTimeout(this.warmupIdleTimer);
       this.warmupIdleTimer = null;

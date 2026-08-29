@@ -33,17 +33,14 @@ jest.mock('./plugin-activation', () => ({
   initPluginLoader: jest.fn(() => {
     mockCallOrder.push('initPluginLoader');
   }),
-  mirrorUserLayer: jest.fn(async () => {
-    mockCallOrder.push('mirrorUserLayer');
-  }),
-  reconcileUserLayer: jest.fn(async () => {
-    mockCallOrder.push('reconcileUserLayer');
+  // The whole user-layer pass is one call site since TASK_2026_345 — mirror,
+  // reconcile and catalog sync live behind `refreshUserLayer`'s per-root
+  // coalescer. The ordering this file pins is unchanged; the name is not.
+  refreshUserLayer: jest.fn(async () => {
+    mockCallOrder.push('refreshUserLayer');
   }),
   reconcileHarness: jest.fn(async () => {
     mockCallOrder.push('reconcileHarness');
-  }),
-  syncSkillRegistryCatalog: jest.fn(async () => {
-    mockCallOrder.push('syncSkillRegistryCatalog');
   }),
   propagateHarness: jest.fn(async () => undefined),
 }));
@@ -217,7 +214,7 @@ describe('activation order — the window comes first', () => {
     expect(window).toBeLessThan(order.indexOf('scanAndImport'));
     expect(window).toBeLessThan(order.indexOf('reconcileHarness'));
     expect(window).toBeLessThan(order.indexOf('memoryTrigger.start'));
-    expect(window).toBeLessThan(order.indexOf('mirrorUserLayer'));
+    expect(window).toBeLessThan(order.indexOf('refreshUserLayer'));
     expect(window).toBeLessThan(order.indexOf('skillSynthesis.start'));
   });
 
@@ -244,8 +241,11 @@ describe('activation order — the window comes first', () => {
     const order = await driveActivation(makeStubs());
 
     expect(order.filter((c) => c === 'reconcileHarness')).toHaveLength(2);
-    expect(order.filter((c) => c === 'mirrorUserLayer')).toHaveLength(2);
-    expect(order.filter((c) => c === 'reconcileUserLayer')).toHaveLength(2);
+    // Two CALL SITES, one before the network and one after it. Whether they
+    // become one RUN is the coalescer's decision, made on timing, and is
+    // covered in `plugin-activation.spec.ts` — what must not change is that the
+    // boot still asks twice.
+    expect(order.filter((c) => c === 'refreshUserLayer')).toHaveLength(2);
   });
 });
 
@@ -310,6 +310,54 @@ describe('activation order — the one-shot latch', () => {
     expect(stubs.scanAndImport.mock.calls[0][0]).toBe(WORKSPACE);
   });
 
+  it('reports a root as reserved only AFTER startOrJoin, so the folder listener can tell a first switch from a return (TASK_2026_345)', async () => {
+    // The listener uses this to decide whether to ALSO propagate. A first
+    // switch to a root must answer `false` — its heavy boot performs the
+    // identical user-layer pass and its own `activation` harness reconcile, and
+    // propagating beside it is the second of the two concurrent passes in
+    // log.log:1206-1223. A switch back to a root that has booted must answer
+    // `true`, because the one-shot latch means no boot will run for it again.
+    const stubs = makeStubs();
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    expect(booter.isReserved(WORKSPACE)).toBe(false);
+    const reserved = booter.startOrJoin(WORKSPACE);
+    expect(booter.isReserved(WORKSPACE)).toBe(true);
+    // A DIFFERENT root is still unreserved, and two spellings of the same one
+    // are the same root.
+    expect(booter.isReserved('/other-ws')).toBe(false);
+    expect(booter.isReserved(WORKSPACE.toUpperCase() + '/')).toBe(true);
+
+    booter.openWindowGate();
+    await reserved;
+
+    // Still reserved once the boot has FINISHED — that is the whole point:
+    // nothing will boot this root again, so the next switch back to it needs
+    // the propagation.
+    expect(booter.isReserved(WORKSPACE)).toBe(true);
+  });
+
+  it('treats "no folder open" as its own reservation key', async () => {
+    const stubs = makeStubs();
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    expect(booter.isReserved(undefined)).toBe(false);
+    booter.startOrJoin(undefined);
+    expect(booter.isReserved(undefined)).toBe(true);
+    expect(booter.isReserved(WORKSPACE)).toBe(false);
+
+    booter.openWindowGate();
+    await booter.startOrJoin(undefined);
+  });
+
   it('stops the boot when the coordinator is aborted before the gate opens', async () => {
     const stubs = makeStubs();
     const coordinator = new BootCoordinator();
@@ -325,6 +373,107 @@ describe('activation order — the one-shot latch', () => {
 
     expect(stubs.openAndMigrate).not.toHaveBeenCalled();
     expect(stubs.scanAndImport).not.toHaveBeenCalled();
+  });
+});
+
+describe('activation order — the persistence gate (TASK_2026_347)', () => {
+  /**
+   * Drive the same three phases, with the gate observed at its CALL SITE.
+   *
+   * `markPersistenceSettled` is wrapped rather than awaited because a `.then`
+   * on the gate records where the microtask lands, not where the gate opens —
+   * and where it opens is the contract: after `openAndMigrate`, before the
+   * user-layer mirror and everything downstream of it. The consumer-side
+   * guarantee (an awaiting caller resumes after SQLite) is the next test.
+   */
+  async function driveWithGate(stubs: Stubs): Promise<string[]> {
+    const coordinator = new BootCoordinator();
+    const mark = coordinator.markPersistenceSettled.bind(coordinator);
+    coordinator.markPersistenceSettled = (state) => {
+      record('persistenceSettled');
+      mark(state);
+    };
+
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+    const reserved = booter.startOrJoin(WORKSPACE);
+    record('createMainWindow');
+    booter.openWindowGate();
+    await reserved;
+
+    return mockCallOrder;
+  }
+
+  it('opens the gate after openAndMigrate and before the rest of the boot', async () => {
+    const order = await driveWithGate(makeStubs());
+    const gate = order.indexOf('persistenceSettled');
+
+    expect(gate).toBeGreaterThan(order.indexOf('openAndMigrate'));
+    expect(gate).toBeLessThan(order.indexOf('refreshUserLayer'));
+    expect(gate).toBeLessThan(order.indexOf('reconcileHarness'));
+    expect(gate).toBeLessThan(order.indexOf('scanAndImport'));
+  });
+
+  it('opens the gate exactly once', async () => {
+    const order = await driveWithGate(makeStubs());
+    expect(order.filter((c) => c === 'persistenceSettled')).toHaveLength(1);
+  });
+
+  it('starts a gated consumer AFTER SQLite is open, not before the window', async () => {
+    // This is the end-to-end shape of the defect: `registerPostWindow` starts
+    // the gateway, and it used to run its first SQLite read (voice GC) before
+    // `openAndMigrate` had been called at all (log.log:558 vs 565).
+    const stubs = makeStubs();
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    // PRE-WINDOW: reserve the boot, exactly as `wireRuntimePreWindow` does.
+    const reserved = booter.startOrJoin(WORKSPACE);
+
+    // WINDOW phase: `registerPostWindow` kicks the gated consumer off here,
+    // long before the heavy boot has been allowed to run.
+    record('createMainWindow');
+    const gatedConsumer = coordinator.whenPersistenceSettled().then((state) => {
+      record(`gateway.start(sqliteOpen=${String(state.sqliteOpen)})`);
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockCallOrder).not.toContain('gateway.start(sqliteOpen=true)');
+
+    // POST-WINDOW.
+    booter.openWindowGate();
+    await reserved;
+    await gatedConsumer;
+
+    const start = mockCallOrder.indexOf('gateway.start(sqliteOpen=true)');
+    expect(start).toBeGreaterThan(mockCallOrder.indexOf('openAndMigrate'));
+    expect(stubs.openAndMigrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a gated consumer with sqliteOpen=false when the boot is aborted', async () => {
+    // A quit during activation must not park the consumer forever.
+    const stubs = makeStubs();
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    const reserved = booter.startOrJoin(WORKSPACE);
+    coordinator.abort();
+    booter.openWindowGate();
+    await reserved;
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+    expect(stubs.openAndMigrate).not.toHaveBeenCalled();
   });
 });
 

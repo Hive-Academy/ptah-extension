@@ -24,6 +24,17 @@ const RAW_BOOTER_SOURCE = readFileSync(
   join(__dirname, 'boot-heavy-services.ts'),
   'utf8',
 );
+/**
+ * `post-window.ts` is read as TEXT and never imported: it evaluates
+ * `import.meta.url`, and `tsconfig.spec.json` compiles with `module: commonjs`,
+ * so requiring it fails with `TS1343`. The behaviour that moved OUT of it is
+ * covered for real in `start-messaging-gateway.spec.ts`; what is left to pin
+ * here is that the inline start did not come back.
+ */
+const RAW_POST_WINDOW_SOURCE = readFileSync(
+  join(__dirname, 'post-window.ts'),
+  'utf8',
+);
 
 /**
  * The source with comments removed.
@@ -41,6 +52,7 @@ function stripComments(raw: string): string {
 
 const SOURCE = stripComments(RAW_SOURCE);
 const BOOTER_SOURCE = stripComments(RAW_BOOTER_SOURCE);
+const POST_WINDOW_SOURCE = stripComments(RAW_POST_WINDOW_SOURCE);
 
 /** Index of a substring, asserting it exists so a rename fails loudly. */
 function at(needle: string, source: string = SOURCE): number {
@@ -75,6 +87,27 @@ describe('wireRuntimePreWindow — boot ordering (B1)', () => {
     expect(SOURCE.slice(listener, reservation)).not.toContain('await ');
   });
 
+  it('propagates on a folder change ONLY when the root has already booted (TASK_2026_345)', () => {
+    // A first switch to a root reserves its heavy boot, and that boot runs the
+    // identical user-layer pass plus its own `activation` harness reconcile.
+    // Propagating unconditionally beside it put two `mirrorAll` and two
+    // `reconcile` passes on the same tree in the same second
+    // (`tmp/logs/log.log:1206-1223`). The predicate must be read BEFORE
+    // `startOrJoin`, which creates the entry — reading it after always answers
+    // "reserved" and the propagation would never fire again.
+    const read = at('const alreadyBooted = booter.isReserved(active)');
+    const reserve = at('booter.startOrJoin(active)');
+    const guard = at('if (alreadyBooted) {');
+    const propagate = at("propagateHarness(container, active, 'workspace");
+
+    expect(read).toBeLessThan(reserve);
+    expect(reserve).toBeLessThan(guard);
+    expect(guard).toBeLessThan(propagate);
+    expect(SOURCE.slice(read, reserve)).not.toContain('await ');
+    // Exactly one propagation call site in this file, and it is the guarded one.
+    expect(SOURCE.split('propagateHarness(').length - 1).toBe(1);
+  });
+
   it('has exactly one bringUpSubsystems call site', () => {
     // The reorder moved the block; a merge that reintroduced the old one would
     // start MCP twice (idempotent, but the second call would also re-run
@@ -100,8 +133,7 @@ describe('boot-heavy-services — the post-window boot (B1)', () => {
     // ordering. `bootThothRuntime` awaits `openAndMigrate()` before its own
     // scans, so being first here is what makes the window short.
     const thoth = at('await bootThothRuntime(', BOOTER_SOURCE);
-    expect(thoth).toBeLessThan(at('mirrorUserLayer(', BOOTER_SOURCE));
-    expect(thoth).toBeLessThan(at('reconcileUserLayer(', BOOTER_SOURCE));
+    expect(thoth).toBeLessThan(at('refreshUserLayer(', BOOTER_SOURCE));
     expect(thoth).toBeLessThan(at('reconcileHarness(', BOOTER_SOURCE));
     expect(thoth).toBeLessThan(at('scanAndImport(', BOOTER_SOURCE));
   });
@@ -111,8 +143,14 @@ describe('boot-heavy-services — the post-window boot (B1)', () => {
     // after the download so a cold first run does not wait for the NEXT app
     // start (TASK_2026_278). Collapsing them is defect 8.
     expect(BOOTER_SOURCE.split('reconcileHarness(').length - 1).toBe(2);
-    expect(BOOTER_SOURCE.split('mirrorUserLayer(').length - 1).toBe(2);
-    expect(BOOTER_SOURCE.split('reconcileUserLayer(').length - 1).toBe(2);
+    // Two CALL SITES for the user-layer pass, same two moments. Since
+    // TASK_2026_345 the mirror, the reconcile and the catalog sync are ONE
+    // call — `refreshUserLayer` — behind a per-root coalescer, so a boot can no
+    // longer run three separately-ordered steps that a concurrent propagation
+    // could interleave with.
+    expect(BOOTER_SOURCE.split('refreshUserLayer(').length - 1).toBe(2);
+    expect(BOOTER_SOURCE).not.toContain('mirrorUserLayer(');
+    expect(BOOTER_SOURCE).not.toContain('syncSkillRegistryCatalog(');
   });
 
   it('holds the one-shot boot as a promise per root, not a boolean', () => {
@@ -134,6 +172,52 @@ describe('boot-heavy-services — the post-window boot (B1)', () => {
     );
     const setEntry = at('boots.set(key, reserved)', BOOTER_SOURCE);
     expect(BOOTER_SOURCE.slice(reserveStart, setEntry)).not.toContain('await ');
+  });
+});
+
+describe('the persistence gate (TASK_2026_347)', () => {
+  /** The happy-path mark; the other call site is the aborted early return. */
+  const HAPPY_PATH_MARK = 'sqliteOpen: thoth.sqliteConnection?.isOpen';
+
+  it('opens the gate immediately after bootThothRuntime and before the mirror', () => {
+    // `bootThothRuntime` awaits `openAndMigrate()` to completion, so this is
+    // the first instant at which SQLite is open AND migrated. Marking earlier
+    // would hand a waiter a database whose migration runner is still applying.
+    const thoth = at('await bootThothRuntime(', BOOTER_SOURCE);
+    const mark = at(HAPPY_PATH_MARK, BOOTER_SOURCE);
+
+    expect(thoth).toBeLessThan(mark);
+    expect(mark).toBeLessThan(at('refreshUserLayer(', BOOTER_SOURCE));
+  });
+
+  it('also settles the gate on the aborted early return', () => {
+    // Otherwise a quit before the gate opens parks every gated consumer for the
+    // rest of the process.
+    const abortReturn = at('if (signal.aborted) {', BOOTER_SOURCE);
+    const firstMark = at('coordinator.markPersistenceSettled(', BOOTER_SOURCE);
+
+    expect(firstMark).toBeGreaterThan(abortReturn);
+    expect(firstMark).toBeLessThan(
+      at('await bootThothRuntime(', BOOTER_SOURCE),
+    );
+    expect(
+      BOOTER_SOURCE.split('coordinator.markPersistenceSettled(').length - 1,
+    ).toBe(2);
+  });
+});
+
+describe('post-window — the gateway start is delegated and gated', () => {
+  it('delegates to startMessagingGateway', () => {
+    expect(POST_WINDOW_SOURCE).toContain('startMessagingGateway({');
+    expect(POST_WINDOW_SOURCE).toContain('coordinator,');
+  });
+
+  it('no longer starts the gateway or the bridge inline', () => {
+    // The inline IIFE ran during `registerPostWindow`, which is BEFORE
+    // `coordinator.startPostWindow(...)` opens SQLite — the whole defect.
+    expect(POST_WINDOW_SOURCE).not.toContain('await gateway.start()');
+    expect(POST_WINDOW_SOURCE).not.toContain('bridge.start()');
+    expect(POST_WINDOW_SOURCE).not.toContain('GATEWAY_STATUS_CHANGED');
   });
 });
 
