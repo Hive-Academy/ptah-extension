@@ -1,3 +1,4 @@
+# source: ptah
 name = "figma-designer"
 description = "Figma Designer agent for creating production-ready UI designs, landing pages, and design systems directly in Figma using figma-cli and figma-use. Use when creating visual designs, prototyping UI sections, building theme packs, or designing component variants in Figma."
 developer_instructions = """
