@@ -20,10 +20,16 @@
  *     [projects.'d:\projects\ptah-extension']
  *     trust_level = "trusted"
  *
- * The key is the project path as a TOML quoted key. Codex writes it LOWERCASED
- * on Windows while a workspace root arrives as `D:\projects\...`, so the
- * comparison normalizes case and separators. Trailing separators are stripped
- * too, since `{ws}` and `{ws}\` name the same directory.
+ * The key is the project path as a TOML quoted key. Separators and a trailing
+ * separator are always normalized, since `{ws}` and `{ws}\` name the same
+ * directory. Case is folded only where the filesystem is case-insensitive —
+ * Codex writes the path LOWERCASED on Windows (`C:\Users\abdal` is stored as
+ * `c:\users\abdal`), so Windows must fold or nothing ever matches, while ext4
+ * must not or trust granted to a sibling directory would be read as this one's.
+ * See `defaultCaseInsensitive`.
+ *
+ * The directory itself is `$CODEX_HOME` when set, `~/.codex` otherwise, and
+ * `codex-home.ts` is the one place that decides.
  *
  * ## What this is NOT
  *
@@ -43,12 +49,45 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { codexHomeConfigFile, type CodexHomeOptions } from './codex-home';
 
-export interface CodexTrustOptions {
-  /** Overridable so specs never read the developer's own `~/.codex`. */
-  homeDir?: string;
+export interface CodexTrustOptions extends CodexHomeOptions {
+  /**
+   * Whether the filesystem holding these paths treats case as insignificant.
+   *
+   * Defaults to `win32` and `darwin` — see {@link defaultCaseInsensitive}. It
+   * is an option rather than a bare `process.platform` read so a spec can
+   * exercise all three behaviours on one CI host.
+   */
+  caseInsensitive?: boolean;
+}
+
+/**
+ * Whether to fold case when comparing paths, by platform.
+ *
+ * **This must not be unconditional, and an earlier version of this file had it
+ * that way.** The two errors are not symmetrical:
+ *
+ * - A false `trusted` makes the caller write `{ws}/.codex/config.toml`, which
+ *   Codex then ignores in silence. The user gets no Ptah tools.
+ * - A false `untrusted` makes the caller write `~/.codex/config.toml`, which
+ *   Codex reads unconditionally. The user gets working tools at a wider scope.
+ *
+ * So case may only be folded where folding CANNOT invent a match. On a
+ * case-insensitive filesystem `/a/App` and `/a/app` are the same directory, so
+ * folding is not a guess — it is the truth. On ext4 they are two directories,
+ * and folding would claim trust that was granted to a sibling.
+ *
+ * Windows must fold, because Codex LOWERCASES what it records
+ * (`C:\Users\abdal` is stored as `c:\users\abdal`), so an exact comparison
+ * would report every Windows project untrusted. macOS folds because APFS and
+ * HFS+ are case-insensitive by default; on a case-sensitive macOS volume — rare,
+ * and rarer still with two sibling directories differing only in case — this
+ * can over-match, and the option exists to turn it off. Linux and everything
+ * else compare exactly.
+ */
+function defaultCaseInsensitive(): boolean {
+  return process.platform === 'win32' || process.platform === 'darwin';
 }
 
 /** The one `trust_level` value that makes Codex read a project's config. */
@@ -67,11 +106,7 @@ export function codexProjectTrusted(
 ): boolean {
   if (workspaceRoot === '') return false;
 
-  const configPath = join(
-    options.homeDir ?? homedir(),
-    '.codex',
-    'config.toml',
-  );
+  const configPath = codexHomeConfigFile(options);
   if (!existsSync(configPath)) return false;
 
   let content = '';
@@ -83,7 +118,7 @@ export function codexProjectTrusted(
     return false;
   }
 
-  return trustLevelFor(content, workspaceRoot) === TRUSTED;
+  return trustLevelFor(content, workspaceRoot, options) === TRUSTED;
 }
 
 /**
@@ -96,13 +131,15 @@ export function codexProjectTrusted(
 export function trustLevelFor(
   content: string,
   workspaceRoot: string,
+  options: CodexTrustOptions = {},
 ): string | null {
-  const wanted = normalizePath(workspaceRoot);
+  const fold = options.caseInsensitive ?? defaultCaseInsensitive();
+  const wanted = normalizePath(workspaceRoot, fold);
   const lines = content.split(/\r?\n/);
 
   for (let i = 0; i < lines.length; i++) {
     const project = projectTableKey(lines[i]);
-    if (project === null || normalizePath(project) !== wanted) continue;
+    if (project === null || normalizePath(project, fold) !== wanted) continue;
 
     // Scan this table's body only. The next table header ends it, which is
     // what stops a `trust_level` belonging to a LATER project being read as
@@ -142,14 +179,19 @@ function trustLevelValue(line: string): string | null {
 /**
  * Compare paths the way the two sides spell them differently.
  *
- * Codex records a lowercased path with backslashes; a workspace root arrives
- * with its original case. Case folding is unconditional rather than win32-only
- * because the values being compared both came from Codex's own vocabulary — a
- * POSIX path that differs only in case is not a case this reader can create.
+ * Separators and a trailing separator are normalized ALWAYS: `{ws}` and `{ws}/`
+ * name the same directory everywhere, and a Windows config may hold either
+ * slash while a POSIX path can only hold one — so neither collapse can invent a
+ * match. Case folding is conditional, and {@link defaultCaseInsensitive}
+ * explains why that asymmetry matters.
+ *
+ * A POSIX path containing a literal backslash is a legal filename, and
+ * collapsing it here would be wrong in principle. It is accepted in practice:
+ * both sides of this comparison are directory paths a user opened in an editor
+ * and in Codex, and the alternative — a per-platform separator rule — would
+ * break the Windows config that genuinely mixes both spellings.
  */
-function normalizePath(value: string): string {
-  return value
-    .replace(/[\\/]+/g, '/')
-    .replace(/\/+$/, '')
-    .toLowerCase();
+function normalizePath(value: string, caseInsensitive: boolean): string {
+  const normalized = value.replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
 }

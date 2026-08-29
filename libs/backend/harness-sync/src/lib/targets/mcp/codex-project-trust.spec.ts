@@ -36,7 +36,13 @@ describe('codexProjectTrusted', () => {
   }
 
   function trusted(workspaceRoot = WS): boolean {
-    return codexProjectTrusted(workspaceRoot, { homeDir: tempHome });
+    // `caseInsensitive` is pinned so the Windows-shaped cases below assert the
+    // Windows RULE rather than whatever the host running CI happens to be. The
+    // per-platform default is exercised separately.
+    return codexProjectTrusted(workspaceRoot, {
+      homeDir: tempHome,
+      caseInsensitive: true,
+    });
   }
 
   it('reads a trusted project', () => {
@@ -83,6 +89,21 @@ describe('codexProjectTrusted', () => {
     );
 
     expect(trusted('/home/me/app')).toBe(true);
+  });
+
+  it('reads a POSIX project path unchanged', () => {
+    // Nothing here is Windows-shaped: a Linux or macOS project is the ordinary
+    // case, and the separator normalization must be a no-op for it.
+    seed(
+      [
+        "[projects.'/home/me/work/ptah-extension']",
+        'trust_level = "trusted"',
+        '',
+      ].join('\n'),
+    );
+
+    expect(trusted('/home/me/work/ptah-extension')).toBe(true);
+    expect(trusted('/home/me/work/other')).toBe(false);
   });
 
   describe('reads as NOT trusted', () => {
@@ -203,6 +224,90 @@ describe('codexProjectTrusted', () => {
     expect(() =>
       require('fs').readFileSync(join(tempHome, '.codex', 'config.toml')),
     ).toThrow();
+  });
+});
+
+describe('case sensitivity is per filesystem, not unconditional', () => {
+  // The two errors are not symmetrical. A false `trusted` makes the caller
+  // write `{ws}/.codex/config.toml`, which Codex ignores in silence — no Ptah
+  // tools. A false `untrusted` makes it write `~/.codex/config.toml`, which
+  // Codex always reads — tools work, at a wider scope. So case may be folded
+  // only where folding cannot INVENT a match.
+  const CASED = [
+    "[projects.'/home/me/App']",
+    'trust_level = "trusted"',
+    '',
+  ].join('\n');
+
+  describe('a case-INSENSITIVE filesystem (win32, macOS by default)', () => {
+    it('matches a different spelling, because it is the same directory', () => {
+      expect(
+        trustLevelFor(CASED, '/home/me/app', { caseInsensitive: true }),
+      ).toBe('trusted');
+    });
+
+    it('is what makes Windows work at all — Codex stores paths lowercased', () => {
+      // `C:\Users\abdal` is recorded as `c:\users\abdal`. Exact comparison
+      // would report every Windows project untrusted.
+      const win = [
+        "[projects.'c:\\users\\abdal\\proj']",
+        'trust_level = "trusted"',
+        '',
+      ].join('\n');
+
+      expect(
+        trustLevelFor(win, 'C:\\Users\\abdal\\proj', { caseInsensitive: true }),
+      ).toBe('trusted');
+      expect(
+        trustLevelFor(win, 'C:\\Users\\abdal\\proj', {
+          caseInsensitive: false,
+        }),
+      ).toBeNull();
+    });
+  });
+
+  describe('a case-SENSITIVE filesystem (ext4, and a case-sensitive APFS volume)', () => {
+    it('refuses a sibling that differs only in case', () => {
+      // `/home/me/App` and `/home/me/app` are two directories on ext4. Trust
+      // granted to one is not trust granted to the other.
+      expect(
+        trustLevelFor(CASED, '/home/me/app', { caseInsensitive: false }),
+      ).toBeNull();
+    });
+
+    it('still matches the exact path', () => {
+      expect(
+        trustLevelFor(CASED, '/home/me/App', { caseInsensitive: false }),
+      ).toBe('trusted');
+    });
+
+    it('still normalizes a trailing separator', () => {
+      // Separator collapsing is safe on every platform: `{ws}` and `{ws}/` name
+      // the same directory, so it can never invent a match.
+      expect(
+        trustLevelFor(CASED, '/home/me/App/', { caseInsensitive: false }),
+      ).toBe('trusted');
+    });
+  });
+
+  it('defaults to folding on win32 and darwin only', () => {
+    const original = process.platform;
+    const setPlatform = (value: NodeJS.Platform): void => {
+      Object.defineProperty(process, 'platform', { value, configurable: true });
+    };
+
+    try {
+      for (const platform of ['win32', 'darwin'] as NodeJS.Platform[]) {
+        setPlatform(platform);
+        expect(trustLevelFor(CASED, '/home/me/app')).toBe('trusted');
+      }
+      for (const platform of ['linux', 'freebsd'] as NodeJS.Platform[]) {
+        setPlatform(platform);
+        expect(trustLevelFor(CASED, '/home/me/app')).toBeNull();
+      }
+    } finally {
+      setPlatform(original);
+    }
   });
 });
 

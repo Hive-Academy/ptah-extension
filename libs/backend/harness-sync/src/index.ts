@@ -203,6 +203,11 @@ export {
   type CodexTrustOptions,
 } from './lib/targets/mcp/codex-project-trust';
 export {
+  codexHomeDir,
+  codexHomeConfigFile,
+  type CodexHomeOptions,
+} from './lib/targets/mcp/codex-home';
+export {
   configToJson,
   hashMcpConfig,
   jsonToConfig,

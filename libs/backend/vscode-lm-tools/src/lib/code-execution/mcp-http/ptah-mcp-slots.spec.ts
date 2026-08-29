@@ -54,9 +54,12 @@ describe('planPtahMcpSlots', () => {
    */
   function trustCodexProjects(roots: string[]): void {
     mkdirSync(join(tempHome, '.codex'), { recursive: true });
+    // A single-quoted TOML key is a LITERAL string — no escape processing — so
+    // the path goes in verbatim. That is also what Codex writes:
+    // `[projects.'d:\projects\ptah-extension']`, single backslashes.
     const body = roots
       .flatMap((root) => [
-        `[projects.'${root.replace(/\\/g, '\\\\')}']`,
+        `[projects.'${root}']`,
         'trust_level = "trusted"',
         '',
       ])

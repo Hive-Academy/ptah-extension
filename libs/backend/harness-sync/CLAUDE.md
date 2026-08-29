@@ -1218,10 +1218,30 @@ structural, so `PluginLoaderService` satisfies it with no import either way.
   root) instead of writing a file that is discarded. Three rules: it is
   READ-ONLY, because trust grants Codex the right to run commands in a directory
   and recording that for the user would be Ptah answering a question asked of
-  them; it compares paths case- and separator-normalized, because Codex records
-  the path lowercased on Windows while a workspace root arrives with its
-  original case; and every ambiguity reads as NOT trusted, which costs a
-  home-scoped entry that works rather than a workspace one that is ignored.
+  them; every ambiguity reads as NOT trusted, which costs a home-scoped entry
+  that works rather than a workspace one that is ignored; and **case is folded
+  per FILESYSTEM, never unconditionally.** Separators and a trailing separator
+  normalize on every platform — those collapses cannot invent a match. Case
+  folding can: on ext4 `/a/App` and `/a/app` are two directories, and folding
+  would read trust granted to a sibling as this project's. It is therefore
+  enabled for `win32` (Codex records paths LOWERCASED there, so an exact
+  comparison would report every Windows project untrusted) and `darwin` (APFS
+  and HFS+ are case-insensitive by default), and disabled everywhere else. The
+  `caseInsensitive` option overrides it, which is also how one CI host proves
+  all three behaviours.
+- **`~/.codex` is the DEFAULT, not the rule — `CODEX_HOME` relocates it, and
+  `codex-home.ts` is the one place that decides.** Verified on codex-cli
+  0.150.1: `CODEX_HOME=/tmp/xyz codex doctor` reports
+  `config.toml /tmp/xyz/config.toml` — directly inside the override, with no
+  nested `.codex`. The variable is not exotic (~80 references in the `codex`
+  binary against 2 for `XDG_CONFIG_HOME`), and relocating a dotfile directory is
+  ordinary on Linux and macOS. `CodexTomlMcpFacet` (home scope) and
+  `codexProjectTrusted` both resolve through `codexHomeDir`, because a facet
+  writing one path while the trust reader read another would be a bug that only
+  appears on a machine with the variable set. An explicit `homeDir` PINS the
+  resolution and suppresses the env lookup, which is what keeps every spec that
+  pins it hermetic; no host passes `homeDir`, so production always gets the
+  environment's answer.
 - **Codex MCP is spliced between marker comments, not round-tripped.**
   `~/.codex/config.toml` is a file the user hand-edits — model preferences,
   sandbox policy, comments explaining why. No TOML library in this repo

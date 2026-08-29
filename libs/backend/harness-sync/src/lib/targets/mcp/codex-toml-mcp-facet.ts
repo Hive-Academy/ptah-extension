@@ -29,7 +29,6 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
 import type {
   HarnessTargetId,
@@ -38,6 +37,7 @@ import type {
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
 import { withWindowsRetrySync } from '../../fs/windows-retry';
+import { codexHomeConfigFile, type CodexHomeOptions } from './codex-home';
 import { withMcpConfigLock } from './mcp-config-lock';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
 
@@ -51,9 +51,7 @@ export function endMarker(serverKey: string): string {
   return `# ptah:end ${serverKey}`;
 }
 
-export interface CodexTomlMcpFacetOptions {
-  /** Overridable so specs can point at a temp directory. */
-  homeDir?: string;
+export interface CodexTomlMcpFacetOptions extends CodexHomeOptions {
   /**
    * Which of Codex's TWO config files this facet addresses. Defaults to
    * `'home'`, so every existing caller is unchanged.
@@ -99,9 +97,11 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
   }
 
   configPath(workspaceRoot = ''): string | null {
-    if (this.scope === 'home') {
-      return join(this.options.homeDir ?? homedir(), '.codex', 'config.toml');
-    }
+    // `~/.codex` is the DEFAULT, not the rule: `CODEX_HOME` relocates the whole
+    // directory and the config sits directly inside it. `codex-home.ts` is the
+    // one place that decides, shared with `codex-project-trust.ts` so a write
+    // and a trust read can never disagree about which file they mean.
+    if (this.scope === 'home') return codexHomeConfigFile(this.options);
     if (workspaceRoot === '') return null;
     return join(workspaceRoot, '.codex', 'config.toml');
   }
