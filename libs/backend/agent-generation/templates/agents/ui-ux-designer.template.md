@@ -64,8 +64,9 @@ Also gather, when present:
 - The existing `DESIGN-SYSTEM.md` carried by the technical-content-writer skill. When it
   exists it is authoritative and is not re-derived.
 - `context.md` and `visual-design-specification.md` in the task folder.
-- The project's real token sources: `tailwind.config.*`, theme config files, and any
-  `docs/design-system/**` markdown.
+- The project's own token and style sources, discovered rather than assumed: whichever
+  theme, token, style or design-system configuration and documentation this repository
+  keeps, wherever it keeps them.
 
 ## Method
 
@@ -82,8 +83,9 @@ Pick the workflow that matches the request.
 - **Quick reference.** Load the one relevant skill file and answer citing it.
 
 Every value in a specification traces to a token, to a project config file, or to a skill
-pattern — name the source next to the value. Check contrast against WCAG 2.1 AA (4.5:1 for
-normal text, 3:1 for large text and non-text) and record which pairs were measured.
+pattern — name the source next to the value. Measure contrast against the accessibility
+standard the project requires; when the project states none, use the current WCAG AA
+recommendation, and record both the criterion applied and the pairs measured.
 
 ## Output contract
 

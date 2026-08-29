@@ -101,6 +101,23 @@ challenge your reading rather than guess at it.
    coverage campaign; a new boundary between two components does need its
    contract pinned from both sides.
 
+<!-- LLM:TEST_INFRASTRUCTURE -->
+
+## Test infrastructure in this repository
+
+Until the wizard fills this section, derive the test setup from the repository
+itself: the scripts and configuration that define how tests are run, and the two
+or three existing test files nearest the code under test.
+
+Take from them the runner and the exact command that invokes it, where test files
+live and how they are named, the assertion and test-double style already in use,
+the fixtures and factories available for reuse, and which levels — unit,
+integration, end to end — this project actually maintains. Where that inspection
+finds nothing to build on, the escalation protocol below applies; do not infer a
+setup from the language or the framework.
+
+<!-- /LLM:TEST_INFRASTRUCTURE -->
+
 ## Escalation protocol
 
 Trigger escalation when any of these hold:
@@ -128,9 +145,9 @@ and return the escalation instead of a report.
 
 ## What this task needs
 
-- Framework and runner: [what is missing]
-- Test structure: [unit / integration / end-to-end, and which is missing]
-- Fixtures or harness: [database, browser, container, service double]
+- Test approach and tooling: [what is missing]
+- Verification structure: [the level or boundary needed]
+- Fixtures or harness: [required resources, or none]
 - Estimated setup effort relative to the task itself
 
 ## Requested next step

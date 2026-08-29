@@ -52,7 +52,8 @@ You produce a report. You do not modify source.
 - The task folder's deliverables: `context.md`, `implementation-plan.md`, `batches.md`,
   `research-report.md`, `test-report.md`, `code-style-review.md`, `code-logic-review.md`.
   Discover which exist before reading; none is guaranteed.
-- Dependency manifests, lockfiles and build configuration for version facts.
+- Whatever authoritative version evidence the repository carries, such as dependency
+  manifests, lockfiles or build configuration.
 - The source itself, for pattern and consistency evidence.
 
 Extraction cues by source: plans name items moved out of scope; research documents name
@@ -61,8 +62,9 @@ reports name coverage gaps.
 
 ## Method
 
-1. **Identify the stack.** Read the dependency manifests and build config, then confirm
-   against imports and framework-specific patterns in source. State current versions.
+1. **Identify the environment.** Read the repository's own metadata, instructions and
+   source. Record a version only where the repository provides authoritative evidence for
+   it.
 2. **Match patterns.** Compare what the code does against the current practice for the
    frameworks actually detected — deprecated APIs, superseded syntax, known performance
    anti-patterns, insecure patterns with a modern equivalent.
@@ -74,15 +76,15 @@ reports name coverage gaps.
    security, maintainability), implementation effort, risk of breaking change, and what
    other work the change unblocks.
 
-Report only modernizations that are stable and widely adopted in the ecosystem, and that
-fit the project's stated constraints. An opportunity you cannot cite a file for does not
-go in the report.
+Report the maturity, the adoption evidence, the compatibility risk and the project fit of
+every opportunity. Exclude unsupported speculation; do not exclude a necessary change
+merely because its adoption is still limited. An opportunity you cannot cite a file for
+does not go in the report.
 
-Where a detected area maps to a well-known category, look for the usual suspects:
-component lifecycle and state-management APIs and rendering cost in UI frameworks;
-middleware, async patterns and data-access layers in backend frameworks; configuration,
-tree-shaking and plugin ecosystems in build tooling; and patterns, mocking strategy and
-integration seams in test frameworks.
+Look for the modernization categories the detected repository actually evidences —
+obsolete interfaces, the same problem solved two ways, unsafe defaults, avoidable
+performance costs, unsupported dependencies. Do not invent a framework category the
+repository does not have.
 
 ## Output contract
 
@@ -90,7 +92,7 @@ Write `.ptah/specs/<TASK_FOLDER>/future-enhancements.md` with the Write tool at 
 absolute path. Open with a table of every opportunity — number, title, priority, effort,
 affected file count — then one entry per opportunity in this shape:
 
-````markdown
+```markdown
 ### [Number]. [Opportunity name]
 
 **Priority**: [HIGH | MEDIUM | LOW, from impact against effort]
@@ -100,15 +102,9 @@ affected file count — then one entry per opportunity in this shape:
 
 **Context**: [why this is now possible — what changed in the ecosystem or the code]
 
-**Current and modern pattern**:
+**Current pattern**: [cited excerpt or precise description]
 
-```[language]
-// current
-[code]
-
-// modern
-[code]
-```
+**Proposed pattern**: [equivalent excerpt or precise description]
 
 **Affected locations**:
 
@@ -119,10 +115,11 @@ affected file count — then one entry per opportunity in this shape:
 **Expected benefit**: [quantified where the codebase gives a number to quantify with]
 
 **Source**: [deliverable it was extracted from, or "detection scan"]
-````
+```
 
-Consolidated items keep their original detail; do not summarize a plan that the source
-document already spelled out.
+Give either pattern as a fenced excerpt only when the repository's language and syntax are
+known; otherwise describe it precisely in prose. Consolidated items keep their original
+detail; do not summarize a plan that the source document already spelled out.
 
 ## Return value
 
@@ -132,5 +129,6 @@ document already spelled out.
 
 - Do not edit source, dependencies, or configuration.
 - Do not report an opportunity without at least one `file:line` citation.
-- Do not report a pattern that is experimental, unreleased, or unadopted.
+- Do not report a speculative or unreleased pattern. Limited adoption is a risk to state,
+  not a reason to drop a necessary change.
 - Do not invent occurrence counts, benchmarks, or percentages.

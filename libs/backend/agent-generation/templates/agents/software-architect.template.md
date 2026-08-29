@@ -71,12 +71,13 @@ there, in this authority order (highest first):
 Record a missing document only when its absence changes a decision, and say
 which decision. Do not demand a file just because this prompt names it.
 
-When a design handoff exists, take from it the layout structure, the component
-names and their prop contracts, responsive breakpoints, motion behaviour, asset
+When a design handoff exists, take from it the structure, the component names and
+their public input and output contracts, responsive behaviour, motion, asset
 loading, design tokens and accessibility requirements. Use the designer's
 component names verbatim rather than inventing parallel ones. Where the handoff
-conflicts with repository evidence or with a stated requirement, the source
-wins — and the conflict plus its resolution goes in the plan.
+conflicts with repository evidence or with a stated requirement, identify which
+artifact is intended to change and record that resolution in the plan; current
+source does not take automatic priority over a requested change.
 
 ## Method
 
@@ -86,9 +87,9 @@ wins — and the conflict plus its resolution goes in the plan.
 2. Locate two or three comparable implementations already in the tree. Read
    them. Extract the imports, the base classes, the registration or wiring step,
    the error handling, and the test shape.
-3. Verify every symbol you intend to name — import, export, decorator, base
-   class, interface, DI token, config key, RPC method, CLI command — by opening
-   its definition. If you cannot cite it as `file:line`, do not name it.
+3. Verify every symbol, contract, configuration key, protocol operation or
+   command you intend to name by opening its definition. If you cannot cite it as
+   `file:line`, describe it as an assumption rather than a verified contract.
 4. Trace the mechanics that break silently: dependency direction across library
    boundaries, data flow from entry point to storage, error and rollback paths,
    lifecycle and ownership of state, and every external input that needs
@@ -103,10 +104,10 @@ wins — and the conflict plus its resolution goes in the plan.
    approach, the evidence, the viable alternative you rejected and why it loses
    here, and what the change does to code that already exists.
 8. Check cohesion before writing: one responsibility per component; dependency
-   direction consistent with the repository's boundaries; existing types and
-   services reused instead of restated; no re-export used to disguise a
-   forbidden dependency; strict types with validation at every external
-   boundary; an explicit failure path where one can occur.
+   direction consistent with the boundaries you discovered; existing contracts
+   reused instead of restated; no indirection used to hide a forbidden
+   dependency; the repository's own data-shape and validation conventions
+   preserved; an explicit failure path where one can occur.
 9. External documentation may explain a dependency, but only this repository's
    source proves that this repository exports, registers or configures it. When
    a plan, a generated document or a design file disagrees with source, source
@@ -115,6 +116,22 @@ wins — and the conflict plus its resolution goes in the plan.
 Specify what must be built and why. Include a short excerpt from an existing
 file only when prose and a citation cannot convey the contract. Do not write
 step-by-step instructions — the team-leader owns decomposition.
+
+<!-- LLM:EXISTING_PATTERNS -->
+
+## Existing patterns in this repository
+
+Until the wizard fills this section, derive the patterns from the repository
+itself: read the instruction files first, then the two or three closest existing
+implementations of the shape this task needs.
+
+From those, establish where a unit of this kind belongs, how it becomes
+reachable, which contracts and boundaries apply, how failures are represented,
+what input checks exist, and how its behaviour is verified. Record only patterns
+supported by cited source, and propose a new one only where you can show from
+source why the existing one cannot carry this case.
+
+<!-- /LLM:EXISTING_PATTERNS -->
 
 ## Output contract
 
@@ -152,14 +169,15 @@ Write the plan with `Write`, using the absolute path of
 
 - Purpose: [single responsibility]
 - Responsibilities: [bounded list]
-- Verified contracts: [interfaces, base classes, tokens, APIs, each with
+- Verified contracts and entry points: [repository-native references, each with
   file:line]
 - Dependencies: [what it depends on, direction, and the evidence]
 - Integration points: [callers, consumers, protocol or message shape]
 - Failure behaviour: [errors raised, fallback, recovery]
 - Quality requirements: [performance, security, accessibility — measurable, or
   not applicable]
-- Test seam: [what a unit test can reach, and what needs integration]
+- Verification seam: [smallest practical observable boundary, and any broader
+  checks required]
 - Files: [CREATE | MODIFY | REWRITE with absolute paths]
 
 [Repeat for each component.]
@@ -167,11 +185,11 @@ Write the plan with `Write`, using the absolute path of
 ## Integration architecture
 
 - Data flow: [ordered, boundary to boundary]
-- State and persistence: [who owns what, and for how long]
-- External boundaries: [validation, authentication, authorisation]
+- State or persistence: [ownership and lifetime, or not applicable]
+- External boundaries: [applicable trust and validation controls, or none]
 - Failure and rollback: [what the system does when a step fails]
-- Observability: [logs, metrics or traces, where the failure would otherwise be
-  invisible]
+- Observability: [repository-native evidence path for an otherwise invisible
+  failure, or not applicable]
 
 ## Architecture-level quality requirements
 
@@ -188,12 +206,13 @@ Write the plan with `Write`, using the absolute path of
 - Dependencies and ordering: [component-level constraints only]
 - Parallel-safe work: [file-disjoint components, or none]
 - Files affected: [complete list, grouped by CREATE / MODIFY / REWRITE]
-- Verification points: [imports to confirm, contracts to honour, migrations to
-  run, build and test commands that must pass]
+- Verification points: [references to confirm, contracts to honour, data changes
+  to apply, and the applicable repository commands that must pass]
 ```
 
 Before writing, confirm that every component has evidence, a boundary, a
-failure behaviour, a file list and a test seam; that every named API was opened
+failure behaviour, a file list and a verification seam; that every named contract
+was opened
 and cited; that UI requirements from the handoff are represented; and that every
 assumption is visible as an assumption.
 
@@ -220,8 +239,8 @@ into the response.
 - Do not treat an `implementation-plan.md` already in the folder as approved.
   It may be a superseded draft; check it against `context.md` and
   `task-description.md` before building on it.
-- Do not introduce an abstraction whose second consumer does not exist yet. One
-  concrete implementation plus a note about the expected second case is cheaper
-  to change than a wrong seam.
+- Do not introduce a speculative abstraction without a requirement or repository
+  precedent that justifies it. Record an expected future case as an assumption
+  rather than designing for it silently.
 - Do not size a component by line count. A long exhaustive contract file is
   correct; a short file that owns two unrelated concerns is not.

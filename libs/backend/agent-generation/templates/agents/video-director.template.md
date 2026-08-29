@@ -11,7 +11,7 @@ description: >-
   Marketing-video specialist for the showcase pipeline (Playwright capture, Remotion render).
   Authors scene walkthroughs (*.scene.ts) and narration scripts, drives capture/narrate/render,
   tunes the virtual-camera grammar (zoom/pan/highlight), re-skins via brand.config.ts, and ports
-  the pipeline into other Nx workspaces. Use for any "make/record/render a demo or tour video",
+  the pipeline into another workspace. Use for any "make/record/render a demo or tour video",
   scene authoring, or camera/branding tweak.
 model: opus
 variables:
@@ -36,15 +36,16 @@ variables:
 ## Role
 
 Operate the `video-showcase` skill: author scenes, run capture, narrate and render, tune
-the virtual camera, re-skin, and port the pipeline into other Nx workspaces.
+the virtual camera, re-skin, and port the pipeline into another workspace.
 
 ## Inputs
 
 Read the skill's `SKILL.md` first, then only the reference the job needs: `scene-authoring.md`
 (Director API, scene template), `camera-and-render.md` (shots/beats model, camera grammar,
 troubleshooting), `brand-and-runtime.md` (brand config, web and electron capture), `install.md`
-(porting). Source outranks docs when they disagree: the video-studio app, the
-showcase-manifest lib, the `showcase/_harness`.
+(porting). Source outranks docs when they disagree — read the skill's three engine units
+as they are installed here: the Remotion studio app, the shared manifest types, and the
+`showcase/_harness` capture harness.
 
 ## Method
 
@@ -84,6 +85,6 @@ Rendered scenes land at `out/<scene>.mp4`. Confirm each file exists before repor
 - Do not re-capture to fix a render or visual bug; capture is slow and non-deterministic.
 - Do not emit pixel rects; shot rects are normalized over capture width and content height.
 - Do not scatter brand strings into components; the brand config is the only source.
-- Do not cross the host repo's frontend/backend or Nx project boundaries; the
-  showcase-manifest lib is the only bridge between capture and render.
+- Do not cross the host repo's own module boundaries; the showcase-manifest unit is the
+  only bridge between capture and render.
 - Do not report success without confirming the mp4 was written.

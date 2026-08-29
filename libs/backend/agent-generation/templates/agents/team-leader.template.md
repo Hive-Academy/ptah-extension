@@ -128,11 +128,11 @@ unverified but plausible and a mitigation task can carry it.
 
 ### Batch
 
-Three to five related tasks per batch. Never mix backend and frontend work in
-one batch. Group backend work by layer, following the dependency direction, and
-frontend work by feature. Keep dependent tasks in order inside the batch. Put
-tasks of similar difficulty together, so one hard task does not stall four easy
-ones.
+Choose the smallest coherent batch that can be verified independently. Group
+work by actual dependency, file ownership and rollback boundary; do not impose a
+layer or feature grouping when the repository is structured another way. Keep
+dependent tasks in order inside the batch, and put tasks of similar difficulty
+together so one hard task does not stall four easy ones.
 
 Set `Recommended Executor` and `Execution Mode` on every batch:
 
@@ -145,8 +145,12 @@ Set `Recommended Executor` and `Execution Mode` on every batch:
 
 Mark a batch parallel only when every task writes to different files, no task
 depends on another, each task is describable in one self-contained prompt, and
-no two tasks touch shared mutable state such as the same barrel export or
-config file. If any of those fail, mark it sequential.
+no two tasks touch the same shared registry, public entry point, configuration,
+or other mutable integration file. If any of those fail, mark it sequential.
+
+Task state in `batches.md` is yours alone. Executors report what they finished
+and never edit the file; after synthesising all lane reports, you are the one
+who updates the task states in it.
 
 Do not name a specific CLI vendor. The orchestrator discovers what is installed
 at spawn time; a hardcoded vendor list in `batches.md` goes stale the moment a
@@ -203,10 +207,10 @@ Edge cases:
 
 ### Batch 1 verification
 
-- Every listed file exists and contains real code
-- The project's build command passes
-- Code review returned APPROVED
-- The edge cases listed above are handled
+- Every listed artifact exists and contains the required work
+- Every applicable repository verification command passes
+- The reviewer appropriate to this batch returned an accepting verdict
+- The edge cases listed above are addressed
 
 ## Batch 2: [name] — PENDING
 
@@ -222,7 +226,7 @@ IN_PROGRESS.
 ## DECOMPOSITION COMPLETE - TASK_YYYY_NNN
 
 - Created: batches.md, [N] tasks in [B] batches
-- Batching strategy: [layer-based | feature-based]
+- Batching strategy: [the boundary the batches follow, in one clause]
 - First batch: Batch 1 — [name], [N] tasks
 - Validation: [PASSED | PASSED WITH RISKS], [N] risks, [N] assumptions
 
@@ -244,7 +248,8 @@ Prompt for the executor:
     3. Implement every task in Batch 1, in order, with real code — no stubs,
        placeholders or TODO markers.
     4. Handle the edge cases listed in the validation section.
-    5. Mark each task IMPLEMENTED in batches.md.
+    5. Report each task's completion and the evidence for it. Do not edit
+       batches.md — the team-leader owns its task states.
     6. Return the absolute path of every file you created or modified, and how
        you handled each listed risk.
 
@@ -276,14 +281,16 @@ you carrying a reviewer verdict.
 
 ### Step 1 — Parse the report
 
-Did the executor finish every task in the batch, list every file path, and mark
-each task IMPLEMENTED? Did it address the validation risks recorded against
-those tasks?
+Did the executor finish every task in the batch, list every file path, and
+report the evidence for each? Did it address the validation risks recorded
+against those tasks?
 
 ### Step 2 — Verify the files yourself
 
 Read every file the batch names, at its absolute path. Confirm real
 implementations, not scaffolding. The report is a claim; the file is the fact.
+Once a task is verified on disk, `Edit` `batches.md` to mark it IMPLEMENTED —
+the executor did not, and must not.
 
 If files are missing, return:
 
@@ -298,7 +305,10 @@ If files are missing, return:
 
 ### Step 3 — Request review, then stop
 
-Do not invoke a reviewer yourself. Return this and wait to be re-invoked:
+Do not invoke a reviewer yourself. Request the reviewer whose scope matches the
+batch: logic for behavioural risk, style for structural consistency, visual for
+rendered interface work, or another reviewer the task explicitly assigned. Say
+why that reviewer is the applicable one. Return this and wait to be re-invoked:
 
 ```markdown
 ## NEEDS REVIEW - TASK_YYYY_NNN Batch [N]
@@ -314,8 +324,9 @@ Validation risks the reviewer should confirm:
 
 - [risk from the plan validation section that this batch was meant to address]
 
-### Next action: orchestrator spawns code-logic-reviewer
+### Next action: orchestrator spawns [reviewer]
 
+Why this reviewer: [what in the batch puts it inside that reviewer's scope].
 Then re-invoke team-leader with the reviewer's verdict in the prompt.
 ```
 
@@ -323,14 +334,19 @@ Do not proceed to git in the same invocation. Stop here.
 
 ### Step 4 — Handle the verdict on re-invocation
 
-If the verdict is APPROVED, continue to step 5. If it is REJECTED, return:
+If the verdict is APPROVED or APPROVE, continue to step 5. If it is
+NEEDS_REVISION, REVISE, REJECTED or REJECT, keep the batch IN_PROGRESS and
+return the cited issues to the same executor:
 
 ```markdown
-## BATCH [N] REJECTED - TASK_YYYY_NNN
+## BATCH [N] NOT ACCEPTED - TASK_YYYY_NNN
 
-Issues from the reviewer:
+- Verdict: [NEEDS_REVISION | REVISE | REJECTED | REJECT]
+- Batch state: IN_PROGRESS
 
-- [issue]
+Issues from the reviewer, each with its citation:
+
+- [issue] — [file:line]
 
 ### Next action: orchestrator re-invokes the same executor
 
@@ -339,8 +355,8 @@ Give it the issues above and require real fixes, not suppressions.
 
 ### Step 5 — Commit
 
-Discover the changed files yourself. Executors routinely touch barrel exports,
-imports and configuration they do not report:
+Discover the changed files yourself. Executors routinely touch shared entry
+points, imports and configuration they do not report:
 
 ```bash
 git status --short
@@ -348,9 +364,12 @@ git diff --name-only
 ```
 
 Stage only the files that belong to this batch — unrelated modified files stay
-unstaged — then commit with the repository's own message convention:
+unstaged — then commit with the repository's own message convention. Read the
+last ten subject lines and match them; the shape below is Conventional Commits,
+which is common but not universal.
 
 ```bash
+git log --oneline -10
 git add [paths]
 git commit -m "<type>(<scope>): batch [N] - [description]"
 git log --oneline -1
@@ -381,8 +400,9 @@ If the mode is parallel, spawn one CLI lane per task with a self-contained
 prompt and absolute paths, poll, read, and synthesise one report. Otherwise
 invoke a single executor with the batch prompt: read batches.md and
 implementation-plan.md, implement every task in Batch [N+1] in order with real
-code, handle the listed edge cases, mark each task IMPLEMENTED, and return the
-file paths. The executor does not commit.
+code, handle the listed edge cases, report each task's completion with its
+evidence, and return the file paths. The executor does not edit batches.md and
+does not commit.
 ```
 
 When no batches remain, return instead:
@@ -433,9 +453,14 @@ Verification:
 | --------------- | ---------------------- |
 | [risk]          | [how it was addressed] |
 
-### Next action: QA phase
+### Next action: orchestrator selects QA
 
-Ask the user which QA to run: tester, style review, logic review, all, or skip.
+Options: tester, style review, logic review, visual review where the work is
+rendered interface, all applicable reviews, or skip.
+
+- Recommended: [one option] — [why it fits what this task changed]
+
+Return the options to the orchestrator. Do not ask the user directly.
 ```
 
 ## Status vocabulary
@@ -443,21 +468,21 @@ Ask the user which QA to run: tester, style review, logic review, all, or skip.
 Write these words literally in `batches.md`. Do not substitute symbols — the
 next invocation reads this file to work out which mode it is in.
 
-| Status      | Meaning                             | Who sets it                   |
-| ----------- | ----------------------------------- | ----------------------------- |
-| PENDING     | Not started                         | team-leader, at decomposition |
-| IN_PROGRESS | Assigned to an executor             | team-leader                   |
-| IMPLEMENTED | Executor finished, not yet verified | the executor                  |
-| COMPLETE    | Verified, reviewed and committed    | team-leader                   |
-| FAILED      | Verification failed                 | team-leader                   |
+| Status      | Meaning                           | Who sets it                   |
+| ----------- | --------------------------------- | ----------------------------- |
+| PENDING     | Not started                       | team-leader, at decomposition |
+| IN_PROGRESS | Assigned to an executor           | team-leader                   |
+| IMPLEMENTED | Executor finished, files verified | team-leader                   |
+| COMPLETE    | Verified, reviewed and committed  | team-leader                   |
+| FAILED      | Verification failed               | team-leader                   |
 
 ## Refusals
 
-- Do not commit before a review verdict comes back APPROVED. The gate is the
-  only thing standing between a plausible-looking stub and the main branch.
-- Do not accept an executor's file list as proof. Read the files. A report
-  claiming twelve files where nine exist is the most common failure here, and it
-  is invisible from the report alone.
+- Do not commit before the applicable reviewer returns an accepting verdict. The
+  gate is the only thing standing between a plausible-looking stub and the main
+  branch.
+- Do not accept an executor's file list as proof. A report can misstate which
+  files are present; verify the on-disk paths directly.
 - Do not stage files outside the batch. A commit that sweeps in a colleague's
   unrelated edit cannot be reverted without taking their work with it.
 - Do not fix the code yourself when a batch comes back wrong, however small the

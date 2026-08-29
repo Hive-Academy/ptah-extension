@@ -65,15 +65,23 @@ const FILES = templateFiles();
 /** Same loose id capture the resolver uses — a malformed id must be VISIBLE. */
 const MARKER_LINE = /^[ \t]*<!--[ \t]*(\/?)STATIC:(.*?)[ \t]*-->[ \t]*$/gm;
 
+/**
+ * The tailoring marker. `ContentGenerationService` replaces what sits between a
+ * pair with repository-specific conventions at wizard time; what the template
+ * ships between them is the stack-agnostic fallback that has to stand on its own
+ * when there is no SDK.
+ */
+const LLM_MARKER_LINE = /^[ \t]*<!--[ \t]*(\/?)LLM:(.*?)[ \t]*-->[ \t]*$/gm;
+
 interface Marker {
   readonly isClose: boolean;
   readonly id: string;
   readonly line: number;
 }
 
-function markersOf(body: string): Marker[] {
+function markersOf(body: string, pattern = MARKER_LINE): Marker[] {
   const markers: Marker[] = [];
-  for (const match of body.matchAll(MARKER_LINE)) {
+  for (const match of body.matchAll(pattern)) {
     const before = body.slice(0, match.index ?? 0);
     markers.push({
       isClose: match[1] === '/',
@@ -84,17 +92,11 @@ function markersOf(body: string): Marker[] {
   return markers;
 }
 
-/**
- * Character ranges covered by a STATIC pair, markers included.
- *
- * Used to EXEMPT shared content from the heading-uniqueness rule: a heading
- * repeated across fifteen files is the defect, unless the reason it repeats is
- * that all fifteen point at the same file.
- */
-function sharedRanges(body: string): Array<[number, number]> {
+/** Character ranges covered by a marker pair, markers included. */
+function markerRanges(body: string, pattern: RegExp): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   let open: number | undefined;
-  for (const match of body.matchAll(MARKER_LINE)) {
+  for (const match of body.matchAll(pattern)) {
     const start = match.index ?? 0;
     if (match[1] === '/') {
       if (open !== undefined) ranges.push([open, start + match[0].length]);
@@ -104,6 +106,26 @@ function sharedRanges(body: string): Array<[number, number]> {
     }
   }
   return ranges;
+}
+
+/**
+ * Ranges exempt from the heading-uniqueness rule.
+ *
+ * A heading repeated across fifteen files is the defect, unless the reason it
+ * repeats is structural. Two reasons are:
+ *
+ *  - A STATIC pair: all fifteen point at the same file in `_shared/`.
+ *  - An LLM pair: `## Framework conventions` is the SAME slot in the backend and
+ *    frontend templates by design — the section map assigns that id to both —
+ *    and the generic fallback under it is a placeholder the wizard overwrites.
+ *    Forcing the two apart would rename a slot to satisfy a rule aimed at
+ *    duplicated instructions.
+ */
+function sharedRanges(body: string): Array<[number, number]> {
+  return [
+    ...markerRanges(body, MARKER_LINE),
+    ...markerRanges(body, LLM_MARKER_LINE),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +222,124 @@ describe('STATIC markers', () => {
     if (open)
       problems.push(`${open.id} opened at line ${open.line} never closes`);
     expect(problems).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (g) LLM markers are well-formed and carry a usable fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * The tailoring contract, in full.
+ *
+ * ```
+ * <!-- LLM:FRAMEWORK_CONVENTIONS -->
+ * ## Framework conventions
+ * <generic stack-agnostic fallback, 6-15 lines>
+ * <!-- /LLM:FRAMEWORK_CONVENTIONS -->
+ * ```
+ *
+ * The fallback is not filler. It is what a user gets when the SDK is
+ * unavailable, when the model's output is discarded by
+ * `GeneratedSectionValidator`, or when generation is skipped entirely — three
+ * paths that all end with this text inside a shipped agent file. An empty pair
+ * emits a heading with nothing under it; a pair with no heading loses the
+ * section boundary the rest of the file is structured around.
+ */
+describe('LLM markers', () => {
+  it.each(FILES)('%s uses only well-formed LLM ids', (file) => {
+    const offenders = markersOf(matter(read(file)).content, LLM_MARKER_LINE)
+      .filter((m) => !/^[A-Z_]+$/.test(m.id))
+      .map((m) => `line ${m.line}: ${JSON.stringify(m.id)}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(FILES)('%s pairs every LLM marker, without nesting', (file) => {
+    const markers = markersOf(matter(read(file)).content, LLM_MARKER_LINE);
+    const problems: string[] = [];
+    let open: Marker | undefined;
+    for (const marker of markers) {
+      if (!marker.isClose) {
+        if (open)
+          problems.push(`line ${marker.line}: nested inside ${open.id}`);
+        open = marker;
+        continue;
+      }
+      if (!open) {
+        problems.push(`line ${marker.line}: closes ${marker.id} with no open`);
+        continue;
+      }
+      if (open.id !== marker.id) {
+        problems.push(`line ${marker.line}: ${open.id} closed by ${marker.id}`);
+      }
+      open = undefined;
+    }
+    if (open)
+      problems.push(`${open.id} opened at line ${open.line} never closes`);
+    expect(problems).toEqual([]);
+  });
+
+  it.each(FILES)('%s never nests an LLM pair inside a STATIC pair', (file) => {
+    // A shared partial is one canonical text; a tailored section is per-project.
+    // Nesting one in the other means the canonical block's content depends on
+    // which repository the wizard ran in, which is the property `_shared/`
+    // exists to remove.
+    const body = matter(read(file)).content;
+    const statics = markerRanges(body, MARKER_LINE);
+    const offenders = markerRanges(body, LLM_MARKER_LINE)
+      .filter(([start]) =>
+        statics.some(([from, to]) => start >= from && start < to),
+      )
+      .map(([start]) => `offset ${start}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(FILES)(
+    '%s gives every LLM pair a non-empty fallback under a "## " heading',
+    (file) => {
+      const body = matter(read(file)).content;
+      const problems: string[] = [];
+
+      for (const [start, stop] of markerRanges(body, LLM_MARKER_LINE)) {
+        const inner = body
+          .slice(start, stop)
+          .split('\n')
+          .filter((line) => !/^[ \t]*<!--[ \t]*\/?LLM:/.test(line))
+          .join('\n')
+          .trim();
+
+        if (!inner) {
+          problems.push(`offset ${start}: empty fallback`);
+          continue;
+        }
+        if (!/^##\s+\S/.test(inner)) {
+          problems.push(
+            `offset ${start}: fallback does not open with a "## " heading`,
+          );
+        }
+      }
+
+      expect(problems).toEqual([]);
+    },
+  );
+
+  /**
+   * `{{VAR}}` substitution is not part of this round.
+   *
+   * Nothing in the pipeline fills a `{{…}}` in a template body — the resolver
+   * fills slots only INSIDE an expanded shared partial, from that template's
+   * frontmatter `variables` map. A `{{…}}` anywhere else survives to the
+   * emitted agent file, where it reads as a token the agent is expected to
+   * understand.
+   */
+  it.each(FILES)('%s carries no {{VAR}} placeholder', (file) => {
+    const body = matter(read(file)).content;
+    const offenders = body
+      .split('\n')
+      .map((line, i) => ({ line, number: i + 1 }))
+      .filter(({ line }) => line.includes('{{'))
+      .map(({ line, number }) => `line ${number}: ${line.trim()}`);
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -480,6 +620,286 @@ describe('escape artefacts', () => {
     expect(/\\[_*]/.test('## Backend implementation — `TASK_[ID]`')).toBe(
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (h) the corpus is a PRODUCT, not a description of this repository
+// ---------------------------------------------------------------------------
+
+/**
+ * One banned term, and the reason banning it is not pedantry.
+ *
+ * These templates ship to arbitrary repositories. A user running the wizard on a
+ * Django service, a Rails monolith or a plain npm package gets these files
+ * verbatim, minus the `LLM:` sections the wizard rewrites for them. Every term
+ * below names something that exists ONLY here — a DI container this repository
+ * chose, a lib path only this workspace has, a script only its `package.json`
+ * defines. In someone else's repository the sentence containing it is not
+ * merely useless: it is a confident instruction to do something impossible, and
+ * an agent that follows one impossible rule discounts the rest of the file.
+ *
+ * Repository-specific truth has a home — the `LLM:` sections, written from that
+ * user's own analysis at wizard time. A hand-authored template body is the wrong
+ * place for it by construction, which is why this is a ratchet and not a lint.
+ */
+interface BannedTerm {
+  /** Matched case-insensitively as a substring unless `exampleOnly`. */
+  readonly term: string;
+  /** Why this term cannot appear in a file that ships to other repositories. */
+  readonly why: string;
+  /**
+   * Generic technology names that are legitimate AS AN EXAMPLE and wrong as an
+   * assumption. Allowed only on a line that marks itself as illustrative —
+   * "e.g.", "for example", "such as". A line that names the technology flatly is
+   * telling the reader this is their stack.
+   */
+  readonly exampleOnly?: boolean;
+}
+
+const EXAMPLE_MARKERS = ['e.g.', 'for example', 'such as'];
+
+const PTAH_ONLY_TERMS: readonly BannedTerm[] = [
+  {
+    term: 'tsyringe',
+    why: 'One DI container among many. A repository using NestJS providers, Spring, or no container at all is told to register in a library it has never installed.',
+  },
+  {
+    term: 'platform-core',
+    why: "The name of this workspace's port library. Elsewhere it names nothing.",
+  },
+  {
+    term: 'PLATFORM_TOKENS',
+    why: 'A symbol map that exists in exactly one repository.',
+  },
+  {
+    term: 'vscode-core',
+    why: 'A library of this workspace, and a host assumption on top of it.',
+  },
+  {
+    term: 'ALLOWED_METHOD_PREFIXES',
+    why: "This repository's runtime RPC guard. The dual-registration rule it belongs to is Ptah's, not a general one.",
+  },
+  {
+    term: 'electron-builder',
+    why: "A packaging tool for one of this repository's three shipping surfaces. Most repositories package nothing.",
+  },
+  {
+    term: 'Sync Release Branch',
+    why: 'The name of a GitHub Actions workflow in this repository. The whole release-branch doctrine around it is local policy.',
+  },
+  {
+    term: 'docker:db:start',
+    why: "An npm script in this repository's root package.json.",
+  },
+  {
+    term: 'prisma:migrate',
+    why: 'An npm script here, and an ORM assumption underneath it.',
+  },
+  {
+    term: 'manifest:check',
+    why: 'An npm script guarding a content manifest only this extension ships.',
+  },
+  {
+    term: 'manifest:generate',
+    why: 'Same manifest, same single repository.',
+  },
+  {
+    term: 'rebuild-native',
+    why: "A postinstall script for this repository's Electron native modules.",
+  },
+  {
+    term: '.vscodeignore',
+    why: 'A VSIX packaging file. Only a VS Code extension has one.',
+  },
+  {
+    term: 'libs/frontend',
+    why: 'A path in this workspace. A user with `src/` or `packages/` is told to respect a boundary that does not exist.',
+  },
+  {
+    term: 'libs/backend',
+    why: 'Same shape: a directory layout of this workspace, presented as an architectural law.',
+  },
+  {
+    term: 'libs/shared',
+    why: 'Same path shape, and the isolation rule it anchors is real HERE and nowhere else.',
+  },
+  {
+    term: 'libs/api',
+    why: 'Same: a library path from this workspace, and the product boundary it encodes.',
+  },
+  {
+    term: 'libs/web',
+    why: 'Same: a library path from this workspace, and the product boundary it encodes.',
+  },
+  {
+    term: 'ptah-extension-',
+    why: 'App names from this workspace (`ptah-extension-vscode`, `-webview`).',
+  },
+  {
+    term: 'ptah-electron',
+    why: 'An app in this workspace, plus the Electron assumption.',
+  },
+  {
+    term: 'ptah-cli',
+    why: 'An app in this workspace. As a workspace path it names nothing elsewhere.',
+  },
+  {
+    term: 'daisyui',
+    why: "One Tailwind component library. Naming it makes a styling choice on the user's behalf.",
+  },
+  {
+    term: 'run-many',
+    why: "The `nx test projA projB` trap and its `run-many` remedy are a measured fact about this repository's Nx version. A non-Nx repository is handed a command that does not exist.",
+  },
+  {
+    term: 'esbuild',
+    why: 'A bundler this repository picked. Allowed only as one option among several.',
+    exampleOnly: true,
+  },
+  {
+    term: 'Prisma',
+    why: 'An ORM. Allowed as an example of an ORM, never as the assumed one.',
+    exampleOnly: true,
+  },
+  {
+    term: 'Angular',
+    why: 'A framework. Allowed as an example, never as the assumed stack.',
+    exampleOnly: true,
+  },
+  {
+    term: 'NestJS',
+    why: 'A framework. Allowed as an example, never as the assumed stack.',
+    exampleOnly: true,
+  },
+  {
+    term: 'Nx',
+    why: 'A monorepo tool. Allowed as an example of one, never as the assumed build system.',
+    exampleOnly: true,
+  },
+];
+
+/**
+ * The lines of a corpus file this duty applies to: the BODY, plus the
+ * frontmatter `description` — and nothing else from the frontmatter.
+ *
+ * The body and the description are the two things that reach the user: the
+ * description is what every harness lists an agent by, and the body is the
+ * instruction set. `projectTypes: [React, Angular, Vue, Svelte, Node]` is
+ * neither. It is the applicability rule `AgentSelectionService` scores against —
+ * a machine-readable list of the stacks this template CAN apply to, which is a
+ * list of alternatives by construction and the opposite of an assumed stack.
+ * Scanning it would force the selector's own vocabulary to be censored.
+ *
+ * Excluded lines are blanked rather than dropped so reported line numbers still
+ * match the file a reader opens.
+ */
+function scannableLines(text: string): string[] {
+  const lines = text.split('\n');
+  if (lines[0]?.trim() !== '---') return lines;
+  const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---');
+  if (end < 0) return lines;
+
+  let inDescription = false;
+  for (let i = 1; i < end; i++) {
+    const key = /^([A-Za-z_][\w-]*):/.exec(lines[i]);
+    if (key) {
+      inDescription = key[1] === 'description';
+    } else if (!/^\s/.test(lines[i])) {
+      inDescription = false;
+    }
+    if (!inDescription) lines[i] = '';
+  }
+  return lines;
+}
+
+/**
+ * Every banned term in one document, as `file:line — term`.
+ *
+ * Takes text rather than a filename so the rule can be proven against a fixture
+ * as well as against the corpus.
+ */
+function bannedTermHits(label: string, text: string): string[] {
+  const hits: Array<{ line: number; text: string }> = [];
+  const lines = scannableLines(text);
+
+  for (const entry of PTAH_ONLY_TERMS) {
+    const needle = entry.term.toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lower = line.toLowerCase();
+      if (!lower.includes(needle)) continue;
+      if (
+        entry.exampleOnly &&
+        EXAMPLE_MARKERS.some((marker) => lower.includes(marker))
+      ) {
+        continue;
+      }
+      hits.push({ line: i + 1, text: `${label}:${i + 1} — ${entry.term}` });
+    }
+  }
+  // Reading order, so the failure message walks the file top to bottom.
+  return hits.sort((a, b) => a.line - b.line).map((hit) => hit.text);
+}
+
+describe('Ptah-only terms', () => {
+  it.each(corpusFiles())(
+    '$label names nothing that exists only in this repository',
+    ({ label, text }) => {
+      // When this fails: the sentence is repository-specific truth. Either delete
+      // it, restate it generically, or move it into an `LLM:` section where the
+      // wizard writes the user's own version of it from their own analysis.
+      // Never widen the denylist to get green — the entry's `why` is the
+      // argument, and it does not get weaker because a template is inconvenient.
+      expect(bannedTermHits(label, text)).toEqual([]);
+    },
+  );
+
+  it('allows a generic technology name as an example and rejects it as an assumption', () => {
+    // Proof the exampleOnly branch does what its `why` claims, rather than
+    // passing because the corpus happens to avoid the word.
+    expect(
+      bannedTermHits('f', 'Use the project ORM, e.g. Prisma or TypeORM.'),
+    ).toEqual([]);
+    expect(bannedTermHits('f', 'Read the schema through Prisma.')).toEqual([
+      'f:1 — Prisma',
+    ]);
+  });
+
+  it('reports the line of a hard-denied term', () => {
+    expect(bannedTermHits('f', 'intro\nRegister with tsyringe.')).toEqual([
+      'f:2 — tsyringe',
+    ]);
+  });
+
+  it('scans the description and the body, but not the applicability rules', () => {
+    const file = [
+      '---',
+      'name: x',
+      'description: >-',
+      '  Writes Angular components.',
+      'projectTypes: [React, Angular, Vue]',
+      '---',
+      '',
+      'Body mentioning tsyringe.',
+    ].join('\n');
+
+    expect(bannedTermHits('f', file)).toEqual([
+      'f:4 — Angular',
+      'f:8 — tsyringe',
+    ]);
+  });
+
+  it('has a why for every entry, and no duplicate terms', () => {
+    // The `why` is what stops the list being edited by whoever finds it
+    // annoying. An entry without one is an entry nobody has to justify keeping.
+    const missing = PTAH_ONLY_TERMS.filter(
+      (entry) => entry.why.trim().length < 20,
+    ).map((entry) => entry.term);
+    expect(missing).toEqual([]);
+
+    const terms = PTAH_ONLY_TERMS.map((e) => e.term.toLowerCase());
+    expect(terms).toHaveLength(new Set(terms).size);
   });
 });
 

@@ -69,8 +69,10 @@ that supports a decision; you do not make the design decision yourself.
    answer. Prefer the project's own documentation and changelog, then its issue
    tracker and source, then practitioner accounts. Treat vendor comparisons and
    undated posts as claims, not facts.
-4. Record every source as a URL plus its date. A claim you cannot attribute does
-   not go in the report, even when you are confident it is true.
+4. Record each source as a URL or a `file:line` citation, with its publication
+   or update date where one exists; label undated material as undated. A claim
+   you cannot attribute does not go in the report, even when you are confident
+   it is true.
 5. Look for the disagreement. Two sources that agree may share one origin; the
    dissenting account usually names the constraint the others omitted.
 6. Convert each finding into what it means here — which file, which version,
@@ -98,9 +100,9 @@ quotations to populate it, and delete any row you have no evidence for.
 
 ## Evidence
 
-| Claim   | Source             | Date         | Verified how                          |
-| ------- | ------------------ | ------------ | ------------------------------------- |
-| [claim] | [URL or file:line] | [YYYY-MM-DD] | [read the source / ran it / inferred] |
+| Claim   | Source             | Date                    | Verified how                          |
+| ------- | ------------------ | ----------------------- | ------------------------------------- |
+| [claim] | [URL or file:line] | [YYYY-MM-DD or undated] | [read the source / ran it / inferred] |
 
 ## Options
 

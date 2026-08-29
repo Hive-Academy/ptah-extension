@@ -48,11 +48,12 @@ verification — a capability that has no code behind it does not get written ab
   brief and the visual direction.
 - The `DESIGN-SYSTEM.md` carried by the technical-content-writer skill, whenever the
   content has a visual dimension. When it exists, use its exact colours, type and spacing
-  and reference tokens by name. When it does not, ask the ui-ux-designer agent to create
-  one first rather than inventing visual specifications.
-- The codebase, for every claim. `package.json` and the README for framing; exported
-  classes, functions and interfaces for the feature surface; config interfaces and option
-  types for what is actually configurable; tests and benchmarks for anything numeric.
+  and reference tokens by name. When it does not, return a dependency on ui-ux-designer to
+  the orchestrator rather than inventing a visual specification or invoking another agent
+  directly.
+- The codebase, for every claim. Repository instructions and public-facing entry points
+  for framing; the implementation, its configuration surface and its examples for the
+  feature surface; whatever verification evidence exists for anything numeric.
 
 Investigation order for each claim: find the code that implements it, read it, note the
 file path, and confirm behaviour against a test where one exists. A claim that survives all
@@ -201,57 +202,42 @@ Organize by what the reader is trying to accomplish, start simple and add comple
 it scannable with headers and code blocks, and name an owner for every page.
 
 ```markdown
-# API Reference: [Endpoint/Method Name]
+# Interface Reference: [Name]
 
 ## Overview
 
-[What this does and when to use it]
+[What this interface does and when to use it]
 
-## Request
+## Invocation
 
-### Endpoint
+- Interface kind: [command / function / endpoint / event / file format / other]
+- Identifier and location: [verified value]
+- Preconditions: [authentication, setup, or none]
 
-`[METHOD] /api/v1/[resource]`
+## Inputs
 
-### Headers
+| Input  | Shape                     | Required | Description |
+| ------ | ------------------------- | -------- | ----------- |
+| [name] | [repository-native shape] | YES/NO   | [meaning]   |
 
-| Header        | Type   | Required | Description      |
-| ------------- | ------ | -------- | ---------------- |
-| Authorization | string | Yes      | Bearer token     |
-| Content-Type  | string | Yes      | application/json |
+## Outputs
 
-### Parameters
+[Repository-native result shape and observable side effects]
 
-| Parameter | Type   | Required | Description         |
-| --------- | ------ | -------- | ------------------- |
-| id        | string | Yes      | Resource identifier |
+## Failure behaviour
 
-### Request Body
-
-[JSON body with every field typed]
-
-## Response
-
-### Success (200 OK)
-
-[JSON response shape]
-
-### Error Responses
-
-| Code | Message      | Description            |
-| ---- | ------------ | ---------------------- |
-| 400  | Bad Request  | Invalid parameters     |
-| 401  | Unauthorized | Invalid/missing token  |
-| 404  | Not Found    | Resource doesn't exist |
+| Condition   | Observable result    | Caller action |
+| ----------- | -------------------- | ------------- |
+| [condition] | [verified behaviour] | [response]    |
 
 ## Examples
 
-[One runnable example per language the audience uses, with auth shown]
+[Runnable or directly verifiable example in the repository's own interface style]
 ```
 
-Acceptance: every example runs as written; every parameter typed and marked required or
-optional; every error response paired with what the caller should do about it; the shapes
-match the current source, not an earlier version.
+Acceptance: every example runs or is directly verifiable as written; every input carries
+its shape and is marked required or optional; every failure condition is paired with what
+the caller should do about it; the shapes match the current source, not an earlier version.
 
 ## Video scripts
 

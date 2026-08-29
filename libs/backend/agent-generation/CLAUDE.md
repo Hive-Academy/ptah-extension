@@ -112,6 +112,108 @@ Adding a partial means: a file in `_shared/`, an id in `SHARED_BLOCK_IDS`, and a
 path in `content-manifest.json` `templates.files` — the manifest is what ships
 it to `~/.ptah/templates/agents/_shared/`.
 
+## Tailoring
+
+A template body is a PRODUCT. It ships to a Django service, a Rails monolith or
+a plain npm package, and every sentence in it has to be true there. The one place
+this repository's — or any repository's — specifics belong is an `LLM:` section,
+which `ContentGenerationService` rewrites from that user's own analysis at wizard
+time:
+
+```
+<!-- LLM:FRAMEWORK_CONVENTIONS -->
+## Framework conventions
+
+<generic stack-agnostic fallback, 6-15 lines>
+<!-- /LLM:FRAMEWORK_CONVENTIONS -->
+```
+
+Six ids, assigned by role: `FRAMEWORK_CONVENTIONS` and `ARCHITECTURE_PATTERNS`
+(the two developers), `BUILD_AND_DEPLOY_SURFACE` (devops-engineer),
+`TEST_INFRASTRUCTURE` (senior-tester), `EXISTING_PATTERNS` (software-architect),
+`REVIEW_FOCUS` (the three reviewers). `sectionIdToTopic` maps each to the
+sentence the prompt uses to say what a section of that name should contain — left
+to a de-kebabbed id, "Framework Conventions" invited exactly the lib census this
+mechanism was once deleted for.
+
+**The no-numbers rule.** Generated sections carry conventions and patterns: no
+counts, no version numbers, no percentages, no dates, no directory inventories,
+and every bullet cites a path in backticks. This is enforced twice, because a
+prompt alone never held it:
+
+1. `formatAnalysisData` no longer shows the model a number it could copy —
+   pattern confidence, language distribution, coverage estimate and the
+   error/warning tally are dropped at the source. What survives is names, paths
+   and conventions.
+2. `GeneratedSectionValidator` reads what came back and rejects it for a
+   version-like string outside a path, a numeric census ("15 libs"), a
+   percentage, a date, a cited path that neither the analysis nor the workspace
+   knows, or a dropped or renamed `## ` heading. On reject the authored fallback between the markers
+   ships instead, a warn is logged, and a line lands in the generation summary's
+   `warnings`. VAR sections are NOT gated — a VAR slot exists to carry data.
+
+The allowed-path set is mined from the SAME analysis text the prompt shows the
+model, plus `context.relevantFiles`, plus every ancestor directory. **The index
+is not the only way a citation passes.** Each cited path is checked against the
+index and, when that misses, against `IFileSystemProvider.exists()` — per path,
+not one check instead of the other. The prompt lets the model open a file to
+confirm a convention, so a file it really read that the analysis happened not to
+list is a legitimate citation, and gating the disk probe on an empty index made
+that ordinary case ship the fallback. A path fails only when the index does not
+hold it AND the workspace does not contain it; when there is no port either,
+path checking stands down rather than failing every section. The probe stays
+inside `rootPath`: a `..` escape or an absolute path outside the root is
+rejected without ever reaching the port, because the string being resolved was
+written by the model.
+
+**An empty section is an answer, not a failure.** The prompt tells the model to
+return an empty string for a section whose evidence cannot carry it — fewer than
+about six distinct path-backed claims — rather than pad to the 8-15 line target
+with general advice. `fillDynamicSections` ships the authored fallback for it,
+logs at DEBUG, and pushes NO warning: the outcome is identical to the one the
+rejection path produces expensively, so surfacing it in the generation summary
+would ask the user to act on the model behaving correctly. A rejection still
+warns; an abstention does not.
+
+**The prompt matches what is wired.** The call goes out with MCP tools
+(`resolveMcpSessionWiring`), so the prompt says the model MAY open a file to
+confirm a convention, and may cite only paths it actually opened or that the
+analysis lists. The earlier "you have NO tools" sentence contradicted the wiring
+and taught the model to guess where it could have checked.
+
+**The fallback is not filler.** It is what ships when the SDK is unavailable,
+when the validator discards the model's output, when the model abstains, or when
+generation is skipped — four paths that all end with that text inside a user's
+agent file.
+`stripCompositionMarkers` (orchestrator) removes `STATIC`, `LLM` and `VAR` marker
+LINES on emit and keeps everything between them. `TemplatePartialResolver` never
+sees an `LLM` marker: it matches `STATIC:` only, and its residual-`{{…}}` scan is
+scoped to an expanded partial's body, so authored fallback text cannot fail a
+load.
+
+**The description is authored, and only authored.** `buildAgentFileContent` uses
+`template.description`, and when a template declares none it uses
+`` `${humanizeName(template.name)} agent` `` — deterministic, stack-agnostic, no
+analysis label in it. The authored description is the sentence every harness
+selects an agent by: it carries the triggers AND the exclusions, written knowing
+which sibling agents it must be distinguishable from. A generated summary knows
+neither, and it was overwriting all fifteen. Once the template won that contest
+the generated one-liner had no reachable success path — every shipped template
+declares a description — so it is gone rather than kept as a fallback:
+`ContentGenerationService` no longer asks for a `description` in the output
+schema or the prompt, and `generateContent` returns `{ content, warnings }`.
+
+**The Ptah-term guard.** `template-sharing.guard.spec.ts` carries a denylist with
+a `why` per entry — `tsyringe`, `platform-core`, `libs/backend`, `daisyui`,
+`manifest:check`, `run-many`, the rest — applied to every template body, every
+frontmatter `description`, and every `_shared/` partial. Generic technology names
+(`Prisma`, `Angular`, `NestJS`, `Nx`) are allowed only on a line that marks
+itself illustrative (`e.g.`, `for example`, `such as`). Frontmatter
+`projectTypes` / `techStack` are exempt: they are the applicability rules
+`AgentSelectionService` scores against, a list of alternatives by construction.
+When this duty fails, the fix is to delete the sentence, restate it generically,
+or move it into an `LLM:` section — never to widen the list.
+
 ## Dependencies
 
 **Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-sdk`

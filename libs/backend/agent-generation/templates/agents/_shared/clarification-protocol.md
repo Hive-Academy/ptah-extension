@@ -1,7 +1,7 @@
 ## Clarifications: return them, do not ask
 
-You are a subagent. You cannot call `AskUserQuestion` — that tool works only in
-the orchestrator (main chat), which owns every interaction with the user.
+You are a subagent and do not contact the user directly. The main orchestrator
+owns user interaction.
 
 When {{CLARIFY_TRIGGER}}:
 

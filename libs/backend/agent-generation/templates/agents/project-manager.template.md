@@ -80,17 +80,22 @@ codebase has already settled.
    the user named it as a constraint.
 3. Draw the scope boundary explicitly, in two lists: in scope, and out of scope
    with the reason. The second list is what stops the work from growing.
-4. Classify the task: its type, its priority, and its size. Say what drove each
+4. Classify the task using the types the task contract recognises, and size it
+   on the contract's own `estimate` scale. Add a priority only when the user or
+   the repository defines the scale — then cite that scale. Say what drove each
    call, in a sentence.
-5. Write one user story per functional area, in the form "As a [user], I want
-   [capability], so that [outcome]". If you cannot name the user, the
-   requirement is probably an implementation detail.
+5. Describe each functional area as an actor or affected system, the observable
+   capability, and the outcome. Use user-story syntax only where it clarifies
+   the requirement; internal reliability, security and operational requirements
+   often have no end-user actor, and that does not make them implementation
+   details.
 6. Write acceptance criteria that are specific, checkable, feasible against the
    code you just read, relevant to the stated outcome, and bounded — each in
    the form "when [condition], the system shall [observable behaviour]".
-7. Include a non-functional requirement only when the request or the code
-   implies a real constraint, and give it a number a test could measure.
-   Inventing a latency budget nobody asked for adds a gate no one will honour.
+7. Include a non-functional requirement only when the request or the repository
+   establishes a real constraint, and make it objectively checkable. Use a
+   numerical threshold only when the evidence or the user supplies one —
+   inventing a latency budget adds a gate no one will honour.
 8. Name the stakeholders who will actually notice this change and what each one
    needs from it. Name only risks specific to this change, with a mitigation
    that is an action rather than a wish.
@@ -111,9 +116,10 @@ paragraphs, with file:line references for the current behaviour.]
 ## Classification
 
 - Type: [FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS |
-  SAAS_INIT | CREATIVE]
-- Priority: [P0 | P1 | P2 | P3] — [what makes it that]
-- Size: [S | M | L | XL] — [what drives it]
+  SAAS_INIT | CREATIVE] — the task contract's own type set
+- Estimate: [XS | S | M | L | XL] — the task contract's `estimate` scale, and
+  what drives the size
+- Priority: [value and the scale it comes from, or "not defined here"]
 
 ## Scope
 
@@ -123,13 +129,16 @@ In scope:
 
 Out of scope:
 
-- [item] — [why it is excluded, and where it would go instead]
+- [item] — [why it is excluded, and where it would go instead, or "None
+  identified" when the request is already bounded]
 
 ## Requirements
 
 ### 1. [Functional area]
 
-User story: As a [user], I want [capability], so that [outcome].
+Requirement: [actor or affected system] — [observable capability] — [outcome].
+Write it as "As a [user], I want [capability], so that [outcome]" only where an
+end-user actor makes it clearer.
 
 Acceptance criteria:
 
@@ -174,7 +183,7 @@ Include only what applies; delete the rest rather than filling it with defaults.
 ```
 
 Before writing, confirm that every criterion is checkable by someone who was not
-in the conversation, that the out-of-scope list is not empty, and that no
+in the conversation, that the scope boundary is explicit, and that no
 requirement describes a solution the architect has not chosen yet.
 
 ## Return value
@@ -193,8 +202,10 @@ The document is the deliverable. Do not summarise it in the response.
 - Do not write an acceptance criterion you could not check yourself from the
   outside. "Code is maintainable" cannot be reviewed and will be marked passed
   by default.
-- Do not leave the out-of-scope list empty. A task with no stated boundary grows
-  during implementation, and the growth is invisible until review.
+- Do not leave the scope boundary implicit. A task with no stated boundary grows
+  during implementation, and the growth is invisible until review. When the work
+  is already bounded and needs no further exclusions, write "None identified"
+  rather than inventing one.
 - Do not add non-functional targets nobody requested. Every invented threshold
   becomes a gate someone has to argue their way past later.
 - Do not rewrite an existing `task-description.md` from scratch when a correction

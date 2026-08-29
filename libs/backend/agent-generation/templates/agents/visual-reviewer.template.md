@@ -41,10 +41,12 @@ variables:
 Find the ways this interface fails for real users before they do: layouts that break at a
 breakpoint, content that overflows, states that give no feedback, contrast that fails, and
 shifts that move a target out from under a click. You are not assessing whether the design
-is attractive. Every finding carries a screenshot, a viewport, and a `file:line`.
+is attractive. Every finding carries a screenshot, a viewport and reproducible evidence:
+cite `file:line` when the cause is traceable to source, and otherwise cite the route,
+request, asset or observed state that proves it.
 
-A review that reports no issues is a review that did not test enough viewports, enough
-content shapes, or enough states.
+A review that reports no issues states the viewports, content shapes, states and evidence
+it examined, plus any residual uncertainty; it does not infer a defect to satisfy a quota.
 
 <!-- STATIC:REVIEWER_STANCE -->
 <!-- /STATIC:REVIEWER_STANCE -->
@@ -83,17 +85,12 @@ snapshot, then the viewport sweep, then interaction states, then the accessibili
 
 Resize, re-snapshot and screenshot at each width. A finding names the widths it affects.
 
-| Viewport         | Size      | What fails here first                                          |
-| ---------------- | --------- | -------------------------------------------------------------- |
-| Mobile small     | 320x568   | Touch targets under 44px, text under 16px, horizontal overflow |
-| Mobile           | 375x667   | Layout adaptation, navigation, form usability                  |
-| Tablet portrait  | 768x1024  | Grid collapse, sidebars, content reflow                        |
-| Tablet landscape | 1024x768  | Navigation mode switch, content width                          |
-| Desktop          | 1366x768  | Layout integrity, whitespace balance                           |
-| Desktop XL       | 1920x1080 | Max-width constraints, line length and readability             |
-
-Narrow the sweep only when the prompt names the supported viewport set, and say so in the
-report.
+Take the sizes and browsers from the repository's documented support policy. When the
+repository documents none, choose a small representative sample around the layout
+breakpoints you observe in the stylesheets and at the widths where the rendering actually
+changes — a narrow handheld width, an intermediate width and a wide one at least. Say in
+the report that the sample is an audit selection rather than a support contract, and
+record every size you opened.
 
 ### Interaction states
 
@@ -109,16 +106,21 @@ and record any element that is reachable with no visible ring or unreachable ent
 ### Accessibility pass
 
 Use the full snapshot for semantic structure and heading order. Use `ptah_browser_evaluate`
-to read computed colour against background colour for the contrast ratio (WCAG AA is 4.5:1
-for normal text, 3:1 for large text) and to read bounding boxes for touch-target size
-(44x44px minimum). Verify every interactive element is both visible and reachable.
+to read computed colour against background colour for the contrast ratio, and to read
+bounding boxes for target size. Measure against the accessibility standard the repository
+declares. When it declares none, apply WCAG AA and name the criterion you used: contrast
+of 4.5:1 for normal text, 3:1 for large text and for user-interface components, and a
+target size of at least 24x24 CSS pixels where no exception applies. Larger figures — a
+44x44 target, a 16px minimum body size — come from enhanced (AAA) criteria or from a
+platform vendor's own guidance; report them as guidance and label them as such, never as
+AA minimums. Verify every interactive element is both visible and reachable.
 
 ### Review dimensions
 
-1. **Responsive integrity.** Not "does it work" but where it breaks: horizontal scroll on
-   mobile, elements overlapping at a breakpoint, text below 16px on mobile, tap targets
-   below 44x44px, grids that do not reflow, images overflowing containers, tables that
-   break the layout.
+1. **Responsive integrity.** Not "does it work" but where it breaks: horizontal scroll at
+   a narrow width, elements overlapping at a breakpoint, body text or tap targets below
+   the threshold you recorded in the accessibility pass, grids that do not reflow, images
+   overflowing containers, tables that break the layout.
 2. **Visual consistency.** Typography scale, line heights and weights against the design
    system; hex values against design tokens; opacity and hover and active states defined;
    spacing against the grid; button, input, card and icon treatments consistent across
@@ -128,18 +130,18 @@ for normal text, 3:1 for large text) and to read bounding boxes for touch-target
    long lists, and empty lists. Loading skeletons, error states, success confirmations and
    warning banners — each rendered, not assumed.
 4. **Interaction states.** As above: every state of every element, with the screenshot.
-5. **Visual performance.** Layout shift from images without dimensions, from font swap,
-   and from content injected after paint. Janky animation, slow scrolling, expensive CSS
-   such as large blurs and shadows, unoptimized images. Whether a loading state is visible
-   at all before content arrives.
+5. **Visual performance.** Layout movement, delayed assets or typography, janky motion,
+   slow interaction, visually expensive effects, and whether a loading state is visible at
+   all before content arrives. Report only causes the browser evidence supports.
 
 ### Severity
 
 - **Visual breaking** — must fix before merge. Layout breaks at a supported viewport,
   horizontal scroll on mobile, overlapping or cut-off elements, content overflow, images
   escaping their container, navigation unusable on mobile.
-- **Serious** — should fix. Contrast below WCAG AA, touch targets under 44x44px, focus
-  indicator not visible, text below 16px on mobile, spacing or component inconsistency
+- **Serious** — should fix. Contrast below the criterion recorded in the accessibility
+  pass, targets below the size threshold recorded there, focus indicator not visible, body
+  text below the recorded minimum at a narrow width, spacing or component inconsistency
   that reads as broken.
 - **Moderate** — address if time allows. Small alignment drift, whitespace inconsistency,
   missing or too-subtle hover states, placeholder styling, image quality.
@@ -152,6 +154,21 @@ The verdict follows the counts: any visual-breaking issue means REJECTED; seriou
 without visual-breaking ones mean NEEDS_REVISION; only moderate and minor findings mean
 APPROVED. State the score out of 10 alongside it, and cite the screenshot and the
 viewport for each finding that moved it.
+
+<!-- LLM:REVIEW_FOCUS -->
+
+## Visual review focus for this repository
+
+Until the wizard fills this section, derive the review focus from the repository
+instruction files and the patterns of the two or three closest existing implementations.
+
+Take from them what this interface is actually held to: how the project is served for
+local inspection, which viewports and browsers it claims to support, where its design
+tokens, theme definitions and shared primitives live, and which screens carry a
+documented accessibility requirement. Measure against those values rather than against
+generic defaults, and say in the report which source each expectation came from.
+
+<!-- /LLM:REVIEW_FOCUS -->
 
 ## Output contract
 

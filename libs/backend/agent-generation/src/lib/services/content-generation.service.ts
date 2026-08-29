@@ -50,6 +50,10 @@ import {
 } from '../types/core.types';
 import { ContentGenerationError } from '../errors/generation.error';
 import {
+  GeneratedSectionValidator,
+  type AnalysisPathIndex,
+} from './generated-section-validator';
+import {
   SDK_TOKENS,
   SdkStreamProcessor,
   discoverPluginSkills,
@@ -107,6 +111,11 @@ export class ContentGenerationService implements IContentGenerationService {
     private readonly modelSettings: ModelSettings,
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    // Last, and defaulted, so the seventeen existing three-argument
+    // constructions in the spec keep compiling. tsyringe still resolves the
+    // registered `@injectable()` class from `design:paramtypes`; the default
+    // only applies to a hand-rolled `new`.
+    private readonly sectionValidator: GeneratedSectionValidator = new GeneratedSectionValidator(),
   ) {}
 
   /**
@@ -124,7 +133,7 @@ export class ContentGenerationService implements IContentGenerationService {
     template: AgentTemplate,
     context: AgentProjectContext,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<Result<{ content: string; description: string }, Error>> {
+  ): Promise<Result<{ content: string; warnings: string[] }, Error>> {
     try {
       this.logger.info('Starting LLM-driven content generation', {
         templateId: template.id,
@@ -132,7 +141,7 @@ export class ContentGenerationService implements IContentGenerationService {
       });
 
       let content = template.content;
-      let description = '';
+      let warnings: string[] = [];
       const dynamicSections = this.extractDynamicSections(content);
 
       this.logger.debug('Dynamic sections identified', {
@@ -149,7 +158,7 @@ export class ContentGenerationService implements IContentGenerationService {
           sdkConfig,
         );
         content = fillResult.content;
-        description = fillResult.description;
+        warnings = fillResult.warnings;
       }
       content = this.substituteRemainingVars(content, context);
 
@@ -157,10 +166,10 @@ export class ContentGenerationService implements IContentGenerationService {
         templateId: template.id,
         contentLength: content.length,
         dynamicSectionsProcessed: dynamicSections.length,
-        hasLlmDescription: description.length > 0,
+        rejectedSections: warnings.length,
       });
 
-      return Result.ok({ content, description });
+      return Result.ok({ content, warnings });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -214,13 +223,21 @@ export class ContentGenerationService implements IContentGenerationService {
     context: AgentProjectContext,
     templateName: string,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<{ content: string; description: string }> {
+  ): Promise<{ content: string; warnings: string[] }> {
     const abortController = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const warnings: string[] = [];
+    // The SAME text the prompt shows the model is what the validator mines for
+    // citable paths. Anything else would reject a path the model was handed.
+    const analysisData = this.resolveAnalysisData(context, templateName);
+    const pathIndex = this.sectionValidator.buildPathIndex(context.rootPath, [
+      analysisData,
+      ...context.relevantFiles.map((file) => file.relativePath),
+    ]);
     try {
       const prompt = this.buildAllSectionsPrompt(
         sections,
-        context,
+        analysisData,
         templateName,
       );
       const sectionIds = sections.map((s) => s.id);
@@ -235,38 +252,47 @@ export class ContentGenerationService implements IContentGenerationService {
         };
       }
 
+      // Sections only. The agent's `description` is authored metadata — the
+      // sentence a harness selects on — and the orchestrator now takes it from
+      // the template alone, so asking the model for one produced a value
+      // nothing read.
       const outputSchema: Record<string, unknown> = {
         type: 'object',
         properties: {
-          description: {
-            type: 'string',
-            description:
-              'A concise 1-sentence agent description (max 120 chars) specific to this project. Example: "Backend developer specializing in NestJS microservices with PostgreSQL and Redis"',
-          },
           sections: {
             type: 'object',
             properties: sectionProperties,
             required: sectionIds,
           },
         },
-        required: ['description', 'sections'],
+        required: ['sections'],
       };
       const model =
         sdkConfig?.model ??
         (this.modelSettings.selectedModel.get() || 'default');
-      let systemPrompt = `You are a content generation specialist for developer tooling configuration files.
+      let systemPrompt = `You write the repository-specific half of a subagent instruction file. The other half — role, method, output contract — is already authored and stack-agnostic. Your sections tell the agent HOW THIS REPOSITORY DOES THINGS.
 
-CRITICAL CONSTRAINTS:
-- You have NO tools available. Do NOT attempt to call any tools or explore the filesystem.
-- ALL project information you need is provided in the PROJECT ANALYSIS DATA below.
-- Base every piece of generated content EXCLUSIVELY on the provided analysis data.
-- Do NOT fabricate, guess, or assume any project details not present in the analysis data.
-- If the analysis data lacks information for a section, generate sensible defaults based on the project type and frameworks listed.
+WHAT A SECTION IS
+- Conventions and patterns only: the rule a contributor must follow, the boundary they must not cross, the file that decides the question.
+- Write for a reader six months from now. Every sentence must still be true after someone adds a directory, upgrades a dependency, or fixes the lint backlog.
 
-OUTPUT FORMAT:
-- Return a JSON object with a "sections" property containing each section ID mapped to its content.
-- Each section value must be pure markdown (no wrapping markers, code fences, or section headers).
-- Do NOT include any {{VARIABLE}}, {{GENERATED_*}}, or template markers in your output.`;
+FORBIDDEN — these make the file wrong the week after it is written:
+- Counts of anything. No "15 libs", "22 tokens", "30 handlers", "three adapters".
+- Version numbers. Name the framework, never its version.
+- Percentages, coverage figures, error or warning tallies.
+- Dates, years, or any "as of" clause.
+- Inventories: do not list or summarise the directory tree, the lib set, or the dependency list.
+
+REQUIRED
+- Every bullet cites at least one concrete path, in backticks: \`path/to/thing.ts\`.
+- You MAY read a file to confirm a convention before you state it. Cite only paths you actually opened or that the PROJECT ANALYSIS DATA lists — never a path you inferred, guessed or completed from either.
+- 8 to 15 lines per section, bullets preferred.
+- Keep the section's "## " heading exactly as the template blueprint spells it, as the first line of your output.
+- If the evidence cannot carry the section — fewer than about six distinct claims you can each back with a path — return an empty string for that section. The authored fallback ships instead, which is the right outcome. Do not pad the section with general advice to reach a length.
+
+OUTPUT FORMAT
+- Return a JSON object with a "sections" property mapping each section ID to its markdown.
+- No wrapping markers and no code fences around the section itself.`;
 
       if (sdkConfig?.enhancedPromptContent) {
         systemPrompt += `\n\n--- Enhanced Project Guidance ---\n${sdkConfig.enhancedPromptContent}`;
@@ -315,14 +341,9 @@ OUTPUT FORMAT:
         'sections' in structuredOutput
       ) {
         const typedOutput = structuredOutput as {
-          description?: string;
           sections: Record<string, string>;
         };
         const generatedSections = typedOutput.sections;
-        const llmDescription =
-          typeof typedOutput.description === 'string'
-            ? typedOutput.description.trim()
-            : '';
         let processed = content;
         for (const section of sections) {
           const generated = generatedSections[section.id];
@@ -334,16 +355,48 @@ OUTPUT FORMAT:
               contentLength: replacement.length,
             });
           } else {
+            // An empty section is the answer the prompt asks for when the
+            // evidence cannot carry one — an honest abstention, not a rejected
+            // attempt. It costs nothing (the authored fallback is what would
+            // have shipped anyway), so it is logged at debug and never becomes
+            // a warning in the generation summary, where it would read as a
+            // failure the user should act on.
             replacement = section.content;
-            this.logger.warn(
-              `Section ${section.id}: SDK returned empty, using template fallback`,
+            this.logger.debug(
+              `Section ${section.id}: no generated text, shipping the authored fallback`,
+              { templateName },
             );
+          }
+
+          // Only LLM sections are gated. A VAR section is DATA — a package
+          // manager, a monorepo type — and the rules below exist to keep DATA
+          // out of prose, not out of the slot that asked for it.
+          if (section.type === 'llm' && replacement !== section.content) {
+            const verdict = await this.sectionValidator.validate(
+              {
+                sectionId: section.id,
+                generated: replacement,
+                fallback: section.content,
+              },
+              pathIndex,
+            );
+            if (!verdict.accepted) {
+              const reason = verdict.violations.join('; ');
+              replacement = section.content;
+              this.logger.warn(
+                `Section ${section.id}: generated text rejected, keeping authored fallback`,
+                { templateName, reason },
+              );
+              warnings.push(
+                `[${templateName}] LLM section ${section.id} rejected (${reason}) — kept the authored fallback`,
+              );
+            }
           }
 
           processed = processed.replace(section.fullMatch, () => replacement);
         }
 
-        return { content: processed, description: llmDescription };
+        return { content: processed, warnings };
       }
       this.logger.warn(
         'SDK did not return structured output, using template fallback for all sections',
@@ -362,7 +415,7 @@ OUTPUT FORMAT:
     for (const section of sections) {
       processed = processed.replace(section.fullMatch, section.content);
     }
-    return { content: processed, description: '' };
+    return { content: processed, warnings };
   }
 
   /**
@@ -370,51 +423,58 @@ OUTPUT FORMAT:
    */
   private buildAllSectionsPrompt(
     sections: DynamicSection[],
-    context: AgentProjectContext,
+    analysisData: string,
     templateName: string,
   ): string {
-    let analysisData: string;
-    if (context.analysisDir) {
-      const phaseContext = this.readPhaseContextForRole(
-        context.analysisDir,
-        templateName,
-      );
-      analysisData = phaseContext || this.formatAnalysisData(context);
-    } else {
-      analysisData = this.formatAnalysisData(context);
-    }
-
     const sectionDescriptions = sections
       .map((section) => {
         const topic = this.sectionIdToTopic(section.id, section.type);
-        const typeLabel = section.type === 'var' ? 'DATA' : 'GUIDANCE';
+        const typeLabel = section.type === 'var' ? 'DATA' : 'CONVENTIONS';
 
-        return `### Section "${section.id}" (${typeLabel}: ${topic})
-TEMPLATE BLUEPRINT:
+        return `### Section "${section.id}" (${typeLabel})
+WRITE ABOUT: ${topic}
+TEMPLATE BLUEPRINT — keep its heading, replace its generic body:
 ${section.content}`;
       })
       .join('\n\n');
 
-    return `Generate project-specific content for the "${templateName}" agent configuration file.
+    return `Write the repository-specific sections of the "${templateName}" agent instruction file.
 
-ALL project information is provided below. Use ONLY this data — do not attempt to explore, search, or analyze the project yourself.
-
-## PROJECT ANALYSIS DATA (source of truth)
+## PROJECT ANALYSIS DATA (the only source of truth)
 ${analysisData}
 
 ## SECTIONS TO FILL
 ${sectionDescriptions}
 
 ## INSTRUCTIONS
-1. For each section, generate content that is specific to THIS project based on the analysis data above.
-2. DATA sections: replace all {{VARIABLE}} placeholders with actual values extracted from the analysis data.
-3. GUIDANCE sections: generate actionable, project-specific guidance referencing the exact frameworks, languages, and patterns from the analysis data — no generic advice.
-4. Use the template blueprint as guidance for the KIND and STRUCTURE of content expected, but tailor all details to the analysis data.
-5. Reference concrete details from the analysis: specific framework names, file paths, architecture patterns, testing frameworks, and conventions.
-6. Keep each section under 500 words.
-7. Also generate a "description" field: a concise 1-sentence agent description (max 120 chars) specific to THIS project. Do NOT include the agent name. Focus on what this agent does for this specific project.
+1. Replace each blueprint's generic body with the conventions THIS repository actually follows, keeping the blueprint's "## " heading verbatim as your first line.
+2. Say what a contributor must DO and must NOT do, and name the file that decides it. "Route model output through \`src/markdown/sanitize.ts\`" is a convention; "the project has a markdown lib" is a census.
+3. Every bullet carries at least one backticked path taken from the analysis data above. If you cannot cite a path for a claim, drop the claim.
+4. No counts, no version numbers, no percentages, no dates, no directory inventories. A section containing any of them is discarded and the generic blueprint text ships instead.
+5. 8 to 15 lines per section. Prefer bullets over paragraphs.
+6. If a section's evidence supports fewer than about six distinct path-backed claims, return an empty string for that section. The authored blueprint text ships in its place, which is better than a padded section.
 
-Return a JSON object: { "description": "<concise description>", "sections": { "<sectionId>": "<markdown content>", ... } }`;
+Return a JSON object: { "sections": { "<sectionId>": "<markdown or empty string>", ... } }`;
+  }
+
+  /**
+   * Pick the analysis text the prompt — and therefore the validator — works from.
+   *
+   * The multi-phase files are richer and already role-filtered; the formatted
+   * context summary is the fallback when the wizard did not run them.
+   */
+  private resolveAnalysisData(
+    context: AgentProjectContext,
+    templateName: string,
+  ): string {
+    if (context.analysisDir) {
+      const phaseContext = this.readPhaseContextForRole(
+        context.analysisDir,
+        templateName,
+      );
+      if (phaseContext) return phaseContext;
+    }
+    return this.formatAnalysisData(context);
   }
 
   /**
@@ -634,9 +694,41 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
   }
 
   /**
-   * Convert section ID to human-readable topic for the LLM prompt.
+   * What each registered section id is FOR, in the words the model needs.
+   *
+   * The ids are role-assigned — a developer's template carries
+   * `FRAMEWORK_CONVENTIONS`, a reviewer's carries `REVIEW_FOCUS` — so the topic
+   * is the one place the prompt can say what a section of that name should
+   * contain. Left to a de-kebabbed id ("Framework Conventions") the model wrote
+   * whatever "conventions" suggested, which is how a lib census ended up under
+   * that heading.
+   *
+   * Not closed on purpose: an id with no entry still generates, from its
+   * humanised name. A missing entry should read as a thinner prompt, not a
+   * failed wizard.
+   */
+  private static readonly SECTION_TOPICS: Readonly<Record<string, string>> = {
+    FRAMEWORK_CONVENTIONS:
+      'how this repository declares and wires the things its framework asks for — modules, components, services, configuration, dependency injection, validation — and which file settles each of those questions',
+    ARCHITECTURE_PATTERNS:
+      'the boundaries this codebase enforces and the direction dependencies are allowed to point: which layer may import which, what belongs on each side of a boundary, and the shape a new unit of code has to take to fit',
+    BUILD_AND_DEPLOY_SURFACE:
+      'the build, packaging and release surface: which command builds and tests what, which config files own that behaviour, and what a change to them is expected to keep working',
+    TEST_INFRASTRUCTURE:
+      'where tests live relative to the code they cover, how they are named and executed, what the harness provides, and the rules a new test has to follow to run at all',
+    EXISTING_PATTERNS:
+      'the patterns already established here that a new design must extend rather than replace — the established way to add a unit of behaviour, and the seams a change is expected to use',
+    REVIEW_FOCUS:
+      'what a reviewer of THIS repository looks at first: the conventions most often broken here, the boundaries most often crossed by accident, and the files where a mistake is expensive',
+  };
+
+  /**
+   * Convert section ID to the topic sentence used in the LLM prompt.
    */
   private sectionIdToTopic(id: string, type: string): string {
+    const mapped = ContentGenerationService.SECTION_TOPICS[id];
+    if (mapped) return mapped;
+
     const humanName = id
       .split('_')
       .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
@@ -646,6 +738,23 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
 
   /**
    * Format the project context as a readable analysis summary for the LLM.
+   *
+   * ## What is deliberately NOT here
+   *
+   * The model reproduces the shape of what it is shown. Every numeric field the
+   * analysis carries used to be pasted in — pattern confidence, language
+   * distribution, estimated coverage, error and warning tallies — and the
+   * generated sections came back reading like a dashboard: "92% confidence
+   * layered architecture", "3 errors, 12 warnings", "72% coverage". All four
+   * were stale before the wizard finished, and the post-generation validator
+   * would now discard the section for saying them.
+   *
+   * So the numbers are dropped HERE, at the source, rather than left in the
+   * prompt for a rule to catch downstream. What survives is the part that stays
+   * true: names, paths, and conventions. Pattern names without their confidence,
+   * test frameworks without their coverage, file locations verbatim — those
+   * paths are also what the validator will accept as citations, so the model is
+   * shown exactly the vocabulary it is allowed to use.
    */
   private formatAnalysisData(context: AgentProjectContext): string {
     const parts = [
@@ -688,38 +797,34 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
       }
 
       if (analysis.architecturePatterns?.length > 0) {
+        // Names only. The confidence score is a property of the ANALYSER, not of
+        // the repository, and it read as a fact about the code once quoted.
         parts.push(
           `Architecture Patterns: ${analysis.architecturePatterns
-            .map((p) => `${p.name} (${p.confidence}% confidence)`)
+            .map((p) => p.name)
             .join(', ')}`,
         );
       }
 
-      if (analysis.languageDistribution?.length) {
-        parts.push(
-          `Language Distribution: ${analysis.languageDistribution
-            .map((l) => `${l.language} ${l.percentage}%`)
-            .join(', ')}`,
-        );
-      }
+      // `languageDistribution` is intentionally omitted: it is a percentage
+      // table and nothing else, and `Languages:` above already carries the same
+      // information in the only form that survives a refactor — ordered names.
 
       if (analysis.testCoverage) {
+        const kinds = [
+          analysis.testCoverage.hasUnitTests ? 'unit' : null,
+          analysis.testCoverage.hasIntegrationTests ? 'integration' : null,
+        ].filter((kind): kind is string => kind !== null);
         parts.push(
-          `Test Coverage: ${
-            analysis.testCoverage.percentage
-          }% estimated (framework: ${
+          `Test Setup: framework ${
             analysis.testCoverage.testFramework || 'unknown'
-          }, unit: ${analysis.testCoverage.hasUnitTests}, integration: ${
-            analysis.testCoverage.hasIntegrationTests
-          })`,
+          }${kinds.length > 0 ? `, ${kinds.join(' and ')} tests present` : ', no test kinds detected'}`,
         );
       }
 
-      if (analysis.existingIssues) {
-        parts.push(
-          `Code Issues: ${analysis.existingIssues.errorCount} errors, ${analysis.existingIssues.warningCount} warnings`,
-        );
-      }
+      // `existingIssues` is intentionally omitted: an error/warning tally is a
+      // snapshot of one lint run, and the first thing a section written from it
+      // says is how many problems the repository "has".
 
       if (analysis.keyFileLocations) {
         const locations = analysis.keyFileLocations;

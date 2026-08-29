@@ -220,6 +220,88 @@ describe('TemplatePartialResolver', () => {
     expect(result.value!.content).toContain('middle');
   });
 
+  /**
+   * The resolver owns STATIC and nothing else.
+   *
+   * `LLM` sections are filled a stage later, by `ContentGenerationService`, from
+   * analysis the resolver has never seen. Two properties have to hold or the two
+   * mechanisms collide: an `LLM` marker must survive resolution untouched, and
+   * the slot scan — which fails a load on any residual `{{…}}` — must never look
+   * at LLM fallback text, because that text is authored template body and not a
+   * shared partial at all.
+   */
+  describe('LLM markers belong to a later stage', () => {
+    it('passes an LLM pair through byte-for-byte', async () => {
+      const body = [
+        '# Agent',
+        '',
+        '<!-- LLM:FRAMEWORK_CONVENTIONS -->',
+        '## Framework conventions',
+        '',
+        '- Follow what the framework already establishes.',
+        '<!-- /LLM:FRAMEWORK_CONVENTIONS -->',
+        '',
+      ].join('\n');
+
+      const result = await resolve(body);
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.content).toBe(body);
+      expect(result.value!.blocks).toEqual([]);
+    });
+
+    it('does not treat an LLM id as an unregistered STATIC id', async () => {
+      // A `STATIC:FRAMEWORK_CONVENTIONS` would fail the load — the id is not in
+      // SHARED_BLOCK_IDS. The `LLM:` prefix must not reach that check at all.
+      const result = await resolve(
+        '<!-- LLM:FRAMEWORK_CONVENTIONS -->\nx\n<!-- /LLM:FRAMEWORK_CONVENTIONS -->\n',
+      );
+      expect(result.isErr()).toBe(false);
+    });
+
+    it('resolves a STATIC block sitting beside an LLM pair', async () => {
+      const result = await resolve(
+        [
+          '<!-- LLM:REVIEW_FOCUS -->',
+          '## Review focus',
+          '<!-- /LLM:REVIEW_FOCUS -->',
+          '',
+          '<!-- STATIC:REPLACEMENT_POLICY -->',
+          '<!-- /STATIC:REPLACEMENT_POLICY -->',
+        ].join('\n'),
+      );
+
+      expect(result.value!.blocks.map((b) => b.id)).toEqual([
+        'REPLACEMENT_POLICY',
+      ]);
+      expect(result.value!.content).toContain('<!-- LLM:REVIEW_FOCUS -->');
+      expect(result.value!.content).toContain('- Replace in place.');
+    });
+
+    it('does not run the residual-slot scan over LLM fallback text', async () => {
+      // The scan is scoped to an expanded partial's body. A `{{…}}` anywhere in
+      // the surrounding template — including inside an LLM pair — is somebody
+      // else's problem, and failing the load on it would make the two
+      // mechanisms unable to share a file.
+      const result = await resolve(
+        [
+          '<!-- LLM:EXISTING_PATTERNS -->',
+          '## Existing patterns',
+          '',
+          '- A literal {{NOT_A_SLOT}} in authored fallback text.',
+          '<!-- /LLM:EXISTING_PATTERNS -->',
+          '<!-- STATIC:CLARIFICATION_PROTOCOL -->',
+          '<!-- /STATIC:CLARIFICATION_PROTOCOL -->',
+        ].join('\n'),
+        { CLARIFY_ARTIFACT: 'writing code' },
+      );
+
+      expect(result.isErr() ? result.error!.message : 'ok').toBe('ok');
+      expect(result.value!.content).toContain('{{NOT_A_SLOT}}');
+      expect(result.value!.content).toContain('STOP before writing code.');
+    });
+  });
+
   it('reads each partial once and forgets it on clearCache', async () => {
     const body =
       '<!-- STATIC:REPLACEMENT_POLICY -->\n<!-- /STATIC:REPLACEMENT_POLICY -->\n';
