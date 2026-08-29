@@ -37,8 +37,6 @@ import { PermissionPromptService } from '../../permission/permission-prompt.serv
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
 import {
-  clearCodexMcpToolSearch,
-  enableCodexMcpToolSearch,
   isFileLockTimeoutError,
   withMcpConfigLock,
   HARNESS_SYNC_TOKENS,
@@ -642,7 +640,6 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         slot.target === CLAUDE_TARGET
           ? await this.writeMcpJsonEntry(slot.configPath, port)
           : await this.writeFacetEntry(slot, port);
-      await this.applyTargetSideEffects(slot);
 
       this.registrations.set(slot.configPath, { port, slot });
       if (wrote) {
@@ -771,44 +768,6 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
-   * The one target that needs more than a server entry.
-   *
-   * Codex has historically kept MCP tools out of the model's tool list until it
-   * runs a tool search, so `[mcp_servers.ptah]` alone could mean a successful
-   * handshake and an empty tool list. `CodexCliAdapter` sends
-   * `features.tool_search_always_defer_mcp_tools = false` in-process for threads
-   * Ptah spawns; this is the file-based half, written into the SAME file as the
-   * server entry so both live at the same scope.
-   *
-   * On codex-cli 0.150.1 that flag now reports stage `removed` and could not be
-   * moved from any surface — see `enableCodexMcpToolSearch`. It is written
-   * anyway because it is fenced, reversible and free, but it is best-effort and
-   * never fatal: the server entry is correct without it, and refusing the
-   * registration over it would trade a degraded Codex for none.
-   */
-  private async applyTargetSideEffects(slot: PtahMcpSlot): Promise<void> {
-    if (slot.target !== 'codex') return;
-    try {
-      const outcome = await enableCodexMcpToolSearch(slot.configPath);
-      if (outcome === 'user-owned') {
-        this.logger.info(
-          `[CodeExecutionMCP] Codex already declares tool_search_always_defer_mcp_tools; ` +
-            `leaving it as the user set it`,
-          'CodeExecutionMCP',
-        );
-      }
-    } catch (error: unknown) {
-      this.logger.warn(
-        `[CodeExecutionMCP] Registered ptah for codex but could not set ` +
-          `tool_search_always_defer_mcp_tools; its MCP tools may stay hidden: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        'CodeExecutionMCP',
-      );
-    }
-  }
-
-  /**
    * Give back every entry we still own. Used by `stop()`, where the server is
    * about to close and no config file should keep advertising its port.
    *
@@ -845,7 +804,6 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         owned.slot.target === CLAUDE_TARGET
           ? await this.removeMcpJsonEntry(configPath)
           : await this.removeFacetEntry(owned.slot);
-      await this.clearTargetSideEffects(owned.slot);
 
       this.registrations.delete(configPath);
       if (removed) {
@@ -917,17 +875,6 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     if (!present) return false;
     await slot.facet.remove(slot.workspaceRoot, PTAH_SPAWN_MCP_KEY);
     return true;
-  }
-
-  /** Undo {@link applyTargetSideEffects}. Ptah's line only; never the user's. */
-  private async clearTargetSideEffects(slot: PtahMcpSlot): Promise<void> {
-    if (slot.target !== 'codex') return;
-    try {
-      await clearCodexMcpToolSearch(slot.configPath);
-    } catch {
-      // A leftover feature line is inert without the server entry this call
-      // has already removed, and the next registration rewrites it.
-    }
   }
 
   /**

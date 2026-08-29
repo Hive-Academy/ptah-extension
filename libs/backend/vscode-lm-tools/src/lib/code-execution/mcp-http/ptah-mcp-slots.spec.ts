@@ -23,7 +23,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   FileSystemManager: class {},
 }));
 
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { HarnessTargetId } from '@ptah-extension/shared';
@@ -45,6 +45,24 @@ describe('planPtahMcpSlots', () => {
   afterEach(() => {
     rmSync(tempHome, { recursive: true, force: true });
   });
+
+  /**
+   * Record `trust_level = "trusted"` for these roots in the fake home config.
+   *
+   * The real thing is written by Codex when the user accepts its trust prompt.
+   * Ptah only ever reads it — see `codex-project-trust.ts`.
+   */
+  function trustCodexProjects(roots: string[]): void {
+    mkdirSync(join(tempHome, '.codex'), { recursive: true });
+    const body = roots
+      .flatMap((root) => [
+        `[projects.'${root.replace(/\\/g, '\\\\')}']`,
+        'trust_level = "trusted"',
+        '',
+      ])
+      .join('\n');
+    writeFileSync(join(tempHome, '.codex', 'config.toml'), body, 'utf-8');
+  }
 
   function plan(
     options: {
@@ -127,12 +145,14 @@ describe('planPtahMcpSlots', () => {
       ]);
     });
 
-    it('resolves codex under the WORKSPACE, one slot per folder', async () => {
+    it('resolves a TRUSTED codex project under the workspace', async () => {
       // Codex reads `{ws}/.codex/config.toml` and merges it with the home file.
       // `codex --help` and `codex doctor` name only the home one, which is what
       // an earlier version of the planner wrongly concluded from. Measured on
       // codex-cli 0.150.1: with the project file present, `codex doctor` in that
       // workspace went from `MCP servers 1` to `2`.
+      trustCodexProjects([WS_A, WS_B]);
+
       const slots = (
         await plan({ roots: [WS_A, WS_B], installed: ['codex'] })
       ).filter((slot) => slot.target === 'codex');
@@ -143,15 +163,44 @@ describe('planPtahMcpSlots', () => {
       ]);
     });
 
-    it("never puts codex in the HOME config — that scope is the reconciler's", async () => {
-      // `createMcpFacet('codex')` is home-scoped, and stays that way: a server
-      // the user INSTALLED is a machine-wide choice. Ptah's own server is bound
-      // to one workspace's Ptah process, and one home file cannot hold two
-      // ports for two open windows.
-      const slots = await plan({ roots: [WS_A], installed: ['codex'] });
+    it('falls back to the HOME config for an UNTRUSTED codex project', async () => {
+      // Codex ignores a project config it does not trust, and says nothing
+      // about it. Writing the workspace file there would be a silent no-op; the
+      // home file is read unconditionally, so the user gets working tools on
+      // the first run — which is also the run that raises the trust prompt.
+      const slots = (
+        await plan({ roots: [WS_A], installed: ['codex'] })
+      ).filter((slot) => slot.target === 'codex');
 
-      expect(slots.some((slot) => slot.configPath.startsWith(tempHome))).toBe(
-        false,
+      expect(slots.map((slot) => slot.configPath)).toEqual([
+        join(tempHome, '.codex', 'config.toml'),
+      ]);
+    });
+
+    it('never plans BOTH codex scopes for one trusted root', async () => {
+      trustCodexProjects([WS_A]);
+
+      const slots = (
+        await plan({ roots: [WS_A], installed: ['codex'] })
+      ).filter((slot) => slot.target === 'codex');
+
+      expect(slots).toHaveLength(1);
+    });
+
+    it('covers a mixed set: a workspace file each, plus one home file', async () => {
+      // One home entry serves every untrusted root at once, which is the whole
+      // reason the home spec is planned when it applies to ANY of them.
+      trustCodexProjects([WS_A]);
+
+      const slots = (
+        await plan({ roots: [WS_A, WS_B], installed: ['codex'] })
+      ).filter((slot) => slot.target === 'codex');
+
+      expect(slots.map((slot) => slot.configPath).sort()).toEqual(
+        [
+          join(WS_A, '.codex', 'config.toml'),
+          join(tempHome, '.codex', 'config.toml'),
+        ].sort(),
       );
     });
 

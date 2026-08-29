@@ -19,7 +19,8 @@
  * | ----------- | ---------------------------------- | --------- | ------------------ |
  * | claude      | `{ws}/.mcp.json`                   | workspace | no                 |
  * | cursor      | `{ws}/.cursor/mcp.json`            | workspace | yes                |
- * | codex       | `{ws}/.codex/config.toml`          | workspace | yes                |
+ * | codex       | `{ws}/.codex/config.toml`          | workspace | yes, if TRUSTED    |
+ * | codex       | `~/.codex/config.toml`             | home      | yes, if UNTRUSTED  |
  * | antigravity | `~/.gemini/config/mcp_config.json` | home      | yes                |
  * | antigravity | `{ws}/.agents/mcp_config.json`     | workspace | yes                |
  *
@@ -38,12 +39,23 @@
  * the only scope that can be RIGHT here: Ptah's server is one port per Ptah
  * process, and two windows open on two folders cannot share one home entry.
  *
- * **A project-scoped Codex config is honoured only for a TRUSTED project.** The
- * same probe in a fresh `git init` temp repo with no `[projects.'<path>']
- * trust_level = "trusted"` entry reported `MCP servers 1` — the file was
- * ignored, silently. Codex prompts for trust on first use, so a workspace the
- * user actually runs Codex in has it, and one they do not is a workspace where
- * the entry costs nothing either way. Nothing here can detect or grant trust.
+ * **A project-scoped Codex config is honoured only for a TRUSTED project, so
+ * the scope is CHOSEN per workspace rather than fixed.** The same probe in a
+ * fresh `git init` temp repo with no `[projects.'<path>'] trust_level =
+ * "trusted"` entry reported `MCP servers 1` — the file was ignored, silently.
+ * `codexProjectTrusted` reads that record, and an untrusted workspace gets the
+ * HOME config instead, which Codex reads unconditionally.
+ *
+ * That is self-healing in the right direction: the untrusted workspace works on
+ * the user's first `codex` run, that run is what raises the trust prompt, and
+ * the next registration pass moves the entry to the workspace file and drops
+ * the home one. Ptah never writes a trust entry itself — trust grants Codex the
+ * right to run commands in a directory, and answering that for the user would
+ * be Ptah settling a security question that was asked of them.
+ *
+ * The cost is one case: two UNTRUSTED workspaces open at once share the single
+ * home entry, so the last registration wins. An untrusted workspace is one the
+ * user has not yet run Codex in, which makes that both rare and transient.
  *
  * **Antigravity is TWO products with different answers, so it gets both files.**
  * The Antigravity EDITOR documents a workspace config at
@@ -99,6 +111,7 @@
 
 import type { HarnessTargetId, McpServerConfig } from '@ptah-extension/shared';
 import {
+  codexProjectTrusted,
   createMcpFacet,
   CodexTomlMcpFacet,
   JsonMcpFacet,
@@ -130,16 +143,33 @@ export const CLAUDE_TARGET: HarnessTargetId = 'claude';
 interface SlotSpec {
   readonly target: HarnessTargetId;
   readonly scope: 'workspace' | 'home';
+  /**
+   * When present, the spec is planned only for the roots this returns true for.
+   * Codex is the one target whose scope depends on the workspace rather than on
+   * the tool, so the two Codex specs are mutually exclusive per root.
+   */
+  readonly appliesTo?: (workspaceRoot: string, homeDir?: string) => boolean;
 }
 
 /**
  * Every slot, in a stable order. A target may appear twice when the tool reads
- * two files — see the Antigravity note in the header.
+ * two files — see the Antigravity and Codex notes in the header.
  */
 const SLOT_SPECS: readonly SlotSpec[] = [
   { target: CLAUDE_TARGET, scope: 'workspace' },
   { target: 'cursor', scope: 'workspace' },
-  { target: 'codex', scope: 'workspace' },
+  {
+    target: 'codex',
+    scope: 'workspace',
+    appliesTo: (root, homeDir) =>
+      codexProjectTrusted(root, homeDir === undefined ? {} : { homeDir }),
+  },
+  {
+    target: 'codex',
+    scope: 'home',
+    appliesTo: (root, homeDir) =>
+      !codexProjectTrusted(root, homeDir === undefined ? {} : { homeDir }),
+  },
   { target: 'antigravity', scope: 'home' },
   { target: 'antigravity', scope: 'workspace' },
 ];
@@ -156,8 +186,8 @@ function facetFor(
   spec: SlotSpec,
   options: { homeDir?: string },
 ): IHarnessMcpFacet {
-  if (spec.target === 'codex' && spec.scope === 'workspace') {
-    return new CodexTomlMcpFacet({ ...options, scope: 'workspace' });
+  if (spec.target === 'codex') {
+    return new CodexTomlMcpFacet({ ...options, scope: spec.scope });
   }
   if (spec.target === 'antigravity' && spec.scope === 'workspace') {
     return new JsonMcpFacet({
@@ -223,9 +253,24 @@ export async function planPtahMcpSlots(
       continue;
     }
     const facet = facetFor(spec, facetOptions);
-    // A home-scoped facet ignores the root, so it gets exactly one slot.
-    const targetRoots = spec.scope === 'home' ? [''] : roots;
-    for (const workspaceRoot of targetRoots) {
+    const applies = spec.appliesTo;
+
+    if (spec.scope === 'home') {
+      // A home file serves every open root at once, so a gated home spec is
+      // planned when it applies to ANY of them. That is what makes the two
+      // Codex specs cover a mixed set: the trusted roots get their own
+      // workspace files, and one home entry covers the rest.
+      if (applies && !roots.some((root) => applies(root, deps.homeDir))) {
+        continue;
+      }
+      const configPath = facet.configPath('');
+      if (configPath === null) continue;
+      slots.push({ target: spec.target, facet, workspaceRoot: '', configPath });
+      continue;
+    }
+
+    for (const workspaceRoot of roots) {
+      if (applies && !applies(workspaceRoot, deps.homeDir)) continue;
       const configPath = facet.configPath(workspaceRoot);
       if (configPath === null) continue;
       slots.push({ target: spec.target, facet, workspaceRoot, configPath });

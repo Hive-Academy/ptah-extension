@@ -55,7 +55,9 @@ and `codex doctor` name only the home file, which is misleading and cost one
 wrong conclusion; verified on codex-cli 0.150.1 by adding
 `{ws}/.codex/config.toml` and watching `codex doctor` go from `MCP servers 1`
 to `2`. A project-scoped file is honoured **only for a TRUSTED project** — the
-same probe in an untrusted temp repo ignored it silently.
+same probe in an untrusted temp repo ignored it silently, which is what
+`codexProjectTrusted` exists to detect so a writer can fall back to the home
+file rather than write one Codex discards.
 
 † **Copilot reads THREE MCP sources, and this is only the one Ptah installs
 into.** `copilot mcp --help` lists user `~/.copilot/mcp-config.json`, workspace
@@ -491,8 +493,7 @@ Targets: `createCodexTarget`, `createCopilotTarget`, `createCursorTarget`,
 Transforms: `transformSkillMarkdown`, `CodexAgentTransformer`,
 `CopilotAgentTransformer`, `CursorAgentTransformer`, `transformAgentContent`.
 MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`,
-`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`, `enableCodexMcpToolSearch`,
-`clearCodexMcpToolSearch`, `codexConfigPath`, `CODEX_TOOL_SEARCH_FLAG`.
+`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`, `codexProjectTrusted`.
 Workspace: `resolveHarnessWorkspaceRoot`.
 Lock: `acquireWorkspaceLock`, `serializePerWorkspace`, `acquireFileLock`,
 `withFileLock`, `serializeByKey`. Hashing: `hashDir`, `hashFile`, `hashContent`
@@ -1195,36 +1196,32 @@ structural, so `PluginLoaderService` satisfies it with no import either way.
   hash and `sourceHash` is the SOURCE hash; comparing the first detects a
   hand-edited copy, comparing the second detects a changed upstream. Byte-copy
   targets omit `sourceHash`.
-- **The Codex `features` flag is a SEPARATE module, not part of the MCP facet
-  (`targets/mcp/codex-tool-search-flag.ts`).** Codex connects to a registered
-  server and then hides its tools until the model runs a tool search, so
-  `[mcp_servers.ptah]` alone gives a successful handshake and an empty tool
-  list. `features.tool_search_always_defer_mcp_tools = false` is the other half.
-  It is not folded into `CodexTomlMcpFacet` because that facet's contract is one
-  SERVER entry per fenced block, and every consumer of `IHarnessMcpFacet` reads
-  `readAll` / `foreignServerKeys` that way. Three rules, pinned by
-  `codex-tool-search-flag.spec.ts`:
-  - **It MERGES into an existing `[features]` table and only appends a fenced
-    block when there is none.** TOML permits a table header exactly once, and
-    Codex writes `[features]` itself — appending a second leaves the whole file
-    unparseable, which is a broken Codex, not a degraded harness. A root-level
-    dotted `features.*` key is the same conflict and is left alone.
-  - **Ptah's line carries a `# ptah:managed` trailing comment.** That is what
-    makes removal precise. A `tool_search_always_defer_mcp_tools` line WITHOUT
-    it is the user's own setting: never overwritten, never removed, reported
-    back as `user-owned` so a caller can say the tools may stay hidden rather
-    than silently disagreeing with the file.
-  - **It takes a PATH, and the same `withMcpConfigLock` the facet takes on it**,
-    so a server write and a feature write cannot interleave into a lost update.
-    A path rather than a home-resolver because Codex has two config files and
-    the flag must land in the same one as the server entry it accompanies.
-  - **Measured caveat (codex-cli 0.150.1): the flag may already be inert.**
-    `codex features list` reports it with stage `removed` and effective state
-    `true`, and neither `-c features.tool_search_always_defer_mcp_tools=false`,
-    nor `--disable`, nor the key in a config file moved it. It is still what
-    `CodexCliAdapter` sends in-process, and writing it is fenced, reversible and
-    free — so it stays, but nothing should claim it is what makes MCP tools
-    appear. Re-measure before relying on it.
+- **Do NOT write a Codex `features` key beside a server entry. One was built,
+  measured end to end, and deleted.** `targets/mcp/codex-tool-search-flag.ts`
+  wrote `features.tool_search_always_defer_mcp_tools = false` on the belief that
+  a registered server is useless without it — Codex defers MCP tools out of the
+  model's eager tool list, and that key is what `CodexCliAdapter` sends
+  in-process. Tested against a live Ptah MCP server on codex-cli 0.150.1 with
+  `codex exec`: the eager list was empty with the flag in the project config,
+  with it in the home config, and without it at all — and with NO flag anywhere,
+  a session asked to search its tools called `ptah_workspace_analyze` and got a
+  result. The flag moves nothing (`codex features list` reports it with stage
+  `removed`), and the registration alone is sufficient. If eager listing ever
+  matters, the lever is the AGENTS.md Ptah already propagates, not a config key.
+- **`codexProjectTrusted` (`targets/mcp/codex-project-trust.ts`) exists because
+  Codex ignores an untrusted project's config SILENTLY.** A project-scoped
+  `{ws}/.codex/config.toml` is merged only when the home config records
+  `[projects.'<path>'] trust_level = "trusted"` — measured as `MCP servers 2` in
+  a trusted workspace against `MCP servers 1` in an untrusted one, with no
+  warning either way. The reader lets a writer pick the scope Codex will
+  actually read (`CodeExecutionMCP` falls back to the home file for an untrusted
+  root) instead of writing a file that is discarded. Three rules: it is
+  READ-ONLY, because trust grants Codex the right to run commands in a directory
+  and recording that for the user would be Ptah answering a question asked of
+  them; it compares paths case- and separator-normalized, because Codex records
+  the path lowercased on Windows while a workspace root arrives with its
+  original case; and every ambiguity reads as NOT trusted, which costs a
+  home-scoped entry that works rather than a workspace one that is ignored.
 - **Codex MCP is spliced between marker comments, not round-tripped.**
   `~/.codex/config.toml` is a file the user hand-edits — model preferences,
   sandbox policy, comments explaining why. No TOML library in this repo
