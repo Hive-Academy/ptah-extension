@@ -198,9 +198,54 @@ describe('HTTP server lifecycle', () => {
       server = result.server;
 
       expect(result.port).toBe(occupiedPort + 1);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
-        `MCP port ${occupiedPort} unavailable (EADDRINUSE), retrying with ${occupiedPort + 1}`,
+        `MCP port ${occupiedPort} (EADDRINUSE) unavailable; ` +
+          `another running Ptah instance is most likely already listening there. ` +
+          `Started on port ${occupiedPort + 1} instead.`,
       );
+    } finally {
+      await new Promise<void>((resolve) => occupier.close(() => resolve()));
+    }
+  });
+
+  // TASK_2026_354: every candidate port is attempted against the SAME
+  // `http.Server`. The success callback used to be handed to
+  // `server.listen(port, host, cb)`, which registers a ONE-TIME 'listening'
+  // listener — and "one-time" only consumes it when it fires. A candidate that
+  // failed with EADDRINUSE left its listener attached, so the next candidate's
+  // single 'listening' event reached both: the started line was logged, and
+  // `ptah.mcp.port` written, once per ATTEMPTED port. That is the duplicate
+  // pair at tmp/logs/log.log:551-552.
+  it('logs the started line exactly once even after a port fallback', async () => {
+    const occupier = http.createServer();
+    await new Promise<void>((resolve) =>
+      occupier.listen(0, 'localhost', resolve),
+    );
+    const occupiedPort = (occupier.address() as AddressInfo).port;
+
+    try {
+      const result = await startHttpServer({
+        port: occupiedPort,
+        logger,
+        workspaceState: state,
+        onMCPRequest: jest.fn(),
+      });
+      server = result.server;
+
+      const startedLines = logger.info.mock.calls.filter(([message]) =>
+        String(message).includes('CodeExecutionMCP server started'),
+      );
+      expect(startedLines).toHaveLength(1);
+      expect(startedLines[0][0]).toBe(
+        `CodeExecutionMCP server started on http://localhost:${result.port}`,
+      );
+
+      // The same leak wrote the port to workspace state twice.
+      const portWrites = state.update.mock.calls.filter(
+        ([key]) => key === 'ptah.mcp.port',
+      );
+      expect(portWrites).toHaveLength(1);
     } finally {
       await new Promise<void>((resolve) => occupier.close(() => resolve()));
     }
@@ -228,15 +273,20 @@ describe('HTTP server lifecycle', () => {
           onMCPRequest: jest.fn(),
         }),
       ).rejects.toMatchObject({ code: 'EADDRINUSE' });
-      expect(logger.warn).toHaveBeenCalledTimes(2);
-      expect(logger.warn).toHaveBeenNthCalledWith(
-        1,
-        `MCP port ${basePort} unavailable (EADDRINUSE), retrying with ${basePort + 1}`,
+      // One warning per start, naming every port that was refused and the fact
+      // that nothing was left to fall back to.
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        `MCP ports ${basePort} (EADDRINUSE), ${basePort + 1} (EADDRINUSE), ` +
+          `${basePort + 2} (EADDRINUSE) unavailable; ` +
+          `another running Ptah instance is most likely already listening there. ` +
+          `No fallback port left - the MCP server did not start.`,
       );
-      expect(logger.warn).toHaveBeenNthCalledWith(
-        2,
-        `MCP port ${basePort + 1} unavailable (EADDRINUSE), retrying with ${basePort + 2}`,
-      );
+      // The reader gets ASCII: a boot log piped through a legacy Windows
+      // console renders typographic punctuation as mojibake.
+      const [warning] = logger.warn.mock.calls[0];
+      // eslint-disable-next-line no-control-regex
+      expect(String(warning)).toMatch(/^[\x00-\x7F]*$/);
     } finally {
       await Promise.all(
         [first, second, third].map(

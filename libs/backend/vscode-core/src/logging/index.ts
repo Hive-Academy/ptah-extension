@@ -4,4 +4,5 @@
  */
 
 export { Logger } from './logger';
+export { sanitizeConsoleText } from './console-text';
 export type { LogLevel, LogContext, LogEntry } from './types';

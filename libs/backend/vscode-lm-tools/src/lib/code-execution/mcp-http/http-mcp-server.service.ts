@@ -85,6 +85,36 @@ function notRegistered(
   return { registered: false, reason };
 }
 
+/** The shape of the `ptah` key this service owns inside `.mcp.json`. */
+interface McpHttpServerEntry {
+  type: 'http';
+  url: string;
+}
+
+/**
+ * True when the `ptah` key already on disk is exactly the entry we would write.
+ *
+ * Structural rather than `JSON.stringify` equality: a hand-edited file may
+ * carry the same two fields in the other order, and rewriting it for that would
+ * be the same spurious diff this check exists to avoid. An entry carrying EXTRA
+ * keys is deliberately treated as different — we own this key, and leaving
+ * someone else's additions in place would mean advertising a server config we
+ * did not author.
+ */
+function isSameMcpHttpEntry(
+  existing: unknown,
+  desired: McpHttpServerEntry,
+): boolean {
+  if (typeof existing !== 'object' || existing === null) return false;
+  const entry = existing as Record<string, unknown>;
+  const keys = Object.keys(entry);
+  return (
+    keys.length === 2 &&
+    entry['type'] === desired.type &&
+    entry['url'] === desired.url
+  );
+}
+
 @injectable()
 export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private server: http.Server | null = null;
@@ -93,20 +123,29 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private toolResultCallback: ToolResultCallback | undefined;
 
   /**
-   * The `.mcp.json` path we actually wrote a `ptah` entry into, or `null` when
-   * we currently own no entry anywhere.
+   * Every `.mcp.json` we currently own a `ptah` entry in, mapped to the port we
+   * wrote there. Empty when we own no entry anywhere.
    *
-   * This replaces a `registeredInMcpJson` boolean, which was wrong twice over:
-   * it made registration one-shot (so the SECOND workspace of a session never
-   * got an entry and subagents spawned there could not discover this server),
-   * and it left `unregisterFromMcpJson` with no record of WHERE it had written
-   * — so it re-resolved the CURRENT workspace root and stranded a dead-port
-   * entry in the repository it had actually touched.
+   * **One entry per OPEN workspace folder, not one for the active root**
+   * (TASK_2026_354). This used to be a single `registeredMcpJsonPath` slot, so
+   * the set of files we owned was always "the active workspace" — and on
+   * Electron `setActiveFolder()` fires `onDidChangeWorkspaceFolders`, which
+   * `workspace:switch` calls on every tab switch. The result was a
+   * unregister-from-A + register-into-B pair on every switch between two
+   * ALREADY-OPEN folders, i.e. a write into a file inside the user's
+   * version-controlled repository for a change that altered nothing they could
+   * observe (six such moves in `tmp/logs/log.log`).
+   *
+   * Keyed by path, and per-path, for two more reasons:
+   *  - A folder that is open needs the entry, whether or not it is the one on
+   *    screen: a subagent spawned for that folder reads ITS `.mcp.json`.
+   *  - A failed removal keeps its own record, so a write into a different
+   *    folder can no longer destroy the evidence of a stale entry. That was the
+   *    single-slot hazard TASK_2026_332 had to work around by coupling the two
+   *    mutations together; with per-path records the coupling is unnecessary
+   *    and would only produce false negatives.
    */
-  private registeredMcpJsonPath: string | null = null;
-
-  /** The port recorded in `registeredMcpJsonPath`, for re-write on port change. */
-  private registeredPort: number | null = null;
+  private readonly registrations = new Map<string, number>();
 
   /**
    * The tail of the re-pointing queue. Every `.mcp.json` OWNERSHIP mutation
@@ -116,17 +155,17 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * either: it is keyed per FILE, and the racing mutations here target
    * DIFFERENT files. Two concrete failures it cannot see (TASK_2026_332):
    *
-   *  a. The user switches workspace A -> B -> C quickly. Both re-points read
-   *     `registeredMcpJsonPath` as A — the first has not finished updating it
+   *  a. The user switches workspace A -> B -> C quickly. Both reconciles read
+   *     the registration record as {A} — the first has not finished updating it
    *     when the second starts — and then write B and C independently. B is
-   *     left with a live `ptah` entry pointing at a server that no longer
-   *     serves B, and nothing ever removes it.
+   *     left with a live `ptah` entry for a folder that is no longer open, and
+   *     nothing ever removes it.
    *  b. `stop()` arrives right after a switch. The stop unregisters A while the
    *     outstanding event writes B, so B ends up advertising a dead port.
    *
    * So the queue is over the OPERATION, not the file, and it has two rules:
    *
-   *  - **Serialized.** A job reads `registeredMcpJsonPath` only after every
+   *  - **Serialized.** A job reads {@link registrations} only after every
    *    previously queued job has finished updating it. That alone kills the
    *    stale-read half of (a).
    *  - **Latest wins.** Each re-point captures {@link repointGeneration} and is
@@ -272,14 +311,21 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
-   * Register the Ptah MCP server in the workspace's .mcp.json for subagent discovery.
-   * Callers gate this on the MCP server actually being up (`mcpServerRunning`) —
-   * Ptah's local features, including MCP tool access, are available to everyone.
+   * Register the Ptah MCP server in the `.mcp.json` of every OPEN workspace
+   * folder, for subagent discovery. Callers gate this on the MCP server
+   * actually being up (`mcpServerRunning`) — Ptah's local features, including
+   * MCP tool access, are available to everyone.
    *
-   * Idempotent per (path, port): repeated calls against the same workspace and
-   * the same port write nothing. A call after the workspace root changed moves
-   * the entry — the old file's `ptah` key is removed before the new file gets
-   * one, so exactly one repository on disk ever advertises this server.
+   * Idempotent per (path, port), twice over: a folder already recorded at this
+   * port is skipped without taking the lock, and a folder whose file already
+   * holds the exact desired entry is left byte-for-byte alone. A folder that
+   * has LEFT the workspace has its entry removed in the same pass; a switch
+   * between two open folders changes the folder set not at all and therefore
+   * writes nothing (TASK_2026_354).
+   *
+   * The outcome describes the ACTIVE workspace root, because that is the root
+   * the caller is about to start a session in. The other open folders are
+   * reconciled in the same pass and report through the log.
    *
    * **Await it before spawning anything that reads `.mcp.json`.** It became
    * async in TASK_2026_318 because the write now takes the config-file lock,
@@ -316,56 +362,111 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     // down is exactly the dead-port entry this task exists to remove.
     if (this.stopped || !this.port) return notRegistered('not-started');
 
-    const target = this.getMcpJsonPath();
-    if (!target) return notRegistered('no-workspace');
-    if (
-      this.registeredMcpJsonPath === target &&
-      this.registeredPort === this.port
-    ) {
-      return REGISTERED;
+    const activeTarget = this.getMcpJsonPath();
+    if (!activeTarget) {
+      // No folder open: nothing to register in, and anything we still own
+      // belongs to a folder that has gone away.
+      await this.reconcileRegistrations(this.port);
+      return notRegistered('no-workspace');
     }
 
-    if (this.registeredMcpJsonPath && this.registeredMcpJsonPath !== target) {
-      // A failed removal must NOT be followed by a write into the new file:
-      // that leaves a live entry in both, and overwrites the record of the
-      // stale one so nothing can ever clean it up. Report and let the next call
-      // retry the whole move.
-      const removalFailure = await this.unregisterFromMcpJson();
-      if (removalFailure !== null) return notRegistered(removalFailure);
-    }
-    return this.registerInMcpJson(target, this.port);
+    const outcomes = await this.reconcileRegistrations(this.port);
+    // `desiredMcpJsonPaths()` always contains the active root, so the lookup
+    // hits. Registering explicitly rather than defaulting to REGISTERED is the
+    // difference between a fallback and a false assurance if that ever changes.
+    return (
+      outcomes.get(activeTarget) ??
+      (await this.registerInMcpJson(activeTarget, this.port))
+    );
   }
 
   /**
-   * Re-point the `.mcp.json` entry after the workspace folders changed.
+   * Bring the set of `.mcp.json` files we own into line with the set of open
+   * workspace folders, at `port`.
+   *
+   * Removals first, then registrations — not for correctness (the paths are
+   * disjoint by construction, since a path is only removed when it is NOT in
+   * the desired set) but so a shrinking workspace gives its entries back before
+   * anything else touches disk.
+   *
+   * Unlike the single-slot version this replaces, a failed removal does NOT
+   * block the registrations. Each path carries its own record, so the stale
+   * entry stays known and is retried by the next reconcile or by `stop()`;
+   * refusing to register the folder the user is actually working in, because an
+   * unrelated closed folder's file was contended, would report
+   * `mcpServerRunning: false` for a session that has a perfectly good entry.
+   *
+   * **Call it only from inside `enqueueMcpOp`.** It reads {@link registrations}
+   * and then awaits, so two concurrent runs are the stale-read race the queue
+   * exists to close.
+   */
+  private async reconcileRegistrations(
+    port: number,
+  ): Promise<Map<string, McpSubagentRegistration>> {
+    const desired = this.desiredMcpJsonPaths();
+    const outcomes = new Map<string, McpSubagentRegistration>();
+
+    for (const owned of [...this.registrations.keys()]) {
+      if (desired.has(owned)) continue;
+      await this.unregisterFromMcpJson(owned);
+    }
+
+    for (const target of desired) {
+      if (this.registrations.get(target) === port) {
+        outcomes.set(target, REGISTERED);
+        continue;
+      }
+      outcomes.set(target, await this.registerInMcpJson(target, port));
+    }
+
+    return outcomes;
+  }
+
+  /**
+   * Reconcile after the workspace folders changed.
    *
    * Only runs when we already own an entry: a host that never called
-   * `ensureRegisteredForSubagents` must not start touching the user's disk
-   * just because they opened a folder (the Bug #9 rule that
+   * `ensureRegisteredForSubagents` must not start touching the user's disk just
+   * because they opened a folder (the Bug #9 rule that
    * `unregisterFromMcpJson` also enforces).
    *
-   * Going to ZERO folders is a real case — `getMcpJsonPath()` returns null and
-   * we unregister without re-registering, which is what stops a dead-port entry
-   * outliving the workspace it was written into.
+   * Going to ZERO folders is a real case — the desired set is empty, every
+   * owned entry is removed and none is written back, which is what stops a
+   * dead-port entry outliving the workspace it was written into.
+   *
+   * A switch between folders that are BOTH open reaches here (the Electron
+   * provider fires the folder event from `setActiveFolder`) and finds the
+   * desired set unchanged, so it writes nothing.
    *
    * **Call it only from inside `enqueueMcpOp`** (`queueRepoint` is the one
-   * caller). It reads `registeredMcpJsonPath` and then awaits twice, so running
-   * two of these concurrently is the stale-read race the queue exists to close.
+   * caller).
    */
   private async syncMcpJsonRegistration(): Promise<void> {
-    if (this.registeredMcpJsonPath === null) return;
+    if (this.registrations.size === 0) return;
+    if (this.port === null) return;
 
-    const target = this.getMcpJsonPath();
-    if (target === this.registeredMcpJsonPath) return;
+    await this.reconcileRegistrations(this.port);
+  }
 
-    // Same rule as `ensureRegisteredNow`: if the old entry could not be
-    // removed, do not write a second one somewhere else. Both helpers log their
-    // own failure, and the next re-point or `ensureRegisteredForSubagents`
-    // retries the move.
-    if ((await this.unregisterFromMcpJson()) !== null) return;
-    if (target && this.port) {
-      await this.registerInMcpJson(target, this.port);
-    }
+  /**
+   * One `.mcp.json` path per open workspace folder, always including the ACTIVE
+   * root.
+   *
+   * The union is not belt-and-braces. All three shipped providers keep the
+   * active root inside the folder list, but the active root is the one path a
+   * caller is told about by `ensureRegisteredForSubagents`, and reporting
+   * `registered: true` for a file nothing wrote is the exact false assurance
+   * TASK_2026_332 removed. Deriving it here means the reported outcome and the
+   * written set cannot disagree. A provider that reports a root but no folders
+   * also keeps the old single-root behaviour for free.
+   */
+  private desiredMcpJsonPaths(): Set<string> {
+    const roots = [
+      ...this.workspaceProvider.getWorkspaceFolders(),
+      this.workspaceProvider.getWorkspaceRoot(),
+    ].filter((root): root is string => typeof root === 'string' && root !== '');
+
+    return new Set(roots.map((root) => path.join(root, '.mcp.json')));
   }
 
   /**
@@ -385,7 +486,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     // Joins the queue rather than jumping it: a re-point that already STARTED
     // has to finish, or this would remove the entry from the file it recorded
     // and the re-point would then write a fresh one into another.
-    await this.enqueueMcpOp(() => this.unregisterFromMcpJson());
+    await this.enqueueMcpOp(() => this.unregisterFromAllMcpJson());
 
     await stopHttpServer(this.server, this.workspaceState, this.logger);
     this.server = null;
@@ -452,6 +553,12 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     mcpJsonPath: string,
     port: number,
   ): Promise<McpSubagentRegistration> {
+    const desiredEntry: McpHttpServerEntry = {
+      type: 'http',
+      url: `http://localhost:${port}`,
+    };
+    let wrote = false;
+
     try {
       // `harness-sync` also writes this file (it is the `claude` target's MCP
       // facet), so the read-modify-write below runs inside that lib's
@@ -479,20 +586,27 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         }
 
         const servers = (config['mcpServers'] as Record<string, unknown>) || {};
-        servers['ptah'] = {
-          type: 'http',
-          url: `http://localhost:${port}`,
-        };
+
+        // Read-COMPARE-write. The entry on disk is frequently already the one
+        // we want — a restart that reused the port, a second host, a reconcile
+        // that changed nothing — and rewriting a file inside the user's
+        // repository to the bytes it already holds is a spurious VCS diff and a
+        // spurious log line (TASK_2026_354).
+        if (isSameMcpHttpEntry(servers['ptah'], desiredEntry)) return;
+
+        servers['ptah'] = desiredEntry;
         config['mcpServers'] = servers;
 
         fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+        wrote = true;
       });
-      this.registeredMcpJsonPath = mcpJsonPath;
-      this.registeredPort = port;
-      this.logger.info(
-        `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
-        'CodeExecutionMCP',
-      );
+      this.registrations.set(mcpJsonPath, port);
+      if (wrote) {
+        this.logger.info(
+          `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
+          'CodeExecutionMCP',
+        );
+      }
       return REGISTERED;
     } catch (error: unknown) {
       // A lock timeout is NOT an ordinary I/O failure and must not be folded
@@ -519,21 +633,36 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
-   * Remove the Ptah MCP server entry from the `.mcp.json` we actually wrote.
+   * Give back every `.mcp.json` entry we still own. Used by `stop()`, where the
+   * server is about to close and no folder should keep advertising its port.
+   *
+   * Failures are already logged per path and deliberately do not abort the
+   * loop: one contended file must not strand the entries in the others.
+   */
+  private async unregisterFromAllMcpJson(): Promise<void> {
+    for (const owned of [...this.registrations.keys()]) {
+      await this.unregisterFromMcpJson(owned);
+    }
+  }
+
+  /**
+   * Remove the Ptah MCP server entry from one `.mcp.json` we actually wrote.
    * Prevents stale entries pointing to a dead server.
    *
-   * Targets `registeredMcpJsonPath`, NOT `getMcpJsonPath()`. Re-resolving the
-   * current workspace root here was the second half of the A3 defect: after a
-   * workspace switch (or after the last folder was removed) it either edited
-   * the wrong repository or gave up entirely, leaving the written entry behind.
+   * Takes the path from {@link registrations}, NOT from `getMcpJsonPath()`.
+   * Re-resolving the current workspace root here was the second half of the A3
+   * defect: after a workspace switch (or after the last folder was removed) it
+   * either edited the wrong repository or gave up entirely, leaving the written
+   * entry behind.
    *
-   * Returns `null` on success — including the "we owned nothing" case — and the
-   * failure reason otherwise, so a caller that was about to write somewhere ELSE
-   * can decline rather than leave a live entry in two files.
+   * Returns `null` on success — including the "we did not own this path" case —
+   * and the failure reason otherwise. On failure the record is deliberately
+   * KEPT, so `stop()` or the next reconcile retries the removal.
    */
-  private async unregisterFromMcpJson(): Promise<McpRegistrationFailure | null> {
-    const mcpJsonPath = this.registeredMcpJsonPath;
-    if (!mcpJsonPath) return null;
+  private async unregisterFromMcpJson(
+    mcpJsonPath: string,
+  ): Promise<McpRegistrationFailure | null> {
+    if (!this.registrations.has(mcpJsonPath)) return null;
 
     try {
       // Under the same lock as registration, and for the same reason — see
@@ -560,7 +689,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
         return true;
       });
 
-      this.clearRegistration();
+      this.registrations.delete(mcpJsonPath);
       if (removed) {
         this.logger.info(
           `[CodeExecutionMCP] Unregistered ptah from ${mcpJsonPath}`,
@@ -571,9 +700,9 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     } catch (error: unknown) {
       // Distinguished for the same reason registration distinguishes it, and
       // with a sharper consequence: a lock timeout means the entry is STILL ON
-      // DISK, pointing at a port that may be about to die. `clearRegistration`
-      // is deliberately skipped on every failure path, so the record survives
-      // and a later `stop()` or re-point retries the removal.
+      // DISK, pointing at a port that may be about to die. The record is
+      // deliberately left in `registrations` on every failure path, so it
+      // survives and a later `stop()` or reconcile retries the removal.
       if (isFileLockTimeoutError(error)) {
         this.logger.warn(
           `[CodeExecutionMCP] Did not unregister from ${mcpJsonPath} — another ` +
@@ -593,17 +722,11 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
-   * Forget the entry we own. Called only once the `ptah` key is provably gone
-   * from disk (removed, or the file/key was already absent). A write failure
-   * deliberately leaves the record intact so a later `stop()` retries.
-   */
-  private clearRegistration(): void {
-    this.registeredMcpJsonPath = null;
-    this.registeredPort = null;
-  }
-
-  /**
-   * Get the path to .mcp.json in the first workspace folder.
+   * Get the path to .mcp.json in the ACTIVE workspace folder.
+   *
+   * Used only to decide which folder {@link ensureRegisteredForSubagents}
+   * reports on. The set of folders actually written is
+   * {@link desiredMcpJsonPaths}.
    */
   private getMcpJsonPath(): string | null {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();

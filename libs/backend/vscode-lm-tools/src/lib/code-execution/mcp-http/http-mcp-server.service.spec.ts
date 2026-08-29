@@ -769,18 +769,27 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
   });
 
   /**
-   * A failed removal must not be followed by a write into the NEW file: that
-   * leaves a live `ptah` entry in both, and overwrites the record of the stale
-   * one so nothing can ever clean it up.
+   * A removal that could not be performed must not be FORGOTTEN.
+   *
+   * TASK_2026_332 enforced that by refusing to register anywhere else while a
+   * removal was outstanding — necessary then, because the service tracked ONE
+   * `registeredMcpJsonPath`, so writing B overwrote the only record that A
+   * still held an entry and nothing could ever clean it up.
+   *
+   * TASK_2026_354 keys the record by path, which makes the coupling both
+   * unnecessary and harmful: contention on a CLOSED folder's config file would
+   * report `mcpServerRunning: false` for a session in the folder the user is
+   * actually working in, whose entry is on disk and perfectly usable. So the
+   * registration proceeds and the invariant that matters is asserted directly —
+   * A's record survives, and the retry at `stop()` removes it.
    */
-  it('does not register in the new workspace when the old entry could not be removed', async () => {
+  it('keeps the record of an entry it could not remove, and still registers the open folder', async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
     await service.start();
     await service.ensureRegisteredForSubagents();
 
-    // Contention on A's config file specifically, for as long as it lasts. Both
-    // the fire-and-forget re-point and the explicit call below have to refuse.
+    // Contention on A's config file specifically, for as long as it lasts.
     (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
       async (configPath: string, task: () => Promise<unknown>) => {
         if (configPath === ROOT_A) {
@@ -793,15 +802,25 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     workspaceProvider.__state.setFolders(['/wsB']);
     await settleMcpJsonWrites();
 
-    const registration = await service.ensureRegisteredForSubagents();
-
-    expect(registration).toEqual({ registered: false, reason: 'lock-timeout' });
-    expect(serversIn(disk, ROOT_B)).toBeUndefined();
-    // A's entry is still there — which is exactly why we refused to add a
-    // second one — and the record of it survives so a retry can remove it.
+    // The folder the user is in gets its entry, and says so honestly.
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: true,
+    });
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    // A's entry is still on disk because the lock refused the removal...
     expect(serversIn(disk, ROOT_A)).toEqual({
       ptah: { type: 'http', url: 'http://localhost:51820' },
     });
+
+    // ...and the record of it survived, so the retry cleans it up.
+    (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+      async (_configPath: string, task: () => Promise<unknown>) => task(),
+    );
+    await service.stop();
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_B)).toEqual({});
   });
 });
 
@@ -1161,6 +1180,171 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
 });
 
 // ===========================================================================
+// 5b. One entry per OPEN folder, and no write when nothing changed
+//     - TASK_2026_354
+// ===========================================================================
+
+/**
+ * The service used to own exactly ONE `.mcp.json`: whichever the active root
+ * resolved to. On Electron `setActiveFolder()` fires
+ * `onDidChangeWorkspaceFolders` and `workspace:switch` calls it on every tab
+ * switch, so switching between two folders that were BOTH already open produced
+ * an unregister + register pair - a write into a file inside the user's
+ * version-controlled repository, six times in the session that produced
+ * `tmp/logs/log.log`, for a change that altered nothing they could observe.
+ *
+ * Ownership is now the folder SET, so a switch is a no-op by construction, and
+ * a registration whose desired entry already matches disk writes nothing even
+ * when the set DID change.
+ */
+describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
+  it('registers in every open folder, not just the active one', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA', '/wsB'] });
+    await service.start();
+
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: true,
+    });
+
+    // A subagent spawned for either folder reads ITS file, so both need one.
+    const entry = { ptah: { type: 'http', url: 'http://localhost:51820' } };
+    expect(serversIn(disk, ROOT_A)).toEqual(entry);
+    expect(serversIn(disk, ROOT_B)).toEqual(entry);
+  });
+
+  it('switching the active folder between two open folders writes nothing', async () => {
+    useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA', '/wsB'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    fsWriteFileSyncMock.mockClear();
+
+    // What `workspace:switch` does on Electron: `setActiveFolder` fires the
+    // folder-change event with the folder SET unchanged. Fired twice, because
+    // one user session switches back and forth.
+    workspaceProvider.__state.fireWorkspaceFoldersChange();
+    workspaceProvider.__state.fireWorkspaceFoldersChange();
+    await settleMcpJsonWrites();
+
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('emits no register/unregister log line on a switch between open folders', async () => {
+    useVirtualDisk();
+    const { service, workspaceProvider, logger } = build({
+      folders: ['/wsA', '/wsB'],
+    });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    logger.info.mockClear();
+    workspaceProvider.__state.fireWorkspaceFoldersChange();
+    await settleMcpJsonWrites();
+
+    const mcpJsonLines = logger.info.mock.calls.filter(([message]) =>
+      /Registered ptah|Unregistered ptah/.test(String(message)),
+    );
+    expect(mcpJsonLines).toEqual([]);
+  });
+
+  it('does not rewrite a .mcp.json that already holds the exact desired entry', async () => {
+    const disk = useVirtualDisk({
+      [ROOT_A]:
+        JSON.stringify(
+          {
+            mcpServers: {
+              // Field order deliberately reversed: the comparison is
+              // structural, so this must still count as "already correct".
+              ptah: { url: 'http://localhost:51820', type: 'http' },
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+    });
+    const before = disk.get(ROOT_A);
+
+    const { service, logger } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    expect(await service.ensureRegisteredForSubagents()).toEqual({
+      registered: true,
+    });
+
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    expect(disk.get(ROOT_A)).toBe(before);
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining('Registered ptah'),
+      'CodeExecutionMCP',
+    );
+  });
+
+  it('rewrites when the entry on disk points at a different port', async () => {
+    const disk = useVirtualDisk({
+      [ROOT_A]:
+        JSON.stringify({
+          mcpServers: { ptah: { type: 'http', url: 'http://localhost:9999' } },
+        }) + '\n',
+    });
+
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    expect(serversIn(disk, ROOT_A)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+  });
+
+  it('unregisters only the folder that left the workspace', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({
+      folders: ['/wsA', '/wsB'],
+    });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    // /wsB closed; /wsA is still open and must keep its entry.
+    workspaceProvider.__state.setFolders(['/wsA']);
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_A)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    expect(serversIn(disk, ROOT_B)).toEqual({});
+  });
+
+  it('registers a folder ADDED to an already-registered workspace', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    workspaceProvider.__state.setFolders(['/wsA', '/wsB']);
+    await settleMcpJsonWrites();
+
+    const entry = { ptah: { type: 'http', url: 'http://localhost:51820' } };
+    expect(serversIn(disk, ROOT_A)).toEqual(entry);
+    expect(serversIn(disk, ROOT_B)).toEqual(entry);
+  });
+
+  it('stop() gives back the entry in EVERY open folder', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA', '/wsB', '/wsC'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    await service.stop();
+
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(serversIn(disk, ROOT_B)).toEqual({});
+    expect(serversIn(disk, ROOT_C)).toEqual({});
+  });
+});
+
+// ===========================================================================
 // 6. The re-pointing operation queue â€” TASK_2026_332 defect 1
 // ===========================================================================
 
@@ -1183,7 +1367,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     await service.ensureRegisteredForSubagents();
 
     // Both changes land while the first re-point is still stuck at the lock.
-    // Unqueued, both operations read `registeredMcpJsonPath` as A and then
+    // Unqueued, both operations read the registration record as {A} and then
     // write B and C independently â€” B keeps a live entry for a server that no
     // longer serves it, and nothing ever removes it.
     const release = deferConfigLock();
@@ -1284,8 +1468,8 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     await service.start();
     await service.ensureRegisteredForSubagents();
 
-    // A session start and a folder event, overlapping. Both used to read
-    // `registeredMcpJsonPath` as A and then write different files.
+    // A session start and a folder event, overlapping. Both used to read the
+    // registration record as {A} and then write different files.
     const release = deferConfigLock();
     workspaceProvider.__state.setFolders(['/wsB']);
     const explicit = service.ensureRegisteredForSubagents();
