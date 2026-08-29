@@ -243,3 +243,103 @@ describe('ClaudeCliDetector — timeout', () => {
     expect(spawnedChildren[0].kill).toHaveBeenCalled();
   });
 });
+
+/**
+ * Spawn coalescing (TASK_2026_342, live smoke 2026-08-29).
+ *
+ * `child_process.spawn` is synchronous inside libuv and Windows scans the
+ * target image while creating the process, so each `claude.exe` probe froze the
+ * calling loop for ~2s. This detector is a DI singleton with four boot-time
+ * consumers, and `performHealthCheck` re-ran `--version` on a binary
+ * `findExecutable` had just verified — so one boot paid up to eight of those
+ * freezes for one answer, and `auth:getAuthStatus` reported 22736ms.
+ */
+describe('ClaudeCliDetector — probe coalescing', () => {
+  /** `--version` spawns aimed at the configured binary. */
+  function versionProbeCount(): number {
+    return crossSpawnMock.mock.calls.filter(
+      (call) => call[0] === CONFIGURED_CMD,
+    ).length;
+  }
+
+  beforeEach(() => {
+    existsSyncMock.mockImplementation((p: string) => p === CONFIGURED_CMD);
+    scriptChildren({ stdout: VERSION_LINE, code: 0 });
+  });
+
+  it('shares ONE detection between concurrent findExecutable callers', async () => {
+    const detector = new ClaudeCliDetector();
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    const results = await Promise.all([
+      detector.findExecutable(),
+      detector.findExecutable(),
+      detector.findExecutable(),
+      detector.findExecutable(),
+    ]);
+
+    for (const result of results) {
+      expect(result).toEqual({ path: CONFIGURED_CMD, source: 'config' });
+    }
+    expect(versionProbeCount()).toBe(1);
+  });
+
+  it('does not re-spawn --version for a binary findExecutable just verified', async () => {
+    const detector = new ClaudeCliDetector();
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    await detector.findExecutable();
+    expect(versionProbeCount()).toBe(1);
+
+    const health = await detector.performHealthCheck();
+
+    expect(health).toMatchObject({ available: true, path: CONFIGURED_CMD });
+    expect(versionProbeCount()).toBe(1);
+  });
+
+  it('shares one --version spawn between concurrent health checks', async () => {
+    const detector = new ClaudeCliDetector();
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    const [a, b, c] = await Promise.all([
+      detector.performHealthCheck(),
+      detector.performHealthCheck(),
+      detector.performHealthCheck(),
+    ]);
+
+    expect(a.available).toBe(true);
+    expect(b.available).toBe(true);
+    expect(c.available).toBe(true);
+    expect(versionProbeCount()).toBe(1);
+  });
+
+  it('does NOT reuse a failed probe — a failure is not evidence of absence', async () => {
+    scriptChildren({ stderr: 'boom', code: 1 });
+    const detector = new ClaudeCliDetector();
+
+    const first = await detector.verifyInstallation({
+      path: CONFIGURED_CMD,
+      source: 'config',
+    });
+    scriptChildren({ stdout: VERSION_LINE, code: 0 });
+    const second = await detector.verifyInstallation({
+      path: CONFIGURED_CMD,
+      source: 'config',
+    });
+
+    expect(first).toBe(false);
+    expect(second).toBe(true);
+    expect(versionProbeCount()).toBe(2);
+  });
+
+  it('clearCache drops the version evidence, not just the installation', async () => {
+    const detector = new ClaudeCliDetector();
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    await detector.findExecutable();
+    detector.clearCache();
+    await detector.findExecutable();
+
+    expect(versionProbeCount()).toBe(2);
+  });
+});

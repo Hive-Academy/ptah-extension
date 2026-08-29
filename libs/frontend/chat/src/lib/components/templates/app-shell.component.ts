@@ -52,6 +52,7 @@ import {
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import {
   AppStateManager,
+  AuthStateService,
   VSCodeService,
   ClaudeRpcService,
   LazyViewService,
@@ -140,6 +141,7 @@ export class AppShellComponent {
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly authState = inject(AuthStateService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
   readonly currentView = this.appState.currentView;
@@ -342,28 +344,16 @@ export class AppShellComponent {
         return;
       }
       this.authCheckDone = true;
-      this.rpcService
-        .call('auth:getAuthStatus', {})
-        .then((rpcResult) => {
-          if (!rpcResult.isSuccess() || !rpcResult.data) return;
+      // Goes through AuthStateService, never `rpcService.call` directly: that
+      // direct call was one of three independent boot callers of a 2-5s
+      // handler, and the service's single-flight guard could not see it
+      // (TASK_2026_342). `loadAuthStatus()` is a no-op once loaded.
+      this.authState
+        .loadAuthStatus()
+        .then(() => {
+          if (!this.authState.isLoaded()) return;
           if (this.currentView() !== 'chat') return;
-          const data = rpcResult.data;
-          const activeProvider = data.availableProviders?.find(
-            (p) => p.id === data.anthropicProviderId,
-          );
-          const providerNeedsNoKey =
-            activeProvider?.isLocal === true ||
-            activeProvider?.authType === 'none' ||
-            activeProvider?.supportsOptionalApiKey === true;
-          const hasAnyAuth =
-            data.hasApiKey ||
-            data.hasOpenRouterKey ||
-            data.hasAnyProviderKey ||
-            data.copilotAuthenticated ||
-            data.codexAuthenticated ||
-            data.claudeCliInstalled ||
-            providerNeedsNoKey;
-          if (!hasAnyAuth) {
+          if (!this.authState.hasAnyAuth()) {
             this.appState.setCurrentView('settings');
           }
         })

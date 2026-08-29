@@ -1666,4 +1666,133 @@ describe('AuthStateService', () => {
       expect(service.selectedCustomPricingMissing()).toBe(false);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // TASK_2026_342 — the two rules AppShellComponent and ChatInputComponent used
+  // to evaluate themselves, each behind its own direct `auth:getAuthStatus`
+  // call. Both now live here, so there is one caller and one definition.
+  // ---------------------------------------------------------------------------
+  describe('hasAnyProviderKey / hasAnyAuth / authMethodLabel', () => {
+    async function loaded(
+      response: AuthGetAuthStatusResponse,
+    ): Promise<AuthStateService> {
+      rpc.call.mockResolvedValueOnce(rpcSuccess(response));
+      const service = createService();
+      await service.loadAuthStatus();
+      return service;
+    }
+
+    it('exposes hasAnyProviderKey straight from the response', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({ hasAnyProviderKey: true }),
+      );
+      expect(service.hasAnyProviderKey()).toBe(true);
+    });
+
+    it('defaults hasAnyProviderKey to false when the field is absent', async () => {
+      const service = await loaded(makeAuthStatusResponse());
+      expect(service.hasAnyProviderKey()).toBe(false);
+    });
+
+    it('isLoaded distinguishes "not fetched yet" from "no auth"', async () => {
+      const service = createService();
+      expect(service.isLoaded()).toBe(false);
+      expect(service.hasAnyAuth()).toBe(false);
+
+      rpc.call.mockResolvedValueOnce(rpcSuccess(makeAuthStatusResponse()));
+      await service.loadAuthStatus();
+
+      expect(service.isLoaded()).toBe(true);
+      expect(service.hasAnyAuth()).toBe(false);
+    });
+
+    // The redirect rule: false here is what sends the user to settings.
+    const authSources: Array<[string, Partial<AuthGetAuthStatusResponse>]> = [
+      ['an Anthropic API key', { hasApiKey: true }],
+      ['a key on the selected provider', { hasOpenRouterKey: true }],
+      ['a key on some other provider', { hasAnyProviderKey: true }],
+      ['an authenticated Copilot', { copilotAuthenticated: true }],
+      ['an authenticated Codex', { codexAuthenticated: true }],
+      ['an installed Claude CLI', { claudeCliInstalled: true }],
+    ];
+
+    for (const [label, patch] of authSources) {
+      it(`hasAnyAuth is true with ${label}`, async () => {
+        const service = await loaded(makeAuthStatusResponse(patch));
+        expect(service.hasAnyAuth()).toBe(true);
+      });
+    }
+
+    it('hasAnyAuth is false when nothing is configured', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({
+          availableProviders: [makeProvider({ id: 'openrouter' })],
+        }),
+      );
+      expect(service.hasAnyAuth()).toBe(false);
+    });
+
+    it.each([
+      ['isLocal', { isLocal: true }],
+      ['authType none', { authType: 'none' as const }],
+      ['supportsOptionalApiKey', { supportsOptionalApiKey: true }],
+    ])(
+      'hasAnyAuth is true when the active provider needs no key (%s)',
+      async (_label, providerPatch) => {
+        const service = await loaded(
+          makeAuthStatusResponse({
+            authMethod: 'thirdParty' as AuthMethod,
+            anthropicProviderId: 'local-thing',
+            availableProviders: [
+              makeProvider({ id: 'local-thing', ...providerPatch }),
+            ],
+          }),
+        );
+        expect(service.hasAnyAuth()).toBe(true);
+      },
+    );
+
+    it('authMethodLabel is null until the first successful load', () => {
+      const service = createService();
+      expect(service.authMethodLabel()).toBeNull();
+    });
+
+    it('authMethodLabel reports the provider name for thirdParty', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({
+          authMethod: 'thirdParty' as AuthMethod,
+          anthropicProviderId: 'openrouter',
+          availableProviders: [
+            makeProvider({ id: 'openrouter', name: 'OpenRouter' }),
+          ],
+        }),
+      );
+      expect(service.authMethodLabel()).toBe('OpenRouter');
+    });
+
+    it('authMethodLabel falls back to "Provider" for an unlisted thirdParty id', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({
+          authMethod: 'thirdParty' as AuthMethod,
+          anthropicProviderId: 'mystery',
+          availableProviders: [],
+        }),
+      );
+      expect(service.authMethodLabel()).toBe('Provider');
+    });
+
+    it('authMethodLabel reports "Claude CLI" for claudeCli', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({ authMethod: 'claudeCli' as AuthMethod }),
+      );
+      expect(service.authMethodLabel()).toBe('Claude CLI');
+    });
+
+    it('authMethodLabel reports "API Key" for apiKey', async () => {
+      const service = await loaded(
+        makeAuthStatusResponse({ authMethod: 'apiKey' as AuthMethod }),
+      );
+      expect(service.authMethodLabel()).toBe('API Key');
+    });
+  });
 });

@@ -158,6 +158,17 @@ export class AuthStateService {
   private readonly _claudeCliInstalled = signal(false);
 
   /**
+   * Whether ANY provider — not just the selected one — holds a key.
+   *
+   * Distinct from `hasProviderKey`, which is scoped to `_selectedProviderId`.
+   * The backend already computes this (`hasAnyProviderKey`); it was simply
+   * dropped on the floor here, which is why the one consumer that needed it
+   * (`AppShellComponent`'s redirect-to-settings rule) called the RPC directly
+   * instead of reading this service.
+   */
+  private readonly _hasAnyProviderKey = signal(false);
+
+  /**
    * Persisted auth method — the last value successfully saved to/loaded from the backend.
    * Unlike _authMethod (which changes on tile click), this only updates on load or successful save.
    */
@@ -210,8 +221,15 @@ export class AuthStateService {
   /** Id of the entry currently being probed, or null when idle. */
   private readonly _customTestingId = signal<string | null>(null);
 
-  /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
-  private _isLoaded = false;
+  /**
+   * Guard to ensure loadAuthStatus only fetches once unless refreshed.
+   *
+   * A signal, not a plain field, because consumers must be able to tell
+   * "not fetched yet" from "fetched, and there is no auth" — those two states
+   * look identical across every other signal here and the difference decides
+   * whether to redirect the user to settings.
+   */
+  private readonly _isLoaded = signal(false);
 
   /** Cached in-flight promise for loadAuthStatus deduplication */
   private _loadPromise: Promise<void> | null = null;
@@ -278,6 +296,12 @@ export class AuthStateService {
 
   /** Whether Claude CLI is installed on the system */
   readonly claudeCliInstalled = this._claudeCliInstalled.asReadonly();
+
+  /** Whether ANY provider holds a key (not just the selected one) */
+  readonly hasAnyProviderKey = this._hasAnyProviderKey.asReadonly();
+
+  /** Whether a successful auth-status fetch has completed at least once */
+  readonly isLoaded = this._isLoaded.asReadonly();
 
   /** Persisted auth method (last loaded/saved from backend) */
   readonly persistedAuthMethod = this._persistedAuthMethod.asReadonly();
@@ -346,6 +370,62 @@ export class AuthStateService {
       this.hasProviderKey() ||
       this._copilotAuthenticated(),
   );
+
+  /**
+   * Whether ANY route into a model exists — the question
+   * "should the user be sent to settings before they can chat?".
+   *
+   * This rule used to live inline in `AppShellComponent`, which called
+   * `auth:getAuthStatus` itself to evaluate it. That was one of the three
+   * independent boot callers of a 2-5s handler (TASK_2026_342); the rule
+   * belongs to the auth state, not to a template.
+   *
+   * Deliberately BROADER than `hasAnyCredential`: it also accepts a key held
+   * by some other provider, an authenticated Codex login, and a provider that
+   * needs no key at all (local server, `authType: 'none'`, or optional-key).
+   * `hasAnyCredential` answers a narrower question for the settings screen and
+   * is not interchangeable with this.
+   */
+  readonly hasAnyAuth = computed(() => {
+    const providers = this._availableProviders();
+    const activeProvider = providers.find(
+      (p) => p.id === this._selectedProviderId(),
+    );
+    const providerNeedsNoKey =
+      activeProvider?.isLocal === true ||
+      activeProvider?.authType === 'none' ||
+      activeProvider?.supportsOptionalApiKey === true;
+
+    return (
+      this._hasApiKey() ||
+      this.hasProviderKey() ||
+      this._hasAnyProviderKey() ||
+      this._copilotAuthenticated() ||
+      this._codexAuthenticated() ||
+      this._claudeCliInstalled() ||
+      providerNeedsNoKey
+    );
+  });
+
+  /**
+   * Human label for the auth route currently in use, e.g. "API Key",
+   * "Claude CLI", or a third-party provider's display name.
+   *
+   * Null until the first successful fetch, so a consumer badge stays hidden
+   * rather than briefly claiming "API Key" for an install using Copilot.
+   */
+  readonly authMethodLabel = computed<string | null>(() => {
+    if (!this._isLoaded()) return null;
+    const method = this._authMethod();
+    if (method === 'thirdParty') {
+      const provider = this._availableProviders().find(
+        (p) => p.id === this._selectedProviderId(),
+      );
+      return provider?.name ?? 'Provider';
+    }
+    if (method === 'claudeCli') return 'Claude CLI';
+    return 'API Key';
+  });
 
   /**
    * Whether provider model mapping section should be shown.
@@ -493,14 +573,14 @@ export class AuthStateService {
    * so subsequent calls are no-ops unless refreshAuthStatus() is called.
    */
   async loadAuthStatus(): Promise<void> {
-    if (this._isLoaded) {
+    if (this._isLoaded()) {
       return;
     }
     if (!this._loadPromise) {
       this._loadPromise = this.fetchAndPopulateAuthStatus()
         .then((success) => {
           if (success) {
-            this._isLoaded = true;
+            this._isLoaded.set(true);
           }
         })
         .finally(() => {
@@ -1168,6 +1248,9 @@ export class AuthStateService {
    * @param response - Backend auth status response
    */
   private populateFromResponse(response: AuthGetAuthStatusResponse): void {
+    // Marked here rather than only in `loadAuthStatus` so a `refreshAuthStatus`
+    // reached first (the workspace-switch path) also counts as loaded.
+    this._isLoaded.set(true);
     this._hasApiKey.set(response.hasApiKey);
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
@@ -1186,6 +1269,7 @@ export class AuthStateService {
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
     this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
+    this._hasAnyProviderKey.set(response.hasAnyProviderKey ?? false);
 
     // Clear a stale Codex auth banner once credentials are healthy again.
     const banner = this._authRequiredBanner();

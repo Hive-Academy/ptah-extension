@@ -1327,3 +1327,58 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
     expect(info.files[0].origPath).toBeUndefined();
   });
 });
+
+/**
+ * The `getGitInfo` failure log (TASK_2026_342, live smoke 2026-08-29).
+ *
+ * The line read `[ERROR] [GitInfoService] getGitInfo failed` with nothing after
+ * it — no folder, no reason. `Logger.error`'s console transport renders only
+ * `context.error` (the slot for a real `Error` instance) and `context.metadata`,
+ * so the `{ workspacePath, error }` object this passed as context was dropped
+ * whole, and a `git status` timeout was indistinguishable from a spawn failure
+ * after the fact. Everything the reader needs is now in the message itself.
+ */
+describe('GitInfoService.getGitInfo() — failure logging', () => {
+  const WS = 'D:/projects/property-hub';
+
+  it('names the workspace and the reason in the message, not in dropped context', async () => {
+    const logger = makeLogger();
+    const service = new GitInfoService(logger as never);
+
+    let call = 0;
+    mockSpawn.mockImplementation(() => {
+      call++;
+      // 1: `rev-parse --is-inside-work-tree` succeeds — it IS a repo.
+      if (call === 1) {
+        return makeSpawnResult({ stdout: 'true\n', exitCode: 0 });
+      }
+      // 2: `git status` never starts. This is the shape `execGit` rejects with.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const listeners: Record<string, ((...args: any[]) => void)[]> = {};
+      return {
+        stdout: { on: jest.fn() },
+        stderr: { on: jest.fn() },
+        on: jest.fn((event: string, cb: (...args: unknown[]) => void) => {
+          (listeners[event] ??= []).push(cb);
+          if (event === 'error') {
+            setTimeout(() => cb(new Error('spawn git ENOENT')), 0);
+          }
+        }),
+      };
+    });
+
+    const info = await service.getGitInfo(WS);
+
+    // Degraded, not thrown — the watcher still gets a payload.
+    expect(info.isGitRepo).toBe(true);
+    expect(info.files).toEqual([]);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [message, error] = logger.error.mock.calls[0];
+    expect(message).toContain(WS);
+    expect(message).toContain('spawn git ENOENT');
+    // A real Error in the second slot is the only thing the console transport
+    // renders there; the old plain-object cast rendered as nothing.
+    expect(error).toBeInstanceOf(Error);
+  });
+});

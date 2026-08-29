@@ -370,11 +370,19 @@ export class GitInfoService {
       const files = this.parseFileStatus(stdout);
 
       return { isGitRepo: true, branch, files };
-    } catch (error) {
-      this.logger.error('[GitInfoService] getGitInfo failed', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      } as unknown as Error);
+    } catch (error: unknown) {
+      // INLINE, not context. `Logger.error`'s console transport renders only
+      // `context.error` (the slot for a real `Error` instance) and
+      // `context.metadata`; a plain object passed as context is dropped whole.
+      // This line read `[ERROR] [GitInfoService] getGitInfo failed` with
+      // nothing after it in the 2026-08-29 smoke log — naming neither the
+      // folder nor the failure, so a `git status` timeout and a spawn error
+      // were indistinguishable after the fact.
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[GitInfoService] getGitInfo failed for ${workspacePath}: ${message}`,
+        error instanceof Error ? error : undefined,
+      );
       return {
         isGitRepo: true,
         branch: { branch: '', upstream: null, ahead: 0, behind: 0 },

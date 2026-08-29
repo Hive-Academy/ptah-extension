@@ -54,6 +54,28 @@ interface CommandResult {
 }
 
 /**
+ * How long a SUCCESSFUL `--version` result is reused for the same command.
+ *
+ * `child_process.spawn` is not asynchronous: libuv's `uv_spawn` runs
+ * `CreateProcessW` inline on the calling thread and Windows scans the target
+ * image while creating the process, so the cost tracks the executable's SIZE —
+ * `claude.exe` is 253 MB and measures 1850-1975 ms on the reference machine
+ * (TASK_2026_341). Every `--version` probe here is therefore a ~2 s freeze of
+ * whichever loop calls it, which on Electron is the one owning every
+ * `BrowserWindow`.
+ *
+ * This window is deliberately SHORT. It is not a health cache — callers that
+ * want one keep their own (`AuthRpcHandlers` memoises the verdict for five
+ * minutes). It exists to collapse the probes that a single boot fires within
+ * seconds of each other, which was measured as four concurrent callers of one
+ * singleton detector paying up to eight spawns for one answer.
+ *
+ * A FAILURE is never cached: a probe that failed is not evidence the CLI is
+ * absent, and retrying costs exactly one spawn.
+ */
+const VERSION_PROBE_TTL_MS = 30_000;
+
+/**
  * Claude CLI Detection Service with WSL-aware path resolution
  */
 @injectable()
@@ -63,6 +85,30 @@ export class ClaudeCliDetector {
   private configuredPath?: string;
   private enableWSL = true;
   private readonly pathResolver: ClaudeCliPathResolver;
+
+  /**
+   * The detection currently running, if any.
+   *
+   * `cachedInstallation` is only written when the whole strategy chain has
+   * finished, so without this every concurrent caller ran the entire chain —
+   * including its spawns — before any of them got to populate the cache. This
+   * is a DI singleton with four boot-time consumers (`CliStrategy`,
+   * `SdkAgentAdapter`, `SdkModuleLoader`, `AuthRpcHandlers.probeClaudeCli`),
+   * and they all start within the same second.
+   */
+  private detectionInFlight: Promise<ClaudeInstallation | null> | null = null;
+
+  /** Settled `--version` results, held for {@link VERSION_PROBE_TTL_MS}. */
+  private readonly versionProbes = new Map<
+    string,
+    { readonly at: number; readonly result: CommandResult }
+  >();
+
+  /** `--version` probes currently running, keyed by command. */
+  private readonly versionProbesInFlight = new Map<
+    string,
+    Promise<CommandResult>
+  >();
 
   constructor() {
     this.isWSLEnvironment = this.detectWSLEnvironment();
@@ -106,13 +152,34 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Main entry point: Find Claude CLI installation
+   * Main entry point: Find Claude CLI installation.
+   *
+   * Single-flight: concurrent callers share one detection rather than each
+   * running the strategy chain and its spawns. See {@link detectionInFlight}.
    */
   async findExecutable(): Promise<ClaudeInstallation | null> {
     if (this.cachedInstallation) {
       return this.cachedInstallation;
     }
 
+    const running = this.detectionInFlight;
+    if (running) {
+      return running;
+    }
+
+    const pending = this.runDetection().finally(() => {
+      // By identity: a `clearCache()` during detection may already have let a
+      // newer run claim the slot, and evicting that one un-coalesces the very
+      // burst this exists to absorb.
+      if (this.detectionInFlight === pending) {
+        this.detectionInFlight = null;
+      }
+    });
+    this.detectionInFlight = pending;
+    return pending;
+  }
+
+  private async runDetection(): Promise<ClaudeInstallation | null> {
     try {
       const strategies = [
         () => this.detectFromConfig(),
@@ -159,13 +226,7 @@ export class ClaudeCliDetector {
    */
   async verifyInstallation(installation: ClaudeInstallation): Promise<boolean> {
     try {
-      const result = await this.executeCommand(
-        installation.path,
-        ['--version'],
-        {
-          timeout: 10000,
-        },
-      );
+      const result = await this.probeVersion(installation.path, 10000);
 
       if (!result.success) {
         return false;
@@ -179,7 +240,12 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Perform comprehensive health check
+   * Perform comprehensive health check.
+   *
+   * `findExecutable()` reaches this same binary through `verifyInstallation`,
+   * which runs `--version` and parses its output — so on a cold call this used
+   * to spawn the 253 MB `claude.exe` TWICE to answer one question. Both sides
+   * now go through {@link probeVersion}, so the second one is free.
    */
   async performHealthCheck(): Promise<ClaudeCliHealth> {
     const startTime = Date.now();
@@ -196,13 +262,7 @@ export class ClaudeCliDetector {
         };
       }
 
-      const result = await this.executeCommand(
-        installation.path,
-        ['--version'],
-        {
-          timeout: 5000,
-        },
-      );
+      const result = await this.probeVersion(installation.path, 5000);
 
       const responseTime = Date.now() - startTime;
 
@@ -240,10 +300,57 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Clear cached installation
+   * Clear cached installation.
+   *
+   * Also drops the `--version` results, which are what "the CLI at this path
+   * works" is derived from: keeping them would let a caller that asked for a
+   * fresh detection be answered from the evidence it asked to discard.
    */
   clearCache(): void {
     this.cachedInstallation = null;
+    this.detectionInFlight = null;
+    this.versionProbes.clear();
+    this.versionProbesInFlight.clear();
+  }
+
+  /**
+   * Run `<command> --version`, sharing the result with any caller that asked
+   * for the same command in the last {@link VERSION_PROBE_TTL_MS}, and sharing
+   * the SPAWN with any caller asking while one is already running.
+   *
+   * Both halves matter and they cover different cases: the in-flight map
+   * collapses the concurrent boot fan-out, the settled map collapses the
+   * sequential `findExecutable()` -> `performHealthCheck()` pair.
+   */
+  private async probeVersion(
+    command: string,
+    timeout: number,
+  ): Promise<CommandResult> {
+    const cached = this.versionProbes.get(command);
+    if (cached && Date.now() - cached.at < VERSION_PROBE_TTL_MS) {
+      return cached.result;
+    }
+
+    const running = this.versionProbesInFlight.get(command);
+    if (running) {
+      return running;
+    }
+
+    const pending = this.executeCommand(command, ['--version'], { timeout })
+      .then((result) => {
+        // Successes only — see VERSION_PROBE_TTL_MS.
+        if (result.success) {
+          this.versionProbes.set(command, { at: Date.now(), result });
+        }
+        return result;
+      })
+      .finally(() => {
+        if (this.versionProbesInFlight.get(command) === pending) {
+          this.versionProbesInFlight.delete(command);
+        }
+      });
+    this.versionProbesInFlight.set(command, pending);
+    return pending;
   }
 
   /**
@@ -272,9 +379,7 @@ export class ClaudeCliDetector {
 
     for (const cmd of commands) {
       try {
-        const result = await this.executeCommand(cmd, ['--version'], {
-          timeout: 5000,
-        });
+        const result = await this.probeVersion(cmd, 5000);
         if (
           result.success &&
           this.isValidClaudeOutput(result.stdout + result.stderr)

@@ -31,6 +31,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
+import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import {
   SdkError,
   SDK_TOKENS,
@@ -43,9 +44,6 @@ const AUTH_FILE_PATH = join(homedir(), '.codex', 'auth.json');
 
 /** Debounce window (ms) to coalesce the burst of fs events a single write emits. */
 const WATCH_DEBOUNCE_MS = 250;
-
-/** Max age (ms) before considering token stale. OAuth tokens last ~1h; consider stale at 50 min. */
-const TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
 
 /**
  * Default OAuth token endpoint used by the Codex CLI to refresh ChatGPT
@@ -349,7 +347,7 @@ export class CodexAuthService implements ICodexAuthService {
       return { authenticated: false, stale: false };
     }
 
-    const stale = this.isTokenStale(auth.last_refresh);
+    const stale = this.isTokenStale(auth);
     return { authenticated: true, stale };
   }
 
@@ -380,7 +378,7 @@ export class CodexAuthService implements ICodexAuthService {
       if (this.getApiKey(auth)) return true;
       if (!auth.tokens?.access_token) return false;
 
-      if (!this.isTokenStale(auth.last_refresh)) {
+      if (!this.isTokenStale(auth)) {
         return true;
       }
 
@@ -527,7 +525,7 @@ export class CodexAuthService implements ICodexAuthService {
       if (apiKey) return apiKey;
 
       if (!auth.tokens?.access_token) return null;
-      if (this.isTokenStale(auth.last_refresh)) {
+      if (this.isTokenStale(auth)) {
         this.logger.warn(
           '[CodexAuth] OAuth token may be expired. If API calls fail, run `codex login` to re-authenticate.',
         );
@@ -600,16 +598,19 @@ export class CodexAuthService implements ICodexAuthService {
   }
 
   /**
-   * Check whether the stored token is likely expired based on last_refresh timestamp.
+   * Whether the stored OAuth token should be treated as expired.
+   *
+   * Delegates to the ONE shared rule (`isCodexAccessTokenStale`) so this
+   * service and `CodexCliAdapter.ensureTokensFresh` cannot disagree about the
+   * same `auth.json`. The token's own JWT `exp` is authoritative; the
+   * `last_refresh` age heuristic is the fallback for opaque tokens only — it
+   * used to be the whole rule, which reported a ChatGPT-subscription token
+   * valid for another nine days as permanently stale (TASK_2026_342).
    */
-  private isTokenStale(lastRefresh?: string): boolean {
-    if (!lastRefresh) return true;
-    try {
-      const refreshTime = new Date(lastRefresh).getTime();
-      if (isNaN(refreshTime)) return true;
-      return Date.now() - refreshTime > TOKEN_MAX_AGE_MS;
-    } catch {
-      return true;
-    }
+  private isTokenStale(auth: CodexAuthFile): boolean {
+    return isCodexAccessTokenStale({
+      accessToken: auth.tokens?.access_token,
+      lastRefresh: auth.last_refresh,
+    });
   }
 }

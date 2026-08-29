@@ -13,6 +13,7 @@ import type {
   CliDetectionResult,
   CliOutputSegment,
 } from '@ptah-extension/shared';
+import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import type {
   CliAdapter,
   CliCommandOptions,
@@ -521,8 +522,17 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   /**
-   * Check if Codex credentials are available.
-   * Returns true if an API key or access token is present in ~/.codex/auth.json.
+   * Check whether usable Codex credentials are on disk.
+   *
+   * This adapter NEVER refreshes anything — it only reads
+   * `~/.codex/auth.json` and reports. (`CodexAuthService` in `auth-providers`
+   * owns the actual OAuth refresh; nothing here can reach it.) The name is kept
+   * because it is the `CliAdapter` contract shared with the other CLIs.
+   *
+   * True iff an API key is present, or an access token is present AND not
+   * stale by the ONE shared rule. Answering presence alone is what let this
+   * method log "fresh" for the same `auth.json` that `auth:getAuthStatus`
+   * simultaneously reported as `codexTokenStale: true` (TASK_2026_342).
    */
   async ensureTokensFresh(): Promise<boolean> {
     try {
@@ -530,7 +540,11 @@ export class CodexCliAdapter implements CliAdapter {
       const auth = JSON.parse(raw) as CodexAuthFile;
 
       if (auth.openai_api_key || auth.OPENAI_API_KEY) return true;
-      return !!auth.tokens?.access_token;
+      if (!auth.tokens?.access_token) return false;
+      return !isCodexAccessTokenStale({
+        accessToken: auth.tokens.access_token,
+        lastRefresh: auth.last_refresh,
+      });
     } catch {
       return false;
     }
