@@ -221,3 +221,116 @@ describe('plugin browser modal — per-workspace skill selection', () => {
     expect(calls.some((c) => c.method === 'plugins:save-config')).toBe(true);
   });
 });
+
+/**
+ * TASK_2026_345 gate regression — the skill selection does not depend on the
+ * plugin catalogue.
+ *
+ * The catalogue became SHARED, so `ensureLoaded()` can hand this modal a read
+ * another component started. Sequencing the skill-selection section behind it —
+ * and rendering that section inside the loading/error branch — meant the one
+ * control the dashboard's skill-selection card opens this modal FOR was hidden
+ * whenever the plugin side was slow, and hidden for good whenever it failed.
+ * The dashboard's own spec caught it; these pin it where it belongs.
+ */
+describe('plugin browser modal — the skill selection stands alone', () => {
+  let responders: Map<string, () => unknown>;
+
+  const setResponder = (method: string, factory: () => unknown): void => {
+    responders.set(method, factory);
+  };
+
+  const rpcMock = {
+    call: jest.fn((method: string) => {
+      const factory = responders.get(method);
+      return factory
+        ? Promise.resolve(factory())
+        : Promise.resolve(ok(undefined));
+    }),
+  };
+
+  function failed(message: string) {
+    return {
+      success: false,
+      data: undefined,
+      error: message,
+      isSuccess: (): boolean => false,
+    };
+  }
+
+  const settle = async (fixture: ComponentFixture<unknown>): Promise<void> => {
+    fixture.detectChanges();
+    for (let pass = 0; pass < 3; pass += 1) {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+  };
+
+  beforeEach(() => {
+    responders = new Map();
+    rpcMock.call.mockClear();
+    setResponder('harness:get-skill-selection', () =>
+      ok(
+        selection({
+          mode: 'selected',
+          slugs: [],
+          available: [
+            {
+              slug: 'a-skill',
+              name: 'A Skill',
+              description: '',
+              pluginId: null,
+            },
+          ],
+        }),
+      ),
+    );
+    TestBed.configureTestingModule({
+      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+    });
+  });
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders the selection even when both plugin reads fail', async () => {
+    // "Catalogue failure -> plugins empty, selection still rendered." A read
+    // that failed on an unrelated axis must not take the control away.
+    setResponder('plugins:list-available', () => failed('list exploded'));
+    setResponder('plugins:get-config', () => failed('config exploded'));
+
+    const fixture = TestBed.createComponent(PluginBrowserModalComponent);
+    fixture.componentRef.setInput('isOpen', true);
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(
+      host.querySelector('[data-testid="skill-selection"]'),
+    ).not.toBeNull();
+    expect(fixture.componentInstance.availablePlugins()).toEqual([]);
+  });
+
+  it('renders the selection while the plugin reads are still in flight', async () => {
+    // The latency half. `ensureLoaded()` may be waiting on a request THIS modal
+    // did not issue, so the section must not sit behind it.
+    const held: Array<() => void> = [];
+    const hold = () =>
+      new Promise((resolve) => held.push(() => resolve(ok({ plugins: [] }))));
+    setResponder('plugins:list-available', hold);
+    setResponder('plugins:get-config', hold);
+
+    const fixture = TestBed.createComponent(PluginBrowserModalComponent);
+    fixture.componentRef.setInput('isOpen', true);
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Still loading the plugin list...
+    expect(fixture.componentInstance.isLoading()).toBe(true);
+    // ...and the control is already there.
+    expect(
+      host.querySelector('[data-testid="skill-selection"]'),
+    ).not.toBeNull();
+
+    for (const release of held.splice(0, held.length)) release();
+    await settle(fixture);
+  });
+});

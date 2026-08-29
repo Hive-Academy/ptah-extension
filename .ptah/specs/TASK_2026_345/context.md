@@ -622,3 +622,103 @@ is gone.
   `workspace-coordinator.service.ts`, `electron-layout.service.ts` and the three
   specs. Nothing under `apps/`, nothing in `chat-ui` or `marketplace`, and no
   backend file — their round-1/round-2 results stand.
+
+## Gate regression fix
+
+The fleet gate caught one real regression from 7a0a8a948:
+`libs/frontend/dashboard/.../skill-selection-card.spec.ts:204` — "offers exactly
+one control and performs no selection itself" — the modal opened with no
+`[data-testid="skill-selection"]` in it.
+
+### Diagnosis
+
+Not a spec-harness gap, and not the failure mode the report guessed at.
+`PluginCatalogService.ensureLoaded()` never rejects (`fetch()` catches
+everything and reports through `error()`), and the dashboard harness supplies
+every provider the component legitimately needs — the unmocked `plugins:*`
+methods return `ok(undefined)`, which the catalog reads as "empty list, no
+config" without throwing.
+
+The real cause was **rendering**, and it was a genuine product coupling:
+
+1. `loadPlugins()` awaited `Promise.all([catalog.ensureLoaded(), <selection
+read>])`, so the skill selection was sequenced behind the plugin catalogue.
+   That catalogue is SHARED now, so `ensureLoaded()` can hand this modal a read
+   that a DIFFERENT component started — the modal was waiting on a request it
+   had not issued.
+2. The `<section data-testid="skill-selection">` lived inside the
+   `@if (isLoading()) … @else if (error()) … @else { … }` chain, so it did not
+   render at all until the whole plugin load had finished, and did not render
+   **ever** on the error branch.
+3. `loadPlugins()`'s catch called `clearSkillSelection()`, so a plugin-side
+   failure discarded a skill selection that had been read successfully.
+
+Together: the dashboard's skill-selection card opens this modal for exactly one
+control, and that control was hidden whenever the plugin side was slow and
+hidden permanently whenever it failed. The test was right to fail.
+
+### Fix
+
+**`plugin-browser-modal.component.ts` — three changes, all in the same
+direction: the two axes are independent, so stop coupling them.**
+
+- The selection read is awaited and applied **before** the catalogue is awaited,
+  and outside its `try`. Both reads still start together, so nothing is slower;
+  only the dependency is gone.
+- The `<section data-testid="skill-selection">` moved OUT of the
+  loading/error/else chain and now sits directly under the modal header. It
+  renders as soon as the selection is available, whatever the plugin list is
+  doing.
+- The plugin-side catch no longer calls `clearSkillSelection()`. A failure on
+  one axis has nothing to say about the other, and discarding a good answer
+  because an unrelated read failed is precisely how the card could open this
+  modal and offer nothing.
+
+No change to the dashboard spec, and no new provider in its harness. The
+component now satisfies the assertion the spec was already making, which keeps
+that test sensitive to a re-coupling.
+
+**One trap worth recording:** the first attempt at the hoist put the word
+`@else` in backticks inside the moved HTML comment. The component template is a
+template literal, so the backtick pair TERMINATED it and every suite that
+imports the modal — including two dashboard suites that had been passing —
+failed to parse. The comment now says so in its own text.
+
+### Tests
+
+`plugin-browser-modal.component.spec.ts` — a new describe, "the skill selection
+stands alone" (2 cases), pinning the contract where it belongs rather than
+relying on the dashboard's spec to notice:
+
+- **both plugin reads fail** → the selection section still renders and
+  `availablePlugins()` is empty. This is the "catalogue failure -> plugins
+  empty, selection still rendered" case from the report.
+- **both plugin reads are still in flight** → `isLoading()` is `true` and the
+  section is already on screen. The latency half, which is what actually broke.
+
+A third case ("the catalogue is not re-read when the selection is") was written
+and removed: it asserted the modal's open-effect fires once, which is a property
+of the effect and not of this contract, and the harness fires it twice for
+reasons that predate this task. Encoding a number I could not justify would have
+been worse than no test.
+
+### Results
+
+- `npx nx run-many -t test -p @ptah-extension/dashboard @ptah-extension/chat-ui
+@ptah-extension/core --skip-nx-cache` — `Running target test for 3 projects`,
+  all green: dashboard 43/43 (4 suites), chat-ui 94/94 (20 suites, +2),
+  core 596/596 (26 suites).
+- `npx nx run-many -t typecheck -p` the same three — passed.
+- `npx nx run-many -t lint -p` the same three — 0 errors. The one warning naming
+  a file this fix touched is the pre-existing `max-lines` on
+  `plugin-browser-modal.component.ts` (856, ceiling 700); it was already 845
+  before this task and the hoist is a move, not an addition.
+- Downstream consumers re-checked: `@ptah-extension/chat` and
+  `@ptah-extension/marketplace` both still green.
+
+### Files changed
+
+- `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/plugin-browser-modal.component.ts`
+- `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/plugin-browser-modal.component.spec.ts`
+
+Nothing else. The dashboard library was not touched.
