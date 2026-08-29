@@ -89,6 +89,26 @@ function statsWithSize(size: number): Awaited<ReturnType<typeof fs.stat>> {
   return { size } as unknown as Awaited<ReturnType<typeof fs.stat>>;
 }
 
+/**
+ * Stats carrying BOTH halves of the transcript-cache validity token
+ * (TASK_2026_353). `statsWithSize` deliberately omits `mtimeMs`, which the
+ * reader treats as "no token" and therefore does not cache — that is what
+ * keeps the pre-existing cases above single-parse and unaffected.
+ */
+function statsOf(
+  size: number,
+  mtimeMs: number,
+): Awaited<ReturnType<typeof fs.stat>> {
+  return { size, mtimeMs } as unknown as Awaited<ReturnType<typeof fs.stat>>;
+}
+
+/** Stats for `~/.claude/projects` itself: the memo's validity token. */
+function dirStats(mtimeMs: number): Awaited<ReturnType<typeof fs.stat>> {
+  return { mtimeMs, isDirectory: () => true } as unknown as Awaited<
+    ReturnType<typeof fs.stat>
+  >;
+}
+
 /** One in-memory read stream carrying `content` as a single Buffer chunk. */
 function streamOf(content: string): ReturnType<typeof createReadStream> {
   return Readable.from([Buffer.from(content, 'utf8')]) as unknown as ReturnType<
@@ -235,6 +255,104 @@ describe('JsonlReaderService', () => {
       const result = await service.findSessionsDirectory(winWorkspace);
       expect(result).not.toBeNull();
       expect(result).toContain(escapedWin);
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_353 — one scan per workspace while ~/.claude/projects is
+    // unchanged. Baseline: 24 identical scans of the same 18-entry directory
+    // in one boot (tmp/logs/log.log).
+    // -----------------------------------------------------------------------
+    describe('memoisation', () => {
+      const DIRS = [ESCAPED_POSIX] as unknown as Awaited<
+        ReturnType<typeof fs.readdir>
+      >;
+
+      it('scans ~/.claude/projects once while its mtime is unchanged', async () => {
+        mockedAccess.mockResolvedValue(undefined);
+        mockedStat.mockResolvedValue(dirStats(1000));
+        mockedReaddir.mockResolvedValue(DIRS);
+
+        const first = await service.findSessionsDirectory(WORKSPACE_POSIX);
+        const second = await service.findSessionsDirectory(WORKSPACE_POSIX);
+        const third = await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(1);
+        expect(second).toBe(first);
+        expect(third).toBe(first);
+      });
+
+      it('rescans once the projects directory mtime moves', async () => {
+        mockedAccess.mockResolvedValue(undefined);
+        mockedReaddir.mockResolvedValue(DIRS);
+        mockedStat.mockResolvedValueOnce(dirStats(1000));
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        mockedStat.mockResolvedValueOnce(dirStats(2000));
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(2);
+      });
+
+      it('scans per workspace — one memo does not answer for another', async () => {
+        mockedAccess.mockResolvedValue(undefined);
+        mockedStat.mockResolvedValue(dirStats(1000));
+        mockedReaddir.mockResolvedValue([
+          ESCAPED_POSIX,
+          '-workspace-other',
+        ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+
+        const a = await service.findSessionsDirectory(WORKSPACE_POSIX);
+        const b = await service.findSessionsDirectory('/workspace/other');
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(2);
+        expect(a).toContain(ESCAPED_POSIX);
+        expect(b).toContain('-workspace-other');
+      });
+
+      it('memoises the negative answer too — it can only change with the mtime', async () => {
+        mockedAccess.mockResolvedValue(undefined);
+        mockedStat.mockResolvedValue(dirStats(1000));
+        mockedReaddir.mockResolvedValue([
+          'totally-unrelated',
+        ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+
+        await expect(
+          service.findSessionsDirectory(WORKSPACE_POSIX),
+        ).resolves.toBeNull();
+        await expect(
+          service.findSessionsDirectory(WORKSPACE_POSIX),
+        ).resolves.toBeNull();
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(1);
+      });
+
+      it('falls back to a full scan when the projects directory cannot be stat-ed', async () => {
+        mockedAccess.mockResolvedValue(undefined);
+        mockedStat.mockRejectedValue(new Error('EPERM'));
+        mockedReaddir.mockResolvedValue(DIRS);
+
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(2);
+      });
+
+      it('drops the memo when the projects directory disappears', async () => {
+        mockedAccess.mockResolvedValueOnce(undefined);
+        mockedStat.mockResolvedValue(dirStats(1000));
+        mockedReaddir.mockResolvedValue(DIRS);
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        mockedAccess.mockRejectedValueOnce(new Error('ENOENT'));
+        await expect(
+          service.findSessionsDirectory(WORKSPACE_POSIX),
+        ).resolves.toBeNull();
+
+        mockedAccess.mockResolvedValueOnce(undefined);
+        await service.findSessionsDirectory(WORKSPACE_POSIX);
+
+        expect(mockedReaddir).toHaveBeenCalledTimes(2);
+      });
     });
   });
 
@@ -457,6 +575,90 @@ describe('JsonlReaderService', () => {
       const out = await service.loadAgentSessions(sessionsDir, parentId);
 
       expect(out.map((a) => a.agentId)).toEqual(['agent-ok']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Parsed-transcript cache (TASK_2026_353)
+  //
+  // `chat:resume` parses the same transcript twice — `readSessionHistory()`
+  // then `readHistoryAsMessages()` — and `session:stats-batch` parses it a
+  // third time moments later. The validity token is (size, mtimeMs).
+  // -------------------------------------------------------------------------
+  describe('transcript cache', () => {
+    const FILE = '/tmp/session.jsonl';
+    const LINE = JSON.stringify({
+      uuid: 'u1',
+      sessionId: 's1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+    });
+    const SIZE = Buffer.byteLength(LINE);
+
+    it('parses once for repeated reads of an unchanged file', async () => {
+      mockedStat.mockResolvedValue(statsOf(SIZE, 5000));
+      primeFileContentAlways(LINE);
+
+      const first = await service.readJsonlMessages(FILE);
+      const second = await service.readJsonlMessages(FILE);
+
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(1);
+      expect(second).toEqual(first);
+    });
+
+    it('re-parses when the mtime moves', async () => {
+      primeFileContentAlways(LINE);
+      mockedStat.mockResolvedValueOnce(statsOf(SIZE, 5000));
+      await service.readJsonlMessages(FILE);
+
+      mockedStat.mockResolvedValueOnce(statsOf(SIZE, 6000));
+      await service.readJsonlMessages(FILE);
+
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-parses when the size moves under the same mtime', async () => {
+      primeFileContentAlways(LINE);
+      mockedStat.mockResolvedValueOnce(statsOf(SIZE, 5000));
+      await service.readJsonlMessages(FILE);
+
+      mockedStat.mockResolvedValueOnce(statsOf(SIZE + 10, 5000));
+      await service.readJsonlMessages(FILE);
+
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+    });
+
+    it('keys on the file path — one transcript never answers for another', async () => {
+      mockedStat.mockResolvedValue(statsOf(SIZE, 5000));
+      primeFileContentAlways(LINE);
+
+      await service.readJsonlMessages(FILE);
+      await service.readJsonlMessages('/tmp/other.jsonl');
+
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+    });
+
+    it('hands each caller its own array, so one caller cannot corrupt the next', async () => {
+      mockedStat.mockResolvedValue(statsOf(SIZE, 5000));
+      primeFileContentAlways(LINE);
+
+      const first = await service.readJsonlMessages(FILE);
+      first.length = 0;
+      const second = await service.readJsonlMessages(FILE);
+
+      expect(second).toHaveLength(1);
+    });
+
+    it('does not serve a cached parse to readJsonlTail', async () => {
+      mockedStat.mockResolvedValue(statsOf(SIZE, 5000));
+      primeFileContentAlways(LINE);
+
+      await service.readJsonlMessages(FILE);
+      const tail = await service.readJsonlTail(FILE, { maxBytes: SIZE * 2 });
+
+      expect(mockedCreateReadStream).toHaveBeenCalledTimes(2);
+      expect(tail).toHaveLength(1);
     });
   });
 });

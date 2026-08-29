@@ -41,6 +41,23 @@ export interface JsonlTailOptions extends JsonlReadOptions {
 }
 
 /**
+ * A resolved sessions directory, valid only while `~/.claude/projects` still
+ * carries the mtime it carried when the scan ran.
+ */
+interface SessionsDirEntry {
+  readonly resolved: string | null;
+  readonly projectsMtimeMs: number;
+}
+
+/** One transcript parsed once, reusable while the file on disk is unchanged. */
+interface ParsedTranscriptEntry {
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly cachedAt: number;
+  readonly messages: SessionHistoryMessage[];
+}
+
+/**
  * Hand back to the event loop. `setImmediate` (not a microtask) is the only
  * primitive that lets pending I/O — the Electron MAIN process's window
  * management, the agent stdout pipes — run before we resume.
@@ -91,6 +108,38 @@ export class JsonlReaderService {
   /** Yield after this many consumed bytes, however few lines they held. */
   private readonly YIELD_EVERY_BYTES = 1024 * 1024;
 
+  /**
+   * Resolved sessions directories, keyed by workspace path.
+   *
+   * See {@link findSessionsDirectory} for why the `~/.claude/projects` mtime is
+   * the whole invalidation rule.
+   */
+  private readonly sessionsDirCache = new Map<string, SessionsDirEntry>();
+
+  /** Parsed transcripts, keyed by absolute file path. See {@link readJsonlMessages}. */
+  private readonly transcriptCache = new Map<string, ParsedTranscriptEntry>();
+
+  /** Sum of the on-disk sizes currently represented in {@link transcriptCache}. */
+  private transcriptCacheBytes = 0;
+
+  /**
+   * A parsed transcript is reusable for this long. The duplicate reads this
+   * cache exists for happen within one interaction — `chat:resume` parses the
+   * same file twice back to back, `session:stats-batch` parses it again a
+   * moment later — so a short window captures all of them without pinning
+   * transcript-sized arrays in the heap for the life of the process.
+   */
+  private readonly TRANSCRIPT_CACHE_TTL_MS = 60_000;
+
+  /** Never cache a transcript larger than this: the parsed form is several times bigger. */
+  private readonly TRANSCRIPT_CACHE_MAX_FILE_BYTES = 12 * 1024 * 1024;
+
+  /** Cap on the summed on-disk size of every cached transcript. */
+  private readonly TRANSCRIPT_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+
+  /** Cap on the number of cached transcripts, whatever their size. */
+  private readonly TRANSCRIPT_CACHE_MAX_ENTRIES = 8;
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
@@ -98,6 +147,24 @@ export class JsonlReaderService {
    *
    * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/
    * The workspace path is escaped by replacing : and / with -
+   *
+   * ## Memoised on the projects directory's mtime
+   *
+   * The scan below `readdir`s `~/.claude/projects` and then does up to four
+   * passes over the result. Its answer depends on exactly one thing: the SET of
+   * child directories. A directory's mtime moves when a child is created or
+   * removed and at no other time, so `mtimeMs` is an exact validity token for
+   * this answer — not a heuristic, and not a TTL.
+   *
+   * That also makes the NEGATIVE answer safe to cache. `null` means "no
+   * directory here matches this workspace", which can only stop being true once
+   * a directory is created, which moves the mtime.
+   *
+   * Measured before this memo: 24 identical scans of the same 18-entry
+   * directory in one boot (`tmp/logs/log.log`, TASK_2026_353), from
+   * `SessionHistoryReaderService`, `memory-curator`, `skill-synthesis` and
+   * `SessionRpcHandlers`. A `stat` that fails for any reason falls through to
+   * the full scan, so the memo can never be the reason a lookup fails.
    *
    * @param workspacePath - The absolute path to the workspace
    * @returns The sessions directory path, or null if not found
@@ -112,8 +179,61 @@ export class JsonlReaderService {
       this.logger.warn('[JsonlReader] Projects directory does not exist', {
         projectsDir,
       });
+      // Nothing under a directory that no longer exists is still resolvable.
+      this.sessionsDirCache.clear();
       return null;
     }
+
+    const projectsMtimeMs = await this.readProjectsDirMtime(projectsDir);
+    if (projectsMtimeMs !== null) {
+      const cached = this.sessionsDirCache.get(workspacePath);
+      if (cached && cached.projectsMtimeMs === projectsMtimeMs) {
+        return cached.resolved;
+      }
+    }
+
+    const resolved = await this.scanForSessionsDirectory(
+      projectsDir,
+      workspacePath,
+    );
+
+    if (projectsMtimeMs !== null) {
+      this.sessionsDirCache.set(workspacePath, { resolved, projectsMtimeMs });
+    }
+
+    return resolved;
+  }
+
+  /**
+   * `mtimeMs` of `~/.claude/projects`, or `null` if it cannot be read — in
+   * which case the caller scans and caches nothing rather than trusting a
+   * token it could not verify.
+   */
+  private async readProjectsDirMtime(
+    projectsDir: string,
+  ): Promise<number | null> {
+    try {
+      const stats = await fs.stat(projectsDir);
+      return typeof stats.mtimeMs === 'number' ? stats.mtimeMs : null;
+    } catch (error: unknown) {
+      this.logger.debug('[JsonlReader] Could not stat projects directory', {
+        projectsDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * The actual directory scan: exact → lowercase → hyphen/underscore-normalized
+   * → partial match on the workspace's basename. Unchanged from before the
+   * memo; extracted so there is ONE place the result is cached rather than five
+   * return statements each needing to remember.
+   */
+  private async scanForSessionsDirectory(
+    projectsDir: string,
+    workspacePath: string,
+  ): Promise<string | null> {
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
     const dirs = await fs.readdir(projectsDir);
 
@@ -170,6 +290,25 @@ export class JsonlReaderService {
    * between batches. Skips malformed lines instead of throwing.
    * Enforces a maximum file size limit to prevent memory exhaustion.
    *
+   * ## The parse is memoised on `(path, size, mtimeMs)`
+   *
+   * Three independent callers read the SAME transcript within a second of each
+   * other on the resume path: `chat:resume` calls `readSessionHistory()` and
+   * then `readHistoryAsMessages()` — two full parses of one file — and
+   * `session:stats-batch` parses it again for the sidebar. Nothing about the
+   * bytes changed between them.
+   *
+   * `size` AND `mtimeMs` together are an exact validity token for an
+   * append-only transcript: an appended turn moves the size, and a rewrite
+   * moves the mtime. Neither alone is enough (`mtimeMs` has millisecond
+   * resolution, and a same-size rewrite leaves the size untouched), which is
+   * why both are compared.
+   *
+   * The `fs.stat` this needs is the one already taken for the size guard, so
+   * the memo costs no extra syscall. {@link readJsonlTail} is deliberately NOT
+   * memoised — its result depends on `maxBytes` as well, and its callers read
+   * a moving window of a file that is actively being appended to.
+   *
    * @param filePath - Absolute path to the JSONL file
    * @param options - Optional abort signal
    * @returns Array of parsed session history messages
@@ -195,7 +334,10 @@ export class JsonlReaderService {
     }
     if (stats.size === 0) return [];
 
-    return this.parseJsonlStream(
+    const cached = this.readCachedTranscript(filePath, stats);
+    if (cached) return cached;
+
+    const messages = await this.parseJsonlStream(
       createReadStream(filePath, {
         encoding: 'utf8',
         highWaterMark: this.READ_CHUNK_BYTES,
@@ -203,6 +345,76 @@ export class JsonlReaderService {
       filePath,
       { dropFirstLine: false, signal: options?.signal },
     );
+
+    this.cacheTranscript(filePath, stats, messages);
+    // Every caller gets its OWN array. The elements are shared — nothing in the
+    // history pipeline mutates a parsed message — but an array-level mutation
+    // (a `sort`, a `splice`) by one caller must not reach the next one.
+    return [...messages];
+  }
+
+  /**
+   * The cached parse for this file, if it is still valid, as a fresh array.
+   * Returns `null` on a miss and drops the stale entry as it goes.
+   */
+  private readCachedTranscript(
+    filePath: string,
+    stats: { size: number; mtimeMs: number },
+  ): SessionHistoryMessage[] | null {
+    const entry = this.transcriptCache.get(filePath);
+    if (!entry) return null;
+
+    const isCurrent =
+      entry.size === stats.size && entry.mtimeMs === stats.mtimeMs;
+    const isFresh = Date.now() - entry.cachedAt < this.TRANSCRIPT_CACHE_TTL_MS;
+    if (!isCurrent || !isFresh) {
+      this.dropCachedTranscript(filePath);
+      return null;
+    }
+
+    // Re-insert so the eviction order below is least-recently-USED rather than
+    // least-recently-written: the transcript being resumed is read repeatedly
+    // and must not be the first one evicted.
+    this.transcriptCache.delete(filePath);
+    this.transcriptCache.set(filePath, entry);
+    return [...entry.messages];
+  }
+
+  /** Store a parse, then evict until the entry and byte caps hold. */
+  private cacheTranscript(
+    filePath: string,
+    stats: { size: number; mtimeMs: number },
+    messages: SessionHistoryMessage[],
+  ): void {
+    if (stats.size > this.TRANSCRIPT_CACHE_MAX_FILE_BYTES) return;
+    // No usable mtime means no validity token, and an entry that cannot be
+    // invalidated is worse than no entry.
+    if (typeof stats.mtimeMs !== 'number') return;
+
+    this.dropCachedTranscript(filePath);
+    this.transcriptCache.set(filePath, {
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+      cachedAt: Date.now(),
+      messages,
+    });
+    this.transcriptCacheBytes += stats.size;
+
+    for (const [key] of this.transcriptCache) {
+      const withinCaps =
+        this.transcriptCache.size <= this.TRANSCRIPT_CACHE_MAX_ENTRIES &&
+        this.transcriptCacheBytes <= this.TRANSCRIPT_CACHE_MAX_BYTES;
+      if (withinCaps) break;
+      if (key === filePath) continue;
+      this.dropCachedTranscript(key);
+    }
+  }
+
+  private dropCachedTranscript(filePath: string): void {
+    const entry = this.transcriptCache.get(filePath);
+    if (!entry) return;
+    this.transcriptCache.delete(filePath);
+    this.transcriptCacheBytes -= entry.size;
   }
 
   /**
