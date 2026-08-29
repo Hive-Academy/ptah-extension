@@ -283,6 +283,19 @@ describe('contract guard — asset document names', () => {
     expect(files.some((f) => f.startsWith(AGENT_TEMPLATE_DIR))).toBe(true);
     expect(files.some((f) => f.startsWith(ORCHESTRATION_SKILL_DIR))).toBe(true);
   });
+
+  /**
+   * The shared partials are a NEW position for the same text: one file that
+   * fifteen templates include. `walkFiles` already recurses into it, so this
+   * asserts the coverage rather than adding it — a `_shared` tree that stopped
+   * being scanned would silently exempt the most-read prose in the corpus.
+   */
+  it('reaches the shared template partials', () => {
+    const shared = assetFiles().filter((f) =>
+      f.startsWith(`${AGENT_TEMPLATE_DIR}/_shared/`),
+    );
+    expect(shared.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

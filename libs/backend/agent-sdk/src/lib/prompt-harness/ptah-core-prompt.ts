@@ -15,6 +15,7 @@
  *
  * Token Budget: ~3,500-4,000 tokens
  */
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
 /**
  * Ptah Core System Prompt
@@ -119,16 +120,13 @@ You operate a 3-tier hierarchy for maximum parallelism:
 **Tier 2 — Sub-agents (Senior Leads):** Spawned by you via Task. Retain full specialist reasoning. Can spawn CLI agents for grunt work via \`ptah_agent_spawn\`.
 **Tier 3 — CLI agents (Junior Helpers):** Spawned by Tier 1 or Tier 2 via MCP tools. Handle focused, independently-executable sub-tasks with no shared context.
 
-**Available CLI agents** (discover with \`ptah_agent_list\`): codex, copilot, ptah-cli (user-configured). Priority: ptah-cli > codex > copilot.
+**Which CLI agents exist is a runtime fact — call \`ptah_agent_list\`.** The roster is per-machine and per-user: adapters ship between releases and every user configures a different provider set. Never rank the results, and never carry a vendor list from one session into the next.
 
 **CLI Delegation Pattern (Spawn → Poll → Read):**
-1. \`ptah_agent_spawn { task: "...", cli: "codex" }\` — self-contained prompt, no shared context
+1. \`ptah_agent_spawn { task: "..." }\` — self-contained prompt, no shared context. Pass the \`cli\` (or \`ptahCliId\`) you took from \`ptah_agent_list\`.
 2. \`ptah_agent_status { agentId: "..." }\` — poll until complete
 3. \`ptah_agent_read { agentId: "..." }\` — read results
 4. Synthesize results into your deliverable
-
-**CRITICAL — When spawning sub-agents via Task, ALWAYS inject CLI delegation instructions:**
-Include in every sub-agent prompt: "You can delegate focused sub-tasks to CLI agents via ptah_agent_spawn (discover available agents with ptah_agent_list). Use Spawn → Poll → Read pattern. Max 3 concurrent CLI agents. CLI agents have NO shared context — prompts must be fully self-contained with absolute file paths and clear expected output format."
 
 **Session Resume:** When a CLI agent times out, prefer resuming over re-spawning. Use \`ptah_agent_status\` to get the CLI Session ID, then \`ptah_agent_spawn { task: "Continue", resume_session_id: "..." }\`.
 
@@ -353,4 +351,6 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 ### Multi-Agent Delegation (CLI Agents)
 
-Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, cursor, antigravity, opencode, pi, ptah-cli — call \`ptah_agent_list\` to see which are actually installed. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
+Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. This build ships adapters for ${SYSTEM_CLI_TYPES.join(
+  ', ',
+)}, plus user-configured Ptah CLI providers; that is the set of adapters, NOT the set present on this machine. Call \`ptah_agent_list\` for the roster and never rank it. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;

@@ -98,6 +98,16 @@ export interface AgentTemplate {
   llmSections: LlmSection[];
 
   /**
+   * The agent's `description:` — WHAT it does and WHEN to reach for it.
+   *
+   * Read from the template's ONE frontmatter block. Templates used to carry a
+   * second `---name/description---` block that nothing parsed, so every
+   * generated agent's description was reconstructed downstream by re-scanning
+   * the body for a frontmatter that had no business being there.
+   */
+  description?: string;
+
+  /**
    * Optional model hint for the generated agent (e.g. 'opus', 'sonnet').
    * When present, it is emitted as a `model:` frontmatter field in the
    * written `.claude/agents/<id>.md` file. Absent for templates that should

@@ -77,7 +77,10 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import { Logger } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { AgentGenerationOrchestratorService } from './orchestrator.service';
+import {
+  AgentGenerationOrchestratorService,
+  stripStaticMarkers,
+} from './orchestrator.service';
 import type { OrchestratorGenerationOptions } from './orchestrator.service';
 import type { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import type { ITemplateStorageService } from '../interfaces/template-storage.interface';
@@ -682,15 +685,22 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(writtenAgent.content).not.toContain('description: stale');
     });
 
-    it('caps description at 120 characters with ellipsis', async () => {
+    /**
+     * The cap was 120, which is narrower than any real agent description.
+     *
+     * A description's job is WHAT the agent does AND WHEN to reach for it, and
+     * the WHEN half is what makes it selectable. Measured across the 15 shipped
+     * templates, the shortest description is 417 characters and the longest
+     * 647 — so a 120-char cap truncated every one of them mid-sentence, always
+     * inside the WHEN clause, and the agent files went out advertising half a
+     * trigger. 1,024 is the ceiling the harness targets themselves impose.
+     */
+    it('leaves a real description intact and caps only a runaway one', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);
-      const longDesc = 'A'.repeat(200);
+      const realistic = 'A'.repeat(647);
       mocks.contentGenerator.generateContent.mockResolvedValue(
-        Result.ok({
-          content: 'body',
-          description: longDesc,
-        }),
+        Result.ok({ content: 'body', description: realistic }),
       );
 
       await service.generateAgents({
@@ -698,7 +708,23 @@ describe('AgentGenerationOrchestratorService', () => {
       });
 
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
-      expect(writtenAgent.content).toMatch(/A{117}\.\.\./);
+      expect(writtenAgent.content).toContain(realistic);
+      expect(writtenAgent.content).not.toContain('...');
+    });
+
+    it('caps description at 1024 characters with ellipsis', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.ok({ content: 'body', description: 'A'.repeat(2000) }),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).toMatch(/A{1021}\.\.\./);
     });
   });
 
@@ -1305,5 +1331,110 @@ describe('AgentGenerationOrchestratorService', () => {
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
       expect(writtenAgent.content).not.toContain('model:');
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// stripStaticMarkers — the emit-side half of the shared-block mechanism.
+//
+// Both defects pinned here were invisible end-to-end: the output still "looked
+// right" in an LF fixture, and the over-broad collapse only showed up as a code
+// sample that had quietly lost a blank line.
+// -----------------------------------------------------------------------------
+
+describe('stripStaticMarkers', () => {
+  it('removes marker lines and collapses the seam (LF)', () => {
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '## Replace, do not accumulate',
+      '',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      'outro',
+    ].join('\n');
+
+    expect(stripStaticMarkers(content)).toBe(
+      ['intro', '', '## Replace, do not accumulate', '', 'outro'].join('\n'),
+    );
+  });
+
+  it('removes marker lines and collapses the seam on CRLF input', () => {
+    // Templates are authored on Windows. The previous `\n`-anchored strip left
+    // an orphaned `\r` behind and its `\n{3,}` collapse never matched at all,
+    // so the tidy-up silently did nothing on the platform that produces the
+    // corpus.
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '## Replace, do not accumulate',
+      '',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      'outro',
+    ].join('\r\n');
+
+    const out = stripStaticMarkers(content);
+
+    expect(out).not.toContain('STATIC:');
+    expect(out).not.toContain('\r\r');
+    expect(out).toBe(
+      ['intro', '', '## Replace, do not accumulate', '', 'outro'].join('\r\n'),
+    );
+  });
+
+  it('leaves a CRLF document with no markers byte-identical', () => {
+    const content = 'a\r\n\r\n\r\n\r\nb\r\n';
+    expect(stripStaticMarkers(content)).toBe(content);
+  });
+
+  it('does NOT reflow blank runs away from the seam', () => {
+    // The old global `\n{3,}` → `\n\n` rewrote the whole document. Inside a
+    // fence the blank run is part of the specimen the agent is shown.
+    const content = [
+      '<!-- STATIC:CLI_DELEGATION -->',
+      'delegation rules',
+      '<!-- /STATIC:CLI_DELEGATION -->',
+      '',
+      '```markdown',
+      '## Report',
+      '',
+      '',
+      '',
+      'body after three blank lines',
+      '```',
+    ].join('\n');
+
+    const out = stripStaticMarkers(content);
+
+    expect(out).not.toContain('STATIC:');
+    expect(out).toContain('## Report\n\n\n\nbody after three blank lines');
+  });
+
+  it('collapses a run only once when two markers are adjacent', () => {
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '<!-- STATIC:CLI_DELEGATION -->',
+      '<!-- /STATIC:CLI_DELEGATION -->',
+      '',
+      'outro',
+    ].join('\n');
+
+    expect(stripStaticMarkers(content)).toBe(['intro', '', 'outro'].join('\n'));
+  });
+
+  it('strips a malformed id rather than shipping it', () => {
+    // Rejection belongs to the resolver, at load time. Refusing to strip here
+    // would only mean the marker reaches the agent file.
+    const out = stripStaticMarkers('a\n<!-- /STATIC:ANT I_PATTERNS -->\nb\n');
+    expect(out).not.toContain('STATIC:');
   });
 });

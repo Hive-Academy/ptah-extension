@@ -23,6 +23,7 @@
  * that reason; its output is a strict subset of what `gray-matter` produces and
  * round-trips through `parseTaskFile`.
  */
+import { TASK_STATUSES } from './task-spec.types';
 import type { TaskEstimate, TaskStatus, TaskType } from './task-spec.types';
 
 /** Workspace-relative root of the task-spec tree. */
@@ -474,5 +475,60 @@ plus \`${LEGACY_BATCHES_FILE}\` (legacy name for \`${BATCHES_FILE}\`).
 Scan the \`TASK_*\` folders on disk, take the highest \`NNN\` for the current
 year, add one, zero-pad to three digits. Never derive the next id from
 \`registry.md\` — that file is generated and can be stale.
+`;
+}
+
+/**
+ * Render the task-spec rules block that every subagent template embeds.
+ *
+ * This is the SECOND generated-prose renderer in this module and it exists for
+ * the same reason as {@link renderSpecsReadme}: the rules were hand-copied into
+ * six agent templates and thirteen deployed agent files, every copy taught
+ * \`${LEGACY_BATCHES_FILE}\` as the batch file, and none of them moved when
+ * {@link BATCHES_FILE} was renamed. Nineteen stale copies is what a hand-copied
+ * contract costs. Derived text cannot go stale — rename the constant and every
+ * consumer's next render is correct.
+ *
+ * `agent-generation`'s `TemplatePartialResolver` calls this for the
+ * `TASK_SPEC_CONTRACT` shared block, so there is deliberately NO
+ * `_shared/task-spec-contract.md` file on disk to drift from it.
+ *
+ * DETERMINISTIC for the same reason {@link renderSpecsReadme} is: no
+ * wall-clock, no environment reads. Callers hash the output.
+ *
+ * Written as RULES, not prose: an agent reads this mid-prompt and the only
+ * useful shape is the shortest one that still says what is forbidden.
+ */
+export function renderTaskSpecAgentBlock(): string {
+  const statuses = TASK_STATUSES.join(' | ');
+
+  return `## Task specs (\`${SPEC_ROOT}/\`)
+
+- One folder per task, \`TASK_YYYY_NNN\`. **The folder name is the canonical id.**
+  A frontmatter \`id:\` that disagrees is a warning — never rename the folder to
+  match it.
+- \`${CARRIER_FILE}\` is the machine-owned carrier: frontmatter (\`status\`,
+  \`type\`, \`title\`) plus a short pointer body. A folder without it is invisible
+  to the Tasks board. Never write prose into it.
+- \`${CONTEXT_FILE}\` holds intent and narrative. \`${BATCHES_FILE}\` holds the
+  team-leader batch breakdown and is a DIFFERENT file from \`${CARRIER_FILE}\`;
+  its former name \`${LEGACY_BATCHES_FILE}\` is still read, permanently.
+- To change status, \`Edit\` exactly the \`status:\` line
+  (\`${statuses}\`). Never rewrite the carrier with \`Write\` — Ptah writes this
+  file too, and a whole-file write from a stale snapshot discards the other
+  writer's change.
+- \`description\` (and any \`title\` containing a colon) MUST be a \`>-\` block
+  scalar. A plain YAML scalar ends at the first colon-space, so one quoted code
+  snippet makes the carrier unparseable and the task vanishes from the board.
+- Allocate a new id by scanning \`${SPEC_ROOT}/TASK_*\` on disk: highest \`NNN\`
+  for the current year, plus one, zero-padded to three digits. Never read the id
+  from \`registry.md\` — it is generated and can be stale.
+- Only these documents are read from a task folder: ${DOC_FILES.filter(
+    (name) => !isLegacyDocFile(name),
+  )
+    .map((name) => `\`${name}\``)
+    .join(
+      ', ',
+    )}, plus \`${LEGACY_BATCHES_FILE}\`. Any other name is not picked up.
 `;
 }
