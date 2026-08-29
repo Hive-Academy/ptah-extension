@@ -114,6 +114,8 @@ export type {
   SetupHookInput,
   SetupHookSpecificOutput,
   SlashCommand,
+  SpawnedProcess,
+  SpawnOptions,
   StopFailureHookInput,
   StopHookInput,
   SubagentStartHookInput,

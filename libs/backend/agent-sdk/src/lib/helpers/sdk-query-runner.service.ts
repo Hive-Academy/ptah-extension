@@ -43,6 +43,7 @@ import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
+import { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import {
   buildModelIdentityPrompt,
   getActiveProviderId,
@@ -63,6 +64,20 @@ import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
+
+/**
+ * Above this, the synchronous part of `query()` is a main-thread stall worth
+ * reporting, not a launch.
+ *
+ * `query()` is synchronous all the way down to `child_process.spawn`, and on
+ * Windows that spawn blocks the calling thread for as long as the OS takes to
+ * scan the image — ~1.6 s for the 253 MB `claude.exe`. Ten boot-time one-shot
+ * queries each produced an `[event-loop] lag` line matching their own launch
+ * duration to within ~10 ms (TASK_2026_341). `OffThreadProcessSpawner` moves
+ * the spawn onto a worker; this guard is what tells us if anything ever puts it
+ * back — a regression here is invisible in a unit test and expensive in Electron.
+ */
+const QUERY_LAUNCH_BLOCK_WARN_MS = 100;
 
 /**
  * Env keys that together name ONE provider. They are mutually exclusive: a
@@ -157,7 +172,52 @@ export class SdkQueryRunner {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly processSpawner: OffThreadProcessSpawner,
   ) {}
+
+  /**
+   * Route the SDK's CLI spawn through {@link OffThreadProcessSpawner}.
+   *
+   * `spawnClaudeCodeProcess` is the SDK's only public seam for this, and it is
+   * set here — on the ONE funnel both the one-shot and the interactive launch
+   * pass through — rather than in `SdkQueryOptionsBuilder`, so a caller that
+   * builds its own options still gets the fix.
+   *
+   * A caller-supplied spawner always wins: a host running the CLI in a VM or
+   * container has already answered this question, and overriding it would
+   * silently move its process back onto the local machine.
+   *
+   * `options.stderr` is handed down explicitly because the SDK only pipes and
+   * forwards stderr inside its own `spawnLocalProcess`; supplying a custom
+   * spawner skips that wiring entirely.
+   */
+  private useOffThreadSpawner(options: SdkQueryOptions): void {
+    if (options.spawnClaudeCodeProcess) return;
+    const onStderr = options.stderr;
+    options.spawnClaudeCodeProcess = (spawnOptions) =>
+      this.processSpawner.spawn(spawnOptions, onStderr ? { onStderr } : {});
+  }
+
+  /**
+   * Run the synchronous half of a query launch and report it if it stalls.
+   *
+   * The whole point of this task: `queryFn(...)` is not awaited anywhere,
+   * because there is nothing async about it — whatever it costs, it costs on
+   * this thread.
+   */
+  private launch<T>(mode: 'oneShot' | 'interactive', invoke: () => T): T {
+    const startedAt = Date.now();
+    const result = invoke();
+    const blockedMs = Date.now() - startedAt;
+    if (blockedMs > QUERY_LAUNCH_BLOCK_WARN_MS) {
+      this.logger.warn(`${SERVICE_TAG} query() blocked the event loop`, {
+        blockedMs,
+        mode,
+      });
+    }
+    return result;
+  }
 
   private resolveSafeCwd(requested: string): string {
     const safety = isUnsafeWorkspacePath(requested, this.platformInfo);
@@ -221,10 +281,12 @@ export class SdkQueryRunner {
     });
 
     const queryStartMs = Date.now();
-    const conversation = queryFn({
-      prompt: input.prompt,
-      options,
-    });
+    const conversation = this.launch('oneShot', () =>
+      queryFn({
+        prompt: input.prompt,
+        options,
+      }),
+    );
 
     this.logger.info(
       `${SERVICE_TAG} SDK query() returned conversation handle in ${Date.now() - queryStartMs}ms`,
@@ -257,7 +319,10 @@ export class SdkQueryRunner {
     prompt: string | AsyncIterable<SDKUserMessage>,
     options: SdkQueryOptions,
   ): InteractiveRunResult {
-    const sdkQuery = queryFn({ prompt, options });
+    this.useOffThreadSpawner(options);
+    const sdkQuery = this.launch('interactive', () =>
+      queryFn({ prompt, options }),
+    );
     return { sdkQuery };
   }
 
@@ -375,6 +440,8 @@ export class SdkQueryRunner {
     if (input.outputFormat) {
       options.outputFormat = input.outputFormat;
     }
+
+    this.useOffThreadSpawner(options);
 
     return options;
   }

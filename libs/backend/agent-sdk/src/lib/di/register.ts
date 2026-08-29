@@ -32,6 +32,7 @@ import {
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
   SdkQueryRunner,
+  OffThreadProcessSpawner,
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
@@ -306,6 +307,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_ADAPTER_EVENTS,
     { useClass: SdkAdapterEvents },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PROCESS_SPAWNER,
+    { useClass: OffThreadProcessSpawner },
     { lifecycle: Lifecycle.Singleton },
   );
 

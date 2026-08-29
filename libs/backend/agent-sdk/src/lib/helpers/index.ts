@@ -156,6 +156,12 @@ export {
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
+export {
+  OffThreadProcessSpawner,
+  type OffThreadSpawnHooks,
+  type PtahSpawnedProcess,
+  type SpawnTransport,
+} from './off-thread-process-spawner';
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';

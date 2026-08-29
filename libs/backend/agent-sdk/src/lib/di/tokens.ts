@@ -48,6 +48,7 @@ export const SDK_TOKENS = {
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_QUERY_RUNNER: Symbol.for('SdkQueryRunner'),
+  SDK_PROCESS_SPAWNER: Symbol.for('SdkProcessSpawner'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
