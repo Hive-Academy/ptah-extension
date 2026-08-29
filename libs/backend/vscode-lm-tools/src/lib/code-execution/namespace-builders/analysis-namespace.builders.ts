@@ -19,7 +19,6 @@ import {
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import * as path from 'path';
 import {
   ContextNamespace,
   ProjectNamespace,
