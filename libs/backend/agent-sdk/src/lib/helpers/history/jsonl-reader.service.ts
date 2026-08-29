@@ -116,6 +116,20 @@ export class JsonlReaderService {
    */
   private readonly sessionsDirCache = new Map<string, SessionsDirEntry>();
 
+  /**
+   * Cap on remembered workspaces, evicted least-recently-used.
+   *
+   * The mtime token invalidates an entry but never REMOVES one, so without a
+   * bound this map grows once per distinct workspace path for the life of an
+   * Electron process — and this is a long-lived process whose users switch
+   * folders (judge round 1, TASK_2026_353). 32 is far above any plausible
+   * working set of open projects, so the cap is a leak guard, not a tuning
+   * knob: a host that reaches it was never going to get cache hits on the
+   * evicted entries anyway. Entries are tiny (a path and a number), which is
+   * why this is a count and not a byte budget.
+   */
+  private readonly SESSIONS_DIR_CACHE_MAX_ENTRIES = 32;
+
   /** Parsed transcripts, keyed by absolute file path. See {@link readJsonlMessages}. */
   private readonly transcriptCache = new Map<string, ParsedTranscriptEntry>();
 
@@ -131,11 +145,22 @@ export class JsonlReaderService {
    */
   private readonly TRANSCRIPT_CACHE_TTL_MS = 60_000;
 
-  /** Never cache a transcript larger than this: the parsed form is several times bigger. */
-  private readonly TRANSCRIPT_CACHE_MAX_FILE_BYTES = 12 * 1024 * 1024;
-
   /** Cap on the summed on-disk size of every cached transcript. */
   private readonly TRANSCRIPT_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+
+  /**
+   * Never cache a transcript larger than this: the parsed form is several times
+   * bigger than the bytes on disk.
+   *
+   * Derived from {@link TRANSCRIPT_CACHE_MAX_BYTES} rather than written out, so
+   * that "anything cacheable fits in the cache ON ITS OWN" holds by
+   * construction. {@link cacheTranscript}'s eviction loop relies on it: it can
+   * evict every OTHER entry and stop, and never has to consider evicting the
+   * entry it just wrote. Break the relation and that loop starts throwing away
+   * the value it was asked to store.
+   */
+  private readonly TRANSCRIPT_CACHE_MAX_FILE_BYTES =
+    this.TRANSCRIPT_CACHE_MAX_BYTES / 2;
 
   /** Cap on the number of cached transcripts, whatever their size. */
   private readonly TRANSCRIPT_CACHE_MAX_ENTRIES = 8;
@@ -188,6 +213,11 @@ export class JsonlReaderService {
     if (projectsMtimeMs !== null) {
       const cached = this.sessionsDirCache.get(workspacePath);
       if (cached && cached.projectsMtimeMs === projectsMtimeMs) {
+        // Re-insert to make the eviction order least-recently-USED: the
+        // workspace being worked in is asked for constantly and must not age
+        // out behind one that was merely visited later.
+        this.sessionsDirCache.delete(workspacePath);
+        this.sessionsDirCache.set(workspacePath, cached);
         return cached.resolved;
       }
     }
@@ -198,10 +228,26 @@ export class JsonlReaderService {
     );
 
     if (projectsMtimeMs !== null) {
+      this.sessionsDirCache.delete(workspacePath);
       this.sessionsDirCache.set(workspacePath, { resolved, projectsMtimeMs });
+      this.evictOldestSessionsDirEntries();
     }
 
     return resolved;
+  }
+
+  /**
+   * Drop least-recently-used workspaces until the map is within
+   * {@link SESSIONS_DIR_CACHE_MAX_ENTRIES}. Map iteration order is insertion
+   * order, and every read and write re-inserts, so the front of the map is the
+   * least recently used entry.
+   */
+  private evictOldestSessionsDirEntries(): void {
+    while (this.sessionsDirCache.size > this.SESSIONS_DIR_CACHE_MAX_ENTRIES) {
+      const oldest = this.sessionsDirCache.keys().next();
+      if (oldest.done) return;
+      this.sessionsDirCache.delete(oldest.value);
+    }
   }
 
   /**
@@ -400,12 +446,17 @@ export class JsonlReaderService {
     });
     this.transcriptCacheBytes += stats.size;
 
+    // Evict least-recently-used until both caps hold. The entry just written is
+    // LAST in insertion order and, being at most
+    // TRANSCRIPT_CACHE_MAX_FILE_BYTES = MAX_BYTES / 2, satisfies both caps on
+    // its own — so the loop always stops before reaching it and needs no
+    // self-skip. That is a property of the two constants, which is why they are
+    // related by construction rather than written out independently.
     for (const [key] of this.transcriptCache) {
       const withinCaps =
         this.transcriptCache.size <= this.TRANSCRIPT_CACHE_MAX_ENTRIES &&
         this.transcriptCacheBytes <= this.TRANSCRIPT_CACHE_MAX_BYTES;
       if (withinCaps) break;
-      if (key === filePath) continue;
       this.dropCachedTranscript(key);
     }
   }

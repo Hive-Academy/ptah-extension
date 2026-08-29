@@ -142,6 +142,7 @@ function createMockModelService(): jest.Mocked<
     | 'getDefaultModel'
     | 'getApiModelsNormalized'
     | 'clearCache'
+    | 'invalidateForAuthChange'
     | 'resolveModelId'
   >
 > {
@@ -150,6 +151,7 @@ function createMockModelService(): jest.Mocked<
     getDefaultModel: jest.fn().mockResolvedValue('claude-sonnet-4-20250514'),
     getApiModelsNormalized: jest.fn().mockResolvedValue([]),
     clearCache: jest.fn(),
+    invalidateForAuthChange: jest.fn(),
     resolveModelId: jest.fn((m: string) => m),
   };
 }
@@ -852,6 +854,7 @@ describe('SdkAgentAdapter', () => {
       // And the provider-keyed caches stay warm — see decision note (b).
       expect(h.cliDetector.clearCache).not.toHaveBeenCalled();
       expect(h.modelService.clearCache).not.toHaveBeenCalled();
+      expect(h.modelService.invalidateForAuthChange).not.toHaveBeenCalled();
     });
 
     // Companion positive case: the guard must not be widened into a regression
@@ -870,7 +873,12 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
       expect(h.cliDetector.clearCache).toHaveBeenCalledTimes(1);
-      expect(h.modelService.clearCache).toHaveBeenCalledTimes(1);
+      // SCOPED, not blanket (judge round 1, TASK_2026_353). The model catalogs
+      // are keyed per auth identity, so the incoming provider cannot read the
+      // outgoing one's list; wiping them would only make the switch BACK pay
+      // another multi-second SDK-bridge spawn.
+      expect(h.modelService.invalidateForAuthChange).toHaveBeenCalledTimes(1);
+      expect(h.modelService.clearCache).not.toHaveBeenCalled();
     });
 
     // Pins decision note (a): FREEZING rather than tearing down keeps

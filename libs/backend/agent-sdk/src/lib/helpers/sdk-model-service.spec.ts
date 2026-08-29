@@ -38,6 +38,8 @@ interface Harness {
   authEnv: AuthEnv;
   /** Swap the active auth method the way an auth strategy would. */
   setAuthMethod: (method: AuthMethod) => void;
+  /** Swap the active provider the way a workspace switch would. */
+  setProviderId: (providerId: string) => void;
   /** Records every call the service routes through `OffThreadProcessSpawner`. */
   offThreadSpawns: SpawnOptions[];
 }
@@ -78,8 +80,9 @@ function makeHarness(opts: {
   } as unknown as IModelResolver;
 
   let authMethod = opts.authMethod;
+  let providerId = 'anthropic';
   const authProvider = {
-    resolveActiveAuth: () => ({ authMethod }),
+    resolveActiveAuth: () => ({ authMethod, providerId }),
   } as unknown as IAuthEnvProvider;
 
   const offThreadSpawns: SpawnOptions[] = [];
@@ -106,6 +109,9 @@ function makeHarness(opts: {
     authEnv,
     setAuthMethod: (method: AuthMethod) => {
       authMethod = method;
+    },
+    setProviderId: (id: string) => {
+      providerId = id;
     },
     offThreadSpawns,
   };
@@ -398,6 +404,53 @@ describe('SdkModelService', () => {
       await h.service.getSupportedModels();
 
       expect(h.spawnEnvs).toHaveLength(2);
+    });
+
+    it('re-fetches when only the active provider changes', async () => {
+      // Two providers can present byte-identical AuthEnvs and still map tiers
+      // differently, because `ModelResolver` falls back to the ACTIVE
+      // provider's registry `defaultTiers`. An env-only key would let one
+      // answer for the other.
+      const h = makeHarness({ authMethod: 'claudeCli', sdkModels: ONE_MODEL });
+
+      await h.service.getSupportedModels();
+      h.setProviderId('claude-cli');
+      await h.service.getSupportedModels();
+
+      expect(h.spawnEnvs).toHaveLength(2);
+    });
+
+    // Judge round 1, TASK_2026_353. `reconfigureAuthIfChanged` used to call the
+    // blanket `clearCache()`, so alternating between two workspaces paid a full
+    // multi-second SDK-bridge spawn on every switch back.
+    it('serves a provider revisited after a switch away — A → B → A is two fetches', async () => {
+      const h = makeHarness({
+        authMethod: 'thirdParty',
+        authEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1111' },
+        sdkModels: [
+          { value: 'sonnet', displayName: 'Provider A', description: '' },
+        ],
+        tiers: { sonnet: 'model-a' },
+      });
+
+      // Workspace A.
+      await h.service.getSupportedModels();
+
+      // Switch to workspace B: a different provider on a different proxy port,
+      // exactly what `reconfigureAuthIfChanged` reacts to.
+      h.setProviderId('openrouter');
+      h.authEnv.ANTHROPIC_BASE_URL = 'http://127.0.0.1:2222';
+      h.service.invalidateForAuthChange();
+      await h.service.getSupportedModels();
+
+      // Back to workspace A. Its catalog was never evicted.
+      h.setProviderId('anthropic');
+      h.authEnv.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1111';
+      h.service.invalidateForAuthChange();
+      const back = await h.service.getSupportedModels();
+
+      expect(h.spawnEnvs).toHaveLength(2);
+      expect(back.map((m) => m.value)).toEqual(['model-a']);
     });
 
     it('re-fetches after clearCache()', async () => {

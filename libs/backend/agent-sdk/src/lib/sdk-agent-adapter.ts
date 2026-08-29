@@ -340,14 +340,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.logger.info(
       `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
     );
-    // The supported-model list and CLI detection are provider-specific and
-    // cached. A bare auth reconfigure (unlike the full config-change reset)
-    // would leave them populated with the PREVIOUS workspace's provider data,
-    // so `config:models-list` returns that provider's models and a send/resume
-    // can pick a model the newly-active provider rejects (ModelNotAvailable).
-    // Clear them so the new workspace's provider re-resolves its own models.
+    // CLI detection is provider-specific and cached under nothing, so it is
+    // dropped wholesale.
+    //
+    // The model service is NOT. Its catalogs are keyed per auth identity
+    // (`authMethod` + `providerId` + the AuthEnv keys that change the answer),
+    // which is a strictly stronger guarantee than clearing: the new provider
+    // cannot read the old one's list because it cannot reach that key. Calling
+    // the blanket `clearCache()` here bought nothing and cost a full
+    // multi-second SDK-bridge spawn on every switch BACK to a provider whose
+    // catalog was still cached — alternating A/B/A paid three spawns for two
+    // providers (judge round 1, TASK_2026_353). `invalidateForAuthChange()`
+    // drops only the genuinely auth-scoped part, the unkeyed `/v1/models`
+    // response.
     this.cliDetector.clearCache();
-    this.modelService.clearCache();
+    this.modelService.invalidateForAuthChange();
     const result = await this.authManager.configureAuthentication(
       active.authMethod,
     );

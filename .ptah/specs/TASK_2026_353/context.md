@@ -182,3 +182,72 @@ the one place that owns the parse.
   failed against an in-flight edit to `rpc-handlers/src/lib/utils/skills-sh-cli.ts`
   (5 skills-sh suites / 97 tests pass on rerun). This task modified no file under
   `libs/backend/rpc-handlers`.
+
+---
+
+## Follow-up (judge round 1)
+
+Three non-blocking findings, landed as a separate change on top of `a9ddfda6d`.
+
+### 1. The workspace switch no longer wipes every provider's catalog
+
+`SdkAgentAdapter.reconfigureAuthIfChanged` still called the blanket
+`modelService.clearCache()`. With the catalogs now keyed per auth identity that call was
+not protection — the incoming provider cannot reach the outgoing one's key — it was a
+guaranteed cost: alternating between workspace A (provider X) and workspace B (provider Y)
+paid the full SDK-bridge spawn on **every** switch back, three spawns for two providers.
+
+- `SdkModelService.invalidateForAuthChange()` drops only the genuinely auth-scoped part:
+  `cachedApiModels`, a single unkeyed field behind a 5-minute TTL whose contents depend on
+  the base URL and credentials that just changed. It deliberately does **not** bump
+  `cacheGeneration` — an in-flight fetch is keyed to the identity that started it, so its
+  write-back stays correct however the active auth moves, and discarding it would only cost
+  the next visitor to that provider another spawn.
+- `clearCache()` keeps its blanket behaviour for the three sites that mean it: config
+  change (`sdk-agent-adapter.ts:217`), `dispose` (`:542`) and `clearModelCache()` (`:549`).
+- **`providerId` joined the fingerprint**, and this is a correctness fix rather than
+  belt-and-braces. `applyTierMapping` resolves tier aliases through `ModelResolver`, which
+  falls back to the ACTIVE provider's registry `defaultTiers`. Two providers can present
+  byte-identical `AuthEnv`s and still map `opus` to different model ids, so the env-only
+  key committed in round 1 could have let one provider's catalog answer for the other. It
+  also makes the key agree with the adapter's own definition of "the auth changed"
+  (`reconfigureAuthIfChanged` compares exactly `authMethod` + `providerId`).
+
+Pinned by `A → B → A is two fetches`, plus a case for a provider change with an unchanged
+env, plus the existing `sdk-agent-adapter.spec.ts` workspace-switch case updated to assert
+the scoped call and that the blanket one is **not** made.
+
+### 2. `sessionsDirCache` is bounded
+
+The mtime token invalidates an entry but never removes one, so the map grew once per
+distinct workspace path for the life of the process. Now a 32-entry LRU, renewed on read as
+well as on write (a hit re-inserts, so a hot workspace cannot age out behind one merely
+visited later). 32 is a leak guard rather than a tuning knob: it is far above any plausible
+set of open projects, and a host that reaches it was not going to get hits on the evicted
+entries. A count, not a byte budget — the entries are a path and a number.
+
+### 3. The dead self-skip branch is gone, and the invariant that made it dead is now enforced
+
+The judge was right that `if (key === filePath) continue;` in `cacheTranscript` was
+unreachable: the fresh entry is last in insertion order and satisfies both caps alone, so
+the loop always breaks before reaching it. Rather than delete a guard and leave the reader
+to re-derive why it was safe, `TRANSCRIPT_CACHE_MAX_FILE_BYTES` is now **derived** as
+`TRANSCRIPT_CACHE_MAX_BYTES / 2`. "Anything cacheable fits in the cache on its own" is the
+property the loop depends on, and it is now structural instead of a coincidence between two
+independently written constants — raising the per-file cap past the total was what would
+have made the branch live, and now cannot happen silently.
+
+Added specs: TTL expiry at the boundary (`Date.now` spied rather than fake timers — the
+parse loop yields through `setImmediate`, which faked timers never fire); LRU eviction past
+the entry cap; eviction on the byte cap with the entry cap untouched; a file over the
+per-file cap never cached at all; and two files at exactly `MAX_BYTES / 2` both surviving,
+which is the invariant above written as a test.
+
+### Verification
+
+`npx nx run-many -t test -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers`
+— header `Running target test for 2 projects`, `Successfully ran target test for 2
+projects`. agent-sdk 81 suites / 1263 tests green; rpc-handlers 91 suites / 2535 tests
+green. `run-many -t typecheck` green for both. Lint on agent-sdk: 0 errors.
+`jsonl-reader.service.ts` is 754 lines against the warn-level 700 soft ceiling — see the
+round-1 note; the additions are bounds and eviction for caches the same methods own.
