@@ -491,8 +491,18 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     // old builder spread that same events Map once PER NODE — 50+ sweeps per
     // rebuild for this input, before the JSON.stringify fingerprint pass on
     // top. Measured here: ~1 sweep per rebuild.
+    //
+    // The ceiling is 8 rather than the measured ~1 because the two sides are
+    // not measured under the same conditions and cannot be. `rebuildMs` sums
+    // the rebuilds from the FIRST one — cold code, small events map, JIT still
+    // collecting types — while `medianSweepMs` samples a sweep that the same
+    // loop has already run a hundred times, so the denominator is always the
+    // warmest number in the test. On a loaded CI runner that gap widens: this
+    // assertion failed at a ratio of 4.5 on a 3-way-parallel Jest run that
+    // measured 1.1 locally. Nothing between 4 and 8 is a regression anyone
+    // could act on, and the shape the assertion exists to exclude is 50×.
     const sweepMs = medianSweepMs(state);
-    expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 4);
+    expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 8);
   });
 
   /**
