@@ -117,43 +117,141 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('getBranches()', () => {
+    /**
+     * One `for-each-ref` line, in the field order of
+     * `GitInfoService.BRANCH_REF_FORMAT`:
+     *   refname, refname:short, HEAD, objectname:short, upstream:short,
+     *   upstream:track, creatordate:unix
+     */
+    function refLine(f: {
+      refname: string;
+      short: string;
+      head?: '*' | ' ';
+      hash?: string;
+      upstream?: string;
+      track?: string;
+      date?: string;
+    }): string {
+      return [
+        f.refname,
+        f.short,
+        f.head ?? ' ',
+        f.hash ?? 'abc1234',
+        f.upstream ?? '',
+        f.track ?? '',
+        f.date ?? '1700000000',
+      ].join('\t');
+    }
+
+    /** The argv handed to the Nth `crossSpawn` call. */
+    function argvOf(callIndex: number): string[] {
+      return mockSpawn.mock.calls[callIndex][1] as string[];
+    }
+
     it('parses for-each-ref output into local BranchRef[]', async () => {
-      // First call: symbolic-ref --short HEAD  (detects current branch)
-      // Second call: for-each-ref refs/heads/
-      let callIdx = 0;
-      mockSpawn.mockImplementation(() => {
-        callIdx++;
-        if (callIdx === 1) {
-          // symbolic-ref call
-          return makeSpawnResult({ stdout: 'main\n', exitCode: 0 });
-        }
-        // for-each-ref call — format: shortname TAB hash TAB upstream TAB ahead-behind TAB time
-        const line = 'main\tabc1234\torigin/main\t2 0\t1700000000\n';
-        return makeSpawnResult({ stdout: line, exitCode: 0 });
-      });
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout:
+            refLine({
+              refname: 'refs/heads/main',
+              short: 'main',
+              head: '*',
+              upstream: 'origin/main',
+              track: '[ahead 2]',
+            }) + '\n',
+          exitCode: 0,
+        }),
+      );
 
       const result = await service.getBranches(WS, false);
 
       expect(result.current).toBe('main');
       expect(result.local).toHaveLength(1);
       expect(result.local[0].name).toBe('main');
+      expect(result.local[0].isCurrent).toBe(true);
+      expect(result.local[0].upstream).toBe('origin/main');
       expect(result.local[0].ahead).toBe(2);
       expect(result.local[0].behind).toBe(0);
+      expect(result.local[0].lastCommitTime).toBe(1700000000000);
     });
 
+    // The defect this task fixed: the format string carried `%09%09` where it
+    // meant `%(ahead-behind:upstream)`, so the field was always empty and every
+    // upstream-tracking branch fell into a per-branch `git rev-list` spawn,
+    // sequentially. 20 of those spawns measured 4.1 s against 0.29 s for the
+    // single `for-each-ref` that replaced them.
+    it('spawns exactly ONE git process for a repo full of tracking branches', async () => {
+      const lines = Array.from({ length: 25 }, (_, i) =>
+        refLine({
+          refname: `refs/heads/feat-${i}`,
+          short: `feat-${i}`,
+          head: i === 0 ? '*' : ' ',
+          upstream: `origin/feat-${i}`,
+          track: '[ahead 1, behind 3]',
+        }),
+      );
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: lines.join('\n') + '\n', exitCode: 0 }),
+      );
+
+      const result = await service.getBranches(WS, false);
+
+      expect(result.local).toHaveLength(25);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const argv = argvOf(0);
+      expect(argv[0]).toBe('for-each-ref');
+      expect(argv).toContain('refs/heads/');
+      expect(argv).not.toContain('refs/remotes/');
+      expect(argv.join(' ')).not.toContain('rev-list');
+    });
+
+    it('never asks for %(ahead-behind:upstream), which is fatal for untracked refs', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+
+      await service.getBranches(WS, true);
+
+      const format = argvOf(0).find((a) => a.startsWith('--format='));
+      expect(format).toBeDefined();
+      expect(format).not.toContain('ahead-behind');
+      expect(format).toContain('%(upstream:track)');
+    });
+
+    it.each([
+      ['[ahead 3, behind 2]', 3, 2],
+      ['[ahead 3]', 3, 0],
+      ['[behind 2]', 0, 2],
+      ['[gone]', 0, 0],
+      ['', 0, 0],
+    ])(
+      'maps upstream:track %p to ahead=%i behind=%i',
+      async (track, ahead, behind) => {
+        mockSpawn.mockImplementation(() =>
+          makeSpawnResult({
+            stdout:
+              refLine({
+                refname: 'refs/heads/main',
+                short: 'main',
+                head: '*',
+                upstream: 'origin/main',
+                track,
+              }) + '\n',
+            exitCode: 0,
+          }),
+        );
+
+        const result = await service.getBranches(WS, false);
+
+        expect(result.local[0].ahead).toBe(ahead);
+        expect(result.local[0].behind).toBe(behind);
+      },
+    );
+
     it('returns empty result when for-each-ref exits non-zero', async () => {
-      let callIdx = 0;
-      mockSpawn.mockImplementation(() => {
-        callIdx++;
-        if (callIdx === 1) {
-          return makeSpawnResult({ stdout: 'main\n', exitCode: 0 });
-        }
-        return makeSpawnResult({
-          stdout: '',
-          exitCode: 128,
-          stderr: 'not a repo',
-        });
-      });
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 128, stderr: 'not a repo' }),
+      );
 
       const result = await service.getBranches(WS, false);
 
@@ -161,34 +259,214 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(result.remote).toEqual([]);
     });
 
-    it('includes remote branches when includeRemote=true', async () => {
-      let callIdx = 0;
-      mockSpawn.mockImplementation(() => {
-        callIdx++;
-        if (callIdx === 1) {
-          // symbolic-ref
-          return makeSpawnResult({ stdout: 'main\n', exitCode: 0 });
-        }
-        if (callIdx === 2) {
-          // for-each-ref refs/heads/
-          return makeSpawnResult({
-            stdout: 'main\tabc1234\torigin/main\t1 0\t1700000000\n',
-            exitCode: 0,
-          });
-        }
-        // for-each-ref refs/remotes/
-        return makeSpawnResult({
-          stdout: 'origin/main\tdef5678\t\t\t1700000000\n',
+    it('includes remote branches when includeRemote=true, from the SAME invocation', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout:
+            [
+              refLine({
+                refname: 'refs/heads/main',
+                short: 'main',
+                head: '*',
+                upstream: 'origin/main',
+                track: '[ahead 1]',
+              }),
+              refLine({
+                refname: 'refs/remotes/origin/HEAD',
+                short: 'origin/HEAD',
+              }),
+              refLine({
+                refname: 'refs/remotes/origin/main',
+                short: 'origin/main',
+                hash: 'def5678',
+              }),
+            ].join('\n') + '\n',
           exitCode: 0,
-        });
-      });
+        }),
+      );
 
       const result = await service.getBranches(WS, true);
 
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(argvOf(0)).toContain('refs/remotes/');
       expect(result.local).toHaveLength(1);
+      // `origin/HEAD` is a symref onto the remote default, not a branch.
       expect(result.remote).toHaveLength(1);
       expect(result.remote[0].name).toBe('origin/main');
       expect(result.remote[0].isRemote).toBe(true);
+      expect(result.remote[0].remote).toBe('origin');
+    });
+
+    it('tells a local branch named origin/foo from the remote ref of the same short name', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout:
+            [
+              refLine({
+                refname: 'refs/heads/origin/foo',
+                short: 'origin/foo',
+              }),
+              refLine({
+                refname: 'refs/remotes/origin/foo',
+                short: 'origin/foo',
+              }),
+            ].join('\n') + '\n',
+          exitCode: 0,
+        }),
+      );
+
+      const result = await service.getBranches(WS, true);
+
+      expect(result.local.map((b) => b.name)).toEqual(['origin/foo']);
+      expect(result.local[0].isRemote).toBe(false);
+      expect(result.remote.map((b) => b.name)).toEqual(['origin/foo']);
+    });
+
+    it('falls back to symbolic-ref exactly once when no ref carries the HEAD marker', async () => {
+      // Unborn branch: `for-each-ref` lists nothing, so nothing is marked `*`.
+      mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
+        args[0] === 'symbolic-ref'
+          ? makeSpawnResult({ stdout: 'main\n', exitCode: 0 })
+          : makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+
+      const result = await service.getBranches(WS, false);
+
+      expect(result.current).toBe('main');
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      expect(argvOf(1)[0]).toBe('symbolic-ref');
+    });
+
+    it('leaves current empty on a detached HEAD without failing', async () => {
+      mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
+        args[0] === 'symbolic-ref'
+          ? makeSpawnResult({ stdout: '', exitCode: 128 })
+          : makeSpawnResult({
+              stdout:
+                refLine({ refname: 'refs/heads/main', short: 'main' }) + '\n',
+              exitCode: 0,
+            }),
+      );
+
+      const result = await service.getBranches(WS, false);
+
+      expect(result.current).toBe('');
+      expect(result.local[0].isCurrent).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Read cache + in-flight coalescing (TASK_2026_343)
+  // ==========================================================================
+
+  describe('read cache', () => {
+    const BRANCH_LINE =
+      'refs/heads/main\tmain\t*\tabc1234\torigin/main\t\t1700000000\n';
+
+    beforeEach(() => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: BRANCH_LINE, exitCode: 0 }),
+      );
+    });
+
+    it('coalesces two concurrent identical getBranches calls into one invocation', async () => {
+      const [a, b] = await Promise.all([
+        service.getBranches(WS, false),
+        service.getBranches(WS, false),
+      ]);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(a).toEqual(b);
+      expect(a.current).toBe('main');
+    });
+
+    it('serves a settled result without spawning git again', async () => {
+      await service.getBranches(WS, false);
+      const again = await service.getBranches(WS, false);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(again.current).toBe('main');
+    });
+
+    it('does not share an entry between includeRemote variants', async () => {
+      await service.getBranches(WS, false);
+      await service.getBranches(WS, true);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidateReadCache() makes the next call spawn git again', async () => {
+      await service.getBranches(WS, false);
+      service.invalidateReadCache(WS);
+      await service.getBranches(WS, false);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidating one workspace leaves another workspace cached', async () => {
+      const OTHER = '/fake/other';
+      await service.getBranches(WS, false);
+      await service.getBranches(OTHER, false);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+      service.invalidateReadCache(OTHER);
+      await service.getBranches(WS, false);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('a computation in flight when invalidation fires does not populate the cache', async () => {
+      const inFlight = service.getBranches(WS, false);
+      service.invalidateReadCache(WS);
+      await inFlight;
+
+      await service.getBranches(WS, false);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('a mutating git command invalidates the cache automatically', async () => {
+      await service.getBranches(WS, false);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+      // force=true skips the dirty-tree probe and goes straight to the
+      // `checkout` spawn, which `isMutatingGitCommand` recognises.
+      await service.checkout(WS, 'other', false, true);
+      await service.getBranches(WS, false);
+
+      const forEachRefCalls = mockSpawn.mock.calls.filter(
+        ([, args]: [unknown, string[]]) => args[0] === 'for-each-ref',
+      );
+      expect(forEachRefCalls).toHaveLength(2);
+    });
+
+    it('a read command does not invalidate the entry it just populated', async () => {
+      await service.stashList(WS);
+      await service.stashList(WS);
+
+      const stashCalls = mockSpawn.mock.calls.filter(
+        ([, args]: [unknown, string[]]) => args[0] === 'stash',
+      );
+      expect(stashCalls).toHaveLength(1);
+    });
+
+    // `getGitInfo` is the working-tree status walk and the git watcher's own
+    // source of truth. A settled entry would make the watcher push status it
+    // had already superseded, so it gets coalescing only.
+    it('getGitInfo coalesces concurrently but is never served from a settled entry', async () => {
+      mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
+        args[0] === 'rev-parse'
+          ? makeSpawnResult({ stdout: 'true\n', exitCode: 0 })
+          : makeSpawnResult({ stdout: '# branch.head main\n', exitCode: 0 }),
+      );
+
+      await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
+      // rev-parse + status, once — not twice.
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+      await service.getGitInfo(WS);
+
+      expect(mockSpawn).toHaveBeenCalledTimes(4);
     });
   });
 

@@ -34,6 +34,30 @@ const MAX_RECENT_BRANCHES = 5;
 
 type RecentBranchesByWorkspace = Record<string, string[]>;
 
+/**
+ * How long a refresh request waits for company before it dispatches (ms).
+ *
+ * A workspace switch produces three independent, uncoordinated refresh
+ * requests within ~50 ms of each other (TASK_2026_343): `switchWorkspace()`,
+ * the `GitStatusBarComponent` constructor, and the backend git watcher's
+ * initial `git:status-update` push, whose own delay is
+ * `GitWatcherService.INITIAL_FETCH_DELAY_MS = 50`. Before this window they
+ * were not merged but SERIALISED by the re-entrancy guard, so the renderer
+ * paid for three full backend round trips in sequence — measured at
+ * 6.9 + 6.1 + 11.7 s on a 15k-file repository.
+ *
+ * 200 ms clears the watcher's 50 ms comfortably while staying below the
+ * threshold at which a branch label reads as lagging.
+ */
+const REFRESH_COALESCE_MS = 200;
+
+/** The three independently refreshable slices of this store. */
+interface RefreshSlices {
+  branches: boolean;
+  stash: boolean;
+  lastCommit: boolean;
+}
+
 const EMPTY_BRANCHES: GitBranchesResult = {
   current: '',
   local: [],
@@ -51,6 +75,11 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  * - On-demand refresh via `refreshBranches()`, `refreshTags()`,
  *   `refreshRemotes()`. Tags and remotes are split out so they can be
  *   lazily fetched (the branch picker doesn't need them on first paint).
+ * - Refresh requests are COALESCED, not serialised: everything asked for
+ *   within {@link REFRESH_COALESCE_MS}, or while a pass is running, merges
+ *   into one round of RPCs covering the union of the requested slices. This
+ *   is what makes a workspace switch cost one `git:branches` call rather
+ *   than three (TASK_2026_343).
  *
  * Recent-branches persistence uses VSCodeService webview state keyed by
  * workspace root so each repo gets its own most-recent list.
@@ -96,19 +125,33 @@ export class GitBranchesService {
   private _messageHandler: ((event: MessageEvent) => void) | null = null;
 
   /**
-   * Re-entrancy guard for {@link refreshBranches}. Prevents overlapping
-   * RPC bursts when multiple `git:status-update` events arrive in quick
-   * succession (e.g. branch switch followed by post-checkout refresh).
+   * Re-entrancy guard for the refresh pass. Prevents overlapping RPC bursts
+   * when multiple `git:status-update` events arrive in quick succession
+   * (e.g. branch switch followed by post-checkout refresh).
    * Non-signal field — does not trigger OnPush change detection.
    */
   private _isRefreshing = false;
 
   /**
-   * Set when a refresh request arrives while one is already in flight.
-   * The in-flight pass reruns (full refresh) before releasing the guard,
-   * so a workspace switch is never silently dropped by the guard.
+   * Slices requested but not yet dispatched — the union of every request
+   * that arrived during the coalescing window, or while the pass was running.
+   *
+   * A SET of slices, not a boolean. The predecessor was a `_refreshQueued`
+   * flag whose trailing rerun refreshed all three slices unconditionally, so
+   * a queued request that only wanted the stash count re-ran the expensive
+   * branch listing with it.
    */
-  private _refreshQueued = false;
+  private _pending: RefreshSlices | null = null;
+
+  /** Armed while a coalescing window is open. */
+  private _coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Promise handed to every caller whose request is still undispatched or
+   * in flight, resolved once the pass that will satisfy them all drains.
+   */
+  private _passPromise: Promise<void> | null = null;
+  private _resolvePass: (() => void) | null = null;
 
   /**
    * Active workspace folder as told by the WorkspaceCoordinator. Takes
@@ -195,43 +238,88 @@ export class GitBranchesService {
     const effective: readonly GitChangeKind[] =
       causes && causes.length > 0 ? causes : ['initial'];
 
-    const wantsBranches = effective.some(
-      (c) => c === 'head' || c === 'refs' || c === 'initial',
-    );
-    const wantsStash = effective.some(
-      (c) => c === 'refs' || c === 'refs-stash' || c === 'initial',
-    );
-    const wantsLastCommit = effective.some(
-      (c) => c === 'head' || c === 'initial',
-    );
+    return this.requestRefresh({
+      branches: effective.some(
+        (c) => c === 'head' || c === 'refs' || c === 'initial',
+      ),
+      stash: effective.some(
+        (c) => c === 'refs' || c === 'refs-stash' || c === 'initial',
+      ),
+      lastCommit: effective.some((c) => c === 'head' || c === 'initial'),
+    });
+  }
 
-    if (!wantsBranches && !wantsStash && !wantsLastCommit) {
-      return;
+  /**
+   * Fold a refresh request into the pending set and make sure a pass will run.
+   *
+   * Requests arriving inside {@link REFRESH_COALESCE_MS}, or while a pass is
+   * already running, are merged rather than queued behind each other — which
+   * is what collapses a workspace switch's three independent requests into one
+   * `git:branches` round trip. Every caller gets the same promise, resolved
+   * when the pass that covers their slices has drained.
+   */
+  private requestRefresh(slices: RefreshSlices): Promise<void> {
+    if (!slices.branches && !slices.stash && !slices.lastCommit) {
+      return Promise.resolve();
     }
 
-    if (this._isRefreshing) {
-      this._refreshQueued = true;
-      return;
+    this._pending = {
+      branches: (this._pending?.branches ?? false) || slices.branches,
+      stash: (this._pending?.stash ?? false) || slices.stash,
+      lastCommit: (this._pending?.lastCommit ?? false) || slices.lastCommit,
+    };
+    this._isLoading.set(true);
+
+    if (!this._passPromise) {
+      this._passPromise = new Promise<void>((resolve) => {
+        this._resolvePass = resolve;
+      });
     }
+
+    // A running pass re-reads `_pending` after each round, so it will pick
+    // this request up without a second timer.
+    if (!this._isRefreshing && this._coalesceTimer === null) {
+      this._coalesceTimer = setTimeout(() => {
+        this._coalesceTimer = null;
+        void this.runRefreshPass();
+      }, REFRESH_COALESCE_MS);
+    }
+
+    return this._passPromise;
+  }
+
+  /**
+   * Drain {@link _pending} until nothing is left, then release every waiter.
+   *
+   * The active workspace is captured per round and handed to each slice
+   * refresher, so a response for the folder the user just navigated away from
+   * is dropped instead of being written over the new folder's state.
+   */
+  private async runRefreshPass(): Promise<void> {
     this._isRefreshing = true;
     try {
-      this._isLoading.set(true);
-      let refreshBranches = wantsBranches;
-      let refreshStash = wantsStash;
-      let refreshLastCommit = wantsLastCommit;
       for (;;) {
+        const slices = this._pending;
+        this._pending = null;
+        if (!slices) break;
+
+        const workspaceAtRequest = this.workspaceKey();
         const tasks: Promise<unknown>[] = [];
-        if (refreshBranches) tasks.push(this.refreshBranchList());
-        if (refreshStash) tasks.push(this.refreshStashCount());
-        if (refreshLastCommit) tasks.push(this.refreshLastCommit());
+        if (slices.branches)
+          tasks.push(this.refreshBranchList(workspaceAtRequest));
+        if (slices.stash)
+          tasks.push(this.refreshStashCount(workspaceAtRequest));
+        if (slices.lastCommit)
+          tasks.push(this.refreshLastCommit(workspaceAtRequest));
         await Promise.all(tasks);
-        if (!this._refreshQueued) break;
-        this._refreshQueued = false;
-        refreshBranches = refreshStash = refreshLastCommit = true;
       }
-      this._isLoading.set(false);
     } finally {
       this._isRefreshing = false;
+      this._isLoading.set(false);
+      const resolve = this._resolvePass;
+      this._passPromise = null;
+      this._resolvePass = null;
+      resolve?.();
     }
   }
 
@@ -244,6 +332,18 @@ export class GitBranchesService {
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
       this._messageHandler = null;
+    }
+    // An armed coalescing window would otherwise fire its RPCs after the
+    // surface that wanted them is gone.
+    if (this._coalesceTimer !== null) {
+      clearTimeout(this._coalesceTimer);
+      this._coalesceTimer = null;
+      this._pending = null;
+      this._isLoading.set(false);
+      const resolve = this._resolvePass;
+      this._passPromise = null;
+      this._resolvePass = null;
+      resolve?.();
     }
   }
 
@@ -258,31 +358,51 @@ export class GitBranchesService {
     await this.refreshForCauses(['initial']);
   }
 
+  /**
+   * Has the active workspace moved on since a request was dispatched?
+   *
+   * A `git:branches` round trip on a large repository outlives a workspace
+   * switch easily, and without this the previous folder's branch list is
+   * written straight over the new folder's. Mirrors the `workspaceAtFetchTime`
+   * guard in `GitStatusService.fetchGitInfo`.
+   */
+  private isStale(workspaceAtRequest: string | null): boolean {
+    return this.workspaceKey() !== workspaceAtRequest;
+  }
+
   /** Refresh the local + remote branch list signal. */
-  private async refreshBranchList(): Promise<void> {
+  private async refreshBranchList(
+    workspaceAtRequest: string | null = this.workspaceKey(),
+  ): Promise<void> {
     const result = await this.safeRpc<GitBranchesResult>('git:branches', {
       includeRemote: true,
       ...this.scopeParams(),
     });
-    if (result) this._branches.set(result);
+    if (result && !this.isStale(workspaceAtRequest)) this._branches.set(result);
   }
 
   /** Refresh the stash count badge signal. */
-  private async refreshStashCount(): Promise<void> {
+  private async refreshStashCount(
+    workspaceAtRequest: string | null = this.workspaceKey(),
+  ): Promise<void> {
     const result = await this.safeRpc<GitStashListResult>(
       'git:stashList',
       this.scopeParams(),
     );
-    if (result) this._stashCount.set(result.count);
+    if (result && !this.isStale(workspaceAtRequest))
+      this._stashCount.set(result.count);
   }
 
   /** Refresh the last-commit-on-HEAD signal. */
-  private async refreshLastCommit(): Promise<void> {
+  private async refreshLastCommit(
+    workspaceAtRequest: string | null = this.workspaceKey(),
+  ): Promise<void> {
     const result = await this.safeRpc<GitLastCommitResult>(
       'git:lastCommit',
       this.scopeParams(),
     );
-    if (result) this._lastCommit.set(result);
+    if (result && !this.isStale(workspaceAtRequest))
+      this._lastCommit.set(result);
   }
 
   /** Lazy fetch of recent tags — call when the branch details popover opens. */
@@ -377,7 +497,12 @@ export class GitBranchesService {
         this.scopeParams(),
       );
       if (response.success && response.data) {
-        if (response.data.success) void this.refreshBranchList();
+        if (response.data.success)
+          void this.requestRefresh({
+            branches: true,
+            stash: false,
+            lastCommit: false,
+          });
         return response.data;
       }
       return {

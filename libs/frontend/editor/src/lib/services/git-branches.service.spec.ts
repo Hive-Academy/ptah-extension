@@ -476,10 +476,12 @@ describe('GitBranchesService (TASK_2026_111)', () => {
 
   describe('refreshForCauses()', () => {
     function methodsCalled(): string[] {
-      return mockRpcCall.mock.calls.map(([, method]: [unknown, string]) => method);
+      return mockRpcCall.mock.calls.map(
+        ([, method]: [unknown, string]) => method,
+      );
     }
 
-    it("workspace-only events do not fire ANY of the 3 RPCs", async () => {
+    it('workspace-only events do not fire ANY of the 3 RPCs', async () => {
       await service.refreshForCauses(['workspace']);
       expect(methodsCalled()).toEqual([]);
     });
@@ -517,7 +519,11 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       await service.refreshForCauses(['initial']);
       const methods = methodsCalled();
       expect(methods).toEqual(
-        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
       );
     });
 
@@ -525,7 +531,11 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       await service.refreshForCauses(undefined);
       const methods = methodsCalled();
       expect(methods).toEqual(
-        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
       );
     });
 
@@ -533,7 +543,11 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       await service.refreshForCauses([]);
       const methods = methodsCalled();
       expect(methods).toEqual(
-        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
       );
     });
 
@@ -543,6 +557,124 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       expect(methods.filter((m) => m === 'git:branches')).toHaveLength(1);
       expect(methods.filter((m) => m === 'git:stashList')).toHaveLength(1);
       expect(methods.filter((m) => m === 'git:lastCommit')).toHaveLength(1);
+    });
+  });
+
+  // ==========================================================================
+  // Request coalescing (TASK_2026_343)
+  //
+  // A workspace switch produced THREE serialised `git:branches` RPCs —
+  // `switchWorkspace()`, the GitStatusBarComponent constructor, and the git
+  // watcher's initial push at +50 ms — measured at 6.9 + 6.1 + 11.7 s on a
+  // 15k-file repository (log.log:1252,1339,1352).
+  // ==========================================================================
+
+  describe('refresh coalescing', () => {
+    function countOf(method: string): number {
+      return mockRpcCall.mock.calls.filter(
+        ([, m]: [unknown, string]) => m === method,
+      ).length;
+    }
+
+    /**
+     * Wait until the coalescing window has closed and `method` has actually
+     * been dispatched. Polling beats sleeping past `REFRESH_COALESCE_MS`:
+     * these specs otherwise fail on a loaded machine, where the extra
+     * scheduling delay is unbounded.
+     */
+    async function waitForDispatch(method: string): Promise<void> {
+      for (let i = 0; i < 200; i++) {
+        if (countOf(method) > 0) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`${method} was never dispatched`);
+    }
+
+    it('collapses the three requests a workspace switch produces into ONE git:branches call', async () => {
+      // 1. WorkspaceCoordinator → GitBranchesService.switchWorkspace()
+      service.switchWorkspace('/repo-b');
+      // 2. GitStatusBarComponent constructor
+      const barRequest = service.refreshBranches();
+      // 3. GitWatcherService's deferred initial push
+      const watcherRequest = service.refreshForCauses(['initial']);
+
+      await Promise.all([barRequest, watcherRequest]);
+
+      expect(countOf('git:branches')).toBe(1);
+      expect(countOf('git:stashList')).toBe(1);
+      expect(countOf('git:lastCommit')).toBe(1);
+    });
+
+    it('does not re-issue git:branches for a queued stash-only request', async () => {
+      let releaseFirst!: () => void;
+      const blocker = new Promise<void>((res) => {
+        releaseFirst = res;
+      });
+      let firstBranchCall = true;
+      mockRpcCall.mockImplementation(async (_v: unknown, method: string) => {
+        if (method === 'git:branches' && firstBranchCall) {
+          firstBranchCall = false;
+          await blocker;
+        }
+        return { success: true, data: EMPTY_BRANCHES };
+      });
+
+      const first = service.refreshForCauses(['head']);
+      await waitForDispatch('git:branches');
+      // Arrives while the branch RPC is still in flight.
+      const queued = service.refreshForCauses(['refs-stash']);
+
+      releaseFirst();
+      await Promise.all([first, queued]);
+
+      expect(countOf('git:branches')).toBe(1);
+      expect(countOf('git:stashList')).toBe(1);
+    });
+
+    it('drops a response that belongs to the workspace the user navigated away from', async () => {
+      const staleBranches = {
+        current: 'old-repo-branch',
+        local: [],
+        remote: [],
+      };
+      let release!: () => void;
+      const blocker = new Promise<void>((res) => {
+        release = res;
+      });
+      // Only the FIRST branch request is the slow one belonging to /repo-a.
+      // The rerun that /repo-b's own switch schedules answers normally, so a
+      // green result proves the stale response was DROPPED rather than merely
+      // never having arrived.
+      let firstBranchCall = true;
+      mockRpcCall.mockImplementation(async (_v: unknown, method: string) => {
+        if (method === 'git:branches' && firstBranchCall) {
+          firstBranchCall = false;
+          await blocker;
+          return { success: true, data: staleBranches };
+        }
+        if (method === 'git:branches') {
+          return { success: true, data: EMPTY_BRANCHES };
+        }
+        return { success: true, data: EMPTY_STASH };
+      });
+
+      service.switchWorkspace('/repo-a');
+      const pass = service.refreshBranches();
+      await waitForDispatch('git:branches');
+
+      // The user switches away while `git:branches` is still in flight.
+      service.switchWorkspace('/repo-b');
+      release();
+      await pass;
+
+      expect(service.currentBranch()).toBe('');
+    });
+
+    it('reports isLoading synchronously, before the coalescing window closes', () => {
+      void service.refreshBranches();
+
+      expect(service.isLoading()).toBe(true);
+      expect(mockRpcCall).not.toHaveBeenCalled();
     });
   });
 });
