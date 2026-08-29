@@ -284,6 +284,9 @@ export async function wireRuntimePreWindow(
 
     const active = workspaceProvider.getWorkspaceRoot();
     if (active) {
+      // Read BEFORE reserving, synchronously: `startOrJoin` creates the entry,
+      // so asking afterwards always answers "yes".
+      const alreadyBooted = booter.isReserved(active);
       booter.startOrJoin(active).catch((err: unknown) => {
         console.error(
           '[Ptah Electron] Failed to boot heavy services lazily:',
@@ -295,11 +298,21 @@ export async function wireRuntimePreWindow(
       // that directory belongs to the workspace we just switched to. A bare
       // reconcile here mirrored nothing and therefore propagated the PREVIOUS
       // workspace's agents into the new one while reporting a clean pass. The
-      // heavy boot is one-shot per root, so this call is what covers the second
-      // and subsequent switches. The outgoing workspace is deliberately left
-      // untouched (E12): `SkillJunctionService` reaped it on every folder
-      // switch, which broke every other host still working in that directory.
-      void propagateHarness(container, active, 'workspace-folders-changed');
+      // outgoing workspace is deliberately left untouched (E12):
+      // `SkillJunctionService` reaped it on every folder switch, which broke
+      // every other host still working in that directory.
+      //
+      // Only when the root has booted BEFORE (TASK_2026_345). A first switch to
+      // a root reserves its heavy boot on the line above, and that boot already
+      // performs the identical full pass and its own `activation` harness
+      // reconcile. Firing this beside it is what put two `mirrorAll` and two
+      // `reconcile` passes on the same tree at the same time — the log shows
+      // one of them reporting `fastForwarded: 15` while its twin reported `0`
+      // for the same clones (`tmp/logs/log.log:1206-1223`). The second and every
+      // later switch back to a root finds its boot latched and needs this.
+      if (alreadyBooted) {
+        void propagateHarness(container, active, 'workspace-folders-changed');
+      }
     }
   });
   // RESERVED HERE, in the same synchronous block as the listener above — no

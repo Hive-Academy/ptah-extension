@@ -20,7 +20,7 @@ import {
   ChevronRight,
   Wand2,
 } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
 import {
   isOptOutPluginSource,
   type HarnessSetSkillSelectionParams,
@@ -596,6 +596,12 @@ function skillSelectionKey(
 })
 export class PluginBrowserModalComponent {
   private readonly rpcService = inject(ClaudeRpcService);
+  /**
+   * The shared plugin list + config. See `loadPlugins`; the modal keeps its own
+   * per-workspace skill selection and its own skill listing, which nothing else
+   * reads.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
   /** Lucide icon references */
   protected readonly PuzzleIcon = Puzzle;
@@ -921,6 +927,12 @@ export class PluginBrowserModalComponent {
       );
 
       if (result.isSuccess()) {
+        // The shared catalog now holds the PREVIOUS config. Re-read it before
+        // anything renders from it — the status widget beside this modal reads
+        // the same signals, and leaving it stale would show the old count until
+        // the window reloaded. Awaited rather than fired: `saved` below is what
+        // parents act on, and a parent that re-reads must not race this.
+        await this.catalog.refresh();
         // Second write, and only if the user moved this control. It runs after
         // the plugin save rather than beside it because both propagate, and
         // the selection is the narrower filter — letting it land last means the
@@ -1090,36 +1102,37 @@ export class PluginBrowserModalComponent {
     this.saveError.set(null);
 
     try {
-      const [listResult, configResult, selectionResult] = await Promise.all([
-        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
-        this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
+      const [, selectionResult] = await Promise.all([
+        // The catalog is SHARED (TASK_2026_345). This modal is mounted beside a
+        // `PluginStatusWidgetComponent` in every view that hosts it, and both
+        // used to issue their own `plugins:list-available` +
+        // `plugins:get-config` pair — visibly, as duplicate pairs in
+        // `tmp/logs/log.log:1907-1924`. `ensureLoaded` is the first read or a
+        // no-op; `saveConfiguration` below is what makes it stale again.
+        this.catalog.ensureLoaded(),
         // Non-fatal by construction. A host without this handler, or with no
         // workspace open, must still be able to configure plugins — so this
         // one call swallows its own rejection instead of failing the load, and
         // the section it feeds simply does not render.
+        //
+        // NOT part of the shared catalog: it is per-WORKSPACE skill selection,
+        // it has its own failure semantics, and only this modal reads it.
         this.rpcService
           .call('harness:get-skill-selection', {}, { timeout: 10000 })
           .catch(() => null),
       ]);
 
-      let plugins: PluginInfo[] = [];
+      const plugins: PluginInfo[] = [...this.catalog.plugins()];
+      this.availablePlugins.set(plugins);
 
-      if (listResult.isSuccess() && listResult.data) {
-        plugins = listResult.data.plugins;
-        this.availablePlugins.set(plugins);
-      } else {
-        this.availablePlugins.set([]);
-      }
-
-      if (configResult.isSuccess() && configResult.data) {
+      const config = this.catalog.config();
+      if (config !== null) {
         this.selectedIds.set(
-          this.deriveSelection(plugins, configResult.data.enabledPluginIds, [
-            ...(configResult.data.disabledPluginIds ?? []),
+          this.deriveSelection(plugins, config.enabledPluginIds, [
+            ...(config.disabledPluginIds ?? []),
           ]),
         );
-        this.disabledSkillIds.set(
-          new Set(configResult.data.disabledSkillIds ?? []),
-        );
+        this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
       } else {
         this.selectedIds.set(new Set());
         this.disabledSkillIds.set(new Set());

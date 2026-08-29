@@ -35,7 +35,78 @@ import {
   type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
 
+import { createCoalescedJob, type CoalescedJob } from './coalesced-job';
+import { normalizeWorkspaceRoot } from './workspace-root-key';
+
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
+
+/**
+ * How long the user-layer pass collects triggers before it runs
+ * (TASK_2026_345).
+ *
+ * A workspace switch fires up to four independent triggers — `activation`
+ * (the one-shot heavy boot), `workspace-folders-changed` (the propagation the
+ * folder listener issues), `content-download-complete`, and an `addFolder`
+ * immediately followed by a `switch`. They arrive within a few hundred
+ * milliseconds of each other and each asked for the same walk of
+ * `~/.ptah/user`, so one switch to `property-hub` ran the mirror twice and the
+ * catalog sync four times (`tmp/logs/log.log:1206-1223`).
+ *
+ * 300 ms is chosen to be comfortably wider than the gap between two triggers
+ * that share a cause (the folder listener and the boot's own pass are separated
+ * by a handful of `await`s on already-warm DI resolutions, measured in single
+ * milliseconds) and far narrower than the gap between two triggers with
+ * DIFFERENT causes — `content-download-complete` follows the network, and a
+ * user toggling a plugin is seconds away. It is not a rate limit: a trigger
+ * that arrives after a pass has drained always gets its own pass.
+ *
+ * The delay is paid on the post-window boot path, which is behind the visible
+ * window by construction (TASK_2026_331), and never on anything the renderer
+ * waits for.
+ */
+export const USER_LAYER_COALESCE_WINDOW_MS = 300;
+
+/**
+ * The raw workspace root a request carries, alongside the normalized key the
+ * batch is filed under.
+ *
+ * The key folds case and separators so two spellings of one directory join one
+ * pass; the payload keeps the ORIGINAL string, because that is what
+ * `path.join(root, '.claude', 'agents')` has to be given on a case-sensitive
+ * filesystem.
+ */
+interface UserLayerPassPayload {
+  workspaceRoot: string | undefined;
+}
+
+/**
+ * One coalescer per container.
+ *
+ * The container is the process-scope handle these free functions already share
+ * — `boot-heavy-services.ts`, the DI-registered `IUserLayerRefresher` and every
+ * RPC handler that propagates all hold the same one — so keying off it gives a
+ * single coalescer per app without a module-level singleton that would leak
+ * between test files.
+ */
+const coalescersByContainer = new WeakMap<
+  DependencyContainer,
+  CoalescedJob<UserLayerPassPayload>
+>();
+
+function userLayerJobFor(
+  container: DependencyContainer,
+): CoalescedJob<UserLayerPassPayload> {
+  const existing = coalescersByContainer.get(container);
+  if (existing !== undefined) return existing;
+
+  const created = createCoalescedJob<UserLayerPassPayload>({
+    windowMs: USER_LAYER_COALESCE_WINDOW_MS,
+    run: async ({ reasons, payload }) =>
+      runUserLayerPass(container, payload.workspaceRoot, reasons),
+  });
+  coalescersByContainer.set(container, created);
+  return created;
+}
 
 /** Phase 4.55: initialize plugin loader. Non-fatal on failure. */
 export function initPluginLoader(
@@ -241,24 +312,82 @@ export async function reconcileUserLayer(
       }
     }
 
-    // A reap DELETES a user-layer clone and an orphan re-flags one, so both
-    // change what the catalog should hold just as much as a fast-forward does.
-    // Leaving them out left reaped skills listed in the Library forever.
-    if (
-      sqliteOpen &&
-      (result.fastForwarded > 0 ||
-        result.diverged > 0 ||
-        result.reaped > 0 ||
-        result.orphaned > 0)
-    ) {
-      await syncSkillRegistryCatalog(container);
-    }
+    // The catalog sync used to live HERE, gated on
+    // `fastForwarded || diverged || reaped || orphaned`, while the heavy boot
+    // ALSO fired an unconditional one immediately after calling this function.
+    // Two call sites plus two passes per switch is where the four syncs of
+    // `tmp/logs/log.log:1206-1223` came from. It now runs exactly once per
+    // coalesced pass, in `runUserLayerPass` below, which is the only place that
+    // knows a pass has finished. Do not add a third call site here.
   } catch (error) {
     console.warn(
       '[Ptah Electron] User-layer reconcile failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+/**
+ * The whole user-layer pass, in the one order it is ever correct in.
+ *
+ * `mirrorUserLayer` is create-if-absent and picks up new slugs;
+ * `reconcileUserLayer` fast-forwards existing clones, flags divergence and
+ * reaps the ones whose upstream is gone; the catalog sync then writes what the
+ * two of them just settled into `skill_registry`.
+ *
+ * Private, and reached ONLY through {@link refreshUserLayer}'s coalescer —
+ * running two of these concurrently against the same tree is the interleaving
+ * defect this task closes, and a direct export would be a way to do it again.
+ *
+ * `sqliteOpen` is read HERE rather than passed in, because a pass can start a
+ * coalescing window before `bootThothRuntime` has opened the database and run
+ * after it has.
+ */
+async function runUserLayerPass(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  reasons: readonly string[],
+): Promise<void> {
+  console.log(`[Ptah Electron] User-layer pass (${reasons.join(' + ')})`);
+  await mirrorUserLayer(container, workspaceRoot);
+  const sqliteOpen = isSqliteOpen(container);
+  await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+  // The ONLY catalog sync. It is unconditional rather than gated on
+  // "something changed" — the gate used to live inside `reconcileUserLayer`
+  // and the heavy boot fired an ungated one right beside it anyway, so this is
+  // strictly less work than before (one per pass instead of two), and a pass
+  // that changed nothing costs one upsert sweep of already-current rows.
+  if (sqliteOpen) {
+    await syncSkillRegistryCatalog(container);
+  }
+}
+
+/**
+ * Run the user-layer pass for `workspaceRoot`, coalescing every trigger that
+ * asks for it inside one window into a single run (TASK_2026_345).
+ *
+ * This is the ONE entry point. `boot-heavy-services.ts` calls it for
+ * `activation` and again for `content-download-complete`; the DI-registered
+ * `IUserLayerRefresher` below calls it for every harness propagation. Because
+ * they share a coalescer keyed by the normalized root, a workspace switch that
+ * fires three of those within 300 ms performs ONE mirror, ONE reconcile and ONE
+ * catalog sync — and, just as importantly, can never perform two of them at the
+ * same time on the same tree.
+ *
+ * Never throws: the pass is non-fatal by contract, and a failed run is reported
+ * by the coalescer rather than propagated to the trigger that happened to be
+ * first.
+ */
+export function refreshUserLayer(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  reason: string,
+): Promise<void> {
+  return userLayerJobFor(container).request(
+    normalizeWorkspaceRoot(workspaceRoot),
+    reason,
+    { workspaceRoot },
+  );
 }
 
 /**
@@ -271,26 +400,16 @@ export async function reconcileUserLayer(
  * reconciler reads it. Without this port a repropagation event reconciled the
  * PREVIOUS state and logged a clean pass (TASK_2026_278 Batch 3).
  *
- * Both halves, in the activation order: `mirrorUserLayer` is create-if-absent
- * and picks up new slugs; `reconcileUserLayer` fast-forwards existing clones
- * and reaps the ones whose upstream is gone. An uninstall needs the second
- * half specifically — see `deactivateExternalPlugin` in `plugin-rpc.handlers`.
- *
- * `sqliteOpen` is derived from the container rather than passed in, because
- * this runs long after `wire-runtime` computed its copy and the connection can
- * have opened (or closed) since.
+ * The port carries no reason, so every propagation shares one label here. That
+ * is enough for the log to say a pass was propagation-driven; which propagation
+ * is already on the reconciler's own line.
  */
 export function createUserLayerRefresher(container: DependencyContainer): {
   refresh(workspaceRoot: string | undefined): Promise<void>;
 } {
   return {
-    async refresh(workspaceRoot: string | undefined): Promise<void> {
-      await mirrorUserLayer(container, workspaceRoot);
-      await reconcileUserLayer(
-        container,
-        workspaceRoot,
-        isSqliteOpen(container),
-      );
+    refresh(workspaceRoot: string | undefined): Promise<void> {
+      return refreshUserLayer(container, workspaceRoot, 'harness-propagation');
     },
   };
 }

@@ -1,10 +1,10 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   inject,
   signal,
   output,
-  ViewChild,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -20,8 +20,8 @@ import {
 } from '@ptah-extension/chat-ui';
 import {
   VSCodeService,
-  ClaudeRpcService,
   CommandDiscoveryFacade,
+  PluginCatalogService,
 } from '@ptah-extension/core';
 
 /**
@@ -338,11 +338,17 @@ import {
 })
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
-  private readonly rpcService = inject(ClaudeRpcService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
+  /**
+   * The same shared catalog the widget and the modal below read
+   * (TASK_2026_345). This component used to issue a THIRD bare
+   * `plugins:get-config` of its own, on a view whose widget had already read it.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
-  @ViewChild(PluginStatusWidgetComponent)
-  private pluginWidget?: PluginStatusWidgetComponent;
+  // The `@ViewChild(PluginStatusWidgetComponent)` handle is gone: it existed
+  // only to imperatively re-fetch the widget after a save, and the widget now
+  // renders from the shared catalog the save already refreshed.
 
   /** Emitted when user selects a prompt suggestion */
   readonly promptSelected = output<string>();
@@ -361,27 +367,26 @@ export class ChatEmptyStateComponent {
   /** Active tab: 'skills' or 'setup' */
   protected readonly activeTab = signal<'skills' | 'setup'>('skills');
 
-  /** Whether skills are configured (used for warning display) */
-  protected readonly hasConfiguredSkills = signal(false);
+  /**
+   * Whether skills are configured (used for the "not configured" warning).
+   *
+   * Derived from the shared catalog rather than a private signal fed by a
+   * private RPC. The warning is deliberately SUPPRESSED until the catalog has
+   * been read: `hasEnabledPlugins` is false on an empty store, and flashing
+   * "you have no skills" at a user who has plenty is worse than showing nothing
+   * for one round trip.
+   */
+  protected readonly hasConfiguredSkills = computed(
+    () => !this.catalog.isLoaded() || this.catalog.hasEnabledPlugins(),
+  );
 
-  /** Set the active tab and check skills configuration if switching to setup */
+  /** Set the active tab and read the catalog if nothing has read it yet */
   protected setActiveTab(tab: 'skills' | 'setup'): void {
     this.activeTab.set(tab);
     if (tab === 'setup') {
-      this.checkSkillsConfiguration();
-    }
-  }
-
-  /** Check if user has configured any skills */
-  private async checkSkillsConfiguration(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('plugins:get-config', {});
-      if (result.isSuccess()) {
-        const hasEnabled = result.data.enabledPluginIds.length > 0;
-        this.hasConfiguredSkills.set(hasEnabled);
-      }
-    } catch {
-      this.hasConfiguredSkills.set(true);
+      // A no-op when the widget above already loaded it, which is the normal
+      // case — this used to be an unconditional third round trip.
+      void this.catalog.ensureLoaded();
     }
   }
 
@@ -395,11 +400,16 @@ export class ChatEmptyStateComponent {
     this.isPluginBrowserOpen.set(false);
   }
 
-  /** Handle plugins saved event from modal - refresh widget count and command cache */
+  /**
+   * Handle plugins saved event from the modal.
+   *
+   * The modal has already re-read the shared catalog by the time it emits, so
+   * the widget's count and `hasConfiguredSkills` are current without a second
+   * fetch here — that fetch was one of the duplicate pairs. Only the command
+   * cache, which the catalog knows nothing about, still needs clearing.
+   */
   protected onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
-    this.pluginWidget?.fetchPluginStatus();
-    this.hasConfiguredSkills.set(_enabledIds.length > 0);
     this.commandDiscovery.clearCache();
   }
 }

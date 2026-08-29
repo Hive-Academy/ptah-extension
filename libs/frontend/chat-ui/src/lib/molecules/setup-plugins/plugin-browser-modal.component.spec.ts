@@ -70,10 +70,22 @@ describe('plugin browser modal — per-workspace skill selection', () => {
     }),
   };
 
+  /**
+   * Drain the load and render the result.
+   *
+   * Three passes rather than one since TASK_2026_345: the plugin list and
+   * config now arrive through `PluginCatalogService`, so `loadPlugins` awaits a
+   * shared promise which itself awaits the `Promise.all` of the two RPCs and a
+   * `finally`. A single `whenStable()` settles the outermost await only and
+   * leaves the modal rendering its loading skeleton, with no Save button to
+   * click.
+   */
   const settle = async (fixture: ComponentFixture<unknown>): Promise<void> => {
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    for (let pass = 0; pass < 3; pass += 1) {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
   };
 
   /** Mount the modal already open, letting `loadPlugins` settle. */
