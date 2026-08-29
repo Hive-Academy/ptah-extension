@@ -101,6 +101,15 @@ export interface HarnessReconcilerEvents {
 export class HarnessReconcilerService {
   private readonly emitter = new EventEmitter<HarnessReconcilerEvents>();
   private lastHealth: HarnessHealth | null = null;
+  /**
+   * The blocked set most recently WARNED about, per workspace root, as a
+   * canonical key (see {@link blockedSetKey}).
+   *
+   * Keyed by root because one reconciler serves every open folder: two
+   * workspaces with different blocked sets must each get their own line, and a
+   * switch between them must not read as a change in either.
+   */
+  private readonly loggedBlockedSets = new Map<string, string>();
 
   constructor(
     private readonly logger: Logger,
@@ -184,11 +193,17 @@ export class HarnessReconcilerService {
     // write, and `verify()` writes nothing — a badge that polls must not be
     // able to record a consent or selection decision on the user's behalf.
     const skillSync = this.skillSync.resolve(workspaceRoot);
-    const desired = await this.builder.build(this.sourceResolver.resolve(), {
-      downloadPending: false,
-      agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
-      skillSync,
-    });
+    // Scoped to the root being VERIFIED, exactly as `runReconcile` scopes the
+    // root being reconciled. A health badge polling one window must not report
+    // the other window's overlay as this workspace's desired state.
+    const desired = await this.builder.build(
+      this.sourceResolver.resolve(workspaceRoot),
+      {
+        downloadPending: false,
+        agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
+        skillSync,
+      },
+    );
 
     const targetHealth: HarnessTargetHealth[] = [];
     for (const target of this.targets) {
@@ -356,12 +371,23 @@ export class HarnessReconcilerService {
     // the pass, which is why it is the first thing the signal can cut short. It
     // takes the caller's signal directly: it writes nothing, so it has no
     // commit point of its own to protect.
-    const desired = await this.builder.build(this.sourceResolver.resolve(), {
-      downloadPending: options.downloadPending === true,
-      agentSyncEnabled: agentSync.enabled,
-      skillSync,
-      signal: options.signal,
-    });
+    //
+    // THE DESIRED STATE IS A FUNCTION OF `workspaceRoot`, not of whichever
+    // folder the host has active. Resolving the ambient scope is what made a
+    // folder switch tear down and re-materialise the other folder's harness:
+    // with property-hub active, the pass for qa3elhamor resolved property-hub's
+    // overlay and wrote 44 skill copies into qa3elhamor, recorded them in
+    // qa3elhamor's manifests, and reaped all 44 again on the way back
+    // (TASK_2026_346; `tmp/logs/log.log:1225`, `:1647`).
+    const desired = await this.builder.build(
+      this.sourceResolver.resolve(workspaceRoot),
+      {
+        downloadPending: options.downloadPending === true,
+        agentSyncEnabled: agentSync.enabled,
+        skillSync,
+        signal: options.signal,
+      },
+    );
 
     const selected = this.selectTargets(options.targets);
     const lock = await acquireWorkspaceLock(workspaceRoot);
@@ -836,6 +862,25 @@ export class HarnessReconcilerService {
    *
    * Nothing is lost by the restriction: every host's boot line comes from an
    * activation `full` pass, and the manual repair path defaults to `full`.
+   *
+   * ## Once per SET, not once per pass (TASK_2026_346)
+   *
+   * `full` is not as rare as the reasoning above assumed. Activation, the
+   * content-download callback, every workspace-folder change and every plugin
+   * toggle are all `full`, so a single Electron session emitted this identical
+   * twelve-path object five times (`tmp/logs/log.log:1286, 1290, 1315, 1824,
+   * 2154`) — and a blocked set is a CONVERGED steady state, so each repetition
+   * carried no news. The set is therefore remembered per workspace root and the
+   * WARN is emitted only when it CHANGES: first sight, a new or departed
+   * occupant, or a different per-path reason. An unchanged set still leaves a
+   * `debug` line, so the pass is not silent about having checked, and a set
+   * that empties leaves one too — otherwise "the last thing I saw was twelve
+   * blocked paths" would be the final word on a workspace that has since been
+   * repaired.
+   *
+   * The memory is per PROCESS and deliberately not persisted: it exists to stop
+   * one boot repeating itself, and a fresh host reporting the state it found is
+   * exactly right.
    */
   private logBlocked(health: HarnessHealth): void {
     if (health.mode !== 'full') return;
@@ -847,8 +892,36 @@ export class HarnessReconcilerService {
         reason: blockedReason(relPath),
       })),
     );
-    if (paths.length === 0) return;
 
+    const key = blockedSetKey(paths);
+    const previous = this.loggedBlockedSets.get(health.workspaceRoot);
+
+    if (paths.length === 0) {
+      if (previous === undefined) return;
+      this.loggedBlockedSets.delete(health.workspaceRoot);
+      this.logger.debug(
+        '[harness-sync] Blocked set is now empty; every desired path is free',
+        {
+          reason: health.reason,
+          workspaceRoot: health.workspaceRoot,
+        },
+      );
+      return;
+    }
+
+    if (previous === key) {
+      this.logger.debug(
+        '[harness-sync] Blocked set unchanged since the last full pass',
+        {
+          reason: health.reason,
+          workspaceRoot: health.workspaceRoot,
+          blocked: paths.length,
+        },
+      );
+      return;
+    }
+
+    this.loggedBlockedSets.set(health.workspaceRoot, key);
     this.logger.warn(
       '[harness-sync] Blocked: desired paths an unowned file occupies — refused, not failed',
       {
@@ -888,6 +961,25 @@ export class HarnessReconcilerService {
  * key inside a config file the user also writes, so telling them to move or
  * delete a path would name something that does not exist.
  */
+/**
+ * A canonical, order-independent identity for one blocked set.
+ *
+ * Sorted because target iteration order is the registration order and a host
+ * that registers its targets differently must not read as a changed set. The
+ * `reason` is part of the key on purpose: the same path can move from
+ * "occupied by a file or directory Ptah does not own" to the MCP-key wording
+ * when a target's facet changes, and that is a different fact about the same
+ * path rather than the same one repeated.
+ */
+function blockedSetKey(
+  paths: readonly { target: string; relPath: string; reason: string }[],
+): string {
+  return paths
+    .map((entry) => `${entry.target}|${entry.relPath}|${entry.reason}`)
+    .sort()
+    .join('\n');
+}
+
 function blockedReason(relPath: string): string {
   return isMcpFragmentKey(relPath)
     ? 'the config file already defines this server key, and Ptah did not write it'
