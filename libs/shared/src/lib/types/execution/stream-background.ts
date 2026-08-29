@@ -105,6 +105,8 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
+  /** Short agent identifier from the SDK SubagentStart hook, when known */
+  readonly agentId?: string;
   /** Short present-tense description of current work */
   readonly description: string;
   /** AI-generated rolling summary from SDK (requires agentProgressSummaries: true) */
@@ -139,6 +141,8 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
+  /** Short agent identifier from the SDK SubagentStart hook, when known */
+  readonly agentId?: string;
   /** New lifecycle status from the SDK patch */
   readonly status:
     | 'pending'
@@ -174,6 +178,8 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly parentToolUseId: string;
   /** SDK task_id for the subagent */
   readonly taskId: string;
+  /** Short agent identifier from the SDK SubagentStart hook, when known */
+  readonly agentId?: string;
   /** Final disposition */
   readonly status: 'completed' | 'failed' | 'stopped';
   /** Short prose summary of what the agent accomplished */

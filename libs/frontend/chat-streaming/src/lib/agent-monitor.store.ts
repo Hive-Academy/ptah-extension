@@ -1150,6 +1150,21 @@ export class AgentMonitorStore implements OnDestroy {
       });
       return changed ? next : list;
     });
+    // SDK subagent records are stamped from the same stream and so carry the
+    // same placeholder until `init` resolves it. They were never rekeyed, so a
+    // subagent spawned in the first turn stayed owned by the tab id and the
+    // tile's panel — scoped by `claudeSessionId` — never showed it.
+    this._subagents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [key, rec] of map) {
+        if (rec.parentSessionId === tabId) {
+          changed = true;
+          next.set(key, { ...rec, parentSessionId: realSessionId });
+        }
+      }
+      return changed ? next : map;
+    });
   }
 
   clearCompleted(): void {
@@ -1235,7 +1250,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
@@ -1267,7 +1282,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
@@ -1299,7 +1314,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
