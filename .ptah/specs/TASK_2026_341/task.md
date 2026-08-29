@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_341
-status: in_review
+status: done
 type: BUGFIX
 title: Stop SDK query() launch from blocking the Electron main thread for ~1.6s
 depends_on: []
 created: '2026-08-28T18:54:51.917Z'
-updated: '2026-08-29T00:38:36.487Z'
+updated: '2026-08-29T02:09:59.493Z'
 description: >-
   Every SdkQueryRunner/SessionLifecycle query() launch is followed by an
   event-loop lag equal to the launch time (~1600ms) — tmp/logs/log.log:693/698,

@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_351
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Skill-synthesis lanes: outputFormat retry, timeout template fallback minting
   duplicate junk candidates, maxTurns 1, wrong mcpServerRunning flag
 depends_on: []
 created: '2026-08-28T18:55:33.569Z'
-updated: '2026-08-29T00:38:36.758Z'
+updated: '2026-08-29T02:10:03.412Z'
 description: >-
   Four lane faults in one boot: (1) "lane ignored outputFormat; retrying once
   without it" for haiku (log.log:1010); (2) "synthesizer: lane failed: timeout"

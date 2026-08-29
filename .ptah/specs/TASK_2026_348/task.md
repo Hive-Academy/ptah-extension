@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_348
-status: in_review
+status: done
 type: BUGFIX
 title: 'Remove the DEP0190 shell:true child_process spawn with unescaped args'
 depends_on: []
 created: '2026-08-28T18:55:20.159Z'
-updated: '2026-08-29T00:38:36.659Z'
+updated: '2026-08-29T02:10:01.269Z'
 description: >-
   Node emits "[DEP0190] Passing args to a child process with shell option true
   can lead to security vulnerabilities" (log.log:548) right after MCP server

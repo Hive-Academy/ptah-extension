@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_352
-status: in_review
+status: done
 type: REFACTORING
 title: >-
   Reduce boot-time internal LLM query cost: 170KB prompts, limit-1
@@ -8,7 +8,7 @@ title: >-
 depends_on:
   - TASK_2026_341
 created: '2026-08-28T18:55:38.507Z'
-updated: '2026-08-28T18:58:24.897Z'
+updated: '2026-08-29T02:10:04.090Z'
 description: >-
   Skill-synthesis and memory-curator boot scans ran ten haiku queries; one
   prompt was 170655 chars (log.log:1017); two drains took 122s and 156s
