@@ -105,6 +105,11 @@ jest.mock('@ptah-extension/harness-sync', () => {
     typeof import('@ptah-extension/harness-sync')
   >('@ptah-extension/harness-sync');
   return {
+    // Everything else is REAL. The SUT now writes through `createMcpFacet`, so
+    // the facets, `PTAH_SPAWN_MCP_KEY` and `HARNESS_SYNC_TOKENS` all have to be
+    // the genuine ones — a stubbed facet would make this suite certify a
+    // dialect nobody reads.
+    ...actual,
     withMcpConfigLock: jest.fn(
       async (_configPath: string, task: () => Promise<unknown>) => task(),
     ),
@@ -260,6 +265,9 @@ function build(opts: BuildOptions = {}): Fixture {
     permissionPromptService,
     webviewManager,
     ideCapabilities as ConstructorParameters<typeof CodeExecutionMCP>[6],
+    // No CLI detector: every target but `claude` is gated on one, so these
+    // cases observe exactly the `.mcp.json` behaviour they were written for.
+    undefined,
   );
 
   return {
@@ -598,7 +606,7 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
       reason: 'write-failed',
     });
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to register in .mcp.json'),
+      expect.stringContaining('Failed to register for claude in'),
       'CodeExecutionMCP',
     );
   });
@@ -734,7 +742,7 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
       reason: 'write-failed',
     });
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to register in .mcp.json'),
+      expect.stringContaining('Failed to register for claude in'),
       'CodeExecutionMCP',
     );
   });
@@ -893,7 +901,7 @@ describe('CodeExecutionMCP â€” error propagation', () => {
 
     await expect(service.stop()).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to unregister from .mcp.json'),
+      expect.stringContaining('Failed to unregister from'),
       'CodeExecutionMCP',
     );
   });

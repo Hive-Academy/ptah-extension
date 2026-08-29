@@ -199,6 +199,14 @@ export {
   spliceOwnedBlock,
 } from './lib/targets/mcp/codex-toml-mcp-facet';
 export {
+  clearCodexMcpToolSearch,
+  codexConfigPath,
+  enableCodexMcpToolSearch,
+  CODEX_TOOL_SEARCH_FLAG,
+  type CodexToolSearchFlagOptions,
+  type CodexToolSearchFlagOutcome,
+} from './lib/targets/mcp/codex-tool-search-flag';
+export {
   configToJson,
   hashMcpConfig,
   jsonToConfig,

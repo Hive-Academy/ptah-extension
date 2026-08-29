@@ -7,6 +7,10 @@
  * A facet is the narrow adapter for exactly one of those files, and the target
  * that owns it is the thing that knows the file exists.
  *
+ * Codex is the one target with TWO, which it merges: `CodexTomlMcpFacet` takes
+ * a `scope`, defaulting to the `home` file the reconciler writes. See that
+ * option's own documentation for which scope suits which kind of server.
+ *
  * The split matters because MCP entries break two assumptions the skill and
  * command paths rest on:
  *
@@ -48,19 +52,25 @@ export function mcpEntryKey(configRelPath: string, serverKey: string): string {
 }
 
 /**
- * The server key Ptah's OWN in-process MCP server is written under, by the
- * spawn adapters in `cli-agent-runtime` and by nothing in this lib.
+ * The server key Ptah's OWN in-process MCP server is written under, by
+ * `CodeExecutionMCP` (`vscode-lm-tools`) and by the spawn adapters in
+ * `cli-agent-runtime` — and by nothing in this lib.
  *
- * It is defined HERE because the two-writer rule on
- * `~/.gemini/config/mcp_config.json` is a rule about one name, and a rule about
- * one name is only enforceable if both sides read that name from one place
- * (TASK_2026_285). The split of ownership:
+ * It is defined HERE because the multi-writer rule on the config files is a
+ * rule about one name, and a rule about one name is only enforceable if every
+ * side reads that name from one place (TASK_2026_285). The split of ownership:
  *
- * - This key is EPHEMERAL and adapter-owned. It appears before a spawn, carries
- *   a localhost port valid only for that run, and is removed after `done`. No
- *   manifest ever records it and no reconcile ever writes or reaps it — the
- *   facet planner only touches keys the desired state names or the manifest
- *   owns, and this key is in neither.
+ * - **`CodeExecutionMCP` owns this key for the lifetime of its HTTP server.**
+ *   It writes the key into every detected CLI's config when the server starts
+ *   and takes it back when the server stops, so a CLI the USER launches has
+ *   Ptah tools too. No manifest ever records it and no reconcile ever writes or
+ *   reaps it — the facet planner only touches keys the desired state names or
+ *   the manifest owns, and this key is in neither.
+ * - **A spawn adapter may borrow it for one run and must RESTORE it, not
+ *   delete it.** `AntigravityCliAdapter` overwrites the key with its own run's
+ *   port before the spawn and puts back whatever it found after `done`. It used
+ *   to delete unconditionally, which was right while it was the only writer and
+ *   silently revokes the persistent registration now.
  * - Every OTHER key is either manifest-owned (a user install, reconciled) or
  *   the user's own (never touched).
  *

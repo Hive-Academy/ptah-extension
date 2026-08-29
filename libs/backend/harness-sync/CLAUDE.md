@@ -20,14 +20,53 @@ Replaces four separate fan-outs that each had their own idea of ownership:
 
 ## Target × facet matrix
 
-| Target          | skills                     | commands                     | agents                          | mcp                                |
-| --------------- | -------------------------- | ---------------------------- | ------------------------------- | ---------------------------------- |
-| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | source-managed `.claude/agents` | `{ws}/.mcp.json`                   |
-| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`       | `~/.codex/config.toml`             |
-| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md`  | `~/.copilot/mcp-config.json`       |
-| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`        | `{ws}/.cursor/mcp.json`            |
-| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**               | `~/.gemini/config/mcp_config.json` |
-| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**               | `{ws}/.vscode/mcp.json`            |
+| Target          | skills                     | commands                     | agents                          | mcp                                  |
+| --------------- | -------------------------- | ---------------------------- | ------------------------------- | ------------------------------------ |
+| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | source-managed `.claude/agents` | `{ws}/.mcp.json`                     |
+| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`       | `~/.codex/config.toml` ‡             |
+| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md`  | `~/.copilot/mcp-config.json` †       |
+| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`        | `{ws}/.cursor/mcp.json`              |
+| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**               | `~/.gemini/config/mcp_config.json` § |
+| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**               | `{ws}/.vscode/mcp.json`              |
+
+§ **Antigravity is TWO PRODUCTS, and this file is the one the CLI reads.** The
+Antigravity EDITOR also documents a workspace config at
+`{ws}/.agents/mcp_config.json`. The `agy` CLI does not read it — measured three
+ways: `agy mcp list` reported `No MCP servers configured` with that exact file
+on disk and listed a server the moment the same entry went into the global file;
+the CLI's bundled docs
+(`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`)
+define a Global and a Plugin scope and no workspace one; and the `agy` binary
+carries string literals for `.agents/skills`, `.agents/rules`,
+`.agents/hooks.json`, `.agents/plugins`, `.agents/workflows` and
+`.agents/agents`, and none for `.agents/mcp_config.json`. The reconciler
+therefore stays on the global file, which is also correct for a user INSTALL (a
+machine-wide choice). `CodeExecutionMCP` writes BOTH for Ptah's own server, so
+the editor gets it too; the workspace file has no other writer.
+
+‡ **Codex reads TWO config files and MERGES them**, and this is the one the
+RECONCILER writes. `CodexTomlMcpFacet` takes a `scope` — `'home'` (the default,
+what the registry builds and what the matrix above describes) or `'workspace'`
+for `{ws}/.codex/config.toml`. Which one is right is a question about the
+SERVER, not about Codex: a server the user INSTALLED is a machine-wide choice
+and belongs in home, while Ptah's OWN server is bound to one workspace's Ptah
+process and is registered per workspace by `CodeExecutionMCP`. `codex --help`
+and `codex doctor` name only the home file, which is misleading and cost one
+wrong conclusion; verified on codex-cli 0.150.1 by adding
+`{ws}/.codex/config.toml` and watching `codex doctor` go from `MCP servers 1`
+to `2`. A project-scoped file is honoured **only for a TRUSTED project** — the
+same probe in an untrusted temp repo ignored it silently.
+
+† **Copilot reads THREE MCP sources, and this is only the one Ptah installs
+into.** `copilot mcp --help` lists user `~/.copilot/mcp-config.json`, workspace
+`.mcp.json` **or** `.github/mcp.json`, and plugins. The home file is the right
+target for a USER-installed server, because an install is per machine and the
+install surface fans it out per target — but it is wrong as a description of
+what Copilot can read, and that distinction matters: `CodeExecutionMCP`
+deliberately does NOT write `~/.copilot/mcp-config.json` for Ptah's own server,
+because Copilot already picks it up from the `{ws}/.mcp.json` written for
+Claude. Verified with `copilot mcp list`, which prints
+`Workspace servers: ptah (http)` with no Copilot-specific file on disk.
 
 Every cell is reported per target in `HarnessTargetHealth.facets`, so an
 artifact a tool genuinely cannot accept reads as `unsupported` rather than as a
@@ -83,8 +122,15 @@ leave alone:
 
 `~/.gemini/config/mcp_config.json` is the only harness file written from OUTSIDE
 this lib as well as inside it. The reconciler installs the USER's servers into
-it; `AntigravityCliAdapter` (`cli-agent-runtime`) writes Ptah's OWN server into
-it before every spawn and removes that entry after `done`.
+it; `AntigravityCliAdapter` (`cli-agent-runtime`) overwrites Ptah's OWN server
+entry in it for the duration of a spawn and RESTORES what it found after `done`;
+and `CodeExecutionMCP` (`vscode-lm-tools`) keeps that entry there persistently
+while its HTTP server runs. Three writers, one key each — see the partition
+table below.
+
+`{ws}/.agents/mcp_config.json` — the Antigravity EDITOR's workspace config — is
+written by `CodeExecutionMCP` alone and is not a harness file this lib
+reconciles. See the § note under the matrix for why the CLI cannot use it.
 
 This cell used to read `— unsupported`, justified as "user-installed servers are
 not offered for `agy` by the install surface, so there is no intent to
@@ -100,11 +146,23 @@ never back — which is why the facet is exported from the barrel.
 
 **The keys are partitioned, and neither writer may reap the other's.**
 
-| Key                           | Owner           | Lifetime             | Who may remove it              |
-| ----------------------------- | --------------- | -------------------- | ------------------------------ |
-| `ptah` (`PTAH_SPAWN_MCP_KEY`) | the CLI adapter | one spawn            | the adapter, after `done`      |
-| a key in the manifest         | the reconciler  | until intent dropped | the reconciler's removal sweep |
-| anything else                 | the user        | forever              | nobody here                    |
+| Key                           | Owner              | Lifetime              | Who may remove it               |
+| ----------------------------- | ------------------ | --------------------- | ------------------------------- |
+| `ptah` (`PTAH_SPAWN_MCP_KEY`) | `CodeExecutionMCP` | while its server runs | `CodeExecutionMCP`, on `stop()` |
+| a key in the manifest         | the reconciler     | until intent dropped  | the reconciler's removal sweep  |
+| anything else                 | the user           | forever               | nobody here                     |
+
+**`ptah` used to be adapter-owned and one spawn long. It is not any more.**
+`CodeExecutionMCP` now keeps a PERSISTENT `ptah` entry in every detected CLI's
+config for as long as its HTTP server is up, so that an `agy` (or `codex`)
+session the USER starts has Ptah tools rather than only the ones Ptah spawns.
+`AntigravityCliAdapter` still overwrites the key with its own run's port before
+a spawn — its port and the persistent one differ only while a run is in flight —
+but its cleanup now **RESTORES what the run found instead of deleting**. An
+unconditional delete would silently revoke the persistent registration every
+time a Ptah-spawned agent finished. Restoring needs no knowledge of the other
+writer: absent means nobody owned the key, and removing it is exactly the old
+behaviour.
 
 Each half falls out of a rule that already existed, which is why this is a
 partition rather than a special case. The reconciler only ever touches keys the
@@ -433,7 +491,8 @@ Targets: `createCodexTarget`, `createCopilotTarget`, `createCursorTarget`,
 Transforms: `transformSkillMarkdown`, `CodexAgentTransformer`,
 `CopilotAgentTransformer`, `CursorAgentTransformer`, `transformAgentContent`.
 MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`,
-`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`.
+`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`, `enableCodexMcpToolSearch`,
+`clearCodexMcpToolSearch`, `codexConfigPath`, `CODEX_TOOL_SEARCH_FLAG`.
 Workspace: `resolveHarnessWorkspaceRoot`.
 Lock: `acquireWorkspaceLock`, `serializePerWorkspace`, `acquireFileLock`,
 `withFileLock`, `serializeByKey`. Hashing: `hashDir`, `hashFile`, `hashContent`
@@ -1136,6 +1195,36 @@ structural, so `PluginLoaderService` satisfies it with no import either way.
   hash and `sourceHash` is the SOURCE hash; comparing the first detects a
   hand-edited copy, comparing the second detects a changed upstream. Byte-copy
   targets omit `sourceHash`.
+- **The Codex `features` flag is a SEPARATE module, not part of the MCP facet
+  (`targets/mcp/codex-tool-search-flag.ts`).** Codex connects to a registered
+  server and then hides its tools until the model runs a tool search, so
+  `[mcp_servers.ptah]` alone gives a successful handshake and an empty tool
+  list. `features.tool_search_always_defer_mcp_tools = false` is the other half.
+  It is not folded into `CodexTomlMcpFacet` because that facet's contract is one
+  SERVER entry per fenced block, and every consumer of `IHarnessMcpFacet` reads
+  `readAll` / `foreignServerKeys` that way. Three rules, pinned by
+  `codex-tool-search-flag.spec.ts`:
+  - **It MERGES into an existing `[features]` table and only appends a fenced
+    block when there is none.** TOML permits a table header exactly once, and
+    Codex writes `[features]` itself — appending a second leaves the whole file
+    unparseable, which is a broken Codex, not a degraded harness. A root-level
+    dotted `features.*` key is the same conflict and is left alone.
+  - **Ptah's line carries a `# ptah:managed` trailing comment.** That is what
+    makes removal precise. A `tool_search_always_defer_mcp_tools` line WITHOUT
+    it is the user's own setting: never overwritten, never removed, reported
+    back as `user-owned` so a caller can say the tools may stay hidden rather
+    than silently disagreeing with the file.
+  - **It takes a PATH, and the same `withMcpConfigLock` the facet takes on it**,
+    so a server write and a feature write cannot interleave into a lost update.
+    A path rather than a home-resolver because Codex has two config files and
+    the flag must land in the same one as the server entry it accompanies.
+  - **Measured caveat (codex-cli 0.150.1): the flag may already be inert.**
+    `codex features list` reports it with stage `removed` and effective state
+    `true`, and neither `-c features.tool_search_always_defer_mcp_tools=false`,
+    nor `--disable`, nor the key in a config file moved it. It is still what
+    `CodexCliAdapter` sends in-process, and writing it is fenced, reversible and
+    free — so it stays, but nothing should claim it is what makes MCP tools
+    appear. Re-measure before relying on it.
 - **Codex MCP is spliced between marker comments, not round-tripped.**
   `~/.codex/config.toml` is a file the user hand-edits — model preferences,
   sandbox policy, comments explaining why. No TOML library in this repo

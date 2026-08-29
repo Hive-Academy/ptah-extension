@@ -131,6 +131,9 @@ function buildService(): CodeExecutionMCP {
     {} as unknown as PermissionPromptService,
     undefined,
     undefined,
+    // No CLI detector: every target but `claude` is gated on one, so this
+    // suite exercises the same single `.mcp.json` it was written against.
+    undefined,
   );
 }
 

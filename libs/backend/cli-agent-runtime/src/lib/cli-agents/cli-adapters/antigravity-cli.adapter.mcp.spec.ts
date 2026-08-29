@@ -182,6 +182,56 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     });
   });
 
+  // `CodeExecutionMCP` keeps a PERSISTENT `ptah` entry in this file for as long
+  // as its HTTP server is up, so that `agy` sessions the USER starts have Ptah
+  // tools. Cleanup therefore RESTORES what the run found rather than deleting.
+  describe('a persistent `ptah` entry written by CodeExecutionMCP', () => {
+    it('survives a spawn that finished', async () => {
+      seedUserConfig({
+        ptah: { serverUrl: 'http://localhost:51820' },
+      });
+
+      await runAndFinish(51234);
+
+      expect(servers()['ptah']).toEqual({
+        serverUrl: 'http://localhost:51820',
+      });
+    });
+
+    it("is replaced by this run's port WHILE the agent runs", async () => {
+      seedUserConfig({
+        ptah: { serverUrl: 'http://localhost:51820' },
+      });
+
+      const handle = await adapter.runSdk({
+        task: 'do a thing',
+        workingDirectory: ws,
+        mcpPort: 51234,
+      });
+
+      expect(servers()['ptah']).toEqual({
+        serverUrl: 'http://localhost:51234',
+      });
+
+      child.emit('close', 0, null);
+      await handle.done;
+    });
+
+    it("is restored without disturbing the user's other servers", async () => {
+      seedUserConfig({
+        ptah: { serverUrl: 'http://localhost:51820' },
+        mine: { serverUrl: 'https://mine.example.com/sse' },
+      });
+
+      await runAndFinish(51234);
+
+      expect(servers()).toEqual({
+        ptah: { serverUrl: 'http://localhost:51820' },
+        mine: { serverUrl: 'https://mine.example.com/sse' },
+      });
+    });
+  });
+
   it('writes nothing at all when the spawn carries no MCP port', async () => {
     const handle = await adapter.runSdk({
       task: 'do a thing',
