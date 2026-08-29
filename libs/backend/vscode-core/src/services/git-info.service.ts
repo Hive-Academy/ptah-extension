@@ -77,38 +77,74 @@ const APPLY_OFFSET_RE = /\(offset (-?\d+) lines?\)/g;
 const DIFF_FLAGS = ['-U3', '--no-color', '--no-ext-diff'] as const;
 
 /**
+ * Positional (non-flag) arguments after the git verb.
+ *
+ * The tell that separates a listing invocation from a writing one for the
+ * verbs that are both: `git remote -v` and `git tag --sort=… --format=…` carry
+ * none, `git remote add <name>` and `git tag <name>` carry one.
+ */
+function positionalArgs(args: readonly string[]): string[] {
+  return args.slice(1).filter((a) => !a.startsWith('-'));
+}
+
+/**
  * Does this argv change anything the read cache holds?
  *
- * Read commands must answer `false` or they invalidate the very entry they
- * were about to populate — hence the sub-command checks on `stash` (whose
- * `list` and `show` are reads) and `worktree` (whose `list` is a read).
+ * **The default answer is `true`.** Only verbs proven read-only answer `false`.
+ * The two failure modes are not symmetric: mis-classifying a read costs one
+ * dropped cache entry and one extra `for-each-ref`, while mis-classifying a
+ * WRITE serves a stale branch list until the next watcher event. So a verb this
+ * service does not use today — `branch`, `fetch`, `cherry-pick`, `revert`,
+ * `am`, `merge`, `rebase`, `pull` — counts as a mutation, and a method added
+ * later inherits invalidation by construction instead of by remembering to ask
+ * for it. That is the promise {@link GitInfoService.execGit} makes.
  *
- * Over-answering `true` is safe: the worst case is a dropped cache entry and
- * one extra `for-each-ref`. Under-answering is not, so an unrecognised
- * sub-command of a mutating verb counts as a mutation.
+ * Read commands MUST answer `false` or they invalidate the very entry they were
+ * about to populate — which is why the allowlist below is exactly the set of
+ * verbs this service spawns on its read paths, plus the read-only plumbing
+ * (`rev-list`, `cat-file`, `ls-files`, `ls-tree`, `merge-base`) that has no
+ * writing form at all.
+ *
+ * Four verbs are read-only only in some forms and are told apart by their
+ * arguments rather than being trusted wholesale:
+ *
+ * - `stash` — `list` and `show` read; `push`/`pop`/`apply`/`drop` write.
+ * - `worktree` — `list` reads; `add`/`remove`/`prune` write.
+ * - `remote` / `tag` — bare or all-flags is a listing; a positional is a write.
+ * - `symbolic-ref` — `symbolic-ref --short HEAD` reads, but
+ *   `symbolic-ref HEAD refs/heads/x` REPOINTS HEAD, which is precisely what the
+ *   branch cache holds. Two positionals is the write form.
+ *
+ * Exported for the classification table in `git-info.service.spec.ts`. It is
+ * not re-exported from the lib barrel.
  */
-function isMutatingGitCommand(args: readonly string[]): boolean {
+export function isMutatingGitCommand(args: readonly string[]): boolean {
   const [command, sub] = args;
   switch (command) {
-    case 'add':
-    case 'apply':
-    case 'checkout':
-    case 'clean':
-    case 'commit':
-    case 'merge':
-    case 'pull':
-    case 'push':
-    case 'rebase':
-    case 'reset':
-    case 'restore':
-    case 'switch':
-      return true;
+    // Unconditionally read-only: these verbs have no writing form.
+    case 'status':
+    case 'show':
+    case 'diff':
+    case 'log':
+    case 'rev-parse':
+    case 'rev-list':
+    case 'for-each-ref':
+    case 'cat-file':
+    case 'ls-files':
+    case 'ls-tree':
+    case 'merge-base':
+      return false;
     case 'stash':
       return sub !== 'list' && sub !== 'show';
     case 'worktree':
       return sub !== 'list';
+    case 'remote':
+    case 'tag':
+      return positionalArgs(args).length > 0;
+    case 'symbolic-ref':
+      return positionalArgs(args).length > 1;
     default:
-      return false;
+      return true;
   }
 }
 

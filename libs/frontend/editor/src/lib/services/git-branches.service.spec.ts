@@ -582,12 +582,14 @@ describe('GitBranchesService (TASK_2026_111)', () => {
      * these specs otherwise fail on a loaded machine, where the extra
      * scheduling delay is unbounded.
      */
-    async function waitForDispatch(method: string): Promise<void> {
+    async function waitForDispatch(method: string, count = 1): Promise<void> {
       for (let i = 0; i < 200; i++) {
-        if (countOf(method) > 0) return;
+        if (countOf(method) >= count) return;
         await new Promise((r) => setTimeout(r, 10));
       }
-      throw new Error(`${method} was never dispatched`);
+      throw new Error(
+        `${method} was dispatched ${countOf(method)} times, expected ${count}`,
+      );
     }
 
     it('collapses the three requests a workspace switch produces into ONE git:branches call', async () => {
@@ -637,37 +639,51 @@ describe('GitBranchesService (TASK_2026_111)', () => {
         local: [],
         remote: [],
       };
-      let release!: () => void;
-      const blocker = new Promise<void>((res) => {
-        release = res;
+
+      // BOTH branch rounds hang. /repo-b's round is still in flight when the
+      // assertion runs, so the ONLY write that could have reached `_branches`
+      // by then is /repo-a's stale response. An earlier version of this spec
+      // let /repo-b's round answer normally, which overwrote the stale value
+      // and made the spec pass with the `isStale` guard deleted.
+      let releaseA!: () => void;
+      let releaseB!: () => void;
+      const blockerA = new Promise<void>((res) => {
+        releaseA = res;
       });
-      // Only the FIRST branch request is the slow one belonging to /repo-a.
-      // The rerun that /repo-b's own switch schedules answers normally, so a
-      // green result proves the stale response was DROPPED rather than merely
-      // never having arrived.
-      let firstBranchCall = true;
+      const blockerB = new Promise<void>((res) => {
+        releaseB = res;
+      });
+      let branchCalls = 0;
       mockRpcCall.mockImplementation(async (_v: unknown, method: string) => {
-        if (method === 'git:branches' && firstBranchCall) {
-          firstBranchCall = false;
-          await blocker;
+        if (method !== 'git:branches') {
+          return { success: true, data: EMPTY_STASH };
+        }
+        branchCalls++;
+        if (branchCalls === 1) {
+          await blockerA;
           return { success: true, data: staleBranches };
         }
-        if (method === 'git:branches') {
-          return { success: true, data: EMPTY_BRANCHES };
-        }
-        return { success: true, data: EMPTY_STASH };
+        await blockerB;
+        return { success: true, data: EMPTY_BRANCHES };
       });
 
       service.switchWorkspace('/repo-a');
       const pass = service.refreshBranches();
-      await waitForDispatch('git:branches');
+      await waitForDispatch('git:branches', 1);
 
-      // The user switches away while `git:branches` is still in flight.
+      // The user switches away while /repo-a's `git:branches` is still in
+      // flight. This resets `_branches` to EMPTY and queues /repo-b's round.
       service.switchWorkspace('/repo-b');
-      release();
-      await pass;
+      releaseA();
+
+      // /repo-b's round being dispatched proves /repo-a's response has already
+      // settled and been handled — so the guard has had its chance to run.
+      await waitForDispatch('git:branches', 2);
 
       expect(service.currentBranch()).toBe('');
+
+      releaseB();
+      await pass;
     });
 
     it('reports isLoading synchronously, before the coalescing window closes', () => {

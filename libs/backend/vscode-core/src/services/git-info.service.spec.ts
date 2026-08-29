@@ -46,7 +46,7 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockSpawn(...args),
 }));
 
-import { GitInfoService } from './git-info.service';
+import { GitInfoService, isMutatingGitCommand } from './git-info.service';
 
 // ---------------------------------------------------------------------------
 // Minimal logger double
@@ -218,15 +218,19 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(format).toContain('%(upstream:track)');
     });
 
+    // `%(upstream:track)` is empty for BOTH "in sync" and "no upstream at all",
+    // which is why the last row exists: git emits nothing in either case and
+    // the parser must not read that as a missing field.
     it.each([
-      ['[ahead 3, behind 2]', 3, 2],
-      ['[ahead 3]', 3, 0],
-      ['[behind 2]', 0, 2],
-      ['[gone]', 0, 0],
-      ['', 0, 0],
+      ['origin/main', '[ahead 3, behind 2]', 3, 2],
+      ['origin/main', '[ahead 3]', 3, 0],
+      ['origin/main', '[behind 2]', 0, 2],
+      ['origin/main', '[gone]', 0, 0],
+      ['origin/main', '', 0, 0],
+      ['', '', 0, 0],
     ])(
-      'maps upstream:track %p to ahead=%i behind=%i',
-      async (track, ahead, behind) => {
+      'maps upstream %p + track %p to ahead=%i behind=%i',
+      async (upstream, track, ahead, behind) => {
         mockSpawn.mockImplementation(() =>
           makeSpawnResult({
             stdout:
@@ -234,7 +238,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
                 refname: 'refs/heads/main',
                 short: 'main',
                 head: '*',
-                upstream: 'origin/main',
+                upstream,
                 track,
               }) + '\n',
             exitCode: 0,
@@ -245,6 +249,8 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
 
         expect(result.local[0].ahead).toBe(ahead);
         expect(result.local[0].behind).toBe(behind);
+        // Empty upstream is reported as absent, not as an empty string.
+        expect(result.local[0].upstream).toBe(upstream || undefined);
       },
     );
 
@@ -352,6 +358,84 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
 
       expect(result.current).toBe('');
       expect(result.local[0].isCurrent).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Cache-invalidation classification (TASK_2026_343 follow-up)
+  //
+  // `execGit` derives invalidation from the argv, so this table IS the
+  // contract: a verb classified as a read serves a stale branch list until the
+  // next watcher event. The default is "mutating", so the mutating rows below
+  // include verbs this service does not spawn today — that is the point.
+  // ==========================================================================
+
+  describe('isMutatingGitCommand()', () => {
+    it.each([
+      // Every read this service actually performs.
+      [['status', '--porcelain=v2', '--branch']],
+      [['status', '--porcelain', '--', 'a.ts']],
+      [['for-each-ref', '--format=x', 'refs/heads/']],
+      [['symbolic-ref', '--short', 'HEAD']],
+      [['stash', 'list', '--format=x']],
+      [['stash', 'show']],
+      [['worktree', 'list', '--porcelain']],
+      [['tag', '--sort=-creatordate', '--format=x']],
+      [['remote', '-v']],
+      [['remote']],
+      [['log', '-1', '--format=x', 'HEAD']],
+      [['show', 'HEAD:src/a.ts']],
+      [['diff', '--cached', '-U3', '--', 'a.ts']],
+      [['rev-parse', '--is-inside-work-tree']],
+      // Read-only plumbing with no writing form.
+      [['rev-list', '--count', 'HEAD']],
+      [['cat-file', '-p', 'HEAD']],
+      [['ls-files']],
+      [['ls-tree', 'HEAD']],
+      [['merge-base', 'a', 'b']],
+    ])('classifies %j as a read', (args: string[]) => {
+      expect(isMutatingGitCommand(args)).toBe(false);
+    });
+
+    it.each([
+      // Writes this service performs.
+      [['add', '--', 'a.ts']],
+      [['reset', 'HEAD', '--', 'a.ts']],
+      [['checkout', '--', 'a.ts']],
+      [['checkout', 'main']],
+      [['clean', '-f', '--', 'a.ts']],
+      [['commit', '-m', 'msg']],
+      [['push']],
+      [['apply', '--cached', '--verbose', '-']],
+      [['apply', '--check', '--verbose', '-']],
+      [['write-tree']],
+      [['read-tree', 'abc123']],
+      [['worktree', 'add', '/p', 'br']],
+      [['worktree', 'remove', '/p']],
+      [['stash', 'push']],
+      [['stash', 'pop']],
+      // Verbs this service does NOT spawn today. They must still classify as
+      // mutations so a method added later inherits invalidation.
+      [['branch', '-D', 'old']],
+      [['branch', 'new-branch']],
+      [['fetch', '--all', '--prune']],
+      [['tag', 'v1.0.0']],
+      [['cherry-pick', 'abc123']],
+      [['revert', 'abc123']],
+      [['am', '--3way']],
+      [['merge', 'main']],
+      [['rebase', 'main']],
+      [['pull', '--rebase']],
+      [['switch', 'main']],
+      [['restore', '--staged', 'a.ts']],
+      [['remote', 'add', 'origin', 'url']],
+      [['remote', 'set-url', 'origin', 'url']],
+      // Repoints HEAD — exactly what the branch cache holds.
+      [['symbolic-ref', 'HEAD', 'refs/heads/main']],
+      // An unknown verb is a mutation by default.
+      [['some-future-plumbing', '--flag']],
+    ])('classifies %j as a mutation', (args: string[]) => {
+      expect(isMutatingGitCommand(args)).toBe(true);
     });
   });
 

@@ -281,3 +281,66 @@ While probing atom behaviour I ran `git branch --set-upstream-to=origin/main mai
 repository. `branch.main.remote` / `branch.main.merge` were almost certainly already set (the
 config carries 324 `branch.*` entries and a `branch.main.vscode-merge-base`), so this was a
 no-op — but it was a config write and is recorded here rather than left silent.
+
+## Follow-up (judge round 1)
+
+Three findings on `35e3fcec7`, all landed. No production behaviour changed except item 1.
+
+### 1. `isMutatingGitCommand` inverted to default-mutating
+
+The docstring promised that "a future method inherits invalidation by construction", but the
+switch was an allowlist of twelve write verbs with `default: false`. Every verb it omitted —
+`branch`, `fetch`, `tag <name>`, `cherry-pick`, `revert`, `am` — would have been classified as a
+read, serving a stale branch list until the next watcher event. `branch` and `tag` are the sharp
+ones: they write exactly what the cache holds.
+
+The switch is now a **read allowlist with `default: true`**, which is the direction the asymmetry
+demands: mis-classifying a read costs one extra `for-each-ref`, mis-classifying a write costs
+correctness. The allowlist is the exact set of verbs this service spawns on its read paths —
+enumerated from all 23 `execGit`/`execGitBuffer` call sites — plus five read-only plumbing verbs
+(`rev-list`, `cat-file`, `ls-files`, `ls-tree`, `merge-base`) that have no writing form.
+
+Four verbs are read-only only in some forms and are no longer trusted wholesale:
+
+| verb            | read form                   | write form                       | discriminator      |
+| --------------- | --------------------------- | -------------------------------- | ------------------ |
+| `stash`         | `list`, `show`              | `push`, `pop`, `apply`, `drop`   | sub-command        |
+| `worktree`      | `list`                      | `add`, `remove`, `prune`         | sub-command        |
+| `remote`, `tag` | `remote -v`, `tag --sort=…` | `remote add x`, `tag v1.0`       | ≥1 positional arg  |
+| `symbolic-ref`  | `symbolic-ref --short HEAD` | `symbolic-ref HEAD refs/heads/x` | ≥2 positional args |
+
+`symbolic-ref` is the one the original switch would have got wrong in _this_ file's own idiom:
+`getBranches` calls the read form, and the write form repoints HEAD.
+
+The function is now exported (from the module, **not** the lib barrel — verified) so the
+classification can be specced directly. 50 table rows: 19 reads, 31 mutations, the latter
+deliberately including verbs this service never spawns, because that is the property under test.
+
+### 2. The stale-workspace spec was vacuous
+
+Confirmed the judge's reading. `runRefreshPass` always ran a second, legitimate round for
+`/repo-b` whose `EMPTY_BRANCHES` result overwrote the stale write, so the spec passed with the
+`isStale` guard deleted — it asserted the final value, not that the stale write was refused.
+
+Both branch rounds now hang on separate blockers. `/repo-b`'s round is still in flight at the
+assertion, so the only write that could have reached `_branches` is `/repo-a`'s stale response.
+Waiting for `/repo-b`'s round to be _dispatched_ is what proves `/repo-a`'s response already
+settled and the guard has had its chance — without it the spec would be vacuous in the opposite
+direction.
+
+**Mutation-verified**: with `isStale` stubbed to `return false`, the spec fails
+`Expected: "" / Received: "old-repo-branch"`. Guard restored; `git diff` against `35e3fcec7` for
+`git-branches.service.ts` is empty.
+
+### 3. `no upstream configured` row added
+
+The `upstream:track` table fixed `upstream: 'origin/main'` on every row, so the empty-track case
+only ever covered "in sync", never "no upstream at all" — and git emits an empty field for both.
+The table now carries `upstream` as its own column with a `['', '', 0, 0]` row, and asserts
+`upstream` is reported as `undefined` rather than `''`.
+
+### Verification
+
+`npx nx run-many -t test -p @ptah-extension/vscode-core @ptah-extension/editor --parallel=1
+--skip-nx-cache` — 2 projects, green: vscode-core 475/475 (was 424; +51 rows), editor 443/443.
+Typecheck green for the same two.
