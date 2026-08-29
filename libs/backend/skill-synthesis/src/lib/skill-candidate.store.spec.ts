@@ -1980,3 +1980,126 @@ describe('SkillCandidateStore', () => {
     });
   });
 });
+
+describe('SkillCandidateStore — per-session supersession', () => {
+  const opener2 = resolveOpener();
+  const maybe2 = opener2 ? it : it.skip;
+
+  function seedForSession(
+    store: SkillCandidateStore,
+    suffix: string,
+    sessionId: string,
+    createdAt: number,
+  ) {
+    return store.registerCandidate({
+      ...candidateInput(suffix),
+      sourceSessionIds: [sessionId],
+      createdAt,
+    }).candidate;
+  }
+
+  describe('findLatestBySourceSession', () => {
+    maybe2('returns the newest candidate row that names the session', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedForSession(store, 'old', 'sess-a', 1_000);
+      const newer = seedForSession(store, 'new', 'sess-a', 2_000);
+      seedForSession(store, 'other', 'sess-b', 3_000);
+
+      // Newest, because a growing session's latest draft is the one that owns
+      // the SKILL.md directory the next pass would collide with.
+      expect(store.findLatestBySourceSession('sess-a')?.id).toBe(newer.id);
+    });
+
+    maybe2('ignores promoted and rejected rows', () => {
+      // A promoted row is a shipped skill and a rejected one is a decision
+      // already taken. Superseding either under a session that merely grew
+      // would rewrite an artifact nobody re-reviewed.
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const promoted = seedForSession(store, 'promoted', 'sess-c', 1_000);
+      const rejected = seedForSession(store, 'rejected', 'sess-c', 2_000);
+      store.updateStatus(promoted.id, 'promoted');
+      store.updateStatus(rejected.id, 'rejected');
+
+      expect(store.findLatestBySourceSession('sess-c')).toBeNull();
+    });
+
+    maybe2('matches a session id exactly, not as a substring', () => {
+      // `json_each` and not `LIKE '%id%'`: a substring scan would also hit a
+      // session id that merely CONTAINS this one, and supersede the wrong row.
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      seedForSession(store, 'longer', 'sess-abcdef', 1_000);
+
+      expect(store.findLatestBySourceSession('sess-abc')).toBeNull();
+      expect(store.findLatestBySourceSession('sess-abcdef')).not.toBeNull();
+    });
+
+    maybe2('returns null for a row that names no session at all', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      store.registerCandidate(candidateInput('sessionless'));
+
+      expect(store.findLatestBySourceSession('sess-anything')).toBeNull();
+      expect(store.findLatestBySourceSession('')).toBeNull();
+    });
+  });
+
+  describe('superseded', () => {
+    maybe2('rewrites the content columns and keeps the slug', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = seedForSession(store, 'grow', 'sess-d', 1_000);
+
+      const updated = store.superseded(row.id, {
+        description: 'a sharper description',
+        bodyPath: '/tmp/grow/SKILL.md',
+        trajectoryHash: 'hash-grow-v2',
+        embedding: null,
+      });
+
+      expect(updated.description).toBe('a sharper description');
+      expect(updated.bodyPath).toBe('/tmp/grow/SKILL.md');
+      expect(updated.trajectoryHash).toBe('hash-grow-v2');
+      // The slug is the SKILL.md folder name and carries a UNIQUE index —
+      // renaming it strands the directory the row points at.
+      expect(updated.name).toBe(row.name);
+      expect(updated.id).toBe(row.id);
+      // No second row was minted, which is the whole point.
+      expect(store.listByStatus('candidate')).toHaveLength(1);
+      // And the new hash is what every other dedupe path now reads.
+      expect(store.findByTrajectoryHash('hash-grow-v2')?.id).toBe(row.id);
+    });
+
+    maybe2('throws for a row that is no longer a candidate', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = seedForSession(store, 'shipped', 'sess-e', 1_000);
+      store.updateStatus(row.id, 'promoted');
+
+      expect(() =>
+        store.superseded(row.id, {
+          description: 'd',
+          bodyPath: '/tmp/x/SKILL.md',
+          trajectoryHash: 'hash-shipped-v2',
+          embedding: null,
+        }),
+      ).toThrow(/not 'candidate'/);
+    });
+
+    maybe2('throws for a row that does not exist', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+
+      expect(() =>
+        store.superseded('missing' as CandidateId, {
+          description: 'd',
+          bodyPath: '/tmp/x/SKILL.md',
+          trajectoryHash: 'h',
+          embedding: null,
+        }),
+      ).toThrow(/not found/);
+    });
+  });
+});

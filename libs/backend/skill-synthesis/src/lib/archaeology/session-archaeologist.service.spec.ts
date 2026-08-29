@@ -58,6 +58,7 @@ import { SessionVerdictStore } from './session-verdict.store';
 import { SESSION_VERDICT_JSON_SCHEMA } from './session-verdict.types';
 import {
   ARCHAEOLOGY_DEGRADED_REASONS,
+  ARCHAEOLOGY_MAX_TURNS,
   SessionArchaeologistService,
   type SessionArchaeologyResult,
 } from './session-archaeologist.service';
@@ -289,6 +290,24 @@ describe('SessionArchaeologistService — multi-pass (skipped without any SQLite
       expect(queue.touchClaim).toHaveBeenCalledWith('q-1');
     },
   );
+
+  maybe('names its own turn budget on every lane request', async () => {
+    // The runner would supply a default, but the pass loop's cost and its
+    // failure mode both hang off this number: under the old `maxTurns: 1` a
+    // reply that opened with one tool call spent its only turn, came back
+    // `error_max_turns`, and the R6 guard collapsed the pass budget — which is
+    // how EVERY archaeology run on the measured boot ended degraded.
+    const lane = makeLaneStub([okRun(PASS_1_REPLY), okRun(PASS_2_REPLY)]);
+    const service = build(lane);
+
+    await service.analyze({ sessionId: 's-turn-budget', workspaceRoot: '/ws' });
+
+    expect(lane.requests.length).toBeGreaterThan(0);
+    for (const request of lane.requests) {
+      expect(request.maxTurns).toBe(ARCHAEOLOGY_MAX_TURNS);
+    }
+    expect(ARCHAEOLOGY_MAX_TURNS).toBeGreaterThan(1);
+  });
 
   maybe('a lost claim stops the run and writes NOTHING', async () => {
     const lane = makeLaneStub([okRun(PASS_1_REPLY), okRun(PASS_2_REPLY)]);

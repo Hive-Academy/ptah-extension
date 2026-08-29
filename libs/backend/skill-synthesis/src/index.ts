@@ -93,6 +93,7 @@ export {
   LANE_RETRY_BACKOFF_BASE_MS,
   LANE_MAX_RETRY_BACKOFF_MS,
   LANE_MAX_EXECUTIONS_PER_RUN,
+  LANE_TOOL_USE_DEFAULT_MAX_TURNS,
   timeoutBackoffMs,
   type LaneRunRequest,
   type LaneRun,
@@ -286,6 +287,7 @@ export {
   ARCHAEOLOGY_HEAD_BUDGET_SHARE,
   ARCHAEOLOGY_SERVE_BUDGET_SHARE,
   ARCHAEOLOGY_MAX_REQUESTS_PER_PASS,
+  ARCHAEOLOGY_MAX_TURNS,
   type SessionArchaeologyRequest,
   type SessionArchaeologyResult,
 } from './lib/archaeology/session-archaeologist.service';

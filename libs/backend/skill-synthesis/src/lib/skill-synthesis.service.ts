@@ -159,6 +159,27 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
  */
 const EMBEDDING_BACKFILL_SESSION_PREFIX = 'backfill-embeddings:';
 
+/**
+ * A candidate's CONTENT identity: its description and its body, and nothing
+ * else.
+ *
+ * Deliberately not the trajectory hash. That hash covers every turn of the
+ * session, so it changes whenever the session grows — including when the two
+ * drafts it produced are byte-identical, which is the common case for the
+ * template fallback. Hashing what was actually written is what lets a
+ * re-analysis of a grown session answer "nothing changed" and spend no I/O.
+ *
+ * The body is trimmed because `SkillMdGenerator` trims it on the way to disk,
+ * so an untrimmed comparison would report a difference the file cannot show.
+ */
+function contentHash(description: string, body: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${description}\n${body.trim()}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
 @injectable()
 export class SkillSynthesisService {
   private static readonly RING_CAPACITY = 200;
@@ -768,6 +789,78 @@ export class SkillSynthesisService {
         candidateName = synthesized.name || trajectory.slug;
         candidateDescription =
           synthesized.description || trajectory.shortDescription;
+      }
+    }
+
+    // ── One candidate per session, superseded in place ──────────────────────
+    //
+    // `trajectory_hash` covers EVERY turn, so a session that grows hashes
+    // differently and the `findByTrajectoryHash` guard above misses. The row is
+    // then re-drafted from scratch on every re-open (`stage-handlers` runs the
+    // prefilter with `force: true` per re-open), the slug is named after the
+    // same first user message, and `writeCandidate`'s collision walk resolves
+    // it as `-2 … -5` before throwing on the sixth. Five rows and five
+    // directories for one session's work, then a permanently `skipped` row.
+    //
+    // The hash is not the identity of the work — the SESSION is. So: if this
+    // session already has a candidate, either the draft is unchanged (return
+    // it, write nothing) or it grew (rewrite that row's own SKILL.md and its
+    // row, in place). Only a session with no candidate yet takes the insert
+    // path below, which is what keeps the `-N` walk available for genuinely
+    // different sessions that collide on a first sentence.
+    const prior = this.store.findLatestBySourceSession(sessionId);
+    if (prior) {
+      const draftHash = contentHash(candidateDescription, synthesizedBody);
+      const priorBody = readCandidateBodyFile(prior, this.logger);
+      const priorHash =
+        priorBody === null ? null : contentHash(prior.description, priorBody);
+      // The hash equality is normally caught by `findByTrajectoryHash` above;
+      // it is kept because a row whose file is unreadable still has one, and
+      // an identical trajectory is identical work by definition.
+      if (prior.trajectoryHash === trajectory.hash || priorHash === draftHash) {
+        this.logger.debug(
+          '[skill-synthesis] candidate unchanged for this session; reusing',
+          { candidateId: prior.id, slug: prior.name, sessionId },
+        );
+        return { candidate: prior, reused: true };
+      }
+
+      try {
+        const rewritten = this.mdGenerator.overwriteCandidate(
+          {
+            slug: prior.name,
+            description: candidateDescription,
+            body: synthesizedBody,
+          },
+          settings.candidatesDir,
+        );
+        const updated = this.store.superseded(prior.id, {
+          description: candidateDescription,
+          bodyPath: rewritten.filePath,
+          trajectoryHash: trajectory.hash,
+          embedding,
+        });
+        this.logger.info(
+          '[skill-synthesis] candidate superseded (same session grew)',
+          {
+            candidateId: updated.id,
+            slug: updated.name,
+            sessionId,
+            turnCount: trajectory.turnCount,
+          },
+        );
+        return { candidate: updated, reused: true };
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[skill-synthesis] could not supersede the existing candidate',
+          {
+            sessionId,
+            candidateId: prior.id,
+            slug: prior.name,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        return null;
       }
     }
 
