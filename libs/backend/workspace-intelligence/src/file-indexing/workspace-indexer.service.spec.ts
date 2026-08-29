@@ -129,6 +129,9 @@ describe('WorkspaceIndexerService', () => {
       isIgnored: jest.fn(),
       testFiles: jest.fn(),
       filterIgnored: jest.fn(),
+      // Default: nothing is ignored. `discoverWorkspacePaths` compiles once and
+      // filters with the result, so the double returns a predicate, not a bool.
+      compileMatcher: jest.fn(() => () => false),
     } as unknown as jest.Mocked<IgnorePatternResolverService>;
 
     fileClassifier = {
@@ -1062,6 +1065,134 @@ describe('WorkspaceIndexerService', () => {
       const count = await service.getFileCount();
 
       expect(count).toBe(0);
+    });
+  });
+
+  /**
+   * TASK_2026_344 — the path-only walk the `@`-mention index consumes.
+   *
+   * The index needs paths and nothing else, but it used to drive
+   * `indexWorkspaceStream`, which per file awaits `isIgnored`, awaits a `stat`
+   * and runs the classifier. On the captured Electron session that was 8-15 s
+   * of main-loop time per workspace switch for a 15k-file folder. These tests
+   * pin the three properties that removed it: no per-file I/O, batching, and a
+   * real macrotask boundary between batches.
+   */
+  describe('discoverWorkspacePaths', () => {
+    const collect = async (
+      options: Parameters<WorkspaceIndexerService['discoverWorkspacePaths']>[0],
+    ): Promise<string[][]> => {
+      const batches: string[][] = [];
+      for await (const batch of service.discoverWorkspacePaths(options)) {
+        batches.push([...batch]);
+      }
+      return batches;
+    };
+
+    beforeEach(() => {
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+    });
+
+    it('yields every discovered path and touches nothing else on disk', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/README.md',
+      ]);
+
+      const batches = await collect({ workspaceFolder: WORKSPACE_ROOT });
+
+      expect(batches).toEqual([
+        ['/workspace/src/app.ts', '/workspace/README.md'],
+      ]);
+      // The whole reason this generator exists: none of the per-file work.
+      expect(fileSystemService.stat).not.toHaveBeenCalled();
+      expect(fileSystemService.readFile).not.toHaveBeenCalled();
+      expect(fileClassifier.classifyFile).not.toHaveBeenCalled();
+      expect(tokenCounter.countTokens).not.toHaveBeenCalled();
+      // ...and the ignore rules are compiled ONCE, not consulted per path.
+      expect(ignoreResolver.isIgnored).not.toHaveBeenCalled();
+    });
+
+    it('filters with the compiled matcher, once per walk', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/dist/bundle.js',
+      ]);
+      const compile = ignoreResolver.compileMatcher as unknown as jest.Mock;
+      compile.mockReturnValue((relativePath: string) =>
+        relativePath.replace(/\\/g, '/').startsWith('dist/'),
+      );
+
+      const batches = await collect({ workspaceFolder: WORKSPACE_ROOT });
+
+      expect(batches).toEqual([['/workspace/src/app.ts']]);
+      expect(compile).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses ignore files the caller already parsed', async () => {
+      mockFsProvider.findFiles.mockResolvedValue(['/workspace/src/app.ts']);
+      const compile = ignoreResolver.compileMatcher as unknown as jest.Mock;
+      const preParsed = [
+        {
+          filePath: '/workspace/.gitignore',
+          baseDir: '/workspace',
+          patterns: [],
+        },
+      ];
+
+      await collect({
+        workspaceFolder: WORKSPACE_ROOT,
+        ignoreFiles: preParsed,
+      });
+
+      expect(ignoreResolver.parseWorkspaceIgnoreFiles).not.toHaveBeenCalled();
+      expect(compile).toHaveBeenCalledWith(preParsed, WORKSPACE_ROOT);
+    });
+
+    it('yields batches of the configured size', async () => {
+      mockFsProvider.findFiles.mockResolvedValue(
+        Array.from({ length: 7 }, (_, i) => `/workspace/f${i}.ts`),
+      );
+
+      const batches = await collect({
+        workspaceFolder: WORKSPACE_ROOT,
+        batchSize: 3,
+      });
+
+      expect(batches.map((b) => b.length)).toEqual([3, 3, 1]);
+    });
+
+    /**
+     * The load-bearing one. A `Promise.resolve()` yield would satisfy "is
+     * async" and still starve the loop, because microtasks drain inside the
+     * same turn. This asserts a MACROTASK boundary: a `setImmediate` scheduled
+     * by the consumer while it holds batch 1 must run before batch 2 arrives.
+     */
+    it('lets a setImmediate callback run between batches', async () => {
+      mockFsProvider.findFiles.mockResolvedValue(
+        Array.from({ length: 6 }, (_, i) => `/workspace/f${i}.ts`),
+      );
+
+      const order: string[] = [];
+      let batchIndex = 0;
+      for await (const batch of service.discoverWorkspacePaths({
+        workspaceFolder: WORKSPACE_ROOT,
+        batchSize: 2,
+      })) {
+        order.push(`batch-${batchIndex}:${batch.length}`);
+        if (batchIndex === 0) {
+          setImmediate(() => order.push('probe'));
+        }
+        batchIndex++;
+      }
+
+      expect(order).toEqual(['batch-0:2', 'probe', 'batch-1:2', 'batch-2:2']);
+    });
+
+    it('throws when no workspace folder is supplied', async () => {
+      await expect(collect({ workspaceFolder: '' })).rejects.toThrow(
+        'No workspace folder available for indexing',
+      );
     });
   });
 });

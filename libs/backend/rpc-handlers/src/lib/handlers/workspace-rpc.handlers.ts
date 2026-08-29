@@ -434,14 +434,18 @@ export class WorkspaceRpcHandlers {
    * Rebuild the `@`-mention file index for the newly-activated workspace, OFF
    * the `workspace:switch` critical path.
    *
-   * `WorkspaceFileIndexService` holds single-active-root state: it is built
-   * once at boot for the startup workspace and, before TASK_2026_200, was never
-   * rebuilt — so after any switch the picker listed the boot workspace's files
-   * forever. `ensureReadyFor(root)` is the service's explicit-root entry point;
-   * it is a cheap no-op when the requested root is already the indexed one
-   * (roots compare by `normalizeWorkspaceRoot`, so separator/drive-case
-   * variants do not force a redundant rebuild) and supersedes any in-flight
-   * build otherwise.
+   * `WorkspaceFileIndexService` caches one index PER OPEN FOLDER and serves
+   * queries from the active one. Before TASK_2026_200 it was built once at boot
+   * and never rebuilt, so after any switch the picker listed the boot
+   * workspace's files forever; before TASK_2026_344 it was rebuilt on every
+   * switch, so returning to an already-open folder re-walked its whole tree.
+   * `ensureReadyFor(root)` is the explicit-root entry point: free when that
+   * folder is already built (roots compare by `normalizeWorkspaceRoot`, so
+   * separator/drive-case variants are one folder), a walk when it is not.
+   *
+   * The `cached` flag below is why that distinction is visible in the log at
+   * all: "re-index complete in 9 s" and "re-index complete in 2 ms" are the same
+   * line otherwise, and the 9 s one was invisible as a REPEAT for weeks.
    *
    * Resolution is OPTIONAL by design. The CLI host has no picker surface and
    * does not register the index (`research-report.md` §3, §4.D); VS Code does
@@ -461,8 +465,12 @@ export class WorkspaceRpcHandlers {
       TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
     );
 
+    // Read BEFORE the call: `ensureReadyFor` activates the folder synchronously,
+    // so asking afterwards would report every switch as cached.
+    const cached = fileIndex.hasIndexFor(workspacePath);
     this.logger.info('[RPC] workspace:switch re-indexing files for workspace', {
       path: workspacePath,
+      cached,
     });
     const startedAt = Date.now();
     void fileIndex
@@ -472,6 +480,7 @@ export class WorkspaceRpcHandlers {
           path: workspacePath,
           durationMs: Date.now() - startedAt,
           fileCount: fileIndex.fileCount,
+          cached,
         });
       })
       .catch((err: unknown) => {

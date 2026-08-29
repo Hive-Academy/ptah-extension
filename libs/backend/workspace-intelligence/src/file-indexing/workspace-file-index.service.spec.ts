@@ -86,10 +86,14 @@ interface HarnessOptions {
   /** Initial value reported by the workspace provider. */
   providerRoot?: string;
   /**
-   * Gate that must be resolved before `indexWorkspaceStream` yields anything
+   * Gate that must be resolved before `discoverWorkspacePaths` yields anything
    * for the given raw root. Lets a test hold a build open across a switch.
    */
   streamGate?: Record<string, Promise<void>>;
+  /** Paths per yielded discovery batch (default: one batch for everything). */
+  discoveryBatchSize?: number;
+  /** Folders the workspace provider reports as OPEN. Defaults to [ROOT, ROOT_B]. */
+  openFolders?: string[];
   /**
    * Gate that must be resolved before `parseWorkspaceIgnoreFiles` returns for
    * the given raw root. Holds a build open at the IGNORE-PARSE await —
@@ -144,18 +148,26 @@ function makeHarness(opts: HarnessOptions = {}) {
     debug: jest.fn(),
   };
 
+  // The service consumes the PATH-ONLY batched generator (TASK_2026_344), not
+  // the stat+classify stream. Wrapped in `jest.fn` so call counts are
+  // assertable — "how many times did we walk a tree?" is the whole point of the
+  // per-folder cache.
   const indexer = {
-    indexWorkspaceStream: async function* (options: {
+    discoverWorkspacePaths: jest.fn(async function* (options: {
       workspaceFolder: string;
+      batchSize?: number;
+      ignoreFiles?: unknown[];
     }) {
       const root = options.workspaceFolder;
       const key = normalizeWorkspaceRoot(root);
       const gate = gateByKey.get(key);
       if (gate) await gate;
-      for (const p of byKey.get(key) ?? defaultFiles) {
-        yield { path: p, relativePath: path.relative(root, p) };
+      const all = byKey.get(key) ?? defaultFiles;
+      const size = Math.max(opts.discoveryBatchSize ?? all.length, 1);
+      for (let i = 0; i < all.length; i += size) {
+        yield all.slice(i, i + size);
       }
-    },
+    }),
   };
 
   // A fresh watcher per createFileWatcher call, so a rebuild's dispose of the
@@ -171,8 +183,23 @@ function makeHarness(opts: HarnessOptions = {}) {
     ),
   };
 
+  // The folder-change event double. `openFolders` is what the host reports as
+  // OPEN; firing the listener is the ONLY signal the service accepts as "a
+  // folder was closed" — deactivating one must never evict it.
+  let openFolders: string[] = opts.openFolders ?? [ROOT, ROOT_B];
+  const folderChangeListeners: Array<() => void> = [];
+  const folderSubscriptionDispose = jest.fn();
   const workspaceProvider = {
     getWorkspaceRoot: jest.fn(() => opts.providerRoot ?? ROOT),
+    getWorkspaceFolders: jest.fn(() => [...openFolders]),
+    onDidChangeWorkspaceFolders: jest.fn((listener: () => void) => {
+      folderChangeListeners.push(listener);
+      return { dispose: folderSubscriptionDispose };
+    }),
+  };
+  const setOpenFolders = (folders: string[]): void => {
+    openFolders = folders;
+    folderChangeListeners.forEach((l) => l());
   };
 
   const ignoreResolver = {
@@ -208,13 +235,16 @@ function makeHarness(opts: HarnessOptions = {}) {
     fsProvider,
     workspaceProvider,
     ignoreResolver,
+    indexer,
     logger,
+    setOpenFolders,
+    folderSubscriptionDispose,
     files: defaultFiles,
   };
 }
 
 describe('WorkspaceFileIndexService', () => {
-  it('builds the in-memory index once from indexWorkspaceStream', async () => {
+  it('builds the in-memory index once from discoverWorkspacePaths', async () => {
     const { service, fsProvider } = makeHarness();
 
     await service.start(ROOT);
@@ -380,28 +410,330 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
   });
 
   /**
-   * R2: `setupWatcher()` used to overwrite `this.watcher` without disposing it,
-   * leaking one OS watch handle per switch once rebuilds became possible.
+   * TASK_2026_344 criterion 1 — the reason this task exists.
+   *
+   * Pre-fix, `ensureReadyFor` compared one `rootKey` and tore the whole index
+   * down whenever it differed, so A→B→A cost THREE full walks. On the captured
+   * Electron session that was 14826 + 9969 + 8626 ms for one 15k-file folder
+   * (log.log:1346,1835,2165) plus 7657 + 2686 + 2539 ms for the other, none of
+   * which was ever closed.
    */
-  it('disposes the previous watcher exactly once when it rebuilds', async () => {
-    const { service, watchers } = makeHarness({ filesByRoot });
+  it('walks each open folder exactly once across an A → B → A switch', async () => {
+    const { service, indexer } = makeHarness({ filesByRoot });
 
     await service.start(ROOT);
-    expect(watchers).toHaveLength(1);
+    await service.ensureReadyFor(ROOT_B);
+    await service.ensureReadyFor(ROOT);
 
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(2);
+    // ...and the folder we came back to is intact, not half-rebuilt.
+    expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
+    expect(service.search('alpha-only', 10)).toHaveLength(1);
+    expect(service.search('beta-only', 10)).toHaveLength(0);
+  });
+
+  /**
+   * The same criterion stated as "no I/O", which is what the user feels: the
+   * second activation of A must be answerable in the SAME synchronous block,
+   * before any promise callback runs. If it awaited a walk, the index would
+   * still be B's here.
+   */
+  it('re-activates an already-built folder without awaiting any work', async () => {
+    const { service, ignoreResolver, indexer } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
     await service.ensureReadyFor(ROOT_B);
 
+    ignoreResolver.parseWorkspaceIgnoreFiles.mockClear();
+    (indexer.discoverWorkspacePaths as jest.Mock).mockClear();
+
+    // No await: read the index in the same tick as the request.
+    const pending = service.ensureReadyFor(ROOT);
+    expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
+    expect(service.isReady()).toBe(true);
+    expect(service.search('alpha-only', 10)).toHaveLength(1);
+
+    await pending;
+    expect(indexer.discoverWorkspacePaths).not.toHaveBeenCalled();
+    expect(ignoreResolver.parseWorkspaceIgnoreFiles).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Criterion 4 — `ContextService.assertIndexServes` (context.service.ts:474-482)
+   * reads `indexedRoot` SYNCHRONOUSLY after `ensureIndexFor` resolves and throws
+   * on a mismatch. The flip must therefore happen before the first await on
+   * every path, including the cold one.
+   */
+  it('flips indexedRoot synchronously, before the returned promise settles', async () => {
+    const { service } = makeHarness({ filesByRoot });
+
+    const cold = service.ensureReadyFor(ROOT);
+    expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
+    await cold;
+
+    const warm = service.ensureReadyFor(ROOT_B);
+    expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT_B));
+    await warm;
+  });
+
+  /**
+   * Criterion 2 — one watcher per OPEN folder, armed once and kept.
+   *
+   * chokidar has no recursive mode: arming a watcher readdirp-walks every
+   * directory and opens an `fs.watch` handle per directory (~4.9k for the
+   * captured folder). That synchronous burst is the 260-554 ms `[event-loop]`
+   * lag run that follows each "Ready" line (log.log:1347-1350,1836-1840,
+   * 2166-2169), so re-arming it per switch is not a leak question — it is the
+   * stall itself.
+   */
+  it('arms one watcher per open folder and keeps it across switches', async () => {
+    const { service, watchers, fsProvider } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+    await service.ensureReadyFor(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+
+    expect(fsProvider.createFileWatcher).toHaveBeenCalledTimes(2);
     expect(watchers).toHaveLength(2);
+    // A is inactive right now and its watcher is STILL LIVE — that is what
+    // keeps its snapshot fresh enough to reuse.
+    expect(watchers[0].disposeCount).toBe(0);
+    expect(watchers[1].disposeCount).toBe(0);
+  });
+
+  /**
+   * Criterion 2, second half — eviction is by folder CLOSED, and closed is a
+   * statement only `onDidChangeWorkspaceFolders` + `getWorkspaceFolders()` can
+   * make. Deactivating A above disposed nothing; closing it disposes exactly
+   * once.
+   */
+  it('disposes a folder watcher exactly once when that folder is closed', async () => {
+    const { service, watchers, setOpenFolders } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+    expect(watchers[0].disposeCount).toBe(0);
+
+    // The host closes A while B is active.
+    setOpenFolders([ROOT_B]);
+
     expect(watchers[0].disposeCount).toBe(1);
-    // The freshly-armed watcher for B is still live.
     expect(watchers[1].disposeCount).toBe(0);
 
-    // A second switch disposes B's watcher once, and never re-disposes A's.
-    await service.ensureReadyFor(ROOT);
-    expect(watchers).toHaveLength(3);
+    // A second folder-change event must not re-dispose it.
+    setOpenFolders([ROOT_B]);
     expect(watchers[0].disposeCount).toBe(1);
-    expect(watchers[1].disposeCount).toBe(1);
-    expect(watchers[2].disposeCount).toBe(0);
+  });
+
+  it('re-walks a closed folder if it is opened again', async () => {
+    const { service, indexer, setOpenFolders } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+    setOpenFolders([ROOT_B]);
+
+    await service.ensureReadyFor(ROOT);
+
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(3);
+    expect(service.search('alpha-only', 10)).toHaveLength(1);
+  });
+
+  it('never evicts the ACTIVE folder, even when the host stops listing it', async () => {
+    const { service, watchers, setOpenFolders } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    setOpenFolders([ROOT_B]);
+
+    expect(watchers[0].disposeCount).toBe(0);
+    expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT));
+    expect(service.search('alpha-only', 10)).toHaveLength(1);
+  });
+
+  /**
+   * A host that reports no folders at all (the CLI) reports that permanently,
+   * and the last folder closing in Electron is exactly the case `ensureReady`
+   * already resolves in favour of keeping the snapshot. So an empty list is
+   * "no information", never "everything closed".
+   */
+  it('keeps every cached folder when the host reports no open folders', async () => {
+    const { service, watchers, setOpenFolders } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+    setOpenFolders([]);
+
+    expect(watchers[0].disposeCount).toBe(0);
+    expect(watchers[1].disposeCount).toBe(0);
+  });
+
+  /**
+   * Criterion 3 — an inactive folder's watcher must keep patching ITS OWN
+   * snapshot. Without this the cache would serve a stale list on switch-back,
+   * which is worse than the rebuild it replaced.
+   */
+  it('patches an INACTIVE folder from its own watcher, with no rebuild on switch-back', async () => {
+    const { service, watchers, indexer } = makeHarness({ filesByRoot });
+
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+
+    // A is inactive; a file appears in it and one disappears from it.
+    watchers[0].fireCreate(abs('src/added-while-away.ts'));
+    watchers[0].fireDelete(abs('alpha-only.md'));
+    await flush();
+
+    // B's view is untouched by A's events.
+    expect(service.search('added-while-away', 10)).toHaveLength(0);
+    expect(service.search('beta-only', 10)).toHaveLength(1);
+
+    (indexer.discoverWorkspacePaths as jest.Mock).mockClear();
+    await service.ensureReadyFor(ROOT);
+
+    expect(indexer.discoverWorkspacePaths).not.toHaveBeenCalled();
+    expect(service.search('added-while-away', 10)).toHaveLength(1);
+    expect(service.search('alpha-only', 10)).toHaveLength(0);
+  });
+
+  /**
+   * The cache is bounded. Hosts that hand us ad-hoc roots the provider never
+   * lists (the CLI, tests) would otherwise hold every folder's maps and watch
+   * handles for the life of the process.
+   */
+  it('caps the cache and evicts the least-recently-active folder', async () => {
+    const roots = Array.from({ length: 10 }, (_, i) =>
+      path.join('/', `ws-${i}`),
+    );
+    const { service, watchers, indexer } = makeHarness({
+      filesByRoot: Object.fromEntries(
+        roots.map((r) => [r, [path.join(r, 'only.ts')]]),
+      ),
+      openFolders: [],
+    });
+
+    for (const root of roots) {
+      await service.ensureReadyFor(root);
+    }
+
+    // 10 folders walked, but only the cap's worth still held.
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(10);
+    expect(watchers.filter((w) => w.disposeCount === 0)).toHaveLength(8);
+
+    // The two oldest went; the newest is intact and free to re-activate.
+    (indexer.discoverWorkspacePaths as jest.Mock).mockClear();
+    await service.ensureReadyFor(roots[9]);
+    expect(indexer.discoverWorkspacePaths).not.toHaveBeenCalled();
+
+    await service.ensureReadyFor(roots[0]);
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The cap is subordinate to the CLOSED rule, not a second eviction reason
+   * beside it.
+   *
+   * A real multi-root workspace with more folders open than `MAX_CACHED_FOLDERS`
+   * used to trip the LRU on the 9th activation and dispose the 1st folder's LIVE
+   * watcher while the host still listed it as open — so switching back re-walked
+   * the tree and re-armed chokidar, which is the exact regression TASK_2026_344
+   * removes, reintroduced at N=9. It is also the alternating-eviction thrash the
+   * sibling autocomplete cache fixed once already (this lib's CLAUDE.md,
+   * "Autocomplete discovery"), one order of magnitude up.
+   *
+   * The previous overflow test could not see this: it passed `openFolders: []`,
+   * i.e. only ad-hoc roots, which is the one case where the cap SHOULD bite.
+   */
+  it('never evicts a folder the host still lists as open, even past the cap', async () => {
+    const roots = Array.from({ length: 9 }, (_, i) =>
+      path.join('/', `open-ws-${i}`),
+    );
+    const { service, watchers, indexer, workspaceProvider } = makeHarness({
+      filesByRoot: Object.fromEntries(
+        roots.map((r) => [r, [path.join(r, 'only.ts')]]),
+      ),
+      // Every one of the nine is genuinely OPEN in the host.
+      openFolders: roots,
+    });
+
+    for (const root of roots) {
+      await service.ensureReadyFor(root);
+    }
+
+    // Nine folders, nine walks, nine watchers — and not one of them disposed.
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(9);
+    expect(watchers).toHaveLength(9);
+    expect(watchers.every((w) => w.disposeCount === 0)).toBe(true);
+    // The eviction decision has to consult the host, not just `lastActiveAt`.
+    expect(workspaceProvider.getWorkspaceFolders).toHaveBeenCalled();
+
+    // The least-recently-active folder is the one an LRU would have taken.
+    expect(service.hasIndexFor(roots[0])).toBe(true);
+
+    // Cycling across all nine costs nothing: no walk, no watcher churn.
+    (indexer.discoverWorkspacePaths as jest.Mock).mockClear();
+    for (const root of [...roots, ...roots]) {
+      await service.ensureReadyFor(root);
+    }
+    expect(indexer.discoverWorkspacePaths).not.toHaveBeenCalled();
+    expect(watchers.every((w) => w.disposeCount === 0)).toBe(true);
+  });
+
+  /**
+   * The other half of the same rule: with the cap's worth of REAL folders open,
+   * an ad-hoc root the provider never lists is still evictable — so the bound on
+   * CLI/test roots survives, it just cannot reach an open folder.
+   */
+  it('still evicts ad-hoc roots the host never lists, while open folders stay', async () => {
+    const open = Array.from({ length: 8 }, (_, i) =>
+      path.join('/', `open-ws-${i}`),
+    );
+    const adHoc = Array.from({ length: 3 }, (_, i) =>
+      path.join('/', `adhoc-ws-${i}`),
+    );
+    const all = [...open, ...adHoc];
+    const { service, watchers, indexer } = makeHarness({
+      filesByRoot: Object.fromEntries(
+        all.map((r) => [r, [path.join(r, 'only.ts')]]),
+      ),
+      openFolders: open,
+    });
+
+    for (const root of all) {
+      await service.ensureReadyFor(root);
+    }
+
+    // Every open folder survived...
+    for (const root of open) {
+      expect(service.hasIndexFor(root)).toBe(true);
+    }
+    // ...and the ad-hoc roots absorbed the whole overflow: the two older ones
+    // are gone, the active one is never evicted.
+    expect(service.hasIndexFor(adHoc[0])).toBe(false);
+    expect(service.hasIndexFor(adHoc[1])).toBe(false);
+    expect(service.hasIndexFor(adHoc[2])).toBe(true);
+
+    const openWatchers = watchers.filter((w) => open.includes(w.cwd as string));
+    expect(openWatchers).toHaveLength(8);
+    expect(openWatchers.every((w) => w.disposeCount === 0)).toBe(true);
+
+    // Re-activating an evicted ad-hoc root re-walks; an open one does not.
+    (indexer.discoverWorkspacePaths as jest.Mock).mockClear();
+    await service.ensureReadyFor(open[0]);
+    expect(indexer.discoverWorkspacePaths).not.toHaveBeenCalled();
+    await service.ensureReadyFor(adHoc[0]);
+    expect(indexer.discoverWorkspacePaths).toHaveBeenCalledTimes(1);
+  });
+
+  it('hasIndexFor reports the cache, not the active folder', async () => {
+    const { service } = makeHarness({ filesByRoot });
+
+    expect(service.hasIndexFor(ROOT)).toBe(false);
+    await service.start(ROOT);
+    await service.ensureReadyFor(ROOT_B);
+
+    expect(service.hasIndexFor(ROOT)).toBe(true);
+    expect(service.hasIndexFor(`${ROOT}${path.sep}`)).toBe(true);
+    expect(service.hasIndexFor(path.join('/', 'never-opened'))).toBe(false);
   });
 
   /**
@@ -482,20 +814,25 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
   });
 
   /**
-   * Supersede, part two — the SHARED IGNORE RULES, not just the maps.
+   * Supersede, part two — the IGNORE RULES, not just the maps.
    *
-   * `ignoreFiles` is the other piece of shared mutable state `build()` writes
-   * after an await, and `isExcluded()` reads it on every watcher create/change.
-   * A late-landing build for superseded root A used to publish A's rules over
-   * B's, so for the rest of B's index lifetime every incremental update was
-   * filtered through the WRONG workspace's .gitignore — the same cross-root
-   * contamination as the bulk path, relocated to the live path.
+   * `ignoreFiles` used to be a SERVICE field that `build()` wrote after an
+   * await and `isExcluded()` read on every watcher create/change. A late-landing
+   * build for superseded root A published A's rules over B's, so for the rest of
+   * B's index lifetime every incremental update was filtered through the WRONG
+   * workspace's .gitignore — the bulk path's cross-root contamination, relocated
+   * to the live path.
    *
-   * This gates the IGNORE PARSE rather than the stream: `streamGate` resolves
-   * the parse immediately and so never exercises this window, which is why the
-   * first round of supersede tests missed the defect entirely.
+   * Per-folder entries (TASK_2026_344) make that structurally impossible: A's
+   * rules land in A's record. This test still gates the IGNORE PARSE — the
+   * window the defect lived in — and now asserts BOTH folders end up with their
+   * own rules, which is the stronger statement.
+   *
+   * Note the watcher is looked up by `cwd`, not by "the last one created". Both
+   * folders now arm their own watcher and keep it, so ordinal indexing would
+   * silently pick A's here.
    */
-  it('does not let a superseded build publish its ignore rules over the new root', async () => {
+  it('gives each folder its own ignore rules when a build lands late', async () => {
     let releaseA!: () => void;
     const ignoreGateA = new Promise<void>((resolve) => {
       releaseA = resolve;
@@ -527,14 +864,19 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     await buildA;
     await flush();
 
-    // The index still belongs to B...
+    // The active index still belongs to B...
     expect(service.indexedRoot).toBe(normalizeWorkspaceRoot(ROOT_B));
+
+    const watcherB = watchers.find((w) => w.cwd === ROOT_B);
+    const watcherA = watchers.find((w) => w.cwd === ROOT);
+    expect(watcherB).toBeDefined();
+    expect(watcherA).toBeDefined();
 
     // ...and so must its ignore rules. `secret-a.ts` is ignored under A's rules
     // and permitted under B's, so it MUST enter B's index. Pre-fix, A's rules
     // were live and this file was silently dropped from the `@` picker.
     ignoreResolver.isIgnored.mockClear();
-    watchers[watchers.length - 1].fireCreate(absB('secret-a.ts'));
+    watcherB?.fireCreate(absB('secret-a.ts'));
     await flush();
 
     expect(service.search('secret-a', 10)).toHaveLength(1);
@@ -548,9 +890,24 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
 
     // And B's own secret is still correctly excluded — the rules are B's, not
     // merely "not A's".
-    watchers[watchers.length - 1].fireCreate(absB('secret-b.ts'));
+    watcherB?.fireCreate(absB('secret-b.ts'));
     await flush();
     expect(service.search('secret-b', 10)).toHaveLength(0);
+
+    // A kept ITS rules: its own secret stays out of its own snapshot, and the
+    // resolver was handed rulesA for it.
+    ignoreResolver.isIgnored.mockClear();
+    watcherA?.fireCreate(abs('secret-a.ts'));
+    watcherA?.fireCreate(abs('welcome.ts'));
+    await flush();
+    const rulesUsedForA = ignoreResolver.isIgnored.mock.calls[0]?.[1] as
+      | IgnoreRule[]
+      | undefined;
+    expect(rulesUsedForA).toEqual(rulesA);
+
+    await service.ensureReadyFor(ROOT);
+    expect(service.search('secret-a', 10)).toHaveLength(0);
+    expect(service.search('welcome', 10)).toHaveLength(1);
   });
 
   /**
@@ -698,12 +1055,12 @@ describe('WorkspaceFileIndexService — re-index on workspace switch', () => {
     const { service } = makeHarness();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const indexer = (service as any).indexer as {
-      indexWorkspaceStream: unknown;
+      discoverWorkspacePaths: unknown;
     };
-    indexer.indexWorkspaceStream = async function* () {
+    indexer.discoverWorkspacePaths = async function* () {
       attempt++;
       if (attempt === 1) throw new Error('scan failed');
-      yield { path: abs('recovered.ts'), relativePath: 'recovered.ts' };
+      yield [abs('recovered.ts')];
     };
 
     await expect(service.start(ROOT)).rejects.toThrow('scan failed');

@@ -84,6 +84,47 @@ once after the RPC surface is registered — `apps/ptah-extension-vscode`'s
 The cache has no TTL, so a host that skips it serves the list captured at first
 use for the rest of the session.
 
+## File index (`@`-mention picker)
+
+`WorkspaceFileIndexService` is the in-memory file list the `@` picker queries.
+Three rules, all from TASK_2026_344 (measured: 15249 files re-walked three times
+in one session at 14826 / 9969 / 8626 ms, each followed by a run of 260-554 ms
+`[event-loop]` lags):
+
+- **One index per OPEN FOLDER; queries read the ACTIVE one.** Those are separate
+  statements. The cache is keyed by `normalizeWorkspaceRoot`, so A→B→A between
+  two open folders re-walks nothing and the second activation of A is a pointer
+  swap. But `search`/`getAll`/`searchDirectories`/`fileCount`/`indexedRoot` all
+  answer from the active entry ALONE — a union across folders would be the
+  cross-workspace leak TASK_2026_200 exists to prevent. `ensureReadyFor` sets the
+  active key SYNCHRONOUSLY, before any await, because
+  `ContextService.assertIndexServes` reads `indexedRoot` in the same block as its
+  query.
+- **Eviction is by folder CLOSED, never by folder deactivated.** The one signal
+  is `onDidChangeWorkspaceFolders` diffed against `getWorkspaceFolders()`; an
+  empty list is treated as "no information" (the CLI reports none permanently).
+  An inactive folder KEEPS ITS WATCHER, which is what keeps its snapshot fresh
+  enough to reuse — chokidar has no recursive mode, so re-arming one readdirp-
+  walks every directory and opens an `fs.watch` per directory, and that burst was
+  the lag run behind each "Ready" line. An LRU cap (8) bounds hosts that pass
+  ad-hoc roots the provider never lists; the active folder is never evicted.
+  **The cap is SOFT, and enforced against `getWorkspaceFolders()` — not just
+  against `lastActiveAt`.** `evictOverflow` skips every entry the provider still
+  lists as open, so a genuine 9-root workspace holds nine entries and simply
+  exceeds the cap. A hard LRU would reinstate this whole task's bug one level up:
+  activating the 9th folder would dispose the least-recently-used OPEN folder's
+  live watcher and clear its snapshot, so cycling across the nine re-walks on
+  almost every switch — the alternating-eviction thrash the autocomplete cache
+  above already fixed once at N=2.
+- **The walk is PATH-ONLY, batched and yielding.** It consumes
+  `WorkspaceIndexerService.discoverWorkspacePaths`, not `indexWorkspaceStream`:
+  no `stat`, no `readFile`, no classification, ignore rules compiled once via
+  `IgnorePatternResolverService.compileMatcher`, and a `setImmediate` between
+  batches. `indexWorkspaceStream` still exists for consumers that want the stat +
+  classification; do not point the index back at it. `compileMatcher` must keep
+  answering exactly what `isIgnored` answers — the table test in
+  `ignore-pattern-resolver.service.spec.ts` compares them on the same inputs.
+
 ## Type-check worker (`ptah_get_diagnostics`)
 
 `ts.createProgram` + `ts.getPreEmitDiagnostics` is one synchronous call with no
