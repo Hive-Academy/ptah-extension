@@ -1,12 +1,28 @@
 /**
  * Claude CLI Detector - Cross-platform CLI detection with WSL support
  * SOLID: Single Responsibility - Only handles CLI detection and health checks
+ *
+ * Every probe here goes through `cross-spawn` and `which`, and NEVER through
+ * `child_process.spawn` with `shell: true`. The previous version computed a
+ * `needsShell` flag for any bare command or `.cmd`/`.bat` path on Windows and
+ * passed it alongside an args array, which is exactly the shape Node warns
+ * about with `[DEP0190] Passing args to a child process with shell option true
+ * can lead to security vulnerabilities` — the args are concatenated into a
+ * `cmd.exe` command line unescaped. `where claude` at boot was the first such
+ * call in the process, and since Node prints a deprecation code once, it also
+ * masked every other offender (TASK_2026_348).
+ *
+ * `cross-spawn` gets the same Windows behaviour without a shell: it resolves
+ * bare commands through PATH/PATHEXT and runs `.cmd`/`.bat` wrappers via
+ * `cmd.exe /d /s /c` with each argument escaped for both cmd.exe and the
+ * Windows command-line parser.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn } from 'child_process';
+import crossSpawn from 'cross-spawn';
+import whichLib from 'which';
 import { injectable } from 'tsyringe';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 import { SdkError } from '../errors';
@@ -148,7 +164,6 @@ export class ClaudeCliDetector {
         ['--version'],
         {
           timeout: 10000,
-          isWSL: installation.isWSL,
         },
       );
 
@@ -186,7 +201,6 @@ export class ClaudeCliDetector {
         ['--version'],
         {
           timeout: 5000,
-          isWSL: installation.isWSL,
         },
       );
 
@@ -339,35 +353,34 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Strategy: which/where commands
+   * Strategy: PATH lookup
    *
-   * PHASE 2 FIX: Returns FULL PATH to Claude CLI (e.g., C:\Users\...\npm\claude.cmd)
+   * Returns the FULL PATH to the Claude CLI (e.g. C:\Users\...\npm\claude.cmd).
    * This avoids ENOENT errors because:
    * 1. Full paths can be spawned directly without shell resolution
    * 2. No ambiguity about which executable to run
    * 3. Works with paths containing spaces (no shell escaping needed)
    *
-   * On Windows, 'where claude' returns: C:\Users\...\AppData\Roaming\npm\claude.cmd
-   * On macOS/Linux, 'which claude' returns: /usr/local/bin/claude
+   * Resolved with the `which` library rather than by spawning `where`/`which`:
+   * same PATH/PATHEXT semantics, one fewer subprocess on every boot, and no
+   * `\r` handling of another process's stdout. The `which-where` source label is
+   * kept because it is part of `ClaudeInstallation` and reaches the UI and logs.
    */
   private async detectWithWhichWhere(): Promise<ClaudeInstallation | null> {
-    const isWindows = os.platform() === 'win32';
-    const command = isWindows ? 'where' : 'which';
+    try {
+      const matches = await whichLib('claude', { all: true, nothrow: true });
+      if (!matches) {
+        return null;
+      }
 
-    const result = await this.executeCommand(command, ['claude'], {
-      timeout: 5000,
-    });
-    if (result.success) {
-      const paths = result.stdout
-        .trim()
-        .split('\n')
-        .map((p) => p.trim())
-        .filter((p) => p);
-      for (const claudePath of paths) {
-        if (fs.existsSync(claudePath)) {
+      for (const match of matches) {
+        const claudePath = match.trim();
+        if (claudePath && fs.existsSync(claudePath)) {
           return { path: claudePath, source: 'which-where' };
         }
       }
+    } catch {
+      return null;
     }
 
     return null;
@@ -401,28 +414,23 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Execute command with proper shell handling
+   * Execute a command and capture its output.
+   *
+   * Routed through `cross-spawn`, which handles Windows `.cmd`/`.bat` wrappers
+   * and bare command names itself. No `shell` option is passed here — see the
+   * file header for why that must stay true.
    */
   private async executeCommand(
     command: string,
     args: string[],
-    options: { timeout?: number; isWSL?: boolean } = {},
+    options: { timeout?: number } = {},
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
-      const { timeout = 30000, isWSL = false } = options;
+      const { timeout = 30000 } = options;
 
-      const isWindows = os.platform() === 'win32';
-      const needsShell =
-        isWindows &&
-        !isWSL &&
-        (command.endsWith('.cmd') ||
-          command.endsWith('.bat') ||
-          (!command.includes('\\') && !command.includes('/')));
-
-      const child = spawn(command, args, {
+      const child = crossSpawn(command, args, {
         stdio: 'pipe',
         windowsHide: true,
-        shell: needsShell,
       });
 
       let stdout = '';

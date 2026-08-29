@@ -38,11 +38,19 @@ let shuttingDown = false;
 
 /**
  * Suppress only the DEP0190 DeprecationWarning (child_process spawned with
- * `shell: true` and an args array), which the bundled SDK emits on every
- * SDK-touching command. It is harmless to the NDJSON stdout stream but noisy
- * on stderr for humans. Every other warning is re-emitted to Node's default
- * handler so genuine diagnostics still surface. The upstream fix belongs in
- * the SDK's spawn sites, which are out of scope for the CLI.
+ * `shell: true` and an args array). It is harmless to the NDJSON stdout stream
+ * but noisy on stderr for humans. Every other warning is re-emitted to Node's
+ * default handler so genuine diagnostics still surface.
+ *
+ * The comment here used to blame the bundled Claude Agent SDK. That was wrong:
+ * the SDK's bridge only forwards a `shell` option its caller supplies, and the
+ * calls that actually emitted the warning were OURS — `ClaudeCliDetector`'s
+ * Windows probes and `runSkillsCli`, both since routed through `cross-spawn`
+ * (TASK_2026_348). The filter stays as a defensive guard: Node prints a
+ * deprecation code once per process, so a third-party dependency doing this
+ * would otherwise print onto a machine-readable stderr channel. It is NOT a
+ * licence for Ptah code to keep the pattern — `no-shell-spawn.guard.spec.ts`
+ * fails the build for that.
  */
 function installDep0190Filter(): void {
   const isDep0190 = (warning: Error & { code?: string }): boolean =>
