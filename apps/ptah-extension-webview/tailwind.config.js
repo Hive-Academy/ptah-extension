@@ -104,7 +104,11 @@ module.exports = {
           success: '#16a34a',
           'success-content': '#e8e6e1',
 
-          warning: '#fbbf24',
+          // WARNING: true amber-orange, deliberately distinct from the brand
+          // gold in `secondary`/`accent`. Warning used to be #fbbf24 — the same
+          // hue family as the gold — so every caution affordance read as brand
+          // chrome and every brand accent read as a warning.
+          warning: '#f59e0b',
           'warning-content': '#131317',
 
           error: '#dc2626',
@@ -163,7 +167,10 @@ module.exports = {
           success: 'oklch(69% 0.17 162.48)',
           'success-content': 'oklch(26% 0.051 172.552)', // Dark text on success
 
-          warning: 'oklch(79% 0.184 86.047)',
+          // Amber-orange, rotated off the gold hue for the same reason as the
+          // dark theme (see the `anubis` warning note above). Cupcake's stock
+          // warning sat at hue 86 — indistinguishable from `secondary` gold.
+          warning: 'oklch(75% 0.17 65)',
           'warning-content': 'oklch(28% 0.066 53.813)', // Dark text on warning
 
           error: 'oklch(64% 0.246 16.439)',

@@ -1302,11 +1302,6 @@ export class ChatViewComponent implements OnDestroy {
     }
   }
 
-  /** Handle "New Session" request from context warning bar */
-  onNewSessionFromContextWarning(): void {
-    this._tabManager.createTab('New Session');
-  }
-
   /** Switch the current tab from compact back to full view */
   expandToFullView(): void {
     const tabId = this.resolvedTabId();

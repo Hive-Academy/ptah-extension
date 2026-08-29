@@ -222,8 +222,8 @@ GLASS MORPHISM UTILITY CLASSES
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow:
-    0 0 20px oklch(var(--s) / 0.1),
-    inset 0 1px 0 oklch(var(--s) / 0.2);
+    0 0 20px oklch(var(--s) / 0.05),
+    inset 0 1px 0 oklch(var(--s) / 0.1);
 }
 
 .glass-panel-divine::before {
@@ -241,7 +241,7 @@ GLASS MORPHISM UTILITY CLASSES
 }
 
 .divine-glow {
-  box-shadow: 0 0 20px oklch(var(--s) / 0.3);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.12);
 }
 
 /* ============================================================================
@@ -1411,6 +1411,39 @@ UTILITY CLASSES
   color: #2563eb;
 }
 
+/* ----------------------------------------------------------------------------
+BRAND GOLD SURFACES (Ptah MCP tool affordances)
+
+One definition, applied globally. These used to be duplicated as component
+`styles: []` blocks in three components — each with its own hardcoded #daa520 /
+rgba(218, 165, 32, …) literals, a shimmer gradient animation and a glow
+box-shadow, none of which followed the user's theme. They now key off the
+theme-aware `--ptah-gold*` tokens declared at the top of this file.
+
+Layout (padding, font-size, radius) still comes from the daisyUI `badge`
+classes on the elements themselves; only weight and the gold treatment live
+here. Emulated view encapsulation does not scope the class names in a
+template, so these global rules reach the component markup unchanged.
+---------------------------------------------------------------------------- */
+
+.ptah-gold-border {
+  border-color: color-mix(in oklch, var(--ptah-gold) 40%, transparent);
+}
+
+.ptah-tool-name-badge {
+  background: var(--ptah-gold-soft);
+  color: var(--ptah-gold);
+  border: 1px solid color-mix(in oklch, var(--ptah-gold) 30%, transparent);
+  font-weight: 500;
+}
+
+.ptah-superpower-badge {
+  background: var(--ptah-gold-soft);
+  color: var(--ptah-gold);
+  border: 1px solid color-mix(in oklch, var(--ptah-gold) 40%, transparent);
+  font-weight: 600;
+}
+
 /* ============================================================================
 VS CODE SIDEBAR RESPONSIVE SCALING
 Adapts components for sidebar width constraints (200px - 600px)
@@ -1951,7 +1984,9 @@ Session-related buttons use the brand gold, view pills get elegant styling
   color: var(--ptah-gold-strong);
 }
 
-/* Electron navbar — DaisyUI tabs-lifted with gold active accent */
+/* Electron navbar — DaisyUI tabs-lifted. The active accent is `primary`, the
+   same token `.tab-item-active` above uses, so the two tab strips agree and
+   both follow whichever theme the user picked. */
 .electron-tabs.tabs-lifted > .tab {
   font-size: 12px;
   --tab-bg: oklch(var(--b2));
@@ -1960,8 +1995,8 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 .electron-tabs.tabs-lifted > .tab-active {
   --tab-bg: oklch(var(--b1));
-  --tab-border-color: var(--ptah-gold);
-  color: var(--ptah-gold-strong);
+  --tab-border-color: oklch(var(--p));
+  color: oklch(var(--p));
   font-weight: 500;
 }
 

@@ -121,7 +121,9 @@ interface PastedImage {
         <div
           class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
         >
-          <div class="flex items-center gap-2 text-warning text-sm font-medium">
+          <div
+            class="flex items-center gap-2 text-base-content-muted text-sm font-medium"
+          >
             <span class="loading loading-spinner loading-sm"></span>
             <span>Optimizing context...</span>
           </div>
@@ -246,7 +248,7 @@ interface PastedImage {
               autopilotState.agentPlanMode() ||
               autopilotState.permissionLevel() === 'plan'
             "
-            [class.border-warning]="
+            [class.border-primary]="
               !autopilotState.agentPlanMode() &&
               autopilotState.permissionLevel() !== 'plan' &&
               autopilotState.enabled()
