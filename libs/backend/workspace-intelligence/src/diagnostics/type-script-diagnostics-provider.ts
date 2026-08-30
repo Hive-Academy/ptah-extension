@@ -36,10 +36,11 @@
  */
 
 import * as path from 'path';
-import { isPathWithinRoots } from '@ptah-extension/platform-core';
+import { FileType, isPathWithinRoots } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   DiagnosticsResult,
+  DiagnosticsScope,
   FileDiagnostics,
   DiagnosticEntry,
 } from '@ptah-extension/platform-core';
@@ -101,6 +102,38 @@ const RESULT_CACHE_TTL_MS = 5_000;
  */
 const RESULT_CACHE_MAX_ROOTS = 8;
 
+/**
+ * How long a caller waits before it is told the check is still running.
+ *
+ * Every timeout below this one is a WEDGE-BREAKER, not a deadline: the worker's
+ * `RUN_TIMEOUT_MS` is 300 s and exists only to stop a hung compile poisoning the
+ * single-flight slot forever. Nothing in the path was answerable to the person
+ * holding the request. On this monorepo that produced the worst possible
+ * outcome — a direct MCP call measured past 400 s with NO response at all, so
+ * the client gave up first and the agent learned nothing, not even that the
+ * workspace was too large (TASK: Electron diagnostics timeout).
+ *
+ * 45 s sits under the timeout a typical MCP client allows, so the caller gets a
+ * sentence it can act on instead of a dead socket. The compile is NOT cancelled
+ * when this fires: it keeps running on its worker thread, and the result lands
+ * in the cache when it completes, so the retry the reason string asks for is
+ * usually answered instantly and in full. Reporting `unavailable` for a run
+ * that is still going is the honest shape — the check has not been made yet,
+ * and `available` + `[]` must only ever mean "checked, and clean".
+ */
+const RESULT_BUDGET_MS = 45_000;
+
+/**
+ * Separator between the root and the scope files inside a cache key.
+ *
+ * NUL, because it is the one byte a path on any supported platform cannot
+ * contain. A space cannot do this job: `invalidate` finds a root's entries by
+ * prefix, and with a space separator the prefix for `C:/Program` would match
+ * every key belonging to `C:/Program Files` — dropping another root's cache on
+ * a write that never touched it.
+ */
+const KEY_SEP = '\u0000';
+
 interface CachedResult {
   readonly at: number;
   readonly result: DiagnosticsResult;
@@ -149,7 +182,10 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     this.maxConfigs = maxConfigs;
   }
 
-  async getDiagnostics(workspaceRoot?: string): Promise<DiagnosticsResult> {
+  async getDiagnostics(
+    workspaceRoot?: string,
+    scope?: DiagnosticsScope,
+  ): Promise<DiagnosticsResult> {
     if (!workspaceRoot) {
       return {
         status: 'unavailable',
@@ -160,20 +196,85 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
 
     const normRoot = normalizeRoot(workspaceRoot);
 
-    const cached = this.readCache(normRoot);
+    // The cache and the single-flight map are keyed by root AND scope, never by
+    // root alone. A scoped run checks ONE project; answering a later
+    // whole-workspace call from it would report `available` over coverage that
+    // was never taken — the false clean this provider exists to prevent.
+    const scopeFiles = normalizeScopeFiles(scope, normRoot, this.platform);
+
+    // A scope that named files and kept none is NOT a whole-workspace request.
+    // Widening it silently would hand a caller expecting one project the
+    // full-monorepo compile it was trying to avoid, and would answer a question
+    // about files this root does not contain with diagnostics about other ones.
+    if (scope?.files?.length && scopeFiles.length === 0) {
+      return unavailable(
+        'None of the requested files are inside the workspace root.',
+      );
+    }
+
+    // The separator is ALWAYS appended, so an unscoped key still ends with it
+    // and `invalidate`'s prefix match reaches the unscoped entry too.
+    const key = normRoot + KEY_SEP + scopeFiles.join(KEY_SEP);
+
+    const cached = this.readCache(key);
     if (cached) return cached;
 
-    // Single-flight: concurrent callers on the same root share one compile.
+    // Single-flight: concurrent callers on the same key share one compile.
     // Resolve the cache lookup and this lookup in the same synchronous block —
     // re-reading either after an `await` reintroduces the duplicate run.
-    const existing = this.inFlight.get(normRoot);
-    if (existing) return existing;
+    let run = this.inFlight.get(key);
+    if (!run) {
+      run = this.runOnce(workspaceRoot, normRoot, key, scopeFiles).finally(
+        () => {
+          this.inFlight.delete(key);
+        },
+      );
+      this.inFlight.set(key, run);
+    }
 
-    const run = this.runOnce(workspaceRoot, normRoot).finally(() => {
-      this.inFlight.delete(normRoot);
+    return this.withBudget(run, scopeFiles.length > 0);
+  }
+
+  /**
+   * Answer within {@link RESULT_BUDGET_MS}, whatever the compile is doing.
+   *
+   * The run is deliberately NOT cancelled and NOT dropped from `inFlight`. It
+   * keeps its worker thread, writes the cache when it lands, and a caller that
+   * retries after this message either shares the same run or reads its result.
+   * Abandoning it instead would make every retry start a SECOND full compile
+   * beside the first, which is how a slow answer becomes a wedged machine.
+   */
+  private async withBudget(
+    run: Promise<DiagnosticsResult>,
+    scoped: boolean,
+  ): Promise<DiagnosticsResult> {
+    // Mark the retained run as handled. Without this, a rejection arriving
+    // after the budget already answered has no handler attached and surfaces as
+    // an unhandled rejection. Attaching one here does not consume it: real
+    // awaiters of `run` still receive the rejection.
+    void run.catch(() => undefined);
+
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<DiagnosticsResult>((resolve) => {
+      timer = setTimeout(() => {
+        resolve(
+          unavailable(
+            `TypeScript check still running after ${RESULT_BUDGET_MS / 1000}s. ` +
+              'It was not cancelled — retry shortly and the completed result is served from cache' +
+              (scoped
+                ? '.'
+                : ', or pass `files` to check only the projects that own them.'),
+          ),
+        );
+      }, RESULT_BUDGET_MS);
+      timer.unref?.();
     });
-    this.inFlight.set(normRoot, run);
-    return run;
+
+    try {
+      return await Promise.race([run, budget]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -192,7 +293,14 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
       this.cache.clear();
       return;
     }
-    this.cache.delete(normalizeRoot(workspaceRoot));
+    // One root now owns SEVERAL entries — one per distinct file scope — so a
+    // single `delete` of the root would leave every scoped result behind. Those
+    // are the entries most likely to be stale: a scoped check is what an agent
+    // runs right after the edit that triggers this call.
+    const prefix = normalizeRoot(workspaceRoot) + KEY_SEP;
+    for (const key of [...this.cache.keys()]) {
+      if (key.startsWith(prefix)) this.cache.delete(key);
+    }
   }
 
   /**
@@ -208,8 +316,10 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
   private async runOnce(
     workspaceRoot: string,
     normRoot: string,
+    cacheKey: string,
+    scopeFiles: readonly string[],
   ): Promise<DiagnosticsResult> {
-    const result = await this.compute(workspaceRoot, normRoot);
+    const result = await this.compute(workspaceRoot, normRoot, scopeFiles);
 
     // Never cache a failure (TASK_2026_325 finding 3). `unavailable` reports a
     // condition, not a measurement: a dead worker, a compiler that was not
@@ -218,7 +328,7 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     // one thing that could clear it, and the retry costs nothing when the
     // cause has not gone away. Only a completed check is worth reusing.
     if (result.status === 'available') {
-      this.writeCache(normRoot, result);
+      this.writeCache(cacheKey, result);
     }
     return result;
   }
@@ -226,30 +336,43 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
   private async compute(
     workspaceRoot: string,
     normRoot: string,
+    scopeFiles: readonly string[],
   ): Promise<DiagnosticsResult> {
     const tsModulePath = resolveTypescriptModulePath(workspaceRoot);
     if (!tsModulePath) {
       return unavailable('TypeScript compiler not available.');
     }
 
-    // Discover tsconfig*.json files under the root, excluding generated/vendor trees.
-    const configPaths: string[] = await this.fs.findFiles(
-      '**/tsconfig*.json',
-      [...DEFAULT_WORKSPACE_EXCLUDES],
-      this.maxConfigs,
-      workspaceRoot,
-    );
+    const scoped = scopeFiles.length > 0;
+
+    // A scoped call never walks the workspace. Discovery is the whole cost this
+    // path exists to avoid: it is a full recursive glob AND it feeds every
+    // config it finds to a separate program. Walking UP from each file instead
+    // is bounded by directory depth and touches nothing else.
+    const configPaths: string[] = scoped
+      ? await this.resolveOwningConfigs(scopeFiles, normRoot)
+      : await this.fs.findFiles(
+          '**/tsconfig*.json',
+          [...DEFAULT_WORKSPACE_EXCLUDES],
+          this.maxConfigs,
+          workspaceRoot,
+        );
 
     // `findFiles` has no cursor and reports no overflow, so a full page is the
     // only evidence available that there may be more. It is deliberately
     // treated as "possibly truncated" rather than "truncated" — a workspace
     // holding exactly `maxConfigs` configs is indistinguishable from one
     // holding more, and the safe reading of an ambiguous count is the pessimistic
-    // one.
-    const discoveryMaybeTruncated = configPaths.length >= this.maxConfigs;
+    // one. A scoped resolve has no page to saturate.
+    const discoveryMaybeTruncated =
+      !scoped && configPaths.length >= this.maxConfigs;
 
     if (configPaths.length === 0) {
-      return unavailable('No tsconfig.json found under workspace root.');
+      return unavailable(
+        scoped
+          ? 'No tsconfig.json owns the requested files. Retry without `files` to check the whole workspace.'
+          : 'No tsconfig.json found under workspace root.',
+      );
     }
 
     let outcome: TsDiagnosticsRunOutcome;
@@ -350,22 +473,89 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     };
   }
 
-  private readCache(normRoot: string): DiagnosticsResult | undefined {
-    const entry = this.cache.get(normRoot);
+  /**
+   * Every `tsconfig*.json` in the nearest ancestor directory of each file that
+   * holds one, deduplicated.
+   *
+   * The nearest ancestor is the project, and taking EVERY config in it rather
+   * than guessing which one covers the file is deliberate. Deciding that needs
+   * the `include`/`exclude`/`extends` chain resolved, which only the compiler
+   * can do — and guessing wrong drops a config silently, which is coverage lost
+   * without a word to the caller. In an Nx layout this is 3 or 4 configs
+   * (`tsconfig.json`, `.lib.json`, `.spec.json`) against 297 for the workspace.
+   */
+  private async resolveOwningConfigs(
+    files: readonly string[],
+    normRoot: string,
+  ): Promise<string[]> {
+    const configs = new Set<string>();
+    const visited = new Map<string, string[]>();
+
+    for (const file of files) {
+      let dir = path.dirname(file);
+
+      // Walk up to the root inclusive. `path.dirname` is its own fixed point at
+      // a filesystem root, which is what stops this loop on a malformed path.
+      for (;;) {
+        const normDir = normalizeRoot(dir);
+        let found = visited.get(normDir);
+        if (found === undefined) {
+          found = await this.listTsconfigs(dir);
+          visited.set(normDir, found);
+        }
+        if (found.length > 0) {
+          for (const config of found) configs.add(config);
+          break;
+        }
+
+        if (normDir === normRoot) break;
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+    }
+
+    return [...configs];
+  }
+
+  /** `tsconfig*.json` directly inside one directory. Never recursive. */
+  private async listTsconfigs(dir: string): Promise<string[]> {
+    let entries;
+    try {
+      entries = await this.fs.readDirectory(dir);
+    } catch {
+      // A directory that cannot be read owns no config we can compile. The walk
+      // continues upward; an empty result at every level is reported as
+      // `unavailable`, never as a clean check.
+      return [];
+    }
+
+    return entries
+      .filter(
+        (entry) =>
+          entry.type === FileType.File &&
+          entry.name.startsWith('tsconfig') &&
+          entry.name.endsWith('.json'),
+      )
+      .map((entry) => path.join(dir, entry.name));
+  }
+
+  private readCache(key: string): DiagnosticsResult | undefined {
+    const entry = this.cache.get(key);
     if (!entry) return undefined;
     if (Date.now() - entry.at >= RESULT_CACHE_TTL_MS) {
-      this.cache.delete(normRoot);
+      this.cache.delete(key);
       return undefined;
     }
     // Refresh LRU recency.
-    this.cache.delete(normRoot);
-    this.cache.set(normRoot, entry);
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.result;
   }
 
-  private writeCache(normRoot: string, result: DiagnosticsResult): void {
-    this.cache.delete(normRoot);
-    this.cache.set(normRoot, { at: Date.now(), result });
+  private writeCache(key: string, result: DiagnosticsResult): void {
+    this.cache.delete(key);
+    this.cache.set(key, { at: Date.now(), result });
     while (this.cache.size > RESULT_CACHE_MAX_ROOTS) {
       const oldest = this.cache.keys().next();
       if (oldest.done) break;
@@ -376,6 +566,35 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
 
 function normalizeRoot(workspaceRoot: string): string {
   return path.resolve(workspaceRoot).replace(/\\/g, '/');
+}
+
+/**
+ * The requested files, resolved, de-duplicated, sorted, and cut down to those
+ * inside the workspace root.
+ *
+ * Sorting matters because the list becomes part of the cache key: two callers
+ * naming the same two files in opposite order are asking the same question and
+ * must share one compile. Containment matters because a path outside the root
+ * would send `resolveOwningConfigs` walking up out of the workspace, and every
+ * diagnostic it produced would then be discarded by the root filter anyway —
+ * paying for a compile whose entire output is thrown away.
+ */
+function normalizeScopeFiles(
+  scope: DiagnosticsScope | undefined,
+  normRoot: string,
+  platform: NodeJS.Platform,
+): string[] {
+  const files = scope?.files;
+  if (!files || files.length === 0) return [];
+
+  const kept = new Set<string>();
+  for (const file of files) {
+    const resolved = path.resolve(file);
+    if (isPathWithinRoots(resolved, [normRoot], platform)) {
+      kept.add(resolved);
+    }
+  }
+  return [...kept].sort();
 }
 
 function unavailable(reason: string): DiagnosticsResult {

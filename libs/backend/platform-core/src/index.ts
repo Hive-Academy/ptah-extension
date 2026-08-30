@@ -34,6 +34,7 @@ export type {
   DiagnosticEntry,
   FileDiagnostics,
   DiagnosticsResult,
+  DiagnosticsScope,
 } from './interfaces/diagnostics-provider.interface';
 export type {
   IMemoryWriter,

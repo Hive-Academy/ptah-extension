@@ -575,6 +575,45 @@ describe('buildDiagnosticsNamespace', () => {
     expect(payload.diagnostics).toEqual([]);
   });
 
+  it('passes a file scope through to getDiagnostics', async () => {
+    const provider = createDiagnosticsProvider({
+      status: 'available',
+      source: 'test',
+      diagnostics: [],
+    });
+    const ns = buildDiagnosticsNamespace(
+      provider,
+      createWorkspaceProviderMock('D:/workspace'),
+    );
+
+    await ns.getErrors(['D:/workspace/src/a.ts']);
+
+    expect(provider.getDiagnostics).toHaveBeenCalledWith('D:/workspace', {
+      files: ['D:/workspace/src/a.ts'],
+    });
+  });
+
+  it('treats an empty file list as no scope', async () => {
+    const provider = createDiagnosticsProvider({
+      status: 'available',
+      source: 'test',
+      diagnostics: [],
+    });
+    const ns = buildDiagnosticsNamespace(
+      provider,
+      createWorkspaceProviderMock('D:/workspace'),
+    );
+
+    await ns.getAll([]);
+
+    // A caller whose filter matched nothing must get the whole workspace, not
+    // a clean bill of health for zero files.
+    expect(provider.getDiagnostics).toHaveBeenCalledWith(
+      'D:/workspace',
+      undefined,
+    );
+  });
+
   it('passes the session root to getDiagnostics', async () => {
     const provider = createDiagnosticsProvider({
       status: 'available',
@@ -588,7 +627,13 @@ describe('buildDiagnosticsNamespace', () => {
 
     await ns.getAll();
 
-    expect(provider.getDiagnostics).toHaveBeenCalledWith('D:/workspace');
+    // No `files` argument means no scope at all, NOT an empty one: a provider
+    // that compiles reads an empty scope as "check nothing" and would answer
+    // clean over a workspace it never looked at.
+    expect(provider.getDiagnostics).toHaveBeenCalledWith(
+      'D:/workspace',
+      undefined,
+    );
   });
 
   it('available with zero diagnostics returns empty diagnostics array', async () => {

@@ -582,14 +582,17 @@ async function handleIndividualTool(
       }
 
       case 'ptah_get_diagnostics': {
-        const { severity } = args as { severity?: 'error' | 'warning' | 'all' };
+        const { severity, files } = args as {
+          severity?: 'error' | 'warning' | 'all';
+          files?: string[];
+        };
         let result;
         if (severity === 'error') {
-          result = await ptahAPI.diagnostics.getErrors();
+          result = await ptahAPI.diagnostics.getErrors(files);
         } else if (severity === 'warning') {
-          result = await ptahAPI.diagnostics.getWarnings();
+          result = await ptahAPI.diagnostics.getWarnings(files);
         } else {
-          result = await ptahAPI.diagnostics.getAll();
+          result = await ptahAPI.diagnostics.getAll(files);
         }
         return createToolSuccessResponse(
           request,

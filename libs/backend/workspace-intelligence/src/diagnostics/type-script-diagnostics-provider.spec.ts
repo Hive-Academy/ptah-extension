@@ -32,6 +32,7 @@ import 'reflect-metadata';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { FileType } from '@ptah-extension/platform-core';
 import {
   createMockFileSystemProvider,
   runDiagnosticsProviderContract,
@@ -104,6 +105,28 @@ function fsProviderReturning(
 ): ReturnType<typeof createMockFileSystemProvider> {
   return createMockFileSystemProvider({
     findFiles: jest.fn(async () => configPaths),
+  });
+}
+
+/**
+ * `IFileSystemProvider` whose `readDirectory` reads the REAL fixture tree.
+ *
+ * The scoped path walks up from each file with `readDirectory` instead of
+ * globbing the workspace, so these cases need that one method to see the same
+ * disk the compiler does. `findFiles` stays a spy: every scoped assertion below
+ * turns on it never being called.
+ */
+function realDirFsProvider(
+  configPaths: string[] = [],
+): ReturnType<typeof createMockFileSystemProvider> {
+  return createMockFileSystemProvider({
+    findFiles: jest.fn(async () => configPaths),
+    readDirectory: jest.fn(async (dir: string) =>
+      fs.readdirSync(dir, { withFileTypes: true }).map((entry) => ({
+        name: entry.name,
+        type: entry.isDirectory() ? FileType.Directory : FileType.File,
+      })),
+    ),
   });
 }
 
@@ -1027,6 +1050,136 @@ describe('TypeScriptDiagnosticsProvider', () => {
       } finally {
         runSpy.mockRestore();
       }
+    });
+  });
+
+  /**
+   * A scoped check exists because the unscoped one is unaffordable on a real
+   * monorepo. Measured on this repository: 297 `tsconfig*.json` files, each
+   * compiled into its own program, and a direct MCP call that returned NOTHING
+   * after 400 s — past the worker's own 300 s wedge-breaker and far past any
+   * client's patience. The agent loop that hits it is the ordinary one: edit two
+   * files, ask what broke.
+   *
+   * The rule these cases pin is that scoping narrows the WORK, never the
+   * honesty. A scope may not turn an unchecked project into a clean one, may
+   * not be served from another scope's cache, and may not be quietly widened
+   * back to the whole workspace.
+   */
+  describe('a scoped check narrows the work, not the honesty', () => {
+    it('compiles only the owning project and never walks the workspace', async () => {
+      const root = writeFixture({
+        'pkg-a/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg-a/src/index.ts': 'export const bad: number = "nope";\n',
+        'pkg-b/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg-b/src/index.ts': 'export const alsoBad: number = "nope";\n',
+      });
+      const fsProvider = realDirFsProvider();
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const result = await provider.getDiagnostics(root, {
+        files: [path.join(root, 'pkg-a', 'src', 'index.ts')],
+      });
+
+      // Discovery is the cost this path exists to avoid. Walking up from the
+      // file reaches `pkg-a/tsconfig.json` in one step and touches nothing else.
+      expect(fsProvider.findFiles).not.toHaveBeenCalled();
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0].file).toContain('pkg-a');
+    });
+
+    it('still reports a sibling file in the same project', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/edited.ts': 'export const fine: number = 1;\n',
+        'src/sibling.ts': 'export const bad: number = "nope";\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(realDirFsProvider());
+
+      const result = await provider.getDiagnostics(root, {
+        files: [path.join(root, 'src', 'edited.ts')],
+      });
+
+      // `files` is a floor, not a filter. An edit that breaks the file NEXT to
+      // it is the whole reason the caller asked, and hiding that would make a
+      // scoped check worse than useless — it would be misleading.
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0].file).toContain('sibling.ts');
+    });
+
+    it('does not answer a whole-workspace call from a scoped result', async () => {
+      const root = writeFixture({
+        'pkg-a/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg-a/src/index.ts': 'export const ok: number = 1;\n',
+        'pkg-b/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg-b/src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = realDirFsProvider([
+        path.join(root, 'pkg-a', 'tsconfig.json'),
+        path.join(root, 'pkg-b', 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const scoped = await provider.getDiagnostics(root, {
+        files: [path.join(root, 'pkg-a', 'src', 'index.ts')],
+      });
+      expect(scoped.status).toBe('available');
+      if (scoped.status === 'available') {
+        expect(scoped.diagnostics).toEqual([]);
+      }
+
+      // Immediately after, and well inside the 5 s TTL. Keyed by root alone
+      // this would serve the scoped clean answer for the whole workspace —
+      // `available` over coverage that was never taken.
+      const all = await provider.getDiagnostics(root);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(1);
+      expect(all.status).toBe('available');
+      if (all.status !== 'available') return;
+      expect(all.diagnostics).toHaveLength(1);
+      expect(all.diagnostics[0].file).toContain('pkg-b');
+    });
+
+    it('refuses a scope whose files are all outside the root', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      const outside = writeFixture({ 'src/other.ts': 'export const x = 1;\n' });
+      const fsProvider = realDirFsProvider();
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const result = await provider.getDiagnostics(root, {
+        files: [path.join(outside, 'src', 'other.ts')],
+      });
+
+      // Falling back to the whole workspace here would hand a caller that
+      // asked about one file the full-monorepo compile it was avoiding, and
+      // answer with diagnostics about entirely different files.
+      expect(fsProvider.findFiles).not.toHaveBeenCalled();
+      expect(result.status).toBe('unavailable');
+      if (result.status !== 'unavailable') return;
+      expect(result.reason).toContain('workspace root');
+    });
+
+    it('reports unavailable when no tsconfig owns the requested files', async () => {
+      const root = writeFixture({
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(realDirFsProvider());
+
+      const result = await provider.getDiagnostics(root, {
+        files: [path.join(root, 'src', 'index.ts')],
+      });
+
+      // Nothing was compiled, so there is no clean claim to make.
+      expect(result.status).toBe('unavailable');
+      if (result.status !== 'unavailable') return;
+      expect(result.reason).toContain('No tsconfig.json owns');
     });
   });
 });

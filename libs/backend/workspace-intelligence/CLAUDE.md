@@ -159,9 +159,44 @@ subprocess (TASK_2026_323 blocker B3). Three rules now hold:
   across a monorepo's source roots costs the full walk the cache exists to
   avoid — and `invalidate(root?)` lets a caller that just wrote say so.
 
+- **`getDiagnostics(root, scope)` takes an optional file scope, and the caller
+  is expected to use it.** Unscoped means "compile every discovered project",
+  which on this repository is 297 `tsconfig*.json` files — measured at over
+  400 s with no response returned at all, past the worker's own 300 s
+  wedge-breaker and past any MCP client's timeout. A scoped call walks UP from
+  each file with `readDirectory` until it finds a directory holding
+  `tsconfig*.json`, and compiles those. No glob, no workspace walk, 3-4 programs
+  instead of 297. `ptah_get_diagnostics` exposes it as `files` and its tool
+  description tells the model to pass the files it just changed.
+
+  Three rules make the scope safe rather than merely fast. **It is a floor, not
+  a filter**: every diagnostic from the owning project is returned, including
+  ones in sibling files, because a break the caller's edit caused next door is
+  the whole reason it asked. **The cache and single-flight keys include the
+  scope** — keyed by root alone, one scoped clean answer would be served to the
+  next whole-workspace call, which is `available` over coverage never taken.
+  **A scope that named files and kept none is refused**, never widened: falling
+  back to the whole workspace would hand a caller avoiding the 400 s compile
+  exactly that compile, and answer about files this root does not contain.
+  Taking every config in the owning directory rather than picking one is also
+  deliberate — deciding which one covers a file needs the
+  `include`/`exclude`/`extends` chain resolved, which only the compiler can do,
+  and a wrong guess drops coverage silently.
+
+- **`RESULT_BUDGET_MS` (45 s) answers the caller; it does not cancel the run.**
+  Every other timeout in this path is a wedge-breaker owned by the worker, so
+  nothing was answerable to the person holding the request — the 400 s
+  measurement above returned no result and no reason, and the client gave up
+  first. The budget resolves `unavailable` with a sentence naming the `files`
+  escape hatch. The compile keeps its thread and writes the cache when it lands,
+  so the retry that reason string asks for is normally instant and complete.
+  Do NOT "fix" this by dropping the run from `inFlight` on expiry: every retry
+  would then start a second full compile beside the first.
+
 A dead, timed-out or throwing worker reports `unavailable`, never `available`
 with zero diagnostics. `available` + `[]` must only ever mean "checked, and
-clean" (TASK_2026_299 / TASK_2026_301).
+clean" (TASK_2026_299 / TASK_2026_301). A run that is merely STILL GOING is
+`unavailable` for the same reason — it has not been checked yet.
 
 **A config that failed to compile is part of that rule, not an exception.** The
 worker returns a structured `ConfigFailure` per config it could not process, and

@@ -25,8 +25,38 @@ export type DiagnosticsResult =
   | { status: 'available'; source: string; diagnostics: FileDiagnostics[] }
   | { status: 'unavailable'; source: string; reason: string };
 
+/**
+ * Narrows a check to the projects that own a set of files.
+ *
+ * An implementation that compiles (`TypeScriptDiagnosticsProvider`) pays for
+ * the WHOLE workspace otherwise, and on a large monorepo that cost exceeds
+ * every client timeout in the path — 297 `tsconfig*.json` files in this
+ * repository, each producing its own program, measured at over 400 s with no
+ * answer returned. The agent loop that hits this is the common one: edit two
+ * files, ask what broke. Those two files name one project, and one project is
+ * seconds of work.
+ *
+ * Honoring it is OPTIONAL and the semantics are a FLOOR, not a filter. An
+ * implementation may return diagnostics for other files in the same project —
+ * an edit that breaks a sibling file is exactly what the caller needs to see —
+ * and one whose source is already live (`VscodeDiagnosticsProvider` reading the
+ * language servers) may narrow to the named files and nothing more. What no
+ * implementation may do is report `available` while silently checking LESS than
+ * the projects owning these files.
+ */
+export interface DiagnosticsScope {
+  /**
+   * Absolute paths of the files of interest. Paths outside the workspace root
+   * are ignored. An empty or absent list means "check the whole workspace".
+   */
+  readonly files?: readonly string[];
+}
+
 export interface IDiagnosticsProvider {
-  getDiagnostics(workspaceRoot?: string): Promise<DiagnosticsResult>;
+  getDiagnostics(
+    workspaceRoot?: string,
+    scope?: DiagnosticsScope,
+  ): Promise<DiagnosticsResult>;
 
   /**
    * Drop any cached result for one root, or for every root when called with no

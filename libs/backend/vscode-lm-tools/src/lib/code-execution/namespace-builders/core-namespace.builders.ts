@@ -184,9 +184,16 @@ export function buildSearchNamespace(
 /**
  * Build diagnostics namespace.
  *
- * Calls `diagnosticsProvider.getDiagnostics(root)` (async, capability-aware)
- * and flattens the result into `DiagnosticsPayload` — preserving status,
- * source, and reason so the formatter can distinguish unavailable from clean.
+ * Calls `diagnosticsProvider.getDiagnostics(root, scope)` (async,
+ * capability-aware) and flattens the result into `DiagnosticsPayload` —
+ * preserving status, source, and reason so the formatter can distinguish
+ * unavailable from clean.
+ *
+ * An empty `files` array is passed on as NO scope rather than as an empty one.
+ * The two read alike at a call site and mean opposite things: a provider that
+ * compiles treats an empty scope as "nothing to check", and a caller that built
+ * its list from a filter that matched nothing would silently get a clean answer
+ * about no files at all.
  */
 export function buildDiagnosticsNamespace(
   diagnosticsProvider: IDiagnosticsProvider,
@@ -194,10 +201,13 @@ export function buildDiagnosticsNamespace(
 ): DiagnosticsNamespace {
   const getPayload = async (
     severityFilter?: 'error' | 'warning',
+    files?: readonly string[],
   ): Promise<DiagnosticsPayload> => {
     const root = resolveRootPerCall(workspaceProvider);
-    const result: DiagnosticsResult =
-      await diagnosticsProvider.getDiagnostics(root);
+    const result: DiagnosticsResult = await diagnosticsProvider.getDiagnostics(
+      root,
+      files && files.length > 0 ? { files } : undefined,
+    );
 
     if (result.status === 'unavailable') {
       return {
@@ -230,8 +240,8 @@ export function buildDiagnosticsNamespace(
   };
 
   return {
-    getErrors: () => getPayload('error'),
-    getWarnings: () => getPayload('warning'),
-    getAll: () => getPayload(undefined),
+    getErrors: (files) => getPayload('error', files),
+    getWarnings: (files) => getPayload('warning', files),
+    getAll: (files) => getPayload(undefined, files),
   };
 }

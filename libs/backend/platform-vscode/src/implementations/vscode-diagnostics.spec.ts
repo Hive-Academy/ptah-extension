@@ -56,6 +56,51 @@ describe('VscodeDiagnosticsProvider — VS Code-specific behaviour', () => {
     }
   });
 
+  it('narrows to the files named in the scope', async () => {
+    __vscodeState.setDiagnostics([
+      {
+        file: '/tmp/edited.ts',
+        diagnostics: [{ message: 'err', line: 0, severity: 'error' }],
+      },
+      {
+        file: '/tmp/untouched.ts',
+        diagnostics: [{ message: 'other', line: 0, severity: 'error' }],
+      },
+    ]);
+
+    // The language servers hold the whole workspace already, so there is no
+    // compile to avoid here and no reason to return past what was asked for.
+    // This is the narrow end of the `DiagnosticsScope` contract; the compiling
+    // provider takes the wide end.
+    const provider = new VscodeDiagnosticsProvider('linux');
+    const result = await provider.getDiagnostics(undefined, {
+      files: ['/tmp/edited.ts'],
+    });
+
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.diagnostics.map((d) => d.file)).toEqual(['/tmp/edited.ts']);
+  });
+
+  it('ignores an empty scope instead of reporting nothing', async () => {
+    __vscodeState.setDiagnostics([
+      {
+        file: '/tmp/only.ts',
+        diagnostics: [{ message: 'err', line: 0, severity: 'error' }],
+      },
+    ]);
+
+    // `{ files: [] }` and "no scope" must behave alike. Reading an empty list
+    // as "check nothing" turns a caller whose filter matched nothing into a
+    // clean bill of health for the whole workspace.
+    const provider = new VscodeDiagnosticsProvider('linux');
+    const result = await provider.getDiagnostics(undefined, { files: [] });
+
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.diagnostics).toHaveLength(1);
+  });
+
   it('skips files with an empty diagnostics array', async () => {
     __vscodeState.setDiagnostics([
       { file: '/tmp/empty.ts', diagnostics: [] },

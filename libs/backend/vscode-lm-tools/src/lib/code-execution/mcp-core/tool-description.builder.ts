@@ -363,7 +363,7 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_diagnostics',
     description:
-      'Get TypeScript/JavaScript errors and warnings from the workspace diagnostics provider. Returns an honest available/unavailable result with source, status, and flattened diagnostics. Each diagnostic includes file path, line number, severity, and message.',
+      'Get TypeScript/JavaScript errors and warnings from the workspace diagnostics provider. Returns an honest available/unavailable result with source, status, and flattened diagnostics. Each diagnostic includes file path, line number, severity, and message. PASS `files` WITH THE FILES YOU CHANGED: on a large monorepo an unscoped call type-checks every project and can exceed the call timeout, while a scoped one checks only the projects owning those files and returns in seconds.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -372,6 +372,12 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
           enum: ['error', 'warning', 'all'],
           description:
             'Filter by severity level (default: "all"). Use "error" to see only errors.',
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Absolute paths of the files you care about. Narrows the check to the projects that own them, which is dramatically faster on a monorepo. Diagnostics from sibling files in the same project are still reported, so a break your edit caused elsewhere is not hidden. Omit to check the whole workspace.',
         },
       },
     },
