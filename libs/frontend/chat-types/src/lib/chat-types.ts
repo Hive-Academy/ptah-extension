@@ -96,8 +96,56 @@ export interface StreamingState {
   /** Current token usage for the active message */
   currentTokenUsage: { input: number; output: number } | null;
 
-  /** Pre-indexed events by messageId for O(1) lookup (eliminates O(n²) iteration) */
+  /**
+   * Pre-indexed events by messageId for O(1) lookup (eliminates O(n²) iteration).
+   *
+   * Maintained in NON-DESCENDING `timestamp` order by the accumulator's
+   * insert-on-append. Readers therefore never sort — see
+   * `chat-execution-tree/src/lib/builders/message-node.fn.ts`, which used to
+   * `slice().sort()` this bucket on every rebuild (TASK_2026_323 R2).
+   */
   eventsByMessage: Map<string, FlatStreamEventUnion[]>;
+
+  /**
+   * Monotonic write counter, bumped by {@link setStreamingEventCapped} on
+   * EVERY write into `events` (insert, in-place update, or post-eviction
+   * insert). Consumers use it as a cheap "did anything change?" key — most
+   * notably `ExecutionTreeBuilderService`, which memoizes its derived event
+   * indexes on `${events.size}:${revision}`.
+   *
+   * Optional because `StreamingState` is constructed as an object literal in
+   * a number of specs outside this lib. Treat `undefined` as "not tracked",
+   * which callers must interpret as "always dirty", never as "unchanged".
+   */
+  revision?: number;
+
+  /**
+   * Per-message write counter, bumped by {@link setStreamingEventCapped} for
+   * `event.messageId`. Lets the tree builder rebuild only the message
+   * subtrees whose event set actually changed instead of the whole
+   * conversation on every `text_delta` (TASK_2026_323 R1/R3).
+   *
+   * Optional for the same reason as {@link revision}; an absent map means
+   * "no incremental reuse available".
+   */
+  messageRevisions?: Map<string, number>;
+
+  /**
+   * Counter bumped ONLY when a change can alter a derived event index —
+   * a structural event (`message_start`, `tool_start`, `tool_result`,
+   * `agent_start`, `message_complete`), an eviction, or the creation/removal
+   * of a `textAccumulators` block key. A plain `text_delta` does NOT bump it.
+   *
+   * That distinction is the point: it lets the tree builder keep its derived
+   * indexes across a whole burst of deltas instead of re-deriving them —
+   * an O(events) pass — on every streamed chunk.
+   *
+   * Deliberately NOT initialised by {@link createEmptyStreamingState}. A state
+   * that never received a tracked write must read as `undefined` so consumers
+   * fall back to a conservative key rather than trusting a counter that a
+   * direct `events.set(...)` could have bypassed.
+   */
+  structuralRevision?: number;
 
   /**
    * Pending session stats to apply during finalization.
@@ -126,6 +174,8 @@ export function createEmptyStreamingState(): StreamingState {
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
+    revision: 0,
+    messageRevisions: new Map(),
     pendingStats: null,
   };
 }
@@ -147,25 +197,69 @@ let __streamingCapWarned = false;
  * `state.events.set(id, event)` calls so every writer enforces the cap.
  *
  * Behavior:
- * - If `id` already exists, the entry is updated in place (size unchanged).
- *   This preserves the backfill path in StreamingHandlerService where an
- *   existing event is replaced with an updated copy (same id).
+ * - If `id` already exists, the entry is updated in place (size unchanged) and
+ *   the matching `eventsByMessage` entry is repointed at the same object. This
+ *   preserves the backfill path in StreamingHandlerService where an existing
+ *   event is replaced with an updated copy (same id) — see
+ *   {@link replaceInMessageBucket} for why both maps must move together.
  * - If `id` is new and size is at the cap, the oldest entry (first iterated
  *   key in the Map's insertion order) is deleted before insert.
  * - First eviction emits a one-shot console.warn so we know the cap was hit
  *   in production; subsequent evictions are silent to avoid log spam.
  * - On eviction, dependent collections are cascade-cleaned so the evicted
  *   eventId never lingers in `eventsByMessage`, `toolCallMap`,
- *   `textAccumulators`, or `agentContentBlocksMap`. Empty parent keys are
- *   dropped. O(1) amortized: every cleanup operation indexes into a Map by
- *   the known relation key, no full scans.
+ *   `textAccumulators`, `agentContentBlocksMap`, `messageEventIds` or
+ *   `messageRevisions`. Empty parent keys are dropped. O(1) amortized: every
+ *   cleanup operation indexes into a Map by the known relation key, no full
+ *   scans (the one `indexOf` is over root message ids, not events).
+ * - Every call bumps `state.revision` and `state.messageRevisions[messageId]`
+ *   so derived caches (event indexes, per-message tree nodes) can invalidate
+ *   without diffing content.
  */
+/**
+ * Event types whose presence, ordering or relationships the tree builder's
+ * derived indexes are built from. Deltas are absent on purpose — see
+ * {@link StreamingState.structuralRevision}.
+ */
+const STRUCTURAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'message_start',
+  'message_complete',
+  'tool_start',
+  'tool_result',
+  'agent_start',
+]);
+
+/**
+ * Declare that a derived index over this state is now stale.
+ *
+ * Call it from any writer that adds or removes a `textAccumulators` block key,
+ * since the set of keys (not their content) is indexed. Structural events and
+ * cap evictions are handled inside {@link setStreamingEventCapped}.
+ */
+export function markStructuralChange(state: StreamingState): void {
+  state.structuralRevision = (state.structuralRevision ?? 0) + 1;
+}
+
 export function setStreamingEventCapped(
   state: StreamingState,
   event: FlatStreamEventUnion,
 ): void {
+  bumpRevisions(state, event.messageId);
+  if (STRUCTURAL_EVENT_TYPES.has(event.eventType)) {
+    markStructuralChange(state);
+  }
   if (state.events.has(event.id)) {
+    // Capture the PREVIOUS event before the set overwrites it. A same-id
+    // write is a replacement, and the replacement may carry a DIFFERENT
+    // `messageId` than the one it supersedes (a hook `agent_start` backfilled
+    // with the real `toolu_*` id keeps its `messageId`; a metadata attach can
+    // re-parent one). When that happens the entry indexed under the OLD
+    // `messageId` is left pointing at a stale object that `events` no longer
+    // holds — a second reader of the old bucket sees the pre-replacement
+    // values forever (TASK_2026_327 finding 6).
+    const previous = state.events.get(event.id);
     state.events.set(event.id, event);
+    replaceInMessageBucket(state, event, previous);
     return;
   }
   if (state.events.size >= STREAMING_EVENT_CAP) {
@@ -174,6 +268,10 @@ export function setStreamingEventCapped(
       const evicted = state.events.get(oldestKey);
       state.events.delete(oldestKey);
       if (evicted) {
+        // Any eviction can move a derived index — dropping the first delta of
+        // a block changes that block's anchor timestamp just as much as
+        // dropping a tool_start changes the tool set.
+        markStructuralChange(state);
         cascadeCleanForEvictedEvent(state, evicted);
       }
       if (!__streamingCapWarned) {
@@ -185,6 +283,87 @@ export function setStreamingEventCapped(
     }
   }
   state.events.set(event.id, event);
+}
+
+/**
+ * Bump the global write counter and the per-message counter for `messageId`.
+ *
+ * Both counters are optional on the interface (see {@link StreamingState}), so
+ * a state literal that predates them simply stays untracked — consumers read
+ * "untracked" as "always dirty" and fall back to a full rebuild.
+ */
+function bumpRevisions(state: StreamingState, messageId?: string): void {
+  state.revision = (state.revision ?? 0) + 1;
+  if (!messageId) return;
+  if (!state.messageRevisions) {
+    state.messageRevisions = new Map();
+  }
+  state.messageRevisions.set(
+    messageId,
+    (state.messageRevisions.get(messageId) ?? 0) + 1,
+  );
+}
+
+/**
+ * Point the `eventsByMessage` bucket at the SAME object `events` now holds.
+ *
+ * A same-id write is a replacement, not an append — `StreamingAccumulatorCore`
+ * uses it to backfill an `agent_start` with the real `toolu_*` tool id, and
+ * `StreamingHandlerService` uses it to attach late tool metadata. `events` got
+ * the new object; the bucket kept the old one, so the two maps disagreed about
+ * the same event id and every reader that goes through `eventsByMessage` (the
+ * message-node builder, the derived indexes) still saw the pre-backfill values
+ * — which is exactly the tool→agent match the backfill exists to repair.
+ *
+ * Written by index assignment rather than by rebuilding the array: the bucket
+ * is `timestamp`-ordered by construction and a replacement never moves an
+ * entry, so re-sorting or re-allocating would only cost work (guideline 5 of
+ * this lib's CLAUDE.md).
+ *
+ * When the replacement carries a DIFFERENT `messageId` from the event it
+ * supersedes (`previous`), the entry indexed under the OLD `messageId` is
+ * removed from that bucket first. Without this, the old bucket kept the stale
+ * object forever — `events` had moved on but the old message's bucket still
+ * showed the pre-replacement values, a reader of the old message saw what the
+ * replacement was meant to repair (TASK_2026_327 finding 6). The new bucket is
+ * then repointed as usual; a no-op when neither bucket indexes the id.
+ */
+function replaceInMessageBucket(
+  state: StreamingState,
+  event: FlatStreamEventUnion,
+  previous: FlatStreamEventUnion | undefined,
+): void {
+  // If the replacement re-parented the event, drop the stale entry from the
+  // old bucket BEFORE repointing the new one. `previous` is the object
+  // `events` held a moment ago, so its `messageId` is the bucket the stale
+  // object lives in.
+  if (
+    previous &&
+    previous.messageId &&
+    previous.messageId !== event.messageId
+  ) {
+    const oldBucket = state.eventsByMessage.get(previous.messageId);
+    if (oldBucket) {
+      const staleIndex = oldBucket.findIndex((e) => e.id === event.id);
+      if (staleIndex >= 0) {
+        oldBucket.splice(staleIndex, 1);
+        if (oldBucket.length === 0) {
+          state.eventsByMessage.delete(previous.messageId);
+        }
+      }
+    }
+  }
+
+  const bucket = event.messageId
+    ? state.eventsByMessage.get(event.messageId)
+    : undefined;
+  if (!bucket) return;
+  for (let i = 0; i < bucket.length; i++) {
+    if (bucket[i].id === event.id) {
+      if (bucket[i] !== event) bucket[i] = event;
+      return;
+    }
+  }
 }
 
 function cascadeCleanForEvictedEvent(
@@ -205,6 +384,15 @@ function cascadeCleanForEvictedEvent(
             state.textAccumulators.delete(key);
           }
         }
+        // The message has no surviving events, so it can no longer be built
+        // into a node. Leaving its id in `messageEventIds` made `buildTree`
+        // iterate — and `findMessageStartEvent` miss — a message that no
+        // longer exists, for the rest of the session (TASK_2026_323).
+        const rootIndex = state.messageEventIds.indexOf(messageId);
+        if (rootIndex !== -1) {
+          state.messageEventIds.splice(rootIndex, 1);
+        }
+        state.messageRevisions?.delete(messageId);
       } else {
         state.eventsByMessage.set(messageId, filtered);
       }

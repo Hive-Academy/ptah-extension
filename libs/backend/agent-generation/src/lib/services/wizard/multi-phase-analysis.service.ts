@@ -423,6 +423,14 @@ export class MultiPhaseAnalysisService {
     masterAbortController.signal.addEventListener('abort', onMasterAbort, {
       once: true,
     });
+    // Arm the timeout BEFORE execute() so the budget covers the queue wait for
+    // a concurrency slot, not just the stream after the handle resolves. The
+    // 'analysis_timeout' reason matches the SdkStreamProcessor's old hardcoded
+    // string, preserving the phase 'failed' outcome on timeout.
+    const phaseTimeoutHandle = setTimeout(
+      () => phaseAbortController.abort('analysis_timeout'),
+      PER_PHASE_TIMEOUT_MS,
+    );
 
     try {
       const executeStartMs = Date.now();
@@ -446,7 +454,6 @@ export class MultiPhaseAnalysisService {
           handle.stream,
           phaseConfig.id as MultiPhaseId,
           phaseIndex,
-          phaseAbortController,
           phaseStatuses,
         );
 
@@ -466,6 +473,7 @@ export class MultiPhaseAnalysisService {
       }
     } finally {
       masterAbortController.signal.removeEventListener('abort', onMasterAbort);
+      clearTimeout(phaseTimeoutHandle);
     }
   }
 
@@ -482,7 +490,6 @@ export class MultiPhaseAnalysisService {
     stream: AsyncIterable<SDKMessage>,
     phaseId: MultiPhaseId,
     phaseIndex: number,
-    abortController: AbortController,
     phaseStatuses: Array<{
       id: string;
       status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -543,7 +550,6 @@ export class MultiPhaseAnalysisService {
 
     const processor = new SdkStreamProcessor({
       emitter,
-      timeout: { ms: PER_PHASE_TIMEOUT_MS, abortController },
       logger: this.logger,
       serviceTag: `${SERVICE_TAG}:${phaseId}`,
       skipStructuredOutput: true, // Multi-phase produces markdown, not JSON

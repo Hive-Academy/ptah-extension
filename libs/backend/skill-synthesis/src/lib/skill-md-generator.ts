@@ -143,6 +143,50 @@ export class SkillMdGenerator {
   }
 
   /**
+   * Rewrite an EXISTING candidate's SKILL.md at exactly its own slug
+   * directory, with no collision suffix.
+   *
+   * The sibling of {@link writeCandidate} and deliberately not a flag on it,
+   * because the two answer opposite questions about the same collision. A NEW
+   * candidate that lands on an occupied directory has met somebody else's
+   * skill, and the `-2…-5` walk is right. A candidate being RE-DRAFTED from a
+   * session that grew is meeting ITSELF: the directory it collides with is the
+   * one its own row points at, so suffixing mints a second copy of one skill
+   * and leaves the row addressing the stale first. That is how a single
+   * session produced `…-already-know-about-5` and then failed outright on the
+   * sixth pass.
+   *
+   * The slug is still sanitized — the caller passes the row's stored `name`,
+   * which was itself sanitized on the way in, so this is idempotent rather
+   * than a second normalization.
+   */
+  overwriteCandidate(
+    input: SkillMdInput,
+    candidatesDir?: string,
+  ): MaterializedSkill {
+    const root = this.candidatesRoot(candidatesDir);
+    const slug = this.sanitizeSlug(input.slug);
+    const dir = path.join(root, slug);
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(
+      filePath,
+      this.renderSkillMd({
+        slug,
+        description: input.description,
+        body: input.body,
+        whenToUse: input.whenToUse,
+      }),
+      'utf8',
+    );
+    this.logger.info('[skill-synthesis] SKILL.md rewritten in place', {
+      slug,
+      filePath,
+    });
+    return { slug, dir, filePath };
+  }
+
+  /**
    * Move/copy a candidate's SKILL.md to the active root under its slug.
    * Returns the new absolute file path. The original candidate directory is
    * left in place — the candidate row in SQLite is the source of truth, and

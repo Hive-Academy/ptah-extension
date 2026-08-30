@@ -24,6 +24,7 @@ import type {
   ToolStartEvent,
 } from '@ptah-extension/shared';
 import { AgentStatsService } from '../agent-stats.service';
+import { buildStreamingIndexes } from '../indexes/streaming-indexes';
 import { buildAgentNode, buildInterleavedChildren } from './agent-node.fn';
 import type { BackgroundAgentLookup, BuilderDeps } from './builder-deps';
 import { buildMessageNode, findMessageStartEvent } from './message-node.fn';
@@ -57,6 +58,10 @@ function makeDeps(
     backgroundAgentStore: bgStore,
     agentStats,
     loggedUnmatchedToolCallIds: new Set<string>(),
+    // Unmemoized on purpose: these tests mutate `state` between builder calls
+    // with the SAME deps bag, so the indexes must be re-derived every time.
+    // Memoization is the orchestrator's job, not this lib's.
+    getIndexes: (st) => buildStreamingIndexes(st),
     buildMessageNode: (messageId, st, depth = 0) =>
       buildMessageNode(deps, messageId, st, depth),
     findMessageStartEvent: (st, messageId) =>

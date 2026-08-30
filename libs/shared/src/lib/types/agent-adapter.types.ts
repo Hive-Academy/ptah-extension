@@ -220,6 +220,24 @@ export interface IAgentAdapter extends IAIProvider {
   /** Whether a session is currently active in memory. */
   isSessionActive(sessionId: SessionId): boolean;
 
+  /**
+   * Opaque identity of the record currently registered under this id, or null.
+   * Two registrations under the same id have different tokens.
+   */
+  getSessionToken(sessionId: SessionId): string | null;
+
+  /**
+   * End the session only if `token` still identifies the registered record.
+   * Resolves false — with no side effects — when nothing is registered or a
+   * newer record has taken the id. The compare and the teardown happen
+   * atomically inside the adapter; do not rebuild it from `getSessionToken` +
+   * `endSession`.
+   */
+  endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean>;
+
   /** Execute a slash command in an existing session. */
   executeSlashCommand(
     sessionId: SessionId,

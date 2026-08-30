@@ -71,6 +71,42 @@ function makeTempDbPath(): string {
   return path.join(dir, 'ptah.db');
 }
 
+/**
+ * Complete the double so it actually satisfies `SqliteDatabase`.
+ *
+ * `ObservationQueueStore.flush` writes its batch through `db.transaction(...)`,
+ * which `SqliteDatabase` declares and better-sqlite3 provides — but the
+ * `node:sqlite` `DatabaseSync` fallback (used whenever the better-sqlite3
+ * native binary does not match the running Node ABI) has no `transaction`. Left
+ * missing, every flush here threw and was swallowed as a persistence failure,
+ * so the backfill assertions saw an empty table for reasons unrelated to what
+ * they test.
+ */
+function asSqliteDatabase(db: TestDatabase): TestDatabase {
+  const native = db as unknown as {
+    transaction?: (fn: (...args: unknown[]) => unknown) => unknown;
+  };
+  if (typeof native.transaction === 'function') return db;
+  return {
+    exec: (sql: string) => db.exec(sql),
+    prepare: (sql: string) => db.prepare(sql),
+    close: () => db.close(),
+    transaction:
+      (fn: (...args: unknown[]) => unknown) =>
+      (...args: unknown[]) => {
+        db.exec('BEGIN');
+        try {
+          const out = fn(...args);
+          db.exec('COMMIT');
+          return out;
+        } catch (error: unknown) {
+          db.exec('ROLLBACK');
+          throw error;
+        }
+      },
+  } as unknown as TestDatabase;
+}
+
 const noopLogger = {
   debug: jest.fn(),
   info: jest.fn(),
@@ -89,14 +125,14 @@ maybe('ObservationQueueStore.backfillSessionId (TASK_2026_296)', () => {
     db = (opener as DbOpener)(makeTempDbPath());
     db.exec(sql0016);
     store = new ObservationQueueStore(noopLogger, {
-      db,
+      db: asSqliteDatabase(db),
     } as unknown as SqliteConnectionService);
   });
 
   afterEach(() => db.close());
 
   function capture(sessionId: string, kind: 'tool-use' | 'user-prompt'): void {
-    store.insert({ sessionId, workspaceRoot: '/ws', kind });
+    store.enqueue({ sessionId, workspaceRoot: '/ws', kind });
   }
 
   it('re-points every row of the session and makes them drainable by the new id', () => {
@@ -144,7 +180,7 @@ maybe('ObservationQueueStore.backfillSessionId (TASK_2026_296)', () => {
     // The backfill exists to rescue rows written under a REAL but
     // non-canonical id. It is not a licence to start writing blank ones: an
     // un-drainable, un-reapable row is still refused at the door.
-    store.insert({ sessionId: '  ', workspaceRoot: '/ws', kind: 'tool-use' });
+    store.enqueue({ sessionId: '  ', workspaceRoot: '/ws', kind: 'tool-use' });
     const total = (
       db.prepare('SELECT COUNT(*) AS n FROM observation_queue').get() as {
         n: number;

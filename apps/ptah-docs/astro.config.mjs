@@ -2,7 +2,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-// Placeholder URLs — replace before public launch.
 const GITHUB_REPO = 'https://github.com/Hive-Academy/ptah-extension';
 const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
 
@@ -16,7 +15,7 @@ export default defineConfig({
     starlight({
       title: 'Ptah Documentation',
       description:
-        'The AI coding orchestra — user guide for the Ptah Electron desktop app',
+        'The AI dev team that ships production SaaS — user guide for the Ptah Electron desktop app',
       favicon: '/favicon.svg',
       customCss: ['./src/styles/brand.css'],
       social: [
@@ -37,6 +36,10 @@ export default defineConfig({
         {
           label: 'Chat',
           autogenerate: { directory: 'chat' },
+        },
+        {
+          label: 'Orchestra Canvas',
+          items: [{ label: 'Overview', slug: 'canvas' }],
         },
         {
           label: 'Providers',
@@ -117,6 +120,10 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Tasks',
+          items: [{ label: 'Tasks Board', slug: 'tasks' }],
+        },
+        {
           label: 'Git & Version Control',
           autogenerate: { directory: 'git' },
         },
@@ -172,10 +179,18 @@ export default defineConfig({
             { label: 'Built-in MCP Server', slug: 'mcp-and-skills/built-in-mcp-server' },
             { label: 'Ptah Tools', slug: 'mcp-and-skills/ptah-tools' },
             { label: 'Skills', slug: 'mcp-and-skills/skills' },
-            { label: 'Popular Skills', slug: 'mcp-and-skills/popular-skills' },
+            { label: 'Shipped Skills', slug: 'mcp-and-skills/popular-skills' },
             { label: 'Creating Skills', slug: 'mcp-and-skills/creating-skills' },
             { label: 'Third-party MCP', slug: 'mcp-and-skills/third-party-mcp' },
             { label: 'Driving Ptah via MCP', slug: 'mcp-and-skills/driving-ptah-via-mcp' },
+          ],
+        },
+        {
+          label: 'Other Surfaces',
+          items: [
+            { label: 'VS Code Extension', slug: 'vscode-extension' },
+            { label: 'Ptah CLI', slug: 'cli' },
+            { label: 'CLI Command Reference', slug: 'cli/commands' },
           ],
         },
         {

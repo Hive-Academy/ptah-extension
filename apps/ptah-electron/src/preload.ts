@@ -85,6 +85,16 @@ contextBridge.exposeInMainWorld('ptahTerminal', {
     };
   },
 });
+/**
+ * Hang diagnostics (TASK_2026_323). Exposed with no UI behind it on purpose —
+ * the intended caller is a developer typing into the DevTools console of an app
+ * that has stopped responding, at which point a button would be unclickable
+ * anyway. `captureCpuProfile(10000)` resolves to the written `.cpuprofile` path.
+ */
+contextBridge.exposeInMainWorld('ptahDiag', {
+  captureCpuProfile: (durationMs?: number): Promise<string> =>
+    ipcRenderer.invoke('diag:cpu-profile', durationMs),
+});
 ipcRenderer.on('to-renderer', (_event, message) => {
   window.dispatchEvent(new MessageEvent('message', { data: message }));
 });

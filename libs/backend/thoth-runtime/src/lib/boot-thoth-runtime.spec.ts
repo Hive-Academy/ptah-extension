@@ -52,6 +52,21 @@ function makeWebviewManager() {
   return { broadcastMessage: jest.fn().mockResolvedValue(undefined) };
 }
 
+/**
+ * Let the deferred starts settle.
+ *
+ * Since TASK_2026_331 B1.T4 the memory-enabled lookup and the skill-synthesis
+ * start are STARTED rather than awaited, so `await bootThothRuntime(...)` no
+ * longer implies they have run. A handful of microtask turns is enough for the
+ * immediately-resolving stubs these specs use — real work is naturally still
+ * in flight, which is the point of the change.
+ */
+async function flushDeferredStarts(): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await Promise.resolve();
+  }
+}
+
 describe('bootThothRuntime', () => {
   beforeEach(() => {
     resetVecLoadDiagnosticForTest();
@@ -112,11 +127,29 @@ describe('bootThothRuntime', () => {
     ]);
 
     const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
 
     expect(memoryCurator.start).toHaveBeenCalledTimes(1);
     expect(memoryTrigger.start).toHaveBeenCalledTimes(1);
     expect(refs.memoryCurator).toBe(memoryCurator);
     expect(refs.memoryTrigger).toBe(memoryTrigger);
+  });
+
+  it('starts the memory curator without consulting indexing control when no workspace is open', async () => {
+    const memoryCurator = { start: jest.fn(), onEvent: jest.fn() };
+    const getStatus = jest.fn();
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [MEMORY_TOKENS.INDEXING_CONTROL, { getStatus }],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: undefined });
+    await flushDeferredStarts();
+
+    expect(memoryCurator.start).toHaveBeenCalledTimes(1);
+    expect(getStatus).not.toHaveBeenCalled();
   });
 
   it('does not start the memory curator when memoryEnabled is false', async () => {
@@ -134,6 +167,7 @@ describe('bootThothRuntime', () => {
     ]);
 
     await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
 
     expect(memoryCurator.start).not.toHaveBeenCalled();
     // The trigger is gated on the curator ref, which is still captured.
@@ -262,6 +296,7 @@ describe('bootThothRuntime', () => {
     ]);
 
     const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
 
     expect(skillSynthesis.start).toHaveBeenCalledTimes(1);
     expect(skillTrigger.start).toHaveBeenCalledTimes(1);
@@ -282,6 +317,7 @@ describe('bootThothRuntime', () => {
     ]);
 
     const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
 
     expect(refs.skillSynthesis).toBeNull();
     expect(refs.skillTrigger).toBeNull();
@@ -412,6 +448,187 @@ describe('bootThothRuntime', () => {
       symbolWatcher: null,
       statusBridgeDisposables: null,
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_331 B1.T4 — what the boot awaits, and what it merely starts.
+  // -------------------------------------------------------------------------
+
+  it('resolves while a slow skill-synthesis start is still pending', async () => {
+    let releaseStart!: () => void;
+    const skillSynthesis = {
+      start: jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseStart = resolve;
+          }),
+      ),
+    };
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+
+    // The boot is DONE while the scan behind it has not even resolved.
+    expect(skillSynthesis.start).toHaveBeenCalledTimes(1);
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+    expect(refs.skillSynthesis).toBe(skillSynthesis);
+
+    releaseStart();
+    await flushDeferredStarts();
+    expect(skillTrigger.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves while the memoryEnabled probe is still pending', async () => {
+    let releaseStatus!: (v: { memoryEnabled: boolean }) => void;
+    const memoryCurator = { start: jest.fn(), onEvent: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [
+        MEMORY_TOKENS.INDEXING_CONTROL,
+        {
+          getStatus: jest.fn(
+            () =>
+              new Promise((resolve) => {
+                releaseStatus = resolve as (v: {
+                  memoryEnabled: boolean;
+                }) => void;
+              }),
+          ),
+        },
+      ],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    expect(memoryCurator.start).not.toHaveBeenCalled();
+
+    releaseStatus({ memoryEnabled: true });
+    await flushDeferredStarts();
+    expect(memoryCurator.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens + migrates SQLite BEFORE any of the deferred starts is called', async () => {
+    const order: string[] = [];
+    const sqlite = makeSqlite({
+      openAndMigrate: jest.fn(async () => {
+        await Promise.resolve();
+        order.push('openAndMigrate');
+      }),
+    });
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, sqlite],
+      [
+        MEMORY_TOKENS.MEMORY_CURATOR,
+        {
+          start: jest.fn(() => {
+            order.push('memoryCurator.start');
+          }),
+          onEvent: jest.fn(),
+        },
+      ],
+      [
+        MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
+        {
+          start: jest.fn(() => {
+            order.push('memoryTrigger.start');
+          }),
+        },
+      ],
+      [
+        SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+        {
+          start: jest.fn(async () => {
+            order.push('skillSynthesis.start');
+          }),
+        },
+      ],
+      [
+        TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+        {
+          start: jest.fn(async () => {
+            order.push('fileIndex.start');
+          }),
+        },
+      ],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(order[0]).toBe('openAndMigrate');
+    expect(order).toContain('memoryTrigger.start');
+    expect(order).toContain('skillSynthesis.start');
+    expect(order).toContain('fileIndex.start');
+  });
+
+  it('skips every scan when the signal is already aborted', async () => {
+    const sqlite = makeSqlite();
+    const memoryCurator = { start: jest.fn(), onEvent: jest.fn() };
+    const memoryTrigger = { start: jest.fn() };
+    const skillSynthesis = { start: jest.fn().mockResolvedValue(undefined) };
+    const fileIndex = { start: jest.fn().mockResolvedValue(undefined) };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, sqlite],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE, memoryTrigger],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [TOKENS.WORKSPACE_FILE_INDEX_SERVICE, fileIndex],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+    const controller = new AbortController();
+    controller.abort();
+
+    const refs = await bootThothRuntime(container, {
+      workspaceRoot: '/ws',
+      signal: controller.signal,
+    });
+    await flushDeferredStarts();
+
+    expect(sqlite.openAndMigrate).not.toHaveBeenCalled();
+    expect(memoryCurator.start).not.toHaveBeenCalled();
+    expect(memoryTrigger.start).not.toHaveBeenCalled();
+    expect(skillSynthesis.start).not.toHaveBeenCalled();
+    expect(fileIndex.start).not.toHaveBeenCalled();
+    expect(refs.sqliteConnection).toBeNull();
+  });
+
+  it('stops after SQLite when the signal fires during openAndMigrate', async () => {
+    // The quit-during-boot case: the connection ref is still returned so the
+    // host's LIFO chain can close it, but nothing else is started.
+    const controller = new AbortController();
+    const sqlite = makeSqlite({
+      openAndMigrate: jest.fn(async () => {
+        controller.abort();
+      }),
+    });
+    const memoryTrigger = { start: jest.fn() };
+    const skillSynthesis = { start: jest.fn().mockResolvedValue(undefined) };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, sqlite],
+      [MEMORY_TOKENS.MEMORY_CURATOR, { start: jest.fn(), onEvent: jest.fn() }],
+      [MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE, memoryTrigger],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const refs = await bootThothRuntime(container, {
+      workspaceRoot: '/ws',
+      signal: controller.signal,
+    });
+    await flushDeferredStarts();
+
+    expect(sqlite.openAndMigrate).toHaveBeenCalledTimes(1);
+    expect(refs.sqliteConnection).toBe(sqlite);
+    expect(memoryTrigger.start).not.toHaveBeenCalled();
+    expect(skillSynthesis.start).not.toHaveBeenCalled();
   });
 
   it('uses the host-supplied log prefix verbatim', async () => {

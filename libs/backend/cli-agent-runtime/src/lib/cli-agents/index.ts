@@ -11,7 +11,10 @@ export {
   AgentProcessManager,
   AgentContinueError,
 } from './agent-process-manager.service';
-export type { AgentContinueErrorCode } from './agent-process-manager.service';
+export type {
+  AgentContinueErrorCode,
+  AgentReleaseReason,
+} from './agent-process-manager.service';
 export * from './cli-adapters';
 export {
   createHarnessCliDetector,

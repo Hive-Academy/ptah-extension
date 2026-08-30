@@ -132,7 +132,7 @@ jest.mock('fs', () => {
 
 // Import adapter AFTER mocks are declared
 import path from 'path';
-import { CodexCliAdapter } from './codex-cli.adapter';
+import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
 
 describe('CodexCliAdapter', () => {
@@ -230,6 +230,7 @@ describe('CodexCliAdapter', () => {
         approvalPolicy: 'never',
         sandboxMode: 'danger-full-access',
         skipGitRepoCheck: true,
+        webSearchEnabled: true,
       });
       expect(handle.abort).toBeInstanceOf(AbortController);
       expect(typeof handle.done.then).toBe('function');
@@ -952,6 +953,262 @@ describe('CodexCliAdapter', () => {
       expect(freshImportCount).toBe(1);
       // But the Codex constructor is called each time
       expect(freshMockConstructor).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Ptah MCP server wiring', () => {
+    function setupMockEvents(events: FakeCodexEvent[]): void {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator(events),
+      });
+    }
+
+    it('registers the Ptah server AND disables MCP tool deferral', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+        mcpPort: 51820,
+      });
+
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toEqual({
+        ptah: { url: 'http://localhost:51820' },
+      });
+      // Without this, codex-cli 0.150 connects to the server and still keeps
+      // every ptah_* tool out of the model's tool list until it runs a tool
+      // search — which the model has no reason to do, so it uses the shell.
+      expect(config.features).toEqual({
+        tool_search_always_defer_mcp_tools: false,
+      });
+    });
+
+    it('sets neither key when no MCP port is available', async () => {
+      setupMockEvents([]);
+
+      await adapter.runSdk({ task: 'Task', workingDirectory: '/project' });
+
+      const config = mockCodexConstructor.mock.calls[0][0].config;
+      expect(config.mcp_servers).toBeUndefined();
+      expect(config.features).toBeUndefined();
+    });
+  });
+
+  describe('commandToolLabel()', () => {
+    it.each([
+      [
+        '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw D:\\a.md"',
+        'Get-Content',
+      ],
+      ['powershell.exe -Command "rg --files D:\\src"', 'rg'],
+      ['bash -lc "git status"', 'git'],
+      ["/bin/sh -c 'npm test'", 'npm'],
+      ['npm test', 'npm'],
+    ])('labels %s as %s', (command, expected) => {
+      expect(commandToolLabel(command)).toBe(expected);
+    });
+
+    it('falls back to Shell for an empty command', () => {
+      expect(commandToolLabel('   ')).toBe('Shell');
+    });
+  });
+
+  describe('segment shapes the tool cards render', () => {
+    /** Run one item through the adapter and return the segments it produced. */
+    async function segmentsFor(event: unknown): Promise<
+      Array<{
+        type: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        content: string;
+        toolCallId?: string;
+      }>
+    > {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([event as FakeCodexEvent]),
+      });
+      const handle = await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+      });
+      const segments: Array<{
+        type: string;
+        toolName?: string;
+        toolInput?: Record<string, unknown>;
+        content: string;
+        toolCallId?: string;
+      }> = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+      return segments;
+    }
+
+    it('sends a command as Bash with a command and a description', async () => {
+      const segments = await segmentsFor({
+        type: 'item.started',
+        item: {
+          type: 'command_execution',
+          id: 'cmd1',
+          command:
+            '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg --files D:\\src"',
+          aggregated_output: '',
+          status: 'in_progress',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'Bash',
+        toolInput: { command: 'rg --files D:\\src', description: 'rg' },
+        toolCallId: 'cmd1',
+      });
+    });
+
+    it('names an MCP call the way the UI expects and parses its arguments', async () => {
+      const segments = await segmentsFor({
+        type: 'item.started',
+        item: {
+          type: 'mcp_tool_call',
+          id: 'mcp1',
+          server: 'ptah',
+          tool: 'ptah_search_files',
+          arguments: '{"pattern":"**/*.ts"}',
+          status: 'in_progress',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'mcp__ptah__ptah_search_files',
+        toolInput: { pattern: '**/*.ts' },
+      });
+    });
+
+    it('flattens a structured MCP result instead of rendering [object Object]', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'mcp_tool_call',
+          id: 'mcp1',
+          server: 'ptah',
+          tool: 'ptah_search_files',
+          result: { content: [{ type: 'text', text: 'two matches' }] },
+          status: 'completed',
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-result',
+        content: 'two matches',
+      });
+    });
+
+    it('pairs each patched file with its own card', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'file_change',
+          id: 'fc1',
+          changes: [
+            { path: 'src/app.ts', kind: 'update' },
+            { path: 'src/new.ts', kind: 'add' },
+          ],
+          status: 'completed',
+        },
+      });
+
+      expect(segments).toMatchObject([
+        {
+          type: 'tool-call',
+          toolName: 'Edit',
+          toolInput: { file_path: 'src/app.ts' },
+          toolCallId: 'fc1:0',
+        },
+        { type: 'file-change', toolCallId: 'fc1:0' },
+        {
+          type: 'tool-call',
+          toolName: 'Write',
+          toolInput: { file_path: 'src/new.ts' },
+          toolCallId: 'fc1:1',
+        },
+        { type: 'file-change', toolCallId: 'fc1:1' },
+      ]);
+    });
+
+    it('sends a todo list as TodoWrite so it renders as a task list', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: {
+          type: 'todo_list',
+          id: 'todo1',
+          items: [
+            { text: 'Read the adapter', completed: true },
+            { text: 'Fix the labels', completed: false },
+          ],
+        },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'TodoWrite',
+        toolInput: {
+          todos: [
+            {
+              content: 'Read the adapter',
+              status: 'completed',
+              activeForm: 'Read the adapter',
+            },
+            {
+              content: 'Fix the labels',
+              status: 'pending',
+              activeForm: 'Fix the labels',
+            },
+          ],
+        },
+      });
+      // The card only renders its output section when a result arrives.
+      expect(segments[1]).toMatchObject({ type: 'tool-result' });
+    });
+
+    it('sends a web search as a WebSearch card', async () => {
+      const segments = await segmentsFor({
+        type: 'item.completed',
+        item: { type: 'web_search', id: 'ws1', query: 'codex mcp deferral' },
+      });
+
+      expect(segments[0]).toMatchObject({
+        type: 'tool-call',
+        toolName: 'WebSearch',
+        toolInput: { query: 'codex mcp deferral' },
+      });
+    });
+  });
+
+  describe('unknown thread items', () => {
+    it('reports an item type this SDK version does not declare', async () => {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([
+          {
+            type: 'item.completed',
+            // A future Codex build; deliberately outside FakeCodexEvent.
+            item: { type: 'view_image', id: 'img1' },
+          } as unknown as FakeCodexEvent,
+        ]),
+      });
+
+      const handle = await adapter.runSdk({
+        task: 'Task',
+        workingDirectory: '/project',
+      });
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+      await handle.done;
+
+      expect(output).toContain('[view_image]\n');
     });
   });
 });

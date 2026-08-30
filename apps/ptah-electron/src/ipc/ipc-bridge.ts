@@ -21,7 +21,10 @@
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  DEFAULT_CPU_PROFILE_DURATION_MS,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
@@ -31,6 +34,26 @@ import {
 import type { PtyManagerService } from '../services/pty-manager.service';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
+
+/**
+ * `diag:cpu-profile` duration bounds. The renderer supplies `durationMs`
+ * unvalidated, so the IPC handler clamps it before it reaches
+ * `CpuProfileCapture.captureFor`. A non-number falls back to the capture
+ * default; anything else is held to [1 s, 60 s] — short enough that the
+ * resulting `.cpuprofile` stays openable, long enough to span a stall.
+ */
+const MIN_CPU_PROFILE_DURATION_MS = 1_000;
+const MAX_CPU_PROFILE_DURATION_MS = 60_000;
+
+function clampCpuProfileDuration(durationMs: unknown): number {
+  if (typeof durationMs !== 'number' || Number.isNaN(durationMs)) {
+    return DEFAULT_CPU_PROFILE_DURATION_MS;
+  }
+  return Math.min(
+    Math.max(durationMs, MIN_CPU_PROFILE_DURATION_MS),
+    MAX_CPU_PROFILE_DURATION_MS,
+  );
+}
 
 const BATCHABLE_STREAM_TYPES: ReadonlySet<string> = new Set<string>([
   MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
@@ -120,6 +143,7 @@ export class IpcBridge {
     this.setupRpcHandler();
     this.setupStateHandlers();
     this.setupTerminalHandlers();
+    this.setupDiagnosticsHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
 
@@ -543,6 +567,34 @@ export class IpcBridge {
   }
 
   /**
+   * `diag:cpu-profile` — capture a CPU profile of the main process.
+   *
+   * A DIRECT `ipcMain.handle`, deliberately not an `rpc:` method. The whole
+   * point of this channel is to work when the app is wedged, and every RPC
+   * method runs through `RpcHandler.handleMessage` on the main-process event
+   * loop — the exact resource a hang has taken away. Electron delivers `invoke`
+   * on the same loop, so this is not magic; it is simply the shortest path,
+   * with no handler registry, no capability gate and no queue in front of it.
+   *
+   * `CpuProfileCapture` is resolved lazily per call rather than in the
+   * constructor: this bridge is built during bootstrap, and paying for an
+   * inspector-capable singleton on every launch to serve a channel almost
+   * nobody invokes is the wrong trade.
+   */
+  private setupDiagnosticsHandlers(): void {
+    ipcMain.handle(
+      'diag:cpu-profile',
+      async (_event, durationMs?: number): Promise<string> => {
+        const capture = this.container.resolve<{
+          captureFor(durationMs?: number): Promise<string>;
+        }>(TOKENS.CPU_PROFILE_CAPTURE);
+        return await capture.captureFor(clampCpuProfileDuration(durationMs));
+      },
+    );
+    console.log('[IpcBridge] Diagnostics IPC handlers initialized');
+  }
+
+  /**
    * Cleanup IPC listeners. Call on app shutdown.
    */
   dispose(): void {
@@ -552,6 +604,8 @@ export class IpcBridge {
     ipcMain.removeAllListeners('set-state');
     ipcMain.removeAllListeners('terminal:data-in');
     ipcMain.removeAllListeners('terminal:resize');
+    // `handle` channels need removeHandler, not removeAllListeners.
+    ipcMain.removeHandler('diag:cpu-profile');
     this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }

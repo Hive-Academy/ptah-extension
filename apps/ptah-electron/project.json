@@ -202,6 +202,10 @@
             "forwardAllArgs": false
           },
           {
+            "command": "node apps/ptah-electron/scripts/prune-dist-deps.js",
+            "forwardAllArgs": false
+          },
+          {
             "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
             "forwardAllArgs": false
           }
@@ -281,6 +285,7 @@
         "commands": [
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js",
+          "node apps/ptah-electron/scripts/prune-dist-deps.js",
           "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron",
           "node apps/ptah-electron/scripts/verify-packed-native.js",
           "node apps/ptah-electron/scripts/verify-packed-wasm.js",

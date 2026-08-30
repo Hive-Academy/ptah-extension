@@ -32,6 +32,7 @@ import {
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
   SdkQueryRunner,
+  OffThreadProcessSpawner,
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
@@ -50,8 +51,6 @@ import {
   SubagentStopCallbackRegistry,
   PostToolUseCallbackRegistry,
   PostToolUseHookHandler,
-  PreToolUseCallbackRegistry,
-  PreToolUseHookHandler,
   SessionStartCallbackRegistry,
   SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
@@ -204,18 +203,6 @@ export function registerSdkServices(
   );
 
   container.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
-    { useClass: PreToolUseCallbackRegistry },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER,
-    { useClass: PreToolUseHookHandler },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
     SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
     { useClass: SessionStartCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -320,6 +307,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_ADAPTER_EVENTS,
     { useClass: SdkAdapterEvents },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PROCESS_SPAWNER,
+    { useClass: OffThreadProcessSpawner },
     { lifecycle: Lifecycle.Singleton },
   );
 

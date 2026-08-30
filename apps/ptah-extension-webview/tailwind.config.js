@@ -104,7 +104,11 @@ module.exports = {
           success: '#16a34a',
           'success-content': '#e8e6e1',
 
-          warning: '#fbbf24',
+          // WARNING: true orange, deliberately distinct from the brand
+          // gold in `secondary`/`accent`. Warning used to be #fbbf24 — the same
+          // hue family as the gold — so every caution affordance read as brand
+          // chrome and every brand accent read as a warning.
+          warning: '#f97316',
           'warning-content': '#131317',
 
           error: '#dc2626',
@@ -163,7 +167,10 @@ module.exports = {
           success: 'oklch(69% 0.17 162.48)',
           'success-content': 'oklch(26% 0.051 172.552)', // Dark text on success
 
-          warning: 'oklch(79% 0.184 86.047)',
+          // Orange, rotated farther off the gold hue for the same reason as the
+          // dark theme (see the `anubis` warning note above). Cupcake's stock
+          // warning sat at hue 86 — indistinguishable from `secondary` gold.
+          warning: 'oklch(72% 0.18 55)',
           'warning-content': 'oklch(28% 0.066 53.813)', // Dark text on warning
 
           error: 'oklch(64% 0.246 16.439)',
@@ -199,6 +206,24 @@ module.exports = {
       // sheet. Don't.
     ],
     darkTheme: 'anubis',
+    // Keep the eager themes OFF bare `:root`.
+    //
+    // daisyUI copies the first theme to `themeRoot` (default `:root`) as an
+    // unconditional fallback, on top of the `[data-theme=anubis]` block it
+    // emits anyway. That `:root` copy and `theme-extra.css`'s
+    // `[data-theme=<one of 32>]` rules have the SAME specificity (0,1,0), so
+    // which one wins is decided purely by sheet order — and the deferred sheet
+    // loads BEFORE styles.css (index.html inserts it while the parser is still
+    // mid-`<head>`, and the build appends styles.css at the end of `<head>`).
+    // anubis therefore won every deferred theme, and selecting one of the 32
+    // changed only `--bcm`, which styles.css sets per theme further down.
+    //
+    // Pointing themeRoot at the theme's own attribute selector collapses the
+    // duplicate: styles.css now contributes NO theme variables unless
+    // `data-theme` is actually `anubis`. `<html data-theme="anubis">` is
+    // hardcoded in index.html and ThemeService always writes the attribute, so
+    // nothing relies on the bare-`:root` fallback.
+    themeRoot: '[data-theme=anubis]',
     base: true,
     styled: true,
     utils: true,

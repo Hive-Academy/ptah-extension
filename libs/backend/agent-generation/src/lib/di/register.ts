@@ -9,7 +9,11 @@
  * but may require additional dependencies to be fully functional.
  */
 
-import { DependencyContainer, Lifecycle } from 'tsyringe';
+import {
+  DependencyContainer,
+  Lifecycle,
+  instanceCachingFactory,
+} from 'tsyringe';
 import {
   TOKENS,
   type Logger,
@@ -26,6 +30,7 @@ import { AgentGenerationOrchestratorService } from '../services/orchestrator.ser
 import { AgentSelectionService } from '../services/agent-selection.service';
 import { AgentRecommendationService } from '../services/agent-recommendation.service';
 import { TemplateStorageService } from '../services/template-storage.service';
+import { TemplatePartialResolver } from '../services/template-partial-resolver';
 import { ContentGenerationService } from '../services/content-generation.service';
 import { AgentFileWriterService } from '../services/file-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
@@ -61,8 +66,20 @@ export function registerAgentGenerationServices(
     { useClass: OutputValidationService },
     { lifecycle: Lifecycle.Singleton },
   );
+  // SINGLE INSTANCE, like every neighbour here. `TemplateStorageService` owns a
+  // `templateCache` and its `TemplatePartialResolver` owns a `partialCache`;
+  // both are read-once caches, which is only true if the service is resolved
+  // once. A bare `useFactory` re-runs on EVERY `resolve`, so each caller got a
+  // private pair of empty caches, re-read all 15 templates plus every
+  // `_shared/` partial from disk, and `clearCache()` on one instance never
+  // reached the others.
+  //
+  // `instanceCachingFactory`, not `{ lifecycle: Lifecycle.Singleton }`:
+  // tsyringe has no `register` overload pairing a factory provider with
+  // registration options, because a factory's lifetime is the factory's own
+  // business. This is its supplied answer — cache the result per container.
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
-    useFactory: (c) => {
+    useFactory: instanceCachingFactory((c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
       const contentDownload = c.resolve<ContentDownloadService>(
         PLATFORM_TOKENS.CONTENT_DOWNLOAD,
@@ -72,9 +89,10 @@ export function registerAgentGenerationServices(
       return new TemplateStorageService(
         loggerInstance,
         sentryService,
+        new TemplatePartialResolver(loggerInstance),
         templatesPath,
       );
-    },
+    }),
   });
   container.register(
     AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,

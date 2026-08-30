@@ -126,6 +126,7 @@ describe('registerVsCodeLmToolsServices', () => {
         '[VS Code LM Tools] Services registered',
         expect.objectContaining({
           services: [
+            'DIAGNOSTICS_CACHE_INVALIDATOR',
             'PTAH_API_BUILDER',
             'CODE_EXECUTION_MCP',
             'MCP_SERVER_STATUS',

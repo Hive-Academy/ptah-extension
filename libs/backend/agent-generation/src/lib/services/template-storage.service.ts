@@ -17,6 +17,31 @@ import { Result } from '@ptah-extension/shared';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { AgentTemplate } from '../types/core.types';
 import { TemplateError } from '../errors/template.error';
+import {
+  SHARED_PARTIALS_DIR,
+  TemplatePartialResolver,
+} from './template-partial-resolver';
+
+/**
+ * Read the `{{SLOT}}` values a template declares for its shared blocks.
+ *
+ * `variables` carries two shapes historically: a `TemplateVariable[]` (the
+ * legacy generation variables) and, since the shared-partial rework, a plain
+ * `name: value` map feeding the resolver's slots. Only the map form is returned
+ * here; an array yields no slots rather than an error, because the two uses are
+ * unrelated and a template may legitimately carry either.
+ */
+function readFrontmatterVariables(
+  frontmatter: Record<string, unknown>,
+): Record<string, string> {
+  const raw = frontmatter['variables'];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const slots: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string') slots[key] = value;
+  }
+  return slots;
+}
 
 /**
  * Service for loading and managing agent templates from storage.
@@ -66,6 +91,7 @@ export class TemplateStorageService implements ITemplateStorageService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    private readonly partialResolver: TemplatePartialResolver,
     templatesPath?: string,
   ) {
     this.templatesPath =
@@ -343,7 +369,19 @@ export class TemplateStorageService implements ITemplateStorageService {
         );
       }
       const frontmatter = parsed.data;
-      const content = parsed.content;
+      // Composition happens HERE, before generation, so every downstream
+      // consumer — the LLM pass, the agent writer, and every rival-CLI target
+      // harness-sync fans out to — receives an already-expanded plain file.
+      const resolution = await this.partialResolver.resolve(
+        templateId,
+        parsed.content,
+        join(this.templatesPath, SHARED_PARTIALS_DIR),
+        readFrontmatterVariables(frontmatter),
+      );
+      if (resolution.isErr()) {
+        return Result.err(resolution.error!);
+      }
+      const content = resolution.value!.content;
       if (!frontmatter['name'] && frontmatter['templateId']) {
         frontmatter['name'] = (frontmatter['templateId'] as string).replace(
           /-v\d+$/,
@@ -378,8 +416,19 @@ export class TemplateStorageService implements ITemplateStorageService {
         version: frontmatter['version'],
         content,
         applicabilityRules: frontmatter['applicabilityRules'],
-        variables: frontmatter['variables'] || [],
+        // `variables` carries BOTH shapes: the legacy `TemplateVariable[]` and
+        // the `{{SLOT}}` map the partial resolver reads. Only the array form
+        // belongs on the template; the map was already consumed above.
+        variables: Array.isArray(frontmatter['variables'])
+          ? frontmatter['variables']
+          : [],
         llmSections: frontmatter['llmSections'] || [],
+        // Read from the ONE frontmatter block. There is no longer a second
+        // `---name/description---` block for a downstream consumer to re-parse.
+        description:
+          typeof frontmatter['description'] === 'string'
+            ? (frontmatter['description'] as string).trim()
+            : undefined,
         model:
           typeof frontmatter['model'] === 'string'
             ? (frontmatter['model'] as string)
@@ -530,6 +579,7 @@ export class TemplateStorageService implements ITemplateStorageService {
       cacheSize: this.templateCache.size,
     });
     this.templateCache.clear();
+    this.partialResolver.clearCache();
     this.templatesLoaded = false;
   }
 

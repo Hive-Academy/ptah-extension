@@ -144,8 +144,27 @@ describe('buildContextNamespace', () => {
     );
     expect(
       deps._contextEnrichment.generateStructuralSummary,
-    ).toHaveBeenCalledWith('src/a.ts', 'typescript');
+    ).toHaveBeenCalledWith(path.join('D:/ws', 'src/a.ts'), 'typescript');
     expect(out.content).toBe('// ok');
+  });
+
+  it('enrichFile passes an absolute path through unchanged', async () => {
+    const deps = makeMocks();
+    deps._contextEnrichment.generateStructuralSummary.mockResolvedValue({
+      content: '// ok',
+      mode: 'full',
+      tokenCount: 10,
+      originalTokenCount: 20,
+      reductionPercentage: 50,
+    });
+    const abs = 'D:\\elsewhere\\b.ts';
+
+    await buildContextNamespace(deps).enrichFile(abs);
+
+    expect(
+      deps._contextEnrichment.generateStructuralSummary,
+    ).toHaveBeenCalledWith(abs, undefined);
+    expect(deps._workspaceProvider.getWorkspaceRoot).not.toHaveBeenCalled();
   });
 
   it('enrichFile swallows errors and returns an error-mode result', async () => {
@@ -430,6 +449,35 @@ describe('buildDependencyNamespace', () => {
     const ns = buildDependencyNamespace(deps);
     await expect(ns.getDependencies('a.ts')).resolves.toEqual([]);
     await expect(ns.getDependents('a.ts')).resolves.toEqual([]);
+  });
+
+  it('getDependencies / getDependents resolve a relative path to absolute before querying the graph', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.getDependencies.mockReturnValue([]);
+    deps._dependencyGraph.getDependents.mockReturnValue([]);
+    const ns = buildDependencyNamespace(deps);
+
+    await ns.getDependencies('src/a.ts', 2);
+    await ns.getDependents('src/a.ts');
+
+    expect(deps._dependencyGraph.getDependencies).toHaveBeenCalledWith(
+      path.join('D:/ws', 'src/a.ts'),
+      2,
+    );
+    expect(deps._dependencyGraph.getDependents).toHaveBeenCalledWith(
+      path.join('D:/ws', 'src/a.ts'),
+    );
+  });
+
+  it('getDependents passes an absolute path through unchanged', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.getDependents.mockReturnValue([]);
+    const abs = 'D:\\elsewhere\\b.ts';
+
+    await buildDependencyNamespace(deps).getDependents(abs);
+
+    expect(deps._dependencyGraph.getDependents).toHaveBeenCalledWith(abs);
+    expect(deps._workspaceProvider.getWorkspaceRoot).not.toHaveBeenCalled();
   });
 
   it('getSymbolIndex flattens the (file → exports) map into the public shape', async () => {

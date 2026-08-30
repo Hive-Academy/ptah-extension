@@ -326,6 +326,28 @@ export function isOptOutPluginSource(
   return source === 'harness' || source === 'skillssh';
 }
 
+/**
+ * Whether a plugin is usable as listed.
+ *
+ * `broken` means Ptah found the plugin on disk but could not read part of it —
+ * today, a `skills/{name}/` directory with no readable `SKILL.md`. The plugin
+ * still LISTS (hiding it would leave the user with no way to uninstall the
+ * thing that is failing) but it cannot supply the skills it appears to.
+ *
+ * Absent on legacy payloads, which is read as `'ok'`.
+ */
+export type PluginHealthStatus = 'ok' | 'broken';
+
+/** One reason a plugin is {@link PluginHealthStatus} `'broken'`. */
+export interface PluginHealthIssue {
+  /** The path Ptah could not read, e.g. `…/skills/scroll-world/SKILL.md`. */
+  path: string;
+  /** errno when the platform supplied one (`ENOENT`, `EACCES`, …). */
+  code?: string;
+  /** The underlying failure, for display next to the path. */
+  message: string;
+}
+
 /** Plugin metadata for UI display */
 export interface PluginInfo {
   /** Unique plugin identifier (directory name, e.g., 'ptah-core') */
@@ -352,6 +374,19 @@ export interface PluginInfo {
   keywords: string[];
   /** Origin + activation semantics. Absent on legacy payloads → `'bundled'`. */
   source?: PluginSource;
+  /**
+   * Whether the plugin is usable as listed. Absent on legacy payloads → `'ok'`.
+   *
+   * This exists because a broken plugin used to be a DEBUG log line and nothing
+   * else: `ptah-skillssh-oso95-scroll-world` had no `SKILL.md`, was skipped
+   * silently, and rendered in the browser modal as an ordinary entry with
+   * `skillCount: 0` — indistinguishable from a plugin that legitimately ships
+   * no skills. The user can act on this (reinstall or uninstall); they just
+   * need it on a surface they look at (TASK_2026_354).
+   */
+  status?: PluginHealthStatus;
+  /** Populated exactly when `status` is `'broken'`. */
+  issues?: PluginHealthIssue[];
 }
 
 /** Per-workspace plugin configuration state */

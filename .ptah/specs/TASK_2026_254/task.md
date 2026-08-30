@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_254
-status: backlog
+status: done
 type: REFACTORING
 title: >-
   Review the 15 subagent templates and the 22 plugin skills for duplicated

@@ -7,6 +7,9 @@
  * Heavy mocking of every collaborator avoids SQLite + filesystem.
  */
 import 'reflect-metadata';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { SkillSynthesisService } from './skill-synthesis.service';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillMdGenerator } from './skill-md-generator';
@@ -60,6 +63,8 @@ describe('SkillSynthesisService', () => {
       dominantSlug?: string | null;
       /** When set, a verdict store is injected and serves this row. */
       verdict?: SessionVerdict | null;
+      /** What `findLatestBySourceSession` answers — the prior draft, if any. */
+      prior?: SkillCandidateRow | null;
     } = {},
   ) {
     const vecLoaded = opts.vecLoaded ?? false;
@@ -119,6 +124,12 @@ describe('SkillSynthesisService', () => {
         candidate: fakeRow(),
       })),
       getDominantSkillSlugForSessions: jest.fn(() => opts.dominantSlug ?? null),
+      // Per-session supersession. `null` by default: almost every case here is
+      // a session being analyzed for the first time.
+      findLatestBySourceSession: jest.fn(() => opts.prior ?? null),
+      superseded: jest.fn((id: CandidateId, input: { description: string }) =>
+        fakeRow({ id, description: input.description }),
+      ),
     } as unknown as jest.Mocked<SkillCandidateStore>;
     const md = {
       candidatesRoot: jest.fn(() => '/tmp/cands'),
@@ -126,6 +137,11 @@ describe('SkillSynthesisService', () => {
         slug: 'do-thing',
         dir: '/tmp/cands/do-thing',
         filePath: '/tmp/cands/do-thing/SKILL.md',
+      })),
+      overwriteCandidate: jest.fn((input: { slug: string }) => ({
+        slug: input.slug,
+        dir: `/tmp/cands/${input.slug}`,
+        filePath: `/tmp/cands/${input.slug}/SKILL.md`,
       })),
     } as unknown as jest.Mocked<SkillMdGenerator>;
     const promotion = {
@@ -813,6 +829,132 @@ describe('SkillSynthesisService', () => {
       curatorIntervalHours: 24,
       suggestionMinClusterSize: 2,
       suggestionMaxCandidates: 200,
+    });
+  });
+
+  /**
+   * One candidate per session, superseded in place.
+   *
+   * `trajectory_hash` covers every turn, so a session that GROWS hashes
+   * differently and the hash guard misses. Before this, each re-open of the
+   * prefilter row minted a new row, and `writeCandidate`'s collision walk gave
+   * it a `-2 … -5` slug before throwing on the sixth — five directories and
+   * five rows for one session's work, then a permanently skipped row.
+   */
+  describe('analyzeSession() — per-session supersession', () => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-supersede-'));
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    });
+
+    /** A prior candidate whose SKILL.md really exists on disk. */
+    function priorOnDisk(description: string, body: string): SkillCandidateRow {
+      const dir = path.join(tmpRoot, 'do-thing');
+      fs.mkdirSync(dir, { recursive: true });
+      const bodyPath = path.join(dir, 'SKILL.md');
+      fs.writeFileSync(
+        bodyPath,
+        `---\nname: do-thing\ndescription: ${description}\n---\n\n${body}\n`,
+        'utf8',
+      );
+      return fakeRow({
+        id: 'cand_prior' as CandidateId,
+        name: 'do-thing',
+        description,
+        bodyPath,
+        trajectoryHash: 'hash-old',
+        sourceSessionIds: ['s1'],
+      });
+    }
+
+    function withSynthesizedBody(
+      built: ReturnType<typeof setup>,
+      body: string,
+      description: string,
+    ): void {
+      (
+        built.synthesizer as unknown as { synthesize: jest.Mock }
+      ).synthesize.mockResolvedValue({
+        name: 'do-thing',
+        description,
+        body,
+      });
+    }
+
+    it('overwrites the existing candidate in place when the session grew', async () => {
+      const prior = priorOnDisk('a description', 'OLD BODY');
+      const built = setup({ prior });
+      withSynthesizedBody(built, 'NEW BODY', 'a description');
+      await built.svc.start();
+
+      const result = await built.svc.analyzeSession('s1', '/repo');
+
+      // No new row, no new directory, no `-N` slug.
+      expect(built.store.registerCandidate).not.toHaveBeenCalled();
+      expect(built.md.writeCandidate).not.toHaveBeenCalled();
+      expect(built.md.overwriteCandidate).toHaveBeenCalledTimes(1);
+      const [mdInput] = (built.md.overwriteCandidate as jest.Mock).mock
+        .calls[0] as [{ slug: string; body: string }];
+      expect(mdInput.slug).toBe('do-thing');
+      expect(mdInput.slug).not.toMatch(/-\d+$/);
+      expect(mdInput.body).toBe('NEW BODY');
+
+      expect(built.store.superseded).toHaveBeenCalledTimes(1);
+      const [id, patch] = (built.store.superseded as jest.Mock).mock
+        .calls[0] as [CandidateId, { trajectoryHash: string }];
+      expect(id).toBe('cand_prior');
+      // The row now carries THIS pass's hash, which is what every other dedupe
+      // path reads.
+      expect(patch.trajectoryHash).toBe('hash-1');
+
+      // `reused: true` so the prefilter handler reports "reused existing
+      // candidate" and no invocation is double-counted.
+      expect(result?.reused).toBe(true);
+      expect(built.store.recordInvocation).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing at all when the re-draft is byte-identical', async () => {
+      const prior = priorOnDisk('a description', 'SAME BODY');
+      const built = setup({ prior });
+      withSynthesizedBody(built, 'SAME BODY', 'a description');
+      await built.svc.start();
+
+      const result = await built.svc.analyzeSession('s1', '/repo');
+
+      expect(result?.reused).toBe(true);
+      expect(result?.candidate.id).toBe('cand_prior');
+      expect(built.md.overwriteCandidate).not.toHaveBeenCalled();
+      expect(built.md.writeCandidate).not.toHaveBeenCalled();
+      expect(built.store.superseded).not.toHaveBeenCalled();
+      expect(built.store.registerCandidate).not.toHaveBeenCalled();
+    });
+
+    it('still gives a DIFFERENT session its own row', async () => {
+      // The supersession is keyed on the session, so two sessions that happen
+      // to produce the same first sentence keep the `-N` collision walk they
+      // have always had.
+      const built = setup({ prior: null });
+      withSynthesizedBody(built, 'ANY BODY', 'a description');
+      await built.svc.start();
+
+      const result = await built.svc.analyzeSession('s-other', '/repo');
+
+      expect(built.store.findLatestBySourceSession).toHaveBeenCalledWith(
+        's-other',
+      );
+      expect(built.md.writeCandidate).toHaveBeenCalledTimes(1);
+      expect(built.store.registerCandidate).toHaveBeenCalledTimes(1);
+      expect(built.md.overwriteCandidate).not.toHaveBeenCalled();
+      expect(result?.reused).toBe(false);
     });
   });
 });

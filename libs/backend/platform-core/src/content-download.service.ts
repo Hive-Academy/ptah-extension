@@ -289,24 +289,43 @@ export class ContentDownloadService {
         onProgress?.('Downloading templates', downloadedCount, totalFiles);
       },
     );
-    const cacheMetadata: ContentCacheMetadata = {
-      contentHash: manifest.contentHash,
-      downloadedAt: new Date().toISOString(),
-      manifestVersion: manifest.version,
-      pluginCount: pluginResults.succeeded,
-      templateCount: templateResults.succeeded,
-    };
-
-    this.writePromise = this.writePromise.then(
-      () => this.persistCacheMetadata(cacheMetadata),
-      () => this.persistCacheMetadata(cacheMetadata),
-    );
-    await this.writePromise;
-
-    onProgress?.('Complete', totalFiles, totalFiles);
-
     const allSucceeded =
       pluginResults.failed === 0 && templateResults.failed === 0;
+
+    // PERSIST THE HASH ONLY ON A COMPLETE DOWNLOAD (TASK_2026_254).
+    //
+    // The hash is the cache-hit key: the early return above skips the whole
+    // download whenever the stored hash equals the manifest's. Writing it after
+    // a PARTIAL download therefore records "this manifest is fully mirrored"
+    // about a tree that is missing files, and every later launch takes the
+    // cache-hit path and never retries. Nothing in production passes
+    // `forceRefresh`, so the gap is permanent for that install.
+    //
+    // That went from a tolerable to an unrecoverable failure when the shared
+    // partials landed: one missing `_shared/*.md` makes `TemplatePartialResolver`
+    // fail the load of EVERY template that references it, so a single dropped
+    // file turns into an agent corpus that never loads again.
+    //
+    // Skipping the write costs one re-download of an already-current tree on
+    // the next launch. Individual files are only fetched when absent or stale,
+    // so the retry is cheap and it is self-healing.
+    if (allSucceeded) {
+      const cacheMetadata: ContentCacheMetadata = {
+        contentHash: manifest.contentHash,
+        downloadedAt: new Date().toISOString(),
+        manifestVersion: manifest.version,
+        pluginCount: pluginResults.succeeded,
+        templateCount: templateResults.succeeded,
+      };
+
+      this.writePromise = this.writePromise.then(
+        () => this.persistCacheMetadata(cacheMetadata),
+        () => this.persistCacheMetadata(cacheMetadata),
+      );
+      await this.writePromise;
+    }
+
+    onProgress?.('Complete', totalFiles, totalFiles);
 
     return {
       success: allSucceeded,

@@ -201,6 +201,12 @@ skills/
 .claude/skills/*
 !.claude/skills/video-showcase/
 !.claude/skills/video-showcase/**
+# Shareable fleet-orchestration skill + the checkpointed fleet workflow script
+# (TASK_2026_357): the resume-safe orchestration pattern travels with the repo.
+!.claude/skills/fleet-orchestration/
+!.claude/skills/fleet-orchestration/**
+!.claude/workflows/
+!.claude/workflows/**
 skills-lock.json
 .remocn-fetch
 

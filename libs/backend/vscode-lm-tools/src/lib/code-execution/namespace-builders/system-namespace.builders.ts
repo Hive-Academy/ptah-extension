@@ -214,7 +214,7 @@ CLI AGENT DELEGATION (3-tier hierarchy):
     Tier 2: Sub-agents (Senior Leads) — via Agent tool
       Tier 3: CLI agents (Junior Helpers) — via ptah.agent.spawn
 
-Available CLI agents: codex, copilot, ptah-cli (max 3 concurrent).
+Available CLI agents: codex, copilot, ptah-cli (concurrency cap is the \`ptah.agentOrchestration.maxConcurrentAgents\` setting, default 5; a spawn past the cap fails with a clear error).
 Sub-agents decide when to delegate grunt work vs do it directly.
 
 SPECIALIST AGENTS (14):

@@ -26,7 +26,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
         type="button"
         (click)="toggleDropdown()"
         [disabled]="autopilotState.isPending()"
-        [class.text-warning]="autopilotState.enabled()"
+        [class.text-primary]="autopilotState.enabled()"
       >
         @if (autopilotState.isPending()) {
           <span class="loading loading-spinner loading-xs"></span>
@@ -49,7 +49,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
           <lucide-angular
             [img]="autopilotState.enabled() ? ZapIcon : ZapOffIcon"
             class="w-3.5 h-3.5"
-            [class.text-warning]="autopilotState.enabled()"
+            [class.text-primary]="autopilotState.enabled()"
           />
           <span
             class="text-xs font-semibold text-base-content-muted uppercase tracking-wide"
@@ -57,7 +57,9 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
             Autopilot Mode
           </span>
           @if (autopilotState.enabled()) {
-            <span class="badge badge-warning badge-xs ml-auto">Active</span>
+            <span class="badge badge-primary badge-outline badge-xs ml-auto"
+              >Active</span
+            >
           }
         </div>
 
@@ -121,7 +123,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
             }
 
             <button
-              class="btn btn-warning btn-xs w-full gap-1.5"
+              class="btn btn-primary btn-xs w-full gap-1.5"
               [disabled]="autopilotState.isPending()"
               (click)="enableAutopilot()"
             >

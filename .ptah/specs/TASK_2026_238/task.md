@@ -1,15 +1,16 @@
 ---
 id: TASK_2026_238
-status: in_review
+status: done
 type: BUGFIX
 title: Fix codex and opencode native binary path resolution
 description: >-
   resolveCodexNativeBinary() builds every candidate with a hardcoded
-  vendor/<triple>/codex/ segment, but @openai/codex-sdk 0.147 ships the binary at
-  vendor/<triple>/bin/. Every candidate misses, codexPathOverride is never set,
-  and the SDK falls back to self-resolution — which works against a real
+  vendor/<triple>/codex/ segment, but @openai/codex-sdk 0.147 ships the binary
+  at vendor/<triple>/bin/. Every candidate misses, codexPathOverride is never
+  set, and the SDK falls back to self-resolution — which works against a real
   node_modules tree but fails from a packaged asar build with ENOENT. The same
   shape of bug is in the opencode adapter fallback.
+updated: '2026-08-25T21:11:02.618Z'
 ---
 
 # Fix codex and opencode native binary path resolution

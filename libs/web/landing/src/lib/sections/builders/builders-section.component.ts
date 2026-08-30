@@ -318,13 +318,13 @@ export class BuildersSectionComponent {
     'Ship Production SaaS Faster — With Builders Who Have Already Done It.';
   protected readonly subhead =
     'Ptah the app is free and open source. Ptah Builders is where you go deeper: live build sessions, a PRD-to-production curriculum, and the delivery patterns other builders have already turned into skills.';
-  /** List pricing once Builders checkout opens. */
-  protected readonly listPrice = '$29/mo or $290/yr at launch.';
-  /** Early Adopter offer — founding members get 70% off their first year. */
+  /** Headline of the Early Adopter offer — the founding cohort pays nothing. */
+  protected readonly listPrice = 'Free for approved Early Adopters.';
+  /** Early Adopter offer — an approved founding member gets a free year. */
   protected readonly foundingOffer =
-    'Early Adopters get 70% off their first year of Ptah Builders — the SaaS-building course, weekly live sessions, and the community — for $8.70/mo or $87 for the first year. Renewals bill at list price.';
+    'Approved Early Adopters get a full year of Ptah Builders free — the SaaS-building course, weekly live sessions, and the community. We never ask for a card, now or later. Builders lists at $29/mo or $290/yr once checkout opens.';
   protected readonly reassurance =
-    "Membership isn't on sale yet — apply to the Early Adopter program and we'll review your request and email you the moment your 70% founding discount is live. No spam.";
+    "Membership isn't on sale yet — apply to the Early Adopter program and we'll review your request and email you the moment your free founding year is live. No card, no spam.";
   protected readonly ctaLabel = 'Apply';
   protected readonly ctaHref = '#waitlist';
   protected readonly ctaAria =

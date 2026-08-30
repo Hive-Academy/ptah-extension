@@ -77,6 +77,98 @@ const APPLY_OFFSET_RE = /\(offset (-?\d+) lines?\)/g;
 const DIFF_FLAGS = ['-U3', '--no-color', '--no-ext-diff'] as const;
 
 /**
+ * Positional (non-flag) arguments after the git verb.
+ *
+ * The tell that separates a listing invocation from a writing one for the
+ * verbs that are both: `git remote -v` and `git tag --sort=… --format=…` carry
+ * none, `git remote add <name>` and `git tag <name>` carry one.
+ */
+function positionalArgs(args: readonly string[]): string[] {
+  return args.slice(1).filter((a) => !a.startsWith('-'));
+}
+
+/**
+ * Does this argv change anything the read cache holds?
+ *
+ * **The default answer is `true`.** Only verbs proven read-only answer `false`.
+ * The two failure modes are not symmetric: mis-classifying a read costs one
+ * dropped cache entry and one extra `for-each-ref`, while mis-classifying a
+ * WRITE serves a stale branch list until the next watcher event. So a verb this
+ * service does not use today — `branch`, `fetch`, `cherry-pick`, `revert`,
+ * `am`, `merge`, `rebase`, `pull` — counts as a mutation, and a method added
+ * later inherits invalidation by construction instead of by remembering to ask
+ * for it. That is the promise {@link GitInfoService.execGit} makes.
+ *
+ * Read commands MUST answer `false` or they invalidate the very entry they were
+ * about to populate — which is why the allowlist below is exactly the set of
+ * verbs this service spawns on its read paths, plus the read-only plumbing
+ * (`rev-list`, `cat-file`, `ls-files`, `ls-tree`, `merge-base`) that has no
+ * writing form at all.
+ *
+ * Four verbs are read-only only in some forms and are told apart by their
+ * arguments rather than being trusted wholesale:
+ *
+ * - `stash` — `list` and `show` read; `push`/`pop`/`apply`/`drop` write.
+ * - `worktree` — `list` reads; `add`/`remove`/`prune` write.
+ * - `remote` / `tag` — bare or all-flags is a listing; a positional is a write.
+ * - `symbolic-ref` — `symbolic-ref --short HEAD` reads, but
+ *   `symbolic-ref HEAD refs/heads/x` REPOINTS HEAD, which is precisely what the
+ *   branch cache holds. Two positionals is the write form.
+ *
+ * Exported for the classification table in `git-info.service.spec.ts`. It is
+ * not re-exported from the lib barrel.
+ */
+export function isMutatingGitCommand(args: readonly string[]): boolean {
+  const [command, sub] = args;
+  switch (command) {
+    // Unconditionally read-only: these verbs have no writing form.
+    case 'status':
+    case 'show':
+    case 'diff':
+    case 'log':
+    case 'rev-parse':
+    case 'rev-list':
+    case 'for-each-ref':
+    case 'cat-file':
+    case 'ls-files':
+    case 'ls-tree':
+    case 'merge-base':
+      return false;
+    case 'stash':
+      return sub !== 'list' && sub !== 'show';
+    case 'worktree':
+      return sub !== 'list';
+    case 'remote':
+    case 'tag':
+      return positionalArgs(args).length > 0;
+    case 'symbolic-ref':
+      return positionalArgs(args).length > 1;
+    default:
+      return true;
+  }
+}
+
+/**
+ * Read `%(upstream:track)` — the same field `git branch -vv` prints.
+ *
+ * git emits `[ahead 3, behind 2]`, `[ahead 3]`, `[behind 2]`, `[gone]`, or
+ * the empty string. Empty means either "no upstream" or "in sync"; both are
+ * 0/0, so the two need not be told apart here. `[gone]` (the upstream ref has
+ * been deleted) is also 0/0 — there is nothing left to count against.
+ *
+ * The wording is stable because `exec-git` pins `LC_ALL=C` on every
+ * invocation.
+ */
+function parseUpstreamTrack(raw: string): { ahead: number; behind: number } {
+  const aheadMatch = /ahead (\d+)/.exec(raw);
+  const behindMatch = /behind (\d+)/.exec(raw);
+  return {
+    ahead: aheadMatch ? Number.parseInt(aheadMatch[1], 10) : 0,
+    behind: behindMatch ? Number.parseInt(behindMatch[1], 10) : 0,
+  };
+}
+
+/**
  * Which operations are defined for each comparison.
  *
  * `worktree` compares index -> working tree: its changes can be promoted into
@@ -152,7 +244,101 @@ export interface ApplyHunksRequest extends DiffFileRequest {
 export class GitInfoService {
   constructor(private readonly logger: Logger) {}
 
+  /**
+   * Settled results of the cheap-to-invalidate read methods, held until
+   * {@link invalidateReadCache} drops them. Keys are
+   * `${method}|${workspacePath}|${variant}`, so two workspace folders never
+   * share an entry and invalidating one leaves the other intact.
+   *
+   * `getGitInfo` is deliberately NOT in here — it is the working-tree status
+   * walk and the git watcher's own source of truth, so a settled entry would
+   * make the watcher push status it had already superseded. It gets in-flight
+   * coalescing only, which cannot be stale by construction: a concurrent
+   * identical request is asking about the same instant.
+   */
+  private readonly readCache = new Map<string, unknown>();
+
+  /**
+   * Computations currently running, keyed as {@link readCache}. Concurrent
+   * identical callers await the same promise instead of spawning a second
+   * git process.
+   */
+  private readonly inFlight = new Map<string, Promise<unknown>>();
+
+  /**
+   * Bumped by every {@link invalidateReadCache}. A computation that was
+   * already running when the invalidation happened must not write its
+   * pre-change value back into the freshly cleared cache, so every write-back
+   * is conditional on this still being the generation it started under. Same
+   * idiom as the `auth:getAuthStatus` cache (TASK_2026_342).
+   */
+  private cacheGeneration = 0;
+
+  /**
+   * Drop cached git reads.
+   *
+   * Called by every repo-mutating method on this service, and by
+   * `GitWatcherService.fetchAndPush` for changes made outside Ptah (a `git
+   * checkout` in a terminal) — so the status the watcher pushes and the branch
+   * list the renderer asks for next describe the same instant.
+   *
+   * With no `workspacePath`, every workspace is dropped.
+   */
+  invalidateReadCache(workspacePath?: string): void {
+    this.cacheGeneration++;
+    if (!workspacePath) {
+      this.readCache.clear();
+      this.inFlight.clear();
+      return;
+    }
+    const suffix = `|${workspacePath}|`;
+    for (const key of [...this.readCache.keys()]) {
+      if (key.includes(suffix)) this.readCache.delete(key);
+    }
+    for (const key of [...this.inFlight.keys()]) {
+      if (key.includes(suffix)) this.inFlight.delete(key);
+    }
+  }
+
+  /**
+   * In-flight coalescing only — no settled entry. For reads that must always
+   * reflect the current instant but need not run twice concurrently.
+   */
+  private coalesce<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    const running = this.inFlight.get(key);
+    if (running) return running as Promise<T>;
+
+    const promise = compute().finally(() => {
+      // Delete by IDENTITY: an invalidated computation settling must not
+      // evict the newer one that has already claimed this key.
+      if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
+  /** In-flight coalescing plus a settled entry held until invalidation. */
+  private cachedRead<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    if (this.readCache.has(key)) {
+      return Promise.resolve(this.readCache.get(key) as T);
+    }
+    const generation = this.cacheGeneration;
+    return this.coalesce(key, async () => {
+      const value = await compute();
+      if (generation === this.cacheGeneration) {
+        this.readCache.set(key, value);
+      }
+      return value;
+    });
+  }
+
   async getGitInfo(workspacePath: string): Promise<GitInfoResult> {
+    return this.coalesce(`info|${workspacePath}|`, () =>
+      this.computeGitInfo(workspacePath),
+    );
+  }
+
+  private async computeGitInfo(workspacePath: string): Promise<GitInfoResult> {
     const isRepo = await this.isGitRepo(workspacePath);
     if (!isRepo) {
       return {
@@ -184,11 +370,19 @@ export class GitInfoService {
       const files = this.parseFileStatus(stdout);
 
       return { isGitRepo: true, branch, files };
-    } catch (error) {
-      this.logger.error('[GitInfoService] getGitInfo failed', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      } as unknown as Error);
+    } catch (error: unknown) {
+      // INLINE, not context. `Logger.error`'s console transport renders only
+      // `context.error` (the slot for a real `Error` instance) and
+      // `context.metadata`; a plain object passed as context is dropped whole.
+      // This line read `[ERROR] [GitInfoService] getGitInfo failed` with
+      // nothing after it in the 2026-08-29 smoke log — naming neither the
+      // folder nor the failure, so a `git status` timeout and a spawn error
+      // were indistinguishable after the fact.
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[GitInfoService] getGitInfo failed for ${workspacePath}: ${message}`,
+        error instanceof Error ? error : undefined,
+      );
       return {
         isGitRepo: true,
         branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
@@ -1595,76 +1789,105 @@ export class GitInfoService {
   /**
    * List local (and optionally remote) branches with ahead/behind counts.
    *
-   * Uses `%(ahead-behind:upstream)` (requires git >= 2.31). When that field
-   * is empty but an upstream is configured, falls back to a per-branch
-   * `git rev-list --left-right --count` call. When no upstream is set,
-   * ahead/behind default to 0.
+   * **One `for-each-ref` invocation, whatever the branch count.** Local and
+   * remote refs are listed by the same command (told apart by `%(refname)`,
+   * not by which command produced them), the current branch comes from
+   * `%(HEAD)`, and ahead/behind come from `%(upstream:track)`.
+   *
+   * This replaced a per-branch `git rev-list --left-right --count` fan-out
+   * (TASK_2026_343). The old code carried `%09%09` where it meant to carry
+   * `%(ahead-behind:upstream)`, so that field was ALWAYS empty and every
+   * upstream-tracking branch took the fallback — sequentially. Measured in
+   * this repository (156 local branches, 113 with an upstream), 20 of those
+   * spawns cost 4.1 s against 0.29 s for the single `for-each-ref` that now
+   * replaces all of them.
+   *
+   * **`%(ahead-behind:upstream)` is deliberately NOT used.** Verified against
+   * git 2.54: if any ref in the result set lacks an upstream, git aborts the
+   * whole command with `fatal: failed to find 'upstream'`, and wrapping it in
+   * `%(if)%(upstream)%(then)…%(end)` does not help because the atom resolves
+   * before the conditional. `%(upstream:track)` is empty rather than fatal for
+   * an untracked branch, and `exec-git` pins `LC_ALL=C` so its wording is
+   * stable.
+   *
+   * Results are cached per `(workspacePath, includeRemote)` until
+   * {@link invalidateReadCache} fires; concurrent identical calls share one
+   * invocation.
    */
   async getBranches(
     workspacePath: string,
     includeRemote = false,
   ): Promise<GitBranchesResult> {
-    const empty: GitBranchesResult = {
-      current: '',
-      local: [],
-      remote: [],
-    };
+    return this.cachedRead(
+      `branches|${workspacePath}|${includeRemote ? 'remote' : 'local'}`,
+      () => this.computeBranches(workspacePath, includeRemote),
+    );
+  }
+
+  /**
+   * Tab-separated `for-each-ref` fields, in order.
+   *
+   * `%(HEAD)` is placed in the INTERIOR on purpose: it renders as a single
+   * space for every non-current ref, and a leading or trailing space would be
+   * eaten by the per-line `trim()`, silently shifting every field.
+   */
+  private static readonly BRANCH_REF_FORMAT = [
+    '%(refname)',
+    '%(refname:short)',
+    '%(HEAD)',
+    '%(objectname:short)',
+    '%(upstream:short)',
+    '%(upstream:track)',
+    '%(creatordate:unix)',
+  ].join('%09');
+
+  private async computeBranches(
+    workspacePath: string,
+    includeRemote: boolean,
+  ): Promise<GitBranchesResult> {
+    const empty: GitBranchesResult = { current: '', local: [], remote: [] };
     try {
-      let current = '';
-
-      const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
-        ['symbolic-ref', '--short', 'HEAD'],
-        workspacePath,
-      );
-      if (symRefCode === 0) {
-        current = symRefOut.trim();
-      }
-      const fmt =
-        '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%09%(creatordate:unix)';
-
-      const localArgs = ['for-each-ref', `--format=${fmt}`, 'refs/heads/'];
-      const { stdout: localOut, exitCode: localExit } = await this.execGit(
-        localArgs,
+      const patterns = includeRemote
+        ? ['refs/heads/', 'refs/remotes/']
+        : ['refs/heads/'];
+      const { stdout, exitCode } = await this.execGit(
+        [
+          'for-each-ref',
+          `--format=${GitInfoService.BRANCH_REF_FORMAT}`,
+          ...patterns,
+        ],
         workspacePath,
       );
 
-      if (localExit !== 0) {
+      if (exitCode !== 0) {
         return empty;
       }
 
       const local: BranchRef[] = [];
-      for (const line of localOut.split('\n')) {
-        const parsed = await this.parseBranchRefLine(
-          line,
-          false,
-          workspacePath,
-        );
-        if (parsed) local.push(parsed);
-      }
-
       const remote: BranchRef[] = [];
-      if (includeRemote) {
-        const remoteArgs = ['for-each-ref', `--format=${fmt}`, 'refs/remotes/'];
-        const { stdout: remoteOut, exitCode: remoteExit } = await this.execGit(
-          remoteArgs,
-          workspacePath,
-        );
+      let current = '';
 
-        if (remoteExit === 0) {
-          for (const line of remoteOut.split('\n')) {
-            const shortName = line.split('\t')[0];
-            if (shortName.endsWith('/HEAD')) continue;
-            const parsed = await this.parseBranchRefLine(
-              line,
-              true,
-              workspacePath,
-            );
-            if (parsed) remote.push(parsed);
-          }
+      for (const line of stdout.split('\n')) {
+        const parsed = this.parseBranchRefLine(line);
+        if (!parsed) continue;
+        if (parsed.isRemote) {
+          remote.push(parsed);
+        } else {
+          local.push(parsed);
+          if (parsed.isCurrent) current = parsed.name;
         }
       }
-      for (const b of local) {
-        b.isCurrent = b.name === current;
+
+      // No ref carries `*` on an unborn branch (nothing to list yet) or a
+      // detached HEAD. `symbolic-ref` answers the first and exits non-zero on
+      // the second, which is the correct empty answer either way. One extra
+      // spawn, only in those two states.
+      if (!current) {
+        const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
+          ['symbolic-ref', '--short', 'HEAD'],
+          workspacePath,
+        );
+        if (symRefCode === 0) current = symRefOut.trim();
       }
 
       return { current, local, remote };
@@ -1678,50 +1901,33 @@ export class GitInfoService {
   }
 
   /**
-   * Parse a single `for-each-ref` formatted line into a `BranchRef`.
-   * Format: refname:short TAB objectname:short TAB upstream:short TAB ahead-behind:upstream TAB creatordate:unix
+   * Parse one {@link GitInfoService.BRANCH_REF_FORMAT} line into a `BranchRef`.
+   *
+   * Local vs remote is decided by the FULL `%(refname)`, never by the short
+   * name: a local branch may legitimately be called `origin/foo`, whose short
+   * form is indistinguishable from a remote-tracking ref.
    */
-  private async parseBranchRefLine(
-    line: string,
-    isRemote: boolean,
-    workspacePath: string,
-  ): Promise<BranchRef | null> {
+  private parseBranchRefLine(line: string): BranchRef | null {
     const trimmed = line.trim();
     if (!trimmed) return null;
 
     const parts = trimmed.split('\t');
-    const name = parts[0] ?? '';
-    const lastCommitHash = parts[1] ?? '';
-    const upstream = parts[2] ?? '';
-    const aheadBehindRaw = parts[3] ?? '';
-    const creatorDateRaw = parts[4] ?? '';
+    const fullRef = parts[0] ?? '';
+    const name = parts[1] ?? '';
+    const headMarker = parts[2] ?? '';
+    const lastCommitHash = parts[3] ?? '';
+    const upstream = parts[4] ?? '';
+    const trackRaw = parts[5] ?? '';
+    const creatorDateRaw = parts[6] ?? '';
 
     if (!name) return null;
 
-    let ahead = 0;
-    let behind = 0;
+    const isRemote = fullRef.startsWith('refs/remotes/');
+    // `refs/remotes/<remote>/HEAD` is a symref onto the remote's default
+    // branch, not a branch of its own.
+    if (isRemote && name.endsWith('/HEAD')) return null;
 
-    if (upstream) {
-      if (aheadBehindRaw) {
-        const [aheadStr, behindStr] = aheadBehindRaw.split(' ');
-        const parsedAhead = parseInt(aheadStr ?? '0', 10);
-        const parsedBehind = parseInt(behindStr ?? '0', 10);
-        if (!isNaN(parsedAhead)) ahead = parsedAhead;
-        if (!isNaN(parsedBehind)) behind = parsedBehind;
-      } else {
-        const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
-          ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
-          workspacePath,
-        );
-        if (rlCode === 0) {
-          const [behindStr, aheadStr] = rlOut.trim().split('\t');
-          const parsedBehind = parseInt(behindStr ?? '0', 10);
-          const parsedAhead = parseInt(aheadStr ?? '0', 10);
-          if (!isNaN(parsedBehind)) behind = parsedBehind;
-          if (!isNaN(parsedAhead)) ahead = parsedAhead;
-        }
-      }
-    }
+    const { ahead, behind } = parseUpstreamTrack(trackRaw);
 
     const lastCommitTime = creatorDateRaw
       ? parseInt(creatorDateRaw, 10) * 1000
@@ -1729,7 +1935,7 @@ export class GitInfoService {
 
     const ref: BranchRef = {
       name,
-      isCurrent: false, // set by caller if needed
+      isCurrent: !isRemote && headMarker === '*',
       isRemote,
       upstream: upstream || undefined,
       ahead,
@@ -1807,6 +2013,14 @@ export class GitInfoService {
    * messages entered via the CLI, so there is no collision with message content.
    */
   async stashList(workspacePath: string): Promise<GitStashListResult> {
+    return this.cachedRead(`stash|${workspacePath}|`, () =>
+      this.computeStashList(workspacePath),
+    );
+  }
+
+  private async computeStashList(
+    workspacePath: string,
+  ): Promise<GitStashListResult> {
     try {
       const { stdout, exitCode } = await this.execGit(
         ['stash', 'list', '--format=%gd%x09%s%x09%ct'],
@@ -1848,6 +2062,15 @@ export class GitInfoService {
    * Runs: git tag --sort=-creatordate --format=...
    */
   async getTags(workspacePath: string, limit = 20): Promise<GitTagsResult> {
+    return this.cachedRead(`tags|${workspacePath}|${limit}`, () =>
+      this.computeTags(workspacePath, limit),
+    );
+  }
+
+  private async computeTags(
+    workspacePath: string,
+    limit: number,
+  ): Promise<GitTagsResult> {
     try {
       const fmt =
         '%(refname:short)%09%(objectname:short)%09%(*objectname:short)%09%(creatordate:unix)';
@@ -1903,6 +2126,14 @@ export class GitInfoService {
    * Runs: git remote -v
    */
   async getRemotes(workspacePath: string): Promise<GitRemotesResult> {
+    return this.cachedRead(`remotes|${workspacePath}|`, () =>
+      this.computeRemotes(workspacePath),
+    );
+  }
+
+  private async computeRemotes(
+    workspacePath: string,
+  ): Promise<GitRemotesResult> {
     try {
       const { stdout, exitCode } = await this.execGit(
         ['remote', '-v'],
@@ -1964,6 +2195,15 @@ export class GitInfoService {
   async getLastCommit(
     workspacePath: string,
     ref = 'HEAD',
+  ): Promise<GitLastCommitResult> {
+    return this.cachedRead(`lastCommit|${workspacePath}|${ref}`, () =>
+      this.computeLastCommit(workspacePath, ref),
+    );
+  }
+
+  private async computeLastCommit(
+    workspacePath: string,
+    ref: string,
   ): Promise<GitLastCommitResult> {
     const emptyResult: GitLastCommitResult = {
       hash: '',
@@ -2031,20 +2271,33 @@ export class GitInfoService {
     }
   }
 
-  private execGit(
+  /**
+   * The one place this service spawns git for text output — and therefore the
+   * one place cache invalidation has to live.
+   *
+   * Deriving "did that change the repository?" from the argv, rather than
+   * asking each mutating method to remember to invalidate, is what keeps a
+   * future method from silently serving a stale branch list: a new call site
+   * gets the behaviour by construction. See {@link isMutatingGitCommand}.
+   */
+  private async execGit(
     args: string[],
     cwd: string,
     options?: ExecGitOptions,
   ): Promise<ExecGitResult> {
-    return execGit(args, cwd, options);
+    const result = await execGit(args, cwd, options);
+    if (isMutatingGitCommand(args)) this.invalidateReadCache(cwd);
+    return result;
   }
 
-  private execGitBuffer(
+  private async execGitBuffer(
     args: string[],
     cwd: string,
     options?: ExecGitOptions,
   ): Promise<ExecGitBufferResult> {
-    return execGitBuffer(args, cwd, options);
+    const result = await execGitBuffer(args, cwd, options);
+    if (isMutatingGitCommand(args)) this.invalidateReadCache(cwd);
+    return result;
   }
 
   /**

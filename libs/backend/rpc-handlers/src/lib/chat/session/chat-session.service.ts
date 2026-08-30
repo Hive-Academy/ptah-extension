@@ -393,7 +393,7 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+      let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
         mcpServerRunning,
@@ -401,7 +401,24 @@ export class ChatSessionService {
       });
 
       if (mcpServerRunning) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
+        // Awaited: subagents spawned by this session discover the server
+        // through `.mcp.json`, so the entry must be on disk before the session
+        // starts (TASK_2026_318).
+        //
+        // And the outcome is READ (TASK_2026_332). The call used to resolve
+        // with `undefined` whether or not it wrote anything, so a contended
+        // config lock started this session claiming MCP was available while the
+        // entry subagents look for was absent. `false` is the honest answer and
+        // the SDK path already supports it.
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        if (!registration.registered) {
+          mcpServerRunning = false;
+          this.logger.warn(
+            '[ptah.main] chat:start - .mcp.json entry absent, starting session without MCP',
+            { reason: registration.reason },
+          );
+        }
       }
 
       const enhancedPromptsContent =
@@ -525,18 +542,62 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      // Threaded into the resume below rather than dropped: `autoResumeIfInactive`
+      // re-derives `mcpServerRunning` from `isMcpServerRunning()`, which only
+      // says the HTTP server is up — it cannot know whether the `.mcp.json`
+      // entry was actually written (TASK_2026_332).
+      let mcpRegisteredForSubagents = true;
       if (this.sdkContext.isMcpServerRunning()) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        mcpRegisteredForSubagents = registration.registered;
+        if (!registration.registered) {
+          this.logger.warn(
+            '[ptah.main] chat:continue - .mcp.json entry absent, resuming without MCP',
+            { reason: registration.reason },
+          );
+        }
       }
-      const resumeOutcome = await this.autoResumeIfInactive(
-        sessionId,
-        tabId,
-        workspacePath,
-        prompt,
-        params,
-      );
-      if ('error' in resumeOutcome) return resumeOutcome.error;
-      const justResumed = resumeOutcome.justResumed;
+      // Slash commands are classified BEFORE the resume decision, not after it
+      // (TASK_2026_350).
+      //
+      // `autoResumeIfInactive` on an inactive session starts a full SDK query in
+      // `idle+streamInput` mode — it never forwards the prompt as an
+      // `initialPrompt`, so the executor cannot know a slash command is coming.
+      // The router below then calls `executeSlashCommand`, whose first act is to
+      // end the session that was started milliseconds earlier: measured cost was
+      // two CLI spawns plus a full `Interrupt timed out (5s)`, an 8524ms
+      // `chat:continue` for one `/orchestrate` (log.log:2292-2364).
+      //
+      // `SessionQueryExecutor` already serves "slash command + resume" in ONE
+      // query (`isSlashCommand && isResume` → `string (slash command + resume)`),
+      // and `executeSlashCommandQuery` handles a session with no registered
+      // record — `SessionControl.endSession` returns on `if (!rec)` with no
+      // interrupt. So the whole fix is to not ask for the resume.
+      //
+      // The pure static regex is used rather than `intercept()` so this decision
+      // cannot drift from the router's, and so the interceptor still logs
+      // `Command intercepted` exactly once.
+      //
+      // Every non-passthrough action of `routeFollowUpSlashCommand` is terminal,
+      // so nothing downstream of it needs a live session either.
+      const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
+
+      let justResumed = false;
+      if (isSlashCommand) {
+        await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
+      } else {
+        const resumeOutcome = await this.autoResumeIfInactive(
+          sessionId,
+          tabId,
+          workspacePath,
+          prompt,
+          params,
+          mcpRegisteredForSubagents,
+        );
+        if ('error' in resumeOutcome) return resumeOutcome.error;
+        justResumed = resumeOutcome.justResumed;
+      }
 
       const files = params.files ?? [];
       if (files.length > 0) {
@@ -675,9 +736,12 @@ export class ChatSessionService {
         this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
-        const metadata = await this.sessionMetadataStore.get(sessionId);
-        if (metadata?.cliSessions && metadata.cliSessions.length > 0) {
-          cliSessions = [...metadata.cliSessions];
+        // Rehydrates full agent output from the per-agent keys (TASK_2026_323
+        // B5); must agree with `session:cli-sessions`, the other restore path.
+        const restored =
+          await this.sessionMetadataStore.getCliSessionsForRestore(sessionId);
+        if (restored.length > 0) {
+          cliSessions = restored;
           this.logger.info('[RPC] CLI sessions found for session', {
             sessionId,
             cliSessionCount: cliSessions.length,
@@ -954,6 +1018,16 @@ export class ChatSessionService {
     workspacePath: string,
     prompt: string,
     params: AutoResumePreflight,
+    /**
+     * Whether the caller confirmed a `ptah` entry is on disk (TASK_2026_332).
+     *
+     * Defaults to `true` because the two other callers
+     * (`chat:resume --activate`, `ensureSessionActiveForRewind`) never call
+     * `ensureRegisteredForSubagents` at all, so they have nothing to report and
+     * must not be silently downgraded. Only the `chat:continue` path, which
+     * does register, passes the real answer.
+     */
+    mcpRegisteredForSubagents = true,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { justResumed: false };
@@ -963,13 +1037,24 @@ export class ChatSessionService {
     // message against a dead query, so tear it down first and fall through to
     // a real resume — otherwise `executeQuery` would re-register over the
     // stale record and leave its abort controller dangling.
+    //
+    // `interruptSession`, not `endSession`, and the difference is load-bearing
+    // rather than stylistic: `IAIProvider.endSession` returns `void`
+    // (ai-provider.types.ts:280) and the adapter fires the teardown with a bare
+    // `.catch()`, so the `await` here awaited `undefined` and the teardown was
+    // still running when `resumeSession` below registered the NEW record — under
+    // the SAME tabId. `SessionRegistry.remove` deletes by `rec.tabId` with no
+    // identity check, so the corpse's late removal would evict the replacement:
+    // a live session, absent from the registry, exactly the failure
+    // `endSessionIfTokenMatches` was introduced to prevent elsewhere. Awaiting
+    // the real teardown closes that window (judge round 2).
     if (this.sdkAdapter.isSessionActive(sessionId)) {
       this.logger.warn(
         '[RPC] Session is registered but has no attached stream — ending the dead record before resume',
         { sessionId, tabId },
       );
       try {
-        await this.sdkAdapter.endSession(sessionId);
+        await this.sdkAdapter.interruptSession(sessionId);
       } catch (cleanupError) {
         this.logger.warn(
           '[RPC] Failed to end dead session record before resume',
@@ -984,7 +1069,8 @@ export class ChatSessionService {
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
 
-    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+    const mcpServerRunning =
+      this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;
 
     this.logger.info('[ptah.main] chat:continue resume - session config', {
       mcpServerRunning,
@@ -1057,6 +1143,68 @@ export class ChatSessionService {
           error: message,
         },
       };
+    }
+  }
+
+  /**
+   * Tear down a DEAD session record before routing a slash command into it.
+   *
+   * The slash path skips `autoResumeIfInactive`, and with it that method's
+   * corpse-cleanup branch — so this is the third state, the one neither the
+   * "live" nor the "nothing registered" case covers: `isSessionActive` is true
+   * because a record exists, but its broadcast loop already exited, so
+   * `hasLiveSessionStream` is false. `SessionRegistry.find` resolves by tabId OR
+   * realSessionId, so a corpse registered under a tabId really is visible here
+   * under the SDK UUID `chat:continue` carries.
+   *
+   * Why this must AWAIT a real teardown rather than fire one off:
+   * `IAIProvider.endSession` returns `void` (ai-provider.types.ts:280) and the
+   * adapter fires the lifecycle teardown with a bare `.catch()`, so awaiting it
+   * awaits `undefined`. Using it here would leave the corpse registered when
+   * `executeSlashCommandQuery` runs its own unconditional `endSession`, and the
+   * SAME record would be torn down twice concurrently: two interrupt races for
+   * one query. `interruptSession` is the awaitable teardown (`Promise<void>`),
+   * so by the time the router runs the registry no longer holds the record and
+   * the slash query's `endSession` returns on `if (!rec)` — exactly one
+   * teardown, exactly one query.
+   *
+   * `autoResumeIfInactive`'s corpse branch takes the same `interruptSession` for
+   * the same reason (judge round 2); the two paths differ only in what they do
+   * afterwards, not in how they kill the record.
+   *
+   * It also restores a flush the direct path drops: the adapter's
+   * `interruptSession` calls `flushPendingUserActivityFor`, whereas
+   * `executeSlashCommandQuery` reaches `SessionControl.endSession` directly and
+   * bypasses that wrapper, silently discarding the dead session's buffered
+   * activity.
+   *
+   * No-op — and therefore behaviour-preserving — for both judged slash
+   * quadrants: a live session returns at the `hasLiveSessionStream` check, and
+   * a session with no record at all returns at the `isSessionActive` check.
+   */
+  private async endDeadRecordBeforeSlashCommand(
+    sessionId: SessionId,
+    tabId: string,
+  ): Promise<void> {
+    if (!this.sdkAdapter.isSessionActive(sessionId)) return;
+    if (this.hasLiveSessionStream(sessionId, tabId)) return;
+
+    this.logger.warn(
+      '[RPC] Session is registered but has no attached stream — ending the dead record before the slash command',
+      { sessionId, tabId },
+    );
+    try {
+      await this.sdkAdapter.interruptSession(sessionId);
+    } catch (cleanupError: unknown) {
+      // Non-fatal by design: the slash query re-registers under this id anyway,
+      // and its own `endSession` is a second chance at the teardown. Failing the
+      // user's command because a corpse would not die is the worse outcome.
+      this.logger.warn(
+        '[RPC] Failed to end dead session record before the slash command',
+        cleanupError instanceof Error
+          ? cleanupError
+          : new Error(String(cleanupError)),
+      );
     }
   }
 

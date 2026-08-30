@@ -317,6 +317,19 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // TASK_2026_180 Phase 1 — the four lane sub-trees, 8 fields each. Spread
   // from the same table that supplies their defaults below.
   ...Object.keys(SKILL_LANE_SETTINGS_DEFAULTS),
+  // The master switch above every `memory.triggers.*` toggle below: it gates
+  // the observation queue as well as the individual triggers
+  // (`MEMORY_TRIGGER_KEYS.enabled`, TASK_2026_323 B2). It sits in this section
+  // rather than beside `memory.curatorEnabled` because it is read by the same
+  // trigger config reader as the keys under it.
+  //
+  // It must be HERE and not only in `MEMORY_TRIGGER_KEYS`, because an unrouted
+  // key fails in the WRITE direction only: the read falls through to
+  // `FILE_BASED_SETTINGS_DEFAULTS` and looks correct, while the write is handed
+  // to a store that does not own the key and is dropped with no error — so a
+  // user turning memory off would see it redraw as off and the next trigger
+  // would capture anyway.
+  'memory.enabled',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -333,6 +346,16 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.triggers.postToolUse.enabled',
   'skillSynthesis.triggers.postToolUse.minEditCount',
   'skillSynthesis.triggers.maxAnalyzesPerHour',
+  // The one-shot concurrency gate that every internal caller shares —
+  // memory-curator, skill-synthesis, cron, the harness LLM runner and the setup
+  // wizard all queue on the same process-wide singleton (TASK_2026_323 B6).
+  // Both keys were read through `getConfiguration` from the day the gate
+  // shipped and registered NOWHERE — not here, not in the VS Code
+  // `contributes.configuration` — so they hit this file's documented silent-drop
+  // failure mode in the write direction on every host, and the gate stayed
+  // pinned at its defaults with no way for a user to move it (TASK_2026_328).
+  'internalQuery.maxConcurrent',
+  'internalQuery.queueTimeoutMs',
   'cron.enabled',
   'cron.maxConcurrentJobs',
   'cron.catchupWindowMs',
@@ -549,6 +572,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // TASK_2026_180 Phase 1 — see SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING. Both
   // halves (key list + defaults) come from that one table on purpose.
   ...SKILL_LANE_SETTINGS_DEFAULTS,
+  // Matches `MEMORY_TRIGGER_DEFAULTS.enabled` — memory capture is on unless the
+  // user turns it off.
+  'memory.enabled': true,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
@@ -573,6 +599,12 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.triggers.postToolUse.enabled': true,
   'skillSynthesis.triggers.postToolUse.minEditCount': 3,
   'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
+  // Match `DEFAULT_MAX_CONCURRENT` and `DEFAULT_QUEUE_TIMEOUT_MS` in
+  // `agent-sdk/src/lib/internal-query/internal-query.service.ts`. A drift here
+  // is invisible: the service falls back to its own constant, so the two would
+  // disagree only for a user who never wrote the setting.
+  'internalQuery.maxConcurrent': 1,
+  'internalQuery.queueTimeoutMs': 60000,
   'cron.enabled': true,
   'cron.maxConcurrentJobs': 3,
   'cron.catchupWindowMs': 86400000,

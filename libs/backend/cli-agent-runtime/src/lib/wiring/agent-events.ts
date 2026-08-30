@@ -48,6 +48,18 @@ interface SdkSessionMetadataStoreLike {
     workspaceId: string,
     name?: string,
   ): Promise<void>;
+  /**
+   * Bulk agent output, stored under a per-agent key rather than inside the
+   * all-sessions blob. Optional so a host wiring an older store shape still
+   * persists the reference itself.
+   */
+  saveAgentOutput?(
+    agentId: string,
+    output: {
+      segments?: readonly CliOutputSegment[];
+      streamEvents?: readonly FlatStreamEventUnion[];
+    },
+  ): Promise<void>;
 }
 
 /** Minimal shape of the CLI detection service (for Copilot permission bridge). */
@@ -212,6 +224,29 @@ function wireAgentMonitorListeners(
         });
     },
   );
+
+  // A released agent reaches the card as the SAME notice as an expired one, and
+  // that is not a shortcut. The message means exactly "in-process continuation
+  // is no longer available for this agentId", which is precisely what a release
+  // makes true — the record and its output survive, but the process behind
+  // `agent:continue` is gone. The card flips to its resume-by-session mode
+  // either way, so a second message type would carry no information the first
+  // does not (TASK_2026_323 B11).
+  agentProcessManager.events.on(
+    'agent:released',
+    (payload: { agentId: string }) => {
+      webviewManager
+        .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_EXPIRED, {
+          agentId: payload.agentId,
+        })
+        .catch((error) => {
+          logger.error(
+            `${tag} Failed to send agent-monitor:expired (released) to webview`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    },
+  );
 }
 
 function wireCopilotPermissionForwarding(
@@ -312,7 +347,16 @@ export function persistCliSessionReference(
         }
       | undefined;
 
-    if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    // A running agent has nothing worth persisting yet — this call fires on
+    // `agent:spawned` too, and copying the accumulated output there was half
+    // the cost of TASK_2026_323 blocker B5 for output that is empty by
+    // definition.
+    const agentHasFinished = info.status !== 'running';
+
+    if (
+      agentHasFinished &&
+      container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)
+    ) {
       const agentProcessManager = container.resolve<AgentProcessManager>(
         TOKENS.AGENT_PROCESS_MANAGER,
       );
@@ -321,7 +365,7 @@ export function persistCliSessionReference(
       ) as typeof persistedOutput;
     }
 
-    if (!persistedOutput && info.status !== 'running') {
+    if (!persistedOutput && agentHasFinished) {
       logger.warn(
         `${tag} Agent ${info.agentId} output unavailable for persistence (already cleaned up?)`,
         { cli: info.cli, status: info.status },
@@ -353,17 +397,45 @@ export function persistCliSessionReference(
       startedAt: info.startedAt,
       status: info.status,
       ...(persistedOutput?.stdout ? { stdout: persistedOutput.stdout } : {}),
+      // `segments` stays on the reference (the store keeps a bounded tail of
+      // it) so a restored Codex/Copilot card renders without a second read.
+      // `streamEvents` deliberately does NOT: an agent can hold 50 000 of
+      // them, and every reference lives inside the all-sessions blob that gets
+      // rewritten on each write. They go to a per-agent key below, and the
+      // restore path rehydrates them from there (TASK_2026_323 blocker B5).
       ...(persistedOutput?.segments?.length
         ? { segments: persistedOutput.segments }
-        : {}),
-      ...(persistedOutput?.streamEvents?.length
-        ? { streamEvents: persistedOutput.streamEvents }
         : {}),
       ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
       ...(sdkSessionId ? { sdkSessionId } : {}),
     };
 
-    retryWithBackoff(() => metadataStore.addCliSession(parentSessionId, ref), {
+    // Bulk FIRST, reference SECOND, both inside ONE retry.
+    //
+    // The reference is the only route to `ptah.agentOutput:<agentId>` — the
+    // restore path reads the key named by `ref.agentId` and nothing else
+    // enumerates it. Firing the bulk write off unretried while the reference
+    // got three attempts meant a single transient storage failure on the bulk
+    // left a durable reference pointing at a key that was never written, and
+    // the agent's execution tree was gone with a `warn` as the only trace
+    // (TASK_2026_324 finding 2). Sequencing them makes the reference the
+    // receipt for the bulk: it cannot become durable first, and a retry
+    // re-runs the bulk, which is a whole-record overwrite and so idempotent.
+    const persistBulkThenReference = async (): Promise<void> => {
+      if (
+        agentHasFinished &&
+        persistedOutput &&
+        metadataStore.saveAgentOutput
+      ) {
+        await metadataStore.saveAgentOutput(info.agentId, {
+          segments: persistedOutput.segments,
+          streamEvents: persistedOutput.streamEvents,
+        });
+      }
+      await metadataStore.addCliSession(parentSessionId, ref);
+    };
+
+    retryWithBackoff(persistBulkThenReference, {
       retries: 3,
       initialDelay: 1000,
       shouldRetry: (error: unknown) => {

@@ -171,6 +171,7 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'terminal:kill',
   'update:check-now',
   'update:get-state',
+  'update:mark-downloaded',
   'voice:downloadModel',
   'voice:downloadTtsModel',
   'voice:getConfig',

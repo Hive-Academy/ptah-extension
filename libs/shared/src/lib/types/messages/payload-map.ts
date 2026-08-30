@@ -121,6 +121,7 @@ import type {
   VecLoadDiagnosticWire,
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
+import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
@@ -310,6 +311,7 @@ export interface MessagePayloadMap {
   'session:subagentEnded': SdkSubagentEndedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
+  'boot:readinessChanged': BootReadinessChangedPayload;
   'memory:observationCaptured': MemoryObservationCapturedPayload;
   'memory:corpusChanged': MemoryCorpusChangedPayload;
   'memory:extracted': MemoryExtractedPayload;

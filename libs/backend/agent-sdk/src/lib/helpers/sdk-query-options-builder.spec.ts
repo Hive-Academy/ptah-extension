@@ -518,7 +518,6 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
-      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -1487,6 +1486,13 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     );
     expect(merged.PostToolUse).toHaveLength(1);
     expect(merged.UserPromptSubmit).toHaveLength(1);
+  });
+
+  it('omits PreToolUse from the merged hook list', () => {
+    const { builder } = makeBuilderWithSpies();
+    const merged = builder.createHooks('D:/tmp/ws', 'sess-abc');
+
+    expect(merged).not.toHaveProperty('PreToolUse');
   });
 
   it('passes an absent sessionId through untouched — it does not invent an empty string', () => {

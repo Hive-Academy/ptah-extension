@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_307
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   A single Windows-locked file still aborts a whole workspace index because
@@ -24,6 +24,7 @@ description: >-
   per-entry retry is warranted or whether skip-and-continue is sufficient for a
   read-only indexing pass. Found during the TASK_2026_306 log review and left
   unfixed there as out of scope.
+updated: '2026-08-25T21:25:44.949Z'
 ---
 
 # A locked file aborts the whole workspace index on Windows

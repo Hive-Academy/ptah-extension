@@ -181,7 +181,10 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(service.hasPendingUpdates('tab-B')).toBe(true);
   });
 
-  it('flushSync drains BOTH pending and deferred queues', () => {
+  it('flushSync() with no origin drains BOTH pending and deferred queues', () => {
+    // Turn-end finalization contract: `MessageFinalizationService` clears the
+    // tab's streaming state right after this call, so a deferred entry left
+    // behind would later re-install a finished turn's content.
     visibility.setVisibility('hidden');
     service.scheduleUpdate('tab-active', makeState('a1'));
     service.scheduleUpdate('tab-other', makeState('b1'));
@@ -197,6 +200,43 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(new Set(tabIds)).toContain('tab-active');
     expect(new Set(tabIds)).toContain('tab-other');
     expect(new Set(tabIds)).toContain('tab-also-active');
+  });
+
+  it('flushSync(origin) flushes the origin tab and leaves other hidden tabs deferred', () => {
+    // The `agent_start` path. One hidden tab spawning an agent must not drag
+    // every other hidden tab's deferred tree through a synchronous flush.
+    activeTabSignal.set('tab-visible');
+    TestBed.flushEffects();
+
+    service.scheduleUpdate('tab-origin', makeState('o1'));
+    service.scheduleUpdate('tab-bystander', makeState('b1'));
+    runRaf();
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+
+    service.flushSync('tab-origin');
+
+    const tabIds = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
+    expect(tabIds).toEqual(['tab-origin']);
+    expect(service.hasPendingUpdates('tab-bystander')).toBe(true);
+    expect(service.hasPendingUpdates('tab-origin')).toBe(false);
+  });
+
+  it('flushSync(origin) still drains deferred tabs that became flushable', () => {
+    visibleTabSignal.set(new Set(['tab-tile-1']));
+    TestBed.flushEffects();
+
+    visibility.setVisibility('hidden');
+    service.scheduleUpdate('tab-tile-1', makeState('t1'));
+    service.scheduleUpdate('tab-offscreen', makeState('t2'));
+
+    // Document visible again, but the drain effect has not run yet.
+    visibility.state = 'visible';
+
+    service.flushSync('tab-origin');
+
+    const tabIds = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
+    expect(new Set(tabIds)).toEqual(new Set(['tab-tile-1']));
+    expect(service.hasPendingUpdates('tab-offscreen')).toBe(true);
   });
 
   it('activeTabId === null does NOT defer (pre-change parity)', () => {

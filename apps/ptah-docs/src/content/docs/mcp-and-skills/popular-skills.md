@@ -1,64 +1,84 @@
 ---
-title: Popular Skills
-description: Pre-curated catalog of high-signal skills shipped by the official Ptah plugins.
+title: Shipped Skills
+description: Every skill that ships with the official Ptah plugin packs.
 ---
 
-This page indexes the skills that ship with the official plugins. Enable the parent plugin from the [marketplace](/plugins/marketplace/) and all its skills are junctioned into your workspace automatically.
+This page lists the skills that ship with the official Ptah plugins. Enable the
+parent plugin from the [plugin catalog](/plugins/marketplace/) and Ptah copies
+its skills into your workspace automatically.
 
-## Core workflow skills (`ptah-core`)
+Ptah ships **six plugin packs** with **25 skills** between them.
 
-| Skill                      | What it does                                                                                                                                  | When it triggers                                                   |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `orchestration`            | Full development-workflow orchestrator with 8 task types (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) | Any implementation task — default entry point for engineering work |
-| `orchestrate-help`         | Quick reference for `/orchestrate` — task types, workflow modes, agent catalog                                                                | User asks how orchestration works                                  |
-| `ddd-architecture`         | Domain-driven design guardrails for library boundaries, aggregates, and bounded contexts                                                      | Designing new domains or refactoring library structure             |
-| `technical-content-writer` | Author marketing pages, blog posts, technical docs, and video scripts with codebase-verified claims                                           | Producing external-facing content                                  |
-| `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                         | Landing pages, brand identity, visual specs                        |
-| `skill-creator`            | Guide for authoring effective skills (structure, triggers, references)                                                                        | Creating or updating a skill                                       |
+:::note[These are Ptah's skills, not your AI tool's]
+Your coding assistant may also expose skills of its own. This page covers only
+what the Ptah plugin packs contribute.
+:::
 
-## Review skills (triple-review protocol)
+## `ptah-core` — core workflow
 
-| Skill             | Phase                                                | Weight |
-| ----------------- | ---------------------------------------------------- | ------ |
-| `review-code`     | Code quality — adapts to the detected tech stack     | 40%    |
-| `review-logic`    | Business logic — dummy data, placeholders, tech debt | 35%    |
-| `review-security` | OWASP-based security assessment                      | 25%    |
+The recommended default pack. Eight skills and five slash commands.
 
-Use them individually or chain them for a complete review.
+| Skill                      | What it does                                                                                                                             | When it triggers                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `orchestration`            | Development-workflow orchestrator with 8 task types (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) | Any implementation task. The default entry point.          |
+| `tribunal`                 | Multi-vendor ensemble workflows — Council, Forge, Race, Relay, Crucible                                                                  | You want several AI vendors on one problem                 |
+| `ddd-architecture`         | Domain-driven design guardrails for boundaries, aggregates, bounded contexts                                                             | Designing a new domain or restructuring libraries          |
+| `humanize-library`         | Behavior-preserving refactor for readability, SOLID, and file size                                                                       | "Clean this up", "split large files", "remove duplication" |
+| `ptah-cli-usage`           | How to drive the headless Ptah CLI for CI, scripts, and bridges                                                                          | Any headless or scripted Ptah usage                        |
+| `skill-creator`            | Guide for authoring effective skills — structure, triggers, references                                                                   | Creating or updating a skill                               |
+| `technical-content-writer` | Marketing pages, blog posts, technical docs, and video scripts                                                                           | Producing external-facing content                          |
+| `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                    | Landing pages, brand identity, visual specs                |
 
-## Harness & config skills
+The pack also registers five slash commands: `/orchestrate`, `/orchestrate-help`,
+`/review-code`, `/review-logic`, and `/review-security`. The three review
+commands form a triple-review protocol — code quality, business logic, and
+security.
 
-| Skill                      | What it does                                                                         | When it triggers                                         |
-| -------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `update-config`            | Configure the Claude Code harness via `settings.json` — permissions, hooks, env vars | Anything touching `settings.json` or automated behaviors |
-| `fewer-permission-prompts` | Scan transcripts and add a prioritized allowlist to reduce permission prompts        | User frustrated by repeated permission asks              |
-| `keybindings-help`         | Customize keyboard shortcuts, add chord bindings                                     | Rebinding keys, modifying `~/.claude/keybindings.json`   |
-| `loop`                     | Run a prompt or slash command on a recurring interval                                | Polling, recurring checks, continuous tasks              |
-| `schedule`                 | Create/manage scheduled remote agents via cron                                       | Cron-scheduled automation                                |
+## `ptah-nx-saas` — Nx and NestJS backends
 
-## Angular skills (`ptah-angular`)
+| Skill                        | What it does                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `nx-workspace-architect`     | Nx monorepo layout, library boundaries, tagging, generators                      |
+| `nestjs-backend-patterns`    | Multi-tenancy, Prisma or ZenStack, auth, provider patterns, access control       |
+| `resilient-nestjs-patterns`  | Orchestrator decomposition, retry and fallback, events with SSE, dynamic modules |
+| `nestjs-deployment`          | Docker multi-stage builds, migrations, health checks, production hardening       |
+| `saas-platform-patterns`     | Tiering, licensing, subscription state machines, checkout flows                  |
+| `saas-workspace-initializer` | Two-stage SaaS bootstrap — discovery, roadmap, then foundation scaffolding       |
+| `webhook-architecture`       | Three-layer inbound webhook handling with signature checks and idempotency       |
 
-| Skill                            | What it does                                                                   | When it triggers                                        |
-| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| `angular-frontend-patterns`      | Modern Angular with signals: components, services, state, RxJS, forms, routing | Writing Angular components or services                  |
-| `angular-gsap-animation-crafter` | Scroll-based animations with GSAP + ScrollTrigger in Angular                   | Designing scroll experiences, parallax, pinned sections |
-| `angular-3d-scene-crafter`       | Three.js scenes integrated into Angular components                             | 3D hero sections, interactive WebGL backgrounds         |
+## `ptah-angular` — Angular frontends
 
-## Claude API skill
+| Skill                            | What it does                                                   |
+| -------------------------------- | -------------------------------------------------------------- |
+| `angular-frontend-patterns`      | Signals, smart and dumb components, state, RxJS interop, forms |
+| `angular-gsap-animation-crafter` | Scroll animations with GSAP and ScrollTrigger                  |
+| `angular-3d-scene-crafter`       | Three.js scenes as declarative Angular components              |
 
-| Skill        | What it does                                                                                          | When it triggers                                                 |
-| ------------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `claude-api` | Build, debug, and optimize Claude API apps; includes prompt caching; handles model-version migrations | Code imports `@anthropic-ai/sdk`; user works with the Claude API |
+## `ptah-react` — React frontends
 
-## React & Nx SaaS (planned)
+| Skill                  | What it does                                           |
+| ---------------------- | ------------------------------------------------------ |
+| `react-best-practices` | Idiomatic React — hooks, rendering, effects, data flow |
+| `react-nx-patterns`    | React inside an Nx monorepo                            |
+| `composition-patterns` | Component composition over configuration               |
 
-The `ptah-react` and `ptah-nx-saas` plugins ship additional skills tailored to their stacks. Browse the [marketplace](/plugins/marketplace/) for the current list.
+## `ptah-dotnet` — .NET solutions
 
-## `simplify`
+| Skill                         | What it does                                         |
+| ----------------------------- | ---------------------------------------------------- |
+| `dotnet-solution-architect`   | Solution and project structure, layering, boundaries |
+| `dotnet-solution-initializer` | Scaffolding a new .NET solution                      |
+| `nx-dotnet-workspace`         | Running .NET projects inside an Nx workspace         |
 
-A general-purpose refactor companion — reviews changed code for reuse, quality, and efficiency, then fixes any issues found. Pairs well with the three review skills as a post-edit cleanup pass.
+## `ptah-video` — marketing video
+
+| Skill            | What it does                                                                      |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `video-showcase` | Narrated, captioned, camera-animated demo videos from an automated UI walkthrough |
 
 ## Next steps
 
 - [Create your own skill](/mcp-and-skills/creating-skills/)
-- [Browse plugins that bundle these skills](/plugins/marketplace/)
+- [Enable and disable plugin packs](/plugins/installing/)
+- [Turn off individual skills](/plugins/skill-toggles/)
+- [How Ptah learns new skills from your work](/skill-synthesis/)

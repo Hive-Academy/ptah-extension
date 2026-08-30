@@ -1,5 +1,6 @@
+# source: ptah
 name = "devops-engineer"
-description = "\"DevOps Engineer for CI/CD, containerization, infrastructure-as-code, and deployment automation\""
+description = "DevOps Engineer for CI/CD, containerization, infrastructure-as-code, and deployment automation"
 developer_instructions = """
 ## Task-Spec File Contract (`.ptah/specs/`)
 

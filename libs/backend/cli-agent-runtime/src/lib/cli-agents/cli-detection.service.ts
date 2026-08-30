@@ -195,9 +195,14 @@ export class CliDetectionService {
   }
 
   /**
-   * Ensure CLI credentials are fresh (non-blocking background task).
-   * Codex refreshes OAuth tokens; Cursor confirms an API key is resolvable.
-   * Call during extension startup to avoid stale-credential fallbacks on first use.
+   * CHECK — not refresh — each rival CLI's stored credentials at startup, so a
+   * stale-credential fallback on first use is visible in the log beforehand.
+   *
+   * No adapter here refreshes anything: `ensureTokensFresh` reads the CLI's own
+   * credential file and reports. The log said "credential refresh: fresh" and
+   * meant "a credential is present", which read as a contradiction next to
+   * `auth:getAuthStatus` reporting the same Codex token as stale in the same
+   * session (TASK_2026_342). Wording now matches what actually happens.
    */
   async refreshCliTokens(): Promise<void> {
     for (const cli of ['codex', 'cursor', 'opencode', 'pi'] as const) {
@@ -205,8 +210,8 @@ export class CliDetectionService {
       if (adapter?.ensureTokensFresh) {
         const fresh = await adapter.ensureTokensFresh();
         this.logger.info(
-          `[CliDetection] ${cli} credential refresh: ${
-            fresh ? 'fresh' : 'stale/unavailable'
+          `[CliDetection] ${cli} credential check: ${
+            fresh ? 'usable' : 'stale/unavailable'
           }`,
         );
         if (fresh) {

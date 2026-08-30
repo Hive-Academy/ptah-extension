@@ -17,9 +17,10 @@ import {
   GATEWAY_CHAT_BRIDGE_TOKENS,
   type GatewayChatBridge,
 } from '@ptah-extension/gateway-chat-bridge';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import type { BootCoordinator } from './boot-coordinator';
+import { startMessagingGateway } from './start-messaging-gateway';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface PostWindowOptions {
@@ -29,11 +30,13 @@ export interface PostWindowOptions {
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
   /**
-   * Warmup callback from wireRuntime. Called once after the main window
-   * fires `did-finish-load` so the 3s idle timer starts from window-ready,
-   * not from bootHeavyServices completion. Optional — omit in tests.
+   * Owns the stable refs object and the embedder warmup barrier.
+   *
+   * Every long-lived handle created below is written into `coordinator.refs`
+   * so `will-quit` disposes it even though this phase now finishes BEFORE the
+   * heavy boot rather than after it (TASK_2026_331 B1.T6).
    */
-  scheduleWarmup?: () => void;
+  coordinator: BootCoordinator;
 }
 
 export interface PostWindowResult {
@@ -44,32 +47,14 @@ export interface PostWindowResult {
    * Null when UpdateManager.start() bails early (dev mode or already started).
    */
   updateCheckInterval: ReturnType<typeof setInterval> | null;
-  /**
-   * The started UpdateManager instance, captured so will-quit can dispose it
-   * by reference instead of re-resolving the singleton from the container
-   * (a re-resolve reconstructs it and needs WEBVIEW_MANAGER, which may be
-   * gone during teardown). Null when resolution failed.
-   */
-  updateManager: UpdateManager | null;
-  /**
-   * Messaging gateway service handle for orderly shutdown. Started after
-   * window creation so adapters have a stable mainWindow for approval prompts.
-   * Null when gateway.enabled is false or start() fails.
-   */
-  messagingGateway: GatewayService | null;
-  /**
-   * Gateway chat bridge handle for orderly shutdown. Started after the
-   * gateway so inbound events have a live subscriber. Null when the gateway
-   * failed to start or the bridge could not be resolved/started.
-   */
-  chatBridge: GatewayChatBridge | null;
 }
 
 export async function registerPostWindow(
   options: PostWindowOptions,
 ): Promise<PostWindowResult> {
-  const { container, resolvedStateStorage, setMainWindow, scheduleWarmup } =
+  const { container, resolvedStateStorage, setMainWindow, coordinator } =
     options;
+  const refs = coordinator.refs;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
@@ -110,11 +95,13 @@ export async function registerPostWindow(
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
-  if (scheduleWarmup) {
-    mainWindow.webContents.once('did-finish-load', () => {
-      scheduleWarmup();
-    });
-  }
+  // One half of the warmup barrier. The other half — the memory curator — is
+  // created inside the post-window boot, which has not even started yet, so
+  // this is a NOTIFICATION rather than a trigger. The coordinator waits for
+  // both before it starts the 3-second idle timer (TASK_2026_331 B1.T7).
+  mainWindow.webContents.once('did-finish-load', () => {
+    coordinator.notifyWindowLoaded();
+  });
   if (
     process.env['NODE_ENV'] === 'development' &&
     process.env['PTAH_NO_DEVTOOLS'] !== '1'
@@ -145,58 +132,41 @@ export async function registerPostWindow(
       chatBridge = null;
     }
   }
-  // Started non-blocking: gateway I/O must not delay the updater or window.
+  refs.messagingGateway = messagingGateway;
+  refs.chatBridge = chatBridge;
+  // Started non-blocking — gateway I/O must not delay the updater or window —
+  // and DEFERRED behind the persistence gate: `GatewayService.start()` runs
+  // voice GC against `gateway_messages` and the bridge claims interrupted
+  // turns, both SQLite writes. This phase runs BEFORE the heavy boot opens the
+  // database, so without the gate both landed on a closed or mid-migration
+  // connection (TASK_2026_347).
   if (messagingGateway) {
     const gateway = messagingGateway;
     const bridge = chatBridge;
-    void (async () => {
-      try {
-        await gateway.start();
-        console.log('[Ptah Electron] Messaging gateway started');
-
-        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-          broadcastMessage(type: string, payload: unknown): Promise<void>;
-        };
-        const status = gateway.status();
-        void webviewManager.broadcastMessage(
-          MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
-          {
-            status: {
-              enabled: status.enabled,
-              adapters: status.adapters.map((a) => ({
-                platform: a.platform,
-                running: a.running,
-                ...(a.lastError ? { lastError: a.lastError } : {}),
-              })),
-            },
-            origin: null,
-          },
-        );
-      } catch (error) {
-        console.warn(
-          '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
-          error instanceof Error ? error.message : String(error),
-        );
-        return;
-      }
-
-      if (bridge) {
-        try {
-          bridge.start();
-          console.log('[Ptah Electron] Gateway chat bridge started');
-        } catch (error) {
-          console.warn(
-            '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      }
-    })();
+    void startMessagingGateway({
+      gateway,
+      bridge,
+      coordinator,
+      // Resolved lazily, as it was inside the old IIFE: this phase must not
+      // fail activation because the webview manager is not registered yet.
+      broadcast: (type, payload) =>
+        (
+          container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+            broadcastMessage(type: string, payload: unknown): Promise<void>;
+          }
+        ).broadcastMessage(type, payload),
+    }).catch((error: unknown) => {
+      console.warn(
+        '[Ptah Electron] Messaging gateway start failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
   try {
     updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
     await updateManager.start();
     updateCheckInterval = updateManager.getCheckInterval();
+    refs.updateManager = updateManager;
     console.log('[Ptah Electron] UpdateManager started');
   } catch (error) {
     console.error(
@@ -232,8 +202,5 @@ export async function registerPostWindow(
   return {
     revalidationInterval,
     updateCheckInterval,
-    updateManager,
-    messagingGateway,
-    chatBridge,
   };
 }

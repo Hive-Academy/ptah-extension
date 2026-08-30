@@ -1,5 +1,5 @@
 ---
-name: react-composition-patterns
+name: composition-patterns
 description: React composition patterns that scale. Use when (1) Refactoring components with boolean prop proliferation, (2) Building flexible component libraries, (3) Designing reusable component APIs, (4) Working with compound components or context providers, (5) Implementing state management patterns, (6) Component architecture decisions. Includes React 19 API changes.
 ---
 
@@ -61,7 +61,9 @@ Reference these guidelines when:
 
 ## How to Use
 
-Read individual rule files for detailed explanations and code examples:
+The quick reference above is the index. Every rule has its own file under
+`rules/`, named for the rule id — read the ones that apply to the component in
+front of you, not the whole set:
 
 ```
 rules/architecture-avoid-boolean-props.md
@@ -75,6 +77,6 @@ Each rule file contains:
 - Correct code example with explanation
 - Additional context and references
 
-## Full Compiled Document
-
-For the complete guide with all rules expanded: `AGENTS.md`
+`rules/` is the complete guide. There is no compiled all-in-one document, by
+design: it duplicated the same content a second time and defeated the point of
+splitting the rules into files.

@@ -2,7 +2,7 @@
  * Outro — the branded end card as a STANDALONE clip.
  *
  * `EndCard` already is the house outro (wordmark, "free & open source", the
- * Builders waitlist CTA, the founding discount, and a scannable QR), but until
+ * Builders Early Adopter CTA, the free founding year, and a scannable QR), but
  * now it could only exist as a tail appended to a self-shot body. A tutorial cut
  * in an external editor needs the same card as its own file, so this composition
  * wraps it in the chrome the Shell would otherwise supply: the branded backdrop

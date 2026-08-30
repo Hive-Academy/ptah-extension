@@ -53,7 +53,29 @@ export interface IInternalQuery {
     prompt: string;
     systemPromptAppend?: string;
     mcpServerRunning: boolean;
+    /**
+     * The port the in-process MCP server is ACTUALLY listening on, when it is.
+     *
+     * Optional because a host with no MCP server has no port, but omitting it
+     * on a host that HAS one is not free: the consumer then falls back to the
+     * `PTAH_MCP_PORT` default, and the server binds an OS-assigned port
+     * whenever the configured one is taken (EACCES under Hyper-V,
+     * EADDRINUSE) — precisely on the machines that needed the fallback. Both
+     * fields come from `resolveMcpSessionWiring` so they cannot disagree.
+     */
+    mcpPort?: number;
     maxTurns: number;
+    /**
+     * Concurrency lane. The consumer holds a per-lane ceiling as well as a
+     * global one, so naming a lane is what stops this library's background
+     * calls from serialising into the memory curator's and back — nine such
+     * waits on one boot (`tmp/logs/log.log:938 … 1424`), TASK_2026_352.
+     *
+     * Optional in this mirror because it is optional on the concrete
+     * `InternalQueryConfig`; omitting it charges the call to the shared
+     * `'default'` bucket, which is the pre-existing behaviour.
+     */
+    lane?: string;
     abortController?: AbortController;
     /**
      * Per-call provider snapshot. MUST NOT be applied globally — the consumer

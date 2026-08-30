@@ -13,6 +13,7 @@ import { injectable, inject } from 'tsyringe';
 import { PtahProdDefaults, PtahDevDefaults } from '@ptah-extension/shared';
 import { OUTPUT_MANAGER } from '../di/tokens';
 import { OutputManager } from '../api-wrappers/output-manager';
+import { sanitizeConsoleText } from './console-text';
 import type { LogLevel, LogContext, LogEntry } from './types';
 
 /**
@@ -317,10 +318,20 @@ export class Logger {
    * Log to console based on log level
    * Provides redundant logging for development scenarios
    *
+   * The message is passed through {@link sanitizeConsoleText} here and NOT on
+   * the output-channel path above. The channel is a UTF-8 file and should hold
+   * the message as written; the console is the surface where a double-encoded
+   * em dash prints as `â€”` and where a legacy Windows codepage mangles even a
+   * correct one (TASK_2026_354). This is the single console writer for every
+   * host — Electron main included — so the repair lands once, without editing a
+   * log string in any other lib.
+   *
    * @param entry - Log entry to write to console
    */
   private writeToConsole(entry: LogEntry): void {
-    const consoleMessage = `[${entry.level.toUpperCase()}] ${entry.message}`;
+    const consoleMessage = sanitizeConsoleText(
+      `[${entry.level.toUpperCase()}] ${entry.message}`,
+    );
     const consoleArgs = entry.context?.metadata ? [entry.context.metadata] : [];
 
     switch (entry.level) {

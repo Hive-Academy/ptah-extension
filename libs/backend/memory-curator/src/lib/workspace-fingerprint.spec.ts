@@ -23,7 +23,7 @@ const HEX16_RE = /^[a-f0-9]{16}$/;
 describe('deriveWorkspaceFingerprint', () => {
   const root = '/workspace/foo';
 
-  it('fingerprint-from-git: derives from origin remote + branch SHA', async () => {
+  it('fingerprint-from-git: derives from origin remote, independent of HEAD SHA', async () => {
     const fs = makeFs({
       [`${root}/.git/config`]:
         '[remote "origin"]\n\turl = https://github.com/acme/foo.git\n',
@@ -41,17 +41,26 @@ describe('deriveWorkspaceFingerprint', () => {
     expect(again.fp).toBe(result.fp);
   });
 
-  it('fingerprint-from-git: handles detached HEAD (raw SHA in HEAD file)', async () => {
-    const fs = makeFs({
-      [`${root}/.git/config`]:
-        '[remote "origin"]\n\turl = git@github.com:acme/foo.git\n',
-      [`${root}/.git/HEAD`]: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4\n',
+  it('fingerprint-from-git: stable across commits (HEAD SHA change does not re-key)', async () => {
+    const config =
+      '[remote "origin"]\n\turl = https://github.com/acme/foo.git\n';
+    const before = makeFs({
+      [`${root}/.git/config`]: config,
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/main\n',
+      [`${root}/.git/refs/heads/main`]:
+        'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4\n',
+    });
+    const after = makeFs({
+      [`${root}/.git/config`]: config,
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/main\n',
+      [`${root}/.git/refs/heads/main`]:
+        'ffffffffffffffffffffffffffffffffffffffff\n',
     });
 
-    const result = await deriveWorkspaceFingerprint(root, fs);
+    const ra = await deriveWorkspaceFingerprint(root, before);
+    const rb = await deriveWorkspaceFingerprint(root, after);
 
-    expect(result.source).toBe('git');
-    expect(result.fp).toMatch(HEX16_RE);
+    expect(rb.fp).toBe(ra.fp);
   });
 
   it('fingerprint-from-git-remote-only: HEAD unreadable, falls back to remote-only fp', async () => {

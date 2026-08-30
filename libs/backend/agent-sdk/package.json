@@ -15,6 +15,8 @@
     "tsyringe": "^4.10.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.150",
     "eventemitter3": "^5.0.1",
+    "cross-spawn": "^7.0.6",
+    "which": "^6.0.1",
     "uuid": "^11.1.0",
     "zod": "4.3.6"
   }

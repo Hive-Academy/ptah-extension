@@ -272,9 +272,28 @@ export class ThemeService {
       sheet.href = url;
       sheet.addEventListener('load', settle, { once: true });
       sheet.addEventListener('error', settle, { once: true });
-      document.head.appendChild(sheet);
+      this.insertDeferredSheet(sheet);
     });
     return this.deferredSheetLoad;
+  }
+
+  /**
+   * Insert the deferred sheet BEFORE `styles.css`.
+   *
+   * Both sheets carry (0,1,0) selectors, so sheet order alone decides the
+   * winner. `theme-extra.css` opens with daisyUI's `:root` copy of the `light`
+   * theme, which would otherwise outrank the `[data-theme=anubis]` block in
+   * `styles.css` and repaint both eager themes as `light`. Appending to
+   * `<head>` puts it last, so it must be inserted, not appended. This mirrors
+   * the pre-paint script in `apps/ptah-extension-webview/src/index.html`.
+   */
+  private insertDeferredSheet(sheet: HTMLLinkElement): void {
+    const firstSheet = document.head.querySelector('link[rel="stylesheet"]');
+    if (firstSheet) {
+      document.head.insertBefore(sheet, firstSheet);
+      return;
+    }
+    document.head.appendChild(sheet);
   }
 
   /**

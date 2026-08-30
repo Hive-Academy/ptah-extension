@@ -32,6 +32,10 @@ import type {
   CuratorExtraction,
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
+import {
+  clampTranscript,
+  CURATOR_TRANSCRIPT_MAX_CHARS,
+} from './curator-llm/clamp-transcript';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
@@ -315,6 +319,38 @@ export class MemoryCuratorService {
     }
   }
 
+  /**
+   * The one place a transcript is bounded before it reaches the model.
+   *
+   * Deliberately here and not at any call site. The fault this closes
+   * (TASK_2026_352) was a call site that forgot: the memory boot scan read a
+   * whole session with no `tailBytes` and skipped `composeTranscript`, the only
+   * clamp on the live path, producing a 170 655-character prompt
+   * (`tmp/logs/log.log:1017`). Every entry — the PreCompact handler, the boot
+   * scan, `memory:rebuildIndex`, `curateNow` — funnels through `doCurate`, so a
+   * cap here cannot be bypassed by a caller that forgets a parameter.
+   *
+   * The warn is not decoration: a clamp is a silent loss of input otherwise, and
+   * a session that is repeatedly clamped is the signal that the window upstream
+   * is mis-sized.
+   */
+  private clampForModel(transcript: string, sessionId: string): string {
+    const clamped = clampTranscript(transcript, CURATOR_TRANSCRIPT_MAX_CHARS);
+    if (!clamped.clamped) return clamped.text;
+    this.logger.warn(
+      '[memory-curator] transcript exceeded the curator prompt cap; head and tail kept',
+      {
+        sessionId,
+        cap: CURATOR_TRANSCRIPT_MAX_CHARS,
+        originalChars: clamped.originalChars,
+        keptChars: clamped.keptChars,
+        droppedChars: clamped.droppedChars,
+        droppedRecords: clamped.droppedRecords,
+      },
+    );
+    return clamped.text;
+  }
+
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */
   private async doCurate(input: {
     sessionId: string;
@@ -324,8 +360,10 @@ export class MemoryCuratorService {
     salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
-    const transcript =
-      (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
+    const transcript = this.clampForModel(
+      (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER,
+      input.sessionId,
+    );
     const tier: MemoryTier = input.tier ?? 'recall';
 
     if (transcript === TRANSCRIPT_PLACEHOLDER) {

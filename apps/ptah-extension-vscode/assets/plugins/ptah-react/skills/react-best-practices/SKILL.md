@@ -115,7 +115,9 @@ Reference these guidelines when:
 
 ## How to Use
 
-Read individual rule files for detailed explanations and code examples:
+The quick reference above is the index. Every rule has its own file under
+`rules/`, named for the rule id — read the ones that apply to the code in front
+of you, not the whole set:
 
 ```
 rules/async-parallel.md
@@ -129,6 +131,6 @@ Each rule file contains:
 - Correct code example with explanation
 - Additional context and references
 
-## Full Compiled Document
-
-For the complete guide with all rules expanded: `AGENTS.md`
+`rules/` is the complete guide. There is no compiled all-in-one document, by
+design: loading 57 rules to apply two of them costs context that is better
+spent on the user's code.

@@ -1,6 +1,6 @@
 # Agent Catalog Reference
 
-Comprehensive catalog of all 14 specialist agents with capabilities, triggers, and invocation patterns.
+Comprehensive catalog of all 15 specialist agents with capabilities, triggers, and invocation patterns.
 
 ---
 
@@ -22,6 +22,7 @@ Comprehensive catalog of all 14 specialist agents with capabilities, triggers, a
 | modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |       S        |
 | ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |       -        |
 | technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |       S        |
+| video-director           |   **P**    | **P**  |   -    |   -   |    -     |    S    |  **P**  |       S        |
 
 **Legend**: **P** = Primary capability, S = Secondary capability, - = Not applicable
 
@@ -47,10 +48,52 @@ Comprehensive catalog of all 14 specialist agents with capabilities, triggers, a
 | Architecture   | software-architect                                 | Design               |
 | Landing page   | ui-ux-designer -> technical-content-writer         | Marketing pages      |
 | Brand/visual   | ui-ux-designer                                     | Design system        |
-| Content        | technical-content-writer                           | Blogs, docs, video   |
-| Infrastructure | devops-engineer                                    | CI/CD, Docker, K8s   |
+| Content        | technical-content-writer                           | Blogs, docs, scripts |
+| Demo video     | video-director                                     | Product tours, demos |
+| Infrastructure | devops-engineer                                    | CI/CD, containers    |
 
 **Default**: When uncertain, use `/orchestrate` for full workflow analysis.
+
+---
+
+## Invocation
+
+Every agent is invoked the same way. One shape, filled from the table below:
+
+```typescript
+Task({
+  subagent_type: '<agent>',
+  description: '<description from the table>',
+  prompt: `You are <agent> for TASK_2026_042.
+
+**Task Folder**: <absolute path to .ptah/specs/TASK_2026_042>
+<context lines from the table>
+
+<instruction from the table>
+See <agent>.md for detailed instructions.`,
+});
+```
+
+The `**Task Folder**` line is always an absolute path and is always present.
+Everything else varies only as the table says.
+
+| Agent                    | `description`                                 | Context lines                                                                                                                 | Instruction                                                                                          |
+| ------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| project-manager          | Create requirements for TASK_2026_042         | `**User Request**: "<the user's words>"`                                                                                      | Analyze the request and create comprehensive requirements.                                           |
+| software-architect       | Design implementation for TASK_2026_042       | `**Requirements**: Read task-description.md in task folder`                                                                   | Design the technical implementation plan.                                                            |
+| team-leader              | Decompose tasks for TASK_2026_042             | `**MODE**: 1 - DECOMPOSITION`<br>`**Implementation Plan**: Read implementation-plan.md in task folder`                        | Break down the implementation into atomic, batchable tasks.                                          |
+| backend-developer        | Implement Batch N for TASK_2026_042           | `**Tasks**: Read the batch file, find Batch N (IN PROGRESS)`<br>`**Plan**: Read implementation-plan.md for context`           | Implement all tasks in Batch N. Update status to IMPLEMENTED when done.                              |
+| frontend-developer       | Implement Batch N for TASK_2026_042           | same as backend-developer                                                                                                     | Implement all tasks in Batch N. Update status to IMPLEMENTED when done.                              |
+| devops-engineer          | Implement infrastructure for TASK_2026_042    | `**Plan**: Read implementation-plan.md for infrastructure design`                                                             | Implement the infrastructure changes.                                                                |
+| senior-tester            | Test implementation for TASK_2026_042         | `**Changes**: Review the batch file for implemented changes`<br>`**Plan**: Read implementation-plan.md for expected behavior` | Create and run tests, document results in test-report.md.                                            |
+| code-style-reviewer      | Review code style for TASK_2026_042           | `**Changes**: Review the batch file for modified files`                                                                       | Review code for style, patterns, and consistency.                                                    |
+| code-logic-reviewer      | Review code logic for TASK_2026_042           | `**Changes**: Review the batch file for modified files`<br>`**Plan**: Read implementation-plan.md for expected behavior`      | Review code for logic completeness and correctness.                                                  |
+| visual-reviewer          | Visual review for TASK_2026_042               | `**Changes**: Review the batch file for modified frontend files`<br>`**Base URL**: http://localhost:4200`                     | Perform a full visual review — see the visual-reviewer section below for the six-viewport checklist. |
+| researcher-expert        | Research X for TASK_2026_042                  | `**Research Question**: "<the question>"`                                                                                     | Investigate options, create comparison matrix, recommend approach.                                   |
+| modernization-detector   | Analyze future improvements for TASK_2026_042 | `**Changes**: Review the batch file for what was implemented`                                                                 | Identify opportunities for future improvements and tech debt.                                        |
+| ui-ux-designer           | Create design system for TASK_2026_042        | `**Goal**: <what to design>`                                                                                                  | Guide through niche discovery, create design system.                                                 |
+| technical-content-writer | Create landing page content for TASK_2026_042 | `**Design System**: Read DESIGN-SYSTEM.md from your own skill directory`<br>`**Goal**: <what to write>`                       | Create design-integrated content specification.                                                      |
+| video-director           | Author showcase scene for TASK_2026_042       | `**Goal**: <the feature or flow to demo>`<br>`**App**: <what to launch and at which URL>`                                     | Author the scene walkthrough and narration, then capture and render.                                 |
 
 ---
 
@@ -81,22 +124,6 @@ Comprehensive catalog of all 14 specialist agents with capabilities, triggers, a
 
 **Parallel With**: None (sequential only)
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'project-manager',
-  description: 'Create requirements for TASK_2026_042',
-  prompt: `You are project-manager for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**User Request**: "Add WebSocket support for real-time updates"
-
-Analyze the request and create comprehensive requirements.
-See project-manager.md for detailed instructions.`,
-});
-```
-
 ---
 
 ### software-architect
@@ -123,22 +150,6 @@ See project-manager.md for detailed instructions.`,
 **Dependencies**: project-manager (for FEATURE), researcher-expert (optional)
 
 **Parallel With**: None (sequential only)
-
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'software-architect',
-  description: 'Design implementation for TASK_2026_042',
-  prompt: `You are software-architect for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Requirements**: Read task-description.md in task folder
-
-Design the technical implementation plan.
-See software-architect.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -168,23 +179,8 @@ See software-architect.md for detailed instructions.`,
 
 **Parallel With**: None (sequential only)
 
-**Invocation Example**:
-
-```typescript
-// MODE 1: DECOMPOSITION
-Task({
-  subagent_type: 'team-leader',
-  description: 'Decompose tasks for TASK_2026_042',
-  prompt: `You are team-leader for TASK_2026_042.
-
-**MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Implementation Plan**: Read implementation-plan.md in task folder
-
-Break down the implementation into atomic, batchable tasks.
-See team-leader.md for MODE 1 instructions.`,
-});
-```
+**Note**: team-leader is the one agent whose prompt must open with a mode line —
+`**MODE**: 1 - DECOMPOSITION` (or 2, or 3). See the invocation table above.
 
 ---
 
@@ -216,23 +212,6 @@ See team-leader.md for MODE 1 instructions.`,
 
 **Parallel With**: frontend-developer (different batches)
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'backend-developer',
-  description: 'Implement Batch 1 for TASK_2026_042',
-  prompt: `You are backend-developer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
-**Plan**: Read implementation-plan.md for context
-
-Implement all tasks in Batch 1. Update status to IMPLEMENTED when done.
-See backend-developer.md for detailed instructions.`,
-});
-```
-
 ---
 
 ### frontend-developer
@@ -260,23 +239,6 @@ See backend-developer.md for detailed instructions.`,
 **Dependencies**: team-leader (batch assignment)
 
 **Parallel With**: backend-developer (different batches)
-
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'frontend-developer',
-  description: 'Implement Batch 2 for TASK_2026_042',
-  prompt: `You are frontend-developer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Tasks**: Read tasks.md, find Batch 2 (IN PROGRESS)
-**Plan**: Read implementation-plan.md for context
-
-Implement all tasks in Batch 2. Update status to IMPLEMENTED when done.
-See frontend-developer.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -308,22 +270,6 @@ See frontend-developer.md for detailed instructions.`,
 
 **Parallel With**: None (typically sequential)
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'devops-engineer',
-  description: 'Implement infrastructure for TASK_2026_042',
-  prompt: `You are devops-engineer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Plan**: Read implementation-plan.md for infrastructure design
-
-Implement the infrastructure changes.
-See devops-engineer.md for detailed instructions.`,
-});
-```
-
 ---
 
 ## Quality Assurance Agents
@@ -354,23 +300,6 @@ See devops-engineer.md for detailed instructions.`,
 
 **Parallel With**: code-style-reviewer, code-logic-reviewer
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'senior-tester',
-  description: 'Test implementation for TASK_2026_042',
-  prompt: `You are senior-tester for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Changes**: Review tasks.md for implemented changes
-**Plan**: Read implementation-plan.md for expected behavior
-
-Create and run tests, document results in test-report.md.
-See senior-tester.md for detailed instructions.`,
-});
-```
-
 ---
 
 ### code-style-reviewer
@@ -396,22 +325,6 @@ See senior-tester.md for detailed instructions.`,
 **Dependencies**: Implementation complete (all batches)
 
 **Parallel With**: senior-tester, code-logic-reviewer
-
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'code-style-reviewer',
-  description: 'Review code style for TASK_2026_042',
-  prompt: `You are code-style-reviewer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Changes**: Review tasks.md for modified files
-
-Review code for style, patterns, and consistency.
-See code-style-reviewer.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -439,23 +352,6 @@ See code-style-reviewer.md for detailed instructions.`,
 **Dependencies**: Implementation complete (all batches)
 
 **Parallel With**: senior-tester, code-style-reviewer
-
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'code-logic-reviewer',
-  description: 'Review code logic for TASK_2026_042',
-  prompt: `You are code-logic-reviewer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Changes**: Review tasks.md for modified files
-**Plan**: Read implementation-plan.md for expected behavior
-
-Review code for logic completeness and correctness.
-See code-logic-reviewer.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -498,29 +394,14 @@ See code-logic-reviewer.md for detailed instructions.`,
 - Color contrast analysis
 - Performance visual testing (layout shifts)
 
-**Invocation Example**:
+**Review Checklist** (spell this out in the prompt):
 
-```typescript
-Task({
-  subagent_type: 'visual-reviewer',
-  description: 'Visual review for TASK_2026_042',
-  prompt: `You are visual-reviewer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Changes**: Review tasks.md for modified frontend files
-**Base URL**: http://localhost:4200
-
-Perform comprehensive visual review including:
 1. Test all 6 viewports (320, 375, 768, 1024, 1366, 1920)
 2. Take screenshots at each viewport
 3. Test hover, focus, active states
 4. Check color contrast ratios
 5. Verify touch target sizes
 6. Test responsive behavior
-
-See visual-reviewer.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -552,22 +433,6 @@ See visual-reviewer.md for detailed instructions.`,
 
 **Parallel With**: None (typically sequential)
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'researcher-expert',
-  description: 'Research WebSocket options for TASK_2026_042',
-  prompt: `You are researcher-expert for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Research Question**: "Best WebSocket library for VS Code extension"
-
-Investigate options, create comparison matrix, recommend approach.
-See researcher-expert.md for detailed instructions.`,
-});
-```
-
 ---
 
 ### modernization-detector
@@ -594,22 +459,6 @@ See researcher-expert.md for detailed instructions.`,
 **Dependencies**: Implementation and QA complete
 
 **Parallel With**: None (final phase)
-
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_2026_042',
-  prompt: `You are modernization-detector for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Changes**: Review tasks.md for what was implemented
-
-Identify opportunities for future improvements and tech debt.
-See modernization-detector.md for detailed instructions.`,
-});
-```
 
 ---
 
@@ -643,22 +492,6 @@ See modernization-detector.md for detailed instructions.`,
 
 **Parallel With**: None (design before content)
 
-**Invocation Example**:
-
-```typescript
-Task({
-  subagent_type: 'ui-ux-designer',
-  description: 'Create design system for TASK_2026_042',
-  prompt: `You are ui-ux-designer for TASK_2026_042.
-
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Goal**: Create brand design system for the project
-
-Guide through niche discovery, create design system.
-See ui-ux-designer.md for detailed instructions.`,
-});
-```
-
 ---
 
 ### technical-content-writer
@@ -689,34 +522,50 @@ See ui-ux-designer.md for detailed instructions.`,
 
 **Parallel With**: Multiple content-writer instances (different content types)
 
-**Invocation Example**:
+---
 
-```typescript
-Task({
-  subagent_type: 'technical-content-writer',
-  description: 'Create landing page content for TASK_2026_042',
-  prompt: `You are technical-content-writer for TASK_2026_042.
+### video-director
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Design System**: Read DESIGN-SYSTEM.md from your own skill directory
-**Goal**: Create landing page content for the VS Code extension
+**Role**: Marketing videos through the showcase pipeline — a Playwright capture of
+the real app, rendered by Remotion into a narrated, captioned MP4
 
-Create design-integrated content specification.
-See technical-content-writer.md for detailed instructions.`,
-});
-```
+**Triggers**:
+
+- "Make / record / render a demo video", product tour, or feature showcase
+- Authoring or editing a scene walkthrough (`*.scene.ts`) or narration script
+- Tuning the virtual-camera grammar (zoom, pan, highlight rings, motion blur)
+- Re-skinning the videos for a different brand (`brand.config.ts`)
+- Porting the whole pipeline into another Nx workspace
+
+**Inputs**:
+
+- The feature or flow to demonstrate, and how to launch the app that shows it
+- An existing brand config, where the project already has one
+
+**Outputs**:
+
+- Scene walkthrough and narration script
+- The rendered MP4, plus the beats/shots manifest that produced it
+
+**Dependencies**: A runnable app to capture. ui-ux-designer only when the brand
+direction does not exist yet.
+
+**Parallel With**: None (capture drives the real app and wants it to itself)
+
+**Note**: video-director operates the `video-showcase` skill — read that skill
+before authoring, rather than inferring the scene format from this entry.
 
 ---
 
 ## Agent Category Summary
 
-| Category    | Agents                                                                   | Purpose               |
-| ----------- | ------------------------------------------------------------------------ | --------------------- |
-| Planning    | project-manager, software-architect, team-leader                         | Requirements & design |
-| Development | backend-developer, frontend-developer, devops-engineer                   | Implementation        |
-| QA          | senior-tester, code-style-reviewer, code-logic-reviewer, visual-reviewer | Quality assurance     |
-| Specialist  | researcher-expert, modernization-detector                                | Research & analysis   |
-| Creative    | ui-ux-designer, technical-content-writer                                 | Design & content      |
+| Category    | Agents                                                                   | Purpose                |
+| ----------- | ------------------------------------------------------------------------ | ---------------------- |
+| Planning    | project-manager, software-architect, team-leader                         | Requirements & design  |
+| Development | backend-developer, frontend-developer, devops-engineer                   | Implementation         |
+| QA          | senior-tester, code-style-reviewer, code-logic-reviewer, visual-reviewer | Quality assurance      |
+| Specialist  | researcher-expert, modernization-detector                                | Research & analysis    |
+| Creative    | ui-ux-designer, technical-content-writer, video-director                 | Design, content, video |
 
 ---
 
@@ -763,118 +612,13 @@ Promise.all([Task({ subagent_type: 'backend-developer', prompt: 'Batch 1...' }),
 
 ---
 
-## CLI Agent Delegation Prompt Injection
+## CLI Agent Delegation
 
-When CLI Agent Delegation Mode is active (Checkpoint 0.1 = "yes" or "auto"), the following block is appended to every sub-agent's invocation prompt. Role-specific examples are injected per agent type.
+Agents may delegate focused sub-tasks to CLI agents. That is one subject with one
+home: [cli-agent-delegation.md](cli-agent-delegation.md) — the injection block,
+the spawn/poll/read cycle, the concurrency limit, and the per-role examples all
+live there.
 
-**Note**: The per-role examples below are the injection templates appended to sub-agent prompts. For extended examples with full `ptah_agent_spawn` calls and detailed task prompts, see [cli-agent-delegation.md](references/cli-agent-delegation.md#per-role-delegation-examples).
-
-### Standard Injection Block
-
-```markdown
-## CLI Agent Delegation (Junior Helpers)
-
-You have CLI agents available as junior helpers. Use them for focused,
-independently-executable sub-tasks to speed up your work.
-
-**Available agents** (from discovery):
-[injected from ptah_agent_list — e.g., "ptah-cli, codex"]
-
-**How to delegate:**
-
-1. Spawn: `ptah_agent_spawn { task: "...", cli: "codex", taskFolder: "...", files: [...] }`
-2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
-3. Read: `ptah_agent_read { agentId: "..." }`
-4. Use the results in your deliverable
-
-**Rules:**
-
-- Max 3 concurrent CLI agents
-- CLI agents have NO shared context — include ALL necessary info in the task prompt
-- CLI agents should NOT commit to git
-- YOU own the quality — review CLI agent output before incorporating
-- Delegate grunt work, keep synthesis and decisions to yourself
-```
-
-### Per-Agent Role-Specific Examples
-
-Append these examples to the injection block based on the sub-agent being invoked:
-
-#### project-manager
-
-```
-**When to delegate:** Research specific codebase areas, analyze dependencies, survey file structures
-**Example:** ptah_agent_spawn { task: "List all Angular components in libs/frontend/ and categorize by Atomic Design level", cli: "codex" }
-```
-
-#### software-architect
-
-```
-**When to delegate:** Analyze existing patterns in specific modules, check dependency graphs, POC spikes
-**Example:** ptah_agent_spawn { task: "Analyze the DI setup in libs/backend/vscode-core/src. List all tokens and providers.", cli: "codex" }
-```
-
-#### team-leader
-
-```
-**When to delegate:** Spawn CLI developer agents for batch sub-tasks, parallel file verification
-**Example:** ptah_agent_spawn { task: "Verify these files exist and are non-empty: [list]", cli: "codex" }
-```
-
-#### backend-developer
-
-```
-**When to delegate:** Test scaffolding, boilerplate generation, sub-tasks within a batch
-**Example:** ptah_agent_spawn { task: "Create unit test scaffolding for AgentProcessManager with describe/it blocks", cli: "codex" }
-```
-
-#### frontend-developer
-
-```
-**When to delegate:** Component scaffolding, style migration, template generation
-**Example:** ptah_agent_spawn { task: "Generate Angular standalone component skeleton for 'StatusBadge' following project conventions", cli: "codex" }
-```
-
-#### devops-engineer
-
-```
-**When to delegate:** Config file generation, script writing, Dockerfile creation
-**Example:** ptah_agent_spawn { task: "Generate a multi-stage Dockerfile for Node.js 20 with Alpine base", cli: "codex" }
-```
-
-#### senior-tester
-
-```
-**When to delegate:** Test file generation per module (in parallel), fixture creation, coverage analysis
-**Example:** Spawn 3 agents for 3 modules: ptah_agent_spawn { task: "Write Jest tests for [module]...", cli: "codex" } (x3)
-```
-
-#### code-style-reviewer / code-logic-reviewer
-
-```
-**When to delegate:** File-level reviews across many files in parallel
-**Example:** Spawn agents per file: ptah_agent_spawn { task: "Review [file] for naming conventions and error handling", cli: "codex" }
-```
-
-#### researcher-expert
-
-```
-**When to delegate:** Parallel deep-dives into different aspects of a technology/codebase
-**Example:** Spawn 2 agents: one for external docs research, one for codebase usage analysis
-```
-
-#### modernization-detector
-
-```
-**When to delegate:** Parallel analysis of different modules for improvement opportunities
-**Example:** ptah_agent_spawn { task: "Analyze libs/backend/vscode-core/ for deprecated API usage and modernization opportunities", cli: "codex" }
-```
-
-#### technical-content-writer
-
-```
-**When to delegate:** Draft sections, research codebase features for content accuracy
-**Example:** ptah_agent_spawn { task: "Read libs/backend/agent-sdk/src and produce a technical summary of capabilities", cli: "codex" }
-```
-
-See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive delegation reference.
+Do not restate the delegation rules here. The copy that used to sit in this file
+drifted out of date and hardcoded a vendor list; discovery via `ptah_agent_list`
+is the only correct source for which CLI agents exist.

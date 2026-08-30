@@ -18,6 +18,8 @@ import 'reflect-metadata';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import { wireSdkCallbacks } from './sdk-callbacks';
 
@@ -173,5 +175,146 @@ describe('wireSdkCallbacks — session id resolution', () => {
 
     expect(harness.agentProcessManagerRemap).not.toHaveBeenCalled();
     expect(harness.subagentRegistryRemap).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_323 blocker B5 — the re-persist pass.
+ *
+ * Filtering on `parentSessionId === realSessionId` AFTER the remap also matches
+ * every agent that was already filed under the real id, whose stored reference
+ * is already correct. Each of those cost a full all-sessions blob rewrite,
+ * times `retryWithBackoff(retries: 3)`, on every session-id resolution.
+ */
+describe('wireSdkCallbacks — re-persist only what actually changed', () => {
+  function agent(
+    overrides: Partial<Omit<AgentProcessInfo, 'agentId'>> & {
+      agentId?: string;
+    },
+  ): AgentProcessInfo {
+    return {
+      agentId: 'agent-x',
+      cli: 'codex',
+      task: 'work',
+      workingDirectory: '/repo',
+      status: 'completed',
+      startedAt: new Date(0).toISOString(),
+      ...overrides,
+    } as AgentProcessInfo;
+  }
+
+  function buildRepersistHarness(agents: AgentProcessInfo[]): {
+    fire: SessionIdResolvedCallback;
+    addCliSession: jest.Mock;
+  } {
+    let captured: SessionIdResolvedCallback | undefined;
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+
+    const agentProcessManager = {
+      // Emulate the real remap so the post-remap read sees moved parents.
+      resolveParentSessionId: jest.fn((tabId: string, realId: string) => {
+        for (const a of agents) {
+          if (a.parentSessionId === tabId) {
+            (a as { parentSessionId?: string }).parentSessionId = realId;
+          }
+        }
+      }),
+      getStatus: jest.fn(() => agents),
+      readOutputForPersistence: jest.fn().mockReturnValue(undefined),
+    };
+
+    const registry = new Map<symbol, unknown>([
+      [
+        TOKENS.AGENT_ADAPTER,
+        {
+          setResultStatsCallback: jest.fn(),
+          setSessionIdResolvedCallback: jest.fn(
+            (cb: SessionIdResolvedCallback) => {
+              captured = cb;
+            },
+          ),
+          setCompactionStartCallback: jest.fn(),
+        },
+      ],
+      [
+        TOKENS.WEBVIEW_MANAGER,
+        { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      ],
+      [TOKENS.AGENT_PROCESS_MANAGER, agentProcessManager],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          saveAgentOutput: jest.fn().mockResolvedValue(undefined),
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+
+    wireSdkCallbacks(
+      {
+        isRegistered: (token: symbol) => registry.has(token),
+        resolve: (token: symbol) => registry.get(token),
+      } as unknown as DependencyContainer,
+      {
+        logger: createMockLogger() as unknown as Logger,
+        platform: 'electron',
+      },
+    );
+
+    if (!captured) throw new Error('setSessionIdResolvedCallback never wired');
+    return { fire: captured, addCliSession };
+  }
+
+  it('skips agents already filed under the real session id', () => {
+    const { fire, addCliSession } = buildRepersistHarness([
+      agent({
+        agentId: 'agent-remapped',
+        parentSessionId: TAB_ID,
+        cliSessionId: 'cli-remapped',
+      }),
+      agent({
+        agentId: 'agent-already',
+        parentSessionId: REAL_SESSION_ID,
+        cliSessionId: 'cli-already',
+      }),
+    ]);
+
+    fire(TAB_ID, REAL_SESSION_ID);
+
+    expect(addCliSession).toHaveBeenCalledTimes(1);
+    expect(addCliSession).toHaveBeenCalledWith(
+      REAL_SESSION_ID,
+      expect.objectContaining({ cliSessionId: 'cli-remapped' }),
+    );
+  });
+
+  it('skips agents that are still running', () => {
+    const { fire, addCliSession } = buildRepersistHarness([
+      agent({
+        agentId: 'agent-running',
+        parentSessionId: TAB_ID,
+        status: 'running',
+        cliSessionId: 'cli-running',
+      }),
+    ]);
+
+    fire(TAB_ID, REAL_SESSION_ID);
+
+    expect(addCliSession).not.toHaveBeenCalled();
+  });
+
+  it('re-persists nothing when the tab id already equals the real id', () => {
+    const { fire, addCliSession } = buildRepersistHarness([
+      agent({
+        agentId: 'agent-noop',
+        parentSessionId: REAL_SESSION_ID,
+        cliSessionId: 'cli-noop',
+      }),
+    ]);
+
+    fire(REAL_SESSION_ID, REAL_SESSION_ID);
+
+    expect(addCliSession).not.toHaveBeenCalled();
   });
 });

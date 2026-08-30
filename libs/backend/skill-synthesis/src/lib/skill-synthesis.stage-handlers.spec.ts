@@ -174,6 +174,9 @@ function makeService(opts: {
   };
   const store = {
     findByTrajectoryHash: jest.fn(() => null),
+    // No prior candidate for the session: this double analyzes each session
+    // once, so the per-session supersession lookup must answer "nothing yet".
+    findLatestBySourceSession: jest.fn(() => null),
     findById: jest.fn(() => CANDIDATE),
     registerCandidate: jest.fn(() => ({
       candidate: { id: 'cand-1' },
@@ -292,6 +295,13 @@ function makeDrainOver(queue: unknown): SkillDrainService {
       [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
       [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 4,
       [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 2,
+      // TASK_2026_352 holds `source:'boot'` rows back for the first five
+      // minutes of the process, and `enqueueEmbeddingBackfill` writes exactly
+      // such a row from `start()`. These suites are about stage DISPATCH — that
+      // a registered handler runs and an unregistered one is skipped by name —
+      // so they opt out of the window rather than driving a clock. The deferral
+      // has its own spec (`skill-drain.boot-deferral.spec.ts`).
+      [SKILL_DRAIN_KEYS.bootDeferralMs]: 0,
     }),
   );
 }

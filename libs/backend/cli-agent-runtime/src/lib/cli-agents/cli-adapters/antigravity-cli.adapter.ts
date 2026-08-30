@@ -60,6 +60,7 @@ import {
 import type {
   CliDetectionResult,
   CliOutputSegment,
+  McpServerConfig,
 } from '@ptah-extension/shared';
 import type {
   CliAdapter,
@@ -322,33 +323,61 @@ export class AntigravityCliAdapter implements CliAdapter {
    * Non-fatal: a failure here costs MCP tools for this run, and the CLI still
    * functions, so it must not abort the spawn.
    */
-  private async configureMcpServer(port: number): Promise<void> {
+  private async configureMcpServer(
+    port: number,
+  ): Promise<McpServerConfig | undefined> {
     try {
-      await AntigravityCliAdapter.mcpFacet().write(
+      const facet = AntigravityCliAdapter.mcpFacet();
+      // Captured BEFORE the write so cleanup can put it back. `CodeExecutionMCP`
+      // now keeps a PERSISTENT `ptah` entry in this file for as long as its HTTP
+      // server is up, so that a user's own `agy` — not just one Ptah spawned —
+      // has the tools. Deleting the key after this run would take that away and
+      // leave it gone until the next registration pass.
+      const prior = facet.readAll('').get(PTAH_SPAWN_MCP_KEY);
+      await facet.write(
         '',
         PTAH_SPAWN_MCP_KEY,
         // `agy`'s remote transport is SSE and the facet serializes this as
         // `{ serverUrl }`, which is the only remote shape the CLI reads.
         { type: 'sse', url: `http://localhost:${port}` },
       );
+      return prior;
     } catch {
       // MCP tools won't be available this run; CLI still functions.
+      return undefined;
     }
   }
 
   /**
-   * Retract the per-run entry after the process exits, so no stale localhost
+   * Put the `ptah` key back the way this run found it, so no stale localhost
    * port is left pointing at a closed server.
    *
-   * Removes exactly `PTAH_SPAWN_MCP_KEY` and nothing else. The previous version
-   * also deleted the whole `mcpServers` map once it looked empty, which was
-   * safe only while Ptah was the sole writer; now that a user's install can
-   * live in that map, "empty" is a claim this code is no longer entitled to
-   * make. Non-fatal: a leftover entry is overwritten by the next spawn.
+   * **RESTORE, not delete.** It used to remove the key unconditionally, which
+   * was right while this adapter was the only thing that ever wrote it. It no
+   * longer is: `CodeExecutionMCP` keeps a PERSISTENT entry here for as long as
+   * its HTTP server is up, so that `agy` sessions the USER starts have Ptah
+   * tools too. An unconditional delete would silently revoke that every time a
+   * Ptah-spawned agent finished.
+   *
+   * Restoring needs no knowledge of who the other writer is: `prior` is
+   * whatever was in the file before this run. Absent means nobody owned the
+   * key, and removing it is exactly the old behaviour.
+   *
+   * Removes or rewrites exactly `PTAH_SPAWN_MCP_KEY` and nothing else. An older
+   * version also deleted the whole `mcpServers` map once it looked empty, which
+   * was safe only while Ptah was its sole writer; now that a user's install can
+   * live in that map, "empty" is a claim this code is not entitled to make.
+   *
+   * Non-fatal: the next spawn, and the next registration pass, both rewrite it.
    */
-  private async cleanupMcpEntry(): Promise<void> {
+  private async cleanupMcpEntry(prior?: McpServerConfig): Promise<void> {
     try {
-      await AntigravityCliAdapter.mcpFacet().remove('', PTAH_SPAWN_MCP_KEY);
+      const facet = AntigravityCliAdapter.mcpFacet();
+      if (prior === undefined) {
+        await facet.remove('', PTAH_SPAWN_MCP_KEY);
+      } else {
+        await facet.write('', PTAH_SPAWN_MCP_KEY, prior);
+      }
     } catch {
       // Stale ptah entry will be overwritten on next configureMcpServer().
     }
@@ -366,8 +395,12 @@ export class AntigravityCliAdapter implements CliAdapter {
     if (options.workingDirectory) {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
+    // The `ptah` entry as this run found it. Held in a LOCAL, not a field:
+    // two `agy` agents can be in flight at once and a shared slot would let
+    // one run's cleanup restore the other run's snapshot.
+    let priorMcpEntry: McpServerConfig | undefined;
     if (options.mcpPort) {
-      await this.configureMcpServer(options.mcpPort);
+      priorMcpEntry = await this.configureMcpServer(options.mcpPort);
     }
 
     const spawnEnv: Record<string, string> = {};
@@ -522,7 +555,7 @@ export class AntigravityCliAdapter implements CliAdapter {
 
     if (options.mcpPort) {
       done.then(() => {
-        this.cleanupMcpEntry();
+        this.cleanupMcpEntry(priorMcpEntry);
       });
     }
 

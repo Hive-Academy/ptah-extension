@@ -29,6 +29,12 @@ export type {
   ThothTierOption,
 } from './lib/bootstrap/thoth-runtime.js';
 
+export {
+  shutdownHostRuntime,
+  shutdownAgentProcesses,
+  shutdownPtahCliProxies,
+} from './lib/bootstrap/shutdown-host-runtime.js';
+
 export { wireThothPushBridges } from './lib/bootstrap/wire-thoth-push-bridges.js';
 
 export { CliMessageTransport } from './lib/transport/cli-message-transport.js';

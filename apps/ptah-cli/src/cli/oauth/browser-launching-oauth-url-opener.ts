@@ -49,7 +49,6 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
       const child = this.spawner(command, args, {
         detached: true,
         stdio: 'ignore',
-        shell: this.platform === 'win32',
       });
       child.unref();
       return { opened: true };
@@ -58,9 +57,17 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
     }
   }
 
+  /**
+   * On win32 `start` is a cmd.exe builtin, not an executable, so it has to be
+   * invoked through `cmd /c` — but as an ARGUMENT to cmd, never via
+   * `shell: true` with an args array, which is the `[DEP0190]` shape (the URL
+   * would reach cmd.exe unescaped). The empty string after `start` is its title
+   * argument; without it `start` treats a quoted URL as the window title and
+   * opens nothing (TASK_2026_348).
+   */
   private commandFor(url: string): [string, string[]] {
     if (this.platform === 'win32') {
-      return ['start', ['""', url]];
+      return ['cmd', ['/c', 'start', '', url]];
     }
     if (this.platform === 'darwin') {
       return ['open', [url]];

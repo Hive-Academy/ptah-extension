@@ -31,14 +31,20 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'fs';
 import type { Stats } from 'fs';
-import { rm, unlink, writeFile, mkdir } from 'fs/promises';
+import { rm, unlink, writeFile, mkdir, readFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import type {
   HarnessFacetMatrix,
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { hashContent, hashDirSync, hashFileSync } from '../hash/content-hash';
+import { throwIfPassAborted } from '../abort/pass-abort';
+import {
+  hashContent,
+  hashDir,
+  hashFile,
+  type ContentHashOptions,
+} from '../hash/content-hash';
 import { plannedTargetHealth } from '../health/harness-health';
 import type {
   HarnessDesiredMcpServer,
@@ -57,7 +63,7 @@ import {
   copyDirectoryTransformed,
   copySingleFile,
   describeError,
-  hashTransformedDirSync,
+  hashTransformedDir,
   removeManaged,
   withWindowsRetry,
 } from './copy-engine';
@@ -138,15 +144,23 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     return keys;
   }
 
-  plan(
+  async plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
-  ): HarnessPlan {
+    signal?: AbortSignal,
+  ): Promise<HarnessPlan> {
+    const hashOptions: ContentHashOptions = { signal };
     const migrations: HarnessMigration[] = [];
     const baseEntries: ManagedEntries = { ...manifest.entries };
     const adopted: string[] = [];
-    this.adoptLegacyManifests(workspaceRoot, baseEntries, migrations, adopted);
+    await this.adoptLegacyManifests(
+      workspaceRoot,
+      baseEntries,
+      migrations,
+      adopted,
+      hashOptions,
+    );
     this.planHomeReap(migrations, desired, baseEntries);
 
     const ownership = this.ownershipOracle(workspaceRoot, baseEntries);
@@ -158,7 +172,13 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     let unchanged = 0;
 
     for (const [relPath, entry] of desiredEntries) {
-      const outcome = this.planEntry(workspaceRoot, relPath, entry, ownership);
+      const outcome = await this.planEntry(
+        workspaceRoot,
+        relPath,
+        entry,
+        ownership,
+        hashOptions,
+      );
       if (outcome.kind === 'foreign') {
         // Both lists, always. `foreign` says why this pass wrote nothing here;
         // `blocked` is what makes health call it a gap, so a reconcile cannot
@@ -297,12 +317,13 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
   async verify(
     desired: HarnessDesiredState,
     workspaceRoot: string,
+    signal?: AbortSignal,
   ): Promise<HarnessTargetHealth> {
     const startedAt = Date.now();
     const detected = await this.detect();
     const manifest = this.options.manifestStore.load(workspaceRoot, this.id);
     return plannedTargetHealth(
-      this.plan(desired, workspaceRoot, manifest),
+      await this.plan(desired, workspaceRoot, manifest, signal),
       this.facets,
       detected,
       Date.now() - startedAt,
@@ -437,12 +458,14 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
    * provisional for transformed directories) — recording the wrong one would
    * make the very next pass report a hand-edited copy that nobody edited.
    */
-  private planEntry(
+  private async planEntry(
     workspaceRoot: string,
     relPath: string,
     entry: DesiredEntry,
     ownership: OwnershipOracle,
-  ): PlanEntryOutcome {
+    hashOptions: ContentHashOptions,
+  ): Promise<PlanEntryOutcome> {
+    throwIfPassAborted(hashOptions.signal);
     const absolute = toAbsolute(workspaceRoot, relPath);
     const stat = lstatSyncOrNull(absolute);
 
@@ -462,14 +485,14 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     }
 
     const actual = entry.isDirectory
-      ? hashDirSync(absolute)
-      : hashFileSync(absolute);
+      ? await hashDir(absolute, hashOptions)
+      : await hashFile(absolute);
 
     const owned = ownership.entryFor(relPath);
     if (owned === undefined) {
       if (
         actual !== null &&
-        actual === this.expectedOutputHash(relPath, entry)
+        actual === (await this.expectedOutputHash(relPath, entry, hashOptions))
       ) {
         return { kind: 'unchanged', recordHash: actual };
       }
@@ -478,7 +501,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       // of a Ptah writer, and one that does is a copy whose ownership record
       // was lost, not the user's work. Adopt it and rewrite with current
       // output; anything that cannot prove it stays foreign (E9).
-      return this.carriesWriterSignature(absolute, entry)
+      return (await this.carriesWriterSignature(absolute, entry))
         ? {
             kind: 'write',
             reason: 'update',
@@ -518,14 +541,14 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
    * safe answer there. Legacy skill and command copies are adopted instead
    * through their `.ptah-managed.json`, which IS a record of ownership.
    */
-  private carriesWriterSignature(
+  private async carriesWriterSignature(
     absolute: string,
     entry: DesiredEntry,
-  ): boolean {
+  ): Promise<boolean> {
     const transformer = this.options.agentTransformer;
     if (entry.kind !== 'agent' || transformer === undefined) return false;
     try {
-      return transformer.isPtahOutput(readFileSync(absolute, 'utf-8'));
+      return transformer.isPtahOutput(await readFile(absolute, 'utf-8'));
     } catch {
       return false;
     }
@@ -537,17 +560,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
    * A transformed skill directory is the only case that needs work:
    * `entry.outputHash` is provisionally the SOURCE hash there (the real one is
    * only known after `copyDirectoryTransformed` runs), so the transform has to
-   * be replayed in memory — `hashTransformedDirSync`, which lives next to the
+   * be replayed in memory — `hashTransformedDir`, which lives next to the
    * copy it mirrors. Agents already carry a real output hash and byte-copied
    * commands hash equal to their source.
    */
-  private expectedOutputHash(
+  private async expectedOutputHash(
     relPath: string,
     entry: DesiredEntry,
-  ): string | null {
+    hashOptions: ContentHashOptions,
+  ): Promise<string | null> {
     if (!entry.isDirectory || !entry.transformed) return entry.outputHash;
     const slug = relPath.slice(relPath.lastIndexOf('/') + 1);
-    return hashTransformedDirSync(entry.source, slug);
+    return hashTransformedDir(entry.source, slug, hashOptions);
   }
 
   /** Manifest-owned paths that are no longer desired. MCP is handled separately. */
@@ -663,12 +687,13 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
    * that hash against the desired one and rewrites when they differ, so an
    * adopted copy written by the old pipeline is refreshed on the first pass.
    */
-  private adoptLegacyManifests(
+  private async adoptLegacyManifests(
     workspaceRoot: string,
     baseEntries: ManagedEntries,
     migrations: HarnessMigration[],
     adopted: string[],
-  ): void {
+    hashOptions: ContentHashOptions,
+  ): Promise<void> {
     const dirs: Array<{ dirRel: string; key: 'skills' | 'commands' }> = [];
     if (this.options.skillsDirRel !== undefined) {
       dirs.push({ dirRel: this.options.skillsDirRel, key: 'skills' });
@@ -689,8 +714,11 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         const relPath = `${dirRel}/${name}`;
         if (baseEntries[relPath] !== undefined) continue;
         const absolute = toAbsolute(workspaceRoot, relPath);
+        throwIfPassAborted(hashOptions.signal);
         const hash =
-          key === 'skills' ? hashDirSync(absolute) : hashFileSync(absolute);
+          key === 'skills'
+            ? await hashDir(absolute, hashOptions)
+            : await hashFile(absolute);
         if (hash === null) continue;
         // No `sourceHash`: the legacy pipeline recorded none, so the first plan
         // sees a source mismatch and rewrites — which is the correct outcome,
@@ -869,7 +897,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       await copyDirectoryTransformed(write.source, absolute, slug);
       // Re-hashed rather than trusted: the copy was rewritten on the way out,
       // so only the result knows its own hash.
-      return hashDirSync(absolute) ?? write.hash;
+      // No signal: this is the APPLY phase, past the pass's commit point. A
+      // write that landed must be hashed and recorded or the manifest loses
+      // ownership of a file that is on disk (`abort/pass-abort.ts`).
+      return (await hashDir(absolute)) ?? write.hash;
     }
 
     if (write.kind === 'agent') {

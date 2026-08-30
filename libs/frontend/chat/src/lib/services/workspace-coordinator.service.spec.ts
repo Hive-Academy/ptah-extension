@@ -30,6 +30,7 @@ import {
   CommandDiscoveryFacade,
   EffortStateService,
   ModelStateService,
+  WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { FilePickerService } from './file-picker.service';
@@ -99,6 +100,7 @@ interface CoordinatorInternals {
 describe('WorkspaceCoordinatorService', () => {
   let service: WorkspaceCoordinatorService;
   let appState: AppStateManager;
+  let workspaceScope: WorkspaceScopeService;
   let tabManager: jest.Mocked<TabManagerSlice>;
   let sessionLoader: jest.Mocked<SessionLoaderSlice>;
   let confirmDialog: jest.Mocked<ConfirmSlice>;
@@ -195,6 +197,17 @@ describe('WorkspaceCoordinatorService', () => {
         fanOutOrder.push('appState');
         realAppStateSwitch(path);
       });
+
+    // Same treatment, same reason: the real service runs (it has no
+    // collaborators at all), the spy only records where in the fan-out it sits.
+    workspaceScope = TestBed.inject(WorkspaceScopeService);
+    const realScopeSwitch = workspaceScope.switchTo.bind(workspaceScope);
+    jest
+      .spyOn(workspaceScope, 'switchTo')
+      .mockImplementation((path: string | null) => {
+        fanOutOrder.push('workspaceScope');
+        return realScopeSwitch(path);
+      });
   });
 
   afterEach(() => {
@@ -230,6 +243,10 @@ describe('WorkspaceCoordinatorService', () => {
       // opened against the previous workspace's cached list.
       void service.switchWorkspace('D:/repo/foo');
       expect(fanOutOrder).toEqual([
+        // FIRST: every cache in `core` keyed by workspace scope — the plugin
+        // catalog and the model list — is invalidated before anything else can
+        // read one (TASK_2026_345, judge round 1).
+        'workspaceScope',
         'tabManager',
         'sessionLoader',
         'filePicker',
@@ -554,6 +571,132 @@ describe('WorkspaceCoordinatorService', () => {
         message: 'Unsaved work',
       });
       expect(result).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_345, judge round 1 — the workspace scope every core cache reads.
+   *
+   * `PluginCatalogService` and `ModelStateService` key their cached reads and
+   * their in-flight requests by `WorkspaceScopeService.scopeKey`. Neither can
+   * see a workspace switch on its own, so this service moving the scope — and
+   * moving it BEFORE it dispatches `refreshWorkspaceProviderState` — is the
+   * whole of the invalidation contract.
+   */
+  describe('workspace scope invalidation', () => {
+    it('moves the scope synchronously, before the switch is even awaited', () => {
+      const before = workspaceScope.scopeKey();
+
+      void service.switchWorkspace('D:/repo/foo');
+
+      expect(workspaceScope.switchTo).toHaveBeenCalledWith('D:/repo/foo');
+      expect(workspaceScope.activeWorkspacePath()).toBe('D:/repo/foo');
+      expect(workspaceScope.scopeKey()).not.toBe(before);
+    });
+
+    it('has already moved the scope by the time refreshModels is called', async () => {
+      // This is the ordering the defect turned on: `refreshModels()` is called
+      // precisely to fetch the NEW workspace's provider models, so it must run
+      // under the NEW scope or it will join — and be answered by — the request
+      // belonging to the workspace being left.
+      let scopeAtRefresh: string | null = null;
+      modelState.refreshModels.mockImplementation(async () => {
+        scopeAtRefresh = workspaceScope.scopeKey();
+      });
+
+      await service.switchWorkspace('D:/repo/foo');
+      await flushMicrotasks();
+
+      expect(modelState.refreshModels).toHaveBeenCalled();
+      expect(scopeAtRefresh).toBe(workspaceScope.scopeKey());
+      expect(scopeAtRefresh).toContain('D:/repo/foo');
+    });
+
+    it('bumps the scope once per real switch and not at all for a repeat', async () => {
+      await service.switchWorkspace('D:/repo/foo');
+      const afterFirst = workspaceScope.generation();
+
+      await service.switchWorkspace('D:/repo/bar');
+      expect(workspaceScope.generation()).toBe(afterFirst + 1);
+
+      // A redundant switch to the workspace already active. `tabManager` and
+      // `appState` both early-return on it, and throwing away every scoped
+      // cache here would undo the "one fetch per view" property.
+      await service.switchWorkspace('D:/repo/bar');
+      expect(workspaceScope.generation()).toBe(afterFirst + 1);
+    });
+
+    it('gives a revisited workspace a scope distinct from its first visit', async () => {
+      // A -> B -> A. A request issued during the first A can be answered by the
+      // host after the switch to B, so the third leg must not be able to
+      // inherit it.
+      await service.switchWorkspace('/a');
+      const firstA = workspaceScope.scopeKey();
+      await service.switchWorkspace('/b');
+      await service.switchWorkspace('/a');
+
+      expect(workspaceScope.activeWorkspacePath()).toBe('/a');
+      expect(workspaceScope.scopeKey()).not.toBe(firstA);
+    });
+
+    it('clears the scope when the last folder closes', async () => {
+      // `ElectronLayoutService.removeFolder` reaches zero folders and calls
+      // this instead of `updateWorkspaceRoot('')` alone. Without it the scope
+      // kept naming the folder that had just closed (TASK_2026_345, round 2).
+      await service.switchWorkspace('D:/repo/foo');
+      expect(workspaceScope.activeWorkspacePath()).toBe('D:/repo/foo');
+      const openGeneration = workspaceScope.generation();
+
+      service.clearWorkspace();
+
+      expect(workspaceScope.activeWorkspacePath()).toBeNull();
+      expect(workspaceScope.generation()).toBe(openGeneration + 1);
+    });
+
+    it('gives a reopened folder a scope distinct from its pre-closure one', async () => {
+      // The user-visible defect: close the only folder, reopen the SAME path,
+      // and the switch is to the "already active" workspace — an early-return —
+      // so every scope-keyed cache serves its pre-closure snapshot. The clear
+      // in between is what makes the reopen a real transition.
+      await service.switchWorkspace('D:/repo/foo');
+      const beforeClosure = workspaceScope.scopeKey();
+
+      service.clearWorkspace();
+      await service.switchWorkspace('D:/repo/foo');
+
+      expect(workspaceScope.activeWorkspacePath()).toBe('D:/repo/foo');
+      expect(workspaceScope.scopeKey()).not.toBe(beforeClosure);
+    });
+
+    it('supersedes a switch still in flight', async () => {
+      // A `switchWorkspace` whose editor-chunk await resolves after the last
+      // folder closed must not carry on and re-resolve auth/model/effort for a
+      // workspace that is gone.
+      let releaseEditorChunk: () => void = () => undefined;
+      jest
+        .spyOn(
+          service as unknown as CoordinatorInternals,
+          'resolveEditorServices',
+        )
+        .mockReturnValue(
+          new Promise<EditorServiceStub[]>((resolve) => {
+            releaseEditorChunk = () => resolve([]);
+          }),
+        );
+
+      const pending = service.switchWorkspace('D:/repo/foo');
+      await flushMicrotasks();
+      expect(authState.refreshAuthStatus).not.toHaveBeenCalled();
+
+      service.clearWorkspace();
+      releaseEditorChunk();
+      await pending;
+      await flushMicrotasks();
+
+      // The superseded continuation dropped: no provider re-resolution for a
+      // workspace that is no longer open.
+      expect(authState.refreshAuthStatus).not.toHaveBeenCalled();
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
     });
   });
 });

@@ -18,7 +18,31 @@ export const MIN_TURNS_FOR_TRAJECTORY = 5;
  */
 export const MIN_ROLE_TURNS_FLOOR = 2;
 
+/**
+ * Turns normalized+hashed between yields to the event loop.
+ *
+ * Extraction runs 90 s after every Stop, on the backend main thread — in
+ * Electron the same loop that drives the windows (TASK_2026_323, B4). A long
+ * session's normalization pass is regex work proportional to transcript size,
+ * so it hands control back periodically. The threshold is high enough that
+ * ordinary sessions (and every unit fixture) complete in one tick.
+ */
+const YIELD_EVERY_TURNS = 200;
+
+/** Separator between turns in the canonical text. Also hashed, in order. */
+const TURN_SEPARATOR = '\n---\n';
+
+/** Hand back to the event loop, letting pending I/O run before we resume. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
+
+/** Timestamp and epoch normalizations — compiled once, not per turn. */
+const TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g;
+const EPOCH_PATTERN = /\b\d{13}\b/g;
+const REGEX_METACHARACTERS = /[.*+?^${}()|[\]\\]/g;
 const BASH_TEST_PATTERN =
   /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
 
@@ -178,10 +202,28 @@ export class TrajectoryExtractor {
     // SUCCESS_MARKERS header.
     const hasSuccessMarker = this.hasSuccessMarker(turns);
 
-    const normalized = turns
-      .map((t) => `[${t.role}] ${this.normalize(t.text, workspaceRoot)}`)
-      .join('\n---\n');
-    const hash = crypto.createHash('sha256').update(normalized).digest('hex');
+    // ONE pass normalizes, hashes and collects. It used to be three
+    // traversals of the whole transcript — `map(normalize)`, then `join`,
+    // then `createHash().update()` over the joined megabytes — with a fresh
+    // `new RegExp(workspaceRoot, 'gi')` COMPILED INSIDE `normalize`, so the
+    // regex was rebuilt once per turn (TASK_2026_323, B4). The hash is
+    // identical to the old one by construction: the same bytes, in the same
+    // order, fed through `update` in pieces instead of all at once.
+    const workspacePattern = this.compileWorkspacePattern(workspaceRoot);
+    const hasher = crypto.createHash('sha256');
+    const parts: string[] = [];
+    for (let i = 0; i < turns.length; i++) {
+      if (i > 0) hasher.update(TURN_SEPARATOR);
+      const t = turns[i];
+      const part = `[${t.role}] ${this.normalize(t.text, workspacePattern)}`;
+      hasher.update(part);
+      parts.push(part);
+      if ((i + 1) % YIELD_EVERY_TURNS === 0) {
+        await yieldToEventLoop();
+      }
+    }
+    const normalized = parts.join(TURN_SEPARATOR);
+    const hash = hasher.digest('hex');
 
     const firstUser = turns.find((t) => t.role === 'user')?.text ?? '';
     const shortDescription = this.truncate(firstUser.replace(/\s+/g, ' '), 140);
@@ -330,14 +372,29 @@ export class TrajectoryExtractor {
     return false;
   }
 
-  private normalize(text: string, workspaceRoot: string): string {
+  /**
+   * Build the workspace-root matcher ONCE per extraction.
+   *
+   * `new RegExp` compiles a pattern; doing it per turn made the compile cost
+   * scale with transcript length for a pattern that never varies within a
+   * single `extract` call. Returns `null` when there is no root to redact.
+   */
+  private compileWorkspacePattern(workspaceRoot: string): RegExp | null {
+    if (!workspaceRoot) return null;
+    const escaped = workspaceRoot.replace(REGEX_METACHARACTERS, '\\$&');
+    return new RegExp(escaped, 'gi');
+  }
+
+  private normalize(text: string, workspacePattern: RegExp | null): string {
     let out = text;
-    if (workspaceRoot) {
-      const escaped = workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      out = out.replace(new RegExp(escaped, 'gi'), '<WORKSPACE>');
+    if (workspacePattern) {
+      // Shared `g` regexes carry `lastIndex`; `String.replace` with a global
+      // pattern resets it to 0 on entry and exit, so reuse across turns is
+      // safe here in a way that `test`/`exec` would not be.
+      out = out.replace(workspacePattern, '<WORKSPACE>');
     }
-    out = out.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<TS>');
-    out = out.replace(/\b\d{13}\b/g, '<EPOCH>');
+    out = out.replace(TIMESTAMP_PATTERN, '<TS>');
+    out = out.replace(EPOCH_PATTERN, '<EPOCH>');
     return out.trim();
   }
 

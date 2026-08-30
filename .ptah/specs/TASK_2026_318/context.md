@@ -81,6 +81,81 @@ Two, and the choice is a real decision rather than an obvious one:
   here if the file is being touched anyway; not required.
 - Do not change harness-sync's refusal-on-unowned-path rule.
 
+## Outcome (2026-08-26) — the lock, not an intent
+
+**The choice was real, and "give `.mcp.json` a single owner" is the wrong
+shape here.** Recording an intent for the reconciler to write would put an
+EPHEMERAL per-session localhost port into `~/.ptah/mcp-installed.json`, which is
+the user's DURABLE desired state — so it would persist across sessions with a
+dead port and fan out to every detected CLI. `harness-sync`'s own boundary says
+so directly: "Deciding to pass Ptah's OWN MCP server to a spawned CLI — the
+adapters do that at spawn time, and this lib reconciles USER-installed MCP
+entries only."
+
+The documented precedent is one file over, and it is exactly this situation:
+`AntigravityCliAdapter` writes its own ephemeral `PTAH_SPAWN_MCP_KEY` into
+`~/.gemini/config/mcp_config.json` by borrowing harness-sync's facet. **Borrow
+the MECHANISM, keep the POLICY.** So `CodeExecutionMCP` keeps owning the `ptah`
+key and the read-merge-write, and both `registerInMcpJson` and
+`unregisterFromMcpJson` now run inside `withMcpConfigLock`.
+
+The unregister takes the lock around the WHOLE read/check/delete/write, not just
+the write. Deciding `ptah` is present and removing it are two halves of one
+decision; a reconcile landing between them would be written over by the copy
+read before it.
+
+### Dependency direction
+
+`vscode-lm-tools → harness-sync` is a new direct edge and it is legal.
+`harness-sync` depends only on `shared` + `vscode-core`, so there is no cycle,
+and `vscode-lm-tools` already depended on harness-sync TRANSITIVELY through
+`cli-agent-runtime`. `nx enforce-module-boundaries` passes.
+
+### The signature change, and why it is awaited
+
+`ensureRegisteredForSubagents` had to become `async` — the lock is async. It is
+`await`ed at every call site rather than fire-and-forget, because four of the
+five START A SESSION immediately afterwards and its subagents discover this
+server by reading `.mcp.json`. Fire-and-forget there would have traded a lost
+update for a startup race.
+
+| Call site                                        | Treatment                                   |
+| ------------------------------------------------ | ------------------------------------------- |
+| `ChatSessionService` (start + continue)          | awaited — session follows                   |
+| `ChatPtahCliService` (start + continue)          | awaited — CLI spawn follows                 |
+| `GatewayChatBridge.resolveSdkContext`            | awaited; existing catch degrades to `false` |
+| `bringUpSubsystems`                              | awaited, so a rejection lands in its catch  |
+| `onDidChangeWorkspaceFolders` (in-service)       | fire-and-forget + catch — nothing waits     |
+
+The event subscription is the one deliberately un-awaited path: the event has
+nowhere to return a promise to, and nothing depends on the re-point.
+
+### Constraints, all held
+
+- The read-merge-write is unchanged. `a hand-authored .mcp.json survives
+  register + unregister with only the ptah key touched` still passes.
+- harness-sync's refusal-on-unowned-path rule is untouched.
+- The non-atomic write was NOT folded in. It is a separate pre-existing gap and
+  the lock is what this task is for; changing the write mechanism in the same
+  change would have made the diff harder to reason about for no gain here.
+
+### Verified
+
+Two new cases in `http-mcp-server.service.spec.ts`: the register path takes the
+lock and writes INSIDE it, asserted on `mock.invocationCallOrder` rather than
+mere presence (a lock taken after the write would satisfy `toHaveBeenCalled` and
+protect nothing), and the remove path takes the same lock. The spec replaces
+`fs` wholesale, so `withMcpConfigLock` is stubbed to run its task through —
+which is why the ordering assertion is load-bearing and must not be deleted.
+
+The workspace-switch cases needed a `settleMcpJsonWrites()` drain: the folder
+event's re-point is now async, so a synchronous disk assertion after
+`setFolders` was reading pre-re-point state.
+
+`lint`, `typecheck` and `test` green across `vscode-lm-tools` (42 suites, 849),
+`vscode-core` (22, 365), `rpc-handlers` (88, 2467) and `gateway-chat-bridge`
+(2, 64). `nx affected -t typecheck` green across 27 projects.
+
 ## Verification note
 
 `npx nx test projA projB projC` silently runs only the FIRST project and exits

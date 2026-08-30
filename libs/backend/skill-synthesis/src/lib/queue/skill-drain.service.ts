@@ -218,6 +218,16 @@ export interface DrainSummary {
   stalled: number;
   /** Token-spending items deferred because the budget ran out mid-tick. */
   budgetDeferred: number;
+  /**
+   * Rows left queued because they came from the boot scan and the host has not
+   * been up long enough yet. Not a failure and not a skip: nothing was claimed,
+   * nothing was spent, and the next tick past the window takes them.
+   *
+   * Counted rather than merely logged because "the drain did nothing" and "the
+   * drain deliberately held back N rows" are the same empty summary otherwise,
+   * and only one of them is a reason to look at the queue.
+   */
+  bootDeferred: number;
   budgetExhausted: boolean;
   durationMs: number;
   /** Diagnostic only, never rendered. Set when the drain itself threw. */
@@ -267,6 +277,7 @@ export const SKILL_DRAIN_KEYS = {
   weeklyMaxItemsPerRun: 'skillSynthesis.drain.weeklyMaxItemsPerRun',
   perWorkspaceBatch: 'skillSynthesis.drain.perWorkspaceBatch',
   foregroundBackoffMs: 'skillSynthesis.drain.foregroundBackoffMs',
+  bootDeferralMs: 'skillSynthesis.drain.bootDeferralMs',
   pauseOnBattery: 'skillSynthesis.drain.pauseOnBattery',
   maxAttempts: 'skillSynthesis.drain.maxAttempts',
   staleClaimTtlMs: 'skillSynthesis.drain.staleClaimTtlMs',
@@ -285,6 +296,16 @@ export const SKILL_DRAIN_DEFAULTS = {
   weeklyMaxItemsPerRun: 400,
   perWorkspaceBatch: 1,
   foregroundBackoffMs: 300_000,
+  /**
+   * How long after process start a `source:'boot'` row is held back. `0`
+   * disables the deferral.
+   *
+   * Five minutes, matching `foregroundBackoffMs` because the two gates answer
+   * the same question about the same user — one from the chat's side, one from
+   * the clock's — and disagreeing would mean the drain holds off for one reason
+   * while running for the other.
+   */
+  bootDeferralMs: 300_000,
   pauseOnBattery: true,
   maxAttempts: 5,
   staleClaimTtlMs: 900_000,
@@ -299,6 +320,7 @@ export interface SkillDrainConfig {
   weeklyMaxItemsPerRun: number;
   perWorkspaceBatch: number;
   foregroundBackoffMs: number;
+  bootDeferralMs: number;
   pauseOnBattery: boolean;
   maxAttempts: number;
   staleClaimTtlMs: number;
@@ -543,6 +565,17 @@ export class SkillDrainService {
   private readonly workerId = `${process.pid}-${ulid()}`;
   private readonly handlers = new Map<SkillQueueStage, SkillStageHandler>();
 
+  /**
+   * When this process started, as the boot deferral measures it.
+   *
+   * A field initialised at construction rather than `process.uptime()`, for two
+   * reasons. The service is constructed during host boot, so the two agree to
+   * within the DI graph's own set-up time; and a field can be driven by the
+   * spec's injected `now`, whereas `process.uptime()` would force a real wait
+   * or a global clock mock to test a five-minute window.
+   */
+  private readonly startedAt = Date.now();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)
@@ -624,6 +657,7 @@ export class SkillDrainService {
       skippedItems: 0,
       stalled: 0,
       budgetDeferred: 0,
+      bootDeferred: 0,
       budgetExhausted: false,
       durationMs: 0,
     };
@@ -730,6 +764,7 @@ export class SkillDrainService {
     const batch = cfg.perWorkspaceBatch;
     const cheapFirst = this.shouldOrderCheapFirst(cfg, now);
     const scanLimit = Math.max(ELIGIBLE_SCAN_LIMIT, cap);
+    const deferBoot = this.withinBootDeferral(cfg, now);
 
     // Pass 1 — visit.
     const windows: Array<{ rows: SkillQueueRow[]; taken: number }> = [];
@@ -737,9 +772,25 @@ export class SkillDrainService {
     for (const workspaceRoot of this.queue.listEligibleWorkspaces(now)) {
       if (firstRoundSupply >= cap) break;
 
-      const rows = this.queue
+      const window = this.queue
         .listEligible(workspaceRoot, scanLimit, now)
         .filter((row) => stages.has(row.stage));
+
+      // The boot deferral is applied HERE, not as a whole-tick gate, and the
+      // difference is the point. A tick during the boot window still drains
+      // everything the user's own session produced — `session-end`, `idle`,
+      // `turn-complete` — and holds back only the backlog the boot scan
+      // enqueued from sessions that ended before this process existed. A gate
+      // above the loop would have stopped both, which is a worse trade than the
+      // one it replaces.
+      const rows = deferBoot
+        ? window.filter((row) => {
+            if (row.source !== 'boot') return true;
+            summary.bootDeferred++;
+            return false;
+          })
+        : window;
+
       if (cheapFirst) {
         rows.sort(
           (a, b) => STAGE_COST_RANK[a.stage] - STAGE_COST_RANK[b.stage],
@@ -775,6 +826,27 @@ export class SkillDrainService {
     }
 
     return picked;
+  }
+
+  /**
+   * Whether `source:'boot'` rows are still being held back.
+   *
+   * `ForegroundActivityTracker` cannot answer this on its own, and that is the
+   * whole reason this gate exists beside gate 4. The tracker reports
+   * `Number.POSITIVE_INFINITY` before the first chat turn — deliberately, so
+   * that a host nobody has touched is not treated as busy forever — which means
+   * the foreground gate is GUARANTEED to pass at boot, exactly when the host is
+   * least idle. On the baseline that let a `frequent` tick spend 122 s and a
+   * `nightly` tick 156 s while the window was still coming up
+   * (`tmp/logs/log.log:1095,1453`).
+   *
+   * Uptime is the missing signal: "has the host settled" is a question about
+   * the clock, not about the user. The two compose — a boot row runs only once
+   * the window has passed AND gate 4 says nobody is typing.
+   */
+  private withinBootDeferral(cfg: SkillDrainConfig, now: number): boolean {
+    if (!(cfg.bootDeferralMs > 0)) return false;
+    return now - this.startedAt < cfg.bootDeferralMs;
   }
 
   private async runItem(
@@ -1084,6 +1156,10 @@ export class SkillDrainService {
       foregroundBackoffMs: get(
         SKILL_DRAIN_KEYS.foregroundBackoffMs,
         SKILL_DRAIN_DEFAULTS.foregroundBackoffMs,
+      ),
+      bootDeferralMs: get(
+        SKILL_DRAIN_KEYS.bootDeferralMs,
+        SKILL_DRAIN_DEFAULTS.bootDeferralMs,
       ),
       pauseOnBattery: get(
         SKILL_DRAIN_KEYS.pauseOnBattery,

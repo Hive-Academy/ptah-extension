@@ -350,7 +350,7 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
   // ------------------------------------------------------ never-overwrite
 
   describe('the never-overwrite rule', () => {
-    it('persist() on a workspace with a recorded mode leaves it unchanged', () => {
+    it('persist() on a workspace with a recorded mode leaves it unchanged', async () => {
       const store = new ManagedManifestStore();
       new HarnessStateStore().save(ws, {
         version: 1,
@@ -365,7 +365,7 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
       expect(readState()?.enabledSkillSlugs).toEqual(['skill-one']);
     });
 
-    it('select() DOES overwrite a recorded mode — that is the difference between the migration and the user-driven surface', () => {
+    it('select() DOES overwrite a recorded mode — that is the difference between the migration and the user-driven surface', async () => {
       const store = new ManagedManifestStore();
       new HarnessStateStore().save(ws, { version: 1, skillSyncMode: 'all' });
 
@@ -532,9 +532,9 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
 
   // ------------------------------------------------------- builder pre-gate
 
-  it('a caller with no `skillSync` option at all gets pre-gate behaviour (the builder default is `all`)', () => {
+  it('a caller with no `skillSync` option at all gets pre-gate behaviour (the builder default is `all`)', async () => {
     const builder = new HarnessManifestBuilder();
-    const desired = builder.build(sourceState(), {});
+    const desired = await builder.build(sourceState(), {});
 
     expect(desired.skills.map((skill) => skill.slug)).toEqual([
       'skill-one',

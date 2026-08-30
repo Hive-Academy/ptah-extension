@@ -30,6 +30,9 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   summarizeHarnessHealth,
+  harnessBlockedWordingViolations,
+  HARNESS_BLOCKED_APPROVED_ACTIONS,
+  HARNESS_REPAIR_REASONS,
   type HarnessHealth,
   type HarnessRepairBlockedParams,
   type HarnessRepairBlockedResult,
@@ -499,7 +502,14 @@ describe('harness repair consent dialog', () => {
       // rewrite reads the intended wording rather than a list of what is
       // forbidden.
       //
-      // Four properties are baked into this literal, and each is why a clause
+      // Against the SHARED allowlist rather than a literal copied into this
+      // file (TASK_2026_309). The dialog is one of five surfaces saying how a
+      // blocked path gets cleared, and five private copies of the sentence is
+      // how the wording drifted apart in the first place — three of the five
+      // were still on a bare `not.toContain('delete')` check when this was
+      // written.
+      //
+      // Four properties are baked into that literal, and each is why a clause
       // is where it is: it opens on MOVE; it names the destination and the
       // fact that the destination is permanent; it claims no ownership; and it
       // closes by handing the judgement back to the user.
@@ -511,20 +521,10 @@ describe('harness repair consent dialog', () => {
 
       expect(
         textOf(host.querySelector('[data-testid="harness-repair-action"]')),
-      ).toBe(
-        'Move the occupant aside and Ptah installs its own copy in the space it ' +
-          'leaves. Everything you tick is moved into a .ptah-quarantine folder ' +
-          'beside it — so .claude/skills/orchestration becomes ' +
-          '.claude/skills/.ptah-quarantine/orchestration-20260823T141530123 — ' +
-          'intact, under its own name and the time it was moved. Ptah never ' +
-          'empties that folder and nothing in it expires: what goes there stays ' +
-          'until you deal with it yourself. Nothing here proves Ptah wrote ' +
-          'these, so they may be your own work: read it before you discard ' +
-          'anything.',
-      );
+      ).toBe(HARNESS_BLOCKED_APPROVED_ACTIONS['repair-dialog']);
     });
 
-    it('carries no destructive verb anywhere else in the dialog either', async () => {
+    it('says nothing unapproved anywhere else in the dialog either', async () => {
       // The exact-text case above pins ONE paragraph. This is the second net,
       // and its value is entirely in its SCOPE: a careful sentence next to a
       // button reading "Delete and install", or an outcome line reading "your
@@ -532,19 +532,15 @@ describe('harness repair consent dialog', () => {
       // rendered surface, in both phases, because the outcomes view is text
       // the user reads AFTER trusting the first one.
       //
-      // Explicitly NOT a completeness claim. "purge", "wipe", "drop",
-      // "unlink" and "nuke" would all pass this and none of them belongs
-      // here; the exact-text assertion is what actually holds the wording.
-      const banned = [
-        /delete[ds]?\b/,
-        /deleting\b/,
-        /deletion\b/,
-        /remove[ds]?\b/,
-        /removing\b/,
-        /erase[ds]?\b/,
-        /trashe?[ds]?\b/,
-        /\brm\b/,
-      ];
+      // This used to be eight regexes, with a comment admitting it was "NOT a
+      // completeness claim" — "purge", "wipe", "drop", "unlink" and "nuke" all
+      // passed it. It is now the same allowlist the action clause is held to,
+      // widened to the whole surface: every fixed sentence the dialog may
+      // render is on the list in
+      // `libs/shared/src/lib/types/harness-blocked-wording.ts`, and anything
+      // else that reads as prose fails. That converts "we banned the verbs we
+      // thought of" into "we approved the sentences we meant", which is the
+      // only form of this check that can be complete.
       rpcMock.call.mockResolvedValue(
         ok(
           repairResult([
@@ -562,20 +558,129 @@ describe('harness repair consent dialog', () => {
         ]),
       );
 
+      const action = textOf(
+        host.querySelector('[data-testid="harness-repair-action"]'),
+      );
       const choosePhase = textOf(
         host.querySelector('[data-testid="harness-repair"]'),
-      ).toLowerCase();
+      );
       await click('harness-repair-select-all');
       await click('harness-repair-confirm');
       const reportPhase = textOf(
         host.querySelector('[data-testid="harness-repair"]'),
-      ).toLowerCase();
+      );
 
-      for (const verb of banned) {
-        expect(choosePhase).not.toMatch(verb);
-        expect(reportPhase).not.toMatch(verb);
+      // Paths, target labels and the failure reason this test injected are
+      // DATA, not wording — a user's filename and a backend error string are
+      // not sentences anybody has to approve. Declaring them here is what
+      // keeps that distinction visible in the test that made it.
+      const data = [
+        '.claude/skills/a',
+        '.claude/skills/b',
+        'Claude Code',
+        'the directory is open in another program',
+      ];
+
+      for (const phase of [choosePhase, reportPhase]) {
+        expect(
+          harnessBlockedWordingViolations({
+            surface: 'repair-dialog',
+            action,
+            wholeText: phase,
+            data,
+          }),
+        ).toEqual([]);
       }
-      expect(reportPhase).toContain('moved aside');
+      expect(reportPhase.toLowerCase()).toContain('moved aside');
+    });
+
+    it('guards the per-path `reason` — the sixth surface, rendered from the REAL literals', async () => {
+      // `HarnessRepairPathResult.reason` is Ptah-authored prose, not user data.
+      // `HarnessBlockedRepairService` writes it (`blocked-repair.service.ts`
+      // :230, :318, :334, :399, :406) and this dialog renders it
+      // unconditionally at `harness-repair-dialog.component.ts:276-280`.
+      //
+      // It was invisible to the first version of this guard: the only `reason`
+      // any spec exercised was an invented fixture, always declared as `data`,
+      // and `data` is struck before the residue is judged. A destructive
+      // rewrite of any real literal shipped green. So this case renders the
+      // ACTUAL constants — every outcome that carries one — and declares NONE
+      // of them as data. They pass only because they are on the allowlist.
+      //
+      // The backend half of the pin is in
+      // `harness-sync/.../blocked-repair.service.spec.ts`, which asserts the
+      // service emits exactly these. Neither half is sufficient alone: this one
+      // proves the allowlist renders cleanly, that one proves production says
+      // what the allowlist says.
+      const quarantined =
+        '.claude/skills/.ptah-quarantine/c-20260823T141530123';
+      rpcMock.call.mockResolvedValue(
+        ok(
+          repairResult([
+            pathResult('.claude/skills/a', {
+              outcome: 'move-failed',
+              // A template: the head is approved wording, the tail is the OS.
+              reason: `${HARNESS_REPAIR_REASONS.moveFailed} EBUSY: resource busy or locked`,
+            }),
+            pathResult('.claude/skills/b', {
+              outcome: 'restored',
+              reason: HARNESS_REPAIR_REASONS.restored,
+            }),
+            pathResult('.claude/skills/c', {
+              outcome: 'restore-failed',
+              quarantinePath: quarantined,
+              reason: `${HARNESS_REPAIR_REASONS.restoreFailed} ${quarantined} (EPERM: operation not permitted)`,
+            }),
+            pathResult('.vscode/mcp.json#wanted', {
+              outcome: 'not-a-path',
+              reason: HARNESS_REPAIR_REASONS.notAPath,
+            }),
+            pathResult('.claude/skills/d', {
+              outcome: 'not-blocked',
+              reason: HARNESS_REPAIR_REASONS.notBlocked,
+            }),
+          ]),
+        ),
+      );
+      await open(
+        makeHealth([
+          blockedTarget('claude', ['.claude/skills/a', '.claude/skills/b']),
+        ]),
+      );
+      await click('harness-repair-select-all');
+      await click('harness-repair-confirm');
+
+      const reportPhase = textOf(
+        host.querySelector('[data-testid="harness-repair"]'),
+      );
+
+      // Every reason really did reach the DOM — otherwise this case would pass
+      // by rendering nothing.
+      for (const reason of Object.values(HARNESS_REPAIR_REASONS)) {
+        expect(reportPhase).toContain(reason);
+      }
+
+      expect(
+        harnessBlockedWordingViolations({
+          surface: 'repair-dialog',
+          action: textOf(
+            host.querySelector('[data-testid="harness-repair-action"]'),
+          ),
+          wholeText: reportPhase,
+          // Paths, labels and the two OS error strings only. Not one reason.
+          data: [
+            '.claude/skills/a',
+            '.claude/skills/b',
+            '.claude/skills/c',
+            '.claude/skills/d',
+            '.vscode/mcp.json#wanted',
+            'Claude Code',
+            quarantined,
+            'EBUSY: resource busy or locked',
+            'EPERM: operation not permitted',
+          ],
+        }),
+      ).toEqual([]);
     });
 
     it('names the quarantine destination while the user can still decline', async () => {

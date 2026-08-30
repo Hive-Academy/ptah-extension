@@ -49,28 +49,6 @@ export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
 }
 
 /**
- * Background agent progress event
- *
- * Emitted periodically while a background agent executes. Contains streaming
- * summary deltas from the agent's JSONL transcript file. These events flow
- * through a separate delivery path (WebviewManager.broadcastMessage) since
- * they outlive the main agent's streaming loop.
- */
-export interface BackgroundAgentProgressEvent extends FlatStreamEvent {
-  readonly eventType: 'background_agent_progress';
-  /** Links to the parent Task tool_use */
-  readonly toolCallId: string;
-  /** Short agent identifier for lookup */
-  readonly agentId: string;
-  /** New summary text delta from the agent's transcript */
-  readonly summaryDelta?: string;
-  /** Current agent execution status */
-  readonly status: 'running' | 'completed' | 'error';
-  /** Tab ID for routing */
-  readonly tabId?: string;
-}
-
-/**
  * Background agent completed event
  *
  * Emitted when a background subagent finishes execution (SubagentStop hook fires).
@@ -140,6 +118,14 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   /** Elapsed time in milliseconds */
   readonly durationMs: number;
   /**
+   * SDK short-hex agent id from the SubagentStart hook, when the registry
+   * knows it by the time this event is built. The hook fires AFTER
+   * `task_started` for most agents, so `agent_start` usually lacks the id and
+   * the progress/status/completed events are what finally carry it to the
+   * monitor store — which is what the transcript read is keyed on.
+   */
+  readonly agentId?: string;
+  /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
    * not part of a workflow run.
@@ -173,6 +159,8 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly description?: string;
   /** Error text if status is 'failed' */
   readonly errorMessage?: string;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -208,6 +196,8 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly toolUses?: number;
   /** Total elapsed time in milliseconds */
   readonly durationMs?: number;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -236,7 +226,6 @@ export type FlatStreamEventUnion =
   | CompactionStartEvent
   | CompactionCompleteEvent
   | BackgroundAgentStartedEvent
-  | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
   | AgentProgressEvent

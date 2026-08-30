@@ -434,21 +434,7 @@ If the user names a specific agent, use it. If a named agent is not in the disco
 
 ## Per-Role Delegation Examples
 
-### project-manager
-
-**Delegate**: Codebase research, dependency surveys, file structure analysis
-
-```
-ptah_agent_spawn {
-  task: "List all Angular components in libs/frontend/chat/src and categorize them by Atomic Design level (atom/molecule/organism/template/page). Format as a markdown table.",
-  cli: "codex",
-  files: ["libs/frontend/chat/src/**/*.component.ts"]
-}
-```
-
-### software-architect
-
-**Delegate**: Pattern analysis in specific modules, dependency graph checks, POC spikes
+Delegation is one call shape for every role. Here it is once, in full:
 
 ```
 ptah_agent_spawn {
@@ -458,119 +444,38 @@ ptah_agent_spawn {
 }
 ```
 
+`cli: "codex"` above is an **illustration, not a default**. Take the value from
+the `ptah_agent_list` discovery response — a hardcoded vendor is the single most
+common way this call fails.
+
+Two fields carry the whole quality of the result:
+
+- **`task`** — self-contained. The CLI agent shares none of your context, so
+  name absolute paths, the output format you want, and any convention it must
+  follow. "Format as a markdown table" and "output to stdout" are worth saying.
+- **`files`** — the glob or path list that scopes its reading. Omit it only for
+  work that touches no repo file, such as external research.
+
+What each role hands off:
+
+| Role                                      | Delegate                                                                  | A task line that works                                                                                                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| project-manager                           | Codebase research, dependency surveys, file structure analysis            | "List all Angular components in `<dir>` and categorize them by Atomic Design level (atom/molecule/organism/template/page). Format as a markdown table."                                                             |
+| software-architect                        | Pattern analysis in specific modules, dependency graph checks, POC spikes | The worked example above.                                                                                                                                                                                           |
+| backend-developer                         | Sub-tasks within a batch, test scaffolding, boilerplate                   | "Create unit test scaffolding for the class `<Class>` in `<absolute path>`. Generate test cases for each public method with describe/it blocks and placeholder assertions. Output the test file content to stdout." |
+| frontend-developer                        | Component scaffolding, style migration, template generation               | "Generate a component skeleton for `<Name>` following the project's patterns. Include the class, template, and a basic spec file. Use `<existing file>` as the reference for conventions."                          |
+| devops-engineer                           | Config file generation, script writing, container files                   | "Generate a multi-stage Dockerfile for a Node.js application that installs with `npm ci`, builds with `npm run build`, and produces a minimal production image."                                                    |
+| senior-tester                             | Test file generation per module, fixtures, coverage analysis              | "Write Jest unit tests for `<file>`. Cover all public methods with happy path and error cases. Use `jest.mock` for dependencies." — one spawn per module, in parallel.                                              |
+| code-style-reviewer / code-logic-reviewer | File-level reviews across many files in parallel                          | "Review `<file>` for naming conventions, consistent error handling, proper TypeScript usage, and any `any` types. Report issues as a numbered list with line references." — one spawn per file.                     |
+| researcher-expert                         | Parallel deep-dives into separate aspects of one question                 | Split external from internal: one spawn researching the package's API surface, another analyzing how this codebase already uses it.                                                                                 |
+| modernization-detector                    | Parallel analysis of different modules                                    | "Analyze `<dir>` for modernization opportunities: deprecated API usage, outdated patterns, missing TypeScript strict features, potential performance improvements. Format as a prioritized list."                   |
+| technical-content-writer                  | Draft sections, research features for content accuracy                    | "Read the source in `<dir>` and produce a technical summary of its capabilities: key features, supported operations, integration patterns. Write for developer documentation."                                      |
+
 ### team-leader
 
-**Does NOT delegate.** Team-leader is strictly advisory — it NEVER calls `ptah_agent_spawn` or `Task(...)`. It records per-batch `Recommended Executor` + `Execution Mode` in `tasks.md`, and the **main orchestrator** spawns CLI agents or sub-agents based on those recommendations.
+**Does NOT delegate.** Team-leader is strictly advisory — it NEVER calls `ptah_agent_spawn` or `Task(...)`. It records per-batch `Recommended Executor` + `Execution Mode` in the batch file, and the **main orchestrator** spawns CLI agents or sub-agents based on those recommendations.
 
 If team-leader needs parallel verification or batch implementation fan-out, it sets `Execution Mode: parallel` on the relevant batch and names the CLI as the `Recommended Executor`; the orchestrator executes the fan-out.
-
-### backend-developer
-
-**Delegate**: Sub-tasks within a batch, test scaffolding, boilerplate generation
-
-```
-ptah_agent_spawn {
-  task: "Create unit test scaffolding for the class AgentProcessManager in D:/projects/ptah-extension/libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts. Generate test cases for each public method with describe/it blocks and placeholder assertions. Output the test file content to stdout.",
-  cli: "codex",
-  files: ["libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts"]
-}
-```
-
-### frontend-developer
-
-**Delegate**: Component scaffolding, style migration, template generation
-
-```
-ptah_agent_spawn {
-  task: "Generate an Angular standalone component skeleton for 'AgentStatusBadge' following the project's patterns (zoneless, signals, DaisyUI). Include: component class, template, and a basic spec file. Use the existing agent-card.component.ts as a reference for conventions.",
-  cli: "codex",
-  files: ["libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts"]
-}
-```
-
-### devops-engineer
-
-**Delegate**: Config file generation, script writing, Dockerfile creation
-
-```
-ptah_agent_spawn {
-  task: "Generate a multi-stage Dockerfile for a Node.js 20 application that: 1) Installs dependencies with npm ci, 2) Builds with 'npm run build', 3) Creates a minimal production image. Use Alpine base images.",
-  cli: "codex"
-}
-```
-
-### senior-tester
-
-**Delegate**: Test file generation per module, fixture creation, coverage analysis
-
-```
-# Parallel test generation for multiple modules
-ptah_agent_spawn {
-  task: "Write Jest unit tests for libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts. Cover all public methods with happy path and error cases. Use jest.mock for dependencies.",
-  cli: "codex",
-  files: ["libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts"]
-}
-
-ptah_agent_spawn {
-  task: "Write Jest unit tests for libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts. Cover all public methods.",
-  cli: "codex",
-  files: ["libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts"]
-}
-```
-
-### code-style-reviewer / code-logic-reviewer
-
-**Delegate**: File-level reviews across many files in parallel
-
-```
-ptah_agent_spawn {
-  task: "Review the file libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts for: naming conventions, consistent error handling, proper TypeScript usage, no any types. Report issues as a numbered list with line references.",
-  cli: "codex",
-  files: ["libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts"]
-}
-```
-
-### researcher-expert
-
-**Delegate**: Parallel deep-dives into different aspects of a technology/codebase
-
-```
-# Parallel research
-ptah_agent_spawn {
-  task: "Research the Claude Agent SDK npm package (@anthropic-ai/claude-agent-sdk). List: main classes, key methods, streaming support, error handling patterns. Focus on version 0.2.x.",
-  cli: "codex"
-}
-
-ptah_agent_spawn {
-  task: "Analyze how the existing codebase uses @anthropic-ai/claude-agent-sdk. Find all import statements, usage patterns, and integration points. List file paths and key code snippets.",
-  cli: "codex",
-  files: ["libs/backend/agent-sdk/src/**/*.ts"]
-}
-```
-
-### modernization-detector
-
-**Delegate**: Parallel analysis of different modules for improvement opportunities
-
-```
-ptah_agent_spawn {
-  task: "Analyze libs/backend/vscode-core/src for modernization opportunities: deprecated API usage, outdated patterns, missing TypeScript strict features, potential performance improvements. Format as a prioritized list.",
-  cli: "codex",
-  files: ["libs/backend/vscode-core/src/**/*.ts"]
-}
-```
-
-### technical-content-writer
-
-**Delegate**: Draft sections, research codebase features for content accuracy
-
-```
-ptah_agent_spawn {
-  task: "Read the source code in libs/backend/agent-sdk/src and produce a technical summary of the Agent SDK's capabilities. Include: key features, supported operations, integration patterns. Write in a tone suitable for developer documentation.",
-  cli: "codex",
-  files: ["libs/backend/agent-sdk/src/**/*.ts"]
-}
-```
 
 ---
 

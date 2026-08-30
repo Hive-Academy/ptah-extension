@@ -32,6 +32,7 @@ on:
         options:
           - landing
           - docs
+          - server
           - electron
       trigger_pipeline:
         description: 'Dispatch the deploy/publish workflow after syncing'
@@ -139,6 +140,7 @@ jobs:
           case "$TARGET" in
             landing)  gh workflow run deploy-landing.yml  --ref "release/landing" ;;
             docs)     gh workflow run deploy-docs.yml     --ref "release/docs" ;;
+            server)   gh workflow run deploy-server.yml   --ref "release/server" ;;
             electron) gh workflow run publish-electron.yml --ref "release/electron" -f "bump=$BUMP" ;;
           esac
           echo "Dispatched the pipeline for release/$TARGET." >> "$GITHUB_STEP_SUMMARY"

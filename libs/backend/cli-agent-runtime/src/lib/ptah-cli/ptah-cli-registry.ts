@@ -72,6 +72,23 @@ export type SpawnAgentFailure = {
   message: string;
 };
 
+/**
+ * A running translation proxy shared by every chat session on one ptah-cli
+ * agent.
+ *
+ * `fingerprint` is what the proxy was built FROM — provider id, resolved API
+ * key and resolved tier mapping. Two sessions may share a proxy only while
+ * their fingerprints agree; once the user edits any of those, the running
+ * proxy is answering with the wrong credentials for a new session and must be
+ * superseded (see `PtahCliRegistry.profileProxies`).
+ */
+interface ProfileProxyLease {
+  readonly fingerprint: string;
+  readonly authEnv: AuthEnv;
+  readonly stop: () => Promise<void>;
+  refCount: number;
+}
+
 @injectable()
 export class PtahCliRegistry {
   constructor(
@@ -112,13 +129,41 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Long-lived per-agent translation proxies owned by interactive chat
-   * sessions started via `getProfile()`. The ProviderProfile value type carries
-   * no teardown hook, so the proxy must outlive the call. We keep at most ONE
-   * proxy per agent: a fresh `getProfile()` for the same agent stops the prior
-   * instance first. All are stopped on `disposeAll()`.
+   * The CURRENT translation-proxy lease per agent id, owned by the interactive
+   * chat sessions started via `getProfile()`. The ProviderProfile value type
+   * carries no teardown hook, so the proxy must outlive the call.
+   *
+   * **Ref-counted, one proxy per agent, shared by every session on it.** The
+   * previous rule was "at most ONE proxy per agent: a fresh `getProfile()` for
+   * the same agent stops the prior instance first", and that was a bug, not a
+   * simplification. `getProfile()` is called once per `chat:start`, so opening
+   * a third session on the same ptah-cli agent stopped the proxy sessions 1
+   * and 2 were already using: their `ANTHROPIC_BASE_URL` pointed at a closed
+   * port and every request they made failed (TASK_2026_323).
+   *
+   * A lease is stopped only when its last holder releases it. A lease whose
+   * fingerprint no longer matches the agent's configuration is RETIRED rather
+   * than stopped — it leaves this map, and if anyone still holds it, it waits
+   * in {@link retiringProxies} until they are done.
    */
-  private readonly profileProxies = new Map<string, () => Promise<void>>();
+  private readonly profileProxies = new Map<string, ProfileProxyLease>();
+
+  /**
+   * Superseded leases that are still held by live sessions.
+   *
+   * A lease lands here when the user changes the agent's key, provider or tier
+   * mapping between sessions: new sessions get a fresh proxy, and the sessions
+   * already streaming through the old one keep working until they release it.
+   * Stopped on the last release, or on `disposeAll()`.
+   */
+  private readonly retiringProxies = new Set<ProfileProxyLease>();
+
+  /**
+   * Which lease a named caller currently holds, keyed by its `leaseKey`
+   * (the chat tab id). This is what makes {@link releaseProfile} possible: the
+   * caller does not have to remember which proxy instance it was given.
+   */
+  private readonly leaseHolders = new Map<string, ProfileProxyLease>();
 
   /**
    * Truly-local providers (local Ollama, LM Studio) never need a key.
@@ -320,8 +365,21 @@ export class PtahCliRegistry {
    * URL, and cli.js path â€” consumed by `SdkAgentAdapter.startChatSession()`
    * via the `providerProfile` parameter so third-party providers reuse the
    * unified interactive-chat code path instead of a parallel adapter.
+   *
+   * For a provider that needs a translation proxy this ACQUIRES a reference to
+   * the agent's shared proxy — see {@link profileProxies}.
+   *
+   * @param leaseKey Identifies the caller holding the reference, so it can give
+   *   it back later via {@link releaseProfile}. Callers should pass their chat
+   *   tab id. It is optional only so existing call sites keep compiling: WITHOUT
+   *   a key the reference is still counted (so a later session cannot kill the
+   *   proxy out from under this one) but nothing can ever free it short of
+   *   `disposeAll()`, and the proxy stays up for the life of the process.
    */
-  async getProfile(id: string): Promise<ProviderProfile | undefined> {
+  async getProfile(
+    id: string,
+    leaseKey?: string,
+  ): Promise<ProviderProfile | undefined> {
     await this.configPersistence.ensureMigrated();
     const configs = this.configPersistence.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
@@ -346,19 +404,16 @@ export class PtahCliRegistry {
 
     seedStaticModelPricing(agentConfig.providerId);
 
-    // Stop a previously-started proxy for this agent before starting a fresh
-    // one (the prior chat session, if any, is being replaced).
-    await this.stopProfileProxy(id);
-    const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
+    const tier: ModelTier = 'sonnet';
+    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const authEnv = await this.acquireProfileAuthEnv(
+      id,
       agentConfig,
       provider,
       apiKey,
+      effectiveTiers,
+      leaseKey,
     );
-    if (provider.requiresProxy === true && provider.authType !== 'none') {
-      this.profileProxies.set(id, stopProxy);
-    }
-    const tier: ModelTier = 'sonnet';
-    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
     const resolvedFromTiers = effectiveTiers?.[tier];
     const resolvedModel =
       agentConfig.selectedModel?.trim() || resolvedFromTiers || '';
@@ -719,6 +774,16 @@ export class PtahCliRegistry {
       }
     });
 
+    // No `getPid`, deliberately, and it is not an oversight the way it looks.
+    // Every other adapter here spawns its own `child_process` and can hand the
+    // manager a PID to tree-kill. This path does not spawn anything: `query()`
+    // owns the `claude` child, exposes no handle to it anywhere in the SDK's
+    // public surface, and reaps it itself when `abortController` fires — which
+    // is also what closes the prompt mailbox above and ends the stream loop. So
+    // for this handle the abort IS the kill, and `AgentProcessManager.killProcess`
+    // waits on `done` rather than tree-killing a PID it cannot be given.
+    // Inventing one (e.g. from a process scan) would be guessing at which
+    // `claude.exe` on the machine is ours.
     const handle: SdkHandle = {
       abort: abortController,
       done: turn1Done,
@@ -788,24 +853,177 @@ export class PtahCliRegistry {
    * Dispose all active adapters. Chat sessions are owned by SdkAgentAdapter,
    * but any long-lived per-agent translation proxies started by `getProfile()`
    * are owned here and must be torn down.
+   *
+   * Stops the CURRENT lease of every agent AND every superseded lease still
+   * waiting on a holder — the retiring set is the one that would otherwise be
+   * missed, and its proxies hold real listening sockets.
    */
   disposeAll(): void {
     this.logger.info('[PtahCliRegistry] disposeAll()');
-    for (const id of [...this.profileProxies.keys()]) {
-      void this.stopProfileProxy(id);
+    const leases = [...this.profileProxies.values(), ...this.retiringProxies];
+    this.profileProxies.clear();
+    this.retiringProxies.clear();
+    this.leaseHolders.clear();
+    for (const lease of leases) {
+      lease.refCount = 0;
+      void lease.stop();
     }
   }
 
   /**
-   * Stop and forget a long-lived per-agent profile proxy, if one exists.
+   * Give back the translation-proxy reference taken by
+   * `getProfile(id, leaseKey)`.
+   *
+   * Stops the proxy only when the LAST holder lets go. An unknown key is a
+   * silent no-op: callers release on abort, on session delete and on dispose,
+   * and those paths overlap — a double release must not be an error, and a
+   * release for a non-proxy provider (which never took a lease) must not be
+   * either.
    */
-  private async stopProfileProxy(id: string): Promise<void> {
-    const stop = this.profileProxies.get(id);
-    if (!stop) {
+  async releaseProfile(leaseKey: string): Promise<void> {
+    const lease = this.leaseHolders.get(leaseKey);
+    if (!lease) {
       return;
     }
-    this.profileProxies.delete(id);
-    await stop();
+    this.leaseHolders.delete(leaseKey);
+    lease.refCount--;
+    if (lease.refCount > 0) {
+      return;
+    }
+    this.retiringProxies.delete(lease);
+    for (const [agentId, current] of this.profileProxies) {
+      if (current === lease) {
+        this.profileProxies.delete(agentId);
+        break;
+      }
+    }
+    await lease.stop();
+  }
+
+  /**
+   * Resolve the auth env for an interactive chat session, sharing ONE
+   * translation proxy across every session running on the same agent.
+   *
+   * The three cases, in the order they are decided:
+   *
+   * 1. **Not a pooled provider** — `requiresProxy !== true` or
+   *    `authType === 'none'`. The auth env is a plain value aimed at the
+   *    provider's own base URL, there is nothing to keep alive, so no lease is
+   *    taken and no bookkeeping happens. Same predicate the old code used to
+   *    decide whether to remember a `stopProxy`.
+   * 2. **A matching lease exists** — reuse it and count one more holder. This
+   *    is the case the old code got wrong: it stopped the running proxy first,
+   *    breaking every session already streaming through it.
+   * 3. **A lease exists with a different fingerprint** — the user changed the
+   *    key, provider or tier mapping since it started, so it is answering with
+   *    the wrong credentials for this session. It is RETIRED (removed as the
+   *    agent's current lease) and, if anyone still holds it, parked in
+   *    `retiringProxies` until they release. A held lease is never stopped.
+   */
+  private async acquireProfileAuthEnv(
+    id: string,
+    agentConfig: PtahCliConfig,
+    provider: AnthropicProvider,
+    apiKey: string,
+    effectiveTiers: PtahCliConfig['tierMappings'],
+    leaseKey: string | undefined,
+  ): Promise<AuthEnv> {
+    const isPooled =
+      provider.requiresProxy === true && provider.authType !== 'none';
+    if (!isPooled) {
+      const { authEnv } = await this.buildProxyAuthEnv(
+        agentConfig,
+        provider,
+        apiKey,
+      );
+      return authEnv;
+    }
+
+    const fingerprint = this.proxyFingerprint(
+      agentConfig,
+      apiKey,
+      effectiveTiers,
+    );
+    const held =
+      leaseKey === undefined ? undefined : this.leaseHolders.get(leaseKey);
+
+    // A tab restarting on the same agent with unchanged credentials already
+    // holds exactly the lease it is asking for. Re-counting it would strand a
+    // reference the tab can never give back; releasing and re-taking it would
+    // bounce a proxy that is already correct.
+    if (
+      held &&
+      held === this.profileProxies.get(id) &&
+      held.fingerprint === fingerprint
+    ) {
+      return held.authEnv;
+    }
+
+    // Any other restart on this key: the tab's previous lease is finished with.
+    if (leaseKey !== undefined && held) {
+      await this.releaseProfile(leaseKey);
+    }
+
+    const current = this.profileProxies.get(id);
+    if (current && current.fingerprint === fingerprint) {
+      current.refCount++;
+      if (leaseKey !== undefined) {
+        this.leaseHolders.set(leaseKey, current);
+      }
+      this.logger.info(
+        `[PtahCliRegistry] Reusing translation proxy for agent "${agentConfig.name}" (${current.refCount} holders)`,
+      );
+      return current.authEnv;
+    }
+
+    if (current) {
+      this.profileProxies.delete(id);
+      if (current.refCount > 0) {
+        this.retiringProxies.add(current);
+        this.logger.info(
+          `[PtahCliRegistry] Retired a superseded translation proxy for agent "${agentConfig.name}"; ${current.refCount} session(s) still using it`,
+        );
+      } else {
+        await current.stop();
+      }
+    }
+
+    const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
+      agentConfig,
+      provider,
+      apiKey,
+    );
+    const lease: ProfileProxyLease = {
+      fingerprint,
+      authEnv,
+      stop: stopProxy,
+      refCount: 1,
+    };
+    this.profileProxies.set(id, lease);
+    if (leaseKey !== undefined) {
+      this.leaseHolders.set(leaseKey, lease);
+    }
+    return authEnv;
+  }
+
+  /**
+   * Everything a running translation proxy was built FROM.
+   *
+   * Two sessions may share a proxy only while these agree. `\u0000` separates
+   * the parts so no combination of values can collide by concatenation.
+   */
+  private proxyFingerprint(
+    agentConfig: PtahCliConfig,
+    apiKey: string,
+    effectiveTiers: PtahCliConfig['tierMappings'],
+  ): string {
+    return [
+      agentConfig.providerId,
+      apiKey,
+      effectiveTiers?.sonnet ?? '',
+      effectiveTiers?.opus ?? '',
+      effectiveTiers?.haiku ?? '',
+    ].join('\u0000');
   }
 
   /**
