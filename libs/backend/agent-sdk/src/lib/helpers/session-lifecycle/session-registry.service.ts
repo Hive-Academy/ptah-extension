@@ -18,6 +18,8 @@
  * facade constructs it eagerly in its constructor body. See WAVE_C7i_DESIGN.md.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   SessionId,
@@ -37,6 +39,17 @@ import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
  * registry, not from session-lifecycle-manager).
  */
 export interface SessionRecord {
+  /**
+   * Opaque identity of THIS registration, minted fresh in `register()`.
+   *
+   * `tabId` and `realSessionId` are stable across re-registrations under the
+   * same key — a slash-command re-query ends the old record and registers a new
+   * one under the same id — so neither can answer "is the record I was holding
+   * still the one registered?". The token can: two registrations never share
+   * one. Compare it through `SessionControl.endSessionIfTokenMatches`, never by
+   * reading it and acting later.
+   */
+  readonly token: string;
   /** Immutable tab ID assigned at tile creation. */
   readonly tabId: string;
   /** Null until the SDK system 'init' message fires; set ONCE via bindRealSessionId. */
@@ -122,6 +135,7 @@ export class SessionRegistry {
     realSessionId?: string,
   ): SessionRecord {
     const rec: SessionRecord = {
+      token: randomUUID(),
       tabId,
       realSessionId: realSessionId ?? null,
       query: null,
@@ -196,6 +210,15 @@ export class SessionRegistry {
    */
   find(idOrTabId: string): SessionRecord | undefined {
     return this.byTabId.get(idOrTabId) ?? this.bySessionId.get(idOrTabId);
+  }
+
+  /**
+   * Token of the record CURRENTLY registered under this id, or null when
+   * nothing is registered. A caller that holds an old token can compare against
+   * a fresh read to tell "still my record" from "replaced by a newer one".
+   */
+  getToken(idOrTabId: string): string | null {
+    return this.find(idOrTabId)?.token ?? null;
   }
 
   /**

@@ -31,6 +31,7 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   'task:complete': 'task.complete',
   'task:error': 'task.error',
   'debug.di.phase': 'debug.di.phase',
+  'debug.perf.lag': 'debug.perf.lag',
   'skill:installed': 'skill.installed',
   'skill:removed': 'skill.removed',
   'mcp:installed': 'mcp.installed',
@@ -48,7 +49,7 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
 const COST_EVENTS = new Set(['session:cost', 'session:cost-delta']);
 const TOKEN_EVENTS = new Set(['session:tokens', 'session:token-delta']);
 /** Backend event types gated behind `--verbose`. */
-const VERBOSE_ONLY_EVENTS = new Set(['debug.di.phase']);
+const VERBOSE_ONLY_EVENTS = new Set(['debug.di.phase', 'debug.perf.lag']);
 
 interface RunningCost {
   totalUsd: number;

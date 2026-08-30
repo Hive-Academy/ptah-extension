@@ -29,7 +29,6 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
 import type {
   HarnessTargetId,
@@ -38,6 +37,7 @@ import type {
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
 import { withWindowsRetrySync } from '../../fs/windows-retry';
+import { codexHomeConfigFile, type CodexHomeOptions } from './codex-home';
 import { withMcpConfigLock } from './mcp-config-lock';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
 
@@ -51,9 +51,33 @@ export function endMarker(serverKey: string): string {
   return `# ptah:end ${serverKey}`;
 }
 
-export interface CodexTomlMcpFacetOptions {
-  /** Overridable so specs can point at a temp directory. */
-  homeDir?: string;
+export interface CodexTomlMcpFacetOptions extends CodexHomeOptions {
+  /**
+   * Which of Codex's TWO config files this facet addresses. Defaults to
+   * `'home'`, so every existing caller is unchanged.
+   *
+   * **Codex reads both, and MERGES them** — verified on codex-cli 0.150.1:
+   * `codex mcp list` in a workspace holding `.codex/config.toml` printed that
+   * file's server ALONGSIDE the home file's, and `codex doctor` went from
+   * `MCP servers 1` to `2`. Its own documentation names both ("edit
+   * `~/.codex/config.toml` or a project-scoped `.codex/config.toml`"); `codex
+   * --help` and `codex doctor` mention only the home one, which is misleading.
+   *
+   * **A project-scoped file is honoured only for a TRUSTED project.** The same
+   * probe in a fresh `git init` temp repo with no `[projects.'<path>']
+   * trust_level = "trusted"` entry in the home config reported `MCP servers 1`
+   * — the file was ignored, silently. Codex prompts for trust on first use, so
+   * a workspace the user actually runs Codex in has it; a workspace they do not
+   * is one where the entry costs nothing either way.
+   *
+   * Which scope to pick is a question about the SERVER, not about Codex: a
+   * server the user INSTALLED is a machine-wide choice and belongs in `home`
+   * (that is what the reconciler writes), while Ptah's own server is bound to
+   * one workspace's Ptah process and belongs in `workspace` — which is also the
+   * only scope that can be right when two Ptah windows are open on two folders,
+   * since one home file holds one port.
+   */
+  scope?: 'home' | 'workspace';
 }
 
 export class CodexTomlMcpFacet implements IHarnessMcpFacet {
@@ -62,21 +86,33 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
 
   constructor(private readonly options: CodexTomlMcpFacetOptions = {}) {}
 
+  private get scope(): 'home' | 'workspace' {
+    return this.options.scope ?? 'home';
+  }
+
   configRelPath(): string {
-    return '~/.codex/config.toml';
+    return this.scope === 'home'
+      ? '~/.codex/config.toml'
+      : '.codex/config.toml';
   }
 
-  configPath(): string {
-    return join(this.options.homeDir ?? homedir(), '.codex', 'config.toml');
+  configPath(workspaceRoot = ''): string | null {
+    // `~/.codex` is the DEFAULT, not the rule: `CODEX_HOME` relocates the whole
+    // directory and the config sits directly inside it. `codex-home.ts` is the
+    // one place that decides, shared with `codex-project-trust.ts` so a write
+    // and a trust read can never disagree about which file they mean.
+    if (this.scope === 'home') return codexHomeConfigFile(this.options);
+    if (workspaceRoot === '') return null;
+    return join(workspaceRoot, '.codex', 'config.toml');
   }
 
-  readAll(): Map<string, McpServerConfig> {
-    return parseMcpServerTables(this.readFile());
+  readAll(workspaceRoot = ''): Map<string, McpServerConfig> {
+    return parseMcpServerTables(this.readFile(workspaceRoot));
   }
 
   /** Server names declared OUTSIDE any Ptah marker block. */
-  foreignServerKeys(): Set<string> {
-    const content = this.readFile();
+  foreignServerKeys(workspaceRoot = ''): Set<string> {
+    const content = this.readFile(workspaceRoot);
     const owned = new Set(ownedServerKeys(content));
     const foreign = new Set<string>();
     for (const key of parseMcpServerTables(
@@ -98,41 +134,52 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
    * exemption nobody can see from here (see `mcp-config-lock.ts`).
    */
   write(
-    _workspaceRoot: string,
+    workspaceRoot: string,
     serverKey: string,
     config: McpServerConfig,
   ): Promise<void> {
-    return withMcpConfigLock(this.configPath(), () => {
-      const content = this.readFile();
-      if (this.foreignServerKeys().has(serverKey)) {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) {
+      return Promise.reject(
+        new Error('Workspace-scoped ~/.codex config needs an open workspace'),
+      );
+    }
+    return withMcpConfigLock(path, () => {
+      const content = this.readFile(workspaceRoot);
+      if (this.foreignServerKeys(workspaceRoot).has(serverKey)) {
         // Two tables with the same name is a TOML parse error, which would take
         // Codex down entirely. Refusing is the only safe answer; the target has
         // already classified this key as foreign and will report it.
         return Promise.reject(
           new Error(
-            `~/.codex/config.toml already declares [mcp_servers.${serverKey}] outside Ptah's block`,
+            `${this.configRelPath()} already declares [mcp_servers.${serverKey}] outside Ptah's block`,
           ),
         );
       }
       this.writeFile(
+        workspaceRoot,
         spliceOwnedBlock(content, serverKey, renderBlock(serverKey, config)),
       );
       return Promise.resolve();
     });
   }
 
-  remove(_workspaceRoot: string, serverKey: string): Promise<void> {
-    return withMcpConfigLock(this.configPath(), () => {
-      const content = this.readFile();
+  remove(workspaceRoot: string, serverKey: string): Promise<void> {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) return Promise.resolve();
+    return withMcpConfigLock(path, () => {
+      const content = this.readFile(workspaceRoot);
       const next = spliceOwnedBlock(content, serverKey, null);
-      if (next !== content) this.writeFile(next);
+      if (next !== content) this.writeFile(workspaceRoot, next);
       return Promise.resolve();
     });
   }
 
-  private readFile(): string {
+  private readFile(workspaceRoot = ''): string {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) return '';
     try {
-      return readFileSync(this.configPath(), 'utf-8');
+      return readFileSync(path, 'utf-8');
     } catch {
       return '';
     }
@@ -146,8 +193,9 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
    * to land because a scanner held the file open is exactly the E21 failure this
    * lib exists to survive.
    */
-  private writeFile(content: string): void {
-    const path = this.configPath();
+  private writeFile(workspaceRoot: string, content: string): void {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) return;
     try {
       if (existsSync(path)) {
         const previous = withWindowsRetrySync(() => readFileSync(path));

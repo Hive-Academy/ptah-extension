@@ -165,6 +165,19 @@ export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
 export const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
 
 /**
+ * EventLoopMonitor — libuv event-loop delay sampler (TASK_2026_323).
+ * Registered as a singleton but NOT started; each host arms it where it wants
+ * coverage to begin.
+ */
+export const EVENT_LOOP_MONITOR = Symbol.for('EventLoopMonitor');
+
+/**
+ * CpuProfileCapture — on-demand `.cpuprofile` writer via `node:inspector`.
+ * Paired with EVENT_LOOP_MONITOR by `armDiagnostics`.
+ */
+export const CPU_PROFILE_CAPTURE = Symbol.for('CpuProfileCapture');
+
+/**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
  */
@@ -242,6 +255,8 @@ export const TOKENS = {
   MODEL_DISCOVERY,
   WORKSPACE_CONTEXT_MANAGER,
   GIT_INFO_SERVICE,
+  EVENT_LOOP_MONITOR,
+  CPU_PROFILE_CAPTURE,
 } as const;
 
 /**

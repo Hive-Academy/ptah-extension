@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_322
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Skill candidates carry no workspace, so a brand-new project's review queue
@@ -27,6 +27,7 @@ description: >-
   parameter on `skillSynthesis:listCandidates`. Promotion, clustering, dedup,
   residency and the gates stay CROSS-PROJECT — a promoted skill is global by
   design and scoping those reads would be a different, wrong change.
+updated: '2026-08-25T21:04:56.566Z'
 ---
 
 # Skill candidates are not workspace-scoped

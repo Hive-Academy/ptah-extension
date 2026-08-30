@@ -9,6 +9,7 @@ function makeState(): jest.Mocked<TransformerState> {
     getCurrentModel: jest.fn().mockReturnValue(undefined),
     getToolCallId: jest.fn().mockReturnValue(undefined),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
+    getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
     isNonAgentTask: jest.fn().mockReturnValue(false),
@@ -45,6 +46,7 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       error: jest.fn(),
     },
     subagentRegistry: {
+      get: jest.fn().mockReturnValue(undefined),
       markPendingBackground: jest.fn(),
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),

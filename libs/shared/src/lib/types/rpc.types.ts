@@ -516,6 +516,8 @@ import type {
   UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
+  UpdateMarkDownloadedParams,
+  UpdateMarkDownloadedResult,
 } from './rpc/rpc-update.types';
 
 import type {
@@ -2043,6 +2045,10 @@ export interface RpcMethodRegistry {
   'update:check-now': {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
+  };
+  'update:mark-downloaded': {
+    params: UpdateMarkDownloadedParams;
+    result: UpdateMarkDownloadedResult;
   };
   'tasks:list': { params: TasksListParams; result: TasksListResult };
   'tasks:get': { params: TasksGetParams; result: TasksGetResult };
@@ -3701,6 +3707,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'update:get-state': true,
   'update:check-now': true,
+  'update:mark-downloaded': true,
 
   'tasks:list': true,
   'tasks:get': true,

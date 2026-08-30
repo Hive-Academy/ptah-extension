@@ -292,7 +292,9 @@ export class WebviewHtmlGenerator {
 
     return `
       <!DOCTYPE html>
-      <html lang="en">
+      <!-- data-theme is required: daisyUI no longer emits a bare :root copy of
+           the default theme (see tailwind.config.js themeRoot). -->
+      <html lang="en" data-theme="anubis" data-theme-mode="dark">
       <head>
         <meta charset="utf-8">
         <title>Ptah - AI Coding Orchestra</title>

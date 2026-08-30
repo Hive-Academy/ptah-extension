@@ -278,7 +278,9 @@ describe('HarnessSkillSelectionRpcService', () => {
         } as unknown as HarnessPropagationService,
         workspaceProviderFor(root),
       );
-      const rpcHandler = new RpcHandler(fakeLogger(), undefined);
+      // Third arg is the optional ITracer used for the slow-handler breadcrumb
+      // (TASK_2026_323); this spec only exercises method registration.
+      const rpcHandler = new RpcHandler(fakeLogger(), undefined, undefined);
 
       expect(() => {
         rpcHandler.registerMethod('harness:get-skill-selection', async () =>

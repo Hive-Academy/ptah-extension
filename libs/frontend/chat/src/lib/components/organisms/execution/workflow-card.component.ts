@@ -8,6 +8,7 @@ import {
 import { LucideAngularModule, Workflow, PanelRightOpen } from 'lucide-angular';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { ExecutionNode } from '@ptah-extension/shared';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 
 /**
  * WorkflowCardComponent — compact "Workflow launched" chip for the chat
@@ -69,6 +70,13 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 })
 export class WorkflowCardComponent {
   private readonly store = inject(AgentMonitorStore);
+  /**
+   * The tile this chip renders in. Present only inside a canvas / tribunal
+   * tile (they provide it on a child injector); null on the main panel.
+   */
+  private readonly sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
 
   readonly node = input.required<ExecutionNode>();
 
@@ -92,7 +100,12 @@ export class WorkflowCardComponent {
     return content && content.trim().length > 0 ? content : undefined;
   });
 
+  /**
+   * Open the Agents panel of THIS surface. The request carries the tile's
+   * tab id so sibling tiles ignore it — an unscoped request used to open the
+   * embedded panel in every open session at once.
+   */
   openMonitor(): void {
-    this.store.requestPanelOpen();
+    this.store.requestPanelOpen(this.sessionContext?.() ?? null);
   }
 }

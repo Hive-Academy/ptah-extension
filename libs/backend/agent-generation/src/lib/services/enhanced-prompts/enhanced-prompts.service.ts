@@ -163,6 +163,13 @@ const SERVICE_TAG = '[EnhancedPrompts]';
  */
 const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * Ceiling on a single prompt-designer SDK query, covering the queue wait for a
+ * concurrency slot AND the stream. Armed before `execute()` so a caller queued
+ * behind a long one-shot cannot block indefinitely.
+ */
+const PROMPT_DESIGNER_TIMEOUT_MS = 10 * 60 * 1000;
+
 @injectable()
 export class EnhancedPromptsService {
   /**
@@ -682,6 +689,7 @@ export class EnhancedPromptsService {
   ): Promise<PromptDesignerOutput | null> {
     const mcpServerRunning = false;
     const mcpPort = undefined;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     try {
       const {
@@ -708,6 +716,12 @@ export class EnhancedPromptsService {
       const configModel = this.modelSettings.selectedModel.get();
       const model = sdkConfig?.model || configModel || 'default';
       const abortController = new AbortController();
+      // Arm the timeout BEFORE execute() so the budget covers the queue wait
+      // for a concurrency slot, not just the stream after the handle resolves.
+      timeoutHandle = setTimeout(
+        () => abortController.abort(),
+        PROMPT_DESIGNER_TIMEOUT_MS,
+      );
       const handle = await this.internalQueryService.execute({
         cwd: workspacePath,
         model,
@@ -762,6 +776,8 @@ export class EnhancedPromptsService {
             ? error.stack?.split('\n')[1]?.trim()
             : undefined,
       });
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
     onProgress?.({
       status: 'fallback',

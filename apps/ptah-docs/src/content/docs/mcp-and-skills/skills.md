@@ -40,44 +40,46 @@ Every skill's `description` field is the trigger. The orchestrator scans availab
 Concrete verbs and nouns in the description dramatically improve skill discovery. Aim for "when to use" rather than "what it does."
 :::
 
-## Skill junctions — sharing across AI clients
+## Harness sync — sharing across AI clients
 
-Ptah goes beyond its own sessions. Every enabled plugin skill is **symlinked** (junctioned on Windows) into the active workspace at:
+Ptah goes beyond its own sessions. It keeps one editable copy of each skill in
+the user layer at `~/.ptah/user/skills/<skill-name>/`, then reconciles that
+layer out to every AI tool it detects on your machine.
 
-```text
-<workspace>/.claude/skills/<skill-name>/
-```
+**The reconciler writes real files, not links.** Earlier versions used symbolic
+links and Windows junctions. They are gone. Each target directory now holds a
+manifest-owned copy, so a tool that cannot follow a link still reads the skill.
 
-This is the folder the wider AI-tooling ecosystem reads — Claude Code, Copilot, Cursor, Codex CLI. By populating it automatically, Ptah ensures that when you switch tools for a specific task, you don't lose the knowledge pack.
+| Target(s)             | Directory                         |
+| --------------------- | --------------------------------- |
+| Claude                | `.claude/skills/<slug>/`          |
+| Codex and Antigravity | `.agents/skills/<slug>/` (shared) |
+| Copilot               | `.github/skills/<slug>/`          |
+| Cursor                | `.cursor/skills/<slug>/`          |
+
+Only the tools you have installed get a copy. An undetected tool is not a gap.
 
 ```mermaid
 flowchart LR
-    A["~/.ptah/plugins/ptah-core/skills/orchestration/"] -- junction --> B[".claude/skills/orchestration/"]
-    C["~/.ptah/plugins/ptah-angular/skills/angular-frontend-patterns/"] -- junction --> D[".claude/skills/angular-frontend-patterns/"]
-    B --> E["Ptah"]
-    B --> F["Copilot"]
-    B --> G["Cursor"]
-    D --> E
-    D --> F
-    D --> G
+    A["~/.ptah/user/skills/orchestration/"] -- copy --> B[".claude/skills/orchestration/"]
+    A -- copy --> C[".agents/skills/orchestration/"]
+    A -- copy --> D[".github/skills/orchestration/"]
+    A -- copy --> E[".cursor/skills/orchestration/"]
 ```
 
-### Junction lifecycle
+### Reconcile lifecycle
 
-| Event                  | Ptah's action                                               |
-| ---------------------- | ----------------------------------------------------------- |
-| Plugin enabled         | Create junctions for every skill in the plugin              |
-| Plugin disabled        | Remove the junctions (originals stay in `~/.ptah/plugins/`) |
-| Plugin updated         | Junctions auto-resolve — no re-creation needed              |
-| Workspace first opened | Ensure junctions exist for all enabled plugins              |
+| Event                  | Ptah's action                                            |
+| ---------------------- | -------------------------------------------------------- |
+| Plugin enabled         | Copy every skill in the plugin into each detected target |
+| Plugin disabled        | Delete the copies (the source stays in the user layer)   |
+| Plugin updated         | Rewrite each copy whose content hash changed             |
+| Workspace first opened | Reconcile the workspace against the user layer           |
 
-### Platform notes
-
-| Platform | Link type          | Needs special permission?       |
-| -------- | ------------------ | ------------------------------- |
-| Windows  | Directory junction | No (junctions don't need admin) |
-| macOS    | Symbolic link      | No                              |
-| Linux    | Symbolic link      | No                              |
+Ptah owns only the paths its manifest records. A skill directory you created by
+hand is foreign, and the reconciler leaves it alone. Ptah also writes a
+`.gitignore` entry for the directories it derives, because those copies must not
+be committed. Edit the source in `~/.ptah/user/skills/`, never a copy.
 
 ## Skill vs. agent — when to use which
 
@@ -90,7 +92,7 @@ flowchart LR
 
 ## Auto-discovered skills
 
-Beyond hand-authored skills, Ptah can **generate skills from your own usage**. The [Skill Synthesis](/skill-synthesis/) pipeline watches sessions for repeated successful trajectories and, after the 3rd success, materialises a `SKILL.md` at `~/.ptah/skills/<slug>/`. From that point the auto-skill participates in the same discovery, junctioning, and trigger-matching as any hand-authored skill — there's no second runtime path.
+Beyond hand-authored skills, Ptah can **generate skills from your own usage**. The [Skill Synthesis](/skill-synthesis/) pipeline watches sessions for repeated successful trajectories and, after the 3rd success, materialises a `SKILL.md` at `~/.ptah/skills/<slug>/`. From that point the auto-skill participates in the same discovery, harness sync, and trigger-matching as any hand-authored skill — there's no second runtime path.
 
 You can review, force-promote, or reject candidates in **Settings → Skill Synthesis**.
 

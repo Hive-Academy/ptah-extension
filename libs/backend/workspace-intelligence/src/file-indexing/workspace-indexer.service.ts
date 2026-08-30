@@ -16,7 +16,10 @@ import type {
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
-import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
+import {
+  IgnorePatternResolverService,
+  type ParsedIgnoreFile,
+} from './ignore-pattern-resolver.service';
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
@@ -114,6 +117,28 @@ function isUnreadableEntryError(error: unknown): boolean {
     current = (current as { cause?: unknown }).cause;
   }
   return false;
+}
+
+/**
+ * Paths per batch yielded by
+ * {@link WorkspaceIndexerService.discoverWorkspacePaths}.
+ *
+ * Large enough that a 15k-file workspace costs ~30 yields rather than 15k, and
+ * small enough that the synchronous run between two yields stays far under the
+ * 250 ms the event-loop monitor warns at.
+ */
+export const DISCOVERY_BATCH_SIZE = 500;
+
+/**
+ * Hand the event loop a turn.
+ *
+ * `setImmediate` rather than `Promise.resolve()`: a resolved promise is a
+ * MICROtask, so awaiting it drains back into the same loop turn and starves
+ * timers, I/O callbacks and IPC exactly as the uninterrupted loop did. Same
+ * reasoning, same idiom as `CodeSymbolIndexer`.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 /**
@@ -297,7 +322,10 @@ export class WorkspaceIndexerService {
           [relativePath],
           options.excludePatterns,
         );
-        if (excluded && excluded.length > 0) {
+        // `matchFiles` returns one result per INPUT path, so its length is 1
+        // for this single-path call whether or not the path matched. Read the
+        // per-file `matched` flag; the length says only that we asked.
+        if (excluded && excluded[0]?.matched) {
           continue; // Skip excluded files
         }
       }
@@ -411,7 +439,8 @@ export class WorkspaceIndexerService {
             [relativePath],
             options.excludePatterns,
           );
-          if (excluded && excluded.length > 0) {
+          // One result per INPUT path — see `indexWorkspace` above.
+          if (excluded && excluded[0]?.matched) {
             continue;
           }
         }
@@ -449,6 +478,82 @@ export class WorkspaceIndexerService {
         skippedEntries,
         allFiles.length,
       );
+    }
+  }
+
+  /**
+   * Discover workspace file PATHS, in batches, doing nothing else.
+   *
+   * The `@`-mention file index needs paths and nothing more — no size, no
+   * mtime, no language classification — but it used to consume
+   * {@link indexWorkspaceStream}, which per file awaits
+   * `IgnorePatternResolverService.isIgnored` (every pattern of every ignore file
+   * through the shared `PatternMatcherService`, building a string cache key per
+   * call), awaits a `stat`, and runs the classifier. On a 15k-file workspace
+   * that is 15k serialized stat round-trips on the Electron MAIN loop, measured
+   * at 8-15 s per workspace switch (TASK_2026_344). This generator drops all
+   * three:
+   *
+   *  - ignore rules are compiled ONCE into a synchronous predicate
+   *    (`compileMatcher`), so filtering is a tight in-memory loop;
+   *  - nothing is statted, read or classified;
+   *  - control returns to the event loop between batches, so a long walk cannot
+   *    monopolise the loop the way one uninterrupted `for` over 15k paths does.
+   *    Same idiom as `CodeSymbolIndexer`'s `yieldToEventLoop`.
+   *
+   * {@link indexWorkspaceStream} is deliberately left alone: its other consumers
+   * want the stat + classification it pays for.
+   *
+   * Pass `ignoreFiles` when the caller has already parsed them (the file index
+   * has — it keeps them for its watcher re-checks) to avoid a second read of
+   * every ignore file in the workspace.
+   *
+   * @yields Batches of absolute file paths
+   */
+  public async *discoverWorkspacePaths(options: {
+    workspaceFolder: string;
+    /** Paths per yielded batch. Default {@link DISCOVERY_BATCH_SIZE}. */
+    batchSize?: number;
+    /** Already-parsed ignore files; parsed here when omitted. */
+    ignoreFiles?: ParsedIgnoreFile[];
+  }): AsyncGenerator<readonly string[], void, undefined> {
+    const workspaceFolder = options.workspaceFolder;
+    if (!workspaceFolder) {
+      throw new Error('No workspace folder available for indexing');
+    }
+    const batchSize =
+      options.batchSize && options.batchSize > 0
+        ? options.batchSize
+        : DISCOVERY_BATCH_SIZE;
+
+    const ignoreFiles =
+      options.ignoreFiles ??
+      (await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder));
+    const isIgnored = this.ignoreResolver.compileMatcher(
+      ignoreFiles,
+      workspaceFolder,
+    );
+
+    const allFiles = await this.discoverFiles(workspaceFolder);
+
+    let batch: string[] = [];
+    for (const filePath of allFiles) {
+      const relativePath = path.relative(workspaceFolder, filePath);
+      if (isIgnored(relativePath)) {
+        continue;
+      }
+      batch.push(filePath);
+      if (batch.length >= batchSize) {
+        yield batch;
+        batch = [];
+        // AFTER the yield, so the consumer has already absorbed the batch: the
+        // pause is what keeps the walk off the critical path, not a delay in
+        // delivering it.
+        await yieldToEventLoop();
+      }
+    }
+    if (batch.length > 0) {
+      yield batch;
     }
   }
 

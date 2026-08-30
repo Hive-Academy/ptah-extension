@@ -1,40 +1,12 @@
 import {
   Component,
   OnInit,
-  signal,
   inject,
   output,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, Puzzle, XCircle } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
-import { isOptOutPluginSource, type PluginInfo } from '@ptah-extension/shared';
-
-/**
- * Count the plugins that are actually active.
- *
- * Bundled and external plugins are opt-in (`enabledPluginIds`); harness-authored
- * and skills.sh ones are opt-out (`disabledPluginIds`), so the enabled count is
- * NOT simply `enabledPluginIds.length` — a user-authored skill is live without
- * ever being listed there. `isOptOutPluginSource` is the shared rule rather
- * than a literal comparison, because this count silently disagreeing with what
- * the reconciler actually propagates is invisible until someone toggles a
- * plugin and the number does not move.
- */
-function countEnabledPlugins(
-  plugins: PluginInfo[],
-  enabledPluginIds: string[],
-  disabledPluginIds: string[],
-): number {
-  const enabled = new Set(enabledPluginIds);
-  const disabled = new Set(disabledPluginIds);
-
-  return plugins.filter((plugin) =>
-    isOptOutPluginSource(plugin.source)
-      ? !disabled.has(plugin.id)
-      : enabled.has(plugin.id) && !disabled.has(plugin.id),
-  ).length;
-}
+import { PluginCatalogService } from '@ptah-extension/core';
 
 /**
  * PluginStatusWidgetComponent - Plugin configuration status widget
@@ -136,68 +108,51 @@ function countEnabledPlugins(
   ],
 })
 export class PluginStatusWidgetComponent implements OnInit {
-  private readonly rpcService = inject(ClaudeRpcService);
+  /**
+   * The shared catalog, not a private fetch (TASK_2026_345).
+   *
+   * This widget is mounted PER TRANSCRIPT inside the chat empty state and again
+   * on the Marketplace plugins surface, and the plugin browser modal sits
+   * beside it in both. Every instance used to issue its own
+   * `plugins:get-config` + `plugins:list-available` pair on `ngOnInit`, which is
+   * where the repeated pairs in `tmp/logs/log.log:978-993` came from. The store
+   * dedupes them into one round trip; nothing else about this component
+   * changed.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
   /** Lucide icon references */
   protected readonly PuzzleIcon = Puzzle;
   protected readonly XCircleIcon = XCircle;
 
   /** Number of currently enabled plugins */
-  readonly pluginCount = signal(0);
+  readonly pluginCount = this.catalog.enabledCount;
 
   /** Total number of available plugins */
-  readonly totalAvailable = signal(0);
+  readonly totalAvailable = this.catalog.pluginTotal;
 
   /** Whether data is being loaded */
-  readonly isLoading = signal(true);
+  readonly isLoading = this.catalog.isLoading;
 
-  /** Error message if RPC calls fail */
-  readonly error = signal<string | null>(null);
+  /** Error message if the catalog read failed */
+  readonly error = this.catalog.error;
 
   /** Emitted when user clicks the Configure button */
   readonly configureClicked = output<void>();
 
   ngOnInit(): void {
-    this.fetchPluginStatus();
+    void this.catalog.ensureLoaded();
   }
 
   /**
-   * Fetch plugin configuration and available plugins from backend via RPC.
-   * Public to allow template retry button access.
+   * Re-read the catalog from the backend.
+   *
+   * Public because the template's Retry button and every parent that just saved
+   * a plugin change call it. Unlike `ensureLoaded` this always goes to the host
+   * — it exists precisely for the cases where the cached answer is known to be
+   * stale.
    */
   async fetchPluginStatus(): Promise<void> {
-    this.isLoading.set(true);
-    this.error.set(null);
-
-    try {
-      const [configResult, listResult] = await Promise.all([
-        this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
-        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
-      ]);
-
-      const plugins: PluginInfo[] =
-        listResult.isSuccess() && listResult.data
-          ? listResult.data.plugins
-          : [];
-      this.totalAvailable.set(plugins.length);
-
-      if (configResult.isSuccess() && configResult.data) {
-        this.pluginCount.set(
-          countEnabledPlugins(
-            plugins,
-            configResult.data.enabledPluginIds,
-            configResult.data.disabledPluginIds ?? [],
-          ),
-        );
-      } else {
-        this.pluginCount.set(0);
-      }
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to load plugin status';
-      this.error.set(errorMessage);
-    } finally {
-      this.isLoading.set(false);
-    }
+    await this.catalog.refresh();
   }
 }

@@ -137,12 +137,12 @@ Extract text with pdfplumber:
 
 ## Advanced features
 
-- **Form filling**: See [FORMS.md](FORMS.md) for complete guide
-- **API reference**: See [REFERENCE.md](REFERENCE.md) for all methods
-- **Examples**: See [EXAMPLES.md](EXAMPLES.md) for common patterns
+- **Form filling**: See `references/forms.md` for the complete guide
+- **API reference**: See `references/api.md` for all methods
+- **Examples**: See `references/examples.md` for common patterns
 ```
 
-Claude loads FORMS.md, REFERENCE.md, or EXAMPLES.md only when needed.
+The agent loads `forms.md`, `api.md`, or `examples.md` only when needed.
 
 **Pattern 2: Domain-specific organization**
 
@@ -182,17 +182,18 @@ Show basic content, link to advanced content:
 
 ## Creating documents
 
-Use docx-js for new documents. See [DOCX-JS.md](DOCX-JS.md).
+Use docx-js for new documents. See `references/docx-js.md`.
 
 ## Editing documents
 
 For simple edits, modify the XML directly.
 
-**For tracked changes**: See [REDLINING.md](REDLINING.md)
-**For OOXML details**: See [OOXML.md](OOXML.md)
+**For tracked changes**: See `references/redlining.md`
+**For OOXML details**: See `references/ooxml.md`
 ```
 
-Claude reads REDLINING.md or OOXML.md only when the user needs those features.
+The agent reads `redlining.md` or `ooxml.md` only when the user needs those
+features.
 
 **Important guidelines:**
 
@@ -205,9 +206,9 @@ Skill creation involves these steps:
 
 1. Understand the skill with concrete examples
 2. Plan reusable skill contents (scripts, references, assets)
-3. Initialize the skill (run init_skill.py)
+3. Initialize the skill (create the directory and SKILL.md)
 4. Edit the skill (implement resources and write SKILL.md)
-5. Package the skill (run package_skill.py)
+5. Package the skill (validate, then zip to `.skill`)
 6. Iterate based on real usage
 
 Follow these steps in order, skipping only if there is a clear reason why they are not applicable.
@@ -259,22 +260,20 @@ At this point, it is time to actually create the skill.
 
 Skip this step only if the skill being developed already exists, and iteration or packaging is needed. In this case, continue to the next step.
 
-When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
+Create the skill by hand — it is four steps and no tooling is required:
 
-Usage:
+1. Create the directory `<skill-name>/`. Use lowercase and hyphens; the
+   directory name and the `name` field in the frontmatter must match exactly.
+2. Create `<skill-name>/SKILL.md` with YAML frontmatter carrying `name` and
+   `description`, then the body.
+3. Create only the resource directories the skill will actually use —
+   `scripts/`, `references/`, `assets/`. An empty directory is worse than a
+   missing one, so do not create all three by reflex.
+4. Write the body last, after the reusable resources exist, so the body can
+   describe what is really there.
 
-```bash
-scripts/init_skill.py <skill-name> --path <output-directory>
-```
-
-The script:
-
-- Creates the skill directory at the specified path
-- Generates a SKILL.md template with proper frontmatter and TODO placeholders
-- Creates example resource directories: `scripts/`, `references/`, and `assets/`
-- Adds example files in each directory that can be customized or deleted
-
-After initialization, customize or remove the generated SKILL.md and example files as needed.
+Do not scaffold placeholder or example files "to be deleted later". They get
+shipped by accident and every reader pays for them.
 
 ### Step 4: Edit the Skill
 
@@ -295,7 +294,7 @@ To begin implementation, start with the reusable resources identified above: `sc
 
 Added scripts must be tested by actually running them to ensure there are no bugs and that the output matches what is expected. If there are many similar scripts, only a representative sample needs to be tested to ensure confidence that they all work while balancing time to completion.
 
-Any example files and directories not needed for the skill should be deleted. The initialization script creates example files in `scripts/`, `references/`, and `assets/` to demonstrate structure, but most skills won't need all of them.
+Any file or directory the skill does not actually need should be deleted before packaging. Most skills use one of `scripts/`, `references/`, and `assets/`, not all three — an empty or placeholder-filled directory ships confusion.
 
 #### Update SKILL.md
 
@@ -311,7 +310,10 @@ Write the YAML frontmatter with `name` and `description`:
   - Include all "when to use" information here - Not in the body. The body is only loaded after triggering, so "When to Use This Skill" sections in the body are not helpful to Claude.
   - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
 
-Do not include any other fields in YAML frontmatter.
+`name` and `description` are the only fields the loader reads, and they are the
+only two a skill needs. One exception is legitimate: a `license` field, when the
+skill carries a `LICENSE.txt` whose terms require the notice to travel with the
+work — this skill itself is such a case. Do not add fields beyond those.
 
 ##### Body
 
@@ -319,30 +321,29 @@ Write instructions for using the skill and its bundled resources.
 
 ### Step 5: Packaging a Skill
 
-Once development of the skill is complete, it must be packaged into a distributable .skill file that gets shared with the user. The packaging process automatically validates the skill first to ensure it meets all requirements:
+Once development of the skill is complete, it can be packaged into a
+distributable `.skill` file to share with the user. Validate first, then zip —
+a package that fails validation on the receiving end is worse than no package.
+
+**Validate.** Check each of these by reading the skill:
+
+- The frontmatter parses as YAML and carries both `name` and `description`.
+- `name` is lowercase-with-hyphens and matches the directory name exactly.
+- `description` says both WHAT the skill does and WHEN to use it, in third
+  person, and stays under 1024 characters.
+- Every file path named in SKILL.md and in the reference files actually exists.
+  Dead links are the most common defect — check them one by one.
+- No `README.md`, `CHANGELOG.md`, or other auxiliary documentation is present.
+
+**Package.** A `.skill` file is an ordinary zip with a different extension. From
+the directory that contains the skill folder, so the folder itself is preserved
+as the top-level entry in the archive:
 
 ```bash
-scripts/package_skill.py <path/to/skill-folder>
+zip -r my-skill.skill my-skill/
 ```
 
-Optional output directory specification:
-
-```bash
-scripts/package_skill.py <path/to/skill-folder> ./dist
-```
-
-The packaging script will:
-
-1. **Validate** the skill automatically, checking:
-
-   - YAML frontmatter format and required fields
-   - Skill naming conventions and directory structure
-   - Description completeness and quality
-   - File organization and resource references
-
-2. **Package** the skill if validation passes, creating a .skill file named after the skill (e.g., `my-skill.skill`) that includes all files and maintains the proper directory structure for distribution. The .skill file is a zip file with a .skill extension.
-
-If validation fails, the script will report the errors and exit without creating a package. Fix any validation errors and run the packaging command again.
+Fix any validation problem before packaging; do not ship and then patch.
 
 ### Step 6: Iterate
 

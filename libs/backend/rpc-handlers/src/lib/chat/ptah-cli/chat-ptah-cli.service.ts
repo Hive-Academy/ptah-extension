@@ -24,6 +24,14 @@ import type { ChatSdkContextService } from '../session/chat-sdk-context.service'
 interface PtahCliSessionEntry {
   readonly agentId: string;
   readonly agentName: string;
+  /**
+   * Key of this session's proxy lease in `PtahCliRegistry`. The entry object
+   * is shared between the `tabId` and `realSessionId` map keys, so whichever
+   * key an abort or delete arrives under, it releases the same lease
+   * (TASK_2026_323 — a third session on one agent must not stop the proxy
+   * sessions 1 and 2 are still using).
+   */
+  readonly leaseKey: string;
 }
 
 /**
@@ -82,7 +90,8 @@ export class ChatPtahCliService {
       workspacePath,
     });
 
-    const profile = await this.ptahCliRegistry.getProfile(agentId);
+    const leaseKey = tabId;
+    const profile = await this.ptahCliRegistry.getProfile(agentId, leaseKey);
     if (!profile) {
       this.logger.error(`[RPC] Ptah CLI profile not found: ${agentId}`);
       return {
@@ -93,39 +102,72 @@ export class ChatPtahCliService {
       };
     }
 
-    const summaries = await this.ptahCliRegistry.listAgents();
-    const summary = summaries.find((s) => s.id === agentId);
-    const agentName = summary?.name ?? agentId;
+    // Everything from here to the session entry runs under the lease taken by
+    // `getProfile` above, and the lease is only ever given back from a session
+    // entry (`handleAbort` / `deleteSession` read `entry.leaseKey`). So a throw
+    // in between — `ensureRegisteredForSubagents` failing to write `.mcp.json`,
+    // or the spawn itself — used to strand the reference forever: the proxy's
+    // refCount never returned to zero, its listening socket stayed up for the
+    // life of the host, and the next attempt on the same agent took a second
+    // one. Release on the failure path, then rethrow untouched (TASK_2026_326).
+    //
+    // The guard starts at the FIRST fallible call after the lease, not at the
+    // spawn. `listAgents()` reads the registry over the same transport the
+    // proxy uses, so it is exactly as able to reject as the start it precedes,
+    // and leaving it outside left the identical leak for that one caller.
+    let stream: AsyncIterable<unknown>;
+    let agentName = agentId;
+    try {
+      const summaries = await this.ptahCliRegistry.listAgents();
+      const summary = summaries.find((s) => s.id === agentId);
+      agentName = summary?.name ?? agentId;
 
-    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
+      let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
-    this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
-      tabId,
-      ptahCliId: agentId,
-      mcpServerRunning,
-    });
+      this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
+        tabId,
+        ptahCliId: agentId,
+        mcpServerRunning,
+      });
 
-    if (mcpServerRunning) {
-      this.codeExecutionMcp.ensureRegisteredForSubagents();
+      if (mcpServerRunning) {
+        // Awaited: the CLI spawned below reads `.mcp.json` to discover this
+        // server, so the entry has to be on disk first (TASK_2026_318) — and
+        // the outcome decides the flag we pass to the spawn (TASK_2026_332).
+        // Telling the CLI the server is running when the file it reads has no
+        // `ptah` key is the false assurance this replaces.
+        const registration =
+          await this.codeExecutionMcp.ensureRegisteredForSubagents();
+        if (!registration.registered) {
+          mcpServerRunning = false;
+          this.logger.warn(
+            '[RPC] chat:start - .mcp.json entry absent, spawning Ptah CLI without MCP',
+            { tabId, ptahCliId: agentId, reason: registration.reason },
+          );
+        }
+      }
+
+      const enhancedPromptsContent =
+        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+
+      stream = (await this.agentAdapter.startChatSession({
+        tabId,
+        workspaceId: workspacePath,
+        systemPrompt: options?.systemPrompt,
+        projectPath: workspacePath,
+        name,
+        prompt,
+        files: options?.files,
+        mcpServerRunning,
+        enhancedPromptsContent,
+        providerProfile: profile,
+      })) as AsyncIterable<unknown>;
+    } catch (error: unknown) {
+      await this.releaseLeaseAfterFailedStart(leaseKey, error);
+      throw error;
     }
 
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-
-    const stream = await this.agentAdapter.startChatSession({
-      tabId,
-      workspaceId: workspacePath,
-      systemPrompt: options?.systemPrompt,
-      projectPath: workspacePath,
-      name,
-      prompt,
-      files: options?.files,
-      mcpServerRunning,
-      enhancedPromptsContent,
-      providerProfile: profile,
-    });
-
-    this.ptahCliSessions.set(tabId, { agentId, agentName });
+    this.ptahCliSessions.set(tabId, { agentId, agentName, leaseKey });
 
     this.logger.info('[RPC] chat:start - Ptah CLI session started', {
       tabId,
@@ -135,9 +177,37 @@ export class ChatPtahCliService {
 
     return {
       result: { success: true },
-      stream: stream as AsyncIterable<unknown>,
+      stream,
       tabId,
     };
+  }
+
+  /**
+   * Give back the lease taken for a start that never produced a session.
+   *
+   * Awaited but never allowed to throw: the caller is about to rethrow the
+   * REAL failure, and a release problem replacing "the CLI would not spawn"
+   * with "could not stop a proxy" would hide the thing the user needs to see.
+   */
+  private async releaseLeaseAfterFailedStart(
+    leaseKey: string,
+    cause: unknown,
+  ): Promise<void> {
+    try {
+      await this.ptahCliRegistry.releaseProfile(leaseKey);
+    } catch (releaseError: unknown) {
+      this.logger.warn(
+        '[RPC] Ptah CLI proxy lease release failed after a failed start',
+        {
+          leaseKey,
+          cause: cause instanceof Error ? cause.message : String(cause),
+          error:
+            releaseError instanceof Error
+              ? releaseError.message
+              : String(releaseError),
+        },
+      );
+    }
   }
 
   async handleContinue(
@@ -159,7 +229,17 @@ export class ChatPtahCliService {
     });
 
     if (this.sdkContext.isMcpServerRunning()) {
-      this.codeExecutionMcp.ensureRegisteredForSubagents();
+      // The already-running CLI keeps whatever MCP wiring it was spawned with,
+      // so there is no flag to correct here — but a failure still has to be
+      // visible rather than resolving as success (TASK_2026_332).
+      const registration =
+        await this.codeExecutionMcp.ensureRegisteredForSubagents();
+      if (!registration.registered) {
+        this.logger.warn(
+          '[RPC] chat:continue - .mcp.json entry absent for Ptah CLI turn',
+          { sessionId, tabId, reason: registration.reason },
+        );
+      }
     }
 
     if (!this.agentAdapter.isSessionActive(sessionId)) {
@@ -195,6 +275,7 @@ export class ChatPtahCliService {
     this.agentAdapter.endSession(sessionId);
 
     this.ptahCliSessions.delete(sessionId as string);
+    await this.ptahCliRegistry.releaseProfile(entry.leaseKey);
 
     return { success: true };
   }
@@ -228,7 +309,21 @@ export class ChatPtahCliService {
   }
 
   deleteSession(key: string): void {
+    const entry = this.ptahCliSessions.get(key);
     this.ptahCliSessions.delete(key);
+    if (entry) {
+      // Fire-and-forget: callers are synchronous, and `releaseProfile` is a
+      // no-op on an unknown key, so a double release (abort then delete) is
+      // harmless.
+      void this.ptahCliRegistry
+        .releaseProfile(entry.leaseKey)
+        .catch((error: unknown) => {
+          this.logger.warn('[RPC] Ptah CLI proxy lease release failed', {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
   }
 
   registerResumedSession(
@@ -239,6 +334,7 @@ export class ChatPtahCliService {
     const entry: PtahCliSessionEntry = {
       agentId: ptahCliId,
       agentName: ptahCliId,
+      leaseKey: tabId ?? sessionId,
     };
     this.ptahCliSessions.set(sessionId, entry);
     if (tabId) {

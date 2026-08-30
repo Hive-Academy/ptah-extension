@@ -1,14 +1,15 @@
 ---
 id: TASK_2026_260
-status: in_review
+status: done
 type: bugfix
-title: '27 broken screenshot references ship to production on docs.ptah.live'
+title: 27 broken screenshot references ship to production on docs.ptah.live
 description: >-
-  The docs site references 47 distinct `/screenshots/*.png` files across 40 pages;
-  `public/screenshots/` holds 22 and `src/assets/screenshots/` is empty. 27 referenced
-  images do not exist anywhere in the repo. `astro build` does not validate public-asset
-  references, so the build passes and the broken `src` attributes ship — confirmed present
-  in the built HTML.
+  The docs site references 47 distinct `/screenshots/*.png` files across 40
+  pages; `public/screenshots/` holds 22 and `src/assets/screenshots/` is empty.
+  27 referenced images do not exist anywhere in the repo. `astro build` does not
+  validate public-asset references, so the build passes and the broken `src`
+  attributes ship — confirmed present in the built HTML.
+updated: '2026-08-25T21:21:45.880Z'
 ---
 
 # 27 broken screenshot references ship to production on docs.ptah.live

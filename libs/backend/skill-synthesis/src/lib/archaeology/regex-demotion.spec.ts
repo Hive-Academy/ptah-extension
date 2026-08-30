@@ -399,6 +399,9 @@ function trajectoryFixture(
 function makeSynthesisService() {
   const store = {
     findByTrajectoryHash: jest.fn(() => null),
+    // No prior candidate for the session: this double analyzes each session
+    // once, so the per-session supersession lookup must answer "nothing yet".
+    findLatestBySourceSession: jest.fn(() => null),
     registerCandidate: jest.fn(() => ({
       candidate: { id: 'cand-1' },
       reused: false,

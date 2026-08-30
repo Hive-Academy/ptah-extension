@@ -120,8 +120,10 @@ export class BackgroundAgentTrayComponent {
     for (const bg of this.backgroundStore.agents()) {
       if (scope !== null && !agentVisibleInSession(bg.sessionId, scope))
         continue;
-      const taskId = subagents.get(bg.toolCallId)?.taskId;
-      map.set(bg.toolCallId, this.fromBackground(bg, taskId));
+      map.set(
+        bg.toolCallId,
+        this.fromBackground(bg, subagents.get(bg.toolCallId)),
+      );
     }
 
     return map;
@@ -155,10 +157,19 @@ export class BackgroundAgentTrayComponent {
     };
   }
 
+  /**
+   * Background records win over the subagent record for identity and status,
+   * but they carry no progress of their own. The live rolling summary arrives
+   * on `agent_progress` (SDK `task_progress`), which keeps firing after an
+   * agent is backgrounded and lands on the subagent record. Reading it here is
+   * what makes a background chip show whether the agent is working or stuck.
+   */
   private fromBackground(
     bg: BackgroundAgentEntry,
-    taskId: string | undefined,
+    rec: SubagentRecord | undefined,
   ): StripContext {
+    const taskId = rec?.taskId;
+    const progress = rec?.latestSummary || rec?.lastToolName;
     const status: BackgroundAgentStripEntry['status'] =
       bg.status === 'running'
         ? 'background'
@@ -172,7 +183,7 @@ export class BackgroundAgentTrayComponent {
       entry: {
         id: bg.toolCallId,
         name: bg.teammateName ?? bg.agentType ?? 'Agent',
-        description: bg.agentDescription || bg.summary || undefined,
+        description: progress || bg.agentDescription || undefined,
         status,
         steerable: isRunning,
         stoppable: isRunning && !!taskId,

@@ -1,6 +1,6 @@
 ---
 title: Setup Wizard
-description: Generate a project-aware agent roster in four guided steps.
+description: Generate a project-aware agent roster in seven guided steps.
 ---
 
 The **Setup Wizard** (the **Workspace Analysis** card in the [Setup Hub](/setup/)) turns your workspace into a tuned team of AI agents. It analyzes your code, detects your stack, proposes specialists, and saves them into `.claude/agents/` — all in a few clicks.
@@ -21,46 +21,64 @@ The **Setup Wizard** (the **Workspace Analysis** card in the [Setup Hub](/setup/
 Running the wizard never deletes existing agents. New or updated agents are written alongside what you already have; review the diffs before saving.
 :::
 
-## The four steps
+## The seven steps
 
-### Step 1 — Project analysis
+The wizard always runs in this order. A progress indicator shows where you are.
+
+### Step 1 — Welcome
+
+A short summary of what the wizard will do and what it will write. Nothing is
+scanned or written yet.
+
+### Step 2 — Scan
 
 Ptah scans your workspace to build a fingerprint: package manifests, lockfiles, framework configs, test runners, CI pipelines, and directory conventions. The scan is local and read-only.
 
-You'll see a live progress list as files are analyzed. Typical scan time is under 30 seconds for mid-sized repos.
+You'll see a live progress list as files are analyzed.
 
-![Step 1 — analysis](/screenshots/agents-wizard-step1.png)
+![Step 2 — scan](/screenshots/agents-wizard-step1.png)
 
-### Step 2 — Tech stack detection
+### Step 3 — Analysis
 
-The results from step 1 are summarized into a **detected stack** — languages, frameworks, databases, cloud targets, testing tools, and build systems. You can:
+The scan results are summarized into a **detected stack** — languages, frameworks, databases, cloud targets, testing tools, and build systems. The wizard streams its reasoning as an execution tree, so you can see how it reached each conclusion.
 
-- **Confirm** auto-detected entries
-- **Add** anything the scan missed (e.g., internal libraries)
-- **Remove** false positives
+![Step 3 — analysis](/screenshots/agents-wizard-step2.png)
 
-![Step 2 — stack](/screenshots/agents-wizard-step2.png)
+### Step 4 — Agent selection
 
-### Step 3 — Agent generation
+Ptah uses the detected stack to propose an agent roster. All 14 built-ins are recommended by default. The wizard also proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS and Prisma) and offers **opt-in specialists** such as `video-director` unchecked.
 
-Ptah uses the confirmed stack to produce a recommended agent roster. All 14 built-ins are recommended by default; the wizard additionally proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS + Prisma, or a `frontend-developer` tuned for Angular signals) and offers **opt-in specialists** like `video-director` unchecked.
-
-Each proposed agent shows:
+Each proposal shows:
 
 - Name and role
 - Suggested system prompt (scrollable preview)
 - Tool permissions
 - A rationale line explaining why it was suggested
 
-### Step 4 — Review & save
+Toggle agents on or off here.
 
-The final step is a diff view. You can:
+![Step 4 — agent selection](/screenshots/agents-wizard-step3.png)
 
-- Toggle individual agents on/off
-- Edit any prompt inline before committing
-- Rename agents (they must be unique within the workspace)
+### Step 5 — Prompt enhancement
 
-Click **Save roster** to write files to `.claude/agents/`. Ptah reloads the agent registry automatically — no restart needed.
+The wizard rewrites each selected agent's system prompt against your codebase
+conventions. This is where a generic `frontend-developer` learns that your
+project uses signals and OnPush, or that your tests run under Jest.
+
+Review the enhanced prompts before you continue. A summary card shows what
+changed for each agent.
+
+![Step 5 — prompt enhancement](/screenshots/agents-wizard-step4.png)
+
+### Step 6 — Generation
+
+Ptah writes the roster to `.claude/agents/`. A progress list shows each agent as
+it is written.
+
+### Step 7 — Completion
+
+A summary of what was created, with a link into the Agents panel. Ptah reloads
+the agent registry automatically — no restart needed.
 
 ## What gets written
 

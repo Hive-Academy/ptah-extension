@@ -28,7 +28,7 @@ import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
   ChatStore,
-  UpdateBannerService,
+  UpdateDialogService,
   WorkspaceCoordinatorService,
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
@@ -220,7 +220,7 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: MESSAGE_HANDLERS,
-      useExisting: UpdateBannerService,
+      useExisting: UpdateDialogService,
       multi: true,
     },
     {

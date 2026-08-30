@@ -4,7 +4,6 @@ import type { HookInput } from './claude-sdk.types';
 import {
   isSubagentStartHook,
   isSubagentStopHook,
-  isPreToolUseHook,
   isPostToolUseHook,
   isPostToolUseFailureHook,
   isStopHook,
@@ -111,7 +110,6 @@ const GUARD_TABLE: ReadonlyArray<{
     event: 'SubagentStop',
     guard: isSubagentStopHook,
   },
-  { name: 'isPreToolUseHook', event: 'PreToolUse', guard: isPreToolUseHook },
   { name: 'isPostToolUseHook', event: 'PostToolUse', guard: isPostToolUseHook },
   {
     name: 'isPostToolUseFailureHook',

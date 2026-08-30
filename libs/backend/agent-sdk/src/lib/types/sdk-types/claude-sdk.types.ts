@@ -70,8 +70,6 @@ export type {
   PostToolUseHookInput,
   PostToolUseHookSpecificOutput,
   PreCompactHookInput,
-  PreToolUseHookInput,
-  PreToolUseHookSpecificOutput,
   Query,
   RewindFilesResult,
   SDKAPIRetryMessage,
@@ -116,6 +114,8 @@ export type {
   SetupHookInput,
   SetupHookSpecificOutput,
   SlashCommand,
+  SpawnedProcess,
+  SpawnOptions,
   StopFailureHookInput,
   StopHookInput,
   SubagentStartHookInput,
@@ -167,7 +167,6 @@ import type {
   HookInput,
   SubagentStartHookInput,
   SubagentStopHookInput,
-  PreToolUseHookInput,
   PostToolUseHookInput,
   PostToolUseFailureHookInput,
   StopHookInput,
@@ -532,12 +531,6 @@ export function isSubagentStopHook(
   input: HookInput,
 ): input is SubagentStopHookInput {
   return input.hook_event_name === 'SubagentStop';
-}
-
-export function isPreToolUseHook(
-  input: HookInput,
-): input is PreToolUseHookInput {
-  return input.hook_event_name === 'PreToolUse';
 }
 
 export function isPostToolUseHook(

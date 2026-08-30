@@ -20,6 +20,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import type { AgentStatsService } from '../agent-stats.service';
+import type { StreamingIndexes } from '../indexes/streaming-indexes';
 
 /**
  * Minimal port for the background-agent flag lookup. Inverted-dependency
@@ -42,6 +43,19 @@ export interface BuilderDeps {
    * Cleared by ExecutionTreeBuilderService.clearCache() with no key.
    */
   readonly loggedUnmatchedToolCallIds: Set<string>;
+
+  /**
+   * Resolve the derived event indexes for `state`
+   * ({@link StreamingIndexes}). Builders call this instead of scanning
+   * `state.events` — see `indexes/streaming-indexes.ts` for why.
+   *
+   * Supplied as a callback rather than a plain field because the indexes are
+   * per state VERSION, not per deps bag: the orchestrator memoizes them for the
+   * duration of one build, while a spec can pass `buildStreamingIndexes`
+   * directly and stay correct across mid-test mutations. Memoization policy
+   * therefore stays out of this lib (guideline 2).
+   */
+  getIndexes(state: StreamingState): StreamingIndexes;
 
   buildMessageNode(
     messageId: string,

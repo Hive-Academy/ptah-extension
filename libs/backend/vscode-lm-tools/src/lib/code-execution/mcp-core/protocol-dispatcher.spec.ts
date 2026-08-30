@@ -888,6 +888,59 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
 
+  it('ptah_count_tokens reads a relative path as-is through the sandbox', async () => {
+    const read = jest.fn().mockResolvedValue('source');
+    const countTokens = jest.fn().mockResolvedValue(42);
+    const getInfo = jest.fn();
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        files: { read } as unknown as PtahAPI['files'],
+        context: { countTokens } as unknown as PtahAPI['context'],
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'ptah_count_tokens', arguments: { file: 'src/a.ts' } },
+      }),
+      deps,
+    );
+
+    expect(read).toHaveBeenCalledWith('src/a.ts');
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(countTokens).toHaveBeenCalledWith('source');
+  });
+
+  it('ptah_count_tokens rewrites an absolute in-workspace path to relative for the sandbox', async () => {
+    const read = jest.fn().mockResolvedValue('source');
+    const countTokens = jest.fn().mockResolvedValue(7);
+    const getInfo = jest.fn().mockResolvedValue({ path: 'D:/ws' });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        files: { read } as unknown as PtahAPI['files'],
+        context: { countTokens } as unknown as PtahAPI['context'],
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_count_tokens',
+          arguments: { file: 'D:/ws/src/a.ts' },
+        },
+      }),
+      deps,
+    );
+
+    expect(read).toHaveBeenCalledWith(path.join('src', 'a.ts'));
+  });
+
   it('invokes onToolResult callback with request id and result text on success', async () => {
     const onToolResult = jest.fn();
     const findFiles = jest.fn().mockResolvedValue(['x.ts']);

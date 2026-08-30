@@ -341,8 +341,25 @@ export function parseTaskFile(
       dependsOn = dependsResult.data;
 
       // Well-formed but possibly pointing at nothing. Only checkable when the
-      // caller told us which folders exist.
-      if (knownFolders !== undefined) {
+      // caller told us which folders exist, and only worth SAYING while the
+      // dependency could still matter.
+      //
+      // A terminal task is exempt. Finished task folders get pruned from
+      // `.ptah/specs` — `b31aa9b64` removed 77 in one pass — so a `done` task
+      // pointing at an archived dependency is the ordinary outcome of that
+      // cleanup rather than a typo. It is moot besides: nothing that already
+      // ended can be blocked, which is why `buildTaskGraph` applies the same
+      // done-or-cancelled test before counting an unmet dependency
+      // (`task-graph.ts:392`). Reporting it anyway leaves `tasks check`
+      // permanently unhealthy, and a check that is always red trains a reader
+      // to ignore it — burying the live typos it exists to catch
+      // (TASK_2026_185, whose dependency TASK_2026_181 was pruned while it
+      // survived).
+      //
+      // The pointer itself is NOT erased: `dependsOn` still carries the entry,
+      // so the provenance link stays readable on the carrier and in the graph.
+      const terminal = status === 'done' || status === 'cancelled';
+      if (knownFolders !== undefined && !terminal) {
         for (const dependency of dependsOn) {
           if (knownFolders.has(dependency)) continue;
           issues.push({

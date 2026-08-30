@@ -22,41 +22,14 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
   standalone: true,
   imports: [MarkdownModule, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // `.ptah-superpower-badge` and `.ptah-gold-border` are defined once globally
+  // in apps/ptah-extension-webview/src/styles.css, keyed off the theme-aware
+  // `--ptah-gold*` tokens. Only `.ptah-tool-name-text` — used nowhere else —
+  // stays local, and it reads the same token.
   styles: [
     `
-      .ptah-superpower-badge {
-        background: linear-gradient(
-          135deg,
-          #b8860b,
-          #daa520,
-          #ffd700,
-          #daa520,
-          #b8860b
-        );
-        background-size: 200% 200%;
-        animation: ptah-gold-shimmer 3s ease infinite;
-        color: #1a1a2e;
-        font-weight: 600;
-        border: 1px solid rgba(218, 165, 32, 0.5);
-        text-shadow: 0 0 1px rgba(255, 215, 0, 0.3);
-      }
       .ptah-tool-name-text {
-        color: #daa520;
-      }
-      .ptah-gold-border {
-        border-color: rgba(218, 165, 32, 0.4);
-        box-shadow: 0 0 6px rgba(218, 165, 32, 0.1);
-      }
-      @keyframes ptah-gold-shimmer {
-        0% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0% 50%;
-        }
+        color: var(--ptah-gold);
       }
     `,
   ],

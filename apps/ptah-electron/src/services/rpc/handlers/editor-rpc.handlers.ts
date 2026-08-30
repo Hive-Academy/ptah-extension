@@ -83,6 +83,41 @@ function escapeRegex(str: string): string {
  */
 export const EXCLUDED_DIRS_GLOB = `**/{${[...TREE_HIDDEN_DIRS].join(',')}}/**`;
 
+/**
+ * How deep `editor:getFileTree` materializes before it hands over to the
+ * lazy path (TASK_2026_340).
+ *
+ * ### Why this is 2 and not 6
+ *
+ * The explorer paints the root's children COLLAPSED. Everything below that is
+ * fetched on expand through `editor:getDirectoryChildren`, which has always
+ * existed — a directory at the boundary comes back as
+ * `{ needsLoad: true, children: [] }` and `EditorWorkspaceHelper` resolves it
+ * when the user clicks. So depth beyond the first collapsed level is not shown
+ * to anyone; it is paid for and thrown away.
+ *
+ * Measured on this repo (10738 directories under `TREE_HIDDEN_DIRS`), replaying
+ * the real algorithm:
+ *
+ * | depth | dirs read | walk    | payload  |
+ * | ----- | --------- | ------- | -------- |
+ * | 2     |    25     |    4 ms |  0.03 MB |
+ * | 3     |   120     |   21 ms |  0.34 MB |
+ * | 4     |   998     |  104 ms |  0.96 MB |
+ * | 6     | 10738     | 1071 ms | 10.91 MB |
+ *
+ * Depth 6 was a 430x directory-read amplification and a 360x payload
+ * amplification over what the first paint can use, and under contention with
+ * the post-window boot it did not answer inside 65 s (TASK_2026_331's boot
+ * probe). `mergeLoadedSubtrees` carries already-expanded subtrees across a
+ * reload, so lowering this moves the boundary and loses no user state.
+ *
+ * Do not raise it to "pre-warm" the tree. The lazy fetch is one RPC on a click;
+ * the eager walk is 10738 directory reads on every workspace load, on the same
+ * event loop that drives the windows.
+ */
+const FILE_TREE_INITIAL_DEPTH = 2;
+
 /** File extensions considered binary (skip during text search). */
 const BINARY_EXTENSIONS = new Set([
   '.png',
@@ -315,7 +350,7 @@ export class EditorRpcHandlers {
           }
         }
         try {
-          const tree = await this.buildFileTree(root, 6);
+          const tree = await this.buildFileTree(root, FILE_TREE_INITIAL_DEPTH);
           return { success: true, tree };
         } catch (error) {
           this.logger.error('[Electron RPC] editor:getFileTree failed', {
@@ -856,7 +891,20 @@ export class EditorRpcHandlers {
 
   /**
    * Recursively build a file tree structure from a directory.
-   * Limits depth to prevent excessive I/O on deep directory structures.
+   *
+   * ## Sibling directories are read CONCURRENTLY (TASK_2026_340)
+   *
+   * This used to `await` each child directory inside the loop, so a walk was
+   * one `readDirectory` at a time. That is the wrong shape for the Electron
+   * main process, where this competes with the post-window boot — the SQLite
+   * migration, the harness reconcile, the session import and the file-index
+   * build are all doing disk I/O on the same event loop. Each read is latency,
+   * not CPU, so serializing them just adds the latencies together: measured
+   * 1071 ms sequential against 349 ms concurrent for the same 10738-directory
+   * walk. Under boot contention the sequential form did not finish inside 65 s.
+   *
+   * The order of the result is unchanged: `Promise.all` preserves input order,
+   * and the sort still happens before the fan-out.
    */
   private async buildFileTree(
     dirPath: string,
@@ -867,7 +915,6 @@ export class EditorRpcHandlers {
 
     try {
       const entries = await this.fs.readDirectory(dirPath);
-      const result: FileTreeEntry[] = [];
       const sorted = entries.sort(
         (
           a: { name: string; type: number },
@@ -878,6 +925,7 @@ export class EditorRpcHandlers {
         },
       );
 
+      const pending: Array<FileTreeEntry | Promise<FileTreeEntry>> = [];
       for (const entry of sorted) {
         // `TREE_HIDDEN_DIRS` (@ptah-extension/shared) is the single source of
         // truth this shares with the workspace watcher. It is the exact union
@@ -895,7 +943,7 @@ export class EditorRpcHandlers {
 
         if (isDir) {
           if (currentDepth + 1 >= maxDepth) {
-            result.push({
+            pending.push({
               name: entry.name,
               path: fullPath,
               type: 'directory',
@@ -903,20 +951,21 @@ export class EditorRpcHandlers {
               needsLoad: true,
             });
           } else {
-            const children = await this.buildFileTree(
-              fullPath,
-              maxDepth,
-              currentDepth + 1,
+            // Started, not awaited — the whole level fans out and is collected
+            // below. See the concurrency note on this method.
+            pending.push(
+              this.buildFileTree(fullPath, maxDepth, currentDepth + 1).then(
+                (children): FileTreeEntry => ({
+                  name: entry.name,
+                  path: fullPath,
+                  type: 'directory',
+                  children,
+                }),
+              ),
             );
-            result.push({
-              name: entry.name,
-              path: fullPath,
-              type: 'directory',
-              children,
-            });
           }
         } else {
-          result.push({
+          pending.push({
             name: entry.name,
             path: fullPath,
             type: 'file',
@@ -924,7 +973,7 @@ export class EditorRpcHandlers {
         }
       }
 
-      return result;
+      return await Promise.all(pending);
     } catch {
       return [];
     }

@@ -220,10 +220,12 @@ export class AgentContinueInputComponent {
         // The card's status had not caught up with the backend yet. Re-queue
         // rather than erroring — the flush effect retries at the real turn end.
         this.enqueue(message);
-      } else if (result.code === 'not_found') {
-        // The record aged out (or the host restarted) without us hearing about
-        // it. The CONVERSATION is still on disk, so resume it rather than
-        // telling the user to start over and lose the context.
+      } else if (result.code === 'not_found' || result.code === 'released') {
+        // `not_found`: the record aged out (or the host restarted) without us
+        // hearing about it. `released`: the record is still there but its
+        // process was reclaimed after idling, so there is nothing in memory to
+        // continue INTO. Either way the CONVERSATION is still on disk, so resume
+        // it rather than telling the user to start over and lose the context.
         await this.sendByResuming(message);
       } else {
         this.restoreUndelivered(message);

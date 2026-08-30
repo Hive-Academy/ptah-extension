@@ -21,7 +21,6 @@ import {
   ToolFailureCallbackRegistry,
   SessionEndHookCallbackRegistry,
   CuratorRateLimitService,
-  PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -185,13 +184,6 @@ function buildTestContainer(): DependencyContainer {
     SDK_TOKENS.SDK_CURATOR_RATE_LIMIT,
     {
       useClass: CuratorRateLimitService,
-    },
-    { lifecycle: Lifecycle.Singleton },
-  );
-  c.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
-    {
-      useClass: PreToolUseCallbackRegistry,
     },
     { lifecycle: Lifecycle.Singleton },
   );

@@ -27,7 +27,7 @@ model Subscription {
   externalSubscriptionId  String    @unique  // Payment provider subscription ID
   externalCustomerId      String
   status                  String    @default("active") // active | trialing | paused | canceled | past_due | expired
-  planSlug                String    // pro | enterprise | trial_pro | trial_enterprise
+  planSlug                String    // community | pro | enterprise
   priceId                 String    // Payment provider price ID
   currentPeriodEnd        DateTime
   trialEnd                DateTime?
@@ -47,7 +47,7 @@ model Subscription {
 **Field notes:**
 
 - `externalSubscriptionId`: Unique identifier from the payment provider. For internal subscriptions (free tier, trials started without payment), use a prefix like `internal_trial_{userId}_{plan}`.
-- `planSlug`: Maps to your `plans.config.ts`. Trial plans use `trial_` prefix.
+- `planSlug`: Maps to your `plans.config.ts`. A trial is not a separate slug -- it is the `trialing` value of `status` plus a `trialEnd` date on the same plan, so converting a trial changes state and never rewrites the slug.
 - `priceId`: The payment provider's price identifier. Used to map back to internal plan slugs.
 - `currentPeriodEnd`: When the current billing period expires. Updated on each renewal.
 - `canceledAt`: When the user requested cancellation. Access continues until `currentPeriodEnd`.
@@ -144,7 +144,12 @@ export interface SubscriptionEventData {
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly licenseService: LicenseService, private readonly verificationService: LicenseVerificationService, private readonly eventEmitter: EventEmitter2) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly licenseService: LicenseService,
+    private readonly verificationService: LicenseVerificationService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   // ─── Event Handlers ─────────────────────────────────────────────
 
@@ -170,7 +175,7 @@ export class SubscriptionService {
         externalSubscriptionId: data.subscriptionId,
         externalCustomerId: data.customerId,
         status: isTrial ? 'trialing' : 'active',
-        planSlug: isTrial ? `trial_${plan}` : plan,
+        planSlug: plan, // Trial state lives in `status`, not in the slug
         priceId: data.priceId,
         currentPeriodEnd: new Date(data.currentPeriodEnd),
         trialEnd: data.trialEnd ? new Date(data.trialEnd) : null,
@@ -178,7 +183,7 @@ export class SubscriptionService {
     });
 
     // Provision license
-    await this.licenseService.createLicense(user.id, isTrial ? `trial_${plan}` : plan, `webhook_${data.eventId}`, new Date(data.currentPeriodEnd));
+    await this.licenseService.createLicense(user.id, plan, `webhook_${data.eventId}`, new Date(data.currentPeriodEnd));
 
     // Emit internal event for side-effects (emails, analytics, SSE)
     this.eventEmitter.emit('subscription.created', {
@@ -202,7 +207,7 @@ export class SubscriptionService {
       where: { id: subscription.id },
       data: {
         status: 'active',
-        planSlug: plan, // Remove trial_ prefix
+        planSlug: plan, // Unchanged by conversion -- only status and trialEnd move
         trialEnd: null,
       },
     });

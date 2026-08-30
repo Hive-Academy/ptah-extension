@@ -46,10 +46,12 @@ import type {
   HarnessSourcesStatus,
   HarnessTargetId,
 } from '@ptah-extension/shared';
+import { throwIfPassAborted } from '../abort/pass-abort';
 import {
-  hashDirSync,
-  hashFileSync,
+  hashDir,
+  hashFile,
   isIgnoredEntry,
+  type ContentHashOptions,
 } from '../hash/content-hash';
 import type { HarnessSourceState } from '../sources/harness-source.port';
 import type { SkillSyncSelection } from '../state/skill-sync-gate';
@@ -112,20 +114,39 @@ export interface HarnessManifestBuildOptions {
    * accidental reap of every skill in the workspace.
    */
   skillSync?: SkillSyncSelection;
+  /**
+   * Cancels the source walk between whole files (TASK_2026_323 / B8).
+   *
+   * Hashing `~/.ptah/user` is the single most expensive thing a preflight does,
+   * and a preflight that has lost its 1500 ms race has no consumer left. The
+   * builder writes nothing, so abandoning it mid-walk is free — see
+   * `abort/pass-abort.ts`. Aborting raises `HarnessPassAbortedError`.
+   */
+  signal?: AbortSignal;
 }
 
 export class HarnessManifestBuilder {
-  build(
+  async build(
     sources: HarnessSourceState,
     options: HarnessManifestBuildOptions = {},
-  ): HarnessDesiredState {
+  ): Promise<HarnessDesiredState> {
+    // Answered before any directory is opened, so a budget that expired while
+    // the caller was queueing costs nothing at all.
+    throwIfPassAborted(options.signal);
     const collisions: HarnessCollision[] = [];
-    const skills = this.buildSkills(sources, collisions, options.skillSync);
-    const commands = this.buildCommands(sources, collisions);
-    const agents = this.buildAgents(
+    const hashOptions = { signal: options.signal };
+    const skills = await this.buildSkills(
+      sources,
+      collisions,
+      options.skillSync,
+      hashOptions,
+    );
+    const commands = await this.buildCommands(sources, collisions, hashOptions);
+    const agents = await this.buildAgents(
       sources,
       collisions,
       options.agentSyncEnabled !== false,
+      hashOptions,
     );
 
     return {
@@ -245,11 +266,12 @@ export class HarnessManifestBuilder {
    * under `~/.ptah/user`, and the mirror's reaper keeps a disabled plugin's
    * clones on purpose, which is what makes re-selecting instant and offline.
    */
-  private buildSkills(
+  private async buildSkills(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
     skillSync: SkillSyncSelection | undefined,
-  ): HarnessDesiredSkill[] {
+    hashOptions: ContentHashOptions,
+  ): Promise<HarnessDesiredSkill[]> {
     const disabled = new Set(sources.disabledSkillIds);
     const pluginGate = createPluginOriginGate(sources);
     // `null` is "no selection gate at all", which is what an absent option and
@@ -265,7 +287,14 @@ export class HarnessManifestBuilder {
       const cloneDir = join(sources.layout.skillsRoot, slug);
       if (!pluginGate(cloneDir)) continue;
       userLayerSlugs.add(canonicalSlug(slug));
-      this.claimSkill(claimed, collisions, slug, cloneDir, undefined);
+      await this.claimSkill(
+        claimed,
+        collisions,
+        slug,
+        cloneDir,
+        undefined,
+        hashOptions,
+      );
     }
 
     const disabledPlugins = new Set(sources.disabledPluginIds);
@@ -282,12 +311,13 @@ export class HarnessManifestBuilder {
         // Expected, not a conflict: the mirror already published this plugin's
         // skill into the user layer. Reporting it would drown the real cases.
         if (userLayerSlugs.has(canonicalSlug(slug))) continue;
-        this.claimSkill(
+        await this.claimSkill(
           claimed,
           collisions,
           slug,
           join(pluginSkillsDir, slug),
           pluginId,
+          hashOptions,
         );
       }
     }
@@ -295,19 +325,20 @@ export class HarnessManifestBuilder {
     return [...claimed.values()].sort((a, b) => a.slug.localeCompare(b.slug));
   }
 
-  private claimSkill(
+  private async claimSkill(
     claimed: Map<string, HarnessDesiredSkill>,
     collisions: HarnessCollision[],
     slug: string,
     sourceDir: string,
     pluginId: string | undefined,
-  ): void {
+    hashOptions: ContentHashOptions,
+  ): Promise<void> {
     const collision = this.rejectSlug(claimed, slug, sourceDir, pluginId);
     if (collision !== null) {
       collisions.push(collision);
       return;
     }
-    const contentHash = hashDirSync(sourceDir);
+    const contentHash = await hashDir(sourceDir, hashOptions);
     if (contentHash === null) return;
     claimed.set(canonicalSlug(slug), { slug, sourceDir, contentHash });
   }
@@ -340,7 +371,18 @@ export class HarnessManifestBuilder {
     };
   }
 
-  /** Directory entries under `root` that are real directories with a SKILL.md. */
+  /**
+   * Directory entries under `root` that are real directories with a SKILL.md.
+   *
+   * Deliberately still synchronous while the HASHING around it is not
+   * (TASK_2026_323 / B8). This is one `readdir` plus one `lstat` and one
+   * `access` per candidate at ONE level — a handful of stat calls whose cost
+   * does not grow with file size. The walk that had to move off the main thread
+   * is the recursive one in `hash/content-hash.ts`, which reads and digests
+   * every byte of every file in every skill, to depth 20, on every session
+   * start. Converting these two listings as well would add churn without
+   * removing measurable blocking.
+   */
   private listSkillSlugs(root: string): string[] {
     let entries: string[];
     try {
@@ -366,22 +408,24 @@ export class HarnessManifestBuilder {
 
   // -------------------------------------------------------------- commands
 
-  private buildCommands(
+  private async buildCommands(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
-  ): HarnessDesiredCommand[] {
+    hashOptions: ContentHashOptions,
+  ): Promise<HarnessDesiredCommand[]> {
     const claimed = new Map<string, HarnessDesiredCommand>();
     const userLayerSlugs = new Set<string>();
 
     for (const file of this.listMarkdownFiles(sources.layout.commandsRoot)) {
       const slug = file.replace(/\.md$/i, '');
       userLayerSlugs.add(canonicalSlug(slug));
-      this.claimCommand(
+      await this.claimCommand(
         claimed,
         collisions,
         slug,
         join(sources.layout.commandsRoot, file),
         undefined,
+        hashOptions,
       );
     }
 
@@ -393,12 +437,13 @@ export class HarnessManifestBuilder {
       for (const file of this.listMarkdownFiles(pluginCommandsDir)) {
         const slug = file.replace(/\.md$/i, '');
         if (userLayerSlugs.has(canonicalSlug(slug))) continue;
-        this.claimCommand(
+        await this.claimCommand(
           claimed,
           collisions,
           slug,
           join(pluginCommandsDir, file),
           pluginId,
+          hashOptions,
         );
       }
     }
@@ -406,19 +451,21 @@ export class HarnessManifestBuilder {
     return [...claimed.values()].sort((a, b) => a.slug.localeCompare(b.slug));
   }
 
-  private claimCommand(
+  private async claimCommand(
     claimed: Map<string, HarnessDesiredCommand>,
     collisions: HarnessCollision[],
     slug: string,
     sourceFile: string,
     pluginId: string | undefined,
-  ): void {
+    hashOptions: ContentHashOptions,
+  ): Promise<void> {
     const collision = this.rejectSlug(claimed, slug, sourceFile, pluginId);
     if (collision !== null) {
       collisions.push(collision);
       return;
     }
-    const contentHash = hashFileSync(sourceFile);
+    throwIfPassAborted(hashOptions.signal);
+    const contentHash = await hashFile(sourceFile);
     if (contentHash === null) return;
     claimed.set(canonicalSlug(slug), { slug, sourceFile, contentHash });
   }
@@ -444,11 +491,12 @@ export class HarnessManifestBuilder {
    * the absent-flag case must never resolve to a bare `false` — see
    * `state/agent-sync-gate.ts`.
    */
-  private buildAgents(
+  private async buildAgents(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
     syncEnabled: boolean,
-  ): HarnessDesiredAgent[] {
+    hashOptions: ContentHashOptions,
+  ): Promise<HarnessDesiredAgent[]> {
     if (!syncEnabled) return [];
 
     const disabled = new Set(sources.disabledAgentIds ?? []);
@@ -467,7 +515,8 @@ export class HarnessManifestBuilder {
         continue;
       }
       const sourceFile = join(sources.layout.agentsRoot, file);
-      const contentHash = hashFileSync(sourceFile);
+      throwIfPassAborted(hashOptions.signal);
+      const contentHash = await hashFile(sourceFile);
       if (contentHash === null) continue;
       claimed.set(canonicalSlug(slug), { slug, sourceFile, contentHash });
     }

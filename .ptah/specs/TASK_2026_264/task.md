@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_264
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Electron e2e for the auth-switch permission defect, because the unit specs
@@ -20,6 +20,7 @@ description: >-
   the defect needs a pending permission request at the moment config changes,
   and there is no seam in `src/support/` to establish one without a live model.
   Building that seam is the task; the provider switch is the easy half.
+updated: '2026-08-25T21:14:29.800Z'
 ---
 
 # Electron e2e for the auth-switch permission defect

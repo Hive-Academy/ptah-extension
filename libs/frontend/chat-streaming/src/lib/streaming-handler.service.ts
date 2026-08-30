@@ -87,14 +87,6 @@ export class StreamingHandlerService {
   }
 
   /**
-   * Force immediate flush of pending updates
-   * Use when you need the UI to update immediately (e.g., before finalization)
-   */
-  flushUpdatesSync(): void {
-    this.batchedUpdate.flushSync();
-  }
-
-  /**
    * Process flat streaming event from SDK
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.
@@ -131,9 +123,16 @@ export class StreamingHandlerService {
       // itself (`undefined` → `null`), so every session lookup below is already
       // skipped when there is no session.
       const eventSession = SessionId.safeParse(event.sessionId);
+      // Resolved ONCE per event and reused for the direct lookup, the
+      // session-bound restriction and the fan-out membership test below. Each
+      // of those used to re-read the signal and re-scan the array, so a single
+      // delta cost up to three O(tabs) passes. Only MEMBERSHIP is read from it
+      // after processing starts, and processing an event never adds or removes
+      // a tab, so one snapshot is as correct as three.
+      const activeTabs = this.tabManager.tabs();
       let primaryTab: TabState | undefined;
       if (tabId) {
-        primaryTab = this.tabManager.tabs().find((t) => t.id === tabId);
+        primaryTab = activeTabs.find((t) => t.id === tabId);
       }
       if (!primaryTab && eventSession) {
         const bound = this.tabManager.findTabsBySessionId(eventSession);
@@ -145,7 +144,6 @@ export class StreamingHandlerService {
         // the accumulator dereferences a null state. Restrict to active-
         // workspace membership; if none qualify, leave `primaryTab` undefined so
         // the event falls through to `routeBackgroundEvent`.
-        const activeTabs = this.tabManager.tabs();
         primaryTab = bound.find((t) => activeTabs.some((a) => a.id === t.id));
       }
       if (!primaryTab && !tabId) {
@@ -196,7 +194,6 @@ export class StreamingHandlerService {
         ? this.tabManager.findTabsBySessionId(eventSession)
         : [];
       if (allBoundTabs.length > 1) {
-        const activeTabs = this.tabManager.tabs();
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
           // Only fan out to tabs in the active `_tabs()` set. A background-
@@ -357,7 +354,12 @@ export class StreamingHandlerService {
       }
     }
     if (result.agentStartFlushNeeded) {
-      this.batchedUpdate.flushSync();
+      // Origin-scoped: `agent_start` fires on every agent spawn, and the
+      // un-scoped flush drained the deferred queue for EVERY tab — including
+      // hidden ones the visibility gate had deliberately parked. The spawning
+      // tab is the one that needs its agent node on screen now; the rest keep
+      // waiting for their own visibility.
+      this.batchedUpdate.flushSync(targetTab.id);
     }
 
     return null;

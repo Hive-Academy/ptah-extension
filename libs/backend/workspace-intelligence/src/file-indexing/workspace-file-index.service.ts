@@ -3,46 +3,54 @@
  *
  * A thin, live, in-memory index of workspace files (and their directories)
  * purpose-built for the `@`-mention file autocomplete. Unlike
- * `WorkspaceIndexerService` (stateless / one-shot, stats + classifies every
- * file per call), this service:
+ * `WorkspaceIndexerService.indexWorkspace*` (stats + classifies every file per
+ * call), this service:
  *
- *   1. Builds the file list ONCE by reusing
- *      `WorkspaceIndexerService.indexWorkspaceStream({})` for discovery, so the
- *      glob + ignore logic stays DRY (no re-implemented globbing here). It does
- *      NOT stat or read files — autocomplete needs only path metadata.
- *   2. Stays live via a single `IFileSystemProvider` watcher: create/delete/
- *      change events patch the in-memory maps. node_modules and the other
- *      default-excluded trees are excluded at the OS level (the watcher is
- *      created with `{ exclude: DEFAULT_WORKSPACE_EXCLUDES }`), and created
- *      paths are re-checked against the ignore rules so a file created under an
- *      ignored directory never enters the index.
+ *   1. Builds each folder's file list ONCE from
+ *      `WorkspaceIndexerService.discoverWorkspacePaths`, a PATH-ONLY walk that
+ *      compiles the ignore rules once and yields to the event loop between
+ *      batches. It does NOT stat, read or classify — autocomplete needs only
+ *      path metadata, and the stat-per-file walk it used to share cost 8-15 s
+ *      of Electron main-loop time per workspace switch (TASK_2026_344).
+ *   2. Stays live via one `IFileSystemProvider` watcher PER OPEN FOLDER:
+ *      create/delete/change events patch that folder's maps. node_modules and
+ *      the other default-excluded trees are excluded at the OS level (the
+ *      watcher is created with `{ exclude: DEFAULT_WORKSPACE_EXCLUDES }`), and
+ *      created paths are re-checked against that folder's ignore rules so a
+ *      file created under an ignored directory never enters the index.
  *   3. Exposes SYNCHRONOUS query methods (`search`, `getAll`,
  *      `searchDirectories`) returning the same `FileSearchResult` shape the
  *      autocomplete pipeline already consumes. `ensureReady()` performs the
- *      lazy first build; queries operate on the current in-memory snapshot.
+ *      lazy first build; queries operate on the ACTIVE folder's snapshot.
  *
  * ---------------------------------------------------------------------------
- * ROOT MODEL — read this before threading a workspace root through (TASK_2026_200)
+ * ROOT MODEL — read this before threading a workspace root through
  * ---------------------------------------------------------------------------
  *
- * **This service holds SINGLE-ACTIVE-ROOT state with rebuild-on-change.** It is
- * NOT a root-keyed map, and that is a deliberate decision (context.md §7.2 of
- * TASK_2026_200): the frontend model is one active workspace at a time
- * (`TabManagerService` swaps between per-workspace tab partitions), so a
- * concurrent multi-root index is explicitly out of scope. At any instant there
- * is exactly one indexed root; asking for a different one TEARS DOWN and
- * REBUILDS.
+ * **The index is CACHED PER OPEN FOLDER and SERVED FROM ONE ACTIVE FOLDER.**
+ * Those are two different statements and both are load-bearing:
+ *
+ *   - *Cached per folder*: each normalized root gets its own `FolderIndex`
+ *     (maps, ignore rules, watcher, build promise). Switching A→B→A between two
+ *     folders that are both still open re-walks NOTHING — the second activation
+ *     of A is a pointer swap. Before TASK_2026_344 a switch tore the whole index
+ *     down, so a 15k-file workspace paid a 9-15 s walk every time the user came
+ *     back to it, plus the chokidar re-arm burst behind it.
+ *   - *Served from one folder*: every query method reads the ACTIVE entry and
+ *     only the active entry. The frontend model is one active workspace at a
+ *     time (`TabManagerService` swaps per-workspace tab partitions), so a query
+ *     answering from a union of folders would be the cross-workspace leak
+ *     TASK_2026_200 exists to prevent. `indexedRoot` names the active folder.
  *
  * The public contract:
  *
  *   - `ensureReadyFor(root)` — **the entry point for a caller that knows which
- *     root it wants.** Guarantees that, when it resolves, the in-memory index
- *     holds `root` and nothing else. If a different root is currently indexed
- *     it is superseded (watcher disposed, maps cleared, rebuild started); if
- *     the same root is already built or building, it is a no-op that shares the
- *     existing build. Roots are compared by `normalizeWorkspaceRoot`, so
- *     `D:\proj`, `D:\proj\` and `d:\proj` are ONE root and never force a
- *     redundant rebuild.
+ *     root it wants.** Makes `root` the active folder SYNCHRONOUSLY (before any
+ *     await — `ContextService.assertIndexServes` depends on that) and resolves
+ *     when its snapshot is built. Already built → resolves without touching
+ *     disk. Building → shares that build. Never built → builds. Roots are
+ *     compared by `normalizeWorkspaceRoot`, so `D:\proj`, `D:\proj\` and
+ *     `d:\proj` are ONE folder.
  *   - `ensureReady()` — for callers with no opinion. Re-resolves
  *     `IWorkspaceProvider.getWorkspaceRoot()` on EVERY call and delegates to
  *     `ensureReadyFor`. It deliberately does not short-circuit on "already
@@ -50,19 +58,30 @@
  *     served the boot workspace's files for the whole process lifetime).
  *   - `start(root)` — the activation-time alias for `ensureReadyFor(root)`,
  *     kept for the existing fire-and-forget boot call sites.
- *   - `indexedRoot` — the normalized root the current snapshot represents, or
+ *   - `indexedRoot` — the normalized root the CURRENT snapshot represents, or
  *     `undefined` before the first build. A caller that must not serve another
- *     root's files (the R5 "loud mismatch" rule) can compare against this.
+ *     root's files (the R5 "loud mismatch" rule) compares against this.
+ *   - `hasIndexFor(root)` — diagnostic: is this folder already built? Lets a
+ *     caller's log say "reused" instead of implying a rebuild.
  *
  * Consequences a caller must respect:
- *   - Because there is one root, a request for root B invalidates root A. Do
- *     not interleave per-request roots on a hot path without deciding what
- *     "wrong root" should mean for the caller (rebuild vs. explicit error) —
- *     silently returning the other root's files is the bug this all exists to
- *     kill.
- *   - Rebuilds SUPERSEDE rather than interleave. Every build carries a
- *     generation token; a superseded build stops feeding the maps immediately,
- *     so a slow build for A can never contaminate B's snapshot.
+ *   - **Eviction is by folder CLOSED, never by folder deactivated.** The one
+ *     signal for "this folder is gone" is `onDidChangeWorkspaceFolders` diffed
+ *     against `getWorkspaceFolders()`; deactivating a folder must not drop its
+ *     entry, or the cache buys nothing. An inactive folder KEEPS ITS WATCHER, so
+ *     its snapshot stays fresh and switching back needs no rebuild. A cap
+ *     (`MAX_CACHED_FOLDERS`) bounds hosts that hand us ad-hoc roots the provider
+ *     never lists (CLI, tests). The cap is subordinate to the CLOSED rule, not a
+ *     second eviction reason beside it: `evictOverflow` skips every entry the
+ *     provider still lists as open, so a real multi-root workspace larger than
+ *     the cap keeps all of its folders and simply exceeds the cap. The active
+ *     folder is never evicted by either path.
+ *   - Rebuilds of ONE folder supersede rather than interleave: every build
+ *     carries a generation token compared against the entry's, so a torn-down
+ *     folder's in-flight build stops writing immediately. Cross-folder
+ *     contamination is now structurally impossible — each build writes into its
+ *     own entry's maps — but the token still guards a build racing its own
+ *     eviction.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -76,6 +95,7 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
   IFileWatcher,
+  IDisposable,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from './workspace-indexer.service';
@@ -86,6 +106,34 @@ import {
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 
 const LOGGER = Symbol.for('Logger');
+
+/**
+ * Upper bound on cached folder indexes for roots the host does NOT report as
+ * open.
+ *
+ * The provider-driven eviction below handles every host that reports its open
+ * folders. This cap is for the ones that do not: the CLI and the tests pass
+ * ad-hoc roots that never appear in `getWorkspaceFolders()`, and without a cap
+ * a long-lived process walking many roots would hold every one of their maps
+ * and watch handles forever. 8 matches the LRU cap the autocomplete caches in
+ * this same lib already use.
+ *
+ * It is a SOFT cap, and deliberately so. `evictOverflow` never evicts a folder
+ * the provider still lists as open, so a genuine 9-root workspace holds nine
+ * entries. A hard cap would reintroduce the bug this task exists to remove, one
+ * level up: activating the 9th folder would dispose the least-recently-used
+ * folder's live watcher and drop its snapshot even though the host still has it
+ * open, so cycling across the nine would re-walk on almost every switch — the
+ * same alternating-eviction thrash the sibling autocomplete cache already fixed
+ * once at N=2 (see this lib's CLAUDE.md, "Autocomplete discovery").
+ *
+ * The memory this admits is bounded and small: an entry holds path strings only
+ * (no content, no stat), so the largest folder in the captured session — 15249
+ * files, 4935 directories — is single-digit megabytes. Holding eight of those is
+ * the cheaper side of the trade against re-walking one of them for 9-15 s, and
+ * a user who opens more folders than that has asked for exactly that trade.
+ */
+const MAX_CACHED_FOLDERS = 8;
 
 /**
  * Logger interface (avoids a hard dependency on vscode-core's concrete Logger).
@@ -128,6 +176,46 @@ interface IndexEntry {
   readonly isDirectory: boolean;
 }
 
+/**
+ * Everything one open workspace folder owns.
+ *
+ * One record per normalized root. Nothing here is shared between folders —
+ * that is the whole point: the pre-TASK_2026_344 service kept `files`,
+ * `directories`, `ignoreFiles` and `watcher` as SERVICE fields, which is why a
+ * switch had to clear them and why every late-landing async write had to be
+ * generation-gated against contaminating the other root.
+ */
+interface FolderIndex {
+  /** `normalizeWorkspaceRoot(root)` — the cache key. */
+  readonly key: string;
+  /**
+   * The host-native root string this snapshot was built from.
+   *
+   * Fixed at creation and never re-assigned: `path.relative` results depend on
+   * it, so swapping in another spelling of the same normalized root (a trailing
+   * separator, a different drive case) mid-life would silently change every
+   * relative path the entry produces from then on.
+   */
+  readonly root: string;
+  /** Absolute file path → entry. */
+  readonly files: Map<string, IndexEntry>;
+  /** Absolute directory path → entry. */
+  readonly directories: Map<string, IndexEntry>;
+  /** Parsed ignore files for this folder (for watcher create/change re-checks). */
+  ignoreFiles: ParsedIgnoreFile[];
+  watcher: IFileWatcher | undefined;
+  /** In-flight or settled build. `undefined` after a FAILED build, so it retries. */
+  buildPromise: Promise<void> | undefined;
+  ready: boolean;
+  /**
+   * Bumped whenever this entry is torn down, so a build or watcher handler
+   * still in flight for it stops writing.
+   */
+  generation: number;
+  /** Activation clock stamp, for LRU eviction under the overflow cap. */
+  lastActiveAt: number;
+}
+
 const IMAGE_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -166,35 +254,23 @@ const BINARY_EXTENSIONS = new Set([
 
 @injectable()
 export class WorkspaceFileIndexService {
-  /** Absolute file path → entry. */
-  private readonly files = new Map<string, IndexEntry>();
-  /** Absolute directory path → entry. */
-  private readonly directories = new Map<string, IndexEntry>();
+  /** Normalized root → that folder's index. */
+  private readonly entries = new Map<string, FolderIndex>();
+  /** The normalized root every query answers from; `undefined` before the first. */
+  private activeKey: string | undefined;
 
-  /** Raw root string the current snapshot was built from (host-native form). */
-  private workspaceRoot: string | undefined;
-  /**
-   * `normalizeWorkspaceRoot(workspaceRoot)` — the identity key. All root
-   * comparisons go through this so separator/drive-case variants of one
-   * workspace never force a redundant rebuild.
-   */
-  private rootKey: string | undefined;
-  private watcher: IFileWatcher | undefined;
-  private startPromise: Promise<void> | undefined;
-  private started = false;
+  /** Monotonic build generation, unique across entries. */
+  private generationClock = 0;
+  /** Monotonic activation stamp source, for LRU eviction. */
+  private activationClock = 0;
 
-  /**
-   * Monotonic build generation. Bumped synchronously by every
-   * {@link ensureReadyFor} that decides to rebuild, BEFORE any await, so a
-   * build already in flight can detect that it has been superseded and stop
-   * writing into the maps. Without this the `files.clear()` at the head of
-   * `build()` is racy: a slow stream for root A would keep calling
-   * `addFileEntry` into the freshly-cleared maps that now belong to root B.
-   */
-  private generation = 0;
+  /** `onDidChangeWorkspaceFolders` subscription; armed lazily, once. */
+  private folderChangeSubscription: IDisposable | undefined;
+  private folderChangeSubscribed = false;
 
-  /** Parsed ignore files for the active workspace (for create re-checks). */
-  private ignoreFiles: ParsedIgnoreFile[] = [];
+  /** Latch so "held above the cap" is logged per crossing, not per query. */
+  private overCapNoticeLogged = false;
+
   /** Matcher over DEFAULT_WORKSPACE_EXCLUDES for created-path re-checks. */
   private readonly defaultExcludeMatcher = picomatch(
     [...DEFAULT_WORKSPACE_EXCLUDES],
@@ -224,37 +300,55 @@ export class WorkspaceFileIndexService {
   }
 
   /**
-   * Ensure the in-memory index holds exactly `root` when this resolves.
+   * Make `root` the folder every query answers from, and resolve when its
+   * snapshot is built.
    *
    * This is the entry point for any caller that knows which workspace it wants
    * (an RPC carrying an explicit `workspaceRoot`, the `workspace:switch`
-   * handler, activation). See the ROOT MODEL block in this file's header: the
-   * service is single-active-root, so requesting a different root supersedes
-   * the current one rather than adding to it.
+   * handler, activation).
    *
-   * - Same normalized root, build in flight or complete → shares that build,
-   *   no rebuild (`D:\proj`, `D:\proj\` and `d:\proj` are one root).
-   * - Different normalized root → dispose the watcher, drop the snapshot,
-   *   rebuild. Any in-flight build for the old root is superseded via the
-   *   generation token and stops writing immediately.
-   * - Same root but a previous build FAILED (`startPromise` was reset) →
-   *   retries, preserving the existing retry-on-next-query behaviour.
+   * - Folder already built → SYNCHRONOUS activation, and the returned promise
+   *   is the settled one from that build. No walk, no watcher churn.
+   * - Folder building (this call or another) → shares that build.
+   * - Folder unknown, or its last build FAILED (`buildPromise` was reset) →
+   *   builds now.
+   *
+   * `activeKey` is assigned before the first await on every path, because
+   * `ContextService.assertIndexServes` reads `indexedRoot` synchronously right
+   * after this resolves and must see the root it asked for.
    */
   ensureReadyFor(root: string): Promise<void> {
     const key = normalizeWorkspaceRoot(root);
-    if (this.rootKey === key && this.startPromise) {
-      return this.startPromise;
+    this.subscribeToFolderChanges();
+
+    let entry = this.entries.get(key);
+    if (!entry) {
+      entry = {
+        key,
+        root,
+        files: new Map(),
+        directories: new Map(),
+        ignoreFiles: [],
+        watcher: undefined,
+        buildPromise: undefined,
+        ready: false,
+        generation: 0,
+        lastActiveAt: 0,
+      };
+      this.entries.set(key, entry);
     }
 
-    // Supersede synchronously — before any await — so an in-flight build for
-    // the previous root can never write into the new root's maps.
-    const generation = ++this.generation;
-    this.disposeWatcher();
-    this.started = false;
-    this.workspaceRoot = root;
-    this.rootKey = key;
-    this.startPromise = this.doStart(root, generation);
-    return this.startPromise;
+    this.activeKey = key;
+    entry.lastActiveAt = ++this.activationClock;
+    this.evictOverflow();
+
+    if (entry.buildPromise) {
+      return entry.buildPromise;
+    }
+    const generation = ++this.generationClock;
+    entry.generation = generation;
+    entry.buildPromise = this.doStart(entry, generation);
+    return entry.buildPromise;
   }
 
   /**
@@ -272,59 +366,62 @@ export class WorkspaceFileIndexService {
       // The provider reports no root (no folder open / all folders closed).
       // Do NOT tear down a good snapshot — a query is better served by the
       // last known index than by nothing. Just settle any in-flight build.
-      if (this.startPromise) await this.startPromise;
+      const active = this.active;
+      if (active?.buildPromise) await active.buildPromise;
       return;
     }
     await this.ensureReadyFor(root);
   }
 
-  private async doStart(
-    workspaceRoot: string,
-    generation: number,
-  ): Promise<void> {
+  /**
+   * Whether this folder already has a completed snapshot — i.e. activating it
+   * costs nothing. Diagnostic only; the answer is about the CACHE, not about
+   * which folder is currently active.
+   */
+  hasIndexFor(root: string): boolean {
+    return this.entries.get(normalizeWorkspaceRoot(root))?.ready === true;
+  }
+
+  /** The folder every query reads, or `undefined` before the first activation. */
+  private get active(): FolderIndex | undefined {
+    return this.activeKey ? this.entries.get(this.activeKey) : undefined;
+  }
+
+  private async doStart(entry: FolderIndex, generation: number): Promise<void> {
+    const startedAt = Date.now();
     try {
-      await this.build(workspaceRoot, generation);
-      // A newer root was requested while this build ran: its rebuild owns the
-      // maps and the watcher now. Exit without arming a watcher for a root
-      // nobody is looking at.
-      if (generation !== this.generation) return;
-      this.setupWatcher(workspaceRoot, generation);
-      this.started = true;
+      await this.build(entry, generation);
+      // The folder was closed (or the service disposed) while this ran. Its
+      // maps are gone; do not arm a watcher over a folder nobody holds.
+      if (entry.generation !== generation) return;
+      this.setupWatcher(entry, generation);
+      entry.ready = true;
       this.logger.info(
-        `[WorkspaceFileIndex] Ready: ${this.files.size} files, ${this.directories.size} directories`,
+        `[WorkspaceFileIndex] Ready: ${entry.files.size} files, ${entry.directories.size} directories`,
+        { root: entry.root, durationMs: Date.now() - startedAt },
       );
     } catch (error: unknown) {
-      // A superseded build's failure is not the current build's problem, and
-      // must not reset the live `startPromise` that now belongs to a newer
-      // root. Swallow it.
-      if (generation !== this.generation) return;
+      // A torn-down folder's failure is nobody's problem, and must not reset a
+      // `buildPromise` that a newer build for the same key now owns.
+      if (entry.generation !== generation) return;
       this.logger.error('[WorkspaceFileIndex] Failed to start', error);
       // Reset so a later query can retry the build.
-      this.startPromise = undefined;
+      entry.buildPromise = undefined;
       throw error;
     }
   }
 
-  private async build(
-    workspaceRoot: string,
-    generation: number,
-  ): Promise<void> {
-    this.files.clear();
-    this.directories.clear();
+  private async build(entry: FolderIndex, generation: number): Promise<void> {
+    entry.files.clear();
+    entry.directories.clear();
 
     // Parse into a LOCAL first, then publish behind the generation check.
-    // `ignoreFiles` is shared mutable state read by `isExcluded()` on every
-    // watcher create/change event, so a late-landing build for a superseded
-    // root must never publish its rules: root B's index would keep filtering
-    // its incremental updates through root A's .gitignore for the rest of its
-    // lifetime. Assigning before the check (either branch — the `catch`
-    // fallback contaminates just as effectively as the success value) is the
-    // same cross-root contamination this service exists to prevent, relocated
-    // from the bulk path to the incremental one.
+    // `ignoreFiles` is read by `isExcluded()` on every watcher create/change
+    // event, so a build for a torn-down folder must never publish its rules
+    // over the rules of the entry that replaced it under the same key.
     let parsed: ParsedIgnoreFile[];
     try {
-      parsed =
-        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceRoot);
+      parsed = await this.ignoreResolver.parseWorkspaceIgnoreFiles(entry.root);
     } catch (error: unknown) {
       this.logger.warn(
         '[WorkspaceFileIndex] Failed to parse ignore files (continuing)',
@@ -332,33 +429,181 @@ export class WorkspaceFileIndexService {
       );
       parsed = [];
     }
-    if (generation !== this.generation) return;
-    this.ignoreFiles = parsed;
+    if (entry.generation !== generation) return;
+    entry.ignoreFiles = parsed;
 
-    for await (const file of this.indexer.indexWorkspaceStream({
-      workspaceFolder: workspaceRoot,
+    // Path-only, batched, yielding. The ignore files are handed over rather
+    // than re-parsed: they are the same set, and re-reading every ignore file
+    // in the workspace to build an identical matcher is duplicated I/O.
+    for await (const batch of this.indexer.discoverWorkspacePaths({
+      workspaceFolder: entry.root,
+      ignoreFiles: parsed,
     })) {
-      // Checked per entry, not once up front: the stream is long-lived and a
-      // switch can land at any point inside it. Without this, entries for the
-      // superseded root keep landing in the new root's maps and the picker
-      // serves a mixed index.
-      if (generation !== this.generation) return;
-      this.addFileEntry(file.path, workspaceRoot);
+      // Checked per batch, not once up front: the walk yields to the event loop
+      // between batches, so an eviction can land at any point inside it.
+      if (entry.generation !== generation) return;
+      for (const filePath of batch) {
+        this.addFileEntry(entry, filePath);
+      }
     }
   }
 
   /**
-   * Dispose the current watcher, if any, and drop the reference.
+   * Subscribe once to workspace-folder changes, so entries for CLOSED folders
+   * are dropped.
    *
-   * Called before every re-arm. `setupWatcher` used to overwrite `this.watcher`
-   * outright, which leaked one OS file-watch handle per workspace switch once
-   * rebuilds became possible. Clearing the field guarantees a given watcher is
-   * disposed exactly once, and a throwing `dispose()` never blocks the rebuild.
+   * Lazy rather than constructor-time: the service is resolved on hosts that
+   * never index anything, and an unused subscription there is a live listener
+   * on a process-wide event for no reason. The `typeof` guard is for hosts and
+   * test doubles whose provider predates this member.
    */
-  private disposeWatcher(): void {
-    const watcher = this.watcher;
+  private subscribeToFolderChanges(): void {
+    if (this.folderChangeSubscribed) return;
+    this.folderChangeSubscribed = true;
+    const subscribe = this.workspaceProvider.onDidChangeWorkspaceFolders;
+    if (typeof subscribe !== 'function') return;
+    try {
+      this.folderChangeSubscription = subscribe.call(
+        this.workspaceProvider,
+        () => this.evictClosedFolders(),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[WorkspaceFileIndex] cannot observe workspace folder changes (closed folders will not be evicted)',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Drop every cached folder the provider no longer lists as open.
+   *
+   * Deactivating a folder must NOT evict it — that is the whole cache. Only
+   * closing it does, and this is the only signal that says so.
+   *
+   * `openFolderKeys()` returning `undefined` — an unreadable or empty folder
+   * list — means "no information", so nothing is dropped. See its docblock.
+   */
+  private evictClosedFolders(): void {
+    const openKeys = this.openFolderKeys();
+    if (!openKeys) return;
+
+    for (const entry of [...this.entries.values()]) {
+      if (entry.key === this.activeKey) continue;
+      if (openKeys.has(entry.key)) continue;
+      this.teardownEntry(entry);
+      this.entries.delete(entry.key);
+      this.logger.debug(
+        '[WorkspaceFileIndex] dropped the index for a closed workspace folder',
+        { root: entry.root },
+      );
+    }
+  }
+
+  /**
+   * The normalized roots the host currently reports as OPEN, or `undefined`
+   * when it cannot say.
+   *
+   * `undefined` means "no information", and both callers treat it that way. An
+   * EMPTY list is folded into it deliberately: hosts that do not track folders
+   * (the CLI) report none permanently, and the last folder closing in Electron
+   * is exactly the case `ensureReady` already resolves in favour of keeping the
+   * snapshot. Reading an empty list as "everything is closed" would evict the
+   * whole cache on both.
+   */
+  private openFolderKeys(): Set<string> | undefined {
+    let open: string[];
+    try {
+      open = this.workspaceProvider.getWorkspaceFolders() ?? [];
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[WorkspaceFileIndex] could not read workspace folders (keeping cached indexes)',
+        error,
+      );
+      return undefined;
+    }
+    if (open.length === 0) return undefined;
+    return new Set(open.map((folder) => normalizeWorkspaceRoot(folder)));
+  }
+
+  /**
+   * Enforce {@link MAX_CACHED_FOLDERS} over the roots nobody has claimed —
+   * least-recently-active first, never the active folder, and NEVER a folder
+   * the provider still lists as open.
+   *
+   * That last exclusion is the whole rule, not a refinement of it. Without it
+   * the cap becomes a second eviction reason standing beside "the folder was
+   * closed", and it fires on exactly the workload this service exists to make
+   * free: a real multi-root workspace with more folders open than the cap would
+   * dispose the least-recently-used folder's live watcher and clear its
+   * snapshot on every activation past the cap, so cycling across those folders
+   * re-walks and re-arms chokidar almost every switch. That is the
+   * pre-TASK_2026_344 behaviour, reintroduced at N=9 instead of N=1.
+   *
+   * So the cap is soft: when every remaining candidate is still open, the cache
+   * simply exceeds it. The entries hold path strings only, and the alternative
+   * costs seconds of main-thread walk per switch.
+   */
+  private evictOverflow(): void {
+    if (this.entries.size <= MAX_CACHED_FOLDERS) {
+      this.overCapNoticeLogged = false;
+      return;
+    }
+    const openKeys = this.openFolderKeys();
+    const evictable = [...this.entries.values()]
+      .filter(
+        (entry) =>
+          entry.key !== this.activeKey && !(openKeys?.has(entry.key) ?? false),
+      )
+      .sort((a, b) => a.lastActiveAt - b.lastActiveAt);
+    let excess = this.entries.size - MAX_CACHED_FOLDERS;
+    for (const entry of evictable) {
+      if (excess <= 0) break;
+      this.teardownEntry(entry);
+      this.entries.delete(entry.key);
+      excess--;
+    }
+    if (excess <= 0) {
+      this.overCapNoticeLogged = false;
+      return;
+    }
+    // Logged once per crossing, not per activation: `ensureReadyFor` runs on
+    // every autocomplete query, so an unguarded line here would be per
+    // keystroke.
+    if (this.overCapNoticeLogged) return;
+    this.overCapNoticeLogged = true;
+    this.logger.debug(
+      '[WorkspaceFileIndex] more folders are open than the cache cap; keeping them all rather than re-walking an open folder',
+      { cached: this.entries.size, cap: MAX_CACHED_FOLDERS },
+    );
+  }
+
+  /**
+   * Release everything one entry holds and mark it dead.
+   *
+   * Bumping the generation is what stops a build, or a watcher handler parked
+   * behind an await, from writing after the caller believes it is gone.
+   */
+  private teardownEntry(entry: FolderIndex): void {
+    entry.generation++;
+    this.disposeWatcher(entry);
+    entry.files.clear();
+    entry.directories.clear();
+    entry.ignoreFiles = [];
+    entry.buildPromise = undefined;
+    entry.ready = false;
+  }
+
+  /**
+   * Dispose this entry's watcher, if any, and drop the reference.
+   *
+   * Clearing the field guarantees a given watcher is disposed exactly once, and
+   * a throwing `dispose()` never blocks the caller.
+   */
+  private disposeWatcher(entry: FolderIndex): void {
+    const watcher = entry.watcher;
     if (!watcher) return;
-    this.watcher = undefined;
+    entry.watcher = undefined;
     try {
       watcher.dispose();
     } catch (error: unknown) {
@@ -369,31 +614,41 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private setupWatcher(workspaceRoot: string, generation: number): void {
-    // Defensive: rebuilds dispose in `ensureReadyFor`, but never let a second
-    // watcher be armed over a live one.
-    this.disposeWatcher();
+  /**
+   * Arm this folder's watcher — ONCE per folder per process.
+   *
+   * It is not disposed when the folder goes inactive: chokidar has no recursive
+   * mode, so arming one is a readdirp walk of every directory plus one
+   * `fs.watch` handle each, and paying that on every switch was a measurable
+   * part of the 260-554 ms event-loop lag runs. Keeping it live also keeps the
+   * inactive folder's snapshot correct, which is what makes switching back free
+   * rather than merely fast.
+   */
+  private setupWatcher(entry: FolderIndex, generation: number): void {
+    // Defensive: teardown disposes, but never let a second watcher be armed
+    // over a live one.
+    this.disposeWatcher(entry);
     try {
       const watcher = this.fsProvider.createFileWatcher('**/*', {
         exclude: [...DEFAULT_WORKSPACE_EXCLUDES],
-        cwd: workspaceRoot,
+        cwd: entry.root,
       });
-      this.watcher = watcher;
-      // Every handler is generation-gated: an event that a disposed watcher
-      // already had in flight must not patch a newer root's snapshot. The gate
+      entry.watcher = watcher;
+      // Every handler is generation-gated: an event a disposed watcher already
+      // had in flight must not patch an entry that has been torn down. The gate
       // here is necessary but NOT sufficient for the async handlers — they
       // await inside, so they re-check at their write. See `onCreate`.
       watcher.onDidCreate((p) => {
-        if (generation !== this.generation) return;
-        void this.onCreate(p, generation);
+        if (entry.generation !== generation) return;
+        void this.onCreate(entry, generation, p);
       });
       watcher.onDidChange((p) => {
-        if (generation !== this.generation) return;
-        void this.onChange(p, generation);
+        if (entry.generation !== generation) return;
+        void this.onChange(entry, generation, p);
       });
       watcher.onDidDelete((p) => {
-        if (generation !== this.generation) return;
-        this.onDelete(p);
+        if (entry.generation !== generation) return;
+        this.onDelete(entry, p);
       });
     } catch (error: unknown) {
       // A host without a real watcher degrades to a static snapshot — still
@@ -407,38 +662,43 @@ export class WorkspaceFileIndexService {
 
   /**
    * The caller's gate in `setupWatcher` is NOT enough on its own: `isExcluded`
-   * awaits `isIgnored` whenever the workspace has any ignore file — the normal
-   * case — so a workspace switch can land in that window. Without the re-check
-   * below, a create event for root A resuming after a switch writes an
-   * A-rooted path into root B's live maps, and the `@` picker lists a file
-   * from the wrong workspace. `root` is captured pre-await too, so the
-   * re-check also guards against writing with a stale root.
+   * awaits `isIgnored` whenever the folder has any ignore file — the normal
+   * case — so a teardown can land in that window, and this would then resurrect
+   * maps the service has already released.
    *
    * Rule for this file: a generation check upstream does not protect a write
    * that sits behind an `await`. Re-check immediately before the write.
+   *
+   * Note this runs for INACTIVE folders too, and must: keeping a background
+   * folder's snapshot fresh is exactly what lets a switch back to it skip the
+   * rebuild.
    */
-  private async onCreate(absPath: string, generation: number): Promise<void> {
-    const root = this.workspaceRoot;
-    if (!root) return;
-    if (this.files.has(absPath)) return;
-    if (await this.isExcluded(absPath, root)) return;
-    if (generation !== this.generation) return;
-    this.addFileEntry(absPath, root);
+  private async onCreate(
+    entry: FolderIndex,
+    generation: number,
+    absPath: string,
+  ): Promise<void> {
+    if (entry.files.has(absPath)) return;
+    if (await this.isExcluded(entry, absPath)) return;
+    if (entry.generation !== generation) return;
+    this.addFileEntry(entry, absPath);
   }
 
-  private async onChange(absPath: string, generation: number): Promise<void> {
-    const root = this.workspaceRoot;
-    if (!root) return;
+  private async onChange(
+    entry: FolderIndex,
+    generation: number,
+    absPath: string,
+  ): Promise<void> {
     // Content changes carry no metadata we track. Re-add only if a prior create
     // event was missed and the path is not ignored.
-    if (this.files.has(absPath)) return;
-    if (await this.isExcluded(absPath, root)) return;
-    if (generation !== this.generation) return;
-    this.addFileEntry(absPath, root);
+    if (entry.files.has(absPath)) return;
+    if (await this.isExcluded(entry, absPath)) return;
+    if (entry.generation !== generation) return;
+    this.addFileEntry(entry, absPath);
   }
 
-  private onDelete(absPath: string): void {
-    this.files.delete(absPath);
+  private onDelete(entry: FolderIndex, absPath: string): void {
+    entry.files.delete(absPath);
     // Directory entries are derived from surviving files; a stale directory
     // entry is harmless for autocomplete and cheaper than pruning on every
     // unlink. Directory deletes surface as file unlinks per child.
@@ -448,11 +708,11 @@ export class WorkspaceFileIndexService {
    * Add a file entry plus its ancestor directory entries (derived from the
    * path, so they inherit the file's not-ignored status for free).
    */
-  private addFileEntry(absPath: string, workspaceRoot: string): void {
-    const relativePath = path.relative(workspaceRoot, absPath);
+  private addFileEntry(entry: FolderIndex, absPath: string): void {
+    const relativePath = path.relative(entry.root, absPath);
     const fileName = path.basename(absPath);
     const directory = path.dirname(absPath);
-    this.files.set(absPath, {
+    entry.files.set(absPath, {
       path: absPath,
       relativePath,
       fileName,
@@ -460,25 +720,25 @@ export class WorkspaceFileIndexService {
       fileType: detectFileType(fileName),
       isDirectory: false,
     });
-    this.addAncestorDirectories(absPath, workspaceRoot);
+    this.addAncestorDirectories(entry, absPath);
   }
 
-  private addAncestorDirectories(absPath: string, workspaceRoot: string): void {
+  private addAncestorDirectories(entry: FolderIndex, absPath: string): void {
     // Derive ancestor dirs from the RELATIVE path so we never mix the
     // workspace root's native separators/drive with the POSIX separators
     // fast-glob emits. Each ancestor inherits the file's not-ignored status.
-    const relative = path.relative(workspaceRoot, absPath);
+    const relative = path.relative(entry.root, absPath);
     if (!relative || relative.startsWith('..')) return;
     const segments = relative.split(/[\\/]/).filter(Boolean);
     segments.pop(); // drop the file name
     const soFar: string[] = [];
     for (const segment of segments) {
       soFar.push(segment);
-      const absDir = path.join(workspaceRoot, ...soFar);
-      if (this.directories.has(absDir)) continue;
-      this.directories.set(absDir, {
+      const absDir = path.join(entry.root, ...soFar);
+      if (entry.directories.has(absDir)) continue;
+      entry.directories.set(absDir, {
         path: absDir,
-        relativePath: path.relative(workspaceRoot, absDir),
+        relativePath: path.relative(entry.root, absDir),
         fileName: segment,
         directory: path.dirname(absDir),
         fileType: 'unknown',
@@ -488,18 +748,22 @@ export class WorkspaceFileIndexService {
   }
 
   private async isExcluded(
+    entry: FolderIndex,
     absPath: string,
-    workspaceRoot: string,
   ): Promise<boolean> {
-    const relative = path.relative(workspaceRoot, absPath).replace(/\\/g, '/');
+    const relative = path.relative(entry.root, absPath).replace(/\\/g, '/');
     if (!relative || relative.startsWith('..')) return true;
     if (this.defaultExcludeMatcher(relative)) return true;
-    if (this.ignoreFiles.length > 0) {
+    // Resolved into a local in the same synchronous block as the read: this
+    // method awaits below, and re-reading `entry.ignoreFiles` afterwards would
+    // filter against rules a concurrent rebuild had just replaced.
+    const ignoreFiles = entry.ignoreFiles;
+    if (ignoreFiles.length > 0) {
       try {
         const result = await this.ignoreResolver.isIgnored(
           relative,
-          this.ignoreFiles,
-          workspaceRoot,
+          ignoreFiles,
+          entry.root,
         );
         if (result.ignored) return true;
       } catch (error) {
@@ -513,15 +777,17 @@ export class WorkspaceFileIndexService {
   }
 
   /**
-   * Score + filter the in-memory file list against a query. Directories are not
-   * included here (use {@link searchDirectories}); this mirrors the
+   * Score + filter the ACTIVE folder's file list against a query. Directories
+   * are not included here (use {@link searchDirectories}); this mirrors the
    * files-only search path autocomplete relied on.
    */
   search(query: string, limit: number): FileSearchResult[] {
     if (!query) return this.getAll(limit);
+    const active = this.active;
+    if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: Array<IndexEntry & { score: number }> = [];
-    for (const entry of this.files.values()) {
+    for (const entry of active.files.values()) {
       const score = scoreEntry(entry, queryLower);
       if (score <= 0) continue;
       matches.push({ ...entry, score });
@@ -531,16 +797,18 @@ export class WorkspaceFileIndexService {
   }
 
   /**
-   * Return every indexed file, then directories, up to `limit`. Used for the
-   * "no query yet" suggestion list.
+   * Return every indexed file in the ACTIVE folder, then its directories, up to
+   * `limit`. Used for the "no query yet" suggestion list.
    */
   getAll(limit: number): FileSearchResult[] {
+    const active = this.active;
+    if (!active) return [];
     const results: FileSearchResult[] = [];
-    for (const entry of this.files.values()) {
+    for (const entry of active.files.values()) {
       results.push(toResult(entry));
       if (results.length >= limit) return results;
     }
-    for (const entry of this.directories.values()) {
+    for (const entry of active.directories.values()) {
       results.push(toResult(entry));
       if (results.length >= limit) return results;
     }
@@ -548,12 +816,15 @@ export class WorkspaceFileIndexService {
   }
 
   /**
-   * Filter directory entries by query (name or relative path substring).
+   * Filter the ACTIVE folder's directory entries by query (name or relative
+   * path substring).
    */
   searchDirectories(query: string, limit: number): FileSearchResult[] {
+    const active = this.active;
+    if (!active) return [];
     const queryLower = query.toLowerCase();
     const matches: FileSearchResult[] = [];
-    for (const entry of this.directories.values()) {
+    for (const entry of active.directories.values()) {
       if (
         entry.fileName.toLowerCase().includes(queryLower) ||
         entry.relativePath.toLowerCase().includes(queryLower)
@@ -565,9 +836,9 @@ export class WorkspaceFileIndexService {
     return matches;
   }
 
-  /** Whether a build has completed for the currently requested root. */
+  /** Whether a build has completed for the ACTIVE folder. */
   isReady(): boolean {
-    return this.started;
+    return this.active?.ready ?? false;
   }
 
   /**
@@ -577,25 +848,31 @@ export class WorkspaceFileIndexService {
    * normalized form against this before querying.
    */
   get indexedRoot(): string | undefined {
-    return this.rootKey;
+    return this.activeKey;
   }
 
-  /** Current file count (excludes directories). Primarily for diagnostics. */
+  /** ACTIVE folder's file count (excludes directories). For diagnostics. */
   get fileCount(): number {
-    return this.files.size;
+    return this.active?.files.size ?? 0;
   }
 
   dispose(): void {
-    // Bump the generation so any build still in flight stops writing into the
-    // maps we are about to clear.
-    this.generation++;
-    this.disposeWatcher();
-    this.files.clear();
-    this.directories.clear();
-    this.started = false;
-    this.startPromise = undefined;
-    this.workspaceRoot = undefined;
-    this.rootKey = undefined;
+    for (const entry of this.entries.values()) {
+      this.teardownEntry(entry);
+    }
+    this.entries.clear();
+    this.activeKey = undefined;
+    this.overCapNoticeLogged = false;
+    try {
+      this.folderChangeSubscription?.dispose();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[WorkspaceFileIndex] failed to dispose the workspace folder subscription',
+        error,
+      );
+    }
+    this.folderChangeSubscription = undefined;
+    this.folderChangeSubscribed = false;
   }
 }
 

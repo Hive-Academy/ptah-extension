@@ -10,6 +10,7 @@ function makeState(): jest.Mocked<TransformerState> {
     getCurrentModel: jest.fn().mockReturnValue(undefined),
     getToolCallId: jest.fn().mockReturnValue(undefined),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
+    getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
     isNonAgentTask: jest.fn().mockReturnValue(false),
@@ -152,7 +153,12 @@ describe('AssistantMessageTransformer', () => {
 
     transformer.transform(msg, state, helpers, 'sess-2' as never);
 
-    expect(state.addBackgroundTaskToolUseId).toHaveBeenCalledWith('tool-bg-1');
+    // The tool_use block is the only message carrying subagent_type and
+    // description, so they are stashed for the later placeholder tool_result.
+    expect(state.addBackgroundTaskToolUseId).toHaveBeenCalledWith('tool-bg-1', {
+      agentType: 'worker',
+      agentDescription: 'desc',
+    });
     expect(helpers.subagentRegistry.markPendingBackground).toHaveBeenCalledWith(
       'tool-bg-1',
     );
@@ -439,6 +445,94 @@ describe('AssistantMessageTransformer', () => {
     expect((bg as { outputFilePath?: string }).outputFilePath).toBe(
       '/tmp/bg.log',
     );
+  });
+
+  // The tool_result that triggers background_agent_started carries neither the
+  // agent type nor the SDK agent id. Both used to be dropped: agentType was the
+  // literal 'unknown' and agentId was omitted, so the tray chip read "unknown"
+  // and the frontend hid its transcript action (gated on hasRealAgentId).
+  it('carries the real agentType, agentId and description on background_agent_started', () => {
+    state.hasBackgroundTaskToolUseId.mockReturnValue(true);
+    state.getBackgroundTaskInfo.mockReturnValue({
+      agentType: 'Explore',
+      agentDescription: 'sweep the canvas libs',
+    });
+    (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+      toolCallId: 'tool-bg-2',
+      agentType: 'Explore',
+      agentId: 'adcecb7',
+      teammateName: 'scout',
+      status: 'running',
+      startedAt: 0,
+    });
+
+    const msg = {
+      uuid: 'u-6',
+      message: {
+        id: 'm-6',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool-bg-2',
+            content: 'started',
+            is_error: false,
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-6' as never,
+    );
+
+    expect(
+      events.find((e) => e.eventType === 'background_agent_started'),
+    ).toMatchObject({
+      agentType: 'Explore',
+      agentId: 'adcecb7',
+      teammateName: 'scout',
+      agentDescription: 'sweep the canvas libs',
+    });
+  });
+
+  // The SubagentStart hook can fire after the SDK's placeholder tool_result, so
+  // the registry record may not exist yet. The spawning tool_use block is the
+  // fallback — 'unknown' is the last resort, not the default.
+  it('falls back to the spawning tool_use agentType when no registry record exists', () => {
+    state.hasBackgroundTaskToolUseId.mockReturnValue(true);
+    state.getBackgroundTaskInfo.mockReturnValue({ agentType: 'worker' });
+    (helpers.subagentRegistry.get as jest.Mock).mockReturnValue(null);
+
+    const msg = {
+      uuid: 'u-7',
+      message: {
+        id: 'm-7',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool-bg-3',
+            content: 'started',
+            is_error: false,
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-7' as never,
+    );
+
+    expect(
+      events.find((e) => e.eventType === 'background_agent_started'),
+    ).toMatchObject({ agentType: 'worker' });
   });
 
   it('clears activeSkillToolUseIds on the next assistant message', () => {

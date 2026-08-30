@@ -153,16 +153,17 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               not yet open for self-serve purchase.
             </p>
             <p class="text-white/70 mb-4 leading-relaxed">
-              If you join the Ptah Builders waitlist before checkout opens, you
-              become a
-              <strong class="text-white/90">founding member</strong> and receive
-              a discount invite when Builders launches:
-              <strong class="text-white/90">70% off the monthly price</strong>
-              for your first 12 billing cycles, or
-              <strong class="text-white/90">70% off the yearly price</strong>
-              for your first year. The founding discount applies only to the
-              billing cycle(s) stated above; renewals after that period bill at
-              the then-current list price.
+              If you apply to the Ptah Builders Early Adopter program before
+              checkout opens, and we approve your application, we grant you a
+              <strong class="text-white/90"
+                >complimentary 12-month Ptah Builders membership</strong
+              >
+              at no cost. We do not collect a payment method for this grant, and
+              there is no charge at any point during the 12 months. Approval is
+              at our discretion; an application is not a guarantee of a grant.
+              The membership ends when the 12 months expire. To continue after
+              that date, you must start a paid subscription at the then-current
+              list price.
             </p>
             <p class="text-white/70 mb-4 leading-relaxed">
               Any active paid subscription is processed by

@@ -1,9 +1,10 @@
 /**
  * Update RPC Type Definitions
  *
- * Types for the desktop update banner RPC methods:
+ * Types for the desktop update dialog RPC methods:
  *   - update:get-state — pull the current lifecycle state (race-proof hydration)
  *   - update:check-now — trigger an immediate GitHub Releases check
+ *   - update:mark-downloaded — record that the user downloaded a version
  */
 
 import type { UpdateLifecycleState } from '../messages/update';
@@ -23,4 +24,19 @@ export type UpdateCheckNowParams = Record<string, never>;
 export interface UpdateCheckNowResult {
   success: boolean;
   error?: string;
+}
+
+/**
+ * Parameters for update:mark-downloaded RPC method.
+ *
+ * `version` is the release the user chose to download — the bare version, not
+ * the `electron-v` tag.
+ */
+export interface UpdateMarkDownloadedParams {
+  version: string;
+}
+
+/** Response from update:mark-downloaded RPC method */
+export interface UpdateMarkDownloadedResult {
+  success: boolean;
 }

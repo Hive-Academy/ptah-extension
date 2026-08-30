@@ -20,8 +20,14 @@ export type {
   InternalQueryHandle,
 } from './lib/internal-query';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
-export { SessionMetadataStore } from './lib/session-metadata-store';
-export type { SessionMetadata } from './lib/session-metadata-store';
+export {
+  SessionMetadataStore,
+  flushSessionMetadataStores,
+} from './lib/session-metadata-store';
+export type {
+  SessionMetadata,
+  PersistedAgentOutput,
+} from './lib/session-metadata-store';
 export { SessionImporterService } from './lib/session-importer.service';
 export {
   SessionHistoryReaderService,
@@ -30,6 +36,10 @@ export {
 
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
+export type {
+  JsonlReadOptions,
+  JsonlTailOptions,
+} from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type {
@@ -45,6 +55,7 @@ export {
   SessionNotActiveError,
   ModelNotAvailableError,
   AuthRequiredError,
+  InternalQueryQueueTimeoutError,
 } from './lib/errors';
 export {
   registerSdkServices,
@@ -76,10 +87,6 @@ export {
   type PostToolUseCallback,
   type PostToolUsePayload,
   PostToolUseHookHandler,
-  PreToolUseCallbackRegistry,
-  type PreToolUseCallback,
-  type PreToolUsePayload,
-  PreToolUseHookHandler,
   SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedPayload,
   type SessionIdResolvedRegistryCallback,

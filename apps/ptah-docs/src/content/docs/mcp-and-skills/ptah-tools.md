@@ -11,7 +11,7 @@ The built-in MCP server exposes a curated family of `ptah_*` tools. This page is
 | ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `ptah_workspace_analyze` | Produce a structured analysis of the active workspace (frameworks, entry points, build system, tests) | "What kind of project is this?" at the start of a new session |
 | `ptah_search_files`      | Fast file search across the workspace with glob + content filters                                     | Locate files by name or content without shelling out          |
-| `ptah_get_diagnostics`   | Pull current diagnostics (TS errors, linter warnings) from the editor                                 | "What's broken right now?" before proposing fixes             |
+| `ptah_get_diagnostics`   | Pull current diagnostics (TS errors, linter warnings). Pass `files` to scope it                       | "What's broken right now?" before proposing fixes             |
 | `ptah_get_dirty_files`   | List unsaved or modified files                                                                        | Sync model context with the user's in-flight edits            |
 | `ptah_count_tokens`      | Count tokens for a string or file against the active model's tokenizer                                | Budget prompt size before a large call                        |
 

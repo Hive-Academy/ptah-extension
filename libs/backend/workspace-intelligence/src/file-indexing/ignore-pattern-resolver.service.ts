@@ -20,9 +20,31 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import picomatch from 'picomatch';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { FileSystemService } from '../services/file-system.service';
 import { PatternMatcherService } from './pattern-matcher.service';
+
+/**
+ * The picomatch options {@link IgnorePatternResolverService.compileMatcher}
+ * compiles with.
+ *
+ * These are NOT a fresh choice: they are exactly what
+ * `PatternMatcherService.getCompiledMatcher` produces for the
+ * `{ dot: true, caseSensitive: process.platform !== 'win32' }` that
+ * {@link IgnorePatternResolverService.isIgnored} passes — `dot` because Git
+ * ignores dotfiles unless explicitly included, `nocase` on Windows because its
+ * filesystem is case-insensitive, and `bash`/`nobrace`/`noglobstar` because the
+ * shared matcher sets them. Drifting from this set makes the compiled matcher
+ * and `isIgnored` disagree, which is a silently different index.
+ */
+const IGNORE_PICOMATCH_OPTIONS: picomatch.PicomatchOptions = {
+  dot: true,
+  nocase: process.platform === 'win32',
+  bash: true,
+  nobrace: false,
+  noglobstar: false,
+};
 
 /**
  * Parsed ignore file representation
@@ -251,6 +273,67 @@ export class IgnorePatternResolverService {
       ignored,
       matchedPattern,
       matchedFile,
+    };
+  }
+
+  /**
+   * Compile `ignoreFiles` into a single SYNCHRONOUS predicate.
+   *
+   * Same decision as {@link isIgnored} — identical picomatch options, identical
+   * per-ignore-file relative-path derivation, identical last-match-wins /
+   * negation semantics — with the per-call work hoisted out of the loop:
+   *
+   *  - one `picomatch()` compile per pattern, done ONCE here rather than a
+   *    cache lookup per (path, pattern) pair;
+   *  - no `path::pattern::JSON.stringify(options)` key building and no result
+   *    LRU. That cache is sized 1000 and a workspace walk feeds it tens of
+   *    thousands of distinct keys, so on the bulk path it is pure overhead — it
+   *    evicts before it can ever hit.
+   *
+   * This exists for the BULK path (`WorkspaceIndexerService.discoverWorkspacePaths`
+   * filtering 15k paths on the Electron main loop, TASK_2026_344). `isIgnored`
+   * stays the API for one-off checks — a single watcher event pays none of the
+   * costs above — and remains the reference semantics this must reproduce; the
+   * table test in `ignore-pattern-resolver.service.spec.ts` compares the two
+   * against the same inputs.
+   *
+   * @param ignoreFiles - Parsed ignore files, in precedence order (later wins)
+   * @param workspaceRoot - Optional workspace root for relative path resolution
+   * @returns Predicate answering "is this path ignored?"
+   */
+  compileMatcher(
+    ignoreFiles: ParsedIgnoreFile[],
+    workspaceRoot?: string,
+  ): (filePath: string) => boolean {
+    const compiled = ignoreFiles.map((ignoreFile) => ({
+      baseDir: ignoreFile.baseDir,
+      patterns: ignoreFile.patterns.map((pattern) => ({
+        isNegation: pattern.isNegation,
+        matches: picomatch(pattern.pattern, IGNORE_PICOMATCH_OPTIONS),
+      })),
+    }));
+
+    return (filePath: string): boolean => {
+      const normalizedPath = filePath.replace(/\\/g, '/');
+      let ignored = false;
+      for (const ignoreFile of compiled) {
+        // `isIgnored` recomputes this inside its pattern loop, but it does not
+        // depend on the pattern — hoisting it is the same answer, once per
+        // ignore file instead of once per pattern.
+        const testPath = workspaceRoot
+          ? this.makeRelativePath(
+              normalizedPath,
+              ignoreFile.baseDir,
+              workspaceRoot,
+            )
+          : normalizedPath;
+        for (const pattern of ignoreFile.patterns) {
+          if (pattern.matches(testPath)) {
+            ignored = !pattern.isNegation;
+          }
+        }
+      }
+      return ignored;
     };
   }
 

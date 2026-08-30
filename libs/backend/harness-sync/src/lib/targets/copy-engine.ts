@@ -15,7 +15,7 @@
  * caller has already proven ownership and already unlinked any junction, so
  * `rm -r` cannot follow a link out of the workspace.
  *
- * {@link hashTransformedDirSync} lives here too, and only here: it answers "what
+ * {@link hashTransformedDir} lives here too, and only here: it answers "what
  * hash would {@link copyDirectoryTransformed} produce" and is therefore correct
  * only while it mirrors that function's traversal exactly.
  */
@@ -30,14 +30,14 @@ import {
   unlink,
   writeFile,
 } from 'fs/promises';
-import { lstatSync, readFileSync } from 'fs';
 import { extname, join } from 'path';
 import {
   digestFileMap,
   hashContent,
-  hashFileSync,
+  hashFile,
   isIgnoredEntry,
-  listContentFilesSync,
+  listContentFiles,
+  type ContentHashOptions,
 } from '../hash/content-hash';
 import { errorCode, withWindowsRetry } from '../fs/windows-retry';
 import { isSkillManifestFile, transformSkillMarkdown } from './skill-transform';
@@ -163,38 +163,41 @@ async function copyTreeTransformed(
  *
  * Returns `null` when the source directory cannot be read.
  */
-export function hashTransformedDirSync(
+export async function hashTransformedDir(
   sourceDir: string,
   folderName: string,
-): string | null {
+  options: ContentHashOptions = {},
+): Promise<string | null> {
   let stat;
   try {
-    stat = lstatSync(sourceDir);
+    stat = await lstat(sourceDir);
   } catch {
     return null;
   }
   if (!stat.isDirectory()) return null;
 
   // `digestFileMap` and not a loop of our own: the result is compared directly
-  // against `hashDirSync` of the copy on disk, so the two MUST fold their file
+  // against `hashDir` of the copy on disk, so the two MUST fold their file
   // maps identically. Spelling the fold out twice is how that stops being true.
-  return digestFileMap(listContentFilesSync(sourceDir), (relative, absolute) =>
-    hashTransformedFile(relative, absolute, folderName),
+  return digestFileMap(
+    await listContentFiles(sourceDir, options),
+    (relative, absolute) => hashTransformedFile(relative, absolute, folderName),
+    options,
   );
 }
 
 /** One file's post-transform digest, matching what `copyTreeTransformed` writes. */
-function hashTransformedFile(
+async function hashTransformedFile(
   relative: string,
   absolute: string,
   folderName: string,
-): string {
+): Promise<string> {
   if (extname(relative).toLowerCase() !== '.md') {
-    return hashFileSync(absolute) ?? 'unreadable';
+    return (await hashFile(absolute)) ?? 'unreadable';
   }
   let content: string;
   try {
-    content = readFileSync(absolute, 'utf-8');
+    content = await readFile(absolute, 'utf-8');
   } catch {
     return 'unreadable';
   }

@@ -761,6 +761,104 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('memory.enabled — the capture master switch (TASK_2026_328)', () => {
+    /**
+     * `MEMORY_TRIGGER_KEYS.enabled` gates the observation queue AND every
+     * trigger, and it is read through `IWorkspaceProvider.getConfiguration`
+     * like its `memory.triggers.*` siblings — all of which are routed here.
+     *
+     * Unrouted, it would fail in the WRITE direction only: the read falls
+     * through to `FILE_BASED_SETTINGS_DEFAULTS` and looks correct while the
+     * write is dropped with no error, so "memory off" would redraw as off and
+     * capture anyway on the next trigger.
+     */
+    it('registers memory.enabled in FILE_BASED_SETTINGS_KEYS', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.enabled')).toBe(true);
+    });
+
+    it('routes memory.enabled through isFileBasedSettingKey', () => {
+      expect(isFileBasedSettingKey('memory.enabled')).toBe(true);
+    });
+
+    it('declares memory.enabled default true, matching MEMORY_TRIGGER_DEFAULTS', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          'memory.enabled',
+        ),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['memory.enabled']).toBe(true);
+    });
+
+    it('keeps memory.enabled distinct from memory.triggers.* — it is not a per-trigger toggle', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.triggers.enabled')).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('internalQuery.* — the shared one-shot gate (TASK_2026_328)', () => {
+    /**
+     * TASK_2026_323 B6 put every internal one-shot query behind one
+     * process-wide `InternalQueryConcurrencyGate` — memory-curator,
+     * skill-synthesis, cron, the harness LLM runner and the setup wizard all
+     * queue on it. The gate reads its limit and its wait ceiling through
+     * `IWorkspaceProvider.getConfiguration('ptah', 'internalQuery.*')`.
+     *
+     * Neither key was registered anywhere: not here, and not in the VS Code
+     * `contributes.configuration`. That is this file's documented silent-drop
+     * failure mode in the WRITE direction — the read falls through to
+     * `FILE_BASED_SETTINGS_DEFAULTS` and looks correct, while a write is handed
+     * to a store that does not own the key and is discarded with no error.
+     *
+     * The user-visible consequence was that the gate could not be moved off its
+     * defaults on any host. With `maxConcurrent` stuck at 1, an interactive
+     * wizard call queues behind a slow background curation pass and the wizard
+     * appears to hang — the symptom class TASK_2026_323 exists to remove.
+     */
+    it('registers both internalQuery keys in FILE_BASED_SETTINGS_KEYS', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('internalQuery.maxConcurrent')).toBe(
+        true,
+      );
+      expect(FILE_BASED_SETTINGS_KEYS.has('internalQuery.queueTimeoutMs')).toBe(
+        true,
+      );
+    });
+
+    it('routes both internalQuery keys through isFileBasedSettingKey', () => {
+      expect(isFileBasedSettingKey('internalQuery.maxConcurrent')).toBe(true);
+      expect(isFileBasedSettingKey('internalQuery.queueTimeoutMs')).toBe(true);
+    });
+
+    /**
+     * These two values are hard-coded rather than imported. `platform-core` is
+     * L0.5 and imports nothing from `@ptah-extension/*`, so it cannot reach
+     * `DEFAULT_MAX_CONCURRENT` / `DEFAULT_QUEUE_TIMEOUT_MS` in `agent-sdk`.
+     * Changing either constant without changing the value here is the drift
+     * this test exists to catch.
+     */
+    it('declares defaults matching the gate constants in agent-sdk', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          'internalQuery.maxConcurrent',
+        ),
+      ).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          'internalQuery.queueTimeoutMs',
+        ),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['internalQuery.maxConcurrent']).toBe(
+        1,
+      );
+      expect(FILE_BASED_SETTINGS_DEFAULTS['internalQuery.queueTimeoutMs']).toBe(
+        60000,
+      );
+    });
+  });
+
   describe('llm.vscode.model — removed dead key (TASK_2026_250 follow-up B)', () => {
     /**
      * `ptah.llm.vscode.model` was the VS Code Language Model `vendor/family`

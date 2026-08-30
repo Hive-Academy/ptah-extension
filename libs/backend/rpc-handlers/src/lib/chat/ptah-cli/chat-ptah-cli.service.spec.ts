@@ -53,7 +53,9 @@ interface Suite {
   codeExecutionMcp: jest.Mocked<
     Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>
   >;
-  registry: jest.Mocked<Pick<PtahCliRegistry, 'getProfile' | 'listAgents'>>;
+  registry: jest.Mocked<
+    Pick<PtahCliRegistry, 'getProfile' | 'releaseProfile' | 'listAgents'>
+  >;
   agentAdapter: jest.Mocked<
     Pick<
       SdkAgentAdapter,
@@ -89,11 +91,16 @@ function makeSuite(): Suite {
   };
 
   const codeExecutionMcp = {
-    ensureRegisteredForSubagents: jest.fn(),
+    // Resolves with an outcome since TASK_2026_332 — `registered: false` is a
+    // normal answer the caller must read, not an exception it can wait for.
+    ensureRegisteredForSubagents: jest
+      .fn()
+      .mockResolvedValue({ registered: true }),
   } as jest.Mocked<Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>>;
 
   const registry = {
     getProfile: jest.fn().mockResolvedValue(profile),
+    releaseProfile: jest.fn().mockResolvedValue(undefined),
     listAgents: jest.fn().mockResolvedValue([
       {
         id: AGENT_ID,
@@ -108,7 +115,7 @@ function makeSuite(): Suite {
       },
     ]),
   } as unknown as jest.Mocked<
-    Pick<PtahCliRegistry, 'getProfile' | 'listAgents'>
+    Pick<PtahCliRegistry, 'getProfile' | 'releaseProfile' | 'listAgents'>
   >;
 
   const stream: AsyncIterable<unknown> = {
@@ -177,7 +184,9 @@ describe('ChatPtahCliService', () => {
 
       const out = await s.service.handleStart(params);
 
-      expect(s.registry.getProfile).toHaveBeenCalledWith(AGENT_ID);
+      // The tab id is the proxy lease key: each session holds its own lease
+      // on the agent's proxy, so a later session cannot stop it (B10 proxy).
+      expect(s.registry.getProfile).toHaveBeenCalledWith(AGENT_ID, TAB_UUID);
       expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
         expect.objectContaining({
           tabId: TAB_UUID,
@@ -206,6 +215,159 @@ describe('ChatPtahCliService', () => {
 
       expect(out.result.success).toBe(false);
       expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_326 — the lease taken by `getProfile` is only ever given back
+    // through a session entry, and the entry is written AFTER the spawn. A
+    // spawn that throws therefore used to strand the reference for the life of
+    // the host: refCount never returned to zero, so the proxy's listening
+    // socket stayed up and the next attempt on the same agent took a second
+    // one. The release must happen exactly once, and it must not swallow or
+    // replace the failure the caller is waiting to hear about.
+    // -----------------------------------------------------------------------
+
+    it('releases the proxy lease exactly once when startChatSession rejects, and rethrows', async () => {
+      const s = makeSuite();
+      const boom = new Error('cli spawn failed');
+      s.agentAdapter.startChatSession.mockRejectedValueOnce(boom);
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+        } as ChatStartParams),
+      ).rejects.toBe(boom);
+
+      expect(s.registry.releaseProfile).toHaveBeenCalledTimes(1);
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
+      // No entry was written, so nothing can release it a second time later.
+      expect(s.service.hasSession(TAB_UUID)).toBe(false);
+    });
+
+    it('releases the proxy lease when the registry listing rejects before the spawn', async () => {
+      const s = makeSuite();
+      const boom = new Error('registry unreachable');
+      s.registry.listAgents.mockRejectedValueOnce(boom);
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+        } as ChatStartParams),
+      ).rejects.toBe(boom);
+
+      expect(s.registry.releaseProfile).toHaveBeenCalledTimes(1);
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
+      expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+      expect(s.service.hasSession(TAB_UUID)).toBe(false);
+    });
+
+    it('releases the proxy lease when the pre-spawn MCP registration rejects', async () => {
+      const s = makeSuite();
+      s.sdkContext.isMcpServerRunning.mockReturnValue(true);
+      const boom = new Error('could not write .mcp.json');
+      s.codeExecutionMcp.ensureRegisteredForSubagents.mockRejectedValueOnce(
+        boom,
+      );
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+        } as ChatStartParams),
+      ).rejects.toBe(boom);
+
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
+      expect(s.agentAdapter.startChatSession).not.toHaveBeenCalled();
+    });
+
+    /**
+     * TASK_2026_332. `ensureRegisteredForSubagents` used to resolve with
+     * `undefined` whether or not it wrote anything — every failure was absorbed
+     * into a warn two layers down — so this spawn passed `mcpServerRunning:
+     * true` while `.mcp.json` had no `ptah` key. The CLI then started believing
+     * it had Ptah tools and had none, with a warn line as the only trace.
+     */
+    it('spawns with mcpServerRunning FALSE when the .mcp.json entry was not written', async () => {
+      const s = makeSuite();
+      s.sdkContext.isMcpServerRunning.mockReturnValue(true);
+      s.codeExecutionMcp.ensureRegisteredForSubagents.mockResolvedValue({
+        registered: false,
+        reason: 'lock-timeout',
+      });
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+      } as ChatStartParams);
+
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ mcpServerRunning: false }),
+      );
+      // The spawn still happens — a contended config file must not cost the
+      // user their turn, which is why this reports instead of rejecting.
+      expect(s.registry.releaseProfile).not.toHaveBeenCalled();
+    });
+
+    it('spawns with mcpServerRunning TRUE once the entry is confirmed on disk', async () => {
+      const s = makeSuite();
+      s.sdkContext.isMcpServerRunning.mockReturnValue(true);
+      s.codeExecutionMcp.ensureRegisteredForSubagents.mockResolvedValue({
+        registered: true,
+      });
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+      } as ChatStartParams);
+
+      expect(s.agentAdapter.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ mcpServerRunning: true }),
+      );
+    });
+
+    it('still surfaces the original failure when the lease release itself fails', async () => {
+      const s = makeSuite();
+      const boom = new Error('cli spawn failed');
+      s.agentAdapter.startChatSession.mockRejectedValueOnce(boom);
+      s.registry.releaseProfile.mockRejectedValueOnce(
+        new Error('proxy would not stop'),
+      );
+
+      await expect(
+        s.service.handleStart({
+          prompt: 'hi',
+          tabId: TAB_UUID,
+          workspacePath: '/tmp/ws',
+          ptahCliId: AGENT_ID,
+        } as ChatStartParams),
+      ).rejects.toBe(boom);
+
+      expect(s.logger.warn).toHaveBeenCalled();
+    });
+
+    it('does not release the lease on a successful start', async () => {
+      const s = makeSuite();
+
+      await s.service.handleStart({
+        prompt: 'hi',
+        tabId: TAB_UUID,
+        workspacePath: '/tmp/ws',
+        ptahCliId: AGENT_ID,
+      } as ChatStartParams);
+
+      expect(s.registry.releaseProfile).not.toHaveBeenCalled();
     });
   });
 
@@ -297,6 +459,9 @@ describe('ChatPtahCliService', () => {
       expect(s.agentAdapter.endSession).toHaveBeenCalledWith(SESSION_UUID);
       expect(out).toEqual({ success: true });
       expect(s.service.hasSession(SESSION_UUID)).toBe(false);
+      // The lease was taken under the tab id at start; abort arrives under
+      // the real session id and must release that same lease.
+      expect(s.registry.releaseProfile).toHaveBeenCalledWith(TAB_UUID);
     });
   });
 

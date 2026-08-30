@@ -4,7 +4,6 @@ import {
   input,
   computed,
   signal,
-  output,
   inject,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
@@ -551,21 +550,6 @@ export interface ModelUsageEntry {
                 [style.width.%]="liveModelStats()!.contextPercent"
               ></div>
             </div>
-            @if (showContextWarning()) {
-              <div class="flex items-center justify-between mt-1 gap-2">
-                <span class="text-[10px] text-warning leading-tight">
-                  Context {{ liveModelStats()!.contextPercent }}% full —
-                  consider compacting or starting a new session
-                </span>
-                <button
-                  type="button"
-                  class="text-[10px] font-medium text-warning hover:text-warning-content bg-warning/15 hover:bg-warning/25 border border-warning/30 rounded px-1.5 py-0.5 whitespace-nowrap transition-colors"
-                  (click)="newSessionRequested.emit()"
-                >
-                  New Session
-                </button>
-              </div>
-            }
           </div>
         }
       </div>
@@ -678,9 +662,6 @@ export class SessionStatsSummaryComponent {
 
   /** Number of context compactions in this session */
   readonly compactionCount = input<number>(0);
-
-  /** Emitted when user clicks "New Session" from the context warning */
-  readonly newSessionRequested = output<void>();
 
   /** Whether the stats section is collapsed to a compact bar */
   readonly isStatsCollapsed = signal(true);

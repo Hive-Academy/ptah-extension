@@ -187,10 +187,26 @@ export interface AgentSetConfigParams {
   workflowsDisabled?: boolean;
 }
 
+/**
+ * Why `agent:continue` refused.
+ *
+ * The wire copy of `AgentContinueError`'s code in
+ * `@ptah-extension/cli-agent-runtime`. Backend libs may not be imported from
+ * here (this is the foundation layer), so the two unions are kept in step by
+ * intent — a code added there and not here fails `agent-rpc.handlers.ts` at
+ * compile time, which is the guard.
+ */
 export type AgentContinueErrorCode =
   | 'not_found'
   | 'unsupported'
   | 'busy'
+  /**
+   * The agent record is still live and still readable, but its CLI subprocess
+   * was released after idling to free memory. In-process continuation is gone;
+   * the conversation is not. Recover by resuming `cliSessionId` — the same
+   * fallback `not_found` takes (TASK_2026_323 B11).
+   */
+  | 'released'
   | 'unknown';
 
 /** Parameters for ptahCli:list RPC method */

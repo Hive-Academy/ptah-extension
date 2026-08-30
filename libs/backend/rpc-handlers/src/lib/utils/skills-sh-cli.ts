@@ -32,7 +32,7 @@
  * ref resolution and security-advisory check against an unversioned surface.
  */
 
-import { spawn } from 'child_process';
+import crossSpawn from 'cross-spawn';
 
 import { isSafePathToken, parseSourceSlug } from '@ptah-extension/shared';
 
@@ -71,6 +71,14 @@ export interface SkillInstallRequest {
  * Resolves with the captured streams and exit code. A timeout is reported as
  * exit code 124 after SIGTERM. Rejects only if the child process emits `error`
  * (binary missing, spawn refused).
+ *
+ * Routed through `cross-spawn` with NO `shell` option. `npx` is a `.cmd` shim on
+ * Windows, which is why this used to pass `shell: true` — but `shell: true`
+ * together with an args array is the `[DEP0190]` shape: cmd.exe receives the
+ * arguments concatenated and unescaped, so `source`/`skillId` would only be
+ * separated from the command line by the three validation layers above them.
+ * `cross-spawn` runs the same `.cmd` shim through `cmd.exe /d /s /c` with every
+ * argument escaped, so the args array stays an args array (TASK_2026_348).
  */
 export function runSkillsCli(
   args: string[],
@@ -87,8 +95,7 @@ export function runSkillsCli(
       }
     };
 
-    const child = spawn('npx', ['skills', ...args], {
-      shell: true,
+    const child = crossSpawn('npx', ['skills', ...args], {
       cwd: cwd || undefined,
       env: {
         ...process.env,
@@ -100,14 +107,17 @@ export function runSkillsCli(
     let stdout = '';
     let stderr = '';
 
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
+    // Optional chaining because `cross-spawn` is typed as returning a plain
+    // `ChildProcess`; with the default `stdio: 'pipe'` both streams are always
+    // present at runtime.
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
 
-    child.stdout.on('data', (data: string) => {
+    child.stdout?.on('data', (data: string) => {
       stdout += data;
     });
 
-    child.stderr.on('data', (data: string) => {
+    child.stderr?.on('data', (data: string) => {
       stderr += data;
     });
 

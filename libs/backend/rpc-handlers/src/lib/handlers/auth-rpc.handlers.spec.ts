@@ -85,6 +85,7 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { ClaudeCliHealth } from '@ptah-extension/shared';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
 import { AuthRpcHandlers } from './auth-rpc.handlers';
@@ -299,6 +300,32 @@ function createMockCliDetector(): MockCliDetector {
   } as unknown as MockCliDetector;
 }
 
+/**
+ * `SdkAdapterEvents` stub, narrowed to the one subscription the handler makes.
+ * `emitAuthFileChanged()` replays it so the spec can prove an external
+ * `codex login` drops the status cache.
+ */
+interface MockAdapterEvents {
+  onAuthFileChanged: jest.Mock;
+  emitAuthFileChanged: () => void;
+}
+
+function createMockAdapterEvents(): MockAdapterEvents {
+  const listeners: Array<() => void> = [];
+  return {
+    onAuthFileChanged: jest.fn((listener: () => void) => {
+      listeners.push(listener);
+      return () => {
+        const index = listeners.indexOf(listener);
+        if (index >= 0) listeners.splice(index, 1);
+      };
+    }),
+    emitAuthFileChanged: () => {
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -319,6 +346,7 @@ interface Harness {
   sentry: MockSentryService;
   scopeResolver: MockScopeResolver;
   webviewManager: MockWebviewManager;
+  adapterEvents: MockAdapterEvents;
   authCommandRunner?: MockAuthCommandRunner;
 }
 
@@ -363,6 +391,7 @@ function makeHarness(
   const codex = createMockCodex();
   const platformCommands = createMockPlatformCommands();
   const webviewManager = createMockWebviewManager();
+  const adapterEvents = createMockAdapterEvents();
 
   let authCommandRunner: MockAuthCommandRunner | undefined;
   if (opts.authCommandResult !== undefined || opts.authCommandThrows === true) {
@@ -406,6 +435,7 @@ function makeHarness(
     sentry as unknown as SentryService,
     scopeResolver as unknown as WorkspaceScopeResolver,
     webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
+    adapterEvents as unknown as import('@ptah-extension/agent-sdk').SdkAdapterEvents,
   );
 
   return {
@@ -424,8 +454,59 @@ function makeHarness(
     sentry,
     scopeResolver,
     webviewManager,
+    adapterEvents,
     ...(authCommandRunner ? { authCommandRunner } : {}),
   };
+}
+
+/** Total probe/secret-store invocations across every source `computeAuthStatus` reads. */
+function probeCounts(h: Harness): {
+  cli: number;
+  copilot: number;
+  codex: number;
+  secrets: number;
+} {
+  return {
+    cli: h.cliDetector.performHealthCheck.mock.calls.length,
+    copilot: h.copilot.isAuthenticated.mock.calls.length,
+    codex: h.codex.getTokenStatus.mock.calls.length,
+    secrets:
+      h.authSecrets.hasCredential.mock.calls.length +
+      h.authSecrets.hasProviderKey.mock.calls.length,
+  };
+}
+
+/**
+ * A promise whose resolution the spec controls, so one probe can be held OPEN
+ * while something else mutates auth state. Interleaving an in-flight
+ * `auth:getAuthStatus` with an invalidation is the only way to exercise the
+ * cache-generation guard — a spec that awaits the mutating call to completion
+ * first can never reach it.
+ */
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+/**
+ * Drain microtasks until `predicate` holds. Everything between the RPC entry
+ * point and the probe fan-out is `await`-only, so a bounded microtask drain is
+ * enough — and it beats a fixed number of `await Promise.resolve()` calls,
+ * which silently rots the moment an `await` is added to the handler.
+ */
+async function flushUntil(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !predicate(); i++) {
+    await Promise.resolve();
+  }
+  if (!predicate()) {
+    throw new Error('flushUntil: condition never became true');
+  }
 }
 
 async function call<TResult>(
@@ -615,6 +696,550 @@ describe('AuthRpcHandlers', () => {
 
       expect(result.hasOpenRouterKey).toBe(true);
       expect(result.hasAnyProviderKey).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getAuthStatus — cache, coalescing, invalidation (TASK_2026_342)
+  //
+  // Measured before: 14 calls in one boot-plus-two-workspace-switches session,
+  // 2.0-5.3s each, identical payload, up to three concurrent. The expensive
+  // part is `performHealthCheck`, which spawns `claude --version` every call.
+  // -------------------------------------------------------------------------
+
+  describe('auth:getAuthStatus caching', () => {
+    it('coalesces concurrent calls into ONE probe set and resolves both to equal payloads', async () => {
+      const h = makeHarness({ credentialsSeed: { apiKey: 'sk-ant-abc' } });
+      h.copilot.isAuthenticated.mockResolvedValue(true);
+      h.platformAuth.getGitHubUsername.mockResolvedValue('octocat');
+      h.handlers.register();
+
+      const [first, second] = await Promise.all([
+        call<Record<string, unknown>>(h, 'auth:getAuthStatus'),
+        call<Record<string, unknown>>(h, 'auth:getAuthStatus'),
+      ]);
+
+      expect(first).toEqual(second);
+      expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
+      expect(h.copilot.isAuthenticated).toHaveBeenCalledTimes(1);
+      expect(h.codex.getTokenStatus).toHaveBeenCalledTimes(1);
+      expect(h.authSecrets.hasCredential).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves a second call within the TTL with ZERO probe or secret-store work', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const first = await call<Record<string, unknown>>(
+        h,
+        'auth:getAuthStatus',
+      );
+      const before = probeCounts(h);
+
+      const second = await call<Record<string, unknown>>(
+        h,
+        'auth:getAuthStatus',
+      );
+
+      expect(second).toEqual(first);
+      expect(probeCounts(h)).toEqual(before);
+    });
+
+    it('re-probes once the TTL has elapsed', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        h.handlers.register();
+
+        await call(h, 'auth:getAuthStatus');
+        const before = probeCounts(h);
+
+        // AUTH_STATUS_CACHE_TTL_MS is 15s; step past it.
+        jest.setSystemTime(Date.now() + 15_001);
+        await call(h, 'auth:getAuthStatus');
+
+        expect(h.codex.getTokenStatus.mock.calls.length).toBeGreaterThan(
+          before.codex,
+        );
+        expect(h.copilot.isAuthenticated.mock.calls.length).toBeGreaterThan(
+          before.copilot,
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('memoises Claude CLI health for its OWN, longer TTL', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        h.handlers.register();
+
+        await call(h, 'auth:getAuthStatus');
+        // Past the status TTL but well inside CLAUDE_CLI_HEALTH_TTL_MS (5min).
+        jest.setSystemTime(Date.now() + 20_000);
+        await call(h, 'auth:getAuthStatus');
+
+        expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
+        expect(h.codex.getTokenStatus).toHaveBeenCalledTimes(2);
+
+        // Past the CLI TTL as well — now the spawn is worth repeating.
+        jest.setSystemTime(Date.now() + 5 * 60_000 + 1);
+        await call(h, 'auth:getAuthStatus');
+        expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keys entries by providerId param — {providerId} does not return the {} entry', async () => {
+      const h = makeHarness({ providerKeysSeed: { 'z-ai': 'key-for-zai' } });
+      h.handlers.register();
+
+      const bare = await call<{ hasOpenRouterKey: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      const scoped = await call<{ hasOpenRouterKey: boolean }>(
+        h,
+        'auth:getAuthStatus',
+        { providerId: 'z-ai' },
+      );
+
+      expect(bare.hasOpenRouterKey).toBe(false);
+      expect(scoped.hasOpenRouterKey).toBe(true);
+    });
+
+    it('recomputes when the active workspace path changes', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:getAuthStatus');
+      const before = probeCounts(h);
+
+      h.scopeResolver.getActivePath.mockReturnValue('/ws/project-b');
+      await call(h, 'auth:getAuthStatus');
+      expect(h.codex.getTokenStatus.mock.calls.length).toBe(before.codex + 1);
+
+      // Switching BACK inside the TTL is free — that is the point of keying by
+      // path rather than invalidating on every workspace:switch.
+      h.scopeResolver.getActivePath.mockReturnValue('/ws/project-a');
+      await call(h, 'auth:getAuthStatus');
+      expect(h.codex.getTokenStatus.mock.calls.length).toBe(before.codex + 1);
+    });
+
+    const invalidatingCalls: Array<{
+      name: string;
+      run: (h: Harness) => Promise<unknown>;
+    }> = [
+      {
+        name: 'auth:saveSettings',
+        run: (h) => call(h, 'auth:saveSettings', { authMethod: 'apiKey' }),
+      },
+      {
+        name: 'auth:setApiKey',
+        run: (h) =>
+          call(h, 'auth:setApiKey', { provider: 'z-ai', apiKey: 'sk-new' }),
+      },
+      { name: 'auth:copilotLogin', run: (h) => call(h, 'auth:copilotLogin') },
+      { name: 'auth:copilotLogout', run: (h) => call(h, 'auth:copilotLogout') },
+      {
+        name: 'auth:clearWorkspaceOverride',
+        run: (h) => call(h, 'auth:clearWorkspaceOverride'),
+      },
+    ];
+
+    for (const { name, run } of invalidatingCalls) {
+      it(`invalidates the cache after ${name}`, async () => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        await call(h, 'auth:getAuthStatus');
+        const before = probeCounts(h);
+
+        await run(h);
+        await call(h, 'auth:getAuthStatus');
+
+        expect(h.codex.getTokenStatus.mock.calls.length).toBe(before.codex + 1);
+        expect(h.cliDetector.performHealthCheck.mock.calls.length).toBe(
+          before.cli + 1,
+        );
+      });
+    }
+
+    it('invalidates the cache after auth:codexLogin and reflects the changed state', async () => {
+      const h = makeHarness({
+        authCommandResult: { success: true, exitCode: 0 },
+      });
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: false,
+        stale: false,
+      });
+      h.handlers.register();
+
+      const before = await call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(before.codexAuthenticated).toBe(false);
+
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: true,
+        stale: false,
+      });
+      await call(h, 'auth:codexLogin');
+
+      const after = await call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(after.codexAuthenticated).toBe(true);
+    });
+
+    it('invalidates the cache when the adapter reports an external auth-file change', async () => {
+      const h = makeHarness();
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: false,
+        stale: false,
+      });
+      h.handlers.register();
+
+      expect(h.adapterEvents.onAuthFileChanged).toHaveBeenCalledTimes(1);
+
+      const before = await call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(before.codexAuthenticated).toBe(false);
+
+      // An external `codex login` reaches no RPC method here.
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: true,
+        stale: false,
+      });
+      h.adapterEvents.emitAuthFileChanged();
+
+      const after = await call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(after.codexAuthenticated).toBe(true);
+    });
+
+    // -----------------------------------------------------------------------
+    // Cache-generation guard — the concurrent-boot case the whole task is for.
+    //
+    // Clearing the maps is NOT enough on its own: a computation already in
+    // flight when the invalidation happens still resolves afterwards, and an
+    // unguarded `.then` writes its PRE-change payload back with a full TTL.
+    // Every "invalidates after X" spec above awaits the mutating call to
+    // completion first, so none of them can reach this.
+    // -----------------------------------------------------------------------
+
+    it('does not repopulate the cache with a payload computed before an external auth-file change', async () => {
+      const h = makeHarness();
+      const codexProbe = createDeferred<{
+        authenticated: boolean;
+        stale: boolean;
+      }>();
+      h.codex.getTokenStatus.mockReturnValueOnce(codexProbe.promise);
+      h.handlers.register();
+
+      // Boot caller #1 — in flight, blocked inside the codex probe.
+      const inFlight = call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      await flushUntil(() => h.codex.getTokenStatus.mock.calls.length === 1);
+
+      // `codex login` completes in a terminal WHILE that probe is open.
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: true,
+        stale: false,
+      });
+      h.adapterEvents.emitAuthFileChanged();
+
+      // Now the pre-login probe answers.
+      codexProbe.resolve({ authenticated: false, stale: false });
+      const stale = await inFlight;
+      // The caller that asked before the change still gets the pre-change
+      // snapshot — that is the honest answer to the question it asked.
+      expect(stale.codexAuthenticated).toBe(false);
+
+      // ...but it must not have become everyone else's answer for the next 15s.
+      const after = await call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(after.codexAuthenticated).toBe(true);
+    });
+
+    it('does not repopulate the cache with a payload computed before a mutating RPC call', async () => {
+      const h = makeHarness();
+      const copilotProbe = createDeferred<boolean>();
+      h.copilot.isAuthenticated.mockReturnValueOnce(copilotProbe.promise);
+      h.handlers.register();
+
+      const inFlight = call<{ codexAuthenticated: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      // The whole probe set is fanned out synchronously by one `Promise.all`,
+      // so a copilot call proves codex has already read the OLD mock too.
+      await flushUntil(() => h.copilot.isAuthenticated.mock.calls.length === 1);
+
+      // A key write lands mid-probe and invalidates.
+      await call(h, 'auth:setApiKey', {
+        provider: 'z-ai',
+        apiKey: 'sk-brand-new',
+      });
+      h.codex.getTokenStatus.mockResolvedValue({
+        authenticated: true,
+        stale: false,
+      });
+
+      copilotProbe.resolve(false);
+      const stale = await inFlight;
+      expect(stale.codexAuthenticated).toBe(false);
+
+      const probesBefore = probeCounts(h);
+      const after = await call<{
+        codexAuthenticated: boolean;
+        hasAnyProviderKey: boolean;
+      }>(h, 'auth:getAuthStatus');
+
+      // Re-probed rather than served from a re-poisoned entry...
+      expect(h.codex.getTokenStatus.mock.calls.length).toBe(
+        probesBefore.codex + 1,
+      );
+      expect(after.codexAuthenticated).toBe(true);
+      // ...and it sees the key the mutating call wrote.
+      expect(after.hasAnyProviderKey).toBe(true);
+    });
+
+    it('does not memoise a Claude CLI verdict computed before an invalidation', async () => {
+      const h = makeHarness();
+      const cliProbe = createDeferred<ClaudeCliHealth>();
+      h.cliDetector.performHealthCheck.mockReturnValueOnce(cliProbe.promise);
+      h.handlers.register();
+
+      const inFlight = call<{ claudeCliInstalled: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      await flushUntil(
+        () => h.cliDetector.performHealthCheck.mock.calls.length === 1,
+      );
+
+      h.adapterEvents.emitAuthFileChanged();
+      cliProbe.resolve({ available: false, platform: 'win32', isWSL: false });
+      expect((await inFlight).claudeCliInstalled).toBe(false);
+
+      // The CLI memo lives 5 minutes — twenty times the status TTL — so a
+      // verdict written back after an invalidation is the longest-lived stale
+      // value this handler can hold.
+      const after = await call<{ claudeCliInstalled: boolean }>(
+        h,
+        'auth:getAuthStatus',
+      );
+      expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(2);
+      expect(after.claudeCliInstalled).toBe(true);
+    });
+
+    it('a superseded computation settling does not evict the in-flight entry that replaced it', async () => {
+      const h = makeHarness();
+      const superseded = createDeferred<{
+        authenticated: boolean;
+        stale: boolean;
+      }>();
+      const replacement = createDeferred<{
+        authenticated: boolean;
+        stale: boolean;
+      }>();
+      h.codex.getTokenStatus
+        .mockReturnValueOnce(superseded.promise)
+        .mockReturnValueOnce(replacement.promise);
+      h.handlers.register();
+
+      // Caller 1 — in flight when the invalidation lands.
+      const first = call(h, 'auth:getAuthStatus');
+      await flushUntil(() => h.codex.getTokenStatus.mock.calls.length === 1);
+      h.adapterEvents.emitAuthFileChanged();
+
+      // Caller 2 — starts a fresh computation and OWNS the in-flight slot.
+      const second = call(h, 'auth:getAuthStatus');
+      await flushUntil(() => h.codex.getTokenStatus.mock.calls.length === 2);
+
+      // Caller 1 now settles. Its `finally` must not delete caller 2's slot:
+      // deleting by key rather than by identity un-coalesces the burst this
+      // whole mechanism exists to absorb.
+      superseded.resolve({ authenticated: false, stale: false });
+      await first;
+
+      // Caller 3 arrives while caller 2 is still probing — it must join, not
+      // start a third probe set.
+      const third = call(h, 'auth:getAuthStatus');
+      replacement.resolve({ authenticated: true, stale: false });
+
+      const [secondValue, thirdValue] = (await Promise.all([
+        second,
+        third,
+      ])) as [{ codexAuthenticated: boolean }, { codexAuthenticated: boolean }];
+      expect(h.codex.getTokenStatus).toHaveBeenCalledTimes(2);
+      expect(thirdValue).toEqual(secondValue);
+      expect(thirdValue.codexAuthenticated).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getAuthStatus — per-probe timeout (TASK_2026_342, smoke 2026-08-29)
+  //
+  // The probes share one `Promise.all`, so the handler costs whatever the
+  // SLOWEST source costs. On the smoke boot that was 22736ms, spent entirely in
+  // the Claude-CLI spawn while the secret reads beside it finished in
+  // milliseconds — and the first render waited for all of it.
+  // -------------------------------------------------------------------------
+
+  describe('auth:getAuthStatus probe timeouts', () => {
+    it('does not let a wedged Codex probe hold the rest of the payload', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        const stuck = createDeferred<{
+          authenticated: boolean;
+          stale: boolean;
+        }>();
+        h.codex.getTokenStatus.mockReturnValueOnce(stuck.promise);
+        h.handlers.register();
+
+        const pending = call<{
+          codexAuthenticated: boolean;
+          claudeCliInstalled: boolean;
+        }>(h, 'auth:getAuthStatus');
+        await flushUntil(() => h.codex.getTokenStatus.mock.calls.length === 1);
+        // Let the fast probes finish BEFORE the clock moves. One
+        // `advanceTimersByTime` expires every probe's timer at once, so a spec
+        // that steps the clock while they are mid-chain would time all four out
+        // and prove nothing about isolating the slow one. No I/O is involved,
+        // so a bounded microtask drain is deterministic.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        jest.advanceTimersByTime(5_001);
+        const result = await pending;
+
+        expect(result.codexAuthenticated).toBe(false);
+        // The point of the timeout: every other field is still the real answer.
+        expect(result.claudeCliInstalled).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('answers a timed-out CLI probe from the last known verdict, not `false`', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const first = await call<{ claudeCliInstalled: boolean }>(
+          h,
+          'auth:getAuthStatus',
+        );
+        expect(first.claudeCliInstalled).toBe(true);
+
+        // Past the 5-minute CLI memo, so the next call must re-probe — and this
+        // time the spawn never returns.
+        const stuck = createDeferred<ClaudeCliHealth>();
+        h.cliDetector.performHealthCheck.mockReturnValueOnce(stuck.promise);
+        jest.setSystemTime(Date.now() + 5 * 60_000 + 1);
+
+        const pending = call<{ claudeCliInstalled: boolean }>(
+          h,
+          'auth:getAuthStatus',
+        );
+        await flushUntil(
+          () => h.cliDetector.performHealthCheck.mock.calls.length === 2,
+        );
+
+        jest.advanceTimersByTime(5_001);
+        const second = await pending;
+
+        // Reporting `false` would tell the UI the CLI was uninstalled on the
+        // evidence of a slow spawn, flipping the auth badge and the setup gate.
+        expect(second.claudeCliInstalled).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('a timed-out CLI probe still populates the memo for the next caller', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        const stuck = createDeferred<ClaudeCliHealth>();
+        h.cliDetector.performHealthCheck.mockReturnValueOnce(stuck.promise);
+        h.handlers.register();
+
+        const pending = call<{ claudeCliInstalled: boolean }>(
+          h,
+          'auth:getAuthStatus',
+        );
+        await flushUntil(
+          () => h.cliDetector.performHealthCheck.mock.calls.length === 1,
+        );
+        jest.advanceTimersByTime(5_001);
+        // Nothing was ever known, so the fallback is the honest `false`.
+        expect((await pending).claudeCliInstalled).toBe(false);
+
+        // The probe was never cancelled — it lands late and its verdict is what
+        // makes the NEXT caller free instead of paying the timeout again.
+        stuck.resolve({ available: false, platform: 'win32', isWSL: false });
+        // The memo write-back is a `.then` on this same promise, registered
+        // before this await — so it has run by the time we resume.
+        await stuck.promise;
+        await Promise.resolve();
+
+        // Past the status TTL (so this recomputes) but inside the CLI memo.
+        jest.setSystemTime(Date.now() + 15_001);
+        const next = await call<{ claudeCliInstalled: boolean }>(
+          h,
+          'auth:getAuthStatus',
+        );
+
+        expect(next.claudeCliInstalled).toBe(false);
+        expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('a caller arriving while a CLI probe is stuck joins it instead of spawning again', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        const stuck = createDeferred<ClaudeCliHealth>();
+        h.cliDetector.performHealthCheck.mockReturnValueOnce(stuck.promise);
+        h.handlers.register();
+
+        const first = call(h, 'auth:getAuthStatus');
+        await flushUntil(
+          () => h.cliDetector.performHealthCheck.mock.calls.length === 1,
+        );
+        jest.advanceTimersByTime(5_001);
+        await first;
+
+        // A second workspace, so the status cache cannot answer it — but the
+        // CLI probe is still running and must not be duplicated.
+        h.scopeResolver.getActivePath.mockReturnValue('D:/other');
+        const second = call(h, 'auth:getAuthStatus');
+        await flushUntil(() => h.codex.getTokenStatus.mock.calls.length === 2);
+        jest.advanceTimersByTime(5_001);
+        await second;
+
+        expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

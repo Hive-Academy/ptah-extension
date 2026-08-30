@@ -68,6 +68,7 @@ describe('SessionStatsAggregatorService', () => {
   let setModelUsageListMock: jest.Mock;
   let setPreloadedStatsMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
+  let findAcrossWorkspacesMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
@@ -86,6 +87,7 @@ describe('SessionStatsAggregatorService', () => {
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
+    findAcrossWorkspacesMock = jest.fn(() => null);
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     streamHandleStatsMock = jest.fn().mockReturnValue(null);
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
@@ -96,6 +98,7 @@ describe('SessionStatsAggregatorService', () => {
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
+      findTabBySessionIdAcrossWorkspaces: findAcrossWorkspacesMock,
       activeTab: activeTabMock,
       setLiveModelStatsAndUsageList: setLiveModelStatsAndUsageListMock,
       setModelUsageList: setModelUsageListMock,
@@ -165,6 +168,53 @@ describe('SessionStatsAggregatorService', () => {
     expect(streamHandleStatsMock).not.toHaveBeenCalled();
     expect(loadSessionsMock).not.toHaveBeenCalled();
     expect(clearCompactionStateMock).not.toHaveBeenCalled();
+  });
+
+  describe('background-workspace owner (user switched folders mid-stream)', () => {
+    const BG_SESSION = SessionId.create();
+
+    it('applies the stats to the background tab and delegates to streamingHandler instead of dropping', () => {
+      const bgTab = makeTab({ id: 'bg-tab', claudeSessionId: BG_SESSION });
+      findTabsBySessionIdMock.mockReturnValue([]);
+      findAcrossWorkspacesMock.mockReturnValue({
+        tab: bgTab,
+        workspacePath: 'D:\\projects\\other',
+      });
+
+      service.handleSessionStats({
+        ...baseStats,
+        sessionId: BG_SESSION,
+        modelUsage: [
+          {
+            model: 'claude-fable-5',
+            inputTokens: 570,
+            outputTokens: 2628,
+            contextWindow: 1_000_000,
+            costUSD: 1.26,
+            cacheReadInputTokens: 52_614,
+            lastTurnContextTokens: 54_291,
+          },
+        ],
+      });
+
+      expect(findAcrossWorkspacesMock).toHaveBeenCalledWith(BG_SESSION);
+      expect(clearCompactionStateMock).toHaveBeenCalledWith('bg-tab');
+      expect(setLiveModelStatsAndUsageListMock).toHaveBeenCalledWith(
+        'bg-tab',
+        expect.objectContaining({ model: 'claude-fable-5' }),
+        expect.any(Array),
+      );
+      expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('no tab bound to sessionId'),
+        expect.anything(),
+      );
+    });
+
+    it('prefers the active-workspace tabs and never consults the partition when one is bound', () => {
+      service.handleSessionStats(baseStats);
+      expect(findAcrossWorkspacesMock).not.toHaveBeenCalled();
+    });
   });
 
   it('records to the surface registry instead of dropping, when a surface owns the session', () => {

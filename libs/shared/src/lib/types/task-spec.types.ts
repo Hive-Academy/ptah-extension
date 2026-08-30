@@ -63,6 +63,13 @@ export interface TaskValidationIssue {
      * folder that was renamed, or a dependency declared before its task was
      * created. It is a warning: the task stays included, because a broken
      * pointer is no reason to hide the task holding it.
+     *
+     * NOT raised when the task holding the pointer is itself `done` or
+     * `cancelled`. Finished task folders get pruned from `.ptah/specs`, so a
+     * terminal task naming an archived dependency is the expected outcome of
+     * that cleanup, and the dependency is moot regardless — nothing that
+     * already ended can be blocked. The entry survives in `dependsOn` either
+     * way; only the warning is withheld (TASK_2026_185).
      */
     | 'dangling_depends_on'
     /** `estimate` is present but is not one of {@link TASK_ESTIMATES}. */

@@ -105,7 +105,22 @@ export interface HarnessSourceState {
 
 /** Resolves the current source state. Must never throw — degrade to empty. */
 export interface IHarnessSourceResolver {
-  resolve(): HarnessSourceState;
+  /**
+   * @param workspaceRoot The ALREADY-NORMALIZED root the caller is reconciling,
+   *   when it has one. The desired state is a function of that root, not of
+   *   whichever folder the host happens to have active: with two folders open,
+   *   resolving the ambient scope while reconciling the other one wrote
+   *   folder B's plugin overlay into folder A's target directories and reaped
+   *   it again on the way back (TASK_2026_346, `tmp/logs/log.log:1225`).
+   *
+   *   Optional so a resolver bound to fixed state — `createStaticSourceResolver`
+   *   and every spec — stays assignable with a zero-argument `resolve`, and so a
+   *   caller with no root (a health surface asked before a folder is open) can
+   *   still ask for the ambient answer. A resolver that cannot scope is
+   *   entitled to ignore it; what it must not do is claim a per-root answer it
+   *   did not compute.
+   */
+  resolve(workspaceRoot?: string): HarnessSourceState;
 }
 
 /**

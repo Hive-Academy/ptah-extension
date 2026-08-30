@@ -19,7 +19,7 @@ No `electron`, `vscode`, or app-local imports. Every collaborator is resolved fr
 ## Public API
 
 ```ts
-bootThothRuntime(container, { workspaceRoot, logPrefix? }): Promise<ThothRuntimeRefs>
+bootThothRuntime(container, { workspaceRoot, logPrefix?, signal? }): Promise<ThothRuntimeRefs>
 startThothCron(container, refs, { logPrefix? }): Promise<void>
 
 emitVecLoadDiagnostic(container, diagnostic, logPrefix?)
@@ -35,6 +35,7 @@ DEFAULT_THOTH_LOG_PREFIX
 
 - **Cron is a separate call on purpose.** Hosts run their own activation work between the Thoth boot and the cron start; folding cron into `bootThothRuntime` would let scheduled jobs fire during content download / session import. Do not merge them.
 - **Every block is individually guarded and non-fatal.** A failure degrades that feature to `PERSISTENCE_UNAVAILABLE`; it never aborts host activation. Keep new blocks in the same shape.
+- **`openAndMigrate()` is the only awaited step, and it stays first.** The memory boot scan, the skill-synthesis walk, the `IndexingControlService.getStatus` probes and the file index are STARTED, not awaited, so a host can open its window before them (TASK_2026_331). Each attaches its own `.catch` and each honours `signal`. Do not re-await one of them, and do not move work in front of `openAndMigrate()`.
 - **`ThothRuntimeRefs` field names are load-bearing** — hosts capture them for their LIFO teardown chain. Renaming a field is a breaking change for every host.
 - **`logPrefix`** exists so hosts keep their existing console signature (`[Ptah Electron]`). It is not a logging abstraction; do not grow it into one.
 - `libs/backend/cli-engine` has its own `activateThoth`/`disposeThoth` for the CLI tier model. Converging the two is a separate task — do not partially merge them.

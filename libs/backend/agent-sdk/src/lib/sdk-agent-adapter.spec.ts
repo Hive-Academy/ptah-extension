@@ -142,6 +142,7 @@ function createMockModelService(): jest.Mocked<
     | 'getDefaultModel'
     | 'getApiModelsNormalized'
     | 'clearCache'
+    | 'invalidateForAuthChange'
     | 'resolveModelId'
   >
 > {
@@ -150,6 +151,7 @@ function createMockModelService(): jest.Mocked<
     getDefaultModel: jest.fn().mockResolvedValue('claude-sonnet-4-20250514'),
     getApiModelsNormalized: jest.fn().mockResolvedValue([]),
     clearCache: jest.fn(),
+    invalidateForAuthChange: jest.fn(),
     resolveModelId: jest.fn((m: string) => m),
   };
 }
@@ -405,6 +407,34 @@ function makeSessionConfig(
   } as AISessionConfig & { tabId: string };
 }
 
+/** The auth result shape the adapter awaits, taken from the port itself. */
+type AuthConfigureResult = Awaited<
+  ReturnType<IAuthEnvProvider['configureAuthentication']>
+>;
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+
+/**
+ * A promise settled by hand.
+ *
+ * Every interleaving spec in this file is built on one: gating
+ * `configureAuthentication` freezes an `initialize()` pass at a known point,
+ * so the concurrent calls under test can be lined up before anything settles.
+ */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('SdkAgentAdapter', () => {
   beforeEach(() => {
     mockedExistsSync.mockReset();
@@ -564,27 +594,6 @@ describe('SdkAgentAdapter', () => {
   // Shape mirrored from `AuthManager.configureAuthentication` — which is why
   // only the AUTH half of that race was already de-duplicated.
   describe('initialize() in-flight guard (TASK_2026_306)', () => {
-    /** The auth result shape the adapter awaits, taken from the port itself. */
-    type AuthConfigureResult = Awaited<
-      ReturnType<IAuthEnvProvider['configureAuthentication']>
-    >;
-
-    interface Deferred<T> {
-      promise: Promise<T>;
-      resolve: (value: T) => void;
-      reject: (reason: unknown) => void;
-    }
-
-    function deferred<T>(): Deferred<T> {
-      let resolve!: (value: T) => void;
-      let reject!: (reason: unknown) => void;
-      const promise = new Promise<T>((res, rej) => {
-        resolve = res;
-        reject = rej;
-      });
-      return { promise, resolve, reject };
-    }
-
     function countInfoLines(h: AdapterHarness, fragment: string): number {
       return (h.logger.info as jest.Mock).mock.calls.filter(
         ([message]: [unknown]) =>
@@ -657,6 +666,149 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
+  // TASK_2026_308 F3-2 — `initialize`'s `finally` cleared `initInFlight`
+  // unconditionally.
+  //
+  // HONEST NOTE ON REACHABILITY. There is no PUBLIC call sequence that puts a
+  // foreign promise in the slot while a pass is in flight: the only writer is
+  // `initialize` itself, and it writes only when the slot is null, so the
+  // guard hands every concurrent caller the running pass instead of installing
+  // a second one. That is precisely the defect — the invariant "a pass only
+  // ever clears itself" is a property of microtask FIFO ordering plus the
+  // current set of writers, not of the method. The second spec below therefore
+  // drives the interleaving by writing the private slot directly. It is
+  // white-box on purpose: it pins the invariant the identity check makes
+  // local, which is the whole point of the change, and it goes red the instant
+  // the check is removed.
+  describe('initInFlight identity on clear (TASK_2026_308 F3-2)', () => {
+    interface InitSlot {
+      initInFlight: Promise<boolean> | null;
+    }
+
+    function slotOf(adapter: SdkAgentAdapter): InitSlot {
+      return adapter as unknown as InitSlot;
+    }
+
+    it('clears the slot when it still holds its own settled pass', async () => {
+      const h = makeAdapter();
+
+      await h.adapter.initialize();
+
+      // The half the identity check must NOT break: a normal pass still
+      // releases the slot, so the next sequential call runs a real pass.
+      expect(slotOf(h.adapter).initInFlight).toBeNull();
+    });
+
+    it('leaves a slot that no longer holds its own pass untouched', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const slot = slotOf(h.adapter);
+      expect(slot.initInFlight).not.toBeNull();
+
+      // The interleaving: while the first pass is parked on the gate, the slot
+      // comes to hold somebody else's promise. An unconditional clear in the
+      // `finally` destroys it and every later caller starts a duplicate pass
+      // against a run that is still going.
+      const foreign = Promise.resolve(true);
+      slot.initInFlight = foreign;
+
+      gate.resolve({ configured: true, details: [] });
+      await expect(first).resolves.toBe(true);
+
+      expect(slot.initInFlight).toBe(foreign);
+    });
+  });
+
+  // TASK_2026_308 F3-3 — two concurrent resets broke `reset`'s own contract.
+  //
+  // `doReset` waits out an in-flight pass so a reset can never be ANSWERED by
+  // the `initialize` guard. Two resets awaiting the SAME pass both proceed,
+  // both `dispose()`, and the second's `initialize()` is then answered by the
+  // guard holding the FIRST reset's fresh pass — the forbidden outcome,
+  // reached from the other side. The second reset also disposed the adapter
+  // while the pass it was about to be handed was still building it.
+  describe('concurrent reset() serialisation (TASK_2026_308 F3-3)', () => {
+    /**
+     * The adapter's teardown/bring-up events in the order they really happened.
+     *
+     * `configureAuthentication` is called once per init pass and
+     * `clearAuthentication` once per `dispose()`, both on the same mock object,
+     * so jest's globally increasing `invocationCallOrder` interleaves them into
+     * a single trace. That trace IS the contract: every `dispose` must be
+     * followed by an `init` of its own before its caller returns.
+     */
+    function lifecycleTrace(h: AdapterHarness): string[] {
+      const events: Array<{ order: number; label: string }> = [];
+      for (const order of h.authManager.configureAuthentication.mock
+        .invocationCallOrder) {
+        events.push({ order, label: 'init' });
+      }
+      for (const order of h.authManager.clearAuthentication.mock
+        .invocationCallOrder) {
+        events.push({ order, label: 'dispose' });
+      }
+      return events
+        .sort((a, b) => a.order - b.order)
+        .map((event) => event.label);
+    }
+
+    it('gives each of two concurrent resets its own dispose and its own fresh pass', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      // Both resets see the SAME in-flight pass and both park on it. That is
+      // the interleaving; nothing here depends on timing beyond the gate.
+      const first = h.adapter.initialize();
+      const resetA = h.adapter.reset();
+      const resetB = h.adapter.reset();
+
+      gate.resolve({ configured: true, details: [] });
+      await Promise.all([first, resetA, resetB]);
+
+      // Before the fix this was ['init', 'dispose', 'init', 'dispose'] — reset
+      // B disposed and was then handed reset A's pass by the guard, so its own
+      // init never happened and the trailing `dispose` was never answered.
+      expect(lifecycleTrace(h)).toEqual([
+        'init',
+        'dispose',
+        'init',
+        'dispose',
+        'init',
+      ]);
+      // Three real passes: the original, then one per reset.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(3);
+      expect(h.authManager.clearAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    // Not a reproduction of the defect — a guard on the mechanism that fixes
+    // it. The chain is a promise every later reset awaits, so without the
+    // `previous.catch(...)` inside it one failing reset would reject every
+    // reset queued behind it forever after. Remove that `catch` and this spec
+    // goes red.
+    it('does not wedge the chain when the reset ahead of it fails', async () => {
+      const h = makeAdapter();
+      h.authManager.clearAuthentication.mockImplementationOnce(() => {
+        throw new Error('teardown exploded');
+      });
+
+      const resetA = h.adapter.reset();
+      const resetB = h.adapter.reset();
+
+      await expect(resetA).rejects.toThrow('teardown exploded');
+      await expect(resetB).resolves.toBeUndefined();
+
+      // A died inside its dispose and never initialized. B still ran its own
+      // dispose and its own pass.
+      expect(lifecycleTrace(h)).toEqual(['dispose', 'dispose', 'init']);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+  });
+
   // TASK_2026_315 finding A1 — removing the LAST workspace folder started an
   // OAuth proxy.
   //
@@ -702,6 +854,7 @@ describe('SdkAgentAdapter', () => {
       // And the provider-keyed caches stay warm — see decision note (b).
       expect(h.cliDetector.clearCache).not.toHaveBeenCalled();
       expect(h.modelService.clearCache).not.toHaveBeenCalled();
+      expect(h.modelService.invalidateForAuthChange).not.toHaveBeenCalled();
     });
 
     // Companion positive case: the guard must not be widened into a regression
@@ -720,7 +873,12 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
       expect(h.cliDetector.clearCache).toHaveBeenCalledTimes(1);
-      expect(h.modelService.clearCache).toHaveBeenCalledTimes(1);
+      // SCOPED, not blanket (judge round 1, TASK_2026_353). The model catalogs
+      // are keyed per auth identity, so the incoming provider cannot read the
+      // outgoing one's list; wiping them would only make the switch BACK pay
+      // another multi-second SDK-bridge spawn.
+      expect(h.modelService.invalidateForAuthChange).toHaveBeenCalledTimes(1);
+      expect(h.modelService.clearCache).not.toHaveBeenCalled();
     });
 
     // Pins decision note (a): FREEZING rather than tearing down keeps
@@ -927,6 +1085,7 @@ describe('SdkAgentAdapter', () => {
 
       const existingQuery = createFakeQuery();
       h.sessionLifecycle.find.mockReturnValueOnce({
+        token: 'record-token-1',
         tabId: 'sess-1',
         realSessionId: null,
         query: existingQuery,

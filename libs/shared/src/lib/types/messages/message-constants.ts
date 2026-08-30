@@ -105,6 +105,18 @@ export const MESSAGE_TYPES = {
   REFRESH: 'refresh',
   SWITCH_VIEW: 'switchView',
   WORKSPACE_CHANGED: 'workspaceChanged',
+  /**
+   * Backend → Frontend: the post-window boot changed state
+   * (TASK_2026_331 B2A).
+   *
+   * The one new message type in the whole boot-performance task. It exists so a
+   * surface that received an `RpcReadinessError` can drop its pending retry
+   * timer and re-issue the call the instant the backend is ready, instead of
+   * waiting out a delay that has already stopped being true.
+   *
+   * Edge-triggered: one message per transition, not one per boot step.
+   */
+  BOOT_READINESS_CHANGED: 'boot:readinessChanged',
   RPC_REQUEST: 'rpc:request',
   RPC_CALL: 'rpc:call',
   RPC_RESPONSE: 'rpc:response',

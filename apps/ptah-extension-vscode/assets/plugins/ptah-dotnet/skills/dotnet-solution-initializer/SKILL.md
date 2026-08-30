@@ -39,7 +39,7 @@ Stage B (every roadmap item beyond Foundation) runs later, one item per session,
 
 ## Step a) Discovery — mandatory, two-round `AskUserQuestion`
 
-Discovery is not optional and answers are never assumed. Ask every choice question through the `AskUserQuestion` tool (2-4 options each) -- not as prose. Never answer a discovery question on the user's behalf. Never proceed to Step a2 or scaffolding while a required question is unanswered.
+Discovery is not optional and answers are never assumed. Ask every choice question through the `AskUserQuestion` tool (2-4 options each) -- not as prose. If the `AskUserQuestion` tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer before proceeding -- the tool may degrade, the question may not. Never answer a discovery question on the user's behalf. Never proceed to Step a2 or scaffolding while a required question is unanswered.
 
 If the seed prompt already contains an intake block (product, users, constraints, platform = `.NET`), read it first. Acknowledge what it already answers and skip those questions; still ask everything the intake block leaves open.
 

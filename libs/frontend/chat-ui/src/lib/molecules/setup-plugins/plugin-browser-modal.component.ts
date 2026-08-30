@@ -20,7 +20,7 @@ import {
   ChevronRight,
   Wand2,
 } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
 import {
   isOptOutPluginSource,
   type HarnessSetSkillSelectionParams,
@@ -177,6 +177,140 @@ function skillSelectionKey(
           </button>
         </div>
 
+        <!--
+          Which of the user's skills THIS project gets (TASK_2026_316).
+
+          OUTSIDE the loading/error chain below, deliberately. This section
+          answers a per-workspace question that has nothing to do with the
+          plugin catalogue, and the dashboard's skill-selection card opens
+          this modal for it and nothing else. While it lived inside that
+          chain's else-branch, a plugin read that was slow — or that belonged
+          to another component, since the catalogue is shared — hid the one
+          control the user came for, and a plugin read that FAILED hid it for
+          good (TASK_2026_345 gate regression).
+
+          No backticks in this comment: the whole template is a template
+          literal, so one would end it mid-file.
+        -->
+        @if (skillSelectionAvailable()) {
+          <section
+            class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
+            data-testid="skill-selection"
+            aria-label="Skills for this project"
+          >
+            <div class="flex items-start gap-3">
+              <div class="flex-1 min-w-0">
+                <span class="block text-sm font-medium"
+                  >Skills for this project</span
+                >
+                <span
+                  class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
+                >
+                  Which of your skills Ptah copies into this project's AI tools.
+                  Every project keeps its own answer.
+                </span>
+              </div>
+              <div
+                class="join shrink-0"
+                role="radiogroup"
+                aria-label="Skill selection mode"
+              >
+                <button
+                  class="btn btn-xs join-item"
+                  [ngClass]="
+                    skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'
+                  "
+                  type="button"
+                  role="radio"
+                  [attr.aria-checked]="skillMode() === 'all'"
+                  data-testid="skill-mode-all"
+                  (click)="setSkillMode('all')"
+                >
+                  All of them
+                </button>
+                <button
+                  class="btn btn-xs join-item"
+                  [ngClass]="
+                    skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
+                  "
+                  type="button"
+                  role="radio"
+                  [attr.aria-checked]="skillMode() === 'selected'"
+                  data-testid="skill-mode-selected"
+                  (click)="setSkillMode('selected')"
+                >
+                  Only the ones I pick
+                </button>
+              </div>
+            </div>
+
+            @if (skillMode() === 'all') {
+              @if (skillModeDerived()) {
+                <span
+                  class="block text-xs text-base-content-muted mt-2"
+                  data-testid="skill-mode-derived"
+                >
+                  This project was already receiving skills before it could be
+                  asked, so Ptah kept them all flowing. Narrow it whenever you
+                  like.
+                </span>
+              }
+            } @else {
+              <div
+                class="mt-2 max-h-40 overflow-y-auto pr-1"
+                role="group"
+                aria-label="Selectable skills"
+              >
+                @for (candidate of skillCandidates(); track candidate.slug) {
+                  <label
+                    class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs checkbox-primary mt-0.5"
+                      [checked]="isSkillSlugSelected(candidate.slug)"
+                      (change)="toggleSkillSlug(candidate.slug)"
+                      [attr.aria-label]="
+                        (isSkillSlugSelected(candidate.slug)
+                          ? 'Deselect '
+                          : 'Select ') + candidate.name
+                      "
+                    />
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-xs font-medium">{{
+                        candidate.name
+                      }}</span>
+                      @if (candidate.description) {
+                        <span
+                          class="block text-xs text-base-content-muted leading-relaxed"
+                          >{{ candidate.description }}</span
+                        >
+                      }
+                    </span>
+                    @if (candidate.pluginId) {
+                      <span class="badge badge-xs badge-ghost shrink-0">{{
+                        candidate.pluginId
+                      }}</span>
+                    }
+                  </label>
+                } @empty {
+                  <span class="block text-xs text-base-content-muted py-2">
+                    No skills on this machine yet. Anything you add with the
+                    harness wizard, a marketplace or skills.sh shows up here.
+                  </span>
+                }
+              </div>
+              <span
+                class="block text-xs text-base-content-muted mt-1"
+                data-testid="skill-selection-count"
+              >
+                {{ selectedSkillSlugs().size }} of
+                {{ skillCandidates().length }} skills selected
+              </span>
+            }
+          </section>
+        }
+
         @if (isLoading()) {
           <!-- Loading state -->
           <div class="flex flex-col gap-3 py-8">
@@ -202,126 +336,6 @@ function skillSelectionKey(
             </button>
           </div>
         } @else {
-          <!-- Which of the user's skills THIS project gets (TASK_2026_316) -->
-          @if (skillSelectionAvailable()) {
-            <section
-              class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
-              data-testid="skill-selection"
-              aria-label="Skills for this project"
-            >
-              <div class="flex items-start gap-3">
-                <div class="flex-1 min-w-0">
-                  <span class="block text-sm font-medium"
-                    >Skills for this project</span
-                  >
-                  <span
-                    class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
-                  >
-                    Which of your skills Ptah copies into this project's AI
-                    tools. Every project keeps its own answer.
-                  </span>
-                </div>
-                <div
-                  class="join shrink-0"
-                  role="radiogroup"
-                  aria-label="Skill selection mode"
-                >
-                  <button
-                    class="btn btn-xs join-item"
-                    [ngClass]="
-                      skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'
-                    "
-                    type="button"
-                    role="radio"
-                    [attr.aria-checked]="skillMode() === 'all'"
-                    data-testid="skill-mode-all"
-                    (click)="setSkillMode('all')"
-                  >
-                    All of them
-                  </button>
-                  <button
-                    class="btn btn-xs join-item"
-                    [ngClass]="
-                      skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
-                    "
-                    type="button"
-                    role="radio"
-                    [attr.aria-checked]="skillMode() === 'selected'"
-                    data-testid="skill-mode-selected"
-                    (click)="setSkillMode('selected')"
-                  >
-                    Only the ones I pick
-                  </button>
-                </div>
-              </div>
-
-              @if (skillMode() === 'all') {
-                @if (skillModeDerived()) {
-                  <span
-                    class="block text-xs text-base-content-muted mt-2"
-                    data-testid="skill-mode-derived"
-                  >
-                    This project was already receiving skills before it could be
-                    asked, so Ptah kept them all flowing. Narrow it whenever you
-                    like.
-                  </span>
-                }
-              } @else {
-                <div
-                  class="mt-2 max-h-40 overflow-y-auto pr-1"
-                  role="group"
-                  aria-label="Selectable skills"
-                >
-                  @for (candidate of skillCandidates(); track candidate.slug) {
-                    <label
-                      class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
-                    >
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-xs checkbox-primary mt-0.5"
-                        [checked]="isSkillSlugSelected(candidate.slug)"
-                        (change)="toggleSkillSlug(candidate.slug)"
-                        [attr.aria-label]="
-                          (isSkillSlugSelected(candidate.slug)
-                            ? 'Deselect '
-                            : 'Select ') + candidate.name
-                        "
-                      />
-                      <span class="min-w-0 flex-1">
-                        <span class="block text-xs font-medium">{{
-                          candidate.name
-                        }}</span>
-                        @if (candidate.description) {
-                          <span
-                            class="block text-xs text-base-content-muted leading-relaxed"
-                            >{{ candidate.description }}</span
-                          >
-                        }
-                      </span>
-                      @if (candidate.pluginId) {
-                        <span class="badge badge-xs badge-ghost shrink-0">{{
-                          candidate.pluginId
-                        }}</span>
-                      }
-                    </label>
-                  } @empty {
-                    <span class="block text-xs text-base-content-muted py-2">
-                      No skills on this machine yet. Anything you add with the
-                      harness wizard, a marketplace or skills.sh shows up here.
-                    </span>
-                  }
-                </div>
-                <span
-                  class="block text-xs text-base-content-muted mt-1"
-                  data-testid="skill-selection-count"
-                >
-                  {{ selectedSkillSlugs().size }} of
-                  {{ skillCandidates().length }} skills selected
-                </span>
-              }
-            </section>
-          }
-
           <!-- Search input -->
           <div class="relative mb-4">
             <lucide-angular
@@ -596,6 +610,12 @@ function skillSelectionKey(
 })
 export class PluginBrowserModalComponent {
   private readonly rpcService = inject(ClaudeRpcService);
+  /**
+   * The shared plugin list + config. See `loadPlugins`; the modal keeps its own
+   * per-workspace skill selection and its own skill listing, which nothing else
+   * reads.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
   /** Lucide icon references */
   protected readonly PuzzleIcon = Puzzle;
@@ -921,6 +941,12 @@ export class PluginBrowserModalComponent {
       );
 
       if (result.isSuccess()) {
+        // The shared catalog now holds the PREVIOUS config. Re-read it before
+        // anything renders from it — the status widget beside this modal reads
+        // the same signals, and leaving it stale would show the old count until
+        // the window reloaded. Awaited rather than fired: `saved` below is what
+        // parents act on, and a parent that re-reads must not race this.
+        await this.catalog.refresh();
         // Second write, and only if the user moved this control. It runs after
         // the plugin save rather than beside it because both propagate, and
         // the selection is the narrower filter — letting it land last means the
@@ -1089,46 +1115,54 @@ export class PluginBrowserModalComponent {
     this.error.set(null);
     this.saveError.set(null);
 
+    // Two reads, started together and applied INDEPENDENTLY.
+    //
+    // The catalog is SHARED (TASK_2026_345). This modal is mounted beside a
+    // `PluginStatusWidgetComponent` in every view that hosts it, and both used
+    // to issue their own `plugins:list-available` + `plugins:get-config` pair —
+    // visibly, as duplicate pairs in `tmp/logs/log.log:1907-1924`.
+    // `ensureLoaded` is the first read or a no-op; `saveConfiguration` below is
+    // what makes it stale again.
+    const catalogLoad = this.catalog.ensureLoaded();
+    // NOT part of the shared catalog: the skill selection is per-WORKSPACE, it
+    // has its own failure semantics, and only this modal reads it. It swallows
+    // its own rejection rather than failing the load — a host without this
+    // handler, or with no workspace open, must still be able to configure
+    // plugins, and the section it feeds simply does not render.
+    const selectionRead = this.rpcService
+      .call('harness:get-skill-selection', {}, { timeout: 10000 })
+      .catch(() => null);
+
+    // Applied BEFORE the catalog is awaited, and never inside its try. These
+    // two answers have nothing to do with each other: the selection is the only
+    // thing the dashboard's skill-selection card opens this modal for, and
+    // `ensureLoaded()` can hand back a read that a DIFFERENT component started,
+    // so sequencing the selection behind it made the one control the user came
+    // for wait on a request this modal did not even issue.
+    const selectionResult = await selectionRead;
+    if (selectionResult?.isSuccess() && selectionResult.data) {
+      this.applySkillSelection(selectionResult.data);
+    } else {
+      this.clearSkillSelection();
+    }
+
     try {
-      const [listResult, configResult, selectionResult] = await Promise.all([
-        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
-        this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
-        // Non-fatal by construction. A host without this handler, or with no
-        // workspace open, must still be able to configure plugins — so this
-        // one call swallows its own rejection instead of failing the load, and
-        // the section it feeds simply does not render.
-        this.rpcService
-          .call('harness:get-skill-selection', {}, { timeout: 10000 })
-          .catch(() => null),
-      ]);
+      await catalogLoad;
 
-      let plugins: PluginInfo[] = [];
+      const plugins: PluginInfo[] = [...this.catalog.plugins()];
+      this.availablePlugins.set(plugins);
 
-      if (listResult.isSuccess() && listResult.data) {
-        plugins = listResult.data.plugins;
-        this.availablePlugins.set(plugins);
-      } else {
-        this.availablePlugins.set([]);
-      }
-
-      if (configResult.isSuccess() && configResult.data) {
+      const config = this.catalog.config();
+      if (config !== null) {
         this.selectedIds.set(
-          this.deriveSelection(plugins, configResult.data.enabledPluginIds, [
-            ...(configResult.data.disabledPluginIds ?? []),
+          this.deriveSelection(plugins, config.enabledPluginIds, [
+            ...(config.disabledPluginIds ?? []),
           ]),
         );
-        this.disabledSkillIds.set(
-          new Set(configResult.data.disabledSkillIds ?? []),
-        );
+        this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
       } else {
         this.selectedIds.set(new Set());
         this.disabledSkillIds.set(new Set());
-      }
-
-      if (selectionResult?.isSuccess() && selectionResult.data) {
-        this.applySkillSelection(selectionResult.data);
-      } else {
-        this.clearSkillSelection();
       }
 
       if (plugins.length > 0) {
@@ -1166,7 +1200,11 @@ export class PluginBrowserModalComponent {
       this.selectedIds.set(new Set());
       this.pluginSkills.set(new Map());
       this.disabledSkillIds.set(new Set());
-      this.clearSkillSelection();
+      // Deliberately NOT `clearSkillSelection()`. The selection was read and
+      // applied above, by a request that succeeded; a failure on the plugin
+      // side has nothing to say about which skills this project gets, and
+      // discarding a good answer because an unrelated read failed is how the
+      // dashboard's card could open this modal and offer no control at all.
     } finally {
       this.isLoading.set(false);
     }

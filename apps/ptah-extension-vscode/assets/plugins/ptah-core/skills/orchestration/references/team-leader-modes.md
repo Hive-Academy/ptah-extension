@@ -175,22 +175,22 @@ When decomposing (MODE 1), team-leader records per-batch executor recommendation
 
 Executor recommendation dimensions team-leader MUST fill:
 
-| Field                    | Values                                                                   | How to decide                                            |
-| ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **Recommended Executor** | `backend-developer`, `frontend-developer`, `ptah-cli`, `codex CLI`, etc. | Match task to agent capability                           |
-| **Execution Mode**       | `sequential` or `parallel`                                               | Parallel only if tasks are independent and file-disjoint |
-| **Rationale**            | 1-2 sentence justification                                               | Why this executor + mode fit the batch shape             |
+| Field                    | Values                                                                  | How to decide                                            |
+| ------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Recommended Executor** | A sub-agent name, or a CLI agent taken from `ptah_agent_list` discovery | Match task to agent capability                           |
+| **Execution Mode**       | `sequential` or `parallel`                                              | Parallel only if tasks are independent and file-disjoint |
+| **Rationale**            | 1-2 sentence justification                                              | Why this executor + mode fit the batch shape             |
 
 ### Executor Selection Heuristics (for Team-Leader to Apply)
 
-| Batch Shape                             | Recommended Executor         | Mode       |
-| --------------------------------------- | ---------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (ptah-cli preferred) x N | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                      | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer          | sequential |
-| Cross-file refactoring                  | Sub-agent developer          | sequential |
-| Architecture decisions required         | Sub-agent developer          | sequential |
-| Migration/scaffolding across many files | CLI x N                      | parallel   |
+| Batch Shape                             | Recommended Executor          | Mode       |
+| --------------------------------------- | ----------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI x N (pick from discovery) | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                       | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer           | sequential |
+| Cross-file refactoring                  | Sub-agent developer           | sequential |
+| Architecture decisions required         | Sub-agent developer           | sequential |
+| Migration/scaffolding across many files | CLI x N                       | parallel   |
 
 ### Handling Team-Leader Responses
 

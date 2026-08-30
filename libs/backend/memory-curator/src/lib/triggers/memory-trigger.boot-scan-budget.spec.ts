@@ -89,6 +89,11 @@ function makeSqlite(state: WatermarkState): SqliteConnectionService {
 function makeWorkspace(maxCuratesPerHour: number): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
     'memory.triggers.bootScan': true,
+    // TASK_2026_352 defers the scan by five minutes so it cannot run during the
+    // host's first minutes. This suite is about the hourly BUDGET, not about
+    // when the scan starts, so it opts out of the delay rather than driving a
+    // timer — the deferral has its own spec.
+    'memory.triggers.bootScanDelayMs': 0,
     'memory.triggers.idleMs': 600000,
     'memory.triggers.maxCuratesPerHour': maxCuratesPerHour,
     'memory.triggers.maxObservationsPerCurate': 500,
@@ -160,14 +165,14 @@ function buildHarness(opts: {
     makeRegistry() as never,
     opts.rateLimiter,
     {
-      insert: jest.fn(),
+      enqueue: jest.fn(),
+      flush: jest.fn(),
       drainForSession: jest.fn(() => []),
       markProcessed: jest.fn(),
       purgeOlderThan: jest.fn(() => 0),
       countUnprocessed: jest.fn(() => 0),
       backfillSessionId: jest.fn(() => 0),
     } as unknown as ObservationQueueStore,
-    makeRegistry() as never,
     makeRegistry() as never,
     { read: jest.fn().mockResolvedValue('') } as unknown as ITranscriptReader,
     makeRegistry() as never,

@@ -857,6 +857,126 @@ describe('ContentDownloadService', () => {
       expect(result.error).toMatch(/1 file\(s\) failed to download/);
     });
 
+    /**
+     * The cache hash is the SKIP key, so writing it after an incomplete
+     * download tells every later launch the mirror is current when it is not.
+     * Nothing in production passes `forceRefresh`, so that lie is permanent —
+     * and since one missing `_shared/*.md` fails the load of every template
+     * that references it, a single dropped file used to mean an agent corpus
+     * that never recovered.
+     */
+    it('does NOT persist the new contentHash when a template download failed', async () => {
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            contentHash: 'hash-partial',
+            pluginFiles: ['good.json'],
+            templateFiles: ['_shared/replacement-policy.md'],
+          }),
+        }),
+      );
+      addRoute(
+        (url) => url.endsWith('/good.json'),
+        () => ({ statusCode: 200, body: '{}' }),
+      );
+      addRoute(
+        (url) => url.endsWith('/replacement-policy.md'),
+        () => ({ statusCode: 404, body: 'gone' }),
+      );
+
+      const svc = new ContentDownloadService();
+      const result = await svc.ensureContent();
+
+      expect(result.success).toBe(false);
+      expect(fs.existsSync(CACHE_META_PATH)).toBe(false);
+    });
+
+    it('leaves the PREVIOUS contentHash intact when a download failed', async () => {
+      // A stale hash is recoverable — it just forces a re-download. The new
+      // hash is not: it would be reported as a cache hit forever.
+      seedFile(
+        CACHE_META_PATH,
+        JSON.stringify({
+          contentHash: 'hash-OLD',
+          downloadedAt: '2026-01-01T00:00:00Z',
+          manifestVersion: '1.0.0',
+          pluginCount: 2,
+          templateCount: 1,
+        }),
+      );
+
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            contentHash: 'hash-NEW',
+            pluginFiles: ['good.json', 'bad.json'],
+            templateFiles: [],
+          }),
+        }),
+      );
+      addRoute(
+        (url) => url.endsWith('/good.json'),
+        () => ({ statusCode: 200, body: '{}' }),
+      );
+      addRoute(
+        (url) => url.endsWith('/bad.json'),
+        () => ({ statusCode: 404, body: 'gone' }),
+      );
+
+      const svc = new ContentDownloadService();
+      await svc.ensureContent();
+
+      const meta = JSON.parse(
+        fs.readFileSync(CACHE_META_PATH, 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(meta['contentHash']).toBe('hash-OLD');
+    });
+
+    it('a failed run is retried on the next launch, and then persists', async () => {
+      // The whole point of not writing the hash: the retry actually happens.
+      let templateServed = false;
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            contentHash: 'hash-retry',
+            pluginFiles: ['good.json'],
+            templateFiles: ['frontend.md'],
+          }),
+        }),
+      );
+      addRoute(
+        (url) => url.endsWith('/good.json'),
+        () => ({ statusCode: 200, body: '{}' }),
+      );
+      addRoute(
+        (url) => url.endsWith('/frontend.md'),
+        () =>
+          templateServed
+            ? { statusCode: 200, body: '# frontend' }
+            : { statusCode: 503, body: 'flaky' },
+      );
+
+      const first = await new ContentDownloadService().ensureContent();
+      expect(first.success).toBe(false);
+      expect(fs.existsSync(CACHE_META_PATH)).toBe(false);
+
+      templateServed = true;
+      const second = await new ContentDownloadService().ensureContent();
+
+      expect(second.success).toBe(true);
+      expect(second.fromCache).toBe(false);
+      const meta = JSON.parse(
+        fs.readFileSync(CACHE_META_PATH, 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(meta['contentHash']).toBe('hash-retry');
+    });
+
     it('rejects manifest with path traversal entries (does not escape target dir)', async () => {
       addRoute(
         (url) => url === MANIFEST_URL,

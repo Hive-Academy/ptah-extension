@@ -12,6 +12,7 @@ import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryStore } from './memory.store';
 import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
+import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 
 interface RecordingTracer extends ITracer {
@@ -43,7 +44,10 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
+function buildService(opts?: {
+  llm?: ICuratorLLM;
+  logger?: Logger;
+}): MemoryCuratorService {
   const registry = {
     register: jest.fn(() => () => {
       /* noop */
@@ -69,7 +73,7 @@ function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM);
   return new MemoryCuratorService(
-    makeLogger(),
+    opts?.logger ?? makeLogger(),
     registry,
     store,
     scorer,
@@ -1032,5 +1036,100 @@ describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
     expect(transcripts).toEqual(['ws-a run', 'ws-b run', 'other session run']);
     expect(cA).toEqual(statsA);
     expect(cB).toEqual(statsB);
+  });
+});
+
+/**
+ * TASK_2026_352 — the prompt cap lives at the pipeline's chokepoint.
+ *
+ * The fault it closes was a CALL SITE that forgot: the memory boot scan read a
+ * whole session with no `tailBytes` and skipped `composeTranscript`, the only
+ * clamp on the live path, producing a 170 655-character prompt
+ * (`tmp/logs/log.log:1017`). A cap on any one caller would have left the next
+ * one free to repeat it, so these tests assert on what the LLM RECEIVES.
+ */
+describe('MemoryCuratorService — the curator prompt cap', () => {
+  function makeLlmSpy(): {
+    llm: ICuratorLLM;
+    extract: jest.Mock;
+  } {
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    return {
+      extract,
+      llm: {
+        extract,
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM,
+    };
+  }
+
+  /** A transcript far past the cap, shaped like the real formatted output. */
+  function hugeTranscript(): string {
+    return Array.from(
+      { length: 268 },
+      (_, i) => `USER: turn ${i} ${'x'.repeat(640)}`,
+    ).join('\n\n');
+  }
+
+  it('never hands extract() more than the cap, whatever the caller passes', async () => {
+    const spy = makeLlmSpy();
+    const svc = buildService({ llm: spy.llm });
+    const transcript = hugeTranscript();
+
+    expect(transcript.length).toBeGreaterThan(170_000);
+
+    await svc.curate({ sessionId: 's1', transcript });
+
+    const sent = spy.extract.mock.calls[0][0] as string;
+    expect(sent.length).toBeLessThanOrEqual(CURATOR_TRANSCRIPT_MAX_CHARS);
+    expect(sent).toContain('elided by the memory curator');
+  });
+
+  it('passes a transcript under the cap through byte for byte', async () => {
+    const spy = makeLlmSpy();
+    const svc = buildService({ llm: spy.llm });
+
+    await svc.curate({
+      sessionId: 's1',
+      transcript: 'USER: hello\n\nASSISTANT: hi',
+    });
+
+    expect(spy.extract.mock.calls[0][0]).toBe('USER: hello\n\nASSISTANT: hi');
+  });
+
+  it('logs what it dropped', async () => {
+    const spy = makeLlmSpy();
+    const logger = makeLogger() as unknown as { warn: jest.Mock };
+    const svc = buildService({ llm: spy.llm, logger: logger as never });
+
+    await svc.curate({ sessionId: 's-loud', transcript: hugeTranscript() });
+
+    const call = logger.warn.mock.calls.find((c) =>
+      String(c[0]).includes('exceeded the curator prompt cap'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toMatchObject({
+      sessionId: 's-loud',
+      cap: CURATOR_TRANSCRIPT_MAX_CHARS,
+    });
+    expect(
+      (call?.[1] as { droppedChars: number }).droppedChars,
+    ).toBeGreaterThan(130_000);
+  });
+
+  it('says nothing when it did not clamp', async () => {
+    const spy = makeLlmSpy();
+    const logger = makeLogger() as unknown as { warn: jest.Mock };
+    const svc = buildService({ llm: spy.llm, logger: logger as never });
+
+    await svc.curate({ sessionId: 's-quiet', transcript: 'USER: short' });
+
+    expect(
+      logger.warn.mock.calls.filter((c) =>
+        String(c[0]).includes('exceeded the curator prompt cap'),
+      ),
+    ).toHaveLength(0);
   });
 });

@@ -4,7 +4,6 @@ import {
   inject,
   input,
   signal,
-  viewChild,
 } from '@angular/core';
 import { LucideAngularModule, Puzzle } from 'lucide-angular';
 import { CommandDiscoveryFacade } from '@ptah-extension/core';
@@ -94,8 +93,6 @@ export class PluginsSurfaceComponent {
   protected readonly PuzzleIcon = Puzzle;
   protected readonly browserOpen = signal(false);
 
-  private readonly statusWidget = viewChild(PluginStatusWidgetComponent);
-
   protected openBrowser(): void {
     this.browserOpen.set(true);
   }
@@ -110,11 +107,15 @@ export class PluginsSurfaceComponent {
    * reconcile backend-side; the re-read asks for a fresh pass rather than the
    * cached report so the badge cannot win a race against it and redisplay the
    * pre-save answer.
+   *
+   * The status widget is NOT poked here any more (TASK_2026_345): it renders
+   * from `PluginCatalogService`, which the modal re-read before it emitted
+   * `saved`. The `viewChild` handle that existed only for that poke is gone
+   * with it.
    */
   protected onSaved(): void {
     this.browserOpen.set(false);
     this.commandDiscovery.clearCache();
-    this.statusWidget()?.fetchPluginStatus();
     void this.harnessHealth.refresh({ refresh: true });
   }
 }

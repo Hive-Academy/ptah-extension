@@ -2,7 +2,7 @@
  * 0016_observation_queue — capture-side queue for hook-driven observations.
  *
  * Adds a single append-only queue table populated by the agent-sdk hook
- * registries (PreToolUse Read, PostToolUse, ToolFailure, Stop, UserPromptSubmit)
+ * registries (PostToolUse Read/tool results, ToolFailure, Stop, UserPromptSubmit)
  * and drained by `MemoryTriggerService.invokeCurate` when composing the curator
  * transcript. Rows are marked processed only after a successful curator run.
  *

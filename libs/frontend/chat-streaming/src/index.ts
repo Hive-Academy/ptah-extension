@@ -47,3 +47,12 @@ export {
   type SubagentRecord,
 } from './lib/agent-monitor.store';
 export { agentVisibleInSession, knownSessionId } from './lib/session-scope';
+/**
+ * Retention markers. Exported so the agent card's stdout/segment renderers can
+ * present a trim as a distinct notice rather than letting it read as agent
+ * prose — the marker exists to be SEEN, so its shape has exactly one owner.
+ */
+export {
+  isOutputTruncationNotice,
+  isSegmentTruncationMarker,
+} from './lib/agent-output-retention';

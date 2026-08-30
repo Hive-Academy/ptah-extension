@@ -93,6 +93,9 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
     } as unknown as ConstructorParameters<typeof SkillSynthesisService>[3];
     const store = {
       findByTrajectoryHash: jest.fn(() => null),
+      // No prior candidate for the session: this double analyzes each session
+      // once, so the per-session supersession lookup must answer "nothing yet".
+      findLatestBySourceSession: jest.fn(() => null),
       registerCandidate: jest.fn(),
       recordInvocation: jest.fn(),
       getDominantSkillSlugForSessions: jest.fn(() => null),
@@ -621,6 +624,9 @@ describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
 
     const candidateStore = {
       findByTrajectoryHash: jest.fn(() => null),
+      // No prior candidate for the session: this double analyzes each session
+      // once, so the per-session supersession lookup must answer "nothing yet".
+      findLatestBySourceSession: jest.fn(() => null),
       registerCandidate: jest.fn(() => ({
         candidate: { id: 'cand-1' },
         reused: false,

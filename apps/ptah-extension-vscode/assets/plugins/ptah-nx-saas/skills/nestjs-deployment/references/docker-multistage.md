@@ -26,7 +26,7 @@ Use this for local development with hot reload via volume mounts.
 # NOTE:    Run from monorepo root (context = .)
 # =============================================================================
 
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
@@ -101,7 +101,7 @@ Installs all dependencies, builds the application, and generates the Prisma clie
 # -----------------------------------------------------------------------------
 # Stage 1: Builder - Install dependencies and build the application
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -138,7 +138,7 @@ Creates a clean `node_modules` with only production dependencies plus webpack ex
 # -----------------------------------------------------------------------------
 # Stage 2: Dependencies - Install production dependencies only
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 
 WORKDIR /app
 
@@ -159,16 +159,14 @@ RUN npm install --omit=dev \
     prisma
 ```
 
-**Adapting for your project**: Add your webpack externals to the `npm install` line. Common additions:
+**Adapting for your project**: list your own native and SDK dependencies on the `npm install` line — anything your bundler marked external. Typically that is packages with native bindings (they ship prebuilt binaries the bundler cannot inline) and vendor SDKs that resolve modules dynamically at runtime. The two below are illustrative examples only; substitute the ones your project actually uses.
 
 ```dockerfile
-# Payment SDK
+# Externals: replace these with your project's own native/SDK packages
 RUN npm install --omit=dev \
     @prisma/client \
     prisma \
-    @paddle/paddle-node-sdk \
-    @workos-inc/node \
-    resend \
+    better-sqlite3 \
     pg
 ```
 
@@ -180,7 +178,7 @@ Minimal image with non-root user, health check, and migration-before-start.
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
 WORKDIR /app
 

@@ -6,6 +6,7 @@ import {
   CommandDiscoveryFacade,
   EffortStateService,
   ModelStateService,
+  WorkspaceScopeService,
   type IWorkspaceCoordinator,
   type ConfirmDialogOptions,
 } from '@ptah-extension/core';
@@ -56,6 +57,16 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly appState = inject(AppStateManager);
+  /**
+   * The invalidation key every workspace-scoped cache in `core` reads.
+   *
+   * Deliberately NOT merged with {@link switchGeneration} below. They answer
+   * different questions: `switchGeneration` bumps on EVERY call so this service
+   * can drop a superseded continuation of its own, while the scope bumps only
+   * on an actual change of workspace — a redundant switch to the workspace
+   * already active must not throw away caches that are still correct.
+   */
+  private readonly workspaceScope = inject(WorkspaceScopeService);
 
   /**
    * Cached references to editor services, resolved on first use.
@@ -131,6 +142,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // workspace's. Without it the shell keeps rendering the previous
     // workspace's view — tribunal, say — now backed by the new workspace's
     // (empty) slice, which is the symptom TASK_2026_195 was filed for.
+    // FIRST in the fan-out (TASK_2026_345, judge round 1). Every cache keyed by
+    // `WorkspaceScopeService.scopeKey` — the plugin catalog and the model list —
+    // is invalidated the instant this returns, and `refreshWorkspaceProviderState`
+    // below is dispatched under the NEW scope. Anything that read a scoped cache
+    // between the generation bump and this call would still be answered for the
+    // workspace being left, so it goes ahead of the resets rather than beside
+    // them.
+    this.workspaceScope.switchTo(newPath);
     this.tabManager.switchWorkspace(newPath);
     this.sessionLoader.switchWorkspace(newPath);
     this.filePicker.switchWorkspace(newPath);
@@ -167,6 +186,32 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // waits on the round-trips. Provider-state signals update reactively when
     // the calls settle.
     void this.refreshWorkspaceProviderState(generation);
+  }
+
+  /**
+   * Coordinate the transition to NO workspace (TASK_2026_345, judge round 2).
+   *
+   * Reached from the two places `ElectronLayoutService` ends up with zero
+   * folders: closing the last one, and a host sync that reports none with
+   * nothing cached to restore. Both used to call `updateWorkspaceRoot('')`
+   * inline and tell nobody, so the scope kept naming a folder that was no
+   * longer open — and reopening that same folder was then a switch to the
+   * "already active" workspace, which correctly early-returns and left every
+   * scope-keyed cache serving its pre-closure snapshot. The folder's plugin
+   * config can change while it is closed (harness-sync, another window,
+   * `ptah tui`), so that snapshot is exactly the thing not to trust.
+   *
+   * Two lines, and deliberately no more. The per-folder teardown — tabs,
+   * sessions, editor state — is already done by `removeWorkspaceState`, which
+   * `ElectronLayoutService` calls for the folder being removed BEFORE it gets
+   * here. What was missing is only the transition itself.
+   */
+  clearWorkspace(): void {
+    // Supersede any switch still in flight. Without this, a `switchWorkspace`
+    // whose editor-chunk `await` resolves after the last folder closed would
+    // carry on and re-resolve auth/model/effort for a workspace that is gone.
+    this.switchGeneration += 1;
+    this.workspaceScope.switchTo(null);
   }
 
   /**
