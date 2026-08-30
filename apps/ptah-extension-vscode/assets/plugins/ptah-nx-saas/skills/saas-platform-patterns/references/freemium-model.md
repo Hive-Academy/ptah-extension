@@ -127,8 +127,9 @@ export class PlanService {
       return 'community';
     }
 
-    // Strip trial_ prefix if present (trial_pro -> pro)
-    const plan = subscription.planSlug.replace(/^trial_/, '') as PlanSlug;
+    // A trialing subscription carries the ordinary paid slug -- the trial is
+    // the `trialing` status above, not a plan of its own.
+    const plan = subscription.planSlug as PlanSlug;
     return plan in PLANS ? plan : 'community';
   }
 
@@ -174,7 +175,10 @@ export const RequireFeature = (feature: Feature) => Reflect.metadata(REQUIRED_FE
 
 @Injectable()
 export class PlanGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector, private readonly planService: PlanService) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly planService: PlanService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredFeature = this.reflector.getAllAndOverride<Feature>(REQUIRED_FEATURE_KEY, [context.getHandler(), context.getClass()]);
@@ -281,7 +285,7 @@ if (!canAccess('api_access')) {
 
 ### Trial Configuration
 
-Trials grant temporary access to a paid plan. Configuration lives in the plan definition (`trialDays` field). Trials are tracked via a `trial_` prefix on the plan slug and a `trialEnd` timestamp on the subscription.
+Trials grant temporary access to a paid plan. Configuration lives in the plan definition (`trialDays` field). A trial is a state on the subscription, not a plan of its own: it is tracked by `status: 'trialing'` and a `trialEnd` timestamp, while `planSlug` holds the ordinary paid slug throughout.
 
 ### Trial Start
 
@@ -298,7 +302,10 @@ import { LicenseService } from './license.service';
 export class TrialService {
   private readonly logger = new Logger(TrialService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly licenseService: LicenseService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly licenseService: LicenseService,
+  ) {}
 
   /** Start a trial for a user on a specific plan */
   async startTrial(userId: string, planSlug: PlanSlug): Promise<void> {
@@ -310,7 +317,7 @@ export class TrialService {
 
     // Check if user already had a trial for this plan
     const existingTrial = await this.prisma.subscription.findFirst({
-      where: { userId, planSlug: `trial_${planSlug}` },
+      where: { userId, planSlug, trialEnd: { not: null } },
     });
 
     if (existingTrial) {
@@ -328,7 +335,7 @@ export class TrialService {
         externalSubscriptionId: `internal_trial_${userId}_${planSlug}`,
         externalCustomerId: `internal_${userId}`,
         status: 'trialing',
-        planSlug: `trial_${planSlug}`,
+        planSlug,
         priceId: 'trial',
         currentPeriodEnd: trialEnd,
         trialEnd,
@@ -336,7 +343,7 @@ export class TrialService {
     });
 
     // Provision trial license
-    await this.licenseService.createLicense(userId, `trial_${planSlug}`, 'trial_start');
+    await this.licenseService.createLicense(userId, planSlug, 'trial_start');
 
     this.logger.log(`Trial started for user ${userId}: ${planSlug} until ${trialEnd.toISOString()}`);
   }
@@ -438,7 +445,10 @@ import { LicenseService } from '../services/license.service';
 export class TrialExpiryTask {
   private readonly logger = new Logger(TrialExpiryTask.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly licenseService: LicenseService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly licenseService: LicenseService,
+  ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
   async expireTrials(): Promise<void> {

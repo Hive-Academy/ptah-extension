@@ -344,6 +344,8 @@ function setup(options?: {
   workspaceFolders?: string[];
   selectedModel?: string;
   mcpPort?: number | null;
+  /** What `ensureRegisteredForSubagents` reports (TASK_2026_332). */
+  mcpRegistration?: { registered: boolean; reason?: string };
   enhancedPromptsContent?: string | null;
   /**
    * Raw `ptah.gateway.permissionLevel` setting value the workspace mock returns.
@@ -400,7 +402,11 @@ function setup(options?: {
 
   const codeExecutionMcp = {
     getPort: jest.fn().mockReturnValue(options?.mcpPort ?? null),
-    ensureRegisteredForSubagents: jest.fn(),
+    // Resolves with an outcome since TASK_2026_332 — `registered: false` is a
+    // normal answer the bridge must read, not an exception it can wait for.
+    ensureRegisteredForSubagents: jest
+      .fn()
+      .mockResolvedValue(options?.mcpRegistration ?? { registered: true }),
   };
   const enhancedPromptsService = {
     getEnhancedPromptContent: jest
@@ -1732,6 +1738,67 @@ describe('GatewayChatBridge — SDK context wiring (MCP + prompts) (Task 2.4/3.3
     ).not.toHaveBeenCalled();
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * TASK_2026_332. `mcpServerRunning` was seeded from `getPort() !== null` and
+   * then never revised, because the registration call resolved successfully
+   * whether or not it wrote anything — every failure was absorbed into a warn
+   * two layers down. The `catch` below this line in `resolveSdkContext` was
+   * written specifically to degrade the flag and could never fire.
+   *
+   * A live port plus an absent `.mcp.json` entry means the session is told it
+   * has Ptah tools and its subagents find none. `false` is the honest answer.
+   */
+  it('live MCP port but the .mcp.json entry was NOT written: startChatSession receives mcpServerRunning false', async () => {
+    const h = setup({
+      mcpPort: 4319,
+      mcpRegistration: { registered: false, reason: 'lock-timeout' },
+    });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.codeExecutionMcp.ensureRegisteredForSubagents).toHaveBeenCalled();
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect(config.mcpServerRunning).toBe(false);
+    // The turn still runs — a contended config file must not cost the user
+    // their message.
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rejecting registration still degrades the flag rather than killing the turn', async () => {
+    const h = setup({ mcpPort: 4319 });
+    h.codeExecutionMcp.ensureRegisteredForSubagents.mockRejectedValue(
+      new Error('unexpected'),
+    );
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession.mock.calls[0][0].mcpServerRunning).toBe(
+      false,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1833,6 +1900,16 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
     expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
+    // The Gateway tab has to learn about a fail-closed turn too (TASK_2026_271).
+    // Answering the user and marking the row while reporting nothing upward is
+    // the partial silence this task exists to close. The outcome lands AFTER
+    // `sendError` resolves, so wait for it rather than reading it off the same
+    // tick as the drain.
+    await flushUntil(() => h.gateway.recordTurnOutcome.mock.calls.length > 0);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: expect.stringContaining('workspace unresolved'),
+    });
   });
 
   it('an allowlisted conversation root that vanished on disk fails the turn closed', async () => {
@@ -1858,6 +1935,11 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
     expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
+    await flushUntil(() => h.gateway.recordTurnOutcome.mock.calls.length > 0);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: expect.stringContaining('workspace missing on disk'),
+    });
   });
 });
 

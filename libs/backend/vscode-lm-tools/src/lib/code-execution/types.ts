@@ -143,9 +143,9 @@ export interface SearchNamespace {
  * "unavailable" from "available with zero issues" (TASK_2026_299).
  */
 export interface DiagnosticsNamespace {
-  getErrors: () => Promise<DiagnosticsPayload>;
-  getWarnings: () => Promise<DiagnosticsPayload>;
-  getAll: () => Promise<DiagnosticsPayload>;
+  getErrors: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
+  getWarnings: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
+  getAll: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
 }
 
 /**

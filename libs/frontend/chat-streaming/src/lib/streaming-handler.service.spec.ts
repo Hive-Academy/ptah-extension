@@ -608,11 +608,18 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('flushUpdatesSync', () => {
-    it('delegates to BatchedUpdateService.flushSync', () => {
-      service.flushUpdatesSync();
-      expect(batchedUpdate.flushSync).toHaveBeenCalled();
-    });
+  // `flushUpdatesSync()` is deliberately absent (TASK_2026_327). It forwarded
+  // to `BatchedUpdateService.flushSync()` with no `originTabId` — the
+  // full-drain contract, which is correct ONLY at turn-end finalization and is
+  // reached there directly by `MessageFinalizationService`. Nothing in the app
+  // ever called the delegate, and re-exposing the un-scoped drain on the
+  // per-event handler is how a hidden tab's flush ends up draining every other
+  // session's deferred tree. Do not reintroduce it; if a caller needs a sync
+  // flush from here, it must pass its own tab id.
+  it('does not expose an unscoped flushUpdatesSync delegate', () => {
+    expect(
+      (service as unknown as { flushUpdatesSync?: unknown }).flushUpdatesSync,
+    ).toBeUndefined();
   });
 
   // Visual streaming-flag self-heal. A turn-end (Stop hook / result / a

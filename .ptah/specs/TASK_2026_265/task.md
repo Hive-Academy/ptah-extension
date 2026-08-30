@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_265
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   autoResolveDefaultTiers persists a guess into the user-choice slot and writes
@@ -15,14 +15,15 @@ description: >-
   the shared `authEnv` (`:508-511`). Two defects fall out. First, a heuristic
   guess becomes indistinguishable from an explicit user pick and outranks any
   `defaultTiers` the registry gains later; a persisted guess is permanent where
-  a read-time derivation would re-derive when the catalogue changes. Second,
-  and suspected rather than proven, there is no provider-activeness guard —
-  browsing a second provider's catalogue in the model picker may write that
-  provider's ids into the tier env vars the ACTIVE session resolves through.
-  TASK_2026_262 recorded the first half as a known violation and named deletion
-  in favour of the read-time rule (`deriveTiersFromCatalog`) as the recommended
-  fix. The reproduction of the second half is the gating question and comes
-  first: a fix built on an unreproduced premise is what TASK_2026_250 got wrong.
+  a read-time derivation would re-derive when the catalogue changes. Second, and
+  suspected rather than proven, there is no provider-activeness guard — browsing
+  a second provider's catalogue in the model picker may write that provider's
+  ids into the tier env vars the ACTIVE session resolves through. TASK_2026_262
+  recorded the first half as a known violation and named deletion in favour of
+  the read-time rule (`deriveTiersFromCatalog`) as the recommended fix. The
+  reproduction of the second half is the gating question and comes first: a fix
+  built on an unreproduced premise is what TASK_2026_250 got wrong.
+updated: '2026-08-25T21:14:30.890Z'
 ---
 
 # autoResolveDefaultTiers writes into the user-choice slot

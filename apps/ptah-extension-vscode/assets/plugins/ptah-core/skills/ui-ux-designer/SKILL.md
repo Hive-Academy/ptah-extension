@@ -1,21 +1,11 @@
 ---
 name: ui-ux-designer
-description: Visual design skill for discovering brand aesthetics, building design systems, and generating production-ready assets. Use when creating landing pages, brand identity, or visual specifications.
+description: Turns vague design intent into a concrete visual specification — discovers the brand aesthetic through guided questions, systematizes it into design tokens, and produces production-ready component and asset specs. Use when the user wants to create a landing page or marketing site, define a visual identity or brand, build a design system from scratch, generate visual assets such as icons, illustrations, or 3D elements, or systematize reference images and reference sites into a repeatable system.
 ---
 
 # UI/UX Designer Skill - Visual Design Excellence
 
 You are a visual design expert who helps users **discover their brand aesthetic**, **build design systems**, and **generate production-ready assets**. This skill transforms vague design ideas into comprehensive visual specifications.
-
-## When This Skill Activates
-
-Use this skill when:
-
-- User wants to create a landing page or marketing site
-- User needs help defining their visual identity/brand
-- User wants to build a design system from scratch
-- User needs to generate visual assets (icons, illustrations, 3D elements)
-- User has reference images/sites and wants to systematize them
 
 ## Core Philosophy
 
@@ -34,7 +24,7 @@ For detailed patterns and workflows, see:
 
 - [NICHE-DISCOVERY.md](NICHE-DISCOVERY.md) - Find your visual identity
 - [DESIGN-SYSTEM-BUILDER.md](DESIGN-SYSTEM-BUILDER.md) - Design system investigation (Phase 0) and token creation
-- [ASSET-GENERATION.md](ASSET-GENERATION.md) - Generate visual assets with Ptah Native, Midjourney, Canva, and AI tools
+- [ASSET-GENERATION.md](ASSET-GENERATION.md) - Discover what image tooling is actually available, write asset prompts, and hand off to Midjourney, Canva, or Figma when nothing is
 - [REFERENCE-LIBRARY.md](REFERENCE-LIBRARY.md) - Curated aesthetic references and modern design patterns
 - [LAYOUT-PATTERNS.md](LAYOUT-PATTERNS.md) - Content-driven layout selection (Spotlight, Card Grid, Hybrid, Comparison)
 - [DEVELOPER-HANDOFF.md](DEVELOPER-HANDOFF.md) - Design specs, workflow phases, handoff documents, and return format

@@ -2,7 +2,7 @@
 
 **Mode:** `talking-head`
 **Target duration:** 90–120s
-**Synopsis:** What Ptah Builders is, what members keep, pricing and the founding discount stated factually, and the money-back guarantee.
+**Synopsis:** What Ptah Builders is, what members keep, list pricing stated factually, and the free founding-year grant for approved Early Adopters.
 
 ---
 
@@ -24,15 +24,15 @@ On top of the course, there are weekly live sessions where we talk through whate
 
 [keyword: weekly live sessions]
 
-Builders is a waitlist right now, not a purchase. When it opens, list price is twenty-nine dollars a month, or two hundred ninety dollars a year. Founding members who join the waitlist get seventy percent off their first year — so that's eight dollars seventy a month, or eighty-seven dollars for the first year.
+Builders is an application right now, not a purchase. When it opens, list price is twenty-nine dollars a month, or two hundred ninety dollars a year. But founding members pay nothing. Apply to the Early Adopter program, and if I approve you, you get a full year of Builders free.
 
-[stat-card: 70% off your first year — founding members]
+[stat-card: First year free — approved founding members]
 
-If you join and it's not useful, there's a thirty-day money-back guarantee.
+There's no checkout, and no card — not now, and not when the year ends.
 
-[keyword: thirty-day money-back]
+[keyword: no card]
 
-If you want to be a founding member, the waitlist is at ptah.live.
+If you want to be a founding member, apply at ptah.live.
 
 [layout: screen-full-with-bubble]
 
@@ -40,13 +40,13 @@ If you want to be a founding member, the waitlist is at ptah.live.
 
 ## Recording notes
 
-- **Keywords to enunciate**: `Builders`, `reference codebase`, `the exact setup`, `weekly live sessions`, `thirty-day money-back`.
-- **Say the numbers exactly as scripted** — "twenty-nine dollars a month", "two hundred ninety dollars a year", "seventy percent", "eight seventy", "eighty-seven", "thirty-day". These map to the site copy in `builders-section.component.ts`; if pricing changes there, update this script before recording.
-- **State plainly that it's a waitlist, not a purchase** — do not imply checkout is live.
+- **Keywords to enunciate**: `Builders`, `reference codebase`, `the exact setup`, `weekly live sessions`, `no card`.
+- **Say the numbers exactly as scripted** — "twenty-nine dollars a month", "two hundred ninety dollars a year". These are LIST prices only. Never state a discount percentage: the founding cohort is free, and the copy in `builders-section.component.ts` is the source of truth.
+- **State plainly that it's an application, not a purchase** — do not imply checkout is live, and do not imply a founding member pays anything.
 - **Draft-beats command**:
   ```bash
   npm run selfshot:draft -- --slug ptah-builders \
-    --keywords "Builders,reference codebase,the exact setup,weekly live sessions,thirty-day money-back" \
+    --keywords "Builders,reference codebase,the exact setup,weekly live sessions,no card" \
     --title "Abdallah Khalil" --subtitle "Founder, Ptah"
   ```
 
@@ -61,11 +61,11 @@ If you want to be a founding member, the waitlist is at ptah.live.
 ```
 Ptah Builders is a membership built around one course: build a production SaaS end to end, using Ptah. You keep the reference codebase from the course and the exact Ptah setup — agents, skills, workflows, specs — that built it, plus weekly live sessions on what's changing in AI and software engineering.
 
-Builders is waitlist-only right now. List price is $29/mo or $290/yr at launch; founding members get 70% off their first year ($8.70/mo or $87 first year), and every membership carries a 30-day money-back guarantee.
+Builders is application-only right now. List price is $29/mo or $290/yr at launch — but approved Early Adopters get a full year free. There is no checkout and no card, now or later.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Apply for Ptah Builders Early Adopter — approved founding members get their first year free: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```

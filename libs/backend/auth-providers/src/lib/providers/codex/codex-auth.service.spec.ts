@@ -87,6 +87,25 @@ function isoMinutesAgo(minutes: number, nowMs: number): string {
   return new Date(nowMs - minutes * 60 * 1000).toISOString();
 }
 
+/**
+ * A syntactically real JWT (header.payload.signature, base64url) whose payload
+ * carries an `exp` claim `offsetSeconds` from the frozen clock. Signature is a
+ * placeholder — nothing verifies it, by design.
+ */
+function jwtExpiringInSeconds(offsetSeconds: number, nowMs: number): string {
+  const encode = (value: unknown): string =>
+    Buffer.from(JSON.stringify(value), 'utf-8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  return [
+    encode({ alg: 'RS256', typ: 'JWT' }),
+    encode({ exp: Math.floor(nowMs / 1000) + offsetSeconds }),
+    'sig',
+  ].join('.');
+}
+
 // -----------------------------------------------------------------------------
 // Suite
 // -----------------------------------------------------------------------------
@@ -347,6 +366,38 @@ describe('CodexAuthService', () => {
         stale: false,
       });
     });
+
+    // -------------------------------------------------------------------------
+    // TASK_2026_342 — the token's own `exp` outranks the last_refresh heuristic.
+    // The specs above use OPAQUE tokens, so they still exercise the fallback.
+    // -------------------------------------------------------------------------
+
+    it('reports FRESH for a JWT whose exp is days away despite an ancient last_refresh', async () => {
+      // The measured real file: chatgpt auth_mode, no API key, last_refresh 20h
+      // old, access_token valid for another 9 days. The 50-minute rule alone
+      // reported this as stale on every single status response for a session.
+      seedAuthFile({
+        auth_mode: 'Chatgpt',
+        tokens: { access_token: jwtExpiringInSeconds(9 * 86_400, clock.now) },
+        last_refresh: isoMinutesAgo(20 * 60, clock.now),
+      });
+      await expect(service.getTokenStatus()).resolves.toEqual({
+        authenticated: true,
+        stale: false,
+      });
+    });
+
+    it('reports STALE for a JWT whose exp is in the past despite a fresh last_refresh', async () => {
+      seedAuthFile({
+        auth_mode: 'Chatgpt',
+        tokens: { access_token: jwtExpiringInSeconds(-60, clock.now) },
+        last_refresh: isoMinutesAgo(1, clock.now),
+      });
+      await expect(service.getTokenStatus()).resolves.toEqual({
+        authenticated: true,
+        stale: true,
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -381,6 +432,37 @@ describe('CodexAuthService', () => {
     it('returns false when auth file is missing', async () => {
       mockedReadFile.mockRejectedValue(enoent());
       await expect(service.ensureTokensFresh()).resolves.toBe(false);
+    });
+
+    it('skips the refresh entirely for a JWT whose exp is days away (TASK_2026_342)', async () => {
+      seedAuthFile({
+        auth_mode: 'Chatgpt',
+        tokens: {
+          access_token: jwtExpiringInSeconds(9 * 86_400, clock.now),
+          refresh_token: 'refresh-me-please',
+        },
+        last_refresh: isoMinutesAgo(20 * 60, clock.now),
+      });
+      await expect(service.ensureTokensFresh()).resolves.toBe(true);
+      expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+
+    it('attempts a refresh for a JWT whose exp is in the past (TASK_2026_342)', async () => {
+      seedAuthFile({
+        auth_mode: 'Chatgpt',
+        tokens: {
+          access_token: jwtExpiringInSeconds(-60, clock.now),
+          refresh_token: 'refresh-me-please',
+        },
+        // Fresh by the legacy heuristic — only the JWT exp says otherwise.
+        last_refresh: isoMinutesAgo(1, clock.now),
+      });
+      mockedAxios.post = jest.fn().mockResolvedValue({
+        data: { access_token: jwtExpiringInSeconds(3600, clock.now) },
+      });
+
+      await expect(service.ensureTokensFresh()).resolves.toBe(true);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
     });
 
     it('returns false and logs error when readFile throws a non-ENOENT error', async () => {

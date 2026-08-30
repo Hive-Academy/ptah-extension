@@ -1,28 +1,30 @@
 ---
 name: angular-gsap-animation-crafter
-description: "Interactive scroll animation designer for @hive-academy/angular-gsap library. Guides users through creating smooth, professional scroll-based animations using GSAP and ScrollTrigger. Use when users want to: (1) Create scroll-triggered animations or viewport animations, (2) Design scroll experiences (parallax, pinned sections, hijacked scroll), (3) Get recommendations for animation types and timing, (4) Learn GSAP best practices and easing functions, (5) Generate complete Angular components with scroll animations, (6) Analyze reference videos or images to reverse-engineer scroll animation sequences and recreate similar motion timing with available directives (extracts animation types, easing, trigger points, durations)."
+description: 'Interactive scroll animation designer for @hive-academy/angular-gsap library. Guides users through creating smooth, professional scroll-based animations using GSAP and ScrollTrigger. Use when users want to: (1) Create scroll-triggered animations or viewport animations, (2) Design scroll experiences (parallax, pinned sections, hijacked scroll), (3) Get recommendations for animation types and timing, (4) Learn GSAP best practices and easing functions, (5) Generate complete Angular components with scroll animations, (6) Analyze reference videos or images to reverse-engineer scroll animation sequences and recreate similar motion timing with available directives (extracts animation types, easing, trigger points, durations).'
 ---
 
 # Angular GSAP Animation Crafter
 
-Welcome! I'm here to help you design stunning scroll-based animations using the `@hive-academy/angular-gsap` library.
+Design stunning scroll-based animations using the `@hive-academy/angular-gsap` library through guided, conversational design.
 
-## How I Can Help
+Before generating any animation code, verify that `@hive-academy/angular-gsap` is listed in the project's `package.json`; if it is not, install it (or confirm the intended version with the user) first.
 
-I guide you through two workflows:
+## Overview
 
-- **Workflow A: Image/Video-Based Reverse Engineering** - Provide a reference video or image, and I'll analyze the motion, timing, and effects to recreate similar scroll animations
-- **Workflow B: Text-Based Design** - Describe what you want, and I'll recommend animation types, timing, and configurations
+This skill supports two workflows:
+
+- **Workflow A: Image/Video-Based Reverse Engineering** - Take a reference video or image from the user, analyze its motion, timing, and effects, and recreate similar scroll animations
+- **Workflow B: Text-Based Design** - Take the user's description and recommend animation types, timing, and configurations
 
 ---
 
 ## Workflow A: Image/Video-Based Reverse Engineering
 
-**Use when:** You have a reference video, GIF, or image showing scroll animations you want to recreate.
+**Use when:** User provides a reference video, GIF, or image showing scroll animations to recreate.
 
 ### 1. Request Image/Video
 
-Prompt you to share:
+Ask the user to share:
 
 - Video/GIF of scroll interaction
 - Screenshot of animation state
@@ -120,7 +122,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective } from '@hive-acad
       [scrollConfig]="{
         animation: 'parallax',
         speed: 0.4,
-        scrub: 1.5
+        scrub: 1.5,
       }"
     >
       Background
@@ -132,7 +134,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective } from '@hive-acad
       [viewportConfig]="{
         animation: 'slideUp',
         duration: 0.8,
-        threshold: 0.2
+        threshold: 0.2,
       }"
     >
       Title
@@ -343,7 +345,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective, HijackedScrollDir
       [scrollConfig]="{
         animation: 'parallax',
         speed: 0.4,
-        scrub: 1.5
+        scrub: 1.5,
       }"
     >
       <!-- Background image -->
@@ -356,7 +358,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective, HijackedScrollDir
         [viewportConfig]="{
           animation: 'slideUp',
           duration: 0.8,
-          threshold: 0.2
+          threshold: 0.2,
         }"
       >
         Hero Title
@@ -368,7 +370,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective, HijackedScrollDir
           animation: 'fadeIn',
           duration: 0.8,
           delay: 0.2,
-          threshold: 0.2
+          threshold: 0.2,
         }"
       >
         Subtitle
@@ -381,7 +383,7 @@ import { ScrollAnimationDirective, ViewportAnimationDirective, HijackedScrollDir
       [viewportConfig]="{
         animation: 'slideUp',
         stagger: 0.1,
-        staggerTarget: '.feature'
+        staggerTarget: '.feature',
       }"
     >
       <div class="feature">Feature 1</div>
@@ -407,7 +409,7 @@ export class CustomAnimationComponent {}
 
 **User**: "I want a hero section where the title slides up and a background image moves slower than the scroll."
 
-**Me**: Perfect! That's a classic parallax effect with a viewport entrance. Let me build this step by step:
+**You**: Perfect! That's a classic parallax effect with a viewport entrance. Let me build this step by step:
 
 **Step 1: Background Parallax**
 
@@ -445,7 +447,7 @@ Title appears when 20% visible, slides up over 0.8s.
 
 **User**: "Can I make the title fade out as I scroll down?"
 
-**Me**: Yes! Add a ScrollAnimation directive to the title:
+**You**: Yes! Add a ScrollAnimation directive to the title:
 
 ```html
 <h1

@@ -7,7 +7,6 @@ import {
   ToolResultEvent,
   AgentStartEvent,
   MessageCompleteEvent,
-  BackgroundAgentStartedEvent,
   calculateMessageCost,
   EventSource,
   isAgentDispatchTool,
@@ -23,6 +22,7 @@ import {
   isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { buildBackgroundAgentStartedEvent } from './background-started-event';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -175,7 +175,10 @@ export class AssistantMessageTransformer {
             'run_in_background' in block.input &&
             block.input['run_in_background'] === true;
           if (isBackground) {
-            state.addBackgroundTaskToolUseId(block.id);
+            state.addBackgroundTaskToolUseId(block.id, {
+              agentType,
+              agentDescription,
+            });
             helpers.subagentRegistry.markPendingBackground(block.id);
             helpers.logger.debug(
               '[SdkMessageTransformer] Detected background Task tool_use',
@@ -226,6 +229,7 @@ export class AssistantMessageTransformer {
             agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
+            agentId: helpers.subagentRegistry.get(block.id)?.agentId,
             teammateName,
             parentToolUseId: block.id,
             workflowRunId: workflowRun?.runId,
@@ -255,36 +259,24 @@ export class AssistantMessageTransformer {
         events.push(toolResultEvent);
 
         if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
-          state.removeBackgroundTaskToolUseId(block.tool_use_id);
-
-          const outputText =
-            typeof block.content === 'string'
-              ? block.content
-              : JSON.stringify(block.content);
-          const outputFileMatch = outputText?.match(
-            /output_file:\s*(.+?)(?:\n|$)/i,
-          );
-
-          const bgEvent: BackgroundAgentStartedEvent = {
-            id: generateEventId(),
-            eventType: 'background_agent_started',
-            timestamp: Date.now(),
-            sessionId,
-            source: 'complete' as EventSource,
-            messageId,
+          const bgEvent = buildBackgroundAgentStartedEvent({
             toolCallId: block.tool_use_id,
-            agentType: 'unknown',
-            teammateName: helpers.subagentRegistry.get(block.tool_use_id)
-              ?.teammateName,
-            outputFilePath: outputFileMatch?.[1]?.trim(),
+            content: block.content,
+            messageId,
+            sessionId,
             parentToolUseId: parent_tool_use_id ?? undefined,
-          };
+            state,
+            helpers,
+          });
+          state.removeBackgroundTaskToolUseId(block.tool_use_id);
           events.push(bgEvent);
 
           helpers.logger.debug(
             '[SdkMessageTransformer] Emitted background_agent_started event',
             {
               toolCallId: block.tool_use_id,
+              agentType: bgEvent.agentType,
+              agentId: bgEvent.agentId,
               outputFilePath: bgEvent.outputFilePath,
             },
           );

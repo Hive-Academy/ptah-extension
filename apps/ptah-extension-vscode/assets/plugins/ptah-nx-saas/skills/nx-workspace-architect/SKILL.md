@@ -51,43 +51,51 @@ libs/
 
 ## Module Boundary Rules
 
-Configure in `.eslintrc.json`:
+Configure in `eslint.config.mjs` (flat config):
 
-```json
-{
-  "@nx/enforce-module-boundaries": [
-    "error",
-    {
-      "depConstraints": [
+```js
+import nx from '@nx/eslint-plugin';
+
+export default [
+  {
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+    plugins: { '@nx': nx },
+    rules: {
+      '@nx/enforce-module-boundaries': [
+        'error',
         {
-          "sourceTag": "type:feature",
-          "onlyDependOnLibsWithTags": ["type:feature", "type:ui", "type:data-access", "type:util", "type:api-interfaces", "type:domain"]
+          depConstraints: [
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: ['type:feature', 'type:ui', 'type:data-access', 'type:util', 'type:api-interfaces', 'type:domain'],
+            },
+            {
+              sourceTag: 'type:ui',
+              onlyDependOnLibsWithTags: ['type:ui', 'type:util', 'type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:data-access',
+              onlyDependOnLibsWithTags: ['type:data-access', 'type:util', 'type:api-interfaces', 'type:domain'],
+            },
+            { sourceTag: 'type:util', onlyDependOnLibsWithTags: ['type:util'] },
+            {
+              sourceTag: 'type:api-interfaces',
+              onlyDependOnLibsWithTags: ['type:api-interfaces'],
+            },
+            {
+              sourceTag: 'scope:shared',
+              onlyDependOnLibsWithTags: ['scope:shared'],
+            },
+            {
+              sourceTag: 'scope:*',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:*'],
+            },
+          ],
         },
-        {
-          "sourceTag": "type:ui",
-          "onlyDependOnLibsWithTags": ["type:ui", "type:util", "type:api-interfaces"]
-        },
-        {
-          "sourceTag": "type:data-access",
-          "onlyDependOnLibsWithTags": ["type:data-access", "type:util", "type:api-interfaces", "type:domain"]
-        },
-        { "sourceTag": "type:util", "onlyDependOnLibsWithTags": ["type:util"] },
-        {
-          "sourceTag": "type:api-interfaces",
-          "onlyDependOnLibsWithTags": ["type:api-interfaces"]
-        },
-        {
-          "sourceTag": "scope:shared",
-          "onlyDependOnLibsWithTags": ["scope:shared"]
-        },
-        {
-          "sourceTag": "scope:*",
-          "onlyDependOnLibsWithTags": ["scope:shared", "scope:*"]
-        }
-      ]
-    }
-  ]
-}
+      ],
+    },
+  },
+];
 ```
 
 ## Workspace Initialization Commands
@@ -151,7 +159,7 @@ In each library's `project.json`:
 | -------------------- | ----------------------------------------------------------- |
 | New workspace        | See [workspace-setup.md](references/workspace-setup.md)     |
 | New domain/feature   | See [library-creation.md](references/library-creation.md)   |
-| Import errors        | Check module boundaries in .eslintrc.json                   |
+| Import errors        | Check module boundaries in eslint.config.mjs                |
 | Automate generation  | See [custom-generators.md](references/custom-generators.md) |
 | Understand lib types | See [library-types.md](references/library-types.md)         |
 

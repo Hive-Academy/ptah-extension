@@ -188,7 +188,7 @@ import type {
                 id="agent-max-concurrent"
                 type="range"
                 min="1"
-                max="10"
+                max="20"
                 [value]="agentConfig()?.maxConcurrentAgents"
                 (change)="onMaxConcurrentChange($event)"
                 class="range range-xs range-secondary"
@@ -197,8 +197,8 @@ import type {
                 class="flex justify-between text-[10px] text-base-content-muted px-0.5"
               >
                 <span>1</span>
-                <span>5</span>
                 <span>10</span>
+                <span>20</span>
               </div>
             </div>
           </div>

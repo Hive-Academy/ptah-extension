@@ -1,16 +1,19 @@
 ---
 id: TASK_2026_235
-status: in_review
+status: done
 type: REFACTORING
-title: 'Rebuild the TUI keymap on Gemini CLI conventions and seed a configured pty fixture'
+title: >-
+  Rebuild the TUI keymap on Gemini CLI conventions and seed a configured pty
+  fixture
 description: >-
   Four TUI chords sat directly on readline line-editing defaults — Ctrl+E
   (end-of-line), Ctrl+K (kill-to-end), Ctrl+N/Ctrl+P (history) — so in a
   composer that is a text input, the documented shortcut stole the standard
   editing key. Rebound the app-level bindings onto Alt / Shift+Tab following
   Gemini CLI's table, added a RESERVED_CHORDS guard, and extended the pty
-  harness to boot a configured workspace so authenticated surfaces are
-  testable at all.
+  harness to boot a configured workspace so authenticated surfaces are testable
+  at all.
+updated: '2026-08-25T21:11:49.617Z'
 ---
 
 # Keymap on Gemini conventions + configured pty fixture

@@ -79,7 +79,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
           }}</span>
           <lucide-angular
             [img]="FolderIcon"
-            class="w-4 h-4 flex-shrink-0 text-amber-500"
+            class="w-4 h-4 flex-shrink-0 text-warning"
             aria-hidden="true"
           />
         } @else {
@@ -487,7 +487,7 @@ export class FileTreeNodeComponent {
         return 'text-blue-400';
       case 'js':
       case 'jsx':
-        return 'text-yellow-400';
+        return 'text-warning';
       case 'json':
         return 'text-green-400';
       case 'html':

@@ -800,12 +800,22 @@ export class ChatViewComponent implements OnDestroy {
 
     // Force the embedded agent panel open when a deep-tree caller (the
     // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
-    // monotonic counter re-triggers even after the user manually closed the
-    // panel. Counter starts at 0 (initial effect run is a no-op).
+    // monotonic sequence re-triggers even after the user manually closed the
+    // panel. Sequence starts at 0 (initial effect run is a no-op).
+    //
+    // The request names the tab it came from. Only the surface rendering that
+    // tab reacts — with several canvas tiles live, an unscoped request opened
+    // the panel in every one of them (the chip is inside one tile, the effect
+    // runs in all). A request with no tab id came from the main panel, which
+    // has no SESSION_CONTEXT, so only main-panel surfaces honour it.
     effect(() => {
-      const requests = this.agentMonitorStore.panelOpenRequests();
-      if (requests === 0) return;
+      const request = this.agentMonitorStore.panelOpenRequest();
+      if (request.seq === 0) return;
       untracked(() => {
+        const mine = this._sessionContext
+          ? request.tabId === this._sessionContext()
+          : request.tabId === null;
+        if (!mine) return;
         this.agentPanelOpen.set(true);
         this._userExplicitlyClosed = false;
       });
@@ -1290,11 +1300,6 @@ export class ChatViewComponent implements OnDestroy {
         deleteError: err instanceof Error ? err.message : String(err),
       };
     }
-  }
-
-  /** Handle "New Session" request from context warning bar */
-  onNewSessionFromContextWarning(): void {
-    this._tabManager.createTab('New Session');
   }
 
   /** Switch the current tab from compact back to full view */

@@ -117,6 +117,74 @@ describe('SessionRegistry', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Record identity: `token` distinguishes two registrations under one key
+  // -------------------------------------------------------------------------
+
+  describe('token / getToken()', () => {
+    // tabId and realSessionId are STABLE across a re-registration under the
+    // same key (a slash-command re-query does exactly that), so neither can
+    // answer "is the record I was holding still the registered one". The token
+    // can, which is what makes `endSessionIfTokenMatches` decidable.
+    it('mints a DIFFERENT token for a second register() under the same key', () => {
+      const { registry } = makeRegistry();
+
+      const first = registry.register(
+        'tab_tok',
+        makeConfig(),
+        new AbortController(),
+      );
+      const second = registry.register(
+        'tab_tok',
+        makeConfig(),
+        new AbortController(),
+      );
+
+      expect(first.token).toEqual(expect.any(String));
+      expect(first.token.length).toBeGreaterThan(0);
+      expect(second.token).not.toBe(first.token);
+      expect(second.tabId).toBe(first.tabId);
+    });
+
+    it('getToken() returns the CURRENT record token, not the replaced one', () => {
+      const { registry } = makeRegistry();
+
+      const first = registry.register(
+        'tab_tok2',
+        makeConfig(),
+        new AbortController(),
+      );
+      expect(registry.getToken('tab_tok2')).toBe(first.token);
+
+      const second = registry.register(
+        'tab_tok2',
+        makeConfig(),
+        new AbortController(),
+      );
+
+      expect(registry.getToken('tab_tok2')).toBe(second.token);
+      expect(registry.getToken('tab_tok2')).not.toBe(first.token);
+    });
+
+    it('getToken() resolves through the realSessionId index too', () => {
+      const { registry } = makeRegistry();
+      const rec = registry.register(
+        'tab_tok3',
+        makeConfig(),
+        new AbortController(),
+      );
+      registry.bindRealSessionId('tab_tok3', 'real-uuid-tok');
+
+      expect(registry.getToken('real-uuid-tok')).toBe(rec.token);
+    });
+
+    it('getToken() returns null for an unknown id', () => {
+      const { registry } = makeRegistry();
+
+      expect(registry.getToken('never-registered')).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Case 2: bindRealSessionId() adds bySessionId entry with identity equality
   // -------------------------------------------------------------------------
 

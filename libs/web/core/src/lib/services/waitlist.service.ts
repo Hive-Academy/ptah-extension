@@ -12,7 +12,7 @@ export interface WaitlistJoinResponse {
 /**
  * Where on the site the visitor applied from — mirrors the license-server
  * `source` field. `'early-adopter'` tags applications to the Early Adopter
- * program (founding members get 70% off their first year of Builders).
+ * program (an approved founding member gets a free year of Builders).
  */
 export type WaitlistSource =
   | 'landing'

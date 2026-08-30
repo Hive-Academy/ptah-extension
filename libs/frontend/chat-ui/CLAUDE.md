@@ -50,7 +50,7 @@ None. Components are `input()` / `output()` only. The library has no `@Injectabl
 
 ## Guidelines
 
-1. **No services.** Components are purely input/output driven.
+1. **No services.** Components are purely input/output driven. The `setup-plugins/` molecules are the standing exception and predate this rule: they inject `ClaudeRpcService` and `PluginCatalogService` from `@ptah-extension/core`. Do not widen it — a new component that needs host data belongs in `@ptah-extension/chat`.
 2. **No imports from `@ptah-extension/chat`** — one-way dependency only (chat imports chat-ui).
 3. **Atoms stay flat.** Atoms do not import other atoms or molecules from this library.
 4. **Signal-first.** All local component state uses Angular signals.

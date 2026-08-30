@@ -79,7 +79,13 @@ export class HarnessSkillSelectionRpcService {
    */
   getSelection(): HarnessGetSkillSelectionResult {
     const workspaceRoot = this.resolveWorkspaceRoot();
-    const available = readSkillCandidates(this.sourceResolver.resolve());
+    // Scoped to the resolved root, like every other `resolve` call site since
+    // TASK_2026_346. The catalogue a selection dialog offers is this project's
+    // sources, not whichever folder the host has active — and passing
+    // `undefined` when there is no folder open is the honest ambient ask.
+    const available = readSkillCandidates(
+      this.sourceResolver.resolve(workspaceRoot ?? undefined),
+    );
 
     if (workspaceRoot === null) {
       return { mode: 'all', slugs: [], available, derived: true };

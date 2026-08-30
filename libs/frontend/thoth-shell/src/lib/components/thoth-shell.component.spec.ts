@@ -1,12 +1,32 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { ErrorHandler, signal } from '@angular/core';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MODEL_REFRESH_CONTROL } from '@ptah-extension/chat-state';
 import { MemoryStateService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisStateService } from '@ptah-extension/skill-synthesis-ui';
 
-import { ThothShellComponent } from './thoth-shell.component';
+import {
+  ThothShellComponent,
+  type ThothActiveTabId,
+} from './thoth-shell.component';
+
+/**
+ * Angular routes an exception thrown inside a subscription or an effect to the
+ * application {@link ErrorHandler}, which logs it and lets the test go green.
+ * That is how a stub drifting behind the signals the shell reads stayed
+ * invisible here: `this.appState.workspaceInfo is not a function` was logged on
+ * every run while all five specs passed. Collect what the handler receives and
+ * fail the test on it, so the next drift is a red suite rather than a line of
+ * console noise.
+ */
+class RecordingErrorHandler implements ErrorHandler {
+  public readonly errors: unknown[] = [];
+
+  public handleError(error: unknown): void {
+    this.errors.push(error);
+  }
+}
 
 const modelRefreshStub = {
   refreshModels: () => Promise.resolve(),
@@ -111,29 +131,43 @@ const memoryStateStub = {
   loadSymbols: () => Promise.resolve(),
 } as unknown as MemoryStateService;
 
+type AppStateStub = jest.Mocked<
+  Pick<
+    AppStateManager,
+    'thothActiveTab' | 'setThothActiveTab' | 'workspaceInfo'
+  >
+>;
+
+type ActiveTabSignal = ReturnType<typeof signal<ThothActiveTabId>>;
+
+/**
+ * The one definition of the `AppStateManager` stub. Every TestBed in this file
+ * builds it here rather than hand-writing its own literal — four separate
+ * literals is exactly how two of them lost `workspaceInfo`, which
+ * `ThothStatusService` reads on behalf of the shell.
+ */
+function makeAppStateStub(activeTab: ActiveTabSignal): AppStateStub {
+  return {
+    thothActiveTab: activeTab.asReadonly(),
+    setThothActiveTab: jest.fn((tab: ThothActiveTabId) => activeTab.set(tab)),
+    workspaceInfo: signal(null),
+  } as unknown as AppStateStub;
+}
+
 describe('ThothShellComponent', () => {
-  let appState: jest.Mocked<
-    Pick<AppStateManager, 'thothActiveTab' | 'setThothActiveTab'>
-  >;
-  let activeTabSignal: ReturnType<
-    typeof signal<'memory' | 'skills' | 'cron' | 'gateway'>
-  >;
+  let appState: AppStateStub;
+  let activeTabSignal: ActiveTabSignal;
+  let errorHandler: RecordingErrorHandler;
 
   beforeEach(async () => {
-    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
-      'memory',
-    );
-    appState = {
-      thothActiveTab: activeTabSignal.asReadonly(),
-      setThothActiveTab: jest.fn((tab) => activeTabSignal.set(tab)),
-      workspaceInfo: signal(null),
-    } as unknown as jest.Mocked<
-      Pick<AppStateManager, 'thothActiveTab' | 'setThothActiveTab'>
-    >;
+    errorHandler = new RecordingErrorHandler();
+    activeTabSignal = signal<ThothActiveTabId>('memory');
+    appState = makeAppStateStub(activeTabSignal);
 
     await TestBed.configureTestingModule({
       imports: [ThothShellComponent],
       providers: [
+        { provide: ErrorHandler, useValue: errorHandler },
         { provide: AppStateManager, useValue: appState },
         {
           provide: VSCodeService,
@@ -144,6 +178,10 @@ describe('ThothShellComponent', () => {
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
       ],
     }).compileComponents();
+  });
+
+  afterEach(() => {
+    expect(errorHandler.errors).toEqual([]);
   });
 
   it('renders four tabs by default with Memory active', () => {
@@ -187,18 +225,16 @@ describe('ThothShellComponent', () => {
 
   it('shows desktop-only placeholder for gateway tab when not on Electron', () => {
     TestBed.resetTestingModule();
-    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
-      'gateway',
-    );
-    const stateMock = {
-      thothActiveTab: activeTabSignal.asReadonly(),
-      setThothActiveTab: jest.fn(),
-    };
+    activeTabSignal = signal<ThothActiveTabId>('gateway');
 
     TestBed.configureTestingModule({
       imports: [ThothShellComponent],
       providers: [
-        { provide: AppStateManager, useValue: stateMock },
+        { provide: ErrorHandler, useValue: errorHandler },
+        {
+          provide: AppStateManager,
+          useValue: makeAppStateStub(activeTabSignal),
+        },
         {
           provide: VSCodeService,
           useValue: { config: signal({ isElectron: false }) },
@@ -215,19 +251,16 @@ describe('ThothShellComponent', () => {
 
   it('shows desktop-only placeholder for memory tab when not on Electron', () => {
     TestBed.resetTestingModule();
-    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
-      'memory',
-    );
-    const stateMock = {
-      thothActiveTab: activeTabSignal.asReadonly(),
-      setThothActiveTab: jest.fn(),
-      workspaceInfo: signal(null),
-    };
+    activeTabSignal = signal<ThothActiveTabId>('memory');
 
     TestBed.configureTestingModule({
       imports: [ThothShellComponent],
       providers: [
-        { provide: AppStateManager, useValue: stateMock },
+        { provide: ErrorHandler, useValue: errorHandler },
+        {
+          provide: AppStateManager,
+          useValue: makeAppStateStub(activeTabSignal),
+        },
         {
           provide: VSCodeService,
           useValue: { config: signal({ isElectron: false }) },
@@ -251,18 +284,16 @@ describe('ThothShellComponent', () => {
 
   it('shows desktop-only placeholder for skills tab when not on Electron', () => {
     TestBed.resetTestingModule();
-    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
-      'skills',
-    );
-    const stateMock = {
-      thothActiveTab: activeTabSignal.asReadonly(),
-      setThothActiveTab: jest.fn(),
-    };
+    activeTabSignal = signal<ThothActiveTabId>('skills');
 
     TestBed.configureTestingModule({
       imports: [ThothShellComponent],
       providers: [
-        { provide: AppStateManager, useValue: stateMock },
+        { provide: ErrorHandler, useValue: errorHandler },
+        {
+          provide: AppStateManager,
+          useValue: makeAppStateStub(activeTabSignal),
+        },
         {
           provide: VSCodeService,
           useValue: { config: signal({ isElectron: false }) },

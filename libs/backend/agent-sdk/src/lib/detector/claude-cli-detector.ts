@@ -1,12 +1,28 @@
 /**
  * Claude CLI Detector - Cross-platform CLI detection with WSL support
  * SOLID: Single Responsibility - Only handles CLI detection and health checks
+ *
+ * Every probe here goes through `cross-spawn` and `which`, and NEVER through
+ * `child_process.spawn` with `shell: true`. The previous version computed a
+ * `needsShell` flag for any bare command or `.cmd`/`.bat` path on Windows and
+ * passed it alongside an args array, which is exactly the shape Node warns
+ * about with `[DEP0190] Passing args to a child process with shell option true
+ * can lead to security vulnerabilities` — the args are concatenated into a
+ * `cmd.exe` command line unescaped. `where claude` at boot was the first such
+ * call in the process, and since Node prints a deprecation code once, it also
+ * masked every other offender (TASK_2026_348).
+ *
+ * `cross-spawn` gets the same Windows behaviour without a shell: it resolves
+ * bare commands through PATH/PATHEXT and runs `.cmd`/`.bat` wrappers via
+ * `cmd.exe /d /s /c` with each argument escaped for both cmd.exe and the
+ * Windows command-line parser.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn } from 'child_process';
+import crossSpawn from 'cross-spawn';
+import whichLib from 'which';
 import { injectable } from 'tsyringe';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 import { SdkError } from '../errors';
@@ -38,6 +54,28 @@ interface CommandResult {
 }
 
 /**
+ * How long a SUCCESSFUL `--version` result is reused for the same command.
+ *
+ * `child_process.spawn` is not asynchronous: libuv's `uv_spawn` runs
+ * `CreateProcessW` inline on the calling thread and Windows scans the target
+ * image while creating the process, so the cost tracks the executable's SIZE —
+ * `claude.exe` is 253 MB and measures 1850-1975 ms on the reference machine
+ * (TASK_2026_341). Every `--version` probe here is therefore a ~2 s freeze of
+ * whichever loop calls it, which on Electron is the one owning every
+ * `BrowserWindow`.
+ *
+ * This window is deliberately SHORT. It is not a health cache — callers that
+ * want one keep their own (`AuthRpcHandlers` memoises the verdict for five
+ * minutes). It exists to collapse the probes that a single boot fires within
+ * seconds of each other, which was measured as four concurrent callers of one
+ * singleton detector paying up to eight spawns for one answer.
+ *
+ * A FAILURE is never cached: a probe that failed is not evidence the CLI is
+ * absent, and retrying costs exactly one spawn.
+ */
+const VERSION_PROBE_TTL_MS = 30_000;
+
+/**
  * Claude CLI Detection Service with WSL-aware path resolution
  */
 @injectable()
@@ -47,6 +85,30 @@ export class ClaudeCliDetector {
   private configuredPath?: string;
   private enableWSL = true;
   private readonly pathResolver: ClaudeCliPathResolver;
+
+  /**
+   * The detection currently running, if any.
+   *
+   * `cachedInstallation` is only written when the whole strategy chain has
+   * finished, so without this every concurrent caller ran the entire chain —
+   * including its spawns — before any of them got to populate the cache. This
+   * is a DI singleton with four boot-time consumers (`CliStrategy`,
+   * `SdkAgentAdapter`, `SdkModuleLoader`, `AuthRpcHandlers.probeClaudeCli`),
+   * and they all start within the same second.
+   */
+  private detectionInFlight: Promise<ClaudeInstallation | null> | null = null;
+
+  /** Settled `--version` results, held for {@link VERSION_PROBE_TTL_MS}. */
+  private readonly versionProbes = new Map<
+    string,
+    { readonly at: number; readonly result: CommandResult }
+  >();
+
+  /** `--version` probes currently running, keyed by command. */
+  private readonly versionProbesInFlight = new Map<
+    string,
+    Promise<CommandResult>
+  >();
 
   constructor() {
     this.isWSLEnvironment = this.detectWSLEnvironment();
@@ -90,13 +152,34 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Main entry point: Find Claude CLI installation
+   * Main entry point: Find Claude CLI installation.
+   *
+   * Single-flight: concurrent callers share one detection rather than each
+   * running the strategy chain and its spawns. See {@link detectionInFlight}.
    */
   async findExecutable(): Promise<ClaudeInstallation | null> {
     if (this.cachedInstallation) {
       return this.cachedInstallation;
     }
 
+    const running = this.detectionInFlight;
+    if (running) {
+      return running;
+    }
+
+    const pending = this.runDetection().finally(() => {
+      // By identity: a `clearCache()` during detection may already have let a
+      // newer run claim the slot, and evicting that one un-coalesces the very
+      // burst this exists to absorb.
+      if (this.detectionInFlight === pending) {
+        this.detectionInFlight = null;
+      }
+    });
+    this.detectionInFlight = pending;
+    return pending;
+  }
+
+  private async runDetection(): Promise<ClaudeInstallation | null> {
     try {
       const strategies = [
         () => this.detectFromConfig(),
@@ -143,14 +226,7 @@ export class ClaudeCliDetector {
    */
   async verifyInstallation(installation: ClaudeInstallation): Promise<boolean> {
     try {
-      const result = await this.executeCommand(
-        installation.path,
-        ['--version'],
-        {
-          timeout: 10000,
-          isWSL: installation.isWSL,
-        },
-      );
+      const result = await this.probeVersion(installation.path, 10000);
 
       if (!result.success) {
         return false;
@@ -164,7 +240,12 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Perform comprehensive health check
+   * Perform comprehensive health check.
+   *
+   * `findExecutable()` reaches this same binary through `verifyInstallation`,
+   * which runs `--version` and parses its output — so on a cold call this used
+   * to spawn the 253 MB `claude.exe` TWICE to answer one question. Both sides
+   * now go through {@link probeVersion}, so the second one is free.
    */
   async performHealthCheck(): Promise<ClaudeCliHealth> {
     const startTime = Date.now();
@@ -181,14 +262,7 @@ export class ClaudeCliDetector {
         };
       }
 
-      const result = await this.executeCommand(
-        installation.path,
-        ['--version'],
-        {
-          timeout: 5000,
-          isWSL: installation.isWSL,
-        },
-      );
+      const result = await this.probeVersion(installation.path, 5000);
 
       const responseTime = Date.now() - startTime;
 
@@ -226,10 +300,57 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Clear cached installation
+   * Clear cached installation.
+   *
+   * Also drops the `--version` results, which are what "the CLI at this path
+   * works" is derived from: keeping them would let a caller that asked for a
+   * fresh detection be answered from the evidence it asked to discard.
    */
   clearCache(): void {
     this.cachedInstallation = null;
+    this.detectionInFlight = null;
+    this.versionProbes.clear();
+    this.versionProbesInFlight.clear();
+  }
+
+  /**
+   * Run `<command> --version`, sharing the result with any caller that asked
+   * for the same command in the last {@link VERSION_PROBE_TTL_MS}, and sharing
+   * the SPAWN with any caller asking while one is already running.
+   *
+   * Both halves matter and they cover different cases: the in-flight map
+   * collapses the concurrent boot fan-out, the settled map collapses the
+   * sequential `findExecutable()` -> `performHealthCheck()` pair.
+   */
+  private async probeVersion(
+    command: string,
+    timeout: number,
+  ): Promise<CommandResult> {
+    const cached = this.versionProbes.get(command);
+    if (cached && Date.now() - cached.at < VERSION_PROBE_TTL_MS) {
+      return cached.result;
+    }
+
+    const running = this.versionProbesInFlight.get(command);
+    if (running) {
+      return running;
+    }
+
+    const pending = this.executeCommand(command, ['--version'], { timeout })
+      .then((result) => {
+        // Successes only — see VERSION_PROBE_TTL_MS.
+        if (result.success) {
+          this.versionProbes.set(command, { at: Date.now(), result });
+        }
+        return result;
+      })
+      .finally(() => {
+        if (this.versionProbesInFlight.get(command) === pending) {
+          this.versionProbesInFlight.delete(command);
+        }
+      });
+    this.versionProbesInFlight.set(command, pending);
+    return pending;
   }
 
   /**
@@ -258,9 +379,7 @@ export class ClaudeCliDetector {
 
     for (const cmd of commands) {
       try {
-        const result = await this.executeCommand(cmd, ['--version'], {
-          timeout: 5000,
-        });
+        const result = await this.probeVersion(cmd, 5000);
         if (
           result.success &&
           this.isValidClaudeOutput(result.stdout + result.stderr)
@@ -339,35 +458,34 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Strategy: which/where commands
+   * Strategy: PATH lookup
    *
-   * PHASE 2 FIX: Returns FULL PATH to Claude CLI (e.g., C:\Users\...\npm\claude.cmd)
+   * Returns the FULL PATH to the Claude CLI (e.g. C:\Users\...\npm\claude.cmd).
    * This avoids ENOENT errors because:
    * 1. Full paths can be spawned directly without shell resolution
    * 2. No ambiguity about which executable to run
    * 3. Works with paths containing spaces (no shell escaping needed)
    *
-   * On Windows, 'where claude' returns: C:\Users\...\AppData\Roaming\npm\claude.cmd
-   * On macOS/Linux, 'which claude' returns: /usr/local/bin/claude
+   * Resolved with the `which` library rather than by spawning `where`/`which`:
+   * same PATH/PATHEXT semantics, one fewer subprocess on every boot, and no
+   * `\r` handling of another process's stdout. The `which-where` source label is
+   * kept because it is part of `ClaudeInstallation` and reaches the UI and logs.
    */
   private async detectWithWhichWhere(): Promise<ClaudeInstallation | null> {
-    const isWindows = os.platform() === 'win32';
-    const command = isWindows ? 'where' : 'which';
+    try {
+      const matches = await whichLib('claude', { all: true, nothrow: true });
+      if (!matches) {
+        return null;
+      }
 
-    const result = await this.executeCommand(command, ['claude'], {
-      timeout: 5000,
-    });
-    if (result.success) {
-      const paths = result.stdout
-        .trim()
-        .split('\n')
-        .map((p) => p.trim())
-        .filter((p) => p);
-      for (const claudePath of paths) {
-        if (fs.existsSync(claudePath)) {
+      for (const match of matches) {
+        const claudePath = match.trim();
+        if (claudePath && fs.existsSync(claudePath)) {
           return { path: claudePath, source: 'which-where' };
         }
       }
+    } catch {
+      return null;
     }
 
     return null;
@@ -401,28 +519,23 @@ export class ClaudeCliDetector {
   }
 
   /**
-   * Execute command with proper shell handling
+   * Execute a command and capture its output.
+   *
+   * Routed through `cross-spawn`, which handles Windows `.cmd`/`.bat` wrappers
+   * and bare command names itself. No `shell` option is passed here — see the
+   * file header for why that must stay true.
    */
   private async executeCommand(
     command: string,
     args: string[],
-    options: { timeout?: number; isWSL?: boolean } = {},
+    options: { timeout?: number } = {},
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
-      const { timeout = 30000, isWSL = false } = options;
+      const { timeout = 30000 } = options;
 
-      const isWindows = os.platform() === 'win32';
-      const needsShell =
-        isWindows &&
-        !isWSL &&
-        (command.endsWith('.cmd') ||
-          command.endsWith('.bat') ||
-          (!command.includes('\\') && !command.includes('/')));
-
-      const child = spawn(command, args, {
+      const child = crossSpawn(command, args, {
         stdio: 'pipe',
         windowsHide: true,
-        shell: needsShell,
       });
 
       let stdout = '';

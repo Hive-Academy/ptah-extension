@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_267
-status: backlog
+status: cancelled
 type: feature
 title: >-
   Stack Profile registry — multi-language New Project with first-class .NET,

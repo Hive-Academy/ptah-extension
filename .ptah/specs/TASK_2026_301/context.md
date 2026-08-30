@@ -68,3 +68,51 @@ exposure but does not close it — a project whose config is neither in the firs
 
 Recommend option 2 as the immediate honesty fix, with option 1 or 3 as the
 follow-through if diagnostics coverage becomes load-bearing.
+
+## Outcome (2026-08-26) — option 2, with the rule scoped to the false clean
+
+Three parts, and the third is the one that matters.
+
+1. **The cap is now a named constant, `DEFAULT_MAX_CONFIGS`, raised 200 → 2000**,
+   and parameterized through the constructor so a spec can saturate it with two
+   files rather than 2000. Hosts never pass it. Raising it ALONE would have been
+   the wrong fix — it just moves the same lie further away — but leaving it at
+   200 while making saturation observable would have turned this very repo's
+   diagnostics `unavailable`, which is a real loss of usefulness.
+2. **Saturation is detected** as `configPaths.length >= maxConfigs`. `findFiles`
+   has no cursor and reports no overflow, so a full page is the only evidence
+   available. It is read as "possibly truncated" rather than "truncated": a
+   workspace holding exactly `maxConfigs` configs is indistinguishable from one
+   holding more, and the safe reading of an ambiguous count is the pessimistic
+   one.
+3. **The rule fires only on the EMPTY result.** A saturated pass with zero
+   diagnostics returns `unavailable` naming the cap — "clean" is the one claim
+   partial coverage is not entitled to make, and `available` + `[]` renders as
+   "No issues found", which is precisely the false clean TASK_2026_299 exists to
+   remove. A saturated pass that DID find diagnostics still returns them:
+   partial coverage does not make a found error wrong, and hiding a real
+   diagnostic behind a capability message is the worse trade.
+
+The `DiagnosticsResult` union was deliberately NOT changed. Adding a `partial`
+flag to the `available` variant is a port-interface change touching every
+consumer and the formatter, for a signal only one consumer would read. The
+`unavailable` + `reason` channel already exists and already carries exactly this
+meaning.
+
+### Verified
+
+Three new cases in `type-script-diagnostics-provider.spec.ts` under `partial
+config discovery cannot report a clean result`: saturated + clean → `unavailable`
+naming the cap; saturated + real diagnostics → still `available` with those
+findings; and an UNSATURATED page still reports a clean project as clean — the
+last one guards against the fix regressing into "every workspace is
+unavailable". 22 tests pass.
+
+### Still open, deliberately
+
+The reference-graph walk (Batch 9) narrows the exposure — a config reachable
+from one that WAS discovered is still visited — but cannot close it. A project
+in neither the page nor any discovered reference graph stays invisible. That is
+now REPORTED rather than hidden, which is the whole of this task; paging
+discovery (option 1) remains the follow-through if coverage becomes
+load-bearing, and needs a cursor `IFileSystemProvider.findFiles` does not have.

@@ -1,9 +1,10 @@
 /**
  * Update RPC Handlers
  *
- * Desktop update banner methods:
+ * Desktop update dialog methods:
  *   - update:get-state — Pull the current lifecycle state (race-proof hydration)
  *   - update:check-now — Trigger an immediate GitHub Releases check
+ *   - update:mark-downloaded — Stop prompting for a version the user downloaded
  *
  * Host gating is data, not location: the manifest entry declares
  * `requires: ['appUpdater']`, and only hosts whose profile turns that
@@ -24,10 +25,13 @@ import type {
   UpdateCheckNowResult,
   UpdateGetStateParams,
   UpdateGetStateResult,
+  UpdateMarkDownloadedParams,
+  UpdateMarkDownloadedResult,
 } from '@ptah-extension/shared';
 import {
   UpdateGetStateSchema,
   UpdateCheckNowSchema,
+  UpdateMarkDownloadedSchema,
 } from './update-rpc.schema';
 
 @injectable()
@@ -35,6 +39,7 @@ export class UpdateRpcHandlers {
   static readonly METHODS = [
     'update:get-state',
     'update:check-now',
+    'update:mark-downloaded',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -47,6 +52,7 @@ export class UpdateRpcHandlers {
   register(): void {
     this.registerGetState();
     this.registerCheckNow();
+    this.registerMarkDownloaded();
   }
 
   private registerGetState(): void {
@@ -79,5 +85,19 @@ export class UpdateRpcHandlers {
         }
       },
     );
+  }
+
+  private registerMarkDownloaded(): void {
+    this.rpcHandler.registerMethod<
+      UpdateMarkDownloadedParams,
+      UpdateMarkDownloadedResult
+    >('update:mark-downloaded', async (params: unknown) => {
+      const { version } = UpdateMarkDownloadedSchema.parse(params ?? {});
+      await this.updateManager.markDownloaded(version);
+      this.logger.info(
+        `[UpdateRpcHandlers] update:mark-downloaded recorded ${version}`,
+      );
+      return { success: true };
+    });
   }
 }

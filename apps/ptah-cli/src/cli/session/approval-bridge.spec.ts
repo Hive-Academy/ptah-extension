@@ -25,6 +25,16 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 
+const mockDisposeHostRuntime = jest.fn<Promise<void>, []>();
+const mockFlushMetadata = jest.fn<Promise<void>, []>();
+
+jest.mock('@ptah-extension/cli-engine', () => ({
+  CliDIContainer: { disposeHostRuntime: () => mockDisposeHostRuntime() },
+}));
+jest.mock('@ptah-extension/agent-sdk', () => ({
+  flushSessionMetadataStores: () => mockFlushMetadata(),
+}));
+
 import {
   ApprovalBridge,
   type ApprovalBridgeJsonRpc,
@@ -53,6 +63,11 @@ interface FakeBridgeEnv {
 }
 
 const activeBridges: ApprovalBridge[] = [];
+
+beforeEach(() => {
+  mockDisposeHostRuntime.mockReset().mockResolvedValue(undefined);
+  mockFlushMetadata.mockReset().mockResolvedValue(undefined);
+});
 
 afterEach(() => {
   while (activeBridges.length > 0) {
@@ -98,9 +113,18 @@ function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
 
   const exitMock = jest.fn((_code: number) => undefined as never);
 
+  // The teardown halves are INJECTED, not `jest.mock`ed. The module mocks
+  // below still stand, because they keep two heavy barrels out of this file's
+  // module graph — but they are no longer what the ordering test reads. On
+  // Linux CI the bridge reached `exitFn`, which it can only do once
+  // `teardownBeforeExit` has called both halves, while `mockFlushMetadata`
+  // recorded nothing: the module mock the assertion read was not the function
+  // the bridge called. An override cannot drift from the call that way.
   const bridge = new ApprovalBridge(adapter, jsonrpc, permissionHandler, {
     timeoutMs: options?.timeoutMs,
     exit: exitMock as unknown as (code: number) => never,
+    disposeRuntime: mockDisposeHostRuntime,
+    flushMetadata: mockFlushMetadata,
   });
   activeBridges.push(bridge);
 
@@ -113,6 +137,23 @@ function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
     permissionHandler,
     exitMock,
   };
+}
+
+/**
+ * Advance past the approval timeout, then AWAIT the chain the expiry started.
+ *
+ * Counting microtask turns does not work here and cannot be made to work. The
+ * timer callback is a `setTimeout` callback, so it cannot await — it starts the
+ * handler and returns. The teardown that handler performs (dispose the host
+ * runtime, flush session metadata, exit) is therefore unreachable from the
+ * outside, and a fixed number of `advanceTimersByTimeAsync` drains is a guess
+ * at how many turns it takes. The guess held most runs and broke the rest,
+ * stalling between the dispose and the flush. `whenTimeoutSettled()` hands back
+ * the actual promise, so this waits on the thing itself.
+ */
+async function advanceToApprovalExit(env: FakeBridgeEnv): Promise<void> {
+  await jest.advanceTimersByTimeAsync(300_001);
+  await env.bridge.whenTimeoutSettled();
 }
 
 function makePermissionPayload(
@@ -292,9 +333,11 @@ describe('ApprovalBridge — permission round-trip', () => {
       // Sanity — initial notification should already have flushed via notify.
       // (notify is async; the macro-task ordering means we simply advance
       // timers and inspect state afterward.)
-      jest.advanceTimersByTime(300_001);
-      // Pump microtasks so the task.error notify resolves.
-      await Promise.resolve();
+      //
+      // Advanced ASYNCHRONOUSLY: the timeout path awaits a runtime teardown
+      // and a metadata flush before it exits (TASK_2026_324 / TASK_2026_326),
+      // so a synchronous advance returns before `exit` is ever reached.
+      await advanceToApprovalExit(env);
 
       const taskError = env.notifyCalls.find((c) => c.method === 'task.error');
       expect(taskError).toBeDefined();
@@ -310,6 +353,58 @@ describe('ApprovalBridge — permission round-trip', () => {
           reason: 'timeout',
         },
       );
+      expect(env.exitMock).toHaveBeenCalledWith(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // This exit fires from inside a live `withEngine` callback, so it reaches
+  // neither that helper's `finally` teardown (TASK_2026_326 finding 1) nor
+  // `main()`'s pre-`finalizeExit` flush (TASK_2026_324 finding 3). Without
+  // the teardown below, a timed-out `interact` strands its spawned CLI
+  // agents, leaves their proxy sockets listening, and drops the last turn's
+  // staged metadata. Reaping an agent is what produces the final
+  // `addCliSession` write, so the runtime has to go down BEFORE the flush.
+  // ---------------------------------------------------------------------
+  it('timeout path — ends the host runtime, then flushes metadata, then exits', async () => {
+    jest.useFakeTimers();
+    try {
+      const env = makeEnv({ timeoutMs: 300_000 });
+      env.bridge.attach();
+
+      env.adapter.emit('permission:request', makePermissionPayload());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await advanceToApprovalExit(env);
+
+      expect(mockDisposeHostRuntime).toHaveBeenCalledTimes(1);
+      expect(mockFlushMetadata).toHaveBeenCalledTimes(1);
+      expect(mockDisposeHostRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+        mockFlushMetadata.mock.invocationCallOrder[0],
+      );
+      expect(env.exitMock).toHaveBeenCalledWith(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('timeout path — a teardown that rejects still exits auth_required', async () => {
+    jest.useFakeTimers();
+    try {
+      mockDisposeHostRuntime.mockRejectedValue(new Error('proxy already gone'));
+      mockFlushMetadata.mockRejectedValue(new Error('storage closing'));
+      const env = makeEnv({ timeoutMs: 300_000 });
+      env.bridge.attach();
+
+      env.adapter.emit('permission:request', makePermissionPayload());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await advanceToApprovalExit(env);
+
       expect(env.exitMock).toHaveBeenCalledWith(3);
     } finally {
       jest.useRealTimers();
@@ -418,8 +513,8 @@ describe('ApprovalBridge — question round-trip', () => {
       env.adapter.emit('ask-user-question:request', makeQuestionPayload());
       await Promise.resolve();
       await Promise.resolve();
-      jest.advanceTimersByTime(300_001);
-      await Promise.resolve();
+      // Async advance — see the note on the permission timeout above.
+      await advanceToApprovalExit(env);
 
       const taskError = env.notifyCalls.find((c) => c.method === 'task.error');
       expect(taskError).toBeDefined();

@@ -19,7 +19,7 @@ import {
 import {
   AppShellComponent,
   ElectronShellComponent,
-  UpdateBannerComponent,
+  UpdateDialogComponent,
 } from '@ptah-extension/chat';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
@@ -28,7 +28,7 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
   imports: [
     AppShellComponent,
     ElectronShellComponent,
-    UpdateBannerComponent,
+    UpdateDialogComponent,
     LucideAngularModule,
   ],
   templateUrl: './app.html',

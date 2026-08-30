@@ -4,7 +4,6 @@ import {
   TextDeltaEvent,
   ToolResultEvent,
   MessageCompleteEvent,
-  BackgroundAgentStartedEvent,
   EventSource,
 } from '@ptah-extension/shared';
 
@@ -15,6 +14,7 @@ import {
   isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { buildBackgroundAgentStartedEvent } from './background-started-event';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -57,28 +57,16 @@ export class UserMessageTransformer {
           events.push(toolResultEvent);
 
           if (state.hasBackgroundTaskToolUseId(toolResultBlock.tool_use_id)) {
-            state.removeBackgroundTaskToolUseId(toolResultBlock.tool_use_id);
-
-            const outputText =
-              typeof toolResultBlock.content === 'string'
-                ? toolResultBlock.content
-                : JSON.stringify(toolResultBlock.content);
-            const outputFileMatch = outputText?.match(
-              /output_file:\s*(.+?)(?:\n|$)/i,
-            );
-
-            const bgEvent: BackgroundAgentStartedEvent = {
-              id: generateEventId(),
-              eventType: 'background_agent_started',
-              timestamp: Date.now(),
-              sessionId,
-              source: 'complete' as EventSource,
-              messageId,
+            const bgEvent = buildBackgroundAgentStartedEvent({
               toolCallId: toolResultBlock.tool_use_id,
-              agentType: 'unknown',
-              outputFilePath: outputFileMatch?.[1]?.trim(),
+              content: toolResultBlock.content,
+              messageId,
+              sessionId,
               parentToolUseId: parent_tool_use_id ?? undefined,
-            };
+              state,
+              helpers,
+            });
+            state.removeBackgroundTaskToolUseId(toolResultBlock.tool_use_id);
             events.push(bgEvent);
           }
         }

@@ -1,34 +1,40 @@
 ---
 title: CLI Flags
-description: Command-line arguments accepted by the Ptah desktop app.
+description: Command-line arguments accepted by the Ptah desktop app and the Ptah CLI.
 ---
 
-The Ptah executable accepts a small set of command-line arguments for automation and troubleshooting.
+This page covers two separate programs. The **desktop app** is the Electron
+executable you install. The **Ptah CLI** is the `@hive-academy/ptah-cli` npm
+package, which provides the `ptah` command in a terminal.
 
-## Positional argument
+## Desktop app
+
+The desktop app accepts one positional argument.
 
 ```bash
-ptah [workspace-path]
+Ptah [workspace-path]
 ```
 
-If `workspace-path` is provided and points to a directory, Ptah opens it as the active workspace on startup. Relative paths are resolved against the current working directory.
+If `workspace-path` points to a directory, Ptah opens it as the active workspace on startup. Relative paths resolve against the current working directory.
 
-## Flags
+The desktop app accepts no other flags. It reads one environment variable.
 
-| Flag              | Argument  | Purpose                                                                                              |
-| ----------------- | --------- | ---------------------------------------------------------------------------------------------------- |
-| `--dev`           | —         | Enable development mode: verbose logging, DevTools auto-open                                         |
-| `--profile`       | `<name>`  | Use an isolated user-data directory named `<name>`; lets you run multiple independent Ptah instances |
-| `--user-data-dir` | `<path>`  | Override the user-data directory with an absolute path                                               |
-| `--log-level`     | `<level>` | One of `error`, `warn`, `info`, `debug`, `trace`                                                     |
-| `--no-gpu`        | —         | Disable hardware acceleration; useful for flaky GPU drivers                                          |
-| `--headless`      | —         | Start with no visible window; intended for CI / smoke tests                                          |
-| `--version`       | —         | Print the version and exit                                                                           |
-| `--help`          | —         | Print usage and exit                                                                                 |
+| Variable         | Values                                    | Purpose                        |
+| ---------------- | ----------------------------------------- | ------------------------------ |
+| `PTAH_LOG_LEVEL` | `error`, `warn`, `info`, `debug`, `trace` | Set the log level for one run. |
 
-## `ptah interact` — embedded Anthropic-compatible proxy
+Set `PTAH_LOG_LEVEL=debug` before you file a bug. See [Logs & Diagnostics](/troubleshooting/logs-and-diagnostics/) for where the log file lands.
 
-`ptah interact` can boot an embedded HTTP proxy that exposes an Anthropic-compatible API surface, optionally re-exporting Ptah's workspace MCP tools. Useful for harnessing external clients or supervisors that already speak the Anthropic protocol.
+## Ptah CLI
+
+The `ptah` command is a separate npm package. Run `ptah --help` for the full
+command list, and `ptah <command> --help` for one command. The command groups
+include `init`, `config`, `harness`, `chat`, `doctor`, `packs`, `agent-cli`,
+`interact`, `mcp-serve`, and `tui`.
+
+### `ptah interact` — embedded Anthropic-compatible proxy
+
+`ptah interact` can boot an embedded HTTP proxy that exposes an Anthropic-compatible API surface, optionally re-exporting Ptah's workspace MCP tools. Use it for external clients or supervisors that already speak the Anthropic protocol.
 
 | Flag                             | Argument | Purpose                                           |
 | -------------------------------- | -------- | ------------------------------------------------- |
@@ -45,36 +51,18 @@ The bound address is printed on stderr as:
 
 Supervisors can scrape that line to discover the live address when `--proxy-port=0` is used.
 
-## Environment variables
-
-The same behavior is also available through environment variables, which is often more convenient when launching from a shell script:
-
-| Variable             | Equivalent to     |
-| -------------------- | ----------------- |
-| `PTAH_LOG`           | `--log-level`     |
-| `PTAH_PROFILE`       | `--profile`       |
-| `PTAH_USER_DATA_DIR` | `--user-data-dir` |
-
 ## Examples
 
 Open a specific workspace with debug logging:
 
 ```bash
-# Windows
-"C:\Users\<you>\AppData\Local\Programs\Ptah\Ptah.exe" "D:\projects\my-app" --log-level=debug
+# Windows PowerShell
+$env:PTAH_LOG_LEVEL = 'debug'
+& "C:\Users\<you>\AppData\Local\Programs\Ptah\Ptah.exe" "D:\projects\my-app"
 
 # macOS
-/Applications/Ptah.app/Contents/MacOS/Ptah ~/code/my-app --log-level=debug
+PTAH_LOG_LEVEL=debug /Applications/Ptah.app/Contents/MacOS/Ptah ~/code/my-app
 
 # Linux
-./Ptah-*.AppImage ~/code/my-app --log-level=debug
+PTAH_LOG_LEVEL=debug ./Ptah-*.AppImage ~/code/my-app
 ```
-
-Run two independent Ptah instances:
-
-```bash
-Ptah --profile=work
-Ptah --profile=personal
-```
-
-Each profile keeps its own settings, plugins, agents, and logs.

@@ -448,6 +448,41 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(h.orchestrator.generateAgents).toHaveBeenCalledTimes(1);
     });
 
+    it('leaves no timer holding the event loop open when the generation never settles (TASK_2026_320)', async () => {
+      // The test above is the leak's own cause: an orchestrator that never
+      // resolves means the `finally` that clears the 10-minute watchdog never
+      // runs, so the timer stays ARMED after the RPC returns. An armed timer
+      // keeps Node's event loop alive, which is why `rpc-handlers` reported
+      // "A worker process has failed to exit gracefully" on every run — five
+      // open handles, all this one `setTimeout`.
+      //
+      // `hasRef()` is asserted rather than spying on `unref` because it states
+      // the property that matters: does this handle hold the loop up. Any
+      // FUTURE timer added to this path is caught by the same assertion.
+      const created: NodeJS.Timeout[] = [];
+      const realSetTimeout = global.setTimeout;
+      const setTimeoutSpy = jest
+        .spyOn(global, 'setTimeout')
+        .mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+          const timer = realSetTimeout(...args);
+          created.push(timer as unknown as NodeJS.Timeout);
+          return timer;
+        }) as unknown as typeof global.setTimeout);
+
+      try {
+        const h = makeHarness();
+        h.handlers.register();
+
+        await call(h, 'wizard:submit-selection', BASE_SUBMIT_PARAMS);
+
+        expect(created.length).toBeGreaterThan(0);
+        expect(created.filter((timer) => timer.hasRef())).toEqual([]);
+      } finally {
+        created.forEach((timer) => clearTimeout(timer));
+        setTimeoutSpy.mockRestore();
+      }
+    });
+
     it('passes selectedAgentIds through as userOverrides to the orchestrator', async () => {
       const h = makeHarness();
       h.handlers.register();

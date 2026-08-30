@@ -6,6 +6,8 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type {
@@ -224,6 +226,15 @@ export class SkillEnhancerService {
       isOptional: true,
     })
     private readonly scorecard: SkillScorecardService | null,
+    /**
+     * Optional and LAST so positional construction in the specs keeps
+     * compiling. Absent ⇒ `{ mcpServerRunning: false }`, which is what this
+     * path used to hardcode — the difference is that it is now DERIVED, so a
+     * host whose MCP server is listening stops telling the enhancement call
+     * that it is not.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   /**
@@ -741,7 +752,7 @@ export class SkillEnhancerService {
         cwd,
         model,
         prompt,
-        mcpServerRunning: false,
+        ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
         abortController,
       });

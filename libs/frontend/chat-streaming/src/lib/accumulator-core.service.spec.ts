@@ -30,7 +30,6 @@ import {
 import type {
   AgentStartEvent,
   BackgroundAgentCompletedEvent,
-  BackgroundAgentProgressEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
   CompactionCompleteEvent,
@@ -269,24 +268,6 @@ function bgAgentStarted(
   } as BackgroundAgentStartedEvent;
 }
 
-function bgAgentProgress(
-  o: Partial<BackgroundAgentProgressEvent> = {},
-): BackgroundAgentProgressEvent {
-  return {
-    id: 'evt-bg-progress',
-    eventType: 'background_agent_progress',
-    timestamp: 12,
-    sessionId: SESSION_ID,
-    messageId: MESSAGE_ID,
-    toolCallId: 'toolu_bg_1',
-    agentId: 'bg-agent-1',
-    summaryDelta: 'progress',
-    status: 'running',
-    source: 'hook',
-    ...o,
-  } as BackgroundAgentProgressEvent;
-}
-
 function bgAgentCompleted(
   o: Partial<BackgroundAgentCompletedEvent> = {},
 ): BackgroundAgentCompletedEvent {
@@ -333,11 +314,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
-      | 'onStarted'
-      | 'onProgress'
-      | 'onCompleted'
-      | 'onStopped'
-      | 'isBackgroundAgent'
+      'onStarted' | 'onCompleted' | 'onStopped' | 'isBackgroundAgent'
     >
   >;
   let agentMonitorStore: jest.Mocked<
@@ -385,7 +362,6 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     >;
     backgroundAgentStore = {
       onStarted: jest.fn(),
-      onProgress: jest.fn(),
       onCompleted: jest.fn(),
       onStopped: jest.fn(),
       isBackgroundAgent: jest.fn().mockReturnValue(false),
@@ -593,6 +569,84 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(result.agentStartFlushNeeded).toBe(false);
       expect(sessionManager.registerAgent).not.toHaveBeenCalled();
       expect(onAgentStart).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_327: a same-id write replaced the object in `events` only, so
+    // the two maps disagreed about the same event id. Every builder reads the
+    // per-message bucket, which meant the backfilled `toolu_*` id — the whole
+    // point of the backfill — never reached the tool→agent match.
+    it('backfill repoints the eventsByMessage bucket at the same object as events', () => {
+      // A hook-sourced agent_start carries the SDK's UUID, not the toolu_* id.
+      core.process(
+        state,
+        agentStart({ toolCallId: 'uuid-from-hook', source: 'hook' }),
+        makeCtx(),
+      );
+
+      const beforeBackfill = state.events.get('evt-agent-start');
+      expect(beforeBackfill).toBeDefined();
+      expect(state.eventsByMessage.get(MESSAGE_ID)).toContain(beforeBackfill);
+
+      // The subagent's first message_start is what carries the real toolu_* id.
+      core.process(
+        state,
+        msgStart({
+          id: 'evt-sub-msg-start',
+          messageId: 'msg-sub',
+          parentToolUseId: 'toolu_real_id',
+        }),
+        makeCtx(),
+      );
+
+      const afterBackfill = state.events.get(
+        'evt-agent-start',
+      ) as AgentStartEvent;
+      expect(afterBackfill.toolCallId).toBe('toolu_real_id');
+      expect(afterBackfill).not.toBe(beforeBackfill);
+
+      const indexed = state.eventsByMessage
+        .get(MESSAGE_ID)
+        ?.find((event) => event.id === 'evt-agent-start');
+      expect(indexed).toBe(afterBackfill);
+      // …and the stale copy is gone from the bucket entirely.
+      expect(state.eventsByMessage.get(MESSAGE_ID)).not.toContain(
+        beforeBackfill,
+      );
+    });
+
+    // TASK_2026_327 finding 6: a same-id replacement that changes `messageId`
+    // left the stale object in the OLD bucket. The old bucket kept pointing at
+    // a pre-replacement event the reader was never told had moved.
+    it('removes the stale entry from the old bucket when a same-id write re-parents the message', () => {
+      // A message_start arrives under msg-a.
+      core.process(
+        state,
+        msgStart({ id: 'evt-msg-shared', messageId: 'msg-a' }),
+        makeCtx(),
+      );
+
+      const before = state.events.get('evt-msg-shared');
+      expect(before).toBeDefined();
+      expect(state.eventsByMessage.get('msg-a')).toContain(before);
+
+      // The same event id is re-processed under a different message — a
+      // re-parent that the accumulator replays through setStreamingEventCapped.
+      core.process(
+        state,
+        msgStart({ id: 'evt-msg-shared', messageId: 'msg-b' }),
+        makeCtx(),
+      );
+
+      const after = state.events.get('evt-msg-shared');
+      expect(after).toBeDefined();
+
+      // The old bucket no longer holds the stale object. It may have been
+      // deleted entirely when the last entry was removed — that is correct.
+      const oldBucket = state.eventsByMessage.get('msg-a');
+      expect(oldBucket ?? []).not.toContain(before);
+      // The new bucket holds the current object.
+      const newBucket = state.eventsByMessage.get('msg-b');
+      expect(newBucket).toContain(after);
     });
   });
 
@@ -814,10 +868,6 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('background_agent_started → onStarted', () => {
       core.process(state, bgAgentStarted(), makeCtx());
       expect(backgroundAgentStore.onStarted).toHaveBeenCalled();
-    });
-    it('background_agent_progress → onProgress', () => {
-      core.process(state, bgAgentProgress(), makeCtx());
-      expect(backgroundAgentStore.onProgress).toHaveBeenCalled();
     });
     it('background_agent_completed → onCompleted', () => {
       core.process(state, bgAgentCompleted(), makeCtx());

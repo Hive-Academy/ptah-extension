@@ -44,6 +44,85 @@ export interface BootstrapResult {
   };
 }
 
+/**
+ * Prime the membership/licence cache for the membership card.
+ *
+ * NETWORK, and deliberately not on the critical path (TASK_2026_331 B1.T2).
+ * This is identity only — it never gates activation or the initial view, and
+ * Ptah's local features are available to everyone — so awaiting it put a
+ * round-trip (and, on a blocked network, a full request timeout) between the
+ * user's click and the window. The renderer renders the membership card from
+ * the cache whenever it lands; until then it shows the unresolved state it
+ * already had to handle for an offline start.
+ *
+ * Never rejects: the caller starts it with `void` and has nowhere to put a
+ * rejection.
+ */
+export async function startMembershipVerification(
+  container: DependencyContainer,
+): Promise<void> {
+  try {
+    const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
+      verifyLicense: () => Promise<{
+        valid: boolean;
+        reason?: string;
+        tier?: string;
+      }>;
+    };
+    const licenseStatus = await licenseService.verifyLicense();
+    console.log(
+      `[Ptah Electron] Membership status resolved (valid: ${licenseStatus.valid}, tier: ${licenseStatus.tier ?? 'none'})`,
+    );
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] Membership status resolution failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+/**
+ * Initialize the agent adapters and, on success, preload the SDK.
+ *
+ * NETWORK, and deliberately not on the critical path (TASK_2026_331 B1.T2).
+ * Failure was already non-fatal; the only change is that the boot no longer
+ * WAITS for it. The renderer shows "not configured" until it completes, which
+ * is the exact state it already showed when `initialize()` resolved `false`.
+ *
+ * Never rejects, for the same reason as
+ * {@link startMembershipVerification}.
+ */
+export async function startAgentAdapterInitialization(
+  container: DependencyContainer,
+): Promise<void> {
+  try {
+    const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
+      initialize: () => Promise<boolean>;
+      preloadSdk: () => Promise<void>;
+    };
+    const authInitialized = await agentAdapter.initialize();
+
+    if (authInitialized) {
+      console.log('[Ptah Electron] Agent adapters initialized successfully');
+      agentAdapter.preloadSdk().catch((err: unknown) => {
+        console.warn(
+          '[Ptah Electron] SDK preload failed (will retry on first use):',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    } else {
+      console.log(
+        '[Ptah Electron] SDK auth not configured — users can configure in Settings',
+      );
+    }
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] Agent adapter initialization failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
 ): Promise<BootstrapResult> {
@@ -216,27 +295,12 @@ export async function bootstrapElectron(
     startupWorkspaceRoot = initialFolders[0];
   }
 
-  // Resolve membership status once at startup to prime the license cache for
-  // the membership card. This is identity only — it never gates activation or
-  // the initial view; Ptah's local features are available to everyone.
-  try {
-    const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-      verifyLicense: () => Promise<{
-        valid: boolean;
-        reason?: string;
-        tier?: string;
-      }>;
-    };
-    const licenseStatus = await licenseService.verifyLicense();
-    console.log(
-      `[Ptah Electron] Membership status resolved (valid: ${licenseStatus.valid}, tier: ${licenseStatus.tier ?? 'none'})`,
-    );
-  } catch (error) {
-    console.warn(
-      '[Ptah Electron] Membership status resolution failed (non-fatal):',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  // Started, NOT awaited — see `startMembershipVerification`. The settings
+  // migration and `restoreWorkspaces()` above stay awaited because the renderer
+  // reads `workspaceRoot` out of `get-startup-config` the moment it loads; this
+  // one feeds a card that has always had an unresolved state.
+  void startMembershipVerification(container);
+
   let ptyManager: PtyManagerService | undefined;
   try {
     ptyManager = container.resolve<PtyManagerService>(
@@ -294,32 +358,9 @@ export async function bootstrapElectron(
     );
     throw error;
   }
-  try {
-    const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
-      initialize: () => Promise<boolean>;
-      preloadSdk: () => Promise<void>;
-    };
-    const authInitialized = await agentAdapter.initialize();
-
-    if (authInitialized) {
-      console.log('[Ptah Electron] Agent adapters initialized successfully');
-      agentAdapter.preloadSdk().catch((err) => {
-        console.warn(
-          '[Ptah Electron] SDK preload failed (will retry on first use):',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-    } else {
-      console.log(
-        '[Ptah Electron] SDK auth not configured — users can configure in Settings',
-      );
-    }
-  } catch (error) {
-    console.warn(
-      '[Ptah Electron] Agent adapter initialization failed (non-fatal):',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  // Started, NOT awaited — see `startAgentAdapterInitialization`. This was the
+  // second network round-trip sitting between `app.whenReady` and the window.
+  void startAgentAdapterInitialization(container);
 
   return {
     container,

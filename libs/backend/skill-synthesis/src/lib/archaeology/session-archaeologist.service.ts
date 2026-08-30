@@ -104,7 +104,10 @@ import {
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
-import type { LaneRunnerService } from '../lanes/lane-runner.service';
+import {
+  LANE_TOOL_USE_DEFAULT_MAX_TURNS,
+  type LaneRunnerService,
+} from '../lanes/lane-runner.service';
 import type { SkillLaneConfig, SkillLaneFailure } from '../lanes/lane.types';
 import { readSkillLane } from '../lanes/skill-lane-config';
 import type { SessionVerdictStore } from './session-verdict.store';
@@ -144,6 +147,24 @@ export const ARCHAEOLOGY_SERVE_BUDGET_SHARE = 0.6;
  * budget into forty empty windows and burn a pass reading nothing.
  */
 export const ARCHAEOLOGY_MAX_REQUESTS_PER_PASS = 6;
+
+/**
+ * Model turns ONE archaeology pass may take.
+ *
+ * Named here and passed explicitly rather than left to the runner's default,
+ * because the pass loop's whole shape depends on it: this analyzer orchestrates
+ * retrieval from TypeScript, but the one-shot it runs still exposes the SDK's
+ * tool preset, so a reply that opens with a single tool call consumed its only
+ * turn under the old `maxTurns: 1` and came back as `error_max_turns` — which
+ * the runner's R6 guard correctly read as "collapse to one pass" and this
+ * service then recorded as a degraded verdict. Every archaeology run on the
+ * measured boot ended that way.
+ *
+ * Equal to {@link LANE_TOOL_USE_DEFAULT_MAX_TURNS} on purpose: this is the
+ * lane that established the number, and a second, differing constant here
+ * would be two answers to one question.
+ */
+export const ARCHAEOLOGY_MAX_TURNS = LANE_TOOL_USE_DEFAULT_MAX_TURNS;
 
 /**
  * The reasons this analyzer writes.
@@ -366,6 +387,10 @@ export class SessionArchaeologistService {
         outputSchema: SESSION_VERDICT_JSON_SCHEMA,
         signal: req.signal,
         attempt: req.attempt,
+        // Explicit at the call site: the pass loop's cost and its failure mode
+        // both hang off this number, and reading it off a runner default put
+        // the reason every archaeology run degraded in another file.
+        maxTurns: ARCHAEOLOGY_MAX_TURNS,
       });
 
       if (result.status === 'unavailable') {

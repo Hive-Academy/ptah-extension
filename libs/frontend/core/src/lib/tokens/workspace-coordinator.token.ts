@@ -28,6 +28,24 @@ export interface IWorkspaceCoordinator {
   /** Coordinate tab and editor state after a workspace switch. */
   switchWorkspace(newPath: string): void | Promise<void>;
 
+  /**
+   * Coordinate the transition to NO workspace — the last folder was closed, or
+   * the host reported zero folders with nothing cached to restore.
+   *
+   * A sibling of {@link switchWorkspace} rather than `switchWorkspace(null)`
+   * because every service that one fans out to takes a `string` path; widening
+   * that signature would push a null check into all of them for a case only
+   * this transition has.
+   *
+   * It exists because "no workspace" is a real state and was being reached
+   * WITHOUT telling anyone: `ElectronLayoutService` set the active index to 0
+   * and called `updateWorkspaceRoot('')` inline, so the workspace scope kept
+   * naming a folder that was no longer open. Reopening that same folder was
+   * then a no-op switch, and every scope-keyed cache served its pre-closure
+   * snapshot (TASK_2026_345, judge round 2).
+   */
+  clearWorkspace(): void | Promise<void>;
+
   /** Clean up tab and editor state for a removed workspace. */
   removeWorkspaceState(workspacePath: string): void | Promise<void>;
 

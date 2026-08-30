@@ -12,13 +12,14 @@ import {
   type Logger,
   type SentryService,
 } from '@ptah-extension/vscode-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
+import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import { bootstrapElectron } from './activation/bootstrap';
-import { wireRuntime } from './activation/wire-runtime';
+import { BootCoordinator } from './activation/boot-coordinator';
+import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
-import type { UpdateManager } from './services/update/update-manager';
+import { handleWillQuit } from './activation/shutdown';
 import {
   PtahTrayService,
   handleWindowAllClosed,
@@ -35,30 +36,27 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
+  /**
+   * ONE reference for every long-lived boot handle (TASK_2026_331 B1.T6).
+   *
+   * This used to be fifteen nullable variables, each copied once out of
+   * `wireRuntime`'s refs or `registerPostWindow`'s result. That shape was only
+   * correct while every service existed before this callback returned. The
+   * heavy boot now runs behind the window, so services arrive AFTER the copies
+   * would have been taken — `coordinator.refs` is a stable object the boot
+   * writes into and `will-quit` reads from, which is what makes a late arrival
+   * still disposable.
+   */
+  const coordinator = new BootCoordinator();
+
+  // Not boot refs: the window itself, the tray, and the two intervals whose
+  // handles `registerPostWindow` returns rather than storing.
   let mainWindow: BrowserWindow | null = null;
-  let resolvedStateStorage: IStateStorage | undefined;
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
   let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
-  let gitWatcher: {
-    stop: () => void;
-    switchWorkspace: (p: string) => void;
-  } | null = null;
   let flushWorkspacePersistence: (() => void) | null = null;
   let sentryFlushed = false;
-  let sqliteConnection: { close: () => void } | null = null;
-  let memoryCurator: { stop: () => void } | null = null;
-  let memoryTrigger: { stop: () => void } | null = null;
-  let skillSynthesis: { stop: () => void } | null = null;
-  let skillTrigger: { stop: () => void } | null = null;
-  let cronScheduler: { stop: () => void } | null = null;
-  let messagingGateway: { stop: () => Promise<void> } | null = null;
-  let chatBridge: { stop: () => void } | null = null;
-  let updateManager: UpdateManager | null = null;
-  let symbolWatcher: { close: () => void } | null = null;
-  let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
-    null;
-  let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
-  let cliRegistry: { disposeAll: () => void } | null = null;
+  let quitSequenceStarted = false;
   // C5 (TASK_2026_180) — stays `null` unless `skillSynthesis.trayKeepalive` is
   // explicitly on AND the tray actually constructed. Nothing else may suppress
   // the quit (R10).
@@ -72,7 +70,7 @@ if (!gotLock) {
     // proxy servers are torn down on app quit (per-workspace teardown runs on
     // workspace:removeFolder; this is the shutdown-wide backstop).
     try {
-      providerProxyPool = boot.container.resolve<{
+      coordinator.refs.providerProxyPool = boot.container.resolve<{
         disposeAll: () => Promise<void>;
       }>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL);
     } catch (error: unknown) {
@@ -80,7 +78,7 @@ if (!gotLock) {
         '[Ptah Electron] ProviderProxyPool resolve failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
-      providerProxyPool = null;
+      coordinator.refs.providerProxyPool = null;
     }
 
     app.on('before-quit', (event) => {
@@ -90,7 +88,7 @@ if (!gotLock) {
             PLATFORM_TOKENS.WORKSPACE_PROVIDER,
           );
         workspaceProvider.fileSettings.flushSync();
-      } catch (error) {
+      } catch (error: unknown) {
         console.warn(
           '[Ptah Electron] before-quit fileSettings flush failed (non-fatal):',
           error instanceof Error ? error.message : String(error),
@@ -115,7 +113,7 @@ if (!gotLock) {
               .catch(() => undefined)
               .finally(() => app.quit());
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.warn(
             '[Ptah Electron] before-quit Sentry flush failed (non-fatal):',
             error instanceof Error ? error.message : String(error),
@@ -124,38 +122,37 @@ if (!gotLock) {
       }
     });
 
-    const wired = await wireRuntime({
+    // PRE-WINDOW: diagnostics, the RPC surface and MCP bring-up. Everything the
+    // renderer needs to exist the moment it loads, and nothing else.
+    const wired = await wireRuntimePreWindow({
       container: boot.container,
       getMainWindow: () => mainWindow,
       startupWorkspaceRoot: boot.startupWorkspaceRoot,
+      coordinator,
+      logsPath: app.getPath('logs'),
     });
-    resolvedStateStorage = wired.resolvedStateStorage;
-    gitWatcher = wired.refs.gitWatcher;
-    sqliteConnection = wired.refs.sqliteConnection;
-    memoryCurator = wired.refs.memoryCurator;
-    memoryTrigger = wired.refs.memoryTrigger;
-    skillSynthesis = wired.refs.skillSynthesis;
-    skillTrigger = wired.refs.skillTrigger;
-    cronScheduler = wired.refs.cronScheduler;
-    symbolWatcher = wired.refs.symbolWatcher;
-    statusBridgeDisposables = wired.refs.statusBridgeDisposables;
-    cliRegistry = wired.refs.cliRegistry;
-    boot.gitWatcherRef.current = gitWatcher;
 
+    // THE WINDOW. Everything above this line is on the critical path; nothing
+    // below it is.
     const post = await registerPostWindow({
       container: boot.container,
-      resolvedStateStorage,
+      resolvedStateStorage: wired.resolvedStateStorage,
       setMainWindow: (w) => {
         mainWindow = w;
       },
       getMainWindow: () => mainWindow,
-      scheduleWarmup: wired.scheduleWarmup,
+      coordinator,
     });
     revalidationInterval = post.revalidationInterval;
     updateCheckInterval = post.updateCheckInterval;
-    updateManager = post.updateManager;
-    messagingGateway = post.messagingGateway;
-    chatBridge = post.chatBridge;
+
+    // POST-WINDOW: SQLite, memory, skills, harness reconcile, session import.
+    // Started rather than awaited — the coordinator owns the promise, catches
+    // every rejection and lets `will-quit` abort it.
+    coordinator.startPostWindow(async () => {
+      await wired.postWindow();
+      boot.gitWatcherRef.current = coordinator.refs.gitWatcher;
+    });
 
     // C5 (TASK_2026_180) — tray keep-alive, purely additive. The tray is built
     // ONLY when `skillSynthesis.trayKeepalive` is explicitly on; it ships
@@ -197,7 +194,9 @@ if (!gotLock) {
   });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createMainWindow(resolvedStateStorage);
+      mainWindow = createMainWindow(
+        coordinator.refs.resolvedStateStorage ?? undefined,
+      );
       const rendererPath = path.join(__dirname, 'renderer', 'index.html');
       mainWindow.loadFile(rendererPath);
     }
@@ -214,151 +213,43 @@ if (!gotLock) {
       hasLiveTray: () => trayService?.isLive() ?? false,
     });
   });
-  app.on('will-quit', () => {
-    flushWorkspacePersistence?.();
-    try {
-      void providerProxyPool?.disposeAll();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] ProviderProxyPool disposeAll failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    if (revalidationInterval !== null) {
-      clearInterval(revalidationInterval);
-      revalidationInterval = null;
-    }
-    if (updateCheckInterval !== null) {
-      clearInterval(updateCheckInterval);
-      updateCheckInterval = null;
-    }
-    try {
-      updateManager?.dispose();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] UpdateManager dispose failed:',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    gitWatcher?.stop();
-    try {
-      symbolWatcher?.close();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Symbol watcher close failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      statusBridgeDisposables?.forEach((d) => d.dispose());
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Status bridge dispose failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    // No harness teardown. `{ws}/.claude/{skills,commands}` are workspace
-    // artifacts, not host-process resources: `ptah tui`, the headless CLI, the
-    // gateway and a plain `claude` invocation all read them without ever
-    // running this app. Removing them on quit is the defect TASK_2026_278
-    // exists to close.
-    try {
-      skillTrigger?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Skill trigger stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      skillSynthesis?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Skill synthesis stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      cronScheduler?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Cron scheduler stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      memoryTrigger?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Memory trigger stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      memoryCurator?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Memory curator stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      sqliteConnection?.close();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] SQLite close failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      chatBridge?.stop();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Gateway chat bridge stop failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      messagingGateway?.stop().catch((error) => {
-        console.warn(
-          '[Ptah Electron] Messaging gateway stop failed (non-fatal):',
-          error instanceof Error ? error.message : String(error),
-        );
-      });
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Messaging gateway stop threw synchronously (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
-    const diContainer = ElectronDIContainer.getContainer();
-    // Terminate the voice utilityProcess worker (kills the child + idle timer).
-    try {
-      if (diContainer.isRegistered(VOICE_TOKENS.VOICE_WORKER_CLIENT)) {
-        diContainer
-          .resolve<{ dispose: () => void }>(VOICE_TOKENS.VOICE_WORKER_CLIENT)
-          .dispose();
-      }
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Voice worker dispose failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    // Dispose the Ptah CLI registry ONLY if it was actually instantiated during
-    // the app's lifetime (captured as a ref in wireRuntime). Resolving it from
-    // the container here would force first-time construction of its dependency
-    // graph mid-teardown, which races with the DI/subsystem shutdown and can
-    // hang or throw (see auto-updater e2e: production + blocked network). When
-    // the registry was never used there are no per-agent proxies to stop.
-    try {
-      cliRegistry?.disposeAll();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] CLI registry dispose failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+  // Branch-free delegation, for the same reason: the LIFO disposal order is a
+  // real contract and lives in `handleWillQuit` where a spec can assert it.
+  // The guard exists because a DEFERRED quit calls `app.quit()` again once the
+  // aborted boot has drained, which re-emits this event.
+  app.on('will-quit', (event) => {
+    if (quitSequenceStarted) return;
+    quitSequenceStarted = true;
+    handleWillQuit({
+      refs: coordinator.refs,
+      abortBoot: () => coordinator.abort(),
+      isBootRunning: () => coordinator.isRunning,
+      awaitBootCompletion: (timeoutMs) =>
+        coordinator.awaitCompletion(timeoutMs),
+      flushWorkspacePersistence: () => flushWorkspacePersistence?.(),
+      flushSessionMetadataStores: () => {
+        void flushSessionMetadataStores();
+      },
+      clearTimers: () => {
+        if (revalidationInterval !== null) {
+          clearInterval(revalidationInterval);
+          revalidationInterval = null;
+        }
+        if (updateCheckInterval !== null) {
+          clearInterval(updateCheckInterval);
+          updateCheckInterval = null;
+        }
+      },
+      disposeVoiceWorker: () => {
+        const diContainer = ElectronDIContainer.getContainer();
+        if (diContainer.isRegistered(VOICE_TOKENS.VOICE_WORKER_CLIENT)) {
+          diContainer
+            .resolve<{ dispose: () => void }>(VOICE_TOKENS.VOICE_WORKER_CLIENT)
+            .dispose();
+        }
+      },
+      deferQuit: () => event.preventDefault(),
+      quit: () => app.quit(),
+    });
   });
 } // end of gotLock guard

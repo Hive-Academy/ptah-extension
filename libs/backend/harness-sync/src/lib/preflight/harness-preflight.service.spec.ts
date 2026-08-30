@@ -12,6 +12,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { HarnessHealth } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { HarnessPassAbortedError } from '../abort/pass-abort';
 import {
   DEFAULT_PREFLIGHT_TIMEOUT_MS,
   HarnessPreflightService,
@@ -91,6 +92,9 @@ describe('HarnessPreflightService', () => {
     expect(reconcile).toHaveBeenCalledWith(ws.root, {
       mode: 'preflight',
       reason: 'session-preflight:preflight',
+      // The budget's cancellation handle (TASK_2026_323 / B8). Every pass now
+      // carries one — see "cancels the losing pass" below for what it does.
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -107,9 +111,6 @@ describe('HarnessPreflightService', () => {
   });
 
   it('returns null and lets the session continue when the budget expires', async () => {
-    // The pass is deliberately NOT cancelled — it holds the workspace lock and
-    // is mid-copy. It finishes in the background and the next preflight is a
-    // no-op.
     let settle: (health: HarnessHealth) => void = () => undefined;
     const reconcile = jest.fn().mockImplementation(
       () =>
@@ -127,6 +128,72 @@ describe('HarnessPreflightService', () => {
       expect.anything(),
     );
     settle(makeHealth());
+  });
+
+  /**
+   * B8 (TASK_2026_323). The losing pass used to be left running: a synchronous
+   * recursive walk of `~/.ptah/user`, hashing every byte of every skill, on the
+   * Electron main thread, for a session that had already moved on. It is now
+   * cancelled — but only while it is still READING, which the reconciler
+   * guarantees with its commit point (`abort/pass-abort.ts`).
+   */
+  describe('cancels the losing pass (B8)', () => {
+    it('aborts the signal it handed the reconciler once the budget expires', async () => {
+      let handed: AbortSignal | undefined;
+      const reconcile = jest
+        .fn()
+        .mockImplementation(
+          (_root: string, options: { signal?: AbortSignal }) => {
+            handed = options.signal;
+            return new Promise<HarnessHealth>(() => undefined);
+          },
+        );
+      const { service } = build(reconcile);
+
+      expect(await service.ensure(ws.root, { timeoutMs: 5 })).toBeNull();
+
+      expect(handed).toBeInstanceOf(AbortSignal);
+      expect(handed?.aborted).toBe(true);
+    });
+
+    it('does not abort a pass that finished inside the budget while it was running', async () => {
+      // The abort in the `finally` is a listener cleanup, not a cancellation:
+      // by then the reconciler has already detached and returned a report. What
+      // must never happen is the signal firing DURING a pass that is about to
+      // succeed.
+      let abortedDuringPass: boolean | undefined;
+      const reconcile = jest
+        .fn()
+        .mockImplementation(
+          async (_root: string, options: { signal?: AbortSignal }) => {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            abortedDuringPass = options.signal?.aborted;
+            return makeHealth();
+          },
+        );
+      const { service } = build(reconcile);
+
+      expect(
+        await service.ensure(ws.root, { timeoutMs: 5_000 }),
+      ).not.toBeNull();
+      expect(abortedDuringPass).toBe(false);
+    });
+
+    it('reports a cancelled pass as debug, not as a failure', async () => {
+      // A workspace too large to hash inside the budget would otherwise warn on
+      // every single session start, which trains the user to ignore the log.
+      const reconcile = jest
+        .fn()
+        .mockRejectedValue(new HarnessPassAbortedError());
+      const { service, logger } = build(reconcile);
+
+      await expect(service.ensure(ws.root)).resolves.toBeNull();
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('cancelled'),
+        expect.anything(),
+      );
+    });
   });
 
   it('never throws when the reconciler rejects', async () => {

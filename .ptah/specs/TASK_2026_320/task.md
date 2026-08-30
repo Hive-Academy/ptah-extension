@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_320
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Jest leaks a worker in rpc-handlers, which makes any concurrent multi-project
@@ -23,6 +23,7 @@ description: >-
   over `web-pricing` / `web-account` also failed under concurrent load during
   TASK_2026_315 and passed cleanly in isolation. Recorded as F3 in that task's
   follow-ups.
+updated: '2026-08-25T21:04:55.854Z'
 ---
 
 # Jest worker leak in rpc-handlers breaks concurrent verification

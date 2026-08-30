@@ -65,14 +65,10 @@ describe('TaskListComponent', () => {
     return {
       fixture,
       host,
-      rows: () => Array.from(host.querySelectorAll('tbody tr')),
+      rows: () => Array.from(host.querySelectorAll('[data-testid="task-row"]')),
       rowIds: () =>
-        Array.from(host.querySelectorAll('tbody tr')).map((row) =>
-          row.getAttribute('data-task-id'),
-        ),
-      headers: () =>
-        Array.from(host.querySelectorAll('thead th')).map((cell) =>
-          (cell.textContent ?? '').trim(),
+        Array.from(host.querySelectorAll('[data-testid="task-row"]')).map(
+          (row) => row.getAttribute('data-task-id'),
         ),
       count: (status: TaskStatus) =>
         host
@@ -313,27 +309,67 @@ describe('TaskListComponent', () => {
   // Compact mode
   // ---------------------------------------------------------------------------
 
-  it('drops the scanning columns in compact mode, keeping Task and Type', () => {
-    const columns = [column('backlog', [makeTask('TASK_2026_200')])];
-    expect(render(columns).headers()).toEqual([
-      'Select',
-      'Task',
-      'Description',
-      'Type',
-      // "Size", not "Estimate" — the longer word clipped at this column's
-      // width in the Electron pass.
-      'Size',
-      'Updated',
-      'Executor',
-      'Progress',
-      'Actions',
-    ]);
-    expect(render(columns, { compact: true }).headers()).toEqual([
-      'Select',
-      'Task',
-      'Type',
-      'Actions',
-    ]);
+  /**
+   * The rail keeps what identifies a task — id, title, type — and drops what
+   * describes it. A 380px rail beside the detail panel is for finding the next
+   * task, not reading this one.
+   */
+  it('drops the description and the metadata in compact mode, keeping the type', () => {
+    const columns = [
+      column('backlog', [
+        makeTask('TASK_2026_200', 'backlog', {
+          description: 'A description',
+          estimate: 'M',
+          executor: 'codex',
+          updated: '2026-08-09T11:15:00.000Z',
+        }),
+      ]),
+    ];
+    const full = render(columns);
+    for (const testId of [
+      'task-row-description',
+      'task-row-type',
+      'task-row-estimate',
+      'task-row-executor',
+      'task-row-updated',
+    ]) {
+      expect(
+        full.host.querySelector(`[data-testid="${testId}"]`),
+      ).not.toBeNull();
+    }
+
+    const rail = render(columns, { compact: true });
+    expect(
+      rail.host.querySelector('[data-testid="task-row-type"]'),
+    ).not.toBeNull();
+    expect(
+      rail.host.querySelector('[data-testid="task-row-title"]')?.textContent,
+    ).toContain('Title TASK_2026_200');
+    for (const testId of [
+      'task-row-description',
+      'task-row-estimate',
+      'task-row-executor',
+      'task-row-updated',
+    ]) {
+      expect(rail.host.querySelector(`[data-testid="${testId}"]`)).toBeNull();
+    }
+  });
+
+  /** An absent field is absent — never an em dash placeholder. */
+  it('renders no placeholder for fields the task does not carry', () => {
+    const view = render([column('backlog', [makeTask('TASK_2026_200')])]);
+    expect(
+      view.host.querySelector('[data-testid="task-row-description"]'),
+    ).toBeNull();
+    expect(
+      view.host.querySelector('[data-testid="task-row-executor"]'),
+    ).toBeNull();
+    expect(
+      view.host.querySelector('[data-testid="task-row-updated"]'),
+    ).toBeNull();
+    expect(
+      view.host.querySelector('[data-testid="task-row-rollup"]'),
+    ).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
@@ -603,15 +639,16 @@ describe('TaskListComponent', () => {
   // Cell rendering
   // ---------------------------------------------------------------------------
 
-  it('renders an em dash rather than "Invalid Date" for an unparseable updated', () => {
+  it('renders no updated field rather than "Invalid Date" for an unparseable updated', () => {
     const view = render([
       column('backlog', [
         makeTask('TASK_2026_200', 'backlog', { updated: 'not-a-date' }),
       ]),
     ]);
     expect(
-      view.host.querySelector('[data-testid="task-row-updated"]')?.textContent,
-    ).toContain('—');
+      view.host.querySelector('[data-testid="task-row-updated"]'),
+    ).toBeNull();
+    expect(view.host.textContent).not.toContain('Invalid Date');
   });
 
   /**
@@ -637,12 +674,11 @@ describe('TaskListComponent', () => {
   });
 
   /**
-   * ONE chip, against the card's three. The row shares a single cell with the
-   * id and the title, and every chip is taken straight off the title — three
-   * of them cut the title down to "The sta…" in the Electron pass. The overflow
-   * chip still names every label it stands for, so nothing is hidden outright.
+   * Three chips, matching the card: the chips sit on the row's own wrapping
+   * metadata line, so they no longer compete with the title. The overflow chip
+   * still names every label it stands for, so nothing is hidden outright.
    */
-  it('shows one label chip and names every label it rolled up', () => {
+  it('shows three label chips and names every label it rolled up', () => {
     const view = render([
       column('backlog', [
         makeTask('TASK_2026_200', 'backlog', {
@@ -656,8 +692,9 @@ describe('TaskListComponent', () => {
     const overflow = view.host.querySelector(
       '[data-testid="task-row-labels-overflow"]',
     );
-    expect(overflow?.textContent?.trim()).toBe('+3');
-    expect(overflow?.getAttribute('title')).toContain('two, three, four');
+    expect(overflow?.textContent?.trim()).toBe('+1');
+    expect(overflow?.getAttribute('title')).toContain('four');
+    expect(overflow?.getAttribute('title')).not.toContain('three');
   });
 
   /**

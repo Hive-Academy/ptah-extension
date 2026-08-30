@@ -194,4 +194,56 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
         .some((u) => u.includes('theme-extra.css')),
     ).toBe(false);
   });
+
+  /**
+   * The `data-theme` attribute flipping is NOT evidence that the theme
+   * applied. TASK_2026_186 shipped a regression where every switch set the
+   * attribute correctly and repainted nothing: `styles.css` loads after
+   * `theme-extra.css`, both carry (0,1,0) selectors, and daisyUI's `:root`
+   * copy of `anubis` in `styles.css` therefore beat every
+   * `[data-theme=<one of 32>]` rule. The only visible change was `--bcm`,
+   * which `styles.css` sets per theme itself. Every existing test above
+   * passed throughout.
+   *
+   * This asserts the computed variables, which is the property that broke.
+   */
+  test('a deferred theme repaints the variables, and switching back restores anubis', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    const readVars = () =>
+      page.evaluate(() => {
+        const style = getComputedStyle(document.documentElement);
+        return {
+          p: style.getPropertyValue('--p').trim(),
+          b1: style.getPropertyValue('--b1').trim(),
+        };
+      });
+    const pick = async (theme: string) => {
+      await page.locator('[aria-label="Change theme"]').click();
+      await page.locator('div.dropdown-content').waitFor({ state: 'visible' });
+      // dispatchEvent for the same stacking-context reason as the test above.
+      await page
+        .locator(`div.dropdown-content button[data-theme="${theme}"]`)
+        .dispatchEvent('click');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme, {
+        timeout: 5_000,
+      });
+    };
+
+    const anubis = await readVars();
+    expect(anubis.p).not.toBe('');
+    expect(anubis.b1).not.toBe('');
+
+    await pick('dracula');
+    const dracula = await readVars();
+    expect(dracula.p).not.toBe(anubis.p);
+    expect(dracula.b1).not.toBe(anubis.b1);
+
+    // Back to an eager theme with the deferred sheet now in the document —
+    // the direction that fails if the deferred sheet is appended last, because
+    // its leading `:root` block is daisyUI's `light` theme.
+    await pick('anubis');
+    expect(await readVars()).toEqual(anubis);
+  });
 });

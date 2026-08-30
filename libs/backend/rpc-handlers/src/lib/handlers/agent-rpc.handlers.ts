@@ -245,7 +245,7 @@ export class AgentRpcHandlers {
         if (params.maxConcurrentAgents !== undefined) {
           await this.setAgentCfg(
             'maxConcurrentAgents',
-            Math.max(1, Math.min(10, params.maxConcurrentAgents)),
+            Math.max(1, Math.min(20, params.maxConcurrentAgents)),
           );
         }
         if (params.codexModel !== undefined) {

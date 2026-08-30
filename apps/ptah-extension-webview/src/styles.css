@@ -222,8 +222,8 @@ GLASS MORPHISM UTILITY CLASSES
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   box-shadow:
-    0 0 20px oklch(var(--s) / 0.1),
-    inset 0 1px 0 oklch(var(--s) / 0.2);
+    0 0 20px oklch(var(--s) / 0.05),
+    inset 0 1px 0 oklch(var(--s) / 0.1);
 }
 
 .glass-panel-divine::before {
@@ -241,7 +241,7 @@ GLASS MORPHISM UTILITY CLASSES
 }
 
 .divine-glow {
-  box-shadow: 0 0 20px oklch(var(--s) / 0.3);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.12);
 }
 
 /* ============================================================================
@@ -454,12 +454,12 @@ Modern CSS scrollbar properties (Chromium 121+, Electron 35+) take priority.
 Webkit pseudo-elements kept as fallback for older webview hosts.
 ============================================================================ */
 
-/* Modern standard: thin scrollbar with Anubis gold theme */
+/* Modern standard: thin neutral scrollbar — chrome, not brand accent */
 * {
   scrollbar-width: thin;
   /* thumb / track — fallback rgba, then oklch */
-  scrollbar-color: rgba(212, 175, 55, 0.3) transparent;
-  scrollbar-color: oklch(var(--s) / 0.3) transparent;
+  scrollbar-color: rgba(128, 128, 128, 0.2) transparent;
+  scrollbar-color: oklch(var(--bc) / 0.2) transparent;
 }
 
 /* Webkit fallback (VS Code webviews, older Electron) */
@@ -474,15 +474,15 @@ Webkit pseudo-elements kept as fallback for older webview hosts.
 
 ::-webkit-scrollbar-thumb {
   /* Fallback for browsers without oklch support */
-  background: rgba(212, 175, 55, 0.3);
-  background: oklch(var(--s) / 0.3);
+  background: rgba(128, 128, 128, 0.2);
+  background: oklch(var(--bc) / 0.2);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   /* Fallback for browsers without oklch support */
-  background: rgba(212, 175, 55, 0.5);
-  background: oklch(var(--s) / 0.5);
+  background: rgba(128, 128, 128, 0.35);
+  background: oklch(var(--bc) / 0.35);
 }
 
 /* ============================================================================
@@ -716,7 +716,7 @@ Enhanced typography, visual hierarchy, and reading comfort
 }
 
 .prose h2 {
-  color: oklch(var(--s)); /* secondary (gold) */
+  color: oklch(var(--bc)); /* base-content — gold reserved for h1 */
   font-weight: 600;
   font-size: 1.3em;
   margin-top: 1.6em;
@@ -727,7 +727,7 @@ Enhanced typography, visual hierarchy, and reading comfort
 }
 
 .prose h3 {
-  color: oklch(var(--s) / 0.9);
+  color: oklch(var(--bc)); /* base-content — gold reserved for h1 */
   font-weight: 600;
   font-size: 1.15em;
   margin-top: 1.4em;
@@ -842,7 +842,7 @@ Enhanced typography, visual hierarchy, and reading comfort
 /* --- Blockquotes: Callout card style --- */
 
 .prose blockquote {
-  border-left: 3px solid oklch(var(--s) / 0.5);
+  border-left: 3px solid oklch(var(--s) / 0.25);
   background-color: oklch(var(--b2) / 0.3);
   border-radius: 0 0.375rem 0.375rem 0;
   padding: 0.75em 1em;
@@ -887,7 +887,7 @@ Enhanced typography, visual hierarchy, and reading comfort
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: oklch(var(--s) / 0.6);
+  background-color: oklch(var(--s) / 0.3);
 }
 
 .prose ol > li {
@@ -896,7 +896,7 @@ Enhanced typography, visual hierarchy, and reading comfort
 }
 
 .prose ol > li::marker {
-  color: oklch(var(--s) / 0.7);
+  color: oklch(var(--s) / 0.35);
   font-weight: 600;
 }
 
@@ -924,8 +924,8 @@ Enhanced typography, visual hierarchy, and reading comfort
   background: linear-gradient(
     90deg,
     transparent,
-    oklch(var(--s) / 0.3) 20%,
-    oklch(var(--s) / 0.3) 80%,
+    oklch(var(--s) / 0.15) 20%,
+    oklch(var(--s) / 0.15) 80%,
     transparent
   );
   margin: 1.75em 0;
@@ -945,7 +945,7 @@ Enhanced typography, visual hierarchy, and reading comfort
 
 .prose th {
   background-color: oklch(var(--b2) / 0.6);
-  border-bottom: 2px solid oklch(var(--s) / 0.2);
+  border-bottom: 2px solid oklch(var(--s) / 0.1);
   padding: 0.6em 0.9em;
   text-align: left;
   font-weight: 600;
@@ -1104,7 +1104,7 @@ Optimized for VS Code sidebar (200-600px)
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: oklch(var(--s) / 0.85);
+  color: oklch(var(--bc) / 0.7);
 }
 
 .code-line-count {
@@ -1131,7 +1131,7 @@ Optimized for VS Code sidebar (200-600px)
 }
 
 .code-block-collapsible summary.code-block-toggle::marker {
-  color: oklch(var(--s) / 0.5);
+  color: oklch(var(--bc) / 0.5);
 }
 
 /* --- Decorative Divider (hr replacement) --- */
@@ -1145,9 +1145,9 @@ Optimized for VS Code sidebar (200-600px)
   background: linear-gradient(
     90deg,
     transparent,
-    oklch(var(--s) / 0.25) 15%,
-    oklch(var(--s) / 0.4) 50%,
-    oklch(var(--s) / 0.25) 85%,
+    oklch(var(--s) / 0.12) 15%,
+    oklch(var(--s) / 0.2) 50%,
+    oklch(var(--s) / 0.12) 85%,
     transparent
   );
 }
@@ -1156,7 +1156,7 @@ Optimized for VS Code sidebar (200-600px)
   position: absolute;
   width: 6px;
   height: 6px;
-  background-color: oklch(var(--s) / 0.5);
+  background-color: oklch(var(--s) / 0.25);
   transform: rotate(45deg);
 }
 
@@ -1172,13 +1172,13 @@ Optimized for VS Code sidebar (200-600px)
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: oklch(var(--s) / 0.7);
+  background-color: oklch(var(--s) / 0.35);
   flex-shrink: 0;
 }
 
 .prose-heading-bordered {
   padding-left: 0.6em;
-  border-left: 3px solid oklch(var(--s) / 0.35);
+  border-left: 3px solid oklch(var(--s) / 0.18);
 }
 
 /* --- List Card (Ordered & Unordered Lists in bordered card) --- */
@@ -1217,7 +1217,7 @@ Optimized for VS Code sidebar (200-600px)
 
 /* Gold-accented markers for ordered lists inside cards */
 .prose-list-card ol > li::marker {
-  color: oklch(var(--s) / 0.7);
+  color: oklch(var(--s) / 0.35);
   font-weight: 600;
 }
 
@@ -1238,7 +1238,7 @@ Optimized for VS Code sidebar (200-600px)
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: oklch(var(--s) / 0.6);
+  background-color: oklch(var(--s) / 0.3);
 }
 
 /* Nested lists inside cards — tighter spacing, dimmer bullets */
@@ -1258,7 +1258,7 @@ Optimized for VS Code sidebar (200-600px)
 
 /* --- Enhanced Tables --- */
 .prose table {
-  border-top: 2px solid oklch(var(--s) / 0.3);
+  border-top: 2px solid oklch(var(--s) / 0.15);
 }
 
 .prose tr:nth-child(even) td {
@@ -1409,6 +1409,39 @@ UTILITY CLASSES
 
 .text-lapis {
   color: #2563eb;
+}
+
+/* ----------------------------------------------------------------------------
+BRAND GOLD SURFACES (Ptah MCP tool affordances)
+
+One definition, applied globally. These used to be duplicated as component
+`styles: []` blocks in three components — each with its own hardcoded #daa520 /
+rgba(218, 165, 32, …) literals, a shimmer gradient animation and a glow
+box-shadow, none of which followed the user's theme. They now key off the
+theme-aware `--ptah-gold*` tokens declared at the top of this file.
+
+Layout (padding, font-size, radius) still comes from the daisyUI `badge`
+classes on the elements themselves; only weight and the gold treatment live
+here. Emulated view encapsulation does not scope the class names in a
+template, so these global rules reach the component markup unchanged.
+---------------------------------------------------------------------------- */
+
+.ptah-gold-border {
+  border-color: color-mix(in oklch, var(--ptah-gold) 40%, transparent);
+}
+
+.ptah-tool-name-badge {
+  background: var(--ptah-gold-soft);
+  color: var(--ptah-gold);
+  border: 1px solid color-mix(in oklch, var(--ptah-gold) 30%, transparent);
+  font-weight: 500;
+}
+
+.ptah-superpower-badge {
+  background: var(--ptah-gold-soft);
+  color: var(--ptah-gold);
+  border: 1px solid color-mix(in oklch, var(--ptah-gold) 40%, transparent);
+  font-weight: 600;
 }
 
 /* ============================================================================
@@ -1951,7 +1984,9 @@ Session-related buttons use the brand gold, view pills get elegant styling
   color: var(--ptah-gold-strong);
 }
 
-/* Electron navbar — DaisyUI tabs-lifted with gold active accent */
+/* Electron navbar — DaisyUI tabs-lifted. The active accent is `primary`, the
+   same token `.tab-item-active` above uses, so the two tab strips agree and
+   both follow whichever theme the user picked. */
 .electron-tabs.tabs-lifted > .tab {
   font-size: 12px;
   --tab-bg: oklch(var(--b2));
@@ -1960,8 +1995,8 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 .electron-tabs.tabs-lifted > .tab-active {
   --tab-bg: oklch(var(--b1));
-  --tab-border-color: var(--ptah-gold);
-  color: var(--ptah-gold-strong);
+  --tab-border-color: oklch(var(--p));
+  color: oklch(var(--p));
   font-weight: 500;
 }
 

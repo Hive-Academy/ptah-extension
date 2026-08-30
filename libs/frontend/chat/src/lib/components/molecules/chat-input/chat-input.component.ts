@@ -32,6 +32,7 @@ import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
+  AuthStateService,
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
@@ -120,7 +121,9 @@ interface PastedImage {
         <div
           class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
         >
-          <div class="flex items-center gap-2 text-warning text-sm font-medium">
+          <div
+            class="flex items-center gap-2 text-base-content-muted text-sm font-medium"
+          >
             <span class="loading loading-spinner loading-sm"></span>
             <span>Optimizing context...</span>
           </div>
@@ -245,7 +248,7 @@ interface PastedImage {
               autopilotState.agentPlanMode() ||
               autopilotState.permissionLevel() === 'plan'
             "
-            [class.border-warning]="
+            [class.border-primary]="
               !autopilotState.agentPlanMode() &&
               autopilotState.permissionLevel() !== 'plan' &&
               autopilotState.enabled()
@@ -382,7 +385,17 @@ export class ChatInputComponent implements OnInit {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   });
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
-  readonly authMethodLabel = signal<string | null>(null);
+  private readonly authState = inject(AuthStateService);
+
+  /**
+   * Auth badge label, read straight off `AuthStateService`.
+   *
+   * This component used to issue the auth-status RPC itself in `ngOnInit` and
+   * derive the label locally — a third independent boot caller of a 2-5s
+   * handler, re-fired on every workspace switch because the input re-inits
+   * (TASK_2026_342). The label rule now has one owner.
+   */
+  readonly authMethodLabel = this.authState.authMethodLabel;
 
   /**
    * Use the same streaming indicator as tab spinner.
@@ -532,10 +545,11 @@ export class ChatInputComponent implements OnInit {
   );
 
   /**
-   * Initialize auth method label fetch on component init.
+   * Ensure auth status has been loaded once so the badge can render.
+   * No-op after the first successful load — the guard lives in the service.
    */
   ngOnInit(): void {
-    this.fetchAuthMethodLabel();
+    void this.authState.loadAuthStatus();
   }
 
   /**
@@ -1238,40 +1252,6 @@ export class ChatInputComponent implements OnInit {
       console.log('[ChatInputComponent] Stop requested, aborted:', aborted);
     } catch (error) {
       console.error('[ChatInputComponent] Failed to stop streaming:', error);
-    }
-  }
-
-  /**
-   * Fetch auth method label from backend for badge display.
-   */
-  private async fetchAuthMethodLabel(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('auth:getAuthStatus', {});
-      if (result.isSuccess() && result.data) {
-        const { authMethod, anthropicProviderId, availableProviders } =
-          result.data;
-
-        let label: string;
-        if (authMethod === 'thirdParty') {
-          const provider = availableProviders?.find(
-            (p) => p.id === anthropicProviderId,
-          );
-          label = provider?.name ?? 'Provider';
-        } else if (authMethod === 'apiKey') {
-          label = 'API Key';
-        } else if (authMethod === 'claudeCli') {
-          label = 'Claude CLI';
-        } else {
-          label = 'API Key';
-        }
-
-        this.authMethodLabel.set(label);
-      }
-    } catch (error) {
-      console.error(
-        '[ChatInputComponent] Failed to fetch auth method label:',
-        error,
-      );
     }
   }
 

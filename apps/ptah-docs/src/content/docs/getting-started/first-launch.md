@@ -9,7 +9,7 @@ The first time you open Ptah, the app guides you through selecting a workspace, 
 
 Ptah is free and fully open source, so first launch goes straight into the app — there's no gate, license prompt, or lockout to clear. Every local capability is available immediately.
 
-Signing in is optional: it connects you to a **Ptah Builders** membership for hosted perks (hosted gateway, priority support, early access, and community access). You can sign in — or attach a Builders license key — any time from **Settings → License**. See [Signing in](/getting-started/signing-in/) for details.
+Signing in is optional: it connects you to a **Ptah Builders** membership, which adds the SaaS-building course, weekly live sessions, member skill packs, the private community, and priority support. You can sign in — or attach a Builders license key — any time from **Settings → License**. See [Signing in](/getting-started/signing-in/) for details.
 
 ![Welcome screen](/screenshots/welcome.png)
 
@@ -27,48 +27,31 @@ Workspaces you've opened appear under **File → Open recent**. Pin frequently u
 
 ## Setup wizard
 
-The first time you open a workspace, Ptah launches a multi-step setup wizard. You can skip it and return later from **Agents → Run setup wizard**, but most users get the best results by letting it run once per project.
+The first time you open a workspace, Ptah offers a seven-step setup wizard. It
+scans your project, detects your stack, proposes an agent roster, tunes each
+agent's prompt to your conventions, and writes the result to `.claude/agents/`.
 
-### Step 1 — Project analysis
+You can skip it and return later from the **Setup Hub → Workspace Analysis**
+card. Most users get the best results by letting it run once per project.
 
-Ptah scans your workspace to build a project profile. It looks at:
-
-- **Tech stack** — languages, frameworks, and build tools detected from manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, etc.) and file extensions
-- **File structure** — top-level folders, monorepo layout, test locations
-- **Dependencies** — direct production and development dependencies
-- **Tooling signals** — linters, formatters, CI configs, and test runners
-
-The scan is local; no source code leaves your machine during analysis.
+The scan is local. No source code leaves your machine during analysis.
 
 ![Project analysis progress](/screenshots/setup-analysis.png)
 
-### Step 2 — Agent generation
-
-Based on the project profile, Ptah proposes a set of agents tailored to your codebase — for example, a frontend component author, a backend API reviewer, or a test-writing specialist. Each proposal includes:
-
-- A name and short description
-- The role and responsibilities it will take on
-- The model / provider it defaults to
-- Tools it can call (file search, shell, browser, MCP, etc.)
-
-Review the list, toggle individual agents on or off, and click **Create agents** to continue. You can edit every field after creation from the **Agents** panel.
+See [Setup Wizard](/setup/setup-wizard/) for a walkthrough of all seven steps.
 
 :::note[Customize freely]
 The wizard's suggestions are a starting point, not a prescription. Nothing generated here is locked — rename, rewrite, or delete any agent at any time.
 :::
 
-### Step 3 — CLI agent detection
+## CLI agent detection
 
-Ptah scans your `PATH` and common install locations for installed CLI agents and registers the ones it finds:
+Separately from the wizard, Ptah scans your `PATH` for installed agent CLIs —
+Codex, Copilot, Cursor, Antigravity, OpenCode, and Pi — and registers the ones
+it finds. Detected CLIs appear in **Providers → CLI agents**. A missing CLI is
+not an error. See [CLI agents](/agents/cli-agents/).
 
-- **GitHub Copilot CLI**
-- **OpenAI Codex CLI**
-- **Claude CLI**
-- **ptah-cli** (the bundled CLI that ships with the desktop app)
-
-Detected CLIs show up with a green badge in **Providers → CLI agents**. Missing ones can be installed later from the same panel or through your package manager of choice.
-
-### Step 4 — Import existing sessions
+## Import existing sessions
 
 If Ptah finds a Claude CLI session history at `~/.claude/projects/`, it offers to import those conversations into the current workspace. Imported sessions appear in the chat history sidebar and remain fully editable — the import is a one-time copy, not a live link.
 

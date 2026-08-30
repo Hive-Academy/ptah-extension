@@ -72,3 +72,45 @@ describe('TC-6: CLI signal handler static analysis — Batch 1 regression guard'
     expect(source).toMatch(/CliDIContainer\.flushSync\s*\(\s*\)/);
   });
 });
+
+/**
+ * Every route out of this process must drain the session metadata queue
+ * (TASK_2026_324 finding 3). The store coalesces a burst of writes into one
+ * update at the end of its queue drain, so a CLI agent that exited on the last
+ * turn leaves its reference STAGED. `process.on('exit')` cannot stand in: that
+ * hook is synchronous and the write is not.
+ *
+ * There are three routes, and each needs its own call:
+ *   1. a signal — started, because a signal handler cannot be async;
+ *   2. normal completion — awaited, before `finalizeExit` calls `process.exit`;
+ *   3. a fatal error — awaited, before the `process.exit(1)` in the catch.
+ *
+ * Route 3 is the one that was missing: a command that threw after running CLI
+ * agents dropped everything they had staged.
+ */
+describe('CLI session metadata flush — every exit route', () => {
+  let source: string;
+
+  beforeAll(() => {
+    source = fs.readFileSync(MAIN_TS_PATH, 'utf-8');
+  });
+
+  it('calls the flush on all three exit routes', () => {
+    const calls = source.split('flushSessionMetadataStores()').length - 1;
+    expect(calls).toBe(3);
+  });
+
+  it('flushes before the fatal-path process.exit(1), not after', () => {
+    const catchIndex = source.indexOf('[ptah] fatal:');
+    expect(catchIndex).toBeGreaterThan(-1);
+    const catchBody = source.slice(catchIndex);
+
+    const flushIndex = catchBody.indexOf('flushSessionMetadataStores()');
+    const exitIndex = catchBody.indexOf('process.exit(1)');
+
+    expect(flushIndex).toBeGreaterThan(-1);
+    expect(exitIndex).toBeGreaterThan(-1);
+    expect(flushIndex).toBeLessThan(exitIndex);
+    expect(catchBody.slice(flushIndex - 6, flushIndex)).toContain('await');
+  });
+});

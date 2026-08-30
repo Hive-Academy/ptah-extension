@@ -1,10 +1,10 @@
 ---
 id: TASK_2026_243
-status: in_review
+status: done
 type: BUGFIX
 title: >-
-  Fix the `[value]`-without-`[selected]` select binding that silently
-  discards a pre-set value
+  Fix the `[value]`-without-`[selected]` select binding that silently discards a
+  pre-set value
 description: >-
   Angular applies a `[value]` property binding on a `<select>` during the same
   update pass in which its `@for` options are still materialising. The browser
@@ -14,6 +14,7 @@ description: >-
   `provider-model-picker.component.ts` under TASK_2026_180; the identical
   construction survives in `json-schema-form.component.ts:74-87`. Sweep
   `libs/frontend` for the rest.
+updated: '2026-08-25T21:10:56.284Z'
 ---
 
 # Fix the `[value]`-without-`[selected]` select binding

@@ -93,6 +93,7 @@ export {
   LANE_RETRY_BACKOFF_BASE_MS,
   LANE_MAX_RETRY_BACKOFF_MS,
   LANE_MAX_EXECUTIONS_PER_RUN,
+  LANE_TOOL_USE_DEFAULT_MAX_TURNS,
   timeoutBackoffMs,
   type LaneRunRequest,
   type LaneRun,
@@ -102,8 +103,13 @@ export {
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,
+  SKILL_MD_MIGRATION_VERSION,
+  SKILL_MD_MIGRATION_RESCAN_INTERVAL_MS,
   type MigrationResult,
+  type SkillMdMigrationMarkerState,
+  type SkillMdMigrationMarkerStore,
 } from './lib/skill-md-migration';
+export { SkillMdMigrationStateStore } from './lib/skill-md-migration-state.store';
 export {
   SkillSynthesizerService,
   SYNTHESIZED_SKILL_JSON_SCHEMA,
@@ -281,6 +287,7 @@ export {
   ARCHAEOLOGY_HEAD_BUDGET_SHARE,
   ARCHAEOLOGY_SERVE_BUDGET_SHARE,
   ARCHAEOLOGY_MAX_REQUESTS_PER_PASS,
+  ARCHAEOLOGY_MAX_TURNS,
   type SessionArchaeologyRequest,
   type SessionArchaeologyResult,
 } from './lib/archaeology/session-archaeologist.service';

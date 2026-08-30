@@ -30,6 +30,10 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import type { SessionLifecycleManager } from './session-lifecycle-manager';
 import type { SDKUserMessage } from './session-lifecycle-manager';
+import {
+  findWorkflowAgentTranscript,
+  readWorkflowAgentTranscript,
+} from './workflow-transcript-reader';
 
 /** DI token for SubagentMessageDispatcher */
 export const SUBAGENT_DISPATCHER_TOKEN = Symbol.for(
@@ -361,7 +365,22 @@ export class SubagentMessageDispatcher {
         limit: options?.limit,
         offset: options?.offset,
       });
-      return this.normalizeTranscript(raw);
+      if (raw.length > 0) {
+        return this.normalizeTranscript(raw);
+      }
+
+      // The SDK read covers `<session>/subagents/agent-<id>.jsonl` only. An
+      // agent spawned by a `Workflow` run lives one level deeper, under
+      // `subagents/workflows/<runId>/`, and the SDK answers `[]` for it — the
+      // same answer as "not written yet". Look there before reporting empty.
+      const workflowFile = await findWorkflowAgentTranscript(
+        sessionId,
+        agentId,
+      );
+      if (!workflowFile) return [];
+      return this.normalizeTranscript(
+        await readWorkflowAgentTranscript(workflowFile, options),
+      );
     } catch (error: unknown) {
       this.logger.warn('[SubagentMessageDispatcher] transcript read failed', {
         sessionId,

@@ -14,10 +14,13 @@
  * DETERMINISM: every motion derives from useCurrentFrame() / `frame`. No
  * Math.random, no CSS animations, no useFrame(delta), no THREE.Clock.
  *
- * PRICING NOTE: the offer beat renders `$29` / `$290` from the constants below.
- * The founding-member discount is confirmed at 70% off the first year. See
- * EARLY_ADOPTER_LABEL below (and the matching `vo` line in the promo spec) —
- * one place each.
+ * PRICING NOTE: the offer beat renders `$29` / `$290` from the constants below
+ * as LIST price only. While the Early Adopter window is open there is NO
+ * discount to state — an approved Early Adopter gets the first year free and
+ * never reaches a checkout. The window is time-boxed: when it closes, Builders
+ * switches to self-serve Paddle checkout and the list price becomes the price
+ * people actually pay. See EARLY_ADOPTER_LABEL below (and the matching `vo`
+ * line in the promo spec) — one place each.
  */
 import React, { useMemo } from 'react';
 import {
@@ -87,8 +90,8 @@ const SHADOW_Y = FLOOR_Y + 0.02;
 // ── Offer constants — the ONLY place prices live in the render tree ──────────
 const PRICE_MONTHLY = 29;
 const PRICE_YEARLY = 290;
-/** The confirmed founding-member offer: 70% off the first year. */
-const EARLY_ADOPTER_LABEL = '70% off first year · limited seats';
+/** The confirmed founding-member offer: the first year is free. */
+const EARLY_ADOPTER_LABEL = 'First year free · limited seats';
 
 // ── Beat 1 · Hook — the gap between learning and shipping ────────────────────
 export const BuildersHook: React.FC<ConceptSceneProps> = ({ slide, durationFrames }) => {

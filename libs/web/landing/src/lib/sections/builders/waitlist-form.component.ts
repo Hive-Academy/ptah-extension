@@ -56,9 +56,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
                   Thanks for applying to the Early Adopter program. Once
-                  approved, you get 70% off your first year of Ptah Builders —
-                  $8.70/mo or $87 for the year — and you'll get an email the
-                  moment your discount is live on your account.
+                  approved, you get a full year of Ptah Builders free — no card,
+                  now or later — and you'll get an email the moment your
+                  membership is live on your account.
                 </p>
               </div>
             }
@@ -74,8 +74,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
                   You've already applied to the Early Adopter program. We'll
-                  email you as soon as it's reviewed, with 70% off your first
-                  year of Ptah Builders.
+                  email you as soon as it's reviewed, with your free first year
+                  of Ptah Builders.
                 </p>
               </div>
             }
@@ -89,9 +89,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 Apply to the Early Adopter program
               </h3>
               <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                Founding members get 70% off their first year — $8.70/mo or $87
-                for the year. Apply below and we'll review your request and
-                email you. No spam.
+                Approved founding members get a full year of Ptah Builders free
+                — no card, now or later. Apply below and we'll review your
+                request and email you. No spam.
               </p>
 
               <form

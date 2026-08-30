@@ -55,6 +55,7 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
   AgentMonitorStore,
@@ -84,6 +85,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
 
   const storeMock = {
     subagents: subagentMap.asReadonly(),
+    subagentRpcError: jest.fn(() => null),
     isAgentResumed: jest.fn(() => false),
     sendMessageToAgent: jest.fn(async () => undefined),
     stopAgent: jest.fn(async () => undefined),
@@ -339,6 +341,65 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         }
       ).onStopClick(evt);
       expect(storeMock.stopAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('template click wiring', () => {
+    it('clicking the rendered stop button dispatches stopAgent', async () => {
+      const fixture = TestBed.configureTestingModule({
+        providers: [
+          { provide: AgentMonitorStore, useValue: storeMock },
+          { provide: BackgroundAgentStore, useValue: bgStoreMock },
+        ],
+      }).createComponent(InlineAgentBubbleComponent);
+      fixture.componentRef.setInput('node', makeNode());
+      setRecord({
+        parentToolUseId: 'toolu_parent_abc',
+        status: 'running',
+        taskId: 'stop-from-dom',
+        parentSessionId: 'sess-owner',
+      });
+      fixture.detectChanges();
+
+      const stopBtn = fixture.debugElement.query(
+        By.css('[data-testid="subagent-stop-button"]'),
+      );
+      expect(stopBtn).toBeTruthy();
+      stopBtn.nativeElement.click();
+      await Promise.resolve();
+
+      expect(storeMock.stopAgent).toHaveBeenCalledWith(
+        'stop-from-dom',
+        'sess-owner',
+      );
+    });
+
+    it('clicking the rendered background button dispatches backgroundAgent', async () => {
+      const fixture = TestBed.configureTestingModule({
+        providers: [
+          { provide: AgentMonitorStore, useValue: storeMock },
+          { provide: BackgroundAgentStore, useValue: bgStoreMock },
+        ],
+      }).createComponent(InlineAgentBubbleComponent);
+      fixture.componentRef.setInput('node', makeNode());
+      setRecord({
+        parentToolUseId: 'toolu_parent_abc',
+        status: 'running',
+        parentSessionId: 'sess-owner',
+      });
+      fixture.detectChanges();
+
+      const bgBtn = fixture.debugElement.query(
+        By.css('[data-testid="subagent-background-button"]'),
+      );
+      expect(bgBtn).toBeTruthy();
+      bgBtn.nativeElement.click();
+      await Promise.resolve();
+
+      expect(storeMock.backgroundAgent).toHaveBeenCalledWith(
+        'sess-owner',
+        'toolu_parent_abc',
+      );
     });
   });
 });

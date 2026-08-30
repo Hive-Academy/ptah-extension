@@ -185,6 +185,7 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
 import * as namespaceBuilders from './namespace-builders';
 import { WebSearchService } from './services/web-search.service';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
+import type { DiagnosticsCacheInvalidator } from '../diagnostics/diagnostics-cache-invalidator.service';
 import type { Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type {
   IWorkspaceProvider,
@@ -348,6 +349,11 @@ function buildTestBuilder(
     undefined, // authSecretsService
     undefined, // taskWriter
     undefined, // taskIndex
+    // diagnosticsCacheInvalidator — required, and started by the constructor.
+    // This suite is about namespace root resolution, so the collaborator is a
+    // stub; the subscription itself is covered by
+    // `diagnostics-cache-invalidator.service.spec.ts`.
+    { start: () => undefined } as unknown as DiagnosticsCacheInvalidator,
   );
 }
 

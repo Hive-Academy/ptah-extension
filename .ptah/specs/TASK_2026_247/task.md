@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_247
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   A config change denies every pending permission in every session, and the
@@ -17,6 +17,7 @@ description: >-
   this action" and correctly stops as if the user had decided. Measured cost on
   2026-08-15: two subagents dead for ~2.5 hours, mid-batch, with a file left
   non-compiling.
+updated: '2026-08-25T21:11:52.094Z'
 ---
 
 # A config change denies every pending permission, everywhere

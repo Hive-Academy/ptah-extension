@@ -6,9 +6,16 @@
  *
  *   detect → plan → apply → verify
  *
- * `plan` is synchronous and pure-ish (it stats and hashes, it never writes), so
- * a plan can be inspected in a test or printed by `ptah harness doctor` without
- * side effects. `apply` is the only phase allowed to touch the workspace.
+ * `plan` is pure-ish (it stats and hashes, it never writes), so a plan can be
+ * inspected in a test or printed by `ptah harness doctor` without side effects.
+ * `apply` is the only phase allowed to touch the workspace.
+ *
+ * `plan` became ASYNCHRONOUS in TASK_2026_323 (B8). It hashes every desired
+ * artifact on disk, per target, on every session start; doing that with
+ * `readFileSync` froze the Electron main process — which is the same event loop
+ * every window runs on — for as long as the walk took. Because it writes
+ * nothing, it is also the phase that can be CANCELLED when a preflight has run
+ * out of budget, which is what the optional `signal` is for.
  */
 
 import type {
@@ -180,12 +187,17 @@ export interface IHarnessTarget {
    *
    * The reconciler passes the manifest it loaded INSIDE the workspace lock, so
    * plan and apply see one consistent snapshot.
+   *
+   * @param signal cancels the hashing between whole files. Rejecting with
+   *   `HarnessPassAbortedError` is the contract; the reconciler detaches the
+   *   signal before the first `apply`, so a cancelled plan has never written.
    */
   plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
-  ): HarnessPlan;
+    signal?: AbortSignal,
+  ): Promise<HarnessPlan>;
 
   apply(plan: HarnessPlan, workspaceRoot: string): Promise<HarnessApplyResult>;
 
@@ -206,6 +218,7 @@ export interface IHarnessTarget {
   verify(
     desired: HarnessDesiredState,
     workspaceRoot: string,
+    signal?: AbortSignal,
   ): Promise<HarnessTargetHealth>;
 
   /**

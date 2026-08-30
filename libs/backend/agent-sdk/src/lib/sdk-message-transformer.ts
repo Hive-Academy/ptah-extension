@@ -22,6 +22,7 @@ import {
   isSystemInit,
   isStreamEvent,
   isUserMessage,
+  isReplayMessage,
   isAssistantMessage,
   isCompactBoundary,
   isLocalCommandOutput,
@@ -40,6 +41,7 @@ import {
   userMessageHasToolResult,
 } from './message-transform';
 import type {
+  BackgroundTaskInfo,
   TransformerState,
   TransformerHelpers,
   WorkflowRunInfo,
@@ -52,7 +54,8 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly currentMessageIdByContext: Map<string, string> = new Map();
   private readonly currentModelByContext: Map<string, string> = new Map();
   private readonly toolCallIdByContextAndBlock: Map<string, string> = new Map();
-  private readonly backgroundTaskToolUseIds: Set<string> = new Set();
+  private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
+    new Map();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
   private readonly nonAgentTaskIds: Set<string> = new Set();
@@ -181,6 +184,26 @@ export class SdkMessageTransformer implements TransformerState {
         );
       }
 
+      // Replayed transcript turns. `isUserMessage` deliberately excludes them
+      // (`claude-sdk.types.ts:371`), so without this branch every one of them
+      // falls past all narrowing below and lands on the `Unknown message type`
+      // warn — which is how a resumed `/orchestrate` produced
+      // `<command-message>orchestrate</command-message>` at WARN level
+      // (log.log:2376, TASK_2026_350).
+      //
+      // Dropping is the correct handling, not merely the current one: the SDK
+      // replays the prior transcript on every resume, while Ptah has already
+      // rendered that history from JSONL via `chat:resume`. Emitting a replayed
+      // turn would duplicate it in the UI. What changes here is only the
+      // classification — a known message quietly skipped instead of an unknown
+      // one warned about.
+      if (isReplayMessage(sdkMessage)) {
+        this.logger.debug(
+          '[SdkMessageTransformer] Skipping replayed user message (history already rendered from JSONL)',
+        );
+        return [];
+      }
+
       if (isSystemInit(sdkMessage)) {
         return [];
       }
@@ -299,6 +322,10 @@ export class SdkMessageTransformer implements TransformerState {
     return this.backgroundTaskToolUseIds.has(toolUseId);
   }
 
+  getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined {
+    return this.backgroundTaskToolUseIds.get(toolUseId);
+  }
+
   getTaskParentToolUseId(taskId: string): string | undefined {
     return this.taskIdToParentToolUseId.get(taskId);
   }
@@ -359,8 +386,11 @@ export class SdkMessageTransformer implements TransformerState {
     }
   }
 
-  addBackgroundTaskToolUseId(toolUseId: string): void {
-    this.backgroundTaskToolUseIds.add(toolUseId);
+  addBackgroundTaskToolUseId(
+    toolUseId: string,
+    info?: BackgroundTaskInfo,
+  ): void {
+    this.backgroundTaskToolUseIds.set(toolUseId, info ?? {});
   }
 
   removeBackgroundTaskToolUseId(toolUseId: string): void {

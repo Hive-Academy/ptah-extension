@@ -76,7 +76,7 @@ describe('PostToolUseHookHandler', () => {
     const fn = getHookCallback(handler, 'sess-1', '/workspace');
 
     const input = {
-      hook_event_name: 'PreToolUse',
+      hook_event_name: 'SessionStart',
       tool_name: 'Bash',
       tool_input: {},
     } as unknown as HookInput;

@@ -555,6 +555,45 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(streamRouter.onSurfaceCreated).not.toHaveBeenCalled();
     });
 
+    it('rekeys the liveness entry from the placeholder tab id to the real session id', () => {
+      const liveness = TestBed.inject(SessionLivenessRegistry);
+      const tabId = SessionId.create();
+      // Chunks stream under the placeholder (the tab id) and light the dot.
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: {
+          tabId,
+          sessionId: tabId,
+          event: { type: 'message_start', sessionId: tabId },
+        },
+      });
+      liveness.markStreaming(tabId, 'D:\\projects\\property-hub');
+      expect(liveness.liveWorkspaces().has('D:\\projects\\property-hub')).toBe(
+        true,
+      );
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+        payload: { tabId, realSessionId: CHUNK_SESSION },
+      });
+
+      // Turn-end arrives under the REAL id and must clear the same entry.
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: {
+          sessionId: CHUNK_SESSION,
+          cwd: 'D:\\projects\\property-hub',
+          lastAssistantMessage: null,
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: 'completed',
+          timestamp: 1,
+        },
+      });
+      expect(liveness.status(tabId)()).toBe('idle');
+      expect(liveness.liveWorkspaces().size).toBe(0);
+    });
+
     // TASK_2026_263 — without this append the surface conversation never
     // contains the real session id, so question routing cannot find the
     // surface and the card never renders.

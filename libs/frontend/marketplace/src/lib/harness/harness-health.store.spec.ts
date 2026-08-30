@@ -26,7 +26,12 @@ import type {
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES, summarizeHarnessHealth } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  summarizeHarnessHealth,
+  harnessBlockedWordingViolations,
+  HARNESS_BLOCKED_APPROVED_ACTIONS,
+} from '@ptah-extension/shared';
 import { HarnessHealthStore } from './harness-health.store';
 
 /** Mirrors the real `RpcResult` truthiness rule (success AND data defined). */
@@ -558,6 +563,46 @@ describe('HarnessHealthStore', () => {
       expect(store.error()).toBe('another host holds the workspace lock');
       expect(store.health()).toEqual(health);
       expect(store.repairing()).toBe(false);
+    });
+
+    it('falls back to the approved wording when the failure has no message of its own', async () => {
+      // The fifth blocked-path surface, and the last one to get a guard
+      // (TASK_2026_309). It is one string rather than a paragraph, which is
+      // exactly why it was missed: the reconcile WARN, the popover, the card
+      // and the dialog all got reviewed as prose and this got reviewed as an
+      // error handler. It is still a sentence a user reads immediately after
+      // consenting to have their own files moved, so "Failed to delete the
+      // blocked paths" would both misdescribe the operation and teach the
+      // wrong verb for it. Pinned against the same shared allowlist the other
+      // four are held to.
+      //
+      // Both fallback sites are exercised: a handler refusal that carries no
+      // `error`, and a throw that is not an `Error`.
+      setResponder('harness:repairBlocked', () => ({
+        success: false,
+        data: undefined,
+        error: undefined,
+        isSuccess: (): boolean => false,
+      }));
+
+      await expect(store.repairBlocked(PATHS)).resolves.toBeNull();
+
+      const approved = HARNESS_BLOCKED_APPROVED_ACTIONS['health-store'];
+      expect(store.error()).toBe(approved);
+      expect(
+        harnessBlockedWordingViolations({
+          surface: 'health-store',
+          action: store.error() ?? '',
+          wholeText: store.error() ?? '',
+        }),
+      ).toEqual([]);
+
+      setResponder('harness:repairBlocked', () => {
+        throw 'not an Error at all';
+      });
+
+      await expect(store.repairBlocked(PATHS)).resolves.toBeNull();
+      expect(store.error()).toBe(approved);
     });
 
     it('narrows a thrown transport error and frees the guard for the retry', async () => {

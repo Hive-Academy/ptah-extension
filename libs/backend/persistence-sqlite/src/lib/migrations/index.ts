@@ -66,6 +66,7 @@ import { sql as sql0037SkillInvocationSessionJoin } from './0037_skill_invocatio
 import { sql as sql0038GatewayMessageTurnState } from './0038_gateway_message_turn_state';
 import { sql as sql0039ReapOrphanedQueueRows } from './0039_reap_orphaned_queue_rows';
 import { sql as sql0040SkillCandidateWorkspaceRoot } from './0040_skill_candidate_workspace_root';
+import { sql as sql0041SkillMdMigrationState } from './0041_skill_md_migration_state';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -310,5 +311,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 40,
     name: '0040_skill_candidate_workspace_root',
     sql: sql0040SkillCandidateWorkspaceRoot,
+  },
+  {
+    version: 41,
+    name: '0041_skill_md_migration_state',
+    sql: sql0041SkillMdMigrationState,
   },
 ];

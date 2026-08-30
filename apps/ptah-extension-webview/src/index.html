@@ -104,7 +104,21 @@
         // block rendering anyway while the parser is active; this states it.
         sheet.setAttribute('blocking', 'render');
         sheet.href = marker.href;
-        document.head.appendChild(sheet);
+        // ORDER CONTRACT: the deferred sheet must sit BEFORE styles.css.
+        // Both sheets carry (0,1,0) selectors, so order alone decides. The
+        // deferred sheet leads with daisyUI's `:root` copy of the `light`
+        // theme; styles.css must come after it to win back `anubis` and
+        // `anubis-light` via their own `[data-theme=...]` blocks. Keep this in
+        // step with ThemeService.insertDeferredSheet.
+        //
+        // Nothing has been inserted at this point in the parse, so this
+        // appends — the build's styles.css link lands after it either way.
+        var firstSheet = document.head.querySelector('link[rel="stylesheet"]');
+        if (firstSheet) {
+          document.head.insertBefore(sheet, firstSheet);
+        } else {
+          document.head.appendChild(sheet);
+        }
       })();
     </script>
   </head>

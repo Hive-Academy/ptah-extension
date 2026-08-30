@@ -32,30 +32,29 @@ export async function showCanvas(ui: UiDriver): Promise<void> {
     await expect(grid).toBeVisible({ timeout: 1_000 });
   }).toPass({ timeout: 60_000 });
 
-  await dismissUpdateBanner(ui);
+  await dismissUpdateDialog(ui);
 }
 
 /**
- * `<ptah-update-banner>` is a `position: sticky` bar declared as `<main>`'s
- * sibling in `app.html`, ahead of it in document flow — it is not an overlay.
- * A dev checkout's `app.getVersion()` matches the latest tag, so the banner
- * never renders locally. CI's build reports an older/placeholder version, so
- * `UpdateManager`'s real GitHub-releases check (network access, no mock —
- * see `auto-updater.spec.ts`) finds an update on every run and the banner
- * paints, pushing everything below it down by its own height.
+ * `<ptah-update-dialog>` is a daisyUI modal declared as `<main>`'s sibling in
+ * `app.html`. A dev checkout's `app.getVersion()` matches the latest tag, so
+ * the dialog never opens locally. CI's build reports an older/placeholder
+ * version, so `UpdateManager`'s real GitHub-releases check (network access, no
+ * mock — see `auto-updater.spec.ts`) finds an update on every run and the
+ * dialog opens over the canvas.
  *
- * That shifts the canvas empty-state content down inside `<main>`, but the
- * file-ops dialogs are native `<dialog>` elements opened with `showModal()`
- * (the whole point of TASK_2026_216/227 — the top layer paints after the
- * entire document and centers on the raw window). The banner has nothing to
- * do with the collision these specs guard, so it is dismissed here rather
- * than left to silently offset the geometry `expectCanvasBehind` measures.
+ * That covers the canvas content, but the file-ops dialogs are native
+ * `<dialog>` elements opened with `showModal()` (the whole point of
+ * TASK_2026_216/227 — the top layer paints after the entire document and
+ * centers on the raw window). The update dialog has nothing to do with the
+ * collision these specs guard, so it is dismissed here rather than left to
+ * silently obscure the geometry `expectCanvasBehind` measures.
  */
-async function dismissUpdateBanner(ui: UiDriver): Promise<void> {
+async function dismissUpdateDialog(ui: UiDriver): Promise<void> {
   const later = ui.page
-    .getByTestId('update-banner')
+    .getByTestId('update-dialog')
     .getByRole('button', { name: 'Later' });
   // The GitHub check is async; give it a moment to land before deciding
-  // there is nothing to dismiss. A timeout here just means no banner showed.
+  // there is nothing to dismiss. A timeout here just means no dialog opened.
   await later.click({ timeout: 5_000 }).catch(() => undefined);
 }

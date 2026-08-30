@@ -120,7 +120,8 @@ function makeStore(writeCounter = 0): MemoryStore {
 
 function makeObservationQueue(): ObservationQueueStore {
   return {
-    insert: jest.fn(),
+    enqueue: jest.fn(),
+    flush: jest.fn(),
     drainForSession: jest.fn(() => []),
     peekForSession: jest.fn(() => []),
     markProcessed: jest.fn(),

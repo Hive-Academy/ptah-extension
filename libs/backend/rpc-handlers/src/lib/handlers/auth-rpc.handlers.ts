@@ -30,6 +30,7 @@ import {
   TIER_ENV_VAR_MAP,
   ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
+import type { SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 import {
   ProviderModelsService,
   ActiveProviderResolver,
@@ -62,6 +63,76 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 /** Provider registry ids used to tag interactive-login push events. */
 const COPILOT_PROVIDER_ID = 'github-copilot';
 const CODEX_PROVIDER_ID = 'openai-codex';
+
+/**
+ * How long one `auth:getAuthStatus` answer stays servable.
+ *
+ * Short on purpose: the cache exists to absorb the BURST (boot fans three
+ * independent callers at the method, and every `workspace:switch` fans more),
+ * not to hold a long-lived view of auth state. Anything that MUTATES auth
+ * calls `invalidateAuthStatusCache()`, so the TTL only ever covers changes
+ * made outside this process — and the `authFileChanged` subscription covers
+ * the one of those that matters (`codex login` in a terminal).
+ */
+const AUTH_STATUS_CACHE_TTL_MS = 15_000;
+
+/**
+ * How long a Claude-CLI health verdict stays servable, independently of the
+ * status entry above.
+ *
+ * `ClaudeCliDetector.performHealthCheck` SPAWNS `claude --version`, which is a
+ * ~2s `CreateProcessW` on a 253 MB executable and was the bulk of the measured
+ * 2-5.3s handler durations. The detector now coalesces that spawn for 30s, but
+ * that window is deliberately short and is not a health cache — this is.
+ * Installing or removing a CLI is a rare, out-of-band event, so it gets a far
+ * longer window than the rest of the payload.
+ */
+const CLAUDE_CLI_HEALTH_TTL_MS = 5 * 60_000;
+
+/**
+ * Hard ceiling on any ONE external probe.
+ *
+ * The probes already run under a single `Promise.all`, so the handler costs
+ * whatever the SLOWEST of them costs — which means one wedged source holds the
+ * entire status payload, and with it the first render. Measured on the
+ * 2026-08-29 smoke boot: `auth:getAuthStatus` reported 22736 ms and 19911 ms
+ * for two coalesced callers, all of it inside the Claude-CLI probe, while the
+ * secret reads beside it finished in milliseconds.
+ *
+ * 5s is far above every probe's measured cost (copilot and codex are file
+ * reads; a healthy `claude --version` is ~2s) so this fires only in pathology.
+ * A probe that trips it is NOT cancelled — it keeps running and populates the
+ * memo for the next caller. See {@link probeClaudeCli}.
+ */
+const AUTH_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Race marker for {@link AuthRpcHandlers.withProbeTimeout}.
+ *
+ * A unique symbol rather than `undefined` or `null`, because a probe is allowed
+ * to resolve to either of those and a sentinel a probe can produce is not a
+ * sentinel.
+ */
+const TIMED_OUT = Symbol('auth-probe-timeout');
+
+/** Copilot half of the status payload. */
+interface CopilotProbeResult {
+  copilotAuthenticated: boolean;
+  copilotUsername?: string;
+}
+
+/** Codex half of the status payload. */
+interface CodexProbeResult {
+  codexAuthenticated: boolean;
+  codexTokenStale: boolean;
+}
+
+/** Secret-store half of the status payload. */
+interface SecretProbeResult {
+  hasApiKey: boolean;
+  hasOpenRouterKey: boolean;
+  hasAnyProviderKey: boolean;
+}
 
 function resolveScopeFromKey(
   effectiveKey: string,
@@ -106,6 +177,61 @@ export class AuthRpcHandlers {
     'auth:clearWorkspaceOverride',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Completed `auth:getAuthStatus` payloads, keyed by
+   * `${activePath}|${providerId}` — the two inputs the answer actually varies
+   * with. Keying by active path is what makes a workspace switch correct
+   * without an explicit invalidation on every switch, AND what makes switching
+   * BACK to an already-visited folder free.
+   */
+  private readonly statusCache = new Map<
+    string,
+    { value: AuthGetAuthStatusResponse; expiresAt: number }
+  >();
+
+  /**
+   * In-flight computations, same key. Boot fans three independent frontend
+   * callers at this method within milliseconds; without this they each ran the
+   * full probe set concurrently (three handlers in flight, 3.5s / 5.3s / 3.7s
+   * for one identical payload).
+   */
+  private readonly statusInFlight = new Map<
+    string,
+    Promise<AuthGetAuthStatusResponse>
+  >();
+
+  /** Memoised Claude-CLI health — see {@link CLAUDE_CLI_HEALTH_TTL_MS}. */
+  private claudeCliHealth: { available: boolean; expiresAt: number } | null =
+    null;
+
+  /**
+   * The Claude-CLI health check currently running, if any.
+   *
+   * Separate from {@link statusInFlight} because it OUTLIVES the caller that
+   * started it: when a probe trips {@link AUTH_PROBE_TIMEOUT_MS} the status is
+   * answered from the last known verdict and this promise keeps running, so the
+   * memo it eventually writes is what makes the next caller fast rather than
+   * making it pay the same timeout again.
+   */
+  private claudeCliProbe: Promise<boolean> | null = null;
+
+  /**
+   * Monotonic cache generation, bumped by every
+   * {@link invalidateAuthStatusCache} call.
+   *
+   * Without it, clearing the maps is not enough: a `computeAuthStatus` that was
+   * already in flight when the invalidation happened still resolves afterwards,
+   * and its `.then` would write the PRE-change payload into the freshly-cleared
+   * cache with a full-length TTL — re-poisoning it with exactly the state the
+   * invalidation existed to drop. Boot fans 2-3 concurrent callers at this
+   * method, so "a probe outlives a login" is the normal case, not a corner one.
+   *
+   * Same idiom as `WorkspaceCoordinatorService.refreshWorkspaceProviderState`'s
+   * `switchGeneration` guard: capture before the await, re-check after it, and
+   * write nothing if the world moved on.
+   */
+  private cacheGeneration = 0;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -141,6 +267,13 @@ export class AuthRpcHandlers {
      */
     @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
     private readonly webviewManager?: WebviewManager,
+    /**
+     * Optional: absent in unit harnesses. Used only to learn that
+     * `~/.codex/auth.json` changed under us (an external `codex login`) so the
+     * status cache can be dropped immediately instead of waiting out its TTL.
+     */
+    @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS, { isOptional: true })
+    private readonly adapterEvents?: SdkAdapterEvents,
   ) {}
 
   /**
@@ -160,6 +293,12 @@ export class AuthRpcHandlers {
     this.registerGetApiKeyStatus();
     this.registerGetScope();
     this.registerClearWorkspaceOverride();
+
+    // An external `codex login` changes the answer without going through any
+    // method here, so the TTL is the only thing that would eventually notice.
+    this.adapterEvents?.onAuthFileChanged(() =>
+      this.invalidateAuthStatusCache(),
+    );
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -209,6 +348,10 @@ export class AuthRpcHandlers {
   /**
    * auth:getAuthStatus - Get auth configuration status
    * SECURITY: Never returns actual credential values - only boolean existence flags
+   *
+   * Served from a short TTL cache with in-flight coalescing (TASK_2026_342).
+   * Measured before: 14 calls in one boot-plus-two-workspace-switches session,
+   * 2.0-5.3s each, identical payload every time, up to three concurrent.
    */
   private registerGetAuthStatus(): void {
     this.rpcHandler.registerMethod<
@@ -216,116 +359,58 @@ export class AuthRpcHandlers {
       AuthGetAuthStatusResponse
     >('auth:getAuthStatus', async (params: AuthGetAuthStatusParams) => {
       try {
-        this.logger.debug('RPC: auth:getAuthStatus called');
         const safeParams: AuthGetAuthStatusParams = params ?? {};
-        const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-        const active = this.activeProviderResolver.resolveActiveAuth();
-        const authMethod = active.authMethod;
-        const anthropicProviderId = active.providerId;
-        const checkProviderId = safeParams.providerId || anthropicProviderId;
-        const hasOpenRouterKey =
-          await this.authSecretsService.hasProviderKey(checkProviderId);
-        let hasAnyProviderKey = hasOpenRouterKey;
-        // Merged list — built-ins plus user-defined entries. A custom provider
-        // holding the only configured key must still flip this flag.
-        const allProviders = getAllAnthropicProviders();
-        if (!hasAnyProviderKey) {
-          for (const p of allProviders) {
-            if (await this.authSecretsService.hasProviderKey(p.id)) {
-              hasAnyProviderKey = true;
-              break;
-            }
-          }
-        }
-        // The read model behind BOTH the webview tile grid and the TUI tile
-        // list. Sourcing it from the static array is what made user-defined
-        // entries invisible everywhere at once.
-        const availableProviders = allProviders.map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          helpUrl: p.helpUrl,
-          keyPrefix: p.keyPrefix,
-          keyPlaceholder: p.keyPlaceholder,
-          maskedKeyDisplay: p.maskedKeyDisplay,
-          hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
-          authType: 'authType' in p ? p.authType : undefined,
-          isLocal: 'isLocal' in p ? p.isLocal : undefined,
-          baseUrl: p.baseUrl,
-          supportsOptionalApiKey:
-            'supportsOptionalApiKey' in p
-              ? p.supportsOptionalApiKey
-              : undefined,
-          // Ambient-credential providers (claude-cli). Without this the tile
-          // is indistinguishable from a local server in this payload, which is
-          // how the TUI came to render it with a fabricated localhost endpoint.
-          nativeAuth: 'nativeAuth' in p ? p.nativeAuth : undefined,
-        }));
-        let copilotAuthenticated = false;
-        let copilotUsername: string | undefined;
-        try {
-          copilotAuthenticated = await this.copilotAuth.isAuthenticated();
-          if (copilotAuthenticated) {
-            copilotUsername = await this.getGitHubUsername();
-          }
-        } catch (copilotError) {
-          this.logger.warn(
-            'Copilot auth status check failed (non-fatal)',
-            copilotError instanceof Error
-              ? copilotError
-              : new Error(String(copilotError)),
-          );
-        }
-        let codexAuthenticated = false;
-        let codexTokenStale = false;
-        try {
-          const codexStatus = await this.codexAuth.getTokenStatus();
-          codexAuthenticated = codexStatus.authenticated;
-          codexTokenStale = codexStatus.stale;
-        } catch (codexError) {
-          this.logger.warn(
-            'Codex auth status check failed (non-fatal)',
-            codexError instanceof Error
-              ? codexError
-              : new Error(String(codexError)),
-          );
-        }
-        let claudeCliInstalled = false;
-        try {
-          const cliHealth = await this.cliDetector.performHealthCheck();
-          claudeCliInstalled = cliHealth.available;
-        } catch (cliError) {
-          this.logger.warn(
-            'Claude CLI detection failed (non-fatal)',
-            cliError instanceof Error ? cliError : new Error(String(cliError)),
-          );
+        const key = this.authStatusCacheKey(safeParams);
+
+        const cached = this.statusCache.get(key);
+        if (cached && cached.expiresAt > Date.now()) {
+          this.logger.debug('RPC: auth:getAuthStatus called', {
+            cacheHit: true,
+          });
+          return cached.value;
         }
 
-        this.logger.debug('RPC: auth:getAuthStatus result', {
-          hasApiKey,
-          hasOpenRouterKey,
-          hasAnyProviderKey,
-          authMethod,
-          anthropicProviderId,
-          copilotAuthenticated,
-          codexAuthenticated,
-          codexTokenStale,
-          claudeCliInstalled,
+        const inFlight = this.statusInFlight.get(key);
+        if (inFlight) {
+          this.logger.debug('RPC: auth:getAuthStatus called', {
+            coalesced: true,
+          });
+          return await inFlight;
+        }
+
+        this.logger.debug('RPC: auth:getAuthStatus called', {
+          cacheHit: false,
         });
-
-        return {
-          hasApiKey,
-          hasOpenRouterKey,
-          hasAnyProviderKey,
-          authMethod,
-          anthropicProviderId,
-          availableProviders,
-          copilotAuthenticated,
-          copilotUsername,
-          codexAuthenticated,
-          codexTokenStale,
-          claudeCliInstalled,
-        };
+        // Captured BEFORE the first await. Everything this computation writes
+        // back is conditional on it still being current when the write happens.
+        const generation = this.cacheGeneration;
+        const pending: Promise<AuthGetAuthStatusResponse> =
+          this.computeAuthStatus(safeParams, generation)
+            .then((value) => {
+              // An invalidation landed while we were probing: this payload is a
+              // snapshot of the PRE-change world. The caller that asked for it
+              // still gets it (it is the honest answer to a question asked
+              // before the change), but it must not become the cached answer for
+              // everyone else.
+              if (generation === this.cacheGeneration) {
+                this.statusCache.set(key, {
+                  value,
+                  expiresAt: Date.now() + AUTH_STATUS_CACHE_TTL_MS,
+                });
+              }
+              return value;
+            })
+            .finally(() => {
+              // Delete by IDENTITY, not by key: an invalidation already cleared
+              // the map and a newer computation may have claimed this key, and
+              // evicting that one would un-coalesce the very burst this exists
+              // to absorb.
+              if (this.statusInFlight.get(key) === pending) {
+                this.statusInFlight.delete(key);
+              }
+            });
+        this.statusInFlight.set(key, pending);
+        return await pending;
       } catch (error) {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
@@ -338,6 +423,288 @@ export class AuthRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * The two inputs the status payload varies with: the active workspace (auth
+   * and provider settings are workspace-scopable) and the caller's explicit
+   * `providerId` override.
+   */
+  private authStatusCacheKey(params: AuthGetAuthStatusParams): string {
+    return `${this.scopeResolver.getActivePath() ?? ''}|${
+      params.providerId ?? ''
+    }`;
+  }
+
+  /**
+   * Drop every cached auth answer. MUST be called by any method that mutates
+   * auth state — otherwise the UI keeps reading the pre-change payload for up
+   * to {@link AUTH_STATUS_CACHE_TTL_MS} after a login, logout or key write.
+   *
+   * Bumping {@link cacheGeneration} is the half that makes this hold under
+   * concurrency: clearing alone is undone by any probe still in flight.
+   */
+  private invalidateAuthStatusCache(): void {
+    this.cacheGeneration++;
+    this.statusCache.clear();
+    this.statusInFlight.clear();
+    this.claudeCliHealth = null;
+    // Dropped for the same reason as `statusInFlight`: a verdict computed
+    // before the change must not be handed to a caller that arrives after it.
+    // Coalescing the underlying SPAWN is `ClaudeCliDetector`'s job, not this
+    // one's, so releasing the reference here costs nothing.
+    this.claudeCliProbe = null;
+  }
+
+  /**
+   * Build one `auth:getAuthStatus` payload. The three independent probes
+   * (Copilot, Codex, Claude CLI) run in PARALLEL and each swallows its own
+   * failure, so one broken source degrades a single field instead of the whole
+   * response or the whole latency budget.
+   */
+  private async computeAuthStatus(
+    safeParams: AuthGetAuthStatusParams,
+    generation: number,
+  ): Promise<AuthGetAuthStatusResponse> {
+    const active = this.activeProviderResolver.resolveActiveAuth();
+    const authMethod = active.authMethod;
+    const anthropicProviderId = active.providerId;
+    const checkProviderId = safeParams.providerId || anthropicProviderId;
+    // Merged list — built-ins plus user-defined entries. A custom provider
+    // holding the only configured key must still flip `hasAnyProviderKey`.
+    const allProviders = getAllAnthropicProviders();
+
+    const [secrets, copilot, codex, claudeCliInstalled] = await Promise.all([
+      this.probeSecrets(checkProviderId, allProviders),
+      this.probeCopilot(),
+      this.probeCodex(),
+      this.probeClaudeCli(generation),
+    ]);
+
+    // The read model behind BOTH the webview tile grid and the TUI tile
+    // list. Sourcing it from the static array is what made user-defined
+    // entries invisible everywhere at once.
+    const availableProviders = allProviders.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      helpUrl: p.helpUrl,
+      keyPrefix: p.keyPrefix,
+      keyPlaceholder: p.keyPlaceholder,
+      maskedKeyDisplay: p.maskedKeyDisplay,
+      hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
+      authType: 'authType' in p ? p.authType : undefined,
+      isLocal: 'isLocal' in p ? p.isLocal : undefined,
+      baseUrl: p.baseUrl,
+      supportsOptionalApiKey:
+        'supportsOptionalApiKey' in p ? p.supportsOptionalApiKey : undefined,
+      // Ambient-credential providers (claude-cli). Without this the tile
+      // is indistinguishable from a local server in this payload, which is
+      // how the TUI came to render it with a fabricated localhost endpoint.
+      nativeAuth: 'nativeAuth' in p ? p.nativeAuth : undefined,
+    }));
+
+    this.logger.debug('RPC: auth:getAuthStatus result', {
+      hasApiKey: secrets.hasApiKey,
+      hasOpenRouterKey: secrets.hasOpenRouterKey,
+      hasAnyProviderKey: secrets.hasAnyProviderKey,
+      authMethod,
+      anthropicProviderId,
+      copilotAuthenticated: copilot.copilotAuthenticated,
+      codexAuthenticated: codex.codexAuthenticated,
+      codexTokenStale: codex.codexTokenStale,
+      claudeCliInstalled,
+    });
+
+    return {
+      hasApiKey: secrets.hasApiKey,
+      hasOpenRouterKey: secrets.hasOpenRouterKey,
+      hasAnyProviderKey: secrets.hasAnyProviderKey,
+      authMethod,
+      anthropicProviderId,
+      availableProviders,
+      copilotAuthenticated: copilot.copilotAuthenticated,
+      copilotUsername: copilot.copilotUsername,
+      codexAuthenticated: codex.codexAuthenticated,
+      codexTokenStale: codex.codexTokenStale,
+      claudeCliInstalled,
+    };
+  }
+
+  /**
+   * Secret-store presence flags. The per-provider sweep keeps its early break:
+   * one hit answers the question, and the whole set is only walked when NO
+   * provider key exists at all.
+   */
+  private async probeSecrets(
+    checkProviderId: string,
+    allProviders: ReadonlyArray<{ id: string }>,
+  ): Promise<SecretProbeResult> {
+    const [hasApiKey, hasOpenRouterKey] = await Promise.all([
+      this.authSecretsService.hasCredential('apiKey'),
+      this.authSecretsService.hasProviderKey(checkProviderId),
+    ]);
+
+    let hasAnyProviderKey = hasOpenRouterKey;
+    if (!hasAnyProviderKey) {
+      for (const p of allProviders) {
+        if (await this.authSecretsService.hasProviderKey(p.id)) {
+          hasAnyProviderKey = true;
+          break;
+        }
+      }
+    }
+
+    return { hasApiKey, hasOpenRouterKey, hasAnyProviderKey };
+  }
+
+  /**
+   * Resolve to `fallback` if `probe` has not settled within `AUTH_PROBE_TIMEOUT_MS`.
+   *
+   * The probe is deliberately NOT cancelled. There is nothing to cancel — a
+   * spawn is already running — and letting it finish is what lets it populate
+   * whatever memo it owns, so the next caller is fast instead of paying the
+   * same timeout again.
+   */
+  private async withProbeTimeout<T>(
+    label: string,
+    probe: Promise<T>,
+    fallback: () => T,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), AUTH_PROBE_TIMEOUT_MS);
+      timer.unref?.();
+    });
+
+    try {
+      const outcome = await Promise.race([probe, expiry]);
+      if (outcome !== TIMED_OUT) return outcome as T;
+      this.logger.warn(
+        `${label} auth probe exceeded ${AUTH_PROBE_TIMEOUT_MS}ms — answering from the last known value`,
+      );
+      return fallback();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Copilot probe. Non-fatal: a failure yields "not authenticated". */
+  private async probeCopilot(): Promise<CopilotProbeResult> {
+    return this.withProbeTimeout('Copilot', this.runCopilotProbe(), () => ({
+      copilotAuthenticated: false,
+    }));
+  }
+
+  private async runCopilotProbe(): Promise<CopilotProbeResult> {
+    try {
+      const copilotAuthenticated = await this.copilotAuth.isAuthenticated();
+      if (!copilotAuthenticated) return { copilotAuthenticated: false };
+      return {
+        copilotAuthenticated: true,
+        copilotUsername: await this.getGitHubUsername(),
+      };
+    } catch (copilotError: unknown) {
+      this.logger.warn(
+        'Copilot auth status check failed (non-fatal)',
+        copilotError instanceof Error
+          ? copilotError
+          : new Error(String(copilotError)),
+      );
+      return { copilotAuthenticated: false };
+    }
+  }
+
+  /** Codex probe. Non-fatal: a failure yields "not authenticated, not stale". */
+  private async probeCodex(): Promise<CodexProbeResult> {
+    return this.withProbeTimeout('Codex', this.runCodexProbe(), () => ({
+      codexAuthenticated: false,
+      codexTokenStale: false,
+    }));
+  }
+
+  private async runCodexProbe(): Promise<CodexProbeResult> {
+    try {
+      const codexStatus = await this.codexAuth.getTokenStatus();
+      return {
+        codexAuthenticated: codexStatus.authenticated,
+        codexTokenStale: codexStatus.stale,
+      };
+    } catch (codexError: unknown) {
+      this.logger.warn(
+        'Codex auth status check failed (non-fatal)',
+        codexError instanceof Error
+          ? codexError
+          : new Error(String(codexError)),
+      );
+      return { codexAuthenticated: false, codexTokenStale: false };
+    }
+  }
+
+  /**
+   * Claude CLI probe, memoised for {@link CLAUDE_CLI_HEALTH_TTL_MS}.
+   *
+   * A FAILURE is deliberately not memoised — a detector that threw is not
+   * evidence the CLI is absent, and retrying costs one spawn.
+   *
+   * `generation` guards the memo write for the same reason the status cache is
+   * guarded, and it matters MORE here: this entry lives five minutes, so a
+   * verdict written back after an invalidation would outlast a status entry by
+   * twenty times.
+   */
+  private async probeClaudeCli(generation: number): Promise<boolean> {
+    const memo = this.claudeCliHealth;
+    if (memo && memo.expiresAt > Date.now()) {
+      return memo.available;
+    }
+
+    return this.withProbeTimeout(
+      'Claude CLI',
+      this.startClaudeCliProbe(generation),
+      // An EXPIRED memo is still the best answer available. Reporting `false`
+      // instead would tell the UI the CLI vanished — which flips the auth badge
+      // and can bounce the user to a setup screen — on the evidence of a slow
+      // spawn. `false` is only correct when nothing was ever known.
+      () => memo?.available ?? false,
+    );
+  }
+
+  /**
+   * The health check itself, single-flighted so a caller arriving while one is
+   * running (including one that already timed out) joins it instead of adding
+   * a second `claude --version` spawn to a loop that is evidently busy.
+   *
+   * Never rejects: every failure mode resolves to `false`.
+   */
+  private startClaudeCliProbe(generation: number): Promise<boolean> {
+    const running = this.claudeCliProbe;
+    if (running) return running;
+
+    const pending: Promise<boolean> = this.cliDetector
+      .performHealthCheck()
+      .then((cliHealth) => {
+        if (generation === this.cacheGeneration) {
+          this.claudeCliHealth = {
+            available: cliHealth.available,
+            expiresAt: Date.now() + CLAUDE_CLI_HEALTH_TTL_MS,
+          };
+        }
+        return cliHealth.available;
+      })
+      .catch((cliError: unknown) => {
+        this.logger.warn(
+          'Claude CLI detection failed (non-fatal)',
+          cliError instanceof Error ? cliError : new Error(String(cliError)),
+        );
+        return false;
+      })
+      .finally(() => {
+        if (this.claudeCliProbe === pending) {
+          this.claudeCliProbe = null;
+        }
+      });
+    this.claudeCliProbe = pending;
+    return pending;
   }
 
   /**
@@ -424,6 +791,7 @@ export class AuthRpcHandlers {
         await this.sdkAdapter.reset();
         this.logger.info('RPC: auth:saveSettings adapter reset completed');
 
+        this.invalidateAuthStatusCache();
         this.logger.info('RPC: auth:saveSettings completed successfully');
         return { success: true };
       } catch (error) {
@@ -539,6 +907,7 @@ export class AuthRpcHandlers {
         const username = await this.getGitHubUsername();
         await this.autoMapProviderTiers('github-copilot');
         await this.sdkAdapter.reset();
+        this.invalidateAuthStatusCache();
 
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
         return { success: true, username };
@@ -578,6 +947,7 @@ export class AuthRpcHandlers {
           // report success before the write landed and could lose it entirely
           // if the host exited right after.
           await this.copilotAuth.logout();
+          this.invalidateAuthStatusCache();
           this.logger.info('RPC: auth:copilotLogout succeeded');
           return { success: true };
         } catch (error) {
@@ -666,6 +1036,7 @@ export class AuthRpcHandlers {
           await this.authSecretsService.deleteProviderKey(params.provider);
         }
         this.providerModels.clearCache(params.provider);
+        this.invalidateAuthStatusCache();
         return { success: true };
       } catch (error) {
         this.logger.error(
@@ -817,6 +1188,7 @@ export class AuthRpcHandlers {
           }
           this.codexAuth.clearCache();
           await this.sdkAdapter.reset();
+          this.invalidateAuthStatusCache();
           return { success: true };
         } catch (error) {
           this.logger.error(
@@ -933,6 +1305,7 @@ export class AuthRpcHandlers {
         );
 
         await this.sdkAdapter.reset();
+        this.invalidateAuthStatusCache();
 
         return { success: true };
       } catch (error) {

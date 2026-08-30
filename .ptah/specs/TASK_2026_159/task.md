@@ -1,15 +1,17 @@
 ---
 id: TASK_2026_159
-status: in_review
+status: done
 type: BUGFIX
 title: Curator model picker should default to active provider haiku tier
-description: Stop hardcoding claude-haiku-4-5-20251001 as the curator fallback; resolve the haiku tier from the active auth provider's tier mapping.
-assignee:
+description: >-
+  Stop hardcoding claude-haiku-4-5-20251001 as the curator fallback; resolve the
+  haiku tier from the active auth provider's tier mapping.
+assignee: null
 depends_on: []
-executor:
-claim:
+executor: null
+claim: null
 created: 2026-07-16T00:00:00.000Z
-updated: 2026-08-10T00:00:00.000Z
+updated: '2026-08-25T21:11:48.739Z'
 ---
 
 ## Description

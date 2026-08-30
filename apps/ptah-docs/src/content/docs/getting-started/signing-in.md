@@ -19,11 +19,11 @@ This page covers both. Neither is required to start using Ptah — every local c
 | Tier          | Price              | Who it's for                  | What you get                                                                                                   |
 | ------------- | ------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Community     | Free (open source) | Everyone                      | Every local capability — browser automation, code execution, MCP, CLI agent sync, the Setup Hub, all providers |
-| Ptah Builders | $29/mo or $290/yr  | Members who want hosted perks | Hosted gateway, priority support, early access, and community access — a membership, not a feature unlock      |
+| Ptah Builders | $29/mo or $290/yr  | Members who want the training | SaaS course (PRD to production), weekly live sessions, member skill packs, private community, priority support |
 
-Community is fully free and open source, with **no gating** on any local feature. Ptah Builders is a paid membership that adds hosted and community perks on top; it does not unlock anything local.
+Community is fully free and open source, with **no gating** on any local feature. Ptah Builders is a paid membership that adds training and community on top. It does not unlock anything local.
 
-See the [pricing page](https://ptah.live/pricing) for membership details.
+**Approved early adopters get their first year free.** The Early Adopter program is a grant, not a discount. There is no checkout step and no payment method to enter. See the [pricing page](https://ptah.live/pricing) to apply, or read the full [tier comparison](/reference/tier-comparison/).
 
 ## Entering a license key
 
@@ -41,13 +41,19 @@ Ptah validates the key against the license server, then stores it in your operat
 
 Ptah ships with first-class support for several AI providers. You only need to configure the ones you plan to use.
 
-| Provider   | Auth method                      | Where to get credentials            |
-| ---------- | -------------------------------- | ----------------------------------- |
-| Claude     | API key                          | Your Anthropic Console              |
-| Copilot    | OAuth (device flow) or CLI login | Your GitHub account                 |
-| Codex      | API key or CLI login             | Your OpenAI dashboard               |
-| Ollama     | Local endpoint (no key)          | `http://localhost:11434` by default |
-| OpenRouter | API key                          | Your OpenRouter dashboard           |
+| Provider        | Auth method                      | Where to get credentials            |
+| --------------- | -------------------------------- | ----------------------------------- |
+| Claude          | API key                          | Your Anthropic Console              |
+| Copilot         | OAuth (device flow) or CLI login | Your GitHub account                 |
+| Codex           | API key or CLI login             | Your OpenAI dashboard               |
+| Ollama          | Local endpoint (no key)          | `http://localhost:11434` by default |
+| OpenRouter      | API key                          | Your OpenRouter dashboard           |
+| Moonshot (Kimi) | API key                          | Your Moonshot console               |
+| Z.AI (GLM)      | API key                          | Your Z.AI console                   |
+
+Ptah also detects LM Studio and Ollama Cloud, and it accepts a custom
+Anthropic-compatible endpoint you define yourself. See [Providers](/providers/)
+for the full list and per-provider setup.
 
 ### Add a provider
 
