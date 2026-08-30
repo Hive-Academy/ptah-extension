@@ -18,6 +18,8 @@ export type {
 export { FileType, PlatformType } from './types/platform.types';
 export type { IFileSystemProvider } from './interfaces/file-system-provider.interface';
 export type { IStateStorage } from './interfaces/state-storage.interface';
+export type { IWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
+export { isWorkspaceScopedStateStorage } from './interfaces/workspace-scoped-state-storage.interface';
 export type { ISecretStorage } from './interfaces/secret-storage.interface';
 export type { IWorkspaceProvider } from './interfaces/workspace-provider.interface';
 export type { IWorkspaceLifecycleProvider } from './interfaces/workspace-lifecycle.interface';
@@ -32,6 +34,7 @@ export type {
   DiagnosticEntry,
   FileDiagnostics,
   DiagnosticsResult,
+  DiagnosticsScope,
 } from './interfaces/diagnostics-provider.interface';
 export type {
   IMemoryWriter,

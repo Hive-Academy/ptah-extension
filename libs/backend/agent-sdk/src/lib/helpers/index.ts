@@ -76,12 +76,6 @@ export {
 } from './post-tool-use-callback-registry';
 export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
 export {
-  PreToolUseCallbackRegistry,
-  type PreToolUseCallback,
-  type PreToolUsePayload,
-} from './pre-tool-use-callback-registry';
-export { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
-export {
   SessionStartCallbackRegistry,
   type SessionStartCallback,
   type SessionStartPayload,
@@ -162,6 +156,12 @@ export {
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
+export {
+  OffThreadProcessSpawner,
+  type OffThreadSpawnHooks,
+  type PtahSpawnedProcess,
+  type SpawnTransport,
+} from './off-thread-process-spawner';
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';

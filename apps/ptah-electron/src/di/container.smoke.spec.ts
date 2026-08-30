@@ -242,7 +242,7 @@ describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
  * Releases check and mutates the manager's private `_currentState`; `main.ts`
  * disposes that same instance on will-quit. A second `UpdateManager` would be
  * the one `update:get-state` reads, so it would answer `{state:'idle'}` forever
- * — the update banner would never appear and nothing would throw.
+ * — the update dialog would never appear and nothing would throw.
  *
  * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
  * of it, and it asserts reference identity (`toBe`): the two unions are
@@ -252,11 +252,18 @@ describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
 describe('Electron DI — app updater token aliasing (Risk R1)', () => {
   it('resolves APP_UPDATER to the very same instance as UPDATE_MANAGER_TOKEN', () => {
     const { c, logger } = buildPhase4Container();
-    // UpdateManager is @injectable and injects these two; they are its
+    // UpdateManager is @injectable and injects these three; they are its
     // constructor dependencies, not part of the wiring under test.
     c.register(TOKENS.LOGGER, { useValue: logger });
     c.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: { broadcastMessage: jest.fn(async () => undefined) },
+    });
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
     });
 
     registerPhase4Handlers(c, logger);

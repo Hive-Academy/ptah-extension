@@ -144,43 +144,9 @@ import {
       }
     </button>
   `,
-  styles: [
-    `
-      .ptah-superpower-badge {
-        background: linear-gradient(
-          135deg,
-          #b8860b,
-          #daa520,
-          #ffd700,
-          #daa520,
-          #b8860b
-        );
-        background-size: 200% 200%;
-        animation: ptah-gold-shimmer 3s ease infinite;
-        color: #1a1a2e;
-        font-weight: 600;
-        border: 1px solid rgba(218, 165, 32, 0.5);
-        text-shadow: 0 0 1px rgba(255, 215, 0, 0.3);
-      }
-      .ptah-tool-name-badge {
-        background: rgba(218, 165, 32, 0.15);
-        color: #daa520;
-        border: 1px solid rgba(218, 165, 32, 0.3);
-        font-weight: 500;
-      }
-      @keyframes ptah-gold-shimmer {
-        0% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0% 50%;
-        }
-      }
-    `,
-  ],
+  // `.ptah-superpower-badge` / `.ptah-tool-name-badge` are defined once
+  // globally in apps/ptah-extension-webview/src/styles.css, keyed off the
+  // theme-aware `--ptah-gold*` tokens. Do not re-add a local copy.
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallHeaderComponent {

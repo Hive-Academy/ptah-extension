@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_285
-status: in_review
+status: done
 type: feature
 title: >-
   Antigravity can host a user's MCP server and Ptah has no way to say so — add
@@ -18,6 +18,7 @@ description: >-
   facet puts a second writer on a file an unlocked read-modify-write already
   touches on every spawn, so the adapter's cleanup must be unable to delete a
   user's server and a concurrent spawn must be unable to lose one.
+updated: '2026-08-25T21:15:31.064Z'
 ---
 
 # Antigravity as an MCP install target

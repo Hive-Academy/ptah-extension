@@ -106,14 +106,9 @@ import type {
       <div class="flex-1 border-t border-base-300/40"></div>
     </div>
   `,
-  styles: [
-    `
-      :host .ptah-gold-border {
-        border-color: rgba(218, 165, 32, 0.4);
-        box-shadow: 0 0 6px rgba(218, 165, 32, 0.1);
-      }
-    `,
-  ],
+  // `.ptah-gold-border` is defined once globally in
+  // apps/ptah-extension-webview/src/styles.css, keyed off the theme-aware
+  // `--ptah-gold` token. Do not re-add a local copy.
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {

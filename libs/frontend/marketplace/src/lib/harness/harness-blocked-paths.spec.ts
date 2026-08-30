@@ -25,7 +25,11 @@ import type {
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { summarizeHarnessHealth } from '@ptah-extension/shared';
+import {
+  summarizeHarnessHealth,
+  harnessBlockedWordingViolations,
+  HARNESS_BLOCKED_APPROVED_ACTIONS,
+} from '@ptah-extension/shared';
 import { HarnessHealthBadgeComponent } from './harness-health-badge.component';
 
 function ok<T>(data: T) {
@@ -252,10 +256,20 @@ describe('harness health card — blocked-paths disclosure', () => {
       expect(explanation).toContain('cannot prove it wrote');
     });
 
-    it("leads with move, warns the occupant may be the user's own work, and never says delete", async () => {
+    it("says exactly the approved sentence: move-first, may be the user's own work", async () => {
       // Provenance is UNKNOWN — `SkillJunctionService` linked skills and only
       // copied commands, so it never wrote these. Move is reversible; the
       // other verb is not, and the card must not imply Ptah is owed the space.
+      //
+      // This case used to make a bare `not.toContain('delete')` check, which is
+      // the hole Batch 7 recorded as m1 and Batch 8 closed on only two of the
+      // five surfaces. "Remove the occupant" — and "purge", "wipe", "nuke",
+      // "get rid of" — would all have shipped here with a green suite. So the
+      // check is now an exact-match ALLOWLIST against the one definition in
+      // `libs/shared/src/lib/types/harness-blocked-wording.ts`, shared with
+      // the reconciler's WARN, the Dashboard card, the repair dialog and the
+      // health store. Any rewording goes red on all five at once, which is
+      // correct for an instruction whose wrong wording destroys user data.
       await open(
         makeHealth({
           targets: [
@@ -269,11 +283,27 @@ describe('harness health card — blocked-paths disclosure', () => {
 
       const action = text('harness-blocked-action');
 
+      // Kept from the original case: these document WHY the sentence reads as
+      // it does, and they survive the switch to equality at no cost.
       expect(action).toMatch(/^Move the occupant aside/);
       expect(action).toContain('may be your own work');
       expect(action).toContain('read it before you discard anything');
-      expect(action.toLowerCase()).not.toContain('delete');
-      expect(text('harness-blocked').toLowerCase()).not.toContain('delete');
+
+      expect(action).toBe(
+        HARNESS_BLOCKED_APPROVED_ACTIONS['marketplace-popover'],
+      );
+      // Whole-section scope, not action-only: a destructive verb in the
+      // heading, the explanation or a group label fails here too. The path and
+      // the target label are declared as DATA, because a filename is the
+      // user's and not a wording decision anyone has to approve.
+      expect(
+        harnessBlockedWordingViolations({
+          surface: 'marketplace-popover',
+          action,
+          wholeText: text('harness-blocked'),
+          data: ['.claude/skills/a', 'Claude Code'],
+        }),
+      ).toEqual([]);
     });
 
     it('discloses only — it offers no repair, consent or quarantine control', async () => {

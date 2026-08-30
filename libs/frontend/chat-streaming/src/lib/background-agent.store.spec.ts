@@ -25,6 +25,8 @@
  *   - Computed signals: runningAgents, completedAgents, runningCount,
  *     totalCount, hasRunningAgents, backgroundToolCallIds
  *   - MAX_COMPLETED_AGENTS eviction: oldest completed evicted first
+ *   - revision: bumps once per mutation that actually replaced the agent
+ *     map, and stays put when a reducer declines the write
  *   - ngOnDestroy stops the tick interval
  */
 
@@ -33,7 +35,6 @@ import { BackgroundAgentStore } from './background-agent.store';
 import { BackgroundAgentId } from '@ptah-extension/chat-state';
 import type {
   BackgroundAgentCompletedEvent,
-  BackgroundAgentProgressEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
 } from '@ptah-extension/shared';
@@ -50,20 +51,6 @@ function startEvent(
     timestamp: Date.now(),
     ...overrides,
   } as BackgroundAgentStartedEvent;
-}
-
-function progressEvent(
-  overrides: Partial<BackgroundAgentProgressEvent> = {},
-): BackgroundAgentProgressEvent {
-  return {
-    toolCallId: 'tc-1',
-    agentId: 'a-1',
-    sessionId: 'sess-1',
-    summaryDelta: 'tick ',
-    status: 'running',
-    timestamp: Date.now(),
-    ...overrides,
-  } as BackgroundAgentProgressEvent;
 }
 
 function completedEvent(
@@ -121,7 +108,6 @@ describe('BackgroundAgentStore', () => {
         agentId: 'a-1',
         agentType: 'general-purpose',
         status: 'running',
-        summary: '',
         hasRealAgentId: true,
       });
       expect(store.hasRunningAgents()).toBe(true);
@@ -156,46 +142,6 @@ describe('BackgroundAgentStore', () => {
       const secondMap = store.agents();
       expect(secondMap).toHaveLength(1);
       expect(secondMap[0]).toBe(firstMap[0]);
-    });
-  });
-
-  describe('onProgress', () => {
-    it('appends summaryDelta to the existing summary', () => {
-      store.onStarted(startEvent({ agentId: 'a-X', toolCallId: 'tc-X' }));
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-X',
-          toolCallId: 'tc-X',
-          summaryDelta: 'hello ',
-        }),
-      );
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-X',
-          toolCallId: 'tc-X',
-          summaryDelta: 'world',
-        }),
-      );
-      expect(store.agents()[0].summary).toBe('hello world');
-    });
-
-    it('is a no-op for an unknown agentId', () => {
-      store.onProgress(
-        progressEvent({ agentId: 'missing', toolCallId: 'missing' }),
-      );
-      expect(store.agents()).toHaveLength(0);
-    });
-
-    it('propagates error status from the event', () => {
-      store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-E',
-          toolCallId: 'tc-E',
-          status: 'error',
-        }),
-      );
-      expect(store.agents()[0].status).toBe('error');
     });
   });
 
@@ -378,8 +324,8 @@ describe('BackgroundAgentStore', () => {
 
       // First fallback for tc-fb1 — warns.
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb1' }));
-      // Second event (progress) for the same tc-fb1 — no extra warn.
-      store.onProgress(progressEvent({ agentId: '', toolCallId: 'tc-fb1' }));
+      // Second event (stopped) for the same tc-fb1 — no extra warn.
+      store.onStopped(stoppedEvent({ agentId: '', toolCallId: 'tc-fb1' }));
       // Different toolCallId — warns again (one per id).
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb2' }));
 
@@ -464,6 +410,112 @@ describe('BackgroundAgentStore', () => {
       // The earliest started (c-0, timestamp 1) should have been evicted.
       expect(store.isBackgroundAgent('c-0')).toBe(false);
       expect(store.isBackgroundAgent('c-50')).toBe(true);
+    });
+  });
+
+  /**
+   * `revision` is the ONLY invalidation signal the execution-tree cache has
+   * for this store: `isBackground` is read live per node, and the three
+   * `background_agent_*` events write no streaming event, so no per-message
+   * digest moves when membership changes (TASK_2026_333). Its contract is
+   * therefore exact in BOTH directions — a missed bump renders stale flags, a
+   * gratuitous bump forces a full tree rebuild — and it is asserted here, on
+   * the store in isolation, rather than only through `isBackground` in
+   * `execution-tree-builder.service.spec.ts`.
+   */
+  describe('revision — the execution-tree cache invalidation counter', () => {
+    it('onStarted bumps for a new agent, and does NOT bump for a duplicate of a running one', () => {
+      const initial = store.revision();
+
+      store.onStarted(startEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      expect(store.revision()).toBe(initial + 1);
+
+      // The reducer declines the write and returns the SAME map, so nothing
+      // downstream may be invalidated.
+      store.onStarted(startEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      expect(store.revision()).toBe(initial + 1);
+
+      store.onStarted(startEvent({ agentId: 'a-2', toolCallId: 'tc-2' }));
+      expect(store.revision()).toBe(initial + 2);
+    });
+
+    it('onCompleted bumps for both the known and the synthetic-insert path', () => {
+      store.onStarted(startEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      const afterStart = store.revision();
+
+      store.onCompleted(completedEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      expect(store.revision()).toBe(afterStart + 1);
+
+      // Completion for an agent never seen started inserts an entry — a
+      // membership change, so it must move the counter too.
+      store.onCompleted(
+        completedEvent({ agentId: 'a-ghost', toolCallId: 'tc-ghost' }),
+      );
+      expect(store.revision()).toBe(afterStart + 2);
+    });
+
+    it('onStopped bumps for both the known and the synthetic-insert path', () => {
+      store.onStarted(startEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      const afterStart = store.revision();
+
+      store.onStopped(stoppedEvent({ agentId: 'a-1', toolCallId: 'tc-1' }));
+      expect(store.revision()).toBe(afterStart + 1);
+
+      store.onStopped(
+        stoppedEvent({ agentId: 'a-ghost', toolCallId: 'tc-ghost' }),
+      );
+      expect(store.revision()).toBe(afterStart + 2);
+    });
+
+    it('clearCompleted bumps when it removed something and NOT when it removed nothing', () => {
+      store.onStarted(startEvent({ agentId: 'a-run', toolCallId: 'run' }));
+      store.onStarted(startEvent({ agentId: 'a-done', toolCallId: 'done' }));
+      store.onCompleted(
+        completedEvent({ agentId: 'a-done', toolCallId: 'done' }),
+      );
+      const beforeClear = store.revision();
+
+      store.clearCompleted();
+      expect(store.revision()).toBe(beforeClear + 1);
+      expect(store.agents().map((a) => a.toolCallId)).toEqual(['run']);
+
+      // Only a running agent is left, so the second clear removes nothing.
+      store.clearCompleted();
+      expect(store.revision()).toBe(beforeClear + 1);
+    });
+
+    it('clearSession bumps only for a session that actually matched', () => {
+      store.onStarted(
+        startEvent({ agentId: 'a-1', toolCallId: 'tc-1', sessionId: 'sess-1' }),
+      );
+      const beforeClear = store.revision();
+
+      store.clearSession('sess-other');
+      expect(store.revision()).toBe(beforeClear);
+      expect(store.totalCount()).toBe(1);
+
+      store.clearSession('sess-1');
+      expect(store.revision()).toBe(beforeClear + 1);
+      expect(store.totalCount()).toBe(0);
+    });
+
+    it('moves even when the swap leaves the toolCallId set exactly the same size', () => {
+      // The defect in one line: this is the mutation shape a cardinality fold
+      // cannot see. `{tc-old}` → `{tc-new}`, size 1 on both sides.
+      store.onStarted(startEvent({ agentId: 'a-old', toolCallId: 'tc-old' }));
+      store.onCompleted(
+        completedEvent({ agentId: 'a-old', toolCallId: 'tc-old' }),
+      );
+      const beforeSwap = store.revision();
+      const sizeBefore = store.backgroundToolCallIds().size;
+
+      store.clearCompleted();
+      store.onStarted(startEvent({ agentId: 'a-new', toolCallId: 'tc-new' }));
+
+      expect(store.backgroundToolCallIds().size).toBe(sizeBefore);
+      expect(store.isBackgroundAgent('tc-old')).toBe(false);
+      expect(store.isBackgroundAgent('tc-new')).toBe(true);
+      expect(store.revision()).toBeGreaterThan(beforeSwap);
     });
   });
 

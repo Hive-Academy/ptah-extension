@@ -79,7 +79,7 @@ class PartialFailureTarget implements IHarnessTarget {
     return new Map();
   }
 
-  plan(
+  async plan(
     _desired: HarnessDesiredState,
     _workspaceRoot: string,
     manifest: ManagedManifest,

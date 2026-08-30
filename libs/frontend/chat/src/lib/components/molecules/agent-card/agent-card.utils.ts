@@ -4,6 +4,7 @@
  * Pure functions for parsing, formatting, and merging agent output.
  */
 
+import { isOutputTruncationNotice } from '@ptah-extension/chat-streaming';
 import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
 /**
@@ -56,6 +57,14 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+    // The head-of-buffer notice `capBuffer` leaves when it front-truncates a
+    // 50 KB stdout buffer. Rendered as its own informational block: as plain
+    // text it would read as something the agent said (TASK_2026_335).
+    if (isOutputTruncationNotice(trimmed)) {
+      flushText();
+      segments.push({ type: 'info', content: trimmed });
+      continue;
+    }
     if (/^\[stderr\]/i.test(trimmed)) {
       flushText();
       let stderrContent = trimmed.replace(/^\[stderr\]\s*/i, '');
@@ -156,6 +165,10 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
 function isStderrInfoLine(line: string): boolean {
   const t = line.trim();
   if (!t) return true;
+  // Our own truncation notice, not the agent's. It contains none of the error
+  // keywords, so without this it fell through to the unknown-pattern default
+  // and was painted in the red error box.
+  if (isOutputTruncationNotice(t)) return true;
   if (STDERR_ERROR_KEYWORDS.test(t)) return false;
   if (/^\[?(Model|Provider|model|provider)[:\]]/i.test(t)) return true;
   if (/yolo mode|auto.?accept|headless/i.test(t)) return true;

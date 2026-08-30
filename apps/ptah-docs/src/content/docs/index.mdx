@@ -1,16 +1,166 @@
 ---
-title: Welcome to Ptah
-description: The AI dev team that ships production SaaS — user guide for the Ptah Electron desktop app.
+title: Ptah Documentation
+description: The AI dev team that ships production SaaS — user guide for the Ptah desktop app.
 template: splash
 hero:
-  tagline: The AI dev team that ships production SaaS. Architecture-aware memory, a staffed team of agents, and always-on delivery.
+  tagline: A staffed team of AI agents that learns your architecture and ships production SaaS. Free, open source, and running on your own machine.
   actions:
-    - text: Get Started
+    - text: Install Ptah
       link: /getting-started/installation/
       variant: primary
-    - text: Browse the Chat guide
+    - text: Read the Chat guide
       link: /chat/
       variant: minimal
+    - text: View on GitHub
+      link: https://github.com/Hive-Academy/ptah-extension
+      variant: minimal
+      icon: external
 ---
 
-Ptah is an Electron desktop app — with a VS Code extension and a headless CLI, all from one core — that runs a staffed team of agents which learn your architecture and ship production features. Persistent memory keeps that architecture in context, sub-agents handle the work, and always-on scheduling and messaging keep delivery moving.
+import { Card, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+## Start here
+
+New to Ptah? Follow these three pages in order. They take you from download to a working agent roster.
+
+<Steps>
+
+1. **[Install Ptah](/getting-started/installation/)** — download the desktop app for Windows, macOS, or Linux.
+
+2. **[Connect a provider](/getting-started/signing-in/)** — bring your own key for Claude, Copilot, Codex, Ollama, or any other supported provider.
+
+3. **[Run the setup wizard](/setup/setup-wizard/)** — let Ptah analyze your repository and generate an agent roster tuned to your stack.
+
+</Steps>
+
+## What Ptah does
+
+<CardGrid>
+  <Card title="Chat with a real team" icon="comment-alt">
+    One conversation, many specialists. Ptah routes each slice of work to the
+    right agent and shows you the whole execution tree.
+    [Chat →](/chat/)
+  </Card>
+  <Card title="Remember your architecture" icon="star">
+    Tiered memory with hybrid keyword and vector search. Decisions from last
+    week still apply this week.
+    [Memory →](/memory/)
+  </Card>
+  <Card title="Learn from your own work" icon="seti:powershell">
+    Skill Synthesis watches successful sessions and promotes repeated
+    workflows into durable, reusable skills.
+    [Skill Synthesis →](/skill-synthesis/)
+  </Card>
+  <Card title="Keep working while you sleep" icon="rocket">
+    Cron jobs run agents on a schedule. Telegram, Discord, and Slack let you
+    approve a diff from your phone.
+    [Automation →](/automation/)
+  </Card>
+</CardGrid>
+
+## Explore by task
+
+<CardGrid>
+  <LinkCard
+    title="Providers"
+    href="/providers/"
+    description="Claude, Copilot, Codex, Ollama, OpenRouter, Moonshot, Z.AI, and more. Bring your own keys."
+  />
+  <LinkCard
+    title="Agents"
+    href="/agents/"
+    description="The 14 built-in agents, custom agents, CLI helpers, and syncing your roster to other tools."
+  />
+  <LinkCard
+    title="Orchestra Canvas"
+    href="/canvas/"
+    description="Run up to nine chat sessions side by side on one drag-and-resize grid."
+  />
+  <LinkCard
+    title="Project setup"
+    href="/setup/"
+    description="The Setup Hub, the setup wizard, the AI Team Builder, and new-project scaffolding."
+  />
+  <LinkCard
+    title="Tasks board"
+    href="/tasks/"
+    description="A six-column Kanban board over the task specifications in your workspace."
+  />
+  <LinkCard
+    title="Tribunal"
+    href="/tribunal/"
+    description="Put several AI vendors on the same problem. Council, Forge, Race, Relay, and Crucible."
+  />
+  <LinkCard
+    title="Workspace"
+    href="/workspace/"
+    description="Opening a workspace, project analysis, the file tree, and workspace intelligence."
+  />
+  <LinkCard
+    title="Sessions"
+    href="/sessions/"
+    description="History, metadata, cost summaries, analytics, and importing your existing CLI transcripts."
+  />
+  <LinkCard
+    title="Plugins & skills"
+    href="/plugins/"
+    description="Enable the bundled plugin packs, toggle individual skills, or author your own."
+  />
+  <LinkCard
+    title="MCP"
+    href="/mcp-and-skills/"
+    description="The built-in MCP server, Ptah's own tools, third-party servers, and driving Ptah over MCP."
+  />
+  <LinkCard
+    title="Browser automation"
+    href="/browser-automation/"
+    description="Navigate, click, type, read a page, capture screenshots, watch the network, record a run."
+  />
+  <LinkCard
+    title="Git"
+    href="/git/"
+    description="Status, diffs, commits, branch awareness, and worktrees."
+  />
+  <LinkCard
+    title="Settings"
+    href="/settings/"
+    description="Global and workspace settings, API keys, autopilot, themes, import and export."
+  />
+  <LinkCard
+    title="Troubleshooting"
+    href="/troubleshooting/"
+    description="Installation problems, provider errors, port conflicts, logs, and how to file a good bug."
+  />
+</CardGrid>
+
+## Good to know
+
+- **Every local capability is free.** Ptah is open source. Nothing on your own
+  machine sits behind a paywall. See the [tier comparison](/reference/tier-comparison/).
+- **Your keys stay on your machine.** Ptah never proxies your traffic through a
+  service we control. See [Providers](/providers/).
+- **These pages describe the desktop app by default.** The same core also ships
+  as a [VS Code extension](/vscode-extension/) and a [headless CLI](/cli/).
+
+<CardGrid>
+  <LinkCard
+    title="VS Code extension"
+    href="/vscode-extension/"
+    description="The same engine inside your editor. Commands, shared state, and what is desktop-only."
+  />
+  <LinkCard
+    title="Ptah CLI"
+    href="/cli/"
+    description="Headless Ptah for CI, scripts, and agent-to-agent bridges."
+  />
+  <LinkCard
+    title="Reference"
+    href="/reference/"
+    description="File locations, keyboard shortcuts, CLI flags, the glossary, and the changelog."
+  />
+  <LinkCard
+    title="Ask a question"
+    href="https://github.com/Hive-Academy/ptah-extension/issues"
+    description="Report a bug or request a feature on GitHub."
+  />
+</CardGrid>

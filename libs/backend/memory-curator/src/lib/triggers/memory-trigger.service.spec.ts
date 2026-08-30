@@ -12,6 +12,7 @@ import type {
   PostToolUseCallbackRegistry,
   PostToolUsePayload,
   SessionActivityCallback,
+  SessionActivityPayload,
   SessionActivityRegistry,
   SessionEndCallback,
   SessionEndCallbackRegistry,
@@ -24,8 +25,6 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
-  PreToolUseCallbackRegistry,
-  PreToolUsePayload,
   SessionStartCallbackRegistry,
   SessionStartPayload,
   SessionIdResolvedCallbackRegistry,
@@ -281,7 +280,8 @@ function makeObservationQueue(): FakeQueueStore {
     }
   });
   const store = {
-    insert: jest.fn((insert: ObservationQueueInsert) => {
+    flush: jest.fn(),
+    enqueue: jest.fn((insert: ObservationQueueInsert) => {
       inserts.push(insert);
       const row: ObservationQueueRow = {
         id: nextId.value++,
@@ -352,7 +352,6 @@ function buildService(opts?: {
     SessionEndHookPayload,
     SessionEndHookCallbackRegistry
   >;
-  preToolUse: SetRegistryHarness<PreToolUsePayload, PreToolUseCallbackRegistry>;
   sessionStart: SetRegistryHarness<
     SessionStartPayload,
     SessionStartCallbackRegistry
@@ -374,7 +373,6 @@ function buildService(opts?: {
   const stop = makeSetRegistry<StopPayload>();
   const toolFailure = makeSetRegistry<ToolFailurePayload>();
   const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
-  const preToolUse = makeSetRegistry<PreToolUsePayload>();
   const sessionStart = makeSetRegistry<SessionStartPayload>();
   const sessionIdResolved = makeSetRegistry<SessionIdResolvedPayload>();
   const curator = opts?.curator ?? makeCurator();
@@ -399,7 +397,6 @@ function buildService(opts?: {
     sessionEndHook.registry as unknown as SessionEndHookCallbackRegistry,
     rateLimiter,
     queue.store,
-    preToolUse.registry as unknown as PreToolUseCallbackRegistry,
     sessionStart.registry as unknown as SessionStartCallbackRegistry,
     transcriptReader,
     sessionIdResolved.registry as unknown as SessionIdResolvedCallbackRegistry,
@@ -421,10 +418,6 @@ function buildService(opts?: {
     sessionEndHook: sessionEndHook as unknown as SetRegistryHarness<
       SessionEndHookPayload,
       SessionEndHookCallbackRegistry
-    >,
-    preToolUse: preToolUse as unknown as SetRegistryHarness<
-      PreToolUsePayload,
-      PreToolUseCallbackRegistry
     >,
     sessionStart: sessionStart as unknown as SetRegistryHarness<
       SessionStartPayload,
@@ -1777,12 +1770,15 @@ describe('MemoryTriggerService — observation queue side effects', () => {
     );
   });
 
-  it('onPreToolUseRead inserts a file-read row only when toolName is Read', () => {
-    const { service, preToolUse, queue } = buildService();
+  it('PostToolUse Read inserts the same file-read observation row', () => {
+    const { service, postToolUse, queue } = buildService();
     service.start();
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Read',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 1,
@@ -1794,14 +1790,19 @@ describe('MemoryTriggerService — observation queue side effects', () => {
       }),
     );
     queue.inserts.length = 0;
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Edit',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'updated',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 2,
     });
-    expect(queue.inserts).toHaveLength(0);
+    expect(
+      queue.inserts.filter((row) => row.kind === 'file-read'),
+    ).toHaveLength(0);
   });
 
   it('commit-detect path inserts a commit row in addition to the tool-use row', () => {
@@ -2327,5 +2328,173 @@ describe('MemoryTriggerService — rekeySession (TASK_2026_296)', () => {
     jest.advanceTimersByTime(500_000);
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(h.curator.curate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_323 blocker B2 — the capture path is gated, cheap and bounded.
+ *
+ * The six enqueue sites fire on every tool call, assistant turn and prompt
+ * submit of every open session. Nothing gated them: the per-trigger `*.enabled`
+ * flags were all consulted AFTER the write, so a user who wanted no memory at
+ * all still paid for a `JSON.stringify` and a SQLite round trip per tool call.
+ */
+describe('MemoryTriggerService — capture gating and caches (TASK_2026_323)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const disabled = (): IWorkspaceProvider =>
+    makeWorkspace({ 'memory.enabled': false });
+
+  it('memory.enabled=false captures nothing from any hook', () => {
+    const { service, stop, postToolUse, userPromptSubmit, queue } =
+      buildService({ workspace: disabled() });
+    service.start();
+
+    stop.fire(stopPayload());
+    postToolUse.fire(postToolUsePayload());
+    userPromptSubmit.fire(userPromptPayload());
+    postToolUse.fire({
+      toolName: 'Read',
+      toolInput: { file_path: '/a.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 3000,
+    });
+
+    expect(queue.inserts).toHaveLength(0);
+    expect(queue.store.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('memory.enabled=false arms no idle timer and runs no curate', async () => {
+    const { service, activity, curator } = buildService({
+      workspace: disabled(),
+    });
+    service.start();
+
+    activity.registry.notifyAll({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 1000,
+    } as SessionActivityPayload);
+    jest.advanceTimersByTime(1_000_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('memory.enabled defaults to true — capture is unchanged when unset', () => {
+    const { service, stop, queue } = buildService();
+    service.start();
+    stop.fire(stopPayload());
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({ kind: 'assistant-turn' }),
+    );
+  });
+
+  it('stop() flushes the pending batch rather than losing it', () => {
+    const { service, queue } = buildService();
+    service.start();
+    service.stop();
+    expect(queue.store.flush).toHaveBeenCalled();
+  });
+
+  /**
+   * The cue cache keys on the JOINED cue list, not the array's identity.
+   *
+   * `getConfiguration` hands back a freshly parsed array on every miss — which
+   * is what a settings-file read does — so an identity key never hit and every
+   * prompt submit recompiled the whole cue list.
+   */
+  it('does not recompile the cue list when the config hands back a fresh array', () => {
+    const cueList = ['remember (this|that)', 'save to memory'];
+    const workspace = makeWorkspace();
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, def: unknown) => {
+        if (key === 'memory.triggers.userPromptSubmit.cueList') {
+          // A NEW array each read — the real provider's behaviour.
+          return [...cueList];
+        }
+        if (key === 'memory.triggers.userPromptSubmit.minPromptLength')
+          return 20;
+        if (key === 'memory.triggers.maxCuratesPerHour') return 0;
+        return def;
+      },
+    );
+
+    const { service, userPromptSubmit } = buildService({ workspace });
+    service.start();
+
+    const cache = () =>
+      (service as unknown as { cueCache: { compiled: RegExp[] } | null })
+        .cueCache;
+
+    userPromptSubmit.fire(userPromptPayload());
+    const first = cache()?.compiled;
+    expect(first).toBeDefined();
+
+    userPromptSubmit.fire(userPromptPayload());
+    expect(cache()?.compiled).toBe(first);
+  });
+
+  it('recompiles when the cue list contents actually change', () => {
+    const workspace = makeWorkspace();
+    let cues = ['remember (this|that)'];
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, def: unknown) => {
+        if (key === 'memory.triggers.userPromptSubmit.cueList')
+          return [...cues];
+        if (key === 'memory.triggers.userPromptSubmit.minPromptLength')
+          return 20;
+        if (key === 'memory.triggers.maxCuratesPerHour') return 0;
+        return def;
+      },
+    );
+
+    const { service, userPromptSubmit } = buildService({ workspace });
+    service.start();
+    const cache = () =>
+      (service as unknown as { cueCache: { compiled: RegExp[] } | null })
+        .cueCache;
+
+    userPromptSubmit.fire(userPromptPayload());
+    const first = cache()?.compiled;
+
+    cues = ['save to memory'];
+    userPromptSubmit.fire(userPromptPayload());
+    expect(cache()?.compiled).not.toBe(first);
+  });
+
+  /**
+   * TASK_2026_323 blocker B4 — the curator reads only the TAIL of the
+   * transcript. `composeTranscript` keeps 32 KB of formatted excerpt, so
+   * parsing a 50 MB JSONL to throw away all but the end was pure main-thread
+   * cost. The 512 KB window bounds RAW bytes, which carry uuids, timestamps and
+   * usage the formatted excerpt never shows.
+   */
+  it('reads the transcript tail rather than the whole file', async () => {
+    const { service, stop, transcriptReader } = buildService({
+      workspace: makeWorkspace({ 'memory.triggers.turnThreshold': 1 }),
+    });
+    service.start();
+
+    stop.fire(stopPayload());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(transcriptReader.read).toHaveBeenCalledWith(
+      's1',
+      '/ws',
+      expect.objectContaining({ tailBytes: expect.any(Number) }),
+    );
+    const [, , options] = (transcriptReader.read as jest.Mock).mock
+      .calls[0] as [string, string, { tailBytes: number }];
+    expect(options.tailBytes).toBeGreaterThanOrEqual(32 * 1024);
   });
 });

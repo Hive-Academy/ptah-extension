@@ -55,6 +55,14 @@ server. Most do it without touching disk — Codex via SDK config, Copilot via
 `OPENCODE_CONFIG_CONTENT`. **Antigravity is the one that has to write a file**:
 `agy` reads MCP servers only from `~/.gemini/config/mcp_config.json`.
 
+**None of this reaches a CLI the USER launches, and that is not what it is
+for.** An in-process config, an argv flag and an env var all die with the
+process. Persisting Ptah's server so a bare `codex` or `agy` in a terminal can
+see it is `CodeExecutionMCP`'s job (`vscode-lm-tools`, `ptah-mcp-slots.ts`),
+which writes the same `PTAH_SPAWN_MCP_KEY` into every detected CLI's config for
+as long as its HTTP server is up. The two overlap on exactly one file — see the
+restore rule below.
+
 Since TASK_2026_285 that file is also a user-installable MCP target, so the
 reconciler writes it too. Rather than become a second writer, the adapter goes
 through `harness-sync`'s facet:
@@ -71,15 +79,38 @@ Three rules hold it together, and all three are pinned by
 
 - **The facet owns the format.** `agy` spells a remote endpoint `serverUrl`, not
   `url`. Hand-rolling the JSON here is how that detail drifts.
-- **Cleanup removes `PTAH_SPAWN_MCP_KEY` and nothing else.** The old version
-  also deleted the whole `mcpServers` map once it looked empty — safe only while
-  Ptah was its sole writer, and a way to delete a user's installed server now.
+- **Cleanup RESTORES `PTAH_SPAWN_MCP_KEY`, it does not delete it.** Deleting was
+  right while this adapter was the only thing that ever wrote the key. It is not
+  any more: `CodeExecutionMCP` keeps a PERSISTENT `ptah` entry in this file for
+  as long as its HTTP server is up, so that `agy` sessions the USER starts have
+  Ptah tools too, and an unconditional delete silently revoked that every time a
+  Ptah-spawned agent finished. `configureMcpServer` therefore returns whatever
+  entry it found and `cleanupMcpEntry` writes it back; `undefined` means nobody
+  owned the key and it is removed, which is exactly the old behaviour. The
+  snapshot is a LOCAL in `runSdk`, never a field — two `agy` agents can be in
+  flight at once and a shared slot would let one run's cleanup restore the
+  other's. Either way it touches that one key and nothing else: an older version
+  also deleted the whole `mcpServers` map once it looked empty, which was safe
+  only while Ptah was its sole writer and is a way to delete a user's installed
+  server now.
 - **The facet holds a per-config-file lock.** Two unserialized
   read-modify-writes on one file lose an entry with no error and no torn file.
 
 `homeDir` is resolved env-first (`HOME` / `USERPROFILE` / `os.homedir()`) to
 match `geminiRoot()`, so a test that reassigns `HOME` cannot reach the
 developer's real `~/.gemini`.
+
+**Codex connects to that server and then hides its tools.** Measured on
+codex-cli 0.150.1: with only `mcp_servers.ptah.url` set, `rmcp` logs
+`Service initialized as client … server_info: Implementation { name: "ptah" }`
+— the handshake succeeds — and a spawned agent asked to list the `ptah` tools
+answers **NONE**, then does the whole task with `powershell.exe` calls. The
+cause is the `ToolSearchAlwaysDeferMcpTools` feature: MCP tools stay out of the
+model's tool list until the model runs a tool search, which it has no reason to
+do. `CodexCliAdapter` therefore sends
+`features.tool_search_always_defer_mcp_tools = false` alongside the server
+entry; with it, the same prompt lists all 40+ `ptah_*` tools. A successful
+connection is NOT evidence that the tools arrived — only a tool listing is.
 
 ## Guidelines
 

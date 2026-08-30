@@ -28,7 +28,6 @@ import type {
 
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { SessionStartHookHandler } from './session-start-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
@@ -102,22 +101,6 @@ const CASES: HandlerCase[] = [
       tool_name: 'Bash',
       tool_input: { command: 'ls' },
       tool_response: { exit_code: 0 },
-    },
-  },
-  {
-    name: 'PreToolUseHookHandler',
-    event: 'PreToolUse',
-    build: (logger, registry) =>
-      new PreToolUseHookHandler(
-        logger,
-        registry as unknown as ConstructorParameters<
-          typeof PreToolUseHookHandler
-        >[1],
-      ),
-    input: {
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Read',
-      tool_input: { file_path: '/a' },
     },
   },
   {

@@ -80,7 +80,7 @@ If a subagent's response contains `## Clarifications Needed`, treat it as a stru
 | Planning       | project-manager                                           |
 | Infrastructure | devops-engineer                                           |
 
-**Default**: When in doubt, delegate. See [agent-catalog.md](references/agent-catalog.md) for all 14 agents.
+**Default**: When in doubt, delegate. See [agent-catalog.md](references/agent-catalog.md) for all 15 agents.
 
 ---
 
@@ -408,7 +408,7 @@ See [checkpoints.md](references/checkpoints.md) for error handling templates.
 | Reference                                                     | Load When                    | Content                               |
 | ------------------------------------------------------------- | ---------------------------- | ------------------------------------- |
 | [strategies.md](references/strategies.md)                     | Selecting/executing strategy | 8 task type workflows                 |
-| [agent-catalog.md](references/agent-catalog.md)               | Determining agent            | 14 agent profiles, capability matrix  |
+| [agent-catalog.md](references/agent-catalog.md)               | Determining agent            | 15 agent profiles, capability matrix  |
 | [team-leader-modes.md](references/team-leader-modes.md)       | Invoking team-leader         | MODE 1/2/3 patterns                   |
 | [task-tracking.md](references/task-tracking.md)               | Managing state               | Folder structure, registry            |
 | [checkpoints.md](references/checkpoints.md)                   | Presenting checkpoints       | Templates, error handling             |

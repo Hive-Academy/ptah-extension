@@ -34,6 +34,8 @@ import { HarnessHealthBadgeComponent } from '@ptah-extension/marketplace';
 import {
   MESSAGE_TYPES,
   summarizeHarnessHealth,
+  harnessBlockedWordingViolations,
+  HARNESS_BLOCKED_APPROVED_ACTIONS,
   type HarnessHealth,
   type HarnessTargetHealth,
   type HarnessTargetId,
@@ -351,9 +353,17 @@ describe('dashboard harness card', () => {
   });
 
   describe('what it says', () => {
-    it("leads with move, warns the occupant may be the user's own work, and never says delete", async () => {
+    it('says exactly the approved sentence, and nothing else on the card contradicts it', async () => {
       // Provenance is UNKNOWN. Move is the reversible half, and the card must
       // not imply Ptah is owed the space.
+      //
+      // This case used to make a bare `not.toContain('delete')` check over the
+      // action and over the card. That is the hole Batch 7 recorded as m1 and
+      // Batch 8 closed on only two of the five surfaces, so "remove the
+      // occupant" — along with "purge", "wipe", "nuke" and "get rid of" —
+      // would have shipped HERE with a green suite. It is now an exact-match
+      // ALLOWLIST against the one definition in
+      // `libs/shared/src/lib/types/harness-blocked-wording.ts`.
       push(blockedHealth(2));
 
       const card = await mountCard();
@@ -361,15 +371,30 @@ describe('dashboard harness card', () => {
         card.querySelector('[data-testid="harness-blocked-action"]'),
       );
 
+      // Kept from the original case: they document why the sentence reads as
+      // it does, and they cost nothing beside the equality below.
       expect(action).toMatch(/^Move the occupant aside/);
       expect(action).toContain('may be your own work');
       expect(action).toContain('read it before you discard anything');
-      expect(action.toLowerCase()).not.toContain('delete');
+
+      expect(action).toBe(HARNESS_BLOCKED_APPROVED_ACTIONS['dashboard-card']);
+      // Whole-CARD scope, which is what the `not.toContain('delete')` line
+      // above it used to buy: a careful paragraph beside a button reading
+      // "Purge these" is not a careful card. The heading, the summary sentence
+      // and the button label are all on the allowlist, so any of them changing
+      // lands here too.
       expect(
-        textOf(
-          card.querySelector('[data-testid="harness-card"]'),
-        ).toLowerCase(),
-      ).not.toContain('delete');
+        harnessBlockedWordingViolations({
+          surface: 'dashboard-card',
+          action,
+          wholeText: textOf(card.querySelector('[data-testid="harness-card"]')),
+          data: [
+            '.claude/skills/legacy-0',
+            '.claude/skills/legacy-1',
+            'Claude Code',
+          ],
+        }),
+      ).toEqual([]);
     });
 
     it('names both places the user can act, and neither of them is a Reconcile button here', async () => {
@@ -385,19 +410,20 @@ describe('dashboard harness card', () => {
         card.querySelector('[data-testid="harness-blocked-action"]'),
       );
 
-      // Pinned WHOLE and EXACT rather than by substring. This is the fifth
-      // phrasing of one instruction across the repo and the first to offer an
-      // action rather than only a location, so the clause that changed is the
-      // one most worth reading in a diff — and the four fixed properties
-      // (opens on MOVE, names where to act, claims no ownership, hands the
-      // judgement back) are all visible in one literal.
-      expect(action).toBe(
-        'Move the occupant aside — the file or directory at each path, or the ' +
-          'conflicting key in each config file — then reconcile from ' +
-          'Marketplace → Plugins, or let Ptah move it for you with the button ' +
-          'below. Nothing here proves Ptah wrote these, so they may be your ' +
-          'own work: keep what you move, and read it before you discard ' +
-          'anything.',
+      // Pinned WHOLE and EXACT rather than by substring, and against the ONE
+      // shared definition rather than a literal copied into this file. This is
+      // the fifth phrasing of one instruction across the repo and the first to
+      // offer an action rather than only a location, so the clause that
+      // changed is the one most worth reading in a diff — and the four fixed
+      // properties (opens on MOVE, names where to act, claims no ownership,
+      // hands the judgement back) are all visible in one place.
+      expect(action).toBe(HARNESS_BLOCKED_APPROVED_ACTIONS['dashboard-card']);
+      // The clause that makes this surface's wording ITS own: the popover's
+      // "then run Reconcile now" names a button eight pixels below itself, and
+      // this card does not have one.
+      expect(action).toContain(
+        'then reconcile from Marketplace → Plugins, or let Ptah move it for ' +
+          'you with the button below.',
       );
       expect(action).not.toContain('Reconcile now');
     });

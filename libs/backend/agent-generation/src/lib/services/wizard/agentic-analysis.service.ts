@@ -169,6 +169,12 @@ export class AgenticAnalysisService {
 
     const abortController = new AbortController();
     this.activeAbortController = abortController;
+    // Arm the timeout BEFORE execute() so the budget covers the queue wait
+    // for a concurrency slot, not just the stream after the handle resolves.
+    const timeoutHandle = setTimeout(
+      () => abortController.abort(ABORT_REASONS.TIMEOUT),
+      timeout,
+    );
 
     try {
       const handle = await this.internalQueryService.execute({
@@ -188,11 +194,7 @@ export class AgenticAnalysisService {
       });
 
       try {
-        return await this.processStream(
-          handle.stream,
-          abortController,
-          timeout,
-        );
+        return await this.processStream(handle.stream);
       } finally {
         handle.close();
       }
@@ -234,6 +236,7 @@ export class AgenticAnalysisService {
       this.logger.error(`${SERVICE_TAG} Agentic analysis failed`, errorObj);
       return Result.err(errorObj);
     } finally {
+      clearTimeout(timeoutHandle);
       if (this.activeAbortController === abortController) {
         this.activeAbortController = null;
       }
@@ -266,8 +269,6 @@ export class AgenticAnalysisService {
    */
   private async processStream(
     stream: AsyncIterable<SDKMessage>,
-    abortController: AbortController,
-    timeoutMs: number,
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     let currentPhase: AnalysisPhase | undefined;
     const completedPhases: AnalysisPhase[] = [];
@@ -326,7 +327,6 @@ export class AgenticAnalysisService {
 
     const processor = new SdkStreamProcessor({
       emitter,
-      timeout: { ms: timeoutMs, abortController },
       phaseTracker,
       logger: this.logger,
       serviceTag: SERVICE_TAG,

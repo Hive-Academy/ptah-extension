@@ -130,6 +130,22 @@ nx serve ptah-license-server         # NestJS API
 nx graph                             # Visualize dep graph
 ```
 
+**Never run `nx test projA projB projC`.** Nx runs the target for the FIRST
+project only and hands the trailing names to Jest, where they become test-path
+filters. Measured 2026-08-25: `npx nx test @ptah-extension/thoth-shell
+@ptah-extension/markdown` printed `No tests found, exiting with code 0` and then
+`Successfully ran target test` — ZERO tests ran and the command exited 0. That is
+a confident green tick for work that was never tested. Use `run-many`:
+
+```bash
+npx nx run-many -t test -p projA projB projC
+```
+
+The project name is the one in `project.json`, which for a lib is the package
+alias (`@ptah-extension/thoth-shell`), not the folder name. A misspelled name is
+silently dropped from a `run-many` set, so read the `Running target test for N
+projects` header and check that N is the number you asked for.
+
 ## Coding Standards
 
 - **Type safety**: `catch (error: unknown)`, narrow with `instanceof Error` before `.message`. No `@ts-ignore` without `@ts-expect-error + reason`.
@@ -145,7 +161,7 @@ nx graph                             # Visualize dep graph
 ## Task Specs (`.ptah/specs/`)
 
 - **Carrier**: each `TASK_YYYY_NNN/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
-- **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `tasks.md`. Never put prose in the carrier.
+- **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `batches.md` (its former name `tasks.md` is still read, permanently). Never put prose in the carrier.
 - **`description` is ALWAYS a `>-` block scalar** — a plain YAML scalar ends at the first colon-space, so a description quoting code makes the whole carrier unparseable and the task vanishes from the board. Three carriers were dark for exactly this (repaired 2026-08-09). Same rule for `title` when it contains a colon.
 - **Status change**: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the whole carrier with `Write`.
 - **ID allocation**: folder scan of `.ptah/specs/TASK_*` — highest `NNN` for the current year + 1, zero-padded. NEVER derive the ID from `registry.md` (it is generated and can be stale).

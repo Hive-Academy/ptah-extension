@@ -291,7 +291,11 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               title="Send this subagent to the background"
               aria-label="Send subagent to background"
             >
-              <lucide-angular [img]="MoonIcon" class="w-3 h-3" />
+              <lucide-angular
+                [img]="backgroundPending() ? LoaderIcon : MoonIcon"
+                class="w-3 h-3"
+                [class.animate-spin]="backgroundPending()"
+              />
             </button>
           }
 
@@ -306,7 +310,11 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               title="Stop this subagent"
               aria-label="Stop subagent"
             >
-              <lucide-angular [img]="SquareIcon" class="w-3 h-3" />
+              <lucide-angular
+                [img]="stopPending() ? LoaderIcon : SquareIcon"
+                class="w-3 h-3"
+                [class.animate-spin]="stopPending()"
+              />
             </button>
           }
 
@@ -349,6 +357,22 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
             <span class="text-[9px]">Message agent</span>
           </button>
         </div>
+
+        <!-- Command failure line. Stop / background / steer all refuse for
+             ordinary reasons — the owning session ended, the SDK no longer
+             holds that task, the RPC timed out — and until this row existed
+             every one of them was a console.warn in the renderer with an
+             inert-looking button in front of the user. -->
+        @if (commandError(); as err) {
+          <div
+            class="flex items-center gap-1 px-3 py-1 text-[10px] text-error border-t border-base-300/30"
+            data-testid="subagent-command-error"
+            [title]="err.method + ': ' + err.message"
+          >
+            <lucide-angular [img]="XIcon" class="w-2.5 h-2.5 flex-shrink-0" />
+            <span class="truncate">{{ err.message }}</span>
+          </div>
+        }
 
         <!-- Message-agent input (collapsed by default). -->
         @if (sendInputExpanded()) {
@@ -945,6 +969,17 @@ export class InlineAgentBubbleComponent {
     if (rec.lastToolName) return `last: ${rec.lastToolName}`;
     if (rec.description) return rec.description;
     return null;
+  });
+
+  /**
+   * The last failed subagent command, narrowed to THIS agent. The store's
+   * error channel is a single slot keyed by `parentToolUseId`, so the match
+   * keeps another bubble's failure out of this one.
+   */
+  readonly commandError = computed(() => {
+    const err = this.agentMonitorStore.subagentRpcError();
+    if (!err) return null;
+    return err.parentToolUseId === this.parentToolUseId() ? err : null;
   });
 
   /** Stop button is only valid while running AND we know a taskId. */

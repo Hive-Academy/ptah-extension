@@ -70,7 +70,7 @@ In this video I walk through that gap and how Ptah approaches it — persistent 
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Apply for Ptah Builders Early Adopter — approved founding members get their first year free: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```

@@ -102,6 +102,10 @@ import {
   SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
+import {
+  DIAGNOSTICS_CACHE_INVALIDATOR,
+  DiagnosticsCacheInvalidator,
+} from '../diagnostics/diagnostics-cache-invalidator.service';
 
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
@@ -415,7 +419,24 @@ export class PtahAPIBuilder {
 
     @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
     private readonly taskIndex: TaskSpecIndexLike | undefined,
+
+    /**
+     * NOT stored — injected to be constructed and started.
+     *
+     * This class is the only injection site of
+     * `PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER` in the workspace, so no caller can
+     * reach `getDiagnostics` without first constructing this builder. Binding
+     * the invalidator's subscription to that fact covers every window in which
+     * the provider's result cache could hold a pre-edit answer, in all three
+     * hosts, without a wiring line in each of them. Required rather than
+     * optional: `registerVsCodeLmToolsServices` registers the two together, and
+     * an invalidator nobody constructs is exactly the no-op defect it exists to
+     * fix (TASK_2026_325 finding 2).
+     */
+    @inject(DIAGNOSTICS_CACHE_INVALIDATOR)
+    diagnosticsCacheInvalidator: DiagnosticsCacheInvalidator,
   ) {
+    diagnosticsCacheInvalidator.start();
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
   }
 

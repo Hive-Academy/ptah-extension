@@ -526,4 +526,136 @@ src/**/test/**
       expect(result.matchedFile).toBeUndefined();
     });
   });
+
+  /**
+   * TASK_2026_344 — `compileMatcher` is the BULK path's matcher: the workspace
+   * walk filters 15k paths through it on the Electron main loop, where
+   * `isIgnored`'s per-(path, pattern) `JSON.stringify` cache key and its
+   * 1000-entry result LRU are pure overhead (they evict long before they can
+   * hit at that volume).
+   *
+   * It is only allowed to exist because it gives the SAME ANSWER. So every case
+   * below asserts the two against each other on the same inputs, not just
+   * against a hand-written expectation — a divergence would show up as a
+   * silently different index rather than as a failure anywhere else.
+   */
+  describe('compileMatcher', () => {
+    /** Build a ParsedIgnoreFile through the real parser (so `dir/` → `dir/**`). */
+    const parse = async (
+      filePath: string,
+      content: string,
+    ): Promise<Awaited<ReturnType<typeof service.parseIgnoreFile>>> => {
+      mockFileSystem.readFile.mockResolvedValue(content);
+      return service.parseIgnoreFile(filePath);
+    };
+
+    const WS = '/workspace';
+
+    it.each([
+      ['plain pattern matches', '*.log', 'debug.log', true],
+      ['plain pattern misses', '*.log', 'src/app.ts', false],
+      ['negation after a match wins', '*.log\n!keep.log', 'keep.log', false],
+      [
+        'negation does not rescue a sibling',
+        '*.log\n!keep.log',
+        'other.log',
+        true,
+      ],
+      ['directory pattern matches its children', 'dist/', 'dist/main.js', true],
+      // `dist/` is parsed to `dist/**`, and with `bash: true` picomatch treats
+      // the bare directory as matching too. Asserted rather than assumed
+      // because the compiled matcher has to reproduce it, not improve on it.
+      [
+        'directory pattern also matches the directory itself',
+        'dist/',
+        'dist',
+        true,
+      ],
+      [
+        'directory pattern misses an unrelated path',
+        'dist/',
+        'src/dist-notes.md',
+        false,
+      ],
+    ])(
+      '%s — and agrees with isIgnored',
+      async (_name, content, candidate, expected) => {
+        const ignoreFile = await parse(`${WS}/.gitignore`, content);
+
+        const compiled = service.compileMatcher([ignoreFile], WS);
+        const reference = await service.isIgnored(candidate, [ignoreFile], WS);
+
+        expect(compiled(candidate)).toBe(expected);
+        expect(compiled(candidate)).toBe(reference.ignored);
+      },
+    );
+
+    /**
+     * A nested ignore file's patterns are relative to ITS directory, so the
+     * candidate has to be re-based per ignore file before matching. Getting
+     * this wrong is invisible on a root-level .gitignore and wrong on every
+     * monorepo.
+     */
+    it('re-bases the candidate against a nested ignore file, as isIgnored does', async () => {
+      const nested = await parse(`${WS}/src/.gitignore`, 'gen/');
+      const candidate = `${WS}/src/gen/schema.ts`;
+
+      const compiled = service.compileMatcher([nested], WS);
+      const reference = await service.isIgnored(candidate, [nested], WS);
+
+      expect(compiled(candidate)).toBe(true);
+      expect(compiled(candidate)).toBe(reference.ignored);
+
+      // A path outside the nested file's directory is untouched by its rules.
+      const outside = `${WS}/other/gen/schema.ts`;
+      expect(compiled(outside)).toBe(
+        (await service.isIgnored(outside, [nested], WS)).ignored,
+      );
+    });
+
+    /**
+     * Case sensitivity is platform-derived (`nocase` on win32), so the correct
+     * assertion is not "matches" or "does not match" — it is "the same as
+     * isIgnored", plus the platform's own rule stated once.
+     */
+    it('applies the platform case rule exactly as isIgnored does', async () => {
+      const ignoreFile = await parse(`${WS}/.gitignore`, 'DIST/');
+      const candidate = 'dist/main.js';
+
+      const compiled = service.compileMatcher([ignoreFile], WS);
+      const reference = await service.isIgnored(candidate, [ignoreFile], WS);
+
+      expect(compiled(candidate)).toBe(reference.ignored);
+      expect(compiled(candidate)).toBe(process.platform === 'win32');
+    });
+
+    it('lets a later ignore file override an earlier one, as isIgnored does', async () => {
+      const first = await parse(`${WS}/.gitignore`, '*.log');
+      const second = await parse(`${WS}/.prettierignore`, '!debug.log');
+      const candidate = 'debug.log';
+
+      const compiled = service.compileMatcher([first, second], WS);
+      const reference = await service.isIgnored(candidate, [first, second], WS);
+
+      expect(compiled(candidate)).toBe(false);
+      expect(compiled(candidate)).toBe(reference.ignored);
+    });
+
+    it('ignores nothing when there are no ignore files', () => {
+      const compiled = service.compileMatcher([], WS);
+      expect(compiled('src/app.ts')).toBe(false);
+      expect(compiled('anything/at/all.log')).toBe(false);
+    });
+
+    it('normalizes Windows separators before matching, as isIgnored does', async () => {
+      const ignoreFile = await parse(`${WS}/.gitignore`, 'dist/');
+      const candidate = 'dist\\main.js';
+
+      const compiled = service.compileMatcher([ignoreFile], WS);
+      const reference = await service.isIgnored(candidate, [ignoreFile], WS);
+
+      expect(compiled(candidate)).toBe(true);
+      expect(compiled(candidate)).toBe(reference.ignored);
+    });
+  });
 });

@@ -80,6 +80,17 @@ export function extractTaskIdFromPrompt(text: string): string | null {
  * {@link JsonlReaderService} (owns the 50MB `SdkError` guard) so no new
  * `node:fs` call site is introduced here.
  *
+ * ## This one genuinely needs the WHOLE transcript — a tail read is wrong here
+ *
+ * Every metric is an aggregate over all assistant messages (token sums, cost,
+ * tool-use count), the duration is `max - min` over every timestamp, and the
+ * task id comes from the FIRST user prompt. So unlike the memory curator, this
+ * caller cannot switch to {@link JsonlReaderService.readJsonlTail} — reading
+ * the tail would silently under-report every figure. What makes it cheap
+ * enough to run on every SubagentStop is that `readJsonlMessages` now streams
+ * and yields rather than parsing the file in one tick (TASK_2026_323, B4), and
+ * that the aggregation below is a SINGLE pass rather than three.
+ *
  * `extract` throws only on unrecoverable I/O (missing file, oversized
  * transcript). The caller (SkillTriggerService.onSubagentStop) catches and
  * falls back to all-null metrics so invocation counting never breaks.
@@ -113,7 +124,23 @@ export class SubagentMetricsExtractor {
 
     let toolCount = 0;
 
+    // Timestamps are collected in the SAME walk. `computeDurationMs` used to
+    // be a second full traversal of a transcript that can run to tens of
+    // thousands of lines, on the backend main thread, on every SubagentStop.
+    let minTs = Number.POSITIVE_INFINITY;
+    let maxTs = Number.NEGATIVE_INFINITY;
+    let tsCount = 0;
+
     for (const msg of messages) {
+      if (msg.timestamp) {
+        const ts = Date.parse(msg.timestamp);
+        if (!Number.isNaN(ts)) {
+          tsCount++;
+          if (ts < minTs) minTs = ts;
+          if (ts > maxTs) maxTs = ts;
+        }
+      }
+
       if (msg.message?.role !== 'assistant') continue;
 
       const usage = msg.message.usage;
@@ -161,7 +188,7 @@ export class SubagentMetricsExtractor {
       cacheReadTokens,
       cacheCreationTokens,
       costUsd: hasCost ? Math.round(costUsd * 1_000_000) / 1_000_000 : null,
-      durationMs: this.computeDurationMs(messages),
+      durationMs: tsCount < 2 ? null : maxTs - minTs,
       toolCount,
     };
   }
@@ -176,24 +203,6 @@ export class SubagentMetricsExtractor {
       }
     }
     return count;
-  }
-
-  private computeDurationMs(
-    messages: readonly TranscriptMessage[],
-  ): number | null {
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    let count = 0;
-    for (const msg of messages) {
-      if (!msg.timestamp) continue;
-      const ts = Date.parse(msg.timestamp);
-      if (Number.isNaN(ts)) continue;
-      count++;
-      if (ts < min) min = ts;
-      if (ts > max) max = ts;
-    }
-    if (count < 2) return null;
-    return max - min;
   }
 
   private deriveTaskId(messages: readonly TranscriptMessage[]): string | null {

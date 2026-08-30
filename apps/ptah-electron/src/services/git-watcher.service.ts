@@ -731,6 +731,16 @@ export class GitWatcherService {
     const causes = this.drainCauses();
     const workspaceRoot = this.workspacePath;
 
+    // Reaching here means the repository changed on disk. `GitInfoService`
+    // caches the branch list, stash list, tags, remotes and last commit until
+    // something says otherwise, and a change made OUTSIDE Ptah (a `git
+    // checkout` in the integrated terminal) reaches the service no other way —
+    // its own invalidation only covers commands it ran itself. Dropping the
+    // entries here, before the status fetch, is what keeps the status this
+    // push carries and the branch list the renderer asks for next describing
+    // the same instant (TASK_2026_343).
+    this.gitInfo.invalidateReadCache(workspaceRoot);
+
     try {
       const result: GitInfoResult =
         await this.gitInfo.getGitInfo(workspaceRoot);

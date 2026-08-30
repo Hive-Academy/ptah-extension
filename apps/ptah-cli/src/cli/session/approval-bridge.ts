@@ -46,6 +46,9 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 
+import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import { CliDIContainer } from '@ptah-extension/cli-engine';
+
 import {
   ExitCode,
   type PtahErrorCode,
@@ -102,6 +105,33 @@ export class ApprovalBridge {
   private readonly pending = new Map<string, PendingApproval>();
   private readonly timeoutMs: number;
   private readonly exitFn: (code: number) => never;
+  /**
+   * The two halves of the pre-exit teardown, injected rather than reached
+   * through their modules.
+   *
+   * They were `jest.mock`ed module functions, and the ordering test that
+   * exists to pin "dispose BEFORE flush" could not see the flush on Linux CI —
+   * `exitFn` was reached, which is only possible once `teardownBeforeExit` has
+   * called both, so the mock the assertion read was not the function the
+   * bridge called. That resolution difference never reproduced on Windows and
+   * was not worth chasing: an override is the seam `exit` already uses one
+   * field up, for the same reason — a process-level side effect a test must
+   * observe without performing.
+   */
+  private readonly disposeRuntime: () => Promise<void>;
+  private readonly flushMetadata: () => Promise<void>;
+  /**
+   * The in-flight timeout chain, retained so a caller can await it.
+   *
+   * A timeout fires from a `setTimeout` callback, which cannot await: the
+   * handler is necessarily started with `void`. That leaves the teardown it
+   * performs — dispose the host runtime, then flush session metadata, then exit
+   * — with no handle anyone can join. A test therefore had to guess how many
+   * microtask turns separated the timer from the exit, which is not a fixed
+   * number, and the guess failed intermittently. Holding the promise makes the
+   * completion observable instead of inferred.
+   */
+  private timeoutChain: Promise<void> = Promise.resolve();
   private readonly onPermissionRequest = (payload: unknown): void => {
     void this.handlePermissionRequest(payload);
   };
@@ -124,11 +154,21 @@ export class ApprovalBridge {
       readonly timeoutMs?: number;
       /** Override `process.exit` (used in tests). */
       readonly exit?: (code: number) => never;
+      /** Override the runtime disposal half of the teardown (used in tests). */
+      readonly disposeRuntime?: () => Promise<void>;
+      /** Override the metadata flush half of the teardown (used in tests). */
+      readonly flushMetadata?: () => Promise<void>;
     },
   ) {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.exitFn =
       options?.exit ?? ((code: number): never => process.exit(code));
+    this.disposeRuntime =
+      options?.disposeRuntime ??
+      ((): Promise<void> => CliDIContainer.disposeHostRuntime());
+    this.flushMetadata =
+      options?.flushMetadata ??
+      ((): Promise<void> => flushSessionMetadataStores());
   }
 
   /**
@@ -145,6 +185,16 @@ export class ApprovalBridge {
       this.onPermissionResponse,
     );
     this.jsonrpc.register(QUESTION_RESPONSE_METHOD, this.onQuestionResponse);
+  }
+
+  /**
+   * Resolves when the timeout chain started by the most recent expiry has
+   * finished — after the teardown and the `exitFn` call. Resolves immediately
+   * when no timeout has fired. Exists so a test can await the chain that a
+   * `setTimeout` callback could only start with `void`.
+   */
+  whenTimeoutSettled(): Promise<void> {
+    return this.timeoutChain;
   }
 
   /**
@@ -179,7 +229,10 @@ export class ApprovalBridge {
     }
 
     const timeoutHandle = setTimeout(() => {
-      this.onPermissionTimeout(payload.id, payload.sessionId);
+      this.timeoutChain = this.onPermissionTimeout(
+        payload.id,
+        payload.sessionId,
+      );
     }, this.timeoutMs);
     this.pending.set(payload.id, {
       timeoutHandle,
@@ -207,7 +260,10 @@ export class ApprovalBridge {
     this.permissionHandler.handleResponse(params.id, params);
   }
 
-  private onPermissionTimeout(id: string, sessionId?: string): void {
+  private async onPermissionTimeout(
+    id: string,
+    sessionId?: string,
+  ): Promise<void> {
     this.pending.delete(id);
     void this.jsonrpc.notify(TASK_ERROR_NOTIFICATION, {
       ptah_code: AUTH_REQUIRED_CODE,
@@ -221,6 +277,7 @@ export class ApprovalBridge {
       reason: 'timeout',
     };
     this.permissionHandler.handleResponse(id, denyResponse);
+    await teardownBeforeExit(this.disposeRuntime, this.flushMetadata);
     this.exitFn(ExitCode.AuthRequired);
   }
 
@@ -238,7 +295,7 @@ export class ApprovalBridge {
     }
 
     const timeoutHandle = setTimeout(() => {
-      this.onQuestionTimeout(payload.id, payload.sessionId);
+      this.timeoutChain = this.onQuestionTimeout(payload.id, payload.sessionId);
     }, this.timeoutMs);
     this.pending.set(payload.id, {
       timeoutHandle,
@@ -265,7 +322,10 @@ export class ApprovalBridge {
     this.permissionHandler.handleQuestionResponse(params);
   }
 
-  private onQuestionTimeout(id: string, sessionId?: string): void {
+  private async onQuestionTimeout(
+    id: string,
+    sessionId?: string,
+  ): Promise<void> {
     this.pending.delete(id);
     void this.jsonrpc.notify(TASK_ERROR_NOTIFICATION, {
       ptah_code: AUTH_REQUIRED_CODE,
@@ -278,7 +338,40 @@ export class ApprovalBridge {
       answers: {},
     };
     this.permissionHandler.handleQuestionResponse(cancelResponse);
+    await teardownBeforeExit(this.disposeRuntime, this.flushMetadata);
     this.exitFn(ExitCode.AuthRequired);
+  }
+}
+
+/**
+ * End the OS-level resources and drain the metadata queue before an approval
+ * timeout ends the process.
+ *
+ * This exit is `process.exit` fired from inside a live `withEngine` callback,
+ * so it reaches neither that helper's `finally` teardown (TASK_2026_326
+ * finding 1) nor `main()`'s flush before `finalizeExit` (TASK_2026_324
+ * finding 3). Without this, a timed-out `interact` strands its spawned CLI
+ * agents, leaves their proxy sockets listening, and drops whatever the last
+ * turn staged.
+ *
+ * Runtime disposal comes FIRST: reaping an agent is what produces the last
+ * `addCliSession` write, so flushing before it would flush a queue that is
+ * about to grow. Both halves are best effort — an approval timeout must exit
+ * `auth_required`, never a crash in its own teardown.
+ */
+async function teardownBeforeExit(
+  disposeRuntime: () => Promise<void>,
+  flushMetadata: () => Promise<void>,
+): Promise<void> {
+  try {
+    await disposeRuntime();
+  } catch {
+    // Never throws by contract; guarded anyway — see the note above.
+  }
+  try {
+    await flushMetadata();
+  } catch {
+    // Best effort: the exit code carries the reason the process is ending.
   }
 }
 

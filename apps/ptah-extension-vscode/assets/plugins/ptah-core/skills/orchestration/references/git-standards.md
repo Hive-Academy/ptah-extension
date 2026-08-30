@@ -47,19 +47,22 @@ This reference documents the commitlint rules, commit message format, and pre-co
 
 ---
 
-## Allowed Scopes (Project-Specific)
+## Allowed Scopes
 
-| Scope             | Description              | Example Files                                  |
-| ----------------- | ------------------------ | ---------------------------------------------- |
-| `webview`         | Angular SPA changes      | libs/frontend/_, apps/ptah-extension-webview/_ |
-| `vscode`          | VS Code extension        | apps/ptah-extension-vscode/_, libs/backend/_   |
-| `vscode-lm-tools` | VS Code LM tools library | libs/backend/vscode-lm-tools/\*                |
-| `deps`            | Dependency updates       | package.json, package-lock.json                |
-| `release`         | Release-related          | CHANGELOG, version bumps                       |
-| `ci`              | CI/CD changes            | .github/workflows/\*                           |
-| `docs`            | Documentation            | \*.md files, comments                          |
-| `hooks`           | Git hooks                | .husky/\*, commitlint.config.js                |
-| `scripts`         | Script changes           | scripts/\*, package.json scripts               |
+**Scopes are per-repository. Do not invent one, and do not copy a list from
+here.** Read the repository's own commitlint configuration and use a value it
+already allows:
+
+- `.commitlintrc.json`, `.commitlintrc.js`, `commitlint.config.js`, or a
+  `commitlint` key in `package.json`
+- The `scope-enum` rule inside it is the authoritative list
+
+If `scope-enum` is not configured, scopes are unrestricted — prefer the name of
+the package, app, or library you changed, and stay consistent with the recent
+`git log`.
+
+A commit rejected at the hook for an unknown scope is the normal failure here;
+checking first costs one file read.
 
 ---
 

@@ -21,6 +21,12 @@ const ipcMainListeners = new Map<
   string,
   Array<(...args: unknown[]) => unknown>
 >();
+/**
+ * `invoke` channels (`diag:cpu-profile`) live in a registry separate from `on`
+ * listeners and are torn down with `removeHandler`, not `removeAllListeners`.
+ * Modelled here so `initialize()` / `dispose()` can be exercised end to end.
+ */
+const ipcMainHandlers = new Map<string, (...args: unknown[]) => unknown>();
 
 jest.mock('electron', () => {
   return {
@@ -32,6 +38,12 @@ jest.mock('electron', () => {
       },
       removeAllListeners: (channel: string) => {
         ipcMainListeners.delete(channel);
+      },
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
+        ipcMainHandlers.set(channel, handler);
+      },
+      removeHandler: (channel: string) => {
+        ipcMainHandlers.delete(channel);
       },
     },
   };
@@ -73,6 +85,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     ipcMainListeners.clear();
+    ipcMainHandlers.clear();
     warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     debug = jest.spyOn(console, 'debug').mockImplementation(() => undefined);
   });

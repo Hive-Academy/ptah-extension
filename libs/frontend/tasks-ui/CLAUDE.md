@@ -103,8 +103,10 @@ Standalone, `ChangeDetectionStrategy.OnPush` on every component, signals +
 6. **Start lives on the card and the row, and nowhere else.** Neither
    `TaskDetailComponent` nor the bulk bar can launch a task, so a layout that
    drops its launch control removes the feature rather than relocating it. The
-   row keeps Start in a cell (costing no height) and carries isolation as a
-   menu ACTION rather than the card's sticky per-item toggle.
+   row keeps Start in its trailing actions block and carries isolation as a
+   menu ACTION rather than the card's sticky per-item toggle. The row itself is
+   a three-line block (id + title, description, wrapping metadata line), not a
+   table row: an absent field is absent, never an em dash placeholder.
 7. **Excluded folders are listed by name, never counted.** A count tells a user
    that folders vanished without telling them which or why; that silent drop is
    the exact failure the drawer exists to end.

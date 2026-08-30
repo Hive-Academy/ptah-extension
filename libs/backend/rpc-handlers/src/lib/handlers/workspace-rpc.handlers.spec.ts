@@ -46,6 +46,8 @@ type SwitchHandler = (
 
 interface FileIndexDouble {
   ensureReadyFor: jest.Mock<Promise<void>, [string]>;
+  /** TASK_2026_344 — "was this folder already built?", read for the log line. */
+  hasIndexFor: jest.Mock<boolean, [string]>;
   fileCount: number;
 }
 
@@ -111,6 +113,7 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
   // does not register the service at all (CLI has no picker surface).
   const fileIndex = {
     ensureReadyFor: jest.fn().mockResolvedValue(undefined),
+    hasIndexFor: jest.fn((_root: string) => false),
     fileCount: 0,
   };
   const container = {
@@ -275,6 +278,38 @@ describe('WorkspaceRpcHandlers — workspace:switch import deferral', () => {
     expect(result).toEqual({ success: false, error: 'path is required' });
     expect(s.sessionImporter.scanAndImport).not.toHaveBeenCalled();
   });
+
+  // TASK_2026_331 B7 — the guards above are a POLICY about how often a switch is
+  // worth paying for. The guarantee that one root is never scanned twice AT ONCE
+  // moved into `SessionImporterService`, which is the object this handler and the
+  // Electron boot both resolve. These two pin that the move left the handler's
+  // own contract intact.
+
+  it('still hands the RAW path to the importer, not its normalized guard key', async () => {
+    const s = buildSuite();
+    s.sessionImporter.scanAndImport.mockResolvedValue(0);
+
+    await s.switchHandler({ path: WS_A });
+    await flushMicrotasks();
+
+    // The guard key is lowercased and slash-folded; the importer escapes the
+    // path it is given into a `~/.claude/projects` directory name, so handing it
+    // the key would send it looking in the wrong place. Normalization is the
+    // service's business, and it does its own.
+    expect(s.sessionImporter.scanAndImport).toHaveBeenCalledWith(WS_A, 50);
+  });
+
+  it('recency guard still spans separator and case variants of one root', async () => {
+    const s = buildSuite();
+    s.sessionImporter.scanAndImport.mockResolvedValue(1);
+
+    await s.switchHandler({ path: WS_A });
+    await flushMicrotasks();
+    await s.switchHandler({ path: 'd:/Projects/Alpha' });
+    await flushMicrotasks();
+
+    expect(s.sessionImporter.scanAndImport).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**
@@ -342,5 +377,41 @@ describe('WorkspaceRpcHandlers — workspace:switch file re-index', () => {
 
     expect(result.success).toBe(false);
     expect(s.fileIndex.ensureReadyFor).not.toHaveBeenCalled();
+  });
+
+  /**
+   * TASK_2026_344 — the index caches one snapshot per OPEN folder, so a switch
+   * back to a folder that is still open costs nothing. Without this flag the
+   * log cannot tell a 9-second first walk from a 2 ms reuse, which is how three
+   * full re-walks of the same folder went unnoticed in the captured session.
+   */
+  it('reports whether the folder was already indexed, sampled BEFORE activation', async () => {
+    const s = buildSuite();
+    s.fileIndex.hasIndexFor.mockReturnValue(true);
+
+    await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(s.fileIndex.hasIndexFor).toHaveBeenCalledWith(WS_B);
+    expect(s.logger.info).toHaveBeenCalledWith(
+      '[RPC] workspace:switch re-indexing files for workspace',
+      expect.objectContaining({ path: WS_B, cached: true }),
+    );
+    expect(s.logger.info).toHaveBeenCalledWith(
+      '[RPC] workspace:switch file re-index complete',
+      expect.objectContaining({ path: WS_B, cached: true }),
+    );
+  });
+
+  it('reports a cold folder as not cached', async () => {
+    const s = buildSuite();
+
+    await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(s.logger.info).toHaveBeenCalledWith(
+      '[RPC] workspace:switch file re-index complete',
+      expect.objectContaining({ cached: false }),
+    );
   });
 });

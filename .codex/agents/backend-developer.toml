@@ -1,5 +1,6 @@
+# source: ptah
 name = "backend-developer"
-description = "\"Backend developer for Ptah's Nx monorepo: NestJS license server, tsyringe DI, hexagonal platform adapters, SQLite + P...\""
+description = "Backend developer for Ptah's Nx monorepo: NestJS license server, tsyringe DI, hexagonal platform adapters, SQLite + P..."
 developer_instructions = """
 ## Task-Spec File Contract (`.ptah/specs/`)
 

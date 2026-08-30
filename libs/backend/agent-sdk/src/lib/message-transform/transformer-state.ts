@@ -19,11 +19,28 @@ export interface WorkflowRunInfo {
   readonly name?: string;
 }
 
+/**
+ * What the spawning `Task` tool_use block knew about a `run_in_background: true`
+ * agent, held until its placeholder tool_result arrives.
+ *
+ * The tool_use block is the ONLY place `subagent_type` and `description` appear.
+ * The tool_result that triggers `background_agent_started` carries neither, and
+ * the `SubagentRegistryService` record may not exist yet (the `SubagentStart`
+ * hook can fire after the placeholder). Without this, every background chip
+ * rendered as "unknown" with no description.
+ */
+export interface BackgroundTaskInfo {
+  readonly agentType?: string;
+  readonly agentDescription?: string;
+}
+
 export interface TransformerState {
   getMessageId(contextKey: string): string | undefined;
   getCurrentModel(contextKey: string): string | undefined;
   getToolCallId(contextKey: string, blockIndex: number): string | undefined;
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
+  /** What the spawning tool_use block knew; undefined when not a tracked spawn. */
+  getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined;
   getTaskParentToolUseId(taskId: string): string | undefined;
   isTaskStartedEmitted(toolUseId: string): boolean;
   /**
@@ -48,7 +65,10 @@ export interface TransformerState {
     toolUseId: string,
   ): void;
   clearToolCallIdsForContext(contextKey: string): void;
-  addBackgroundTaskToolUseId(toolUseId: string): void;
+  addBackgroundTaskToolUseId(
+    toolUseId: string,
+    info?: BackgroundTaskInfo,
+  ): void;
   removeBackgroundTaskToolUseId(toolUseId: string): void;
   setTaskParent(taskId: string, parentToolUseId: string): void;
   /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */

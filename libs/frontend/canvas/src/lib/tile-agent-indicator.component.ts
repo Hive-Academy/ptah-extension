@@ -37,13 +37,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
         [attr.aria-label]="agentSummary()"
         [attr.title]="agentSummary()"
       >
-        <span
-          class="inline-block w-1.5 h-1.5 rounded-full"
-          [class.bg-info]="hasRunning()"
-          [class.bg-warning]="!hasRunning() && hasPendingPermissions()"
-          [class.bg-base-content/40]="!hasRunning() && !hasPendingPermissions()"
-          [class.animate-pulse]="hasRunning() || hasPendingPermissions()"
-        ></span>
+        <span [class]="agentDotClasses()"></span>
         <span>{{ agentCount() }}</span>
       </button>
     }
@@ -78,6 +72,15 @@ export class TileAgentIndicatorComponent {
   readonly hasPendingPermissions = computed(() =>
     this.agents().some((a) => a.permissionQueue.length > 0),
   );
+
+  readonly agentDotClasses = computed(() => {
+    const baseClasses = 'inline-block w-1.5 h-1.5 rounded-full';
+    if (this.hasRunning()) return `${baseClasses} bg-info animate-pulse`;
+    if (this.hasPendingPermissions()) {
+      return `${baseClasses} bg-warning animate-pulse`;
+    }
+    return `${baseClasses} bg-base-content/40`;
+  });
 
   readonly agentSummary = computed(() => {
     const count = this.agentCount();

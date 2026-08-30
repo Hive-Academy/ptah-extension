@@ -14,6 +14,7 @@ All paths below use absolute examples. Substitute `<you>` with your username.
 | `C:\Users\<you>\.ptah\templates\agents\` / `/Users/<you>/.ptah/templates/agents/` / `/home/<you>/.ptah/templates/agents/`         | Installed agent templates (downloaded at runtime)                                  |
 | `C:\Users\<you>\.ptah\.content-cache.json` / `/Users/<you>/.ptah/.content-cache.json` / `/home/<you>/.ptah/.content-cache.json`   | Content cache metadata — the hash of the downloaded plugin + template set          |
 | `C:\Users\<you>\.ptah\skills\` / `/Users/<you>/.ptah/skills/` / `/home/<you>/.ptah/skills/`                                       | Auto-promoted skills (`<slug>/SKILL.md`) from [Skill Synthesis](/skill-synthesis/) |
+| `C:\Users\<you>\.ptah\user\` / `/Users/<you>/.ptah/user/` / `/home/<you>/.ptah/user/`                                             | Harness user layer — the editable source for agents and skills (see below)         |
 | `C:\Users\<you>\.ptah\ptah.db` / `/Users/<you>/.ptah/ptah.db` / `/home/<you>/.ptah/ptah.db`                                       | Shared SQLite database — memory, skills, cron jobs, messaging bindings             |
 
 ## Claude Agent SDK assets
@@ -55,6 +56,19 @@ These paths live **inside** each workspace folder:
 | `<workspace>/.ptah/screenshots/`          | Browser screenshots output                  |
 | `<workspace>/.ptah/recordings/`           | Browser GIF recordings output               |
 | `<workspace>/.ptah/specs/`                | Orchestration task specifications           |
+| `<workspace>/.agents/skills/`             | Skill copies for Codex and Antigravity      |
+| `<workspace>/.github/skills/`             | Skill copies for Copilot                    |
+| `<workspace>/.cursor/skills/`             | Skill copies for Cursor                     |
+
+## The harness user layer
+
+`~/.ptah/user/` holds the one editable copy of your agents and skills. Ptah
+reconciles that layer out to the harness directory of every AI tool it detects,
+as real files rather than links. The workspace directories listed above are
+**derived copies**, and Ptah adds them to `.gitignore`.
+
+Edit the source in `~/.ptah/user/`. An edit you make in a derived copy is
+overwritten on the next reconcile.
 
 **Which plugins are enabled is not stored in your workspace folder.** Ptah keeps that
 selection — enabled plugins, disabled plugins, and disabled skills — in its own

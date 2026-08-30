@@ -21,6 +21,8 @@ import { AuthSecretsService } from '../services/auth-secrets.service';
 import { SentryService } from '../services/sentry.service';
 import { SentryTracerAdapter } from '../services/sentry-tracer.adapter';
 import { NullSessionAttachmentGuard } from '../services/null-session-attachment-guard';
+import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
+import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -75,6 +77,14 @@ export function registerVsCodeCorePlatformAgnostic(
     );
   }
 
+  // Hang diagnostics (TASK_2026_323). Constructed lazily and, critically, NOT
+  // started here: registration is not the right moment to begin sampling,
+  // because each host wants coverage to start at a different point in its boot
+  // (Electron arms it BEFORE the heavy wiring, since that wiring is itself a
+  // suspect). `armDiagnostics` is the call that turns them on.
+  container.registerSingleton(TOKENS.EVENT_LOOP_MONITOR, EventLoopMonitor);
+  container.registerSingleton(TOKENS.CPU_PROFILE_CAPTURE, CpuProfileCapture);
+
   if (includeLicensingAndAuth) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
     if (!container.isRegistered(PLATFORM_TOKENS.TRACER)) {
@@ -92,6 +102,8 @@ export function registerVsCodeCorePlatformAgnostic(
       'RPC_HANDLER',
       'MESSAGE_VALIDATOR',
       'SUBAGENT_REGISTRY_SERVICE',
+      'EVENT_LOOP_MONITOR',
+      'CPU_PROFILE_CAPTURE',
       ...(includeLicensingAndAuth
         ? [
             'SENTRY_SERVICE',

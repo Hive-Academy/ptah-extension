@@ -74,6 +74,7 @@ describe('ThemeService', () => {
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-theme-mode');
     document.getElementById('ptah-theme-extra')?.remove();
+    document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
     localStorage.removeItem('ptah-theme');
   });
@@ -208,6 +209,31 @@ describe('ThemeService', () => {
       await Promise.resolve();
 
       expect(service.currentTheme()).toBe('dracula');
+    });
+
+    it('inserts the deferred sheet BEFORE the app stylesheet', async () => {
+      // Order is the whole fix. Both sheets carry (0,1,0) selectors, and
+      // `theme-extra.css` opens with daisyUI's `:root` copy of the `light`
+      // theme. Appended last, that block outranks `[data-theme=anubis]` in
+      // styles.css and repaints both eager themes as `light`.
+      addDeferredSheetMarker();
+      const appStyles = document.createElement('link');
+      appStyles.id = 'test-app-styles';
+      appStyles.rel = 'stylesheet';
+      appStyles.href = 'styles.css';
+      document.head.appendChild(appStyles);
+
+      const service = configure(createMockVscode());
+      service.setTheme('dracula');
+
+      const sheets = Array.from(
+        document.head.querySelectorAll('link[rel="stylesheet"]'),
+      );
+      const deferred = deferredSheetLink();
+      expect(deferred).not.toBeNull();
+      expect(sheets.indexOf(deferred as HTMLLinkElement)).toBeLessThan(
+        sheets.indexOf(appStyles),
+      );
     });
 
     it('applies later deferred switches synchronously and reuses one sheet', async () => {

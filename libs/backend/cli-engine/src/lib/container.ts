@@ -55,7 +55,10 @@ import type {
 } from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
+import {
+  armDiagnostics,
+  registerVsCodeCorePlatformAgnostic,
+} from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
 import {
@@ -90,6 +93,7 @@ import {
   readCliManageGitignore,
   readCliPreflightTimeoutMs,
 } from './bootstrap/harness-boot';
+import { shutdownHostRuntime } from './bootstrap/shutdown-host-runtime.js';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import {
   registerCliAgentRuntimeServices,
@@ -227,12 +231,82 @@ export class CliDIContainer {
   private static _fileSettings: { flushSync(): void } | undefined;
 
   /**
+   * The armed diagnostics handle, held statically for the same reason
+   * {@link _fileSettings} is: `apps/ptah-cli/src/main.ts` installs the
+   * SIGINT/SIGTERM handlers but never sees a container — `withEngine` owns
+   * every container it creates. A static is the only reference the signal
+   * handlers can reach. Undefined unless `setup({ verbose: true })` ran.
+   */
+  private static _diagnostics: { dispose(): void } | undefined;
+
+  /**
+   * The child container the most recent {@link setup} built, held statically
+   * for exactly the reason {@link _diagnostics} is — and here the reason is
+   * load-bearing rather than convenient. `setup()` registers
+   * `AgentProcessManager` and `SdkPtahCliRegistry` on the CHILD container it
+   * creates, never on tsyringe's global one, so a signal handler that reaches
+   * for the global container gets `isRegistered === false` for both tokens and
+   * any teardown routed through it is a permanent, silent no-op. This static
+   * is the only reference `apps/ptah-cli/src/main.ts` can reach.
+   *
+   * Undefined before `setup()` runs and after {@link disposeHostRuntime}.
+   */
+  private static _container: DependencyContainer | undefined;
+
+  /**
    * Synchronously flush any pending file-based settings writes to disk.
    * Safe to call from process.on('exit', ...) — never throws.
    * No-op if setup() has not been called yet.
    */
   static flushSync(): void {
     CliDIContainer._fileSettings?.flushSync();
+  }
+
+  /**
+   * Stop the event-loop lag sampler. Safe from a signal handler — never
+   * throws, and a no-op when diagnostics were never armed.
+   */
+  static disposeDiagnostics(): void {
+    try {
+      CliDIContainer._diagnostics?.dispose();
+    } catch (error: unknown) {
+      // Reported on stderr rather than through the logger: this runs from a
+      // signal handler, and the logger lives in the container that this static
+      // exists precisely to avoid touching mid-teardown. A teardown failure
+      // must not change the exit code the signal already chose.
+      process.stderr.write(
+        `[ptah] diagnostics dispose failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
+    CliDIContainer._diagnostics = undefined;
+  }
+
+  /**
+   * The container most recently built by {@link setup}, or undefined if
+   * `setup()` has not run (or its runtime has already been disposed).
+   * Read-only for callers; the CLI's signal handlers are the reason it exists.
+   */
+  static get activeContainer(): DependencyContainer | undefined {
+    return CliDIContainer._container;
+  }
+
+  /**
+   * End the OS-level resources the active container owns — spawned CLI agent
+   * subprocesses first, then the ptah-cli proxy leases they were speaking
+   * through. Safe from a signal handler: never throws, and a no-op when
+   * `setup()` never ran.
+   *
+   * Clears the static before doing the work, for the same reason
+   * {@link disposeDiagnostics} clears its own: a second signal (or the `exit`
+   * hook firing after a signalled teardown) must not re-enter a disposal that
+   * has already been started.
+   */
+  static async disposeHostRuntime(): Promise<void> {
+    const container = CliDIContainer._container;
+    CliDIContainer._container = undefined;
+    await shutdownHostRuntime(container);
   }
 
   /**
@@ -243,6 +317,10 @@ export class CliDIContainer {
    */
   static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
     const container = globalContainer.createChildContainer();
+    // Recorded before any registration runs, not after: a bootstrap that
+    // throws part-way through may already have spawned something, and the
+    // signal handlers need a reference to it either way.
+    CliDIContainer._container = container;
 
     container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
     const userDataPath =
@@ -287,6 +365,10 @@ export class CliDIContainer {
     registerPlatformCliServices(container, platformOptions);
     phaseEnd('0', phase0Start);
     const phase1Start = phaseStart('1');
+    // NOTE: diagnostics are armed at the END of Phase 1, once
+    // `registerVsCodeCorePlatformAgnostic` has registered the monitor. See
+    // below — this comment marks the phase, the arming has to follow the
+    // registration it depends on.
     const outputChannel = container.resolve<IOutputChannel>(
       PLATFORM_TOKENS.OUTPUT_CHANNEL,
     );
@@ -300,6 +382,25 @@ export class CliDIContainer {
     registerVsCodeCorePlatformAgnostic(container, logger, {
       includeLicensingAndAuth: true,
     });
+
+    // Verbose-only, unlike the desktop hosts. A one-shot `ptah` invocation that
+    // blocks the loop for 300 ms has not hung anything a user can perceive —
+    // there is no window to freeze — so sampling by default would only add a
+    // wakeup and a line of noise to every command. Under `--verbose` the caller
+    // has explicitly asked to watch the machinery, and `debug.perf.lag` sits
+    // alongside `debug.di.phase` in the same stream.
+    if (verbose) {
+      CliDIContainer._diagnostics = armDiagnostics({
+        container,
+        logsPath,
+        onLag: (sample) => {
+          pushAdapter.emit('debug.perf.lag', {
+            maxMs: sample.maxMs,
+            p99Ms: sample.p99Ms,
+          });
+        },
+      });
+    }
     container.register(TOKENS.GIT_INFO_SERVICE, {
       useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
     });

@@ -1,5 +1,6 @@
+# source: ptah
 name = "team-leader"
-description = "\"Task Decomposition & Batch Orchestration Specialist\""
+description = "Task Decomposition & Batch Orchestration Specialist"
 developer_instructions = """
 ## Task-Spec File Contract (`.ptah/specs/`)
 

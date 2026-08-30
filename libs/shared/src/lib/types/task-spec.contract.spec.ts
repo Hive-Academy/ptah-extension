@@ -33,8 +33,10 @@ import {
   isPlanningArtifact,
   renderSpecsReadme,
   renderTaskMd,
+  renderTaskSpecAgentBlock,
   roundJudgeFile,
 } from './task-spec.contract';
+import { TASK_STATUSES } from './task-spec.types';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
@@ -433,5 +435,62 @@ describe('renderSpecsReadme', () => {
     const readme = renderSpecsReadme();
     expect(readme).toContain('invisible to the Tasks board');
     expect(readme).toContain('registry.md');
+  });
+});
+
+/**
+ * The agent-facing block. Its whole reason to exist is that the hand-copied
+ * version went stale in nineteen places at once — every copy still taught
+ * `tasks.md` as the batch file months after the rename. So the assertions here
+ * are about DERIVATION: each one would fail if the text were pasted back in.
+ */
+describe('renderTaskSpecAgentBlock', () => {
+  it('is deterministic — callers hash it', () => {
+    expect(renderTaskSpecAgentBlock()).toBe(renderTaskSpecAgentBlock());
+  });
+
+  it('names the CURRENT batch file, and the legacy name only as legacy', () => {
+    const block = renderTaskSpecAgentBlock();
+    expect(block).toContain(BATCHES_FILE);
+    expect(block).toContain(LEGACY_BATCHES_FILE);
+    // The exact staleness that motivated this renderer: the legacy name being
+    // taught as THE batch breakdown rather than as a fallback that is still read.
+    const oneLine = block.replace(/\s+/g, ' ');
+    expect(oneLine).toContain(
+      `\`${BATCHES_FILE}\` holds the team-leader batch breakdown`,
+    );
+    expect(oneLine).toContain(
+      `its former name \`${LEGACY_BATCHES_FILE}\` is still read`,
+    );
+  });
+
+  it('derives the status list from TASK_STATUSES', () => {
+    const block = renderTaskSpecAgentBlock();
+    for (const status of TASK_STATUSES) {
+      expect(block).toContain(status);
+    }
+  });
+
+  it('lists every recognised document except the legacy names', () => {
+    const block = renderTaskSpecAgentBlock();
+    for (const name of DOC_FILES) {
+      if (isLegacyDocFile(name)) continue;
+      expect(block).toContain(`\`${name}\``);
+    }
+  });
+
+  it('carries the two rules that have actually cost tasks their visibility', () => {
+    const block = renderTaskSpecAgentBlock();
+    // A plain scalar description that quotes code makes the carrier unparseable.
+    expect(block).toContain('>-');
+    // The folder name is the id; a mismatched `id:` is never fixed by renaming.
+    expect(block).toContain('canonical id');
+    expect(block).toContain(SPEC_ROOT);
+    expect(block).toContain(CARRIER_FILE);
+    expect(block).toContain(CONTEXT_FILE);
+  });
+
+  it('leaves no unresolved template slot for the partial resolver to trip on', () => {
+    expect(renderTaskSpecAgentBlock()).not.toContain('{{');
   });
 });

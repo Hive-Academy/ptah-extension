@@ -8,7 +8,17 @@ export {
   IDE_CAPABILITIES_TOKEN,
   BROWSER_CAPABILITIES_TOKEN,
 } from './lib/code-execution/ptah-api-builder.service';
-export { CodeExecutionMCP } from './lib/code-execution/mcp-http/http-mcp-server.service';
+export {
+  CodeExecutionMCP,
+  type McpRegistrationFailure,
+  type McpSubagentRegistration,
+} from './lib/code-execution/mcp-http/http-mcp-server.service';
+export {
+  DiagnosticsCacheInvalidator,
+  DIAGNOSTICS_CACHE_INVALIDATOR,
+  type DiagnosticsInvalidationPayload,
+  type DiagnosticsInvalidationSource,
+} from './lib/diagnostics/diagnostics-cache-invalidator.service';
 export type {
   PtahAPI,
   BrowserRecordStartResult,

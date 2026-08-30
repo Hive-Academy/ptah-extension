@@ -84,11 +84,11 @@
       "kind": "scene",
       "scene": "builders-offer",
       "holdMs": 10000,
-      "vo": "Membership is twenty nine dollars a month, or two hundred and ninety a year — and founding members get seventy percent off their first year. Early adopter seats are limited, and this is the cheapest it will ever be. Join the next cohort.",
+      "vo": "Membership lists at twenty nine dollars a month, or two hundred and ninety a year — but approved early adopters get their first year free. No card, now or later. Early adopter seats are limited. Apply for the next cohort.",
       "captions": [
-        "29 a month, or 290 a year",
-        "70% off your first year — seats limited",
-        "Join the next cohort"
+        "Lists at 29 a month, or 290 a year",
+        "Your first year is free — seats limited",
+        "Apply for the next cohort"
       ]
     }
   ]

@@ -55,13 +55,20 @@ import {
   DEFAULT_TIMEOUT,
   MAX_TIMEOUT,
   COMPLETED_AGENT_TTL,
+  SDK_IDLE_RELEASE_MS,
+  MIN_SDK_IDLE_RELEASE_MS,
+  SDK_ABORT_SETTLE_MS,
+  DISPOSE_RELEASE_TIMEOUT_MS,
   OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
   MAX_ACCUMULATED_SEGMENTS,
   MAX_ACCUMULATED_STREAM_EVENTS,
+  STREAM_EVENTS_CAP_SLACK,
   MAX_STDOUT_PERSISTENCE_SIZE,
   type PendingDelta,
   createEmptyPendingDelta,
+  countNewlines,
+  trimBufferToLowWater,
   tailLines,
   capStreamEvents,
   mergeConsecutiveTextSegments,
@@ -79,7 +86,18 @@ export type AgentContinueErrorCode =
   | 'not_found'
   | 'unsupported'
   | 'busy'
+  /**
+   * The record is still here and still readable, but its SDK subprocess was
+   * released after {@link SDK_IDLE_RELEASE_MS} of idling. In-process
+   * continuation is gone; the CONVERSATION is not. Callers fall back to the
+   * session-resume path using the agent's `cliSessionId` — the same recovery
+   * `not_found` already takes.
+   */
+  | 'released'
   | 'unknown';
+
+/** Why a subprocess was released — carried on the `agent:released` event. */
+export type AgentReleaseReason = 'idle' | 'expired' | 'stopped' | 'disposed';
 
 export class AgentContinueError extends Error {
   constructor(
@@ -112,6 +130,14 @@ interface TrackedAgent {
    * agent is re-opened via continueConversation so a stale exit from the prior
    * turn can't clobber the running continuation. */
   exitEmitHandle?: NodeJS.Timeout;
+  /** Idle-release timer armed at exit for continuation-capable handles; cleared
+   * when a continuation re-opens the agent. */
+  idleReleaseHandle?: NodeJS.Timeout;
+  /** Wall-clock ms at which the current idle window started, for the release log. */
+  idleSince?: number;
+  /** True once the SDK subprocess has been aborted and reaped. The record and
+   * its buffers stay readable; only in-process continuation is gone. */
+  subprocessReleased: boolean;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
@@ -272,33 +298,31 @@ export class AgentProcessManager {
   }
 
   /**
-   * Spawn a new CLI agent process
+   * Spawn a new CLI agent process.
+   *
+   * Only the cap check and the slot reservation are serialized
+   * ({@link reserveSpawnSlot}). CLI detection, working-directory validation,
+   * the harness preflight and the SDK launch all run OUTSIDE the mutex, so a
+   * slow spawn in one session cannot stall a spawn in another (TASK_2026_323
+   * B10).
    */
   async spawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    return this.acquireSpawnLock(async () => {
-      this.spawning++;
-
-      try {
-        return await this.doSpawn(request);
-      } finally {
-        this.spawning--;
-      }
-    });
+    await this.reserveSpawnSlot();
+    try {
+      return await this.doSpawn(request);
+    } finally {
+      this.spawning--;
+    }
   }
 
   /**
-   * Internal spawn implementation, wrapped by spawn() for concurrency tracking
+   * Internal spawn implementation, wrapped by spawn() for concurrency tracking.
+   *
+   * Runs UNLOCKED and does NOT re-check the concurrent limit — the caller
+   * already holds a reservation taken atomically in {@link reserveSpawnSlot}.
+   * Re-checking here would double-count that reservation.
    */
   private async doSpawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    const maxConcurrent = this.getMaxConcurrentAgents();
-    const runningCount = this.getRunningCount();
-    if (runningCount + this.spawning > maxConcurrent) {
-      throw new Error(
-        `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
-          `Stop a running agent before spawning a new one. ` +
-          `Running agents: ${this.getRunningAgentIds().join(', ')}`,
-      );
-    }
     this.logger.info('[AgentProcessManager] Spawn request received', {
       requestedCli: request.cli ?? 'auto-detect',
       task:
@@ -444,6 +468,10 @@ export class AgentProcessManager {
   /**
    * Spawn an agent from a pre-built SdkHandle (e.g., custom agent).
    * Same lifecycle management as doSpawnSdk() but skips CLI detection.
+   *
+   * Like {@link spawn}, only the cap check and the slot reservation are
+   * serialized; the working-directory validation and the tracking wire-up run
+   * outside the mutex (TASK_2026_323 B10).
    */
   async spawnFromSdkHandle(
     sdkHandle: SdkHandle,
@@ -462,62 +490,48 @@ export class AgentProcessManager {
       resumeSessionId?: string;
     },
   ): Promise<SpawnAgentResult> {
-    return this.acquireSpawnLock(async () => {
-      this.spawning++;
+    await this.reserveSpawnSlot();
+    try {
+      await this.validateWorkingDirectory(meta.workingDirectory);
 
-      try {
-        const maxConcurrent = this.getMaxConcurrentAgents();
-        const runningCount = this.getRunningCount();
-        if (runningCount + this.spawning > maxConcurrent) {
-          throw new Error(
-            `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
-              `Stop a running agent before spawning a new one. ` +
-              `Running agents: ${this.getRunningAgentIds().join(', ')}`,
-          );
-        }
-        await this.validateWorkingDirectory(meta.workingDirectory);
+      const agentId = AgentId.create();
+      const startedAt = new Date().toISOString();
 
-        const agentId = AgentId.create();
-        const startedAt = new Date().toISOString();
+      const info: AgentProcessInfo = {
+        agentId,
+        cli: meta.cli,
+        task: meta.task,
+        workingDirectory: meta.workingDirectory,
+        taskFolder: meta.taskFolder,
+        status: 'running',
+        startedAt,
+        parentSessionId: meta.parentSessionId,
+        displayName: meta.ptahCliName,
+        ptahCliName: meta.ptahCliName,
+        ptahCliId: meta.ptahCliId,
+        resumedFromAgentId: meta.resumedFromAgentId,
+        ...(meta.resumeSessionId ? { cliSessionId: meta.resumeSessionId } : {}),
+      };
+      const initialCliSessionId = sdkHandle.getSessionId?.();
+      const infoWithSession = initialCliSessionId
+        ? { ...info, cliSessionId: initialCliSessionId }
+        : info;
 
-        const info: AgentProcessInfo = {
-          agentId,
-          cli: meta.cli,
-          task: meta.task,
-          workingDirectory: meta.workingDirectory,
-          taskFolder: meta.taskFolder,
-          status: 'running',
-          startedAt,
-          parentSessionId: meta.parentSessionId,
-          displayName: meta.ptahCliName,
-          ptahCliName: meta.ptahCliName,
-          ptahCliId: meta.ptahCliId,
-          resumedFromAgentId: meta.resumedFromAgentId,
-          ...(meta.resumeSessionId
-            ? { cliSessionId: meta.resumeSessionId }
-            : {}),
-        };
-        const initialCliSessionId = sdkHandle.getSessionId?.();
-        const infoWithSession = initialCliSessionId
-          ? { ...info, cliSessionId: initialCliSessionId }
-          : info;
+      const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
 
-        const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
+      this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
+        agentId,
+        cli: meta.cli,
+        ptahCliName: meta.ptahCliName,
+        ptahCliId: meta.ptahCliId,
+      });
 
-        this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
-          agentId,
-          cli: meta.cli,
-          ptahCliName: meta.ptahCliName,
-          ptahCliId: meta.ptahCliId,
-        });
-
-        return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
-          sdkHandle.getSessionId?.(),
-        );
-      } finally {
-        this.spawning--;
-      }
-    });
+      return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
+        sdkHandle.getSessionId?.(),
+      );
+    } finally {
+      this.spawning--;
+    }
   }
 
   /**
@@ -540,9 +554,11 @@ export class AgentProcessManager {
     captureSessionId?: () => string | undefined,
   ): SpawnAgentResult {
     const agentId = info.agentId;
-    const timeoutHandle = setTimeout(() => {
-      this.handleTimeout(agentId);
-    }, timeout);
+    const timeoutHandle = this.unrefTimer(
+      setTimeout(() => {
+        this.handleTimeout(agentId);
+      }, timeout),
+    );
     const supportsContinuation = sdkHandle.supportsContinuation?.() === true;
     const trackedInfo: AgentProcessInfo = supportsContinuation
       ? { ...info, supportsContinuation: true }
@@ -559,6 +575,7 @@ export class AgentProcessManager {
       stderrLineCount: 0,
       truncated: false,
       hasExited: false,
+      subprocessReleased: false,
       accumulatedSegments: [],
       accumulatedStreamEvents: [],
       streamCapLogged: false,
@@ -643,7 +660,17 @@ export class AgentProcessManager {
   }
 
   /**
-   * Read agent output (stdout + stderr)
+   * Read agent output (stdout + stderr).
+   *
+   * `lineCount` describes the STRINGS THIS CALL RETURNS, not the buffers behind
+   * them. `tracked.stdoutLineCount` counts what is in the raw buffer, which is
+   * the same number only when no adapter rewrote the text and no `tail` was
+   * asked for. `readOutput(id, 20)` used to answer with the buffer's several
+   * thousand lines next to twenty lines of output, and the two callers that
+   * surface the number — `agent-tool.dispatcher` and the MCP response
+   * formatter's `**Lines:**` row — both present it as a description of the
+   * text on screen. There is no consumer of the buffered count, so none is
+   * returned.
    */
   readOutput(agentId: string, tail?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
@@ -668,7 +695,7 @@ export class AgentProcessManager {
       agentId: AgentId.from(agentId),
       stdout,
       stderr,
-      lineCount: tracked.stdoutLineCount + tracked.stderrLineCount,
+      lineCount: countNewlines(stdout) + countNewlines(stderr),
       truncated: tracked.truncated,
     };
   }
@@ -703,10 +730,22 @@ export class AgentProcessManager {
   }
 
   /**
+   * Stream events copied out for persistence.
+   *
+   * The LIVE cap is `MAX_ACCUMULATED_STREAM_EVENTS` (50 000) — the right size
+   * for an agent card watching a run in progress, and far too large to copy
+   * into storage on every lifecycle event. `capStreamEvents` keeps the tail
+   * plus the landmark events before it, so the restored execution tree still
+   * has its structure (TASK_2026_323 blocker B5).
+   */
+  private static readonly MAX_PERSISTED_STREAM_EVENTS = 2000;
+
+  /**
    * Read accumulated output for session persistence.
-   * Returns stdout (capped at 100KB), structured segments, and rich stream
-   * events for storage in CliSessionReference. Returns undefined if the
-   * agent is not found (e.g., already cleaned up after TTL).
+   * Returns stdout (capped at 100KB), structured segments, and a bounded tail
+   * of rich stream events. Every returned array is a bounded copy — this runs
+   * on the main thread on each agent exit. Returns undefined if the agent is
+   * not found (e.g., already cleaned up after TTL).
    */
   readOutputForPersistence(agentId: string):
     | {
@@ -726,7 +765,12 @@ export class AgentProcessManager {
     return {
       stdout,
       segments: [...tracked.accumulatedSegments],
-      streamEvents: [...tracked.accumulatedStreamEvents],
+      streamEvents: [
+        ...capStreamEvents(
+          tracked.accumulatedStreamEvents,
+          AgentProcessManager.MAX_PERSISTED_STREAM_EVENTS,
+        ),
+      ],
     };
   }
 
@@ -788,12 +832,29 @@ export class AgentProcessManager {
       );
     }
 
+    if (tracked.subprocessReleased) {
+      // The record is intact and still readable — only the OS process is gone.
+      // Name the recovery in the message: `persistSession: true` is set on every
+      // ptah-cli spawn, so `tracked.info.cliSessionId` is a real, resumable
+      // conversation and the caller should hand it back as `resume_session_id`.
+      throw new AgentContinueError(
+        'released',
+        `Agent ${agentId} released its process after idling. ` +
+          `Resume the conversation instead: spawn with ` +
+          `resume_session_id: ${tracked.info.cliSessionId ?? '<unknown>'}.`,
+      );
+    }
+
     if (tracked.info.status === 'running') {
       throw new AgentContinueError(
         'busy',
         `Agent ${agentId} is busy (status: ${tracked.info.status})`,
       );
     }
+
+    // The continuation is the reason the subprocess was kept alive — stand the
+    // idle countdown down before doing anything that can await.
+    this.clearIdleRelease(tracked);
 
     tracked.hasExited = false;
     if (tracked.cleanupHandle) {
@@ -811,9 +872,11 @@ export class AgentProcessManager {
       completedAt: undefined,
       exitCode: undefined,
     };
-    tracked.timeoutHandle = setTimeout(() => {
-      this.handleTimeout(agentId);
-    }, DEFAULT_TIMEOUT);
+    tracked.timeoutHandle = this.unrefTimer(
+      setTimeout(() => {
+        this.handleTimeout(agentId);
+      }, DEFAULT_TIMEOUT),
+    );
 
     this.events.emit('agent:spawned', tracked.info);
 
@@ -848,7 +911,15 @@ export class AgentProcessManager {
   }
 
   /**
-   * Stop an agent process gracefully
+   * Stop an agent process gracefully.
+   *
+   * A non-running agent is NOT a no-op. A continuation-capable agent that has
+   * finished its turn still owns a live subprocess (that is the whole point of
+   * the prompt mailbox), so returning early here left `ptah_agent_stop` unable
+   * to reclaim the one thing the user asked it to reclaim — memory. The status
+   * is deliberately left alone: the run really did complete, and rewriting it to
+   * `stopped` would relabel a successful task as a cancelled one. Only the
+   * process goes (TASK_2026_323 B11).
    */
   async stop(agentId: string): Promise<AgentProcessInfo> {
     const tracked = this.agents.get(agentId);
@@ -856,10 +927,13 @@ export class AgentProcessManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
     if (tracked.info.status !== 'running') {
+      await this.releaseSubprocess(agentId, tracked, 'stopped');
       return tracked.info;
     }
 
     await this.killProcess(tracked);
+    tracked.subprocessReleased = true;
+    this.clearIdleRelease(tracked);
     tracked.info = {
       ...tracked.info,
       status: 'stopped',
@@ -878,19 +952,48 @@ export class AgentProcessManager {
   }
 
   /**
-   * Gracefully shut down all running agents (called on extension deactivation)
+   * Tear down every tracked agent. The one teardown entry point, called from
+   * each host's shutdown path.
+   *
+   * It releases the subprocess of EVERY tracked agent, not just the running
+   * ones. That distinction is the whole fix: the agents that orphan a
+   * `claude.exe` are precisely the ones that have already COMPLETED and whose
+   * continuation-capable handle is still holding the process open. The previous
+   * `shutdownAll()` filtered to `status === 'running'`, so on quit it walked
+   * past every orphan it was written to collect — and nothing called it anyway
+   * (TASK_2026_323 B11).
+   *
+   * The wait is bounded by {@link DISPOSE_RELEASE_TIMEOUT_MS}: Electron's
+   * `will-quit` is synchronous and VS Code's `deactivate()` has a finite budget,
+   * so a release that has not settled by then keeps its already-issued abort and
+   * tree-kill and the host stops waiting on it.
    */
-  async shutdownAll(): Promise<void> {
-    this.logger.info('[AgentProcessManager] Shutting down all agents...');
-    const running = Array.from(this.agents.entries()).filter(
-      ([, t]) => t.info.status === 'running',
-    );
+  async disposeAll(): Promise<void> {
+    const entries = Array.from(this.agents.entries());
+    this.logger.info('[AgentProcessManager] Disposing all agents...', {
+      agents: entries.length,
+      running: entries.filter(([, t]) => t.info.status === 'running').length,
+    });
 
-    await Promise.all(running.map(([id]) => this.stop(id)));
+    const releases = entries.map(([id, tracked]) =>
+      this.releaseSubprocess(id, tracked, 'disposed'),
+    );
+    await Promise.race([
+      Promise.allSettled(releases),
+      new Promise<void>((resolve) =>
+        this.unrefTimer(setTimeout(resolve, DISPOSE_RELEASE_TIMEOUT_MS)),
+      ),
+    ]);
+
     for (const [agentId, tracked] of this.agents) {
       if (tracked.cleanupHandle) {
         clearTimeout(tracked.cleanupHandle);
       }
+      if (tracked.exitEmitHandle) {
+        clearTimeout(tracked.exitEmitHandle);
+      }
+      clearTimeout(tracked.timeoutHandle);
+      this.clearIdleRelease(tracked);
       this.cleanupFlushTimer(agentId);
     }
     try {
@@ -911,20 +1014,59 @@ export class AgentProcessManager {
       );
     }
 
-    this.logger.info(
-      `[AgentProcessManager] ${running.length} agents shut down`,
-    );
+    this.agents.clear();
+    this.logger.info(`[AgentProcessManager] ${entries.length} agents disposed`);
   }
 
   /**
-   * Serialize spawn operations to prevent TOCTOU race conditions in
-   * the concurrent limit check. Without this mutex, two spawn() calls
-   * arriving simultaneously could both pass the limit check before
-   * either registers in the agents map.
+   * Reserve one slot against the concurrent-agent cap.
    *
-   * Uses a Promise-chain pattern: each call chains onto the previous,
-   * ensuring sequential execution while remaining non-blocking.
-   * try/finally guarantees the lock is released even on exceptions.
+   * The check and the reservation must be atomic with respect to each other,
+   * and nothing else may sit between them: read the cap, count the agents that
+   * are running plus the ones already reserved, throw if the next one would not
+   * fit, otherwise take the slot by incrementing `spawning`.
+   *
+   * Because the increment happens INSIDE the mutex it is visible to the next
+   * caller before that caller runs its own check, so a burst of N simultaneous
+   * spawns admits exactly `max` of them — no TOCTOU window, no over-admission.
+   * Do not move the increment out of the lock to "simplify" this.
+   *
+   * EVERY caller must release the slot with `this.spawning--` in a `finally`,
+   * on success and on throw alike. A missed release leaks a slot permanently
+   * and the cap drifts down to zero.
+   *
+   * The error text is user-facing and asserted in specs — keep it verbatim.
+   */
+  private async reserveSpawnSlot(): Promise<void> {
+    return this.acquireSpawnLock(async () => {
+      const maxConcurrent = this.getMaxConcurrentAgents();
+      const runningCount = this.getRunningCount();
+      if (runningCount + this.spawning >= maxConcurrent) {
+        throw new Error(
+          `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
+            `Stop a running agent before spawning a new one. ` +
+            `Running agents: ${this.getRunningAgentIds().join(', ')}`,
+        );
+      }
+      this.spawning++;
+    });
+  }
+
+  /**
+   * The spawn mutex primitive: a promise chain that runs `fn` after every
+   * previously-queued `fn` has settled.
+   *
+   * **It protects the check-and-reserve in {@link reserveSpawnSlot} and nothing
+   * else. Never await I/O inside it.** This lock is global to the host, so
+   * anything awaited within it serializes EVERY session on the machine: until
+   * TASK_2026_323 B10 the whole spawn ran in here, which meant one session's
+   * CLI detection, working-directory `realpath`, 1500 ms harness preflight and
+   * SDK process launch blocked every other session's spawn from even starting.
+   * The critical section is now a few synchronous reads and one increment.
+   *
+   * Uses a Promise-chain pattern: each call chains onto the previous, ensuring
+   * sequential execution while remaining non-blocking. try/finally guarantees
+   * the lock is released even on exceptions.
    */
   private acquireSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = this.spawnMutex;
@@ -941,6 +1083,67 @@ export class AgentProcessManager {
     });
   }
 
+  /**
+   * Detach a timer from the event loop's ref count.
+   *
+   * Every timer this manager arms is a per-agent watchdog or a deferred
+   * housekeeping tick — a thing that must fire IF the process is still alive,
+   * never a reason for it to stay alive. Left ref'd, one spawned agent pins the
+   * loop for up to an hour (`DEFAULT_TIMEOUT`) and a completed one for another
+   * thirty minutes (`COMPLETED_AGENT_TTL`); with several agents per session that
+   * is the same open-handle defect commit 5dc525f02 fixed in
+   * `wizard-generation-rpc.handlers.ts`, and it is what makes Jest report
+   * "worker process has failed to exit gracefully".
+   *
+   * Guarded shape because `unref` exists on Node's `Timeout` but not on the
+   * DOM's numeric handle, and not on every fake-timer implementation.
+   *
+   * Unref'ing the OUTPUT FLUSH timer is safe for the same reason: while an agent
+   * is producing output, the SDK subprocess's own stdio handles hold the loop
+   * open, so the 200 ms flush always gets its tick. When nothing is producing
+   * output there is nothing pending to flush, and `handleExit` flushes
+   * synchronously before teardown regardless.
+   */
+  private unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
+    if (typeof (timer as { unref?: () => void }).unref === 'function') {
+      (timer as { unref: () => void }).unref();
+    }
+    return timer;
+  }
+
+  /**
+   * Arm the shared per-agent output flush timer if it is not already armed.
+   * Text deltas, structured segments and stream events all coalesce onto it.
+   */
+  private scheduleFlush(agentId: string): void {
+    if (this.flushTimers.has(agentId)) return;
+    const timer = this.unrefTimer(
+      setTimeout(() => {
+        this.flushDelta(agentId);
+      }, OUTPUT_FLUSH_INTERVAL),
+    );
+    this.flushTimers.set(agentId, timer);
+  }
+
+  /**
+   * Append a chunk to an agent's output buffer, trimming with hysteresis.
+   *
+   * This is the hottest per-chunk path in the manager: on the ptah-cli path
+   * `SdkHandle.onOutput` fires once per `text_delta`, i.e. once per token. Two
+   * rules keep it O(chunk) instead of O(buffer):
+   *
+   * - **Trim to a LOW-WATER mark, not to the cap.** The previous version cut
+   *   only the overflow, which left the buffer sitting on `MAX_BUFFER_SIZE` so
+   *   the next token trimmed again and copied the whole megabyte. Cutting back
+   *   to `BUFFER_LOW_WATER_SIZE` amortizes the copy over the 256 KB of headroom
+   *   it buys (TASK_2026_323 B1).
+   * - **No regex for the newline count.** `data.match(/\n/g)` allocated a match
+   *   array per chunk; `countNewlines` walks the same bytes and allocates none.
+   *
+   * The line counter tracks lines CURRENTLY in the buffer, so a trim subtracts
+   * the newlines it dropped — counted once, at trim time, over the dropped
+   * prefix only.
+   */
   private appendBuffer(
     agentId: string,
     stream: 'stdout' | 'stderr',
@@ -954,16 +1157,18 @@ export class AgentProcessManager {
       stream === 'stdout' ? 'stdoutLineCount' : 'stderrLineCount';
 
     tracked[key] += data;
-    tracked[lineCountKey] += (data.match(/\n/g) || []).length;
+    tracked[lineCountKey] += countNewlines(data);
+
     if (tracked[key].length > MAX_BUFFER_SIZE) {
-      const excess = tracked[key].length - MAX_BUFFER_SIZE;
-      const newlineIndex = tracked[key].indexOf('\n', excess);
-      tracked[key] =
-        newlineIndex > -1
-          ? tracked[key].substring(newlineIndex + 1)
-          : tracked[key].substring(excess);
+      const trim = trimBufferToLowWater(tracked[key]);
+      tracked[key] = trim.buffer;
+      tracked[lineCountKey] = Math.max(
+        0,
+        tracked[lineCountKey] - trim.linesDropped,
+      );
       tracked.truncated = true;
     }
+
     this.accumulateDelta(agentId, stream, data);
   }
 
@@ -982,12 +1187,7 @@ export class AgentProcessManager {
       this.pendingDeltas.set(agentId, pending);
     }
     pending[stream] += data;
-    if (!this.flushTimers.has(agentId)) {
-      const timer = setTimeout(() => {
-        this.flushDelta(agentId);
-      }, OUTPUT_FLUSH_INTERVAL);
-      this.flushTimers.set(agentId, timer);
-    }
+    this.scheduleFlush(agentId);
   }
 
   /**
@@ -1008,12 +1208,7 @@ export class AgentProcessManager {
     ) {
       tracked.accumulatedSegments.push(segment);
     }
-    if (!this.flushTimers.has(agentId)) {
-      const timer = setTimeout(() => {
-        this.flushDelta(agentId);
-      }, OUTPUT_FLUSH_INTERVAL);
-      this.flushTimers.set(agentId, timer);
-    }
+    this.scheduleFlush(agentId);
   }
 
   /**
@@ -1035,8 +1230,14 @@ export class AgentProcessManager {
     if (tracked) {
       tracked.accumulatedStreamEvents.push(event);
 
+      // Re-cap only once the array has run STREAM_EVENTS_CAP_SLACK entries past
+      // the cap, not the moment it exceeds it. `capStreamEvents` rebuilds all
+      // 50 000 entries; firing it on every event past the cap is the same
+      // per-chunk full-buffer rescan as the stdout trim above, just in array
+      // form. The slack amortizes each rebuild over 5 000 events.
       if (
-        tracked.accumulatedStreamEvents.length > MAX_ACCUMULATED_STREAM_EVENTS
+        tracked.accumulatedStreamEvents.length >
+        MAX_ACCUMULATED_STREAM_EVENTS + STREAM_EVENTS_CAP_SLACK
       ) {
         tracked.accumulatedStreamEvents = capStreamEvents(
           tracked.accumulatedStreamEvents,
@@ -1058,12 +1259,7 @@ export class AgentProcessManager {
         }
       }
     }
-    if (!this.flushTimers.has(agentId)) {
-      const timer = setTimeout(() => {
-        this.flushDelta(agentId);
-      }, OUTPUT_FLUSH_INTERVAL);
-      this.flushTimers.set(agentId, timer);
-    }
+    this.scheduleFlush(agentId);
   }
 
   /**
@@ -1116,7 +1312,141 @@ export class AgentProcessManager {
       completedAt: new Date().toISOString(),
     };
     await this.killProcess(tracked);
+    tracked.subprocessReleased = true;
+    this.clearIdleRelease(tracked);
     this.scheduleCleanup(agentId);
+  }
+
+  /**
+   * The idle window before a completed agent's subprocess is released.
+   *
+   * Read through the same settings surface as `maxConcurrentAgents`, so a user
+   * who lives on long follow-up threads can widen it (or set it very large to
+   * get the old hold-forever behaviour back) without a rebuild.
+   *
+   * Two guards, and they answer different questions. A value that is not a
+   * usable number at all — a string from a hand-edited settings file, `NaN`,
+   * zero or negative — is not a preference, so the DEFAULT is used. A value
+   * that is a real preference but below {@link MIN_SDK_IDLE_RELEASE_MS} is
+   * raised to the floor rather than discarded: the user asked for "as short as
+   * possible" and gets the shortest window the setting is declared to allow,
+   * not five minutes.
+   */
+  private getSdkIdleReleaseMs(): number {
+    const configured = this.workspace.getConfiguration<number>(
+      'ptah',
+      'agentOrchestration.sdkIdleReleaseMs',
+      SDK_IDLE_RELEASE_MS,
+    );
+    if (
+      typeof configured !== 'number' ||
+      !Number.isFinite(configured) ||
+      configured <= 0
+    ) {
+      return SDK_IDLE_RELEASE_MS;
+    }
+    return Math.max(configured, MIN_SDK_IDLE_RELEASE_MS);
+  }
+
+  /**
+   * Arm the idle countdown for an agent whose turn just ended.
+   *
+   * Only continuation-capable handles get one, because they are the only ones
+   * that deliberately outlive their turn: on the ptah-cli path `query()` is fed
+   * a prompt mailbox whose generator does not return until `close()`, and
+   * `close()` runs only on abort. A handle without continuation support has
+   * already finished with its process, and the `scheduleCleanup` backstop
+   * catches it at TTL either way.
+   */
+  private scheduleIdleRelease(agentId: string): void {
+    const tracked = this.agents.get(agentId);
+    if (!tracked || tracked.subprocessReleased) return;
+    if (!tracked.sdkHandle || !tracked.sdkAbortController) return;
+    if (tracked.sdkHandle.supportsContinuation?.() !== true) return;
+
+    this.clearIdleRelease(tracked);
+    const idleMs = this.getSdkIdleReleaseMs();
+    tracked.idleSince = Date.now();
+    tracked.idleReleaseHandle = this.unrefTimer(
+      setTimeout(() => {
+        void this.releaseTracked(agentId, 'idle');
+      }, idleMs),
+    );
+  }
+
+  private clearIdleRelease(tracked: TrackedAgent): void {
+    if (tracked.idleReleaseHandle) {
+      clearTimeout(tracked.idleReleaseHandle);
+      tracked.idleReleaseHandle = undefined;
+    }
+    tracked.idleSince = undefined;
+  }
+
+  /** Look up an agent and release it. No-op for an id that is already gone. */
+  private async releaseTracked(
+    agentId: string,
+    reason: AgentReleaseReason,
+  ): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return;
+    await this.releaseSubprocess(agentId, tracked, reason);
+  }
+
+  /**
+   * End an agent's operating-system process while KEEPING its record.
+   *
+   * This is the memory reclamation that `handleExit` never did. It aborts the
+   * SDK handle — on the ptah-cli path that closes the prompt mailbox, which
+   * lets the prompt generator return, which lets the stream loop resolve and
+   * stop the translation proxy — and tree-kills the child pid for handles that
+   * expose one, via the same `killProcess` path `stop()` uses.
+   *
+   * What deliberately SURVIVES: `tracked.info`, the stdout/stderr buffers, the
+   * accumulated segments and stream events. `ptah_agent_read` and the agent card
+   * keep working until {@link COMPLETED_AGENT_TTL} removes the record. The only
+   * capability lost is in-process continuation, and `agent:released` exists so
+   * the UI can stop offering it and reach for a session resume instead.
+   *
+   * Takes the record rather than looking it up so the TTL backstop can release
+   * an agent it is about to delete from the map.
+   */
+  private async releaseSubprocess(
+    agentId: string,
+    tracked: TrackedAgent,
+    reason: AgentReleaseReason,
+  ): Promise<void> {
+    if (tracked.subprocessReleased) return;
+    // Set BEFORE the await: killProcess yields, and a second caller arriving in
+    // that window would issue a duplicate abort and a duplicate tree-kill.
+    tracked.subprocessReleased = true;
+
+    const idleMs = tracked.idleSince ? Date.now() - tracked.idleSince : 0;
+    this.clearIdleRelease(tracked);
+
+    try {
+      await this.killProcess(tracked);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[AgentProcessManager] Subprocess release failed for ${agentId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    this.logger.info('[AgentProcessManager] Released agent subprocess', {
+      agentId,
+      reason,
+      idleMs,
+      cli: tracked.info.cli,
+      status: tracked.info.status,
+      cliSessionId: tracked.info.cliSessionId,
+    });
+
+    this.events.emit('agent:released', {
+      agentId,
+      reason,
+      cliSessionId: tracked.info.cliSessionId,
+    });
   }
 
   private handleExit(
@@ -1148,21 +1478,26 @@ export class AgentProcessManager {
     this.cleanupFlushTimer(agentId);
 
     this.scheduleCleanup(agentId);
+    // The turn is over but a continuation-capable handle still owns its
+    // subprocess, by design — start the clock on how long that stays true.
+    this.scheduleIdleRelease(agentId);
     const exitInfo = tracked.info;
-    tracked.exitEmitHandle = setTimeout(() => {
-      const current = this.agents.get(agentId);
-      if (current && !current.hasExited) {
-        return;
-      }
-      this.events.emit('agent:exited', exitInfo);
+    tracked.exitEmitHandle = this.unrefTimer(
+      setTimeout(() => {
+        const current = this.agents.get(agentId);
+        if (current && !current.hasExited) {
+          return;
+        }
+        this.events.emit('agent:exited', exitInfo);
 
-      this.logger.info('[AgentProcessManager] Agent exited', {
-        agentId,
-        status: exitInfo.status,
-        exitCode: code,
-        signal,
-      });
-    }, GRACEFUL_EXIT_DELAY_MS);
+        this.logger.info('[AgentProcessManager] Agent exited', {
+          agentId,
+          status: exitInfo.status,
+          exitCode: code,
+          signal,
+        });
+      }, GRACEFUL_EXIT_DELAY_MS),
+    );
   }
 
   /**
@@ -1176,18 +1511,29 @@ export class AgentProcessManager {
       clearTimeout(tracked.cleanupHandle);
     }
 
-    tracked.cleanupHandle = setTimeout(() => {
-      this.agents.delete(agentId);
-      this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
-        agentId,
-      });
-      // The UI's agent card outlives this record. Announce the drop so a
-      // follow-up box can stop offering `continueConversation` on an id that
-      // can now only answer `not_found`, and reach for the session-resume path
-      // instead. Emitted AFTER the delete so a listener that immediately calls
-      // back in observes the same map this method just left behind.
-      this.events.emit('agent:expired', { agentId });
-    }, COMPLETED_AGENT_TTL);
+    tracked.cleanupHandle = this.unrefTimer(
+      setTimeout(() => {
+        // Backstop for the idle release. Dropping the record without ending its
+        // process is how an orphan becomes permanent: nothing holds a reference
+        // to abort afterwards, so it lives until the host quits. Fire-and-forget
+        // BEFORE the delete, holding its own record reference, so the delete
+        // below stays synchronous for callers reading the map right after.
+        const record = this.agents.get(agentId);
+        if (record) {
+          void this.releaseSubprocess(agentId, record, 'expired');
+        }
+        this.agents.delete(agentId);
+        this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
+          agentId,
+        });
+        // The UI's agent card outlives this record. Announce the drop so a
+        // follow-up box can stop offering `continueConversation` on an id that
+        // can now only answer `not_found`, and reach for the session-resume path
+        // instead. Emitted AFTER the delete so a listener that immediately calls
+        // back in observes the same map this method just left behind.
+        this.events.emit('agent:expired', { agentId });
+      }, COMPLETED_AGENT_TTL),
+    );
   }
 
   /**
@@ -1225,8 +1571,14 @@ export class AgentProcessManager {
           // process (and group) is gone — no separate settle wait needed.
           await killProcessTree(sdkPid, 'SIGTERM', captureTreeKillError);
         } else {
-          // No live child PID exposed — give the abort a brief moment to settle.
-          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+          // No live child PID to kill, and none is missing. A handle without
+          // `getPid` never spawned a child of its own: it handed that job to an
+          // SDK that owns the process and reaps it from the same abort signal we
+          // just fired (see the `SdkHandle` comment in `ptah-cli-registry.ts`).
+          // So the abort IS the kill here, and all that is left is waiting for
+          // the run to unwind — bounded, because a host on its way out cannot
+          // wait forever for a run that already lost its prompt source.
+          await this.waitForSdkSettle(tracked);
         }
       }
       return;
@@ -1237,6 +1589,42 @@ export class AgentProcessManager {
     // Legacy tracked-ChildProcess branch: single shared tree-kill implementation
     // (Windows taskkill /T /F; POSIX process-group kill escalating to SIGKILL).
     await killProcessTree(child.pid, 'SIGTERM', captureTreeKillError);
+  }
+
+  /**
+   * Wait for an aborted PID-less SDK run to unwind, for at most
+   * {@link SDK_ABORT_SETTLE_MS}.
+   *
+   * The handle's `done` is what actually says "the run has ended", so it wins
+   * the race whenever it can; the timer is only the ceiling. Both halves matter
+   * for shutdown: the timer is unref'd so it can never be the reason a host
+   * stays alive, and it is cleared the moment `done` wins so a settled kill
+   * leaves nothing pending behind it.
+   *
+   * A rejected `done` counts as settled — a run that failed is a run that is
+   * over, and killProcess has no error to report to.
+   */
+  private async waitForSdkSettle(tracked: TrackedAgent): Promise<void> {
+    let settleTimer: NodeJS.Timeout | undefined;
+    const bounded = new Promise<void>((resolve) => {
+      settleTimer = this.unrefTimer(setTimeout(resolve, SDK_ABORT_SETTLE_MS));
+    });
+    try {
+      const done = tracked.sdkHandle?.done;
+      await (done
+        ? Promise.race([
+            done.then(
+              () => undefined,
+              () => undefined,
+            ),
+            bounded,
+          ])
+        : bounded);
+    } finally {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+    }
   }
 
   private getRunningCount(): number {
@@ -1251,6 +1639,14 @@ export class AgentProcessManager {
       .map(([id]) => id);
   }
 
+  /**
+   * The concurrent-agent cap.
+   *
+   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
+   * declared in the extension's `package.json`. Prompt text and docs that say
+   * "max 3 concurrent" are stale and describe a limit that has not existed for
+   * some time; the number here is the one the runtime enforces.
+   */
   private getMaxConcurrentAgents(): number {
     return (
       this.workspace.getConfiguration<number>(

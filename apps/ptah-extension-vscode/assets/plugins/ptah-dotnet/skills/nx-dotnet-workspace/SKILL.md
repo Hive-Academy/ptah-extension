@@ -9,7 +9,7 @@ Decides whether a .NET workspace should be Nx-managed, and if so, documents exac
 
 ## The decision: ask, default to Nx
 
-`dotnet-solution-initializer` Round 2 asks this as an explicit `AskUserQuestion` -- Yes / No / Recommend for me. This skill supplies the recommendation logic; it never silently picks for the user and Round 2 never skips the question.
+`dotnet-solution-initializer` Round 2 asks this as an explicit `AskUserQuestion` -- Yes / No / Recommend for me. If the `AskUserQuestion` tool is unavailable in this harness, put the same three choices to the user in plain text and wait for the answer before continuing. This skill supplies the recommendation logic; it never silently picks for the user and Round 2 never skips the question.
 
 | Situation                                                                                                           | Recommend                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -23,7 +23,7 @@ Never force either answer. When the user picks "Recommend for me," give the one-
 
 ## Prerequisites
 
-- **Nx >= 22.0.0.** (This repo's own Nx version, 22.6.5, satisfies it; Nx 23.1.1 is the latest as of this skill's authoring and also satisfies it.)
+- **Nx >= 22.0.0.** (Nx 23.1.1 is the latest as of this skill's authoring and also satisfies it. Check the Nx version in your own workspace before assuming the plugin is available.)
 - **.NET SDK 8.0+.** `@nx/dotnet` ships a compiled `MsbuildAnalyzer` that uses `Microsoft.Build.Locator`, which needs the 8.0 SDK at minimum regardless of which target framework the projects themselves build against. Pin the SDK via `global.json` (see `dotnet-solution-architect`'s Central Package Management reference) so this requirement is enforced in CI, not just on one developer's machine.
 
 ## Installation
@@ -46,7 +46,7 @@ nx init
 **/{*.{csproj,fsproj,vbproj},Directory.Build.{props,targets},Directory.Solution.{props,targets},Directory.Packages.props}
 ```
 
-This matters concretely: a `.sln` that lists twenty projects is not itself scanned, so a solution-only workspace with no project files anywhere reads as having zero Nx projects, not twenty. If a project exists on disk but is missing from every `.sln`, Nx still infers it (because the `.csproj` is what it looks at) -- the reverse of what most .NET tooling assumes. This is also the exact bug Batch 1 fixed on the harness-detection side: a `.sln`-only probe reported a solution workspace as "empty."
+This matters concretely: a `.sln` that lists twenty projects is not itself scanned, so a solution-only workspace with no project files anywhere reads as having zero Nx projects, not twenty. If a project exists on disk but is missing from every `.sln`, Nx still infers it (because the `.csproj` is what it looks at) -- the reverse of what most .NET tooling assumes. Any tooling that probes for `.sln` alone will report a real solution workspace as "empty" -- probe for project files instead.
 
 ## Inferred targets
 

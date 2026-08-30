@@ -39,6 +39,10 @@ interface Harness {
   fireConnectionOpen: () => void;
   /** How many `onDidOpen` subscriptions are currently live. */
   openSubscriberCount: () => number;
+  /** Register the fake connection now — for the misordered-host cases. */
+  registerConnection: () => void;
+  /** Whoever opens the connection resolves it first; this is that resolve. */
+  resolveConnection: () => void;
 }
 
 function makeHarness(options?: {
@@ -81,12 +85,12 @@ function makeHarness(options?: {
   }
 
   const openListeners = new Set<() => void>();
-  if (options?.connection) {
+  const registerConnection = (): void => {
     container.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
       useValue: {
         isOpen: false,
         onDidOpen:
-          options.connection === 'throwing'
+          options?.connection === 'throwing'
             ? () => {
                 throw new Error('connection is mid-teardown');
               }
@@ -96,9 +100,14 @@ function makeHarness(options?: {
               },
       },
     });
-  }
+  };
+  if (options?.connection) registerConnection();
 
   return {
+    registerConnection,
+    resolveConnection: () => {
+      container.resolve(PERSISTENCE_TOKENS.SQLITE_CONNECTION);
+    },
     container,
     logger,
     ensureStarted,
@@ -281,6 +290,89 @@ describe('startTaskSpecsIndex', () => {
       h.fireConnectionOpen();
       await settle();
       expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * TASK_2026_314. The defect-E fix above held only while every host registered
+   * the SQLite connection BEFORE calling this helper. All three did; nothing
+   * made them. A host that called in the other order got a silent no-op — no
+   * warning, no retry — and its Tasks board went merely STALE, which is exactly
+   * the regression that survives manual QA.
+   *
+   * These cases run the hosts in the WRONG order on purpose. Before the fix,
+   * every one of them passed while proving nothing.
+   */
+  describe('registration order does not matter (TASK_2026_314)', () => {
+    it('still upgrades when the connection is registered AFTER this helper', async () => {
+      const h = makeHarness();
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+
+      // The misordered host: phase 2 registers persistence later, then whoever
+      // owns `openAndMigrate` resolves it.
+      h.registerConnection();
+      h.resolveConnection();
+      h.fireConnectionOpen();
+      await settle();
+
+      expect(h.ensureStarted).toHaveBeenCalledTimes(2);
+      expect(h.ensureStarted).toHaveBeenNthCalledWith(2, 'd:/ws');
+    });
+
+    it('arms before the connection can open, so no first open is missed', async () => {
+      const h = makeHarness();
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+
+      h.registerConnection();
+      // Resolution is what arms the subscription, and whoever opens the
+      // connection must resolve it first — so a subscriber is live before
+      // `openAndMigrate` could possibly emit.
+      h.resolveConnection();
+      expect(h.openSubscriberCount()).toBe(1);
+    });
+
+    it('still re-warms on a REOPEN after a late registration', async () => {
+      const h = makeHarness();
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+
+      h.registerConnection();
+      h.resolveConnection();
+      h.fireConnectionOpen();
+      h.fireConnectionOpen();
+      await settle();
+
+      expect(h.ensureStarted).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not subscribe when the helper was disposed before the connection appeared', async () => {
+      const h = makeHarness();
+      const disposable = startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+      disposable.dispose();
+
+      h.registerConnection();
+      h.resolveConnection();
+      h.fireConnectionOpen();
+      await settle();
+
+      expect(h.openSubscriberCount()).toBe(0);
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays quiet on VS Code, which registers no connection at all', async () => {
+      const h = makeHarness();
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+
+      // The armed interceptor never fires. An absent connection is the normal
+      // VS Code shape, so it must not produce a warning — a WARN here is why
+      // this was not the chosen fix.
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+      expect(h.logger.warn).not.toHaveBeenCalled();
     });
   });
 });

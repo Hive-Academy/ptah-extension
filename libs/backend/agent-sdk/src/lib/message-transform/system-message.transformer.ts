@@ -206,6 +206,7 @@ export class SystemMessageTransformer {
     const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
     const workflowRun = state.getWorkflowRun(toolUseId);
+    const record = helpers.subagentRegistry.get(toolUseId);
 
     const event: AgentStartEvent = {
       id: generateEventId(),
@@ -218,8 +219,12 @@ export class SystemMessageTransformer {
       agentType: msg.task_type ?? 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
+      // Usually still undefined here — the SubagentStart hook that mints the
+      // id tends to fire after task_started. The later lifecycle events carry
+      // it once the registry has it (see AgentProgressEvent.agentId).
+      agentId: record?.agentId,
       teammateName:
-        helpers.subagentRegistry.get(toolUseId)?.teammateName ??
+        record?.teammateName ??
         helpers.subagentRegistry.peekPendingTeammateName(toolUseId),
       taskId: msg.task_id,
       workflowRunId: workflowRun?.runId,
@@ -278,6 +283,7 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage.total_tokens,
       toolUses: msg.usage.tool_uses,
       durationMs: msg.usage.duration_ms,
+      agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
       workflowRunId: workflowRun?.runId,
       workflowName: workflowRun?.name,
     };
@@ -329,6 +335,7 @@ export class SystemMessageTransformer {
         status: patch.status,
         description: patch.description,
         errorMessage: patch.error,
+        agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
         workflowRunId: workflowRun?.runId,
         workflowName: workflowRun?.name,
       };
@@ -435,6 +442,7 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,
+      agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
       workflowRunId: workflowRun?.runId,
       workflowName: workflowRun?.name,
     };

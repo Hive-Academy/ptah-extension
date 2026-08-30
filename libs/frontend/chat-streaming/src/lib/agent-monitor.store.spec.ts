@@ -129,6 +129,104 @@ describe('AgentMonitorStore', () => {
       const agents = store.agents();
       expect(agents[0].parentSessionId).toBeUndefined();
     });
+
+    it('rekeys SDK subagent records stamped with the tab id, and only those', () => {
+      store.onAgentProgress({
+        eventType: 'agent_progress',
+        id: 'p-1',
+        timestamp: 1,
+        sessionId: 'tab_abc',
+        parentToolUseId: 'toolu_mine',
+        taskId: 't-1',
+        description: 'Investigate',
+        totalTokens: 1,
+        toolUses: 0,
+        durationMs: 1,
+      } as AgentProgressEvent);
+      store.onAgentProgress({
+        eventType: 'agent_progress',
+        id: 'p-2',
+        timestamp: 1,
+        sessionId: 'tab_other',
+        parentToolUseId: 'toolu_theirs',
+        taskId: 't-2',
+        description: 'Other',
+        totalTokens: 1,
+        toolUses: 0,
+        durationMs: 1,
+      } as AgentProgressEvent);
+
+      store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
+
+      expect(store.getSubagent('toolu_mine')?.parentSessionId).toBe(
+        'real-uuid-xyz',
+      );
+      expect(store.getSubagent('toolu_theirs')?.parentSessionId).toBe(
+        'tab_other',
+      );
+    });
+  });
+
+  describe('requestPanelOpen', () => {
+    it('publishes a monotonic request stamped with the requesting tab', () => {
+      expect(store.panelOpenRequest()).toEqual({ seq: 0, tabId: null });
+
+      store.requestPanelOpen('tab-1');
+      expect(store.panelOpenRequest()).toEqual({ seq: 1, tabId: 'tab-1' });
+
+      store.requestPanelOpen();
+      expect(store.panelOpenRequest()).toEqual({ seq: 2, tabId: null });
+      expect(store.panelOpen()).toBe(true);
+    });
+  });
+
+  describe('subagent agentId capture', () => {
+    const base = {
+      parentToolUseId: 'toolu_wf',
+      taskId: 't-wf',
+      sessionId: 'sess-1',
+      timestamp: 1,
+    };
+
+    it('takes the agentId from whichever lifecycle event first carries it and never drops it', () => {
+      store.onAgentStart({
+        ...base,
+        eventType: 'agent_start',
+        id: 'a',
+        toolCallId: 'toolu_wf',
+        agentType: 'workflow-subagent',
+        source: 'complete',
+      } as AgentStartEvent);
+      expect(store.getSubagent('toolu_wf')?.agentId).toBeUndefined();
+
+      store.onAgentProgress({
+        ...base,
+        eventType: 'agent_progress',
+        id: 'p',
+        description: 'Investigate',
+        totalTokens: 10,
+        toolUses: 1,
+        durationMs: 5,
+        agentId: 'a01fea2eb1b977576',
+      } as AgentProgressEvent);
+      expect(store.getSubagent('toolu_wf')?.agentId).toBe('a01fea2eb1b977576');
+
+      store.onAgentStatus({
+        ...base,
+        eventType: 'agent_status',
+        id: 's',
+        status: 'running',
+      } as AgentStatusEvent);
+      store.onAgentCompleted({
+        ...base,
+        eventType: 'agent_completed',
+        id: 'c',
+        status: 'completed',
+        summary: 'ok',
+        outputFile: '/tmp/x',
+      } as AgentCompletedEvent);
+      expect(store.getSubagent('toolu_wf')?.agentId).toBe('a01fea2eb1b977576');
+    });
   });
 
   describe('activeTabAgents (session-scoped filtering)', () => {

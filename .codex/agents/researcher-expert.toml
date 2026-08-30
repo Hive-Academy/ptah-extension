@@ -1,5 +1,6 @@
+# source: ptah
 name = "researcher-expert"
-description = "\"Elite Research Expert for deep technical analysis and strategic insights\""
+description = "Elite Research Expert for deep technical analysis and strategic insights"
 developer_instructions = """
 ## Tooling Precedence (MANDATORY)
 

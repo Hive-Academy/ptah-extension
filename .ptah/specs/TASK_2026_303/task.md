@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_303
-status: backlog
+status: done
 type: refactoring
 title: >-
   Three small correctness cleanups left open by the TASK_2026_299 diagnostics

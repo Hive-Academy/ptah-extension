@@ -1,8 +1,12 @@
 import {
   Component,
+  DestroyRef,
+  effect,
+  inject,
   input,
   output,
   computed,
+  signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
@@ -43,6 +47,37 @@ type SdkCardKind =
   | 'sendMessage'
   | 'scheduleWakeup'
   | null;
+
+/** Trailing-edge delay used when no animation frame source exists (SSR, node). */
+const FALLBACK_FRAME_MS = 50;
+
+/** Cancellable handle returned by {@link scheduleFrame}. */
+interface FrameHandle {
+  cancel(): void;
+}
+
+/**
+ * Run `cb` on the next painted frame.
+ *
+ * `requestAnimationFrame` — not a fixed timer — is the right primitive for a
+ * streaming render throttle because it is *self-limiting*: when the main
+ * thread is loaded the browser paints less often, so the markdown re-render
+ * rate drops with it instead of competing with the work that is already late.
+ * A `setInterval`/`setTimeout` throttle keeps firing at its nominal rate under
+ * exactly the load we are trying to relieve.
+ *
+ * The timer branch is the fallback for environments with no rAF at all.
+ * `requestAnimationFrame` is resolved at call time so a test double installed
+ * on the global object is honoured.
+ */
+function scheduleFrame(cb: () => void): FrameHandle {
+  if (typeof requestAnimationFrame === 'function') {
+    const id = requestAnimationFrame(() => cb());
+    return { cancel: () => cancelAnimationFrame(id) };
+  }
+  const id = setTimeout(cb, FALLBACK_FRAME_MS);
+  return { cancel: () => clearTimeout(id) };
+}
 
 /**
  * ExecutionNodeComponent - THE KEY RECURSIVE COMPONENT
@@ -97,9 +132,11 @@ type SdkCardKind =
             class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch"
             [class.exec-fade-in]="!isFinalizing()"
           >
-            <!-- bind to renderedContent() so ngx-markdown only re-tokenizes
-                 when the underlying string differs by content (computed
-                 memoizes on string equality). -->
+            <!-- renderedContent() is the throttled mirror of node().content:
+                 at most one new string per painted frame while the node
+                 streams, and the exact final string the moment it settles.
+                 Every value still goes through ngx-markdown, so DOMPurify
+                 remains the only path AI text takes to the DOM. -->
             <markdown [data]="renderedContent()" />
           </div>
         }
@@ -150,7 +187,11 @@ type SdkCardKind =
               (permissionResponded)="permissionResponded.emit($event)"
             >
               <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-              <div [auto-animate] class="exec-children">
+              <div
+                [auto-animate]
+                [autoAnimateDisabled]="flipAnimationDisabled()"
+                class="exec-children"
+              >
                 @for (child of node().children; track child.id) {
                   <ptah-execution-node
                     [node]="child"
@@ -198,7 +239,11 @@ type SdkCardKind =
       }
       @case ('message') {
         <!-- Message node unwraps to its children -->
-        <div [auto-animate] class="exec-children">
+        <div
+          [auto-animate]
+          [autoAnimateDisabled]="flipAnimationDisabled()"
+          class="exec-children"
+        >
           @for (child of node().children; track child.id) {
             <ptah-execution-node
               [node]="child"
@@ -290,44 +335,88 @@ export class ExecutionNodeComponent {
   readonly permissionResponded = output<PermissionResponse>();
   readonly InfoIcon = Info;
 
-  private static readonly RENDER_CACHE_MAX = 32;
-  private readonly _renderCache = new Map<string, string>();
+  private readonly destroyRef = inject(DestroyRef);
 
-  private static fingerprint(s: string): string {
-    const len = s.length;
-    let hash = 0x811c9dc5;
-    const tailStart = Math.max(0, len - 64);
-    for (let i = tailStart; i < len; i++) {
-      hash ^= s.charCodeAt(i);
-      hash =
-        (hash +
-          ((hash << 1) +
-            (hash << 4) +
-            (hash << 7) +
-            (hash << 8) +
-            (hash << 24))) >>>
-        0;
-    }
-    return `${len}:${hash.toString(16)}`;
+  /**
+   * Whether this node's own content is still growing.
+   *
+   * `isStreaming` is the per-message flag forwarded from the bubble; a node
+   * can also carry `status: 'streaming'` on its own (agent-card outputs feed
+   * nodes in without the bubble's flag). Either one means "more deltas are
+   * coming", which is the only window where throttling is worth its latency.
+   */
+  protected readonly isNodeStreaming = computed(
+    () => this.isStreaming() || this.node().status === 'streaming',
+  );
+
+  /**
+   * Gate for the `[auto-animate]` FLIP containers.
+   *
+   * The directive installs a MutationObserver and measures
+   * `getBoundingClientRect()` for every child on every mutation — a forced
+   * synchronous layout per streamed chunk, on a subtree that is changing many
+   * times a second. Disabling it while chunks arrive (and through the
+   * finalize burst, where the whole tree re-lays out at once) keeps the FLIP
+   * animation for the case it was added for: a settled tree gaining a child.
+   */
+  protected readonly flipAnimationDisabled = computed(
+    () => this.isNodeStreaming() || this.isFinalizing(),
+  );
+
+  /**
+   * The string handed to `<markdown>`.
+   *
+   * Kept deliberately behind the raw `node().content`. Each new value costs a
+   * full `marked` tokenize (plus five custom extensions), a DOMPurify pass and
+   * a DOM re-parse over the WHOLE message, so driving it straight from the
+   * delta stream is O(message length²) per turn. Signal equality (`Object.is`)
+   * also means an unchanged string never reaches the renderer at all — which
+   * is what the old `_renderCache` was reaching for, except it keyed on a
+   * fingerprint containing the content *length*, so an appending stream missed
+   * on every single delta and the map only ever added bookkeeping.
+   */
+  private readonly _renderedContent = signal('');
+  protected readonly renderedContent = this._renderedContent.asReadonly();
+
+  /** Newest content not yet published to {@link _renderedContent}. */
+  private pendingContent: string | null = null;
+  private pendingFrame: FrameHandle | null = null;
+
+  constructor() {
+    effect(() => {
+      const content = this.node().content ?? '';
+
+      // Settled node (or a restored transcript): the value is final, so pay
+      // the render now rather than one frame late.
+      if (!this.isNodeStreaming()) {
+        this.publishNow(content);
+        return;
+      }
+
+      this.pendingContent = content;
+      if (this.pendingFrame) return;
+      this.pendingFrame = scheduleFrame(() => {
+        this.pendingFrame = null;
+        const pending = this.pendingContent;
+        this.pendingContent = null;
+        if (pending !== null) this._renderedContent.set(pending);
+      });
+    });
+
+    this.destroyRef.onDestroy(() => {
+      this.pendingFrame?.cancel();
+      this.pendingFrame = null;
+      this.pendingContent = null;
+    });
   }
 
-  protected renderedContent = computed(() => {
-    const node = this.node();
-    const next = node.content ?? '';
-    const key = `${node.id}:${ExecutionNodeComponent.fingerprint(next)}`;
-    const cached = this._renderCache.get(key);
-    if (cached !== undefined) {
-      this._renderCache.delete(key);
-      this._renderCache.set(key, cached);
-      return cached;
-    }
-    if (this._renderCache.size >= ExecutionNodeComponent.RENDER_CACHE_MAX) {
-      const oldest = this._renderCache.keys().next().value;
-      if (oldest !== undefined) this._renderCache.delete(oldest);
-    }
-    this._renderCache.set(key, next);
-    return next;
-  });
+  /** Drop any queued frame and render `content` on this tick. */
+  private publishNow(content: string): void {
+    this.pendingFrame?.cancel();
+    this.pendingFrame = null;
+    this.pendingContent = null;
+    this._renderedContent.set(content);
+  }
 
   /**
    * Detect if text content contains Claude's XML-like agent summary format.

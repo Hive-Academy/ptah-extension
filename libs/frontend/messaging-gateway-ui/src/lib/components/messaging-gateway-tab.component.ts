@@ -73,7 +73,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         </p>
         <a
           class="link link-primary text-xs"
-          href="https://github.com/ptah-extensions/ptah-extension/releases"
+          href="https://github.com/Hive-Academy/ptah-extension/releases"
           rel="noopener noreferrer"
           target="_blank"
           >Download Ptah desktop</a

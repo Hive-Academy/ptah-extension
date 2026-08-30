@@ -25,10 +25,22 @@ import { McpIntentStore, type HarnessMcpIntent } from './mcp-intent-store';
  * the original defect: harness skills were absent from the desired state and
  * every one of their copies looked stale.
  */
+/**
+ * Every method takes the same optional `workspaceRoot`: the root the reconciler
+ * is building a desired state FOR, which is not always the folder the host has
+ * active (TASK_2026_346). A reader wired to a single-workspace host has one
+ * answer and may ignore the argument; a reader over a multi-root host must
+ * answer for the root it was given, or the two folders overwrite each other's
+ * harness on every switch.
+ *
+ * Optional, not required, so a reader assembled by hand — every spec, and the
+ * `plugin-gate` suite's `readerFactory` — stays assignable with zero-argument
+ * methods.
+ */
 export interface HarnessPluginConfigReader {
-  resolveCurrentPluginPaths(): string[];
-  getDisabledSkillIds(): string[];
-  getWorkspacePluginConfig(): {
+  resolveCurrentPluginPaths(workspaceRoot?: string): string[];
+  getDisabledSkillIds(workspaceRoot?: string): string[];
+  getWorkspacePluginConfig(workspaceRoot?: string): {
     disabledPluginIds?: string[];
     disabledAgentIds?: string[];
   };
@@ -78,7 +90,22 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     private readonly mcpIntents: McpIntentStore = new McpIntentStore(),
   ) {}
 
-  resolve(): HarnessSourceState {
+  /**
+   * @param workspaceRoot Forwarded VERBATIM to all three reader calls, so the
+   *   answer describes the root being reconciled rather than the folder the
+   *   host has active. The three go together on purpose: a config read for
+   *   root A beside an overlay resolved for root B is a state no workspace ever
+   *   had, and the builder cannot tell the halves apart.
+   *
+   *   Nothing is inferred here when it is absent. Answering an unscoped reader
+   *   with an EMPTY state was considered and rejected — an empty overlay drops
+   *   every overlay-only skill (skills.sh roots, workspace-scoped
+   *   `ptah-harness-*`) out of the desired state, and skills are
+   *   manifest-owned, so the "safe" fallback would REAP them. Forwarding a root
+   *   a reader ignores leaves that reader exactly as it was, which is the only
+   *   fallback here that removes nothing.
+   */
+  resolve(workspaceRoot?: string): HarnessSourceState {
     const mcpIntents = this.readMcpIntents();
     // Every `return empty` below is a READ FAILURE, not an observation that the
     // user has nothing enabled. It therefore deliberately omits
@@ -107,15 +134,15 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       // One read, two fields. Two calls would let a loader that recomputes
       // between them hand the builder a plugin denylist and an agent denylist
       // from different snapshots of the same config.
-      const config = reader.getWorkspacePluginConfig();
+      const config = reader.getWorkspacePluginConfig(workspaceRoot);
       return {
         layout: this.layout,
         mcpIntents,
-        overlayPluginPaths: reader.resolveCurrentPluginPaths(),
+        overlayPluginPaths: reader.resolveCurrentPluginPaths(workspaceRoot),
         // The one path that actually asked the plugin loader and got an answer,
         // so the one path entitled to say the overlay is authoritative.
         overlayPluginPathsKnown: true,
-        disabledSkillIds: reader.getDisabledSkillIds(),
+        disabledSkillIds: reader.getDisabledSkillIds(workspaceRoot),
         disabledPluginIds: config.disabledPluginIds ?? [],
         disabledAgentIds: config.disabledAgentIds ?? [],
       };

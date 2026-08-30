@@ -13,6 +13,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { SdkQueryRunner } from './sdk-query-runner.service';
+import type { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import { SdkError } from '../errors';
 import type { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import type { SdkModuleLoader } from './sdk-module-loader';
@@ -26,6 +27,8 @@ import type {
   QueryFunction,
   SDKMessage,
   SDKUserMessage,
+  SpawnOptions,
+  SpawnedProcess,
 } from '../types/sdk-types/claude-sdk.types';
 
 function asLogger(mock: MockLogger): Logger {
@@ -77,6 +80,15 @@ function createModuleLoader(): jest.Mocked<
   };
 }
 
+/**
+ * A stand-in for `OffThreadProcessSpawner`. The real one is covered by
+ * `off-thread-process-spawner.spec.ts` against real child processes; what these
+ * specs pin is only that the runner HANDS the SDK a spawner at all.
+ */
+function createProcessSpawner(): { spawn: jest.Mock } {
+  return { spawn: jest.fn() };
+}
+
 interface RunnerHarness {
   runner: SdkQueryRunner;
   logger: MockLogger;
@@ -85,6 +97,7 @@ interface RunnerHarness {
   queryFn: jest.Mock;
   subagentHooks: { createHooks: jest.Mock };
   compactionHooks: CompactionHookHandler;
+  processSpawner: ReturnType<typeof createProcessSpawner>;
 }
 
 function makeRunner(
@@ -144,6 +157,8 @@ function makeRunner(
     globalStoragePath: '/opt/ptah-storage',
   };
 
+  const processSpawner = createProcessSpawner();
+
   const runner = new SdkQueryRunner(
     asLogger(logger),
     runtimeState as unknown as SdkRuntimeStateService,
@@ -154,6 +169,7 @@ function makeRunner(
     authEnv,
     modelService,
     platformInfo as unknown as IPlatformInfo,
+    processSpawner as unknown as OffThreadProcessSpawner,
   );
 
   return {
@@ -164,6 +180,7 @@ function makeRunner(
     queryFn,
     subagentHooks,
     compactionHooks,
+    processSpawner,
   };
 }
 
@@ -633,6 +650,129 @@ describe('SdkQueryRunner', () => {
         if (saved === undefined) delete process.env['ANTHROPIC_API_KEY'];
         else process.env['ANTHROPIC_API_KEY'] = saved;
       }
+    });
+  });
+
+  describe('the SDK spawn is routed off this thread (TASK_2026_341)', () => {
+    const BLOCK_WARN = '[SdkQueryRunner] query() blocked the event loop';
+
+    function makeSpawnOptions(): SpawnOptions {
+      return {
+        command: '/opt/claude',
+        args: ['--version'],
+        cwd: '/work/project',
+        env: {},
+        signal: new AbortController().signal,
+      };
+    }
+
+    async function oneShotOptions(h: RunnerHarness): Promise<SdkQueryOptions> {
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: false,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options;
+    }
+
+    it('gives the one-shot query a spawner backed by OffThreadProcessSpawner', async () => {
+      const h = makeRunner();
+      const handle = {} as SpawnedProcess;
+      h.processSpawner.spawn.mockReturnValue(handle);
+
+      const options = await oneShotOptions(h);
+      expect(options.spawnClaudeCodeProcess).toBeDefined();
+
+      const spawnOptions = makeSpawnOptions();
+      const returned = options.spawnClaudeCodeProcess?.(spawnOptions);
+
+      expect(returned).toBe(handle);
+      expect(h.processSpawner.spawn).toHaveBeenCalledWith(
+        spawnOptions,
+        // `options.stderr` is handed down because the SDK only wires stderr
+        // inside its own spawnLocalProcess, which a custom spawner replaces.
+        expect.objectContaining({ onStderr: options.stderr }),
+      );
+    });
+
+    it('gives the interactive query the same spawner', () => {
+      const h = makeRunner();
+      const handle = {} as SpawnedProcess;
+      h.processSpawner.spawn.mockReturnValue(handle);
+      const options = {} as SdkQueryOptions;
+
+      h.runner.invokeWithLoadedQuery(
+        h.queryFn as unknown as QueryFunction,
+        'prompt',
+        options,
+      );
+
+      expect(options.spawnClaudeCodeProcess).toBeDefined();
+      const spawnOptions = makeSpawnOptions();
+      expect(options.spawnClaudeCodeProcess?.(spawnOptions)).toBe(handle);
+      expect(h.processSpawner.spawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('never replaces a caller-supplied spawnClaudeCodeProcess', () => {
+      // A host running the CLI in a VM or container has already answered this
+      // question; overriding it would silently move the process back local.
+      const h = makeRunner();
+      const callerHandle = {} as SpawnedProcess;
+      const callerSpawner = jest.fn().mockReturnValue(callerHandle);
+      const options = {
+        spawnClaudeCodeProcess: callerSpawner,
+      } as unknown as SdkQueryOptions;
+
+      h.runner.invokeWithLoadedQuery(
+        h.queryFn as unknown as QueryFunction,
+        'prompt',
+        options,
+      );
+
+      expect(options.spawnClaudeCodeProcess).toBe(callerSpawner);
+      expect(options.spawnClaudeCodeProcess?.(makeSpawnOptions())).toBe(
+        callerHandle,
+      );
+      expect(h.processSpawner.spawn).not.toHaveBeenCalled();
+    });
+
+    it('warns when the synchronous part of query() stalls the loop', () => {
+      const h = makeRunner({
+        queryFnImpl: () => {
+          const until = Date.now() + 150;
+          while (Date.now() < until) {
+            // Busy-wait: this is exactly the shape of a blocking spawn — no
+            // yield point for anything else on the loop.
+          }
+          return createFakeQuery('slow');
+        },
+      });
+
+      h.runner.invokeWithLoadedQuery(
+        h.queryFn as unknown as QueryFunction,
+        'prompt',
+        {} as SdkQueryOptions,
+      );
+
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        BLOCK_WARN,
+        expect.objectContaining({ mode: 'interactive' }),
+      );
+    });
+
+    it('stays quiet when the launch returns promptly', async () => {
+      const h = makeRunner();
+      await oneShotOptions(h);
+
+      expect(h.logger.warn).not.toHaveBeenCalledWith(
+        BLOCK_WARN,
+        expect.anything(),
+      );
     });
   });
 });

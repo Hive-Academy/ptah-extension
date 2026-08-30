@@ -243,6 +243,113 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
+  /**
+   * The newest still-`candidate` row drafted from a given session.
+   *
+   * `registerCandidate` dedupes on `trajectory_hash`, and that hash covers
+   * EVERY turn of the session — so a session that grows produces a different
+   * hash and a brand-new row for work that is the same work. That is how one
+   * session ended up with five rows and five `-N` suffixed slug directories on
+   * disk. This is the lookup that lets `analyzeSession` recognise "I have
+   * already drafted a candidate for this session" and supersede it instead.
+   *
+   * `json_each` over `source_session_ids` rather than a `LIKE '%id%'` scan:
+   * the column is a JSON array and a substring match would also hit a session
+   * id that merely CONTAINS this one.
+   *
+   * Restricted to `status='candidate'` by default and never widened by
+   * accident: a promoted row is a shipped skill and a rejected one is a
+   * decision already taken, and neither may be rewritten under a session that
+   * happens to have grown. `superseded` enforces the same rule from its side.
+   */
+  findLatestBySourceSession(
+    sessionId: string,
+    status: SkillStatus = 'candidate',
+  ): SkillCandidateRow | null {
+    if (!sessionId) return null;
+    const stmt = this.db.prepare(
+      `SELECT * FROM skill_candidates
+        WHERE status = ?
+          AND EXISTS (
+            SELECT 1 FROM json_each(skill_candidates.source_session_ids)
+            WHERE value = ?
+          )
+        ORDER BY created_at DESC
+        LIMIT 1`,
+    );
+    const raw = stmt.get(status, sessionId) as RawCandidateRow | undefined;
+    return raw ? this.toCandidateRow(raw) : null;
+  }
+
+  /**
+   * Replace the CONTENT of an existing candidate with a newer draft of the
+   * same work — the write half of the per-session supersession that stops a
+   * growing session minting a new row per re-analysis.
+   *
+   * `name` is deliberately NOT touched. It is the SKILL.md folder name and it
+   * carries a UNIQUE index; renaming it would leave the directory the row
+   * points at behind and mint the next one with a `-N` suffix, which is the
+   * defect this method exists to remove.
+   *
+   * The four columns are written as ONE fixed UPDATE, the same rule
+   * `recordJudgeVerdict` documents: a partial write would leave the previous
+   * draft's `trajectory_hash` beside this draft's body, and the hash is what
+   * every other dedupe path reads.
+   *
+   * Throws for a row that is not `status='candidate'`. A promoted skill has
+   * shipped and a rejected one has been decided; rewriting either under a
+   * session that grew would silently change an artifact nobody re-reviewed.
+   */
+  superseded(
+    id: CandidateId,
+    input: {
+      description: string;
+      bodyPath: string;
+      trajectoryHash: string;
+      embedding: Float32Array | null;
+    },
+  ): SkillCandidateRow {
+    const current = this.findById(id);
+    if (!current) {
+      throw new Error(`[skill-synthesis] superseded: ${id} not found`);
+    }
+    if (current.status !== 'candidate') {
+      throw new Error(
+        `[skill-synthesis] superseded: ${id} is '${current.status}', not 'candidate' — a decided row is never rewritten`,
+      );
+    }
+
+    let embeddingRowid = current.embeddingRowid;
+    if (input.embedding && this.vecStatus.available) {
+      embeddingRowid = this.insertEmbedding(input.embedding);
+    }
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates
+            SET description     = ?,
+                body_path       = ?,
+                trajectory_hash = ?,
+                embedding_rowid = ?
+          WHERE id = ?`,
+      )
+      .run(
+        input.description,
+        input.bodyPath,
+        input.trajectoryHash,
+        embeddingRowid,
+        id,
+      );
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(
+        `[skill-synthesis] superseded: row ${id} disappeared after update`,
+      );
+    }
+    return updated;
+  }
+
   findByName(name: string): SkillCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,

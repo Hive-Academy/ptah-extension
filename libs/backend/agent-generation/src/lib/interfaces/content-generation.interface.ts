@@ -74,15 +74,35 @@ export interface IContentGenerationService {
    *   return;
    * }
    *
-   * const { content, description } = result.value;
-   * console.log(`Generated ${content.length} characters, description: ${description}`);
+   * const { content, warnings } = result.value;
+   * console.log(`Generated ${content.length} characters`);
    * ```
+   *
+   * The agent's `description` is NOT produced here. It is authored metadata —
+   * the sentence a harness selects an agent by — and the orchestrator takes it
+   * from the template, falling back to a deterministic humanised name. A
+   * generated one-liner knew neither the triggers nor the sibling agents it had
+   * to be distinguishable from, and nothing read it once the template won.
    */
   generateContent(
     template: AgentTemplate,
     context: AgentProjectContext,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<Result<{ content: string; description: string }, Error>>;
+  ): Promise<
+    Result<
+      {
+        content: string;
+        /**
+         * One entry per LLM section whose generated text was discarded by
+         * `GeneratedSectionValidator`, naming the rule it broke. The authored
+         * fallback shipped instead, so this is advisory — the caller surfaces it
+         * in the generation summary rather than treating it as a failure.
+         */
+        warnings: string[];
+      },
+      Error
+    >
+  >;
 
   /**
    * Generate LLM customizations for template sections.

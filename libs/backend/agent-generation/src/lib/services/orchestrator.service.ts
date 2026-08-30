@@ -163,6 +163,99 @@ export interface GenerationProgress {
 }
 
 /**
+ * Every composition marker line: `STATIC`, `LLM` and `VAR`, open or close.
+ *
+ * All three are the same kind of thing — a fence around content some earlier
+ * stage was supposed to act on — and all three are invisible to the agent that
+ * reads the emitted file. `LLM` and `VAR` are included because the no-SDK path
+ * keeps the AUTHORED text between the markers and emits it: without them here,
+ * a `<!-- LLM:FRAMEWORK_CONVENTIONS -->` line ships verbatim into
+ * `.claude/agents/` and every rival CLI's harness dir on every run where the SDK
+ * was unavailable, which is the exact failure the STATIC half was written for.
+ *
+ * The id is matched loosely (`[^>]*`) rather than as `\w+` on purpose: a
+ * malformed id such as `ANT I_PATTERNS` still has to be stripped here. The
+ * place that REJECTS a malformed id is `TemplatePartialResolver`, at load time;
+ * by the time content reaches emit, refusing to strip a marker would only mean
+ * shipping it into the agent file.
+ */
+const COMPOSITION_MARKER_LINE =
+  /^[ \t]*<!--[ \t]*\/?(?:STATIC|LLM|VAR):[^>]*-->[ \t]*$/;
+
+/** A line with nothing on it but horizontal whitespace. */
+const BLANK_LINE = /^[ \t]*$/;
+
+/**
+ * Remove the composition fences from content on its way into an agent file.
+ *
+ * The markers are a COMPOSITION mechanism, not content. They leaked verbatim
+ * into every generated agent, every `.codex/agents/*.toml` and every
+ * `.github/agents/*.agent.md` for as long as they existed, because nothing
+ * resolved them and nothing stripped them.
+ *
+ * Only the marker LINES go. Whatever sits between a pair is content by then —
+ * the expanded shared partial, the model's section, or the authored fallback the
+ * template shipped — and is kept exactly as it stands.
+ *
+ * Two properties this works line-by-line to get right:
+ *
+ *  - **CRLF.** Templates are authored on Windows and reach here with `\r\n`.
+ *    The previous `\n`-anchored strip left a `\r` orphaned on the line it
+ *    emptied, and the `\n{3,}` collapse never matched a CRLF run at all — so
+ *    the tidy-up silently did nothing on the platform this repository is
+ *    developed on. Splitting on `\r?\n` and rejoining with the dominant ending
+ *    makes the transform ending-agnostic.
+ *
+ *  - **Scope.** Blank runs collapse ONLY where a marker was actually removed.
+ *    The old global `\n{3,}` → `\n\n` reflowed the entire document, including
+ *    the inside of fenced code blocks, where a deliberate blank run is part of
+ *    the specimen the agent is being shown. Nothing downstream could detect
+ *    that the sample had been rewritten.
+ *
+ * Exported for its own spec: both properties above are invisible in the
+ * orchestrator's end-to-end assertions, which is how a `\n`-only strip survived
+ * on a Windows-authored corpus.
+ */
+export function stripCompositionMarkers(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+
+  // Strip the marker lines, remembering where each gap opened up so the
+  // blank-line tidy-up can be confined to those seams.
+  const kept: string[] = [];
+  const seams = new Set<number>();
+  let removedAny = false;
+  for (const line of lines) {
+    if (COMPOSITION_MARKER_LINE.test(line)) {
+      removedAny = true;
+      seams.add(kept.length);
+      continue;
+    }
+    kept.push(line);
+  }
+  if (!removedAny) return content;
+
+  // Each seam sits between two kept lines. Where that leaves more than one
+  // blank line, keep exactly one — an expanded block should not open with three
+  // blank lines where its fence used to be.
+  const drop = new Set<number>();
+  for (const seam of seams) {
+    let start = seam;
+    while (start > 0 && BLANK_LINE.test(kept[start - 1])) start--;
+    let stop = seam;
+    while (stop < kept.length && BLANK_LINE.test(kept[stop])) stop++;
+    // Nothing to collapse unless the run is longer than the one blank we keep.
+    if (stop - start < 2) continue;
+    // A seam at the very start or end of the document has no content to
+    // separate, so every blank in the run goes.
+    const keepOne = start > 0 && stop < kept.length;
+    for (let i = start + (keepOne ? 1 : 0); i < stop; i++) drop.add(i);
+  }
+
+  return kept.filter((_, i) => !drop.has(i)).join(eol);
+}
+
+/**
  * Agent Generation Orchestrator Service
  *
  * Responsibilities:
@@ -805,14 +898,12 @@ export class AgentGenerationOrchestratorService {
       return this.renderStaticFallbackContent(template, context, options);
     }
 
-    const { content: rawContent, description: llmDescription } =
+    const { content: rawContent, warnings: sectionWarnings } =
       contentResult.value!;
-    const candidate = this.buildAgentFileContent(
-      rawContent,
-      template,
-      context,
-      llmDescription,
-    );
+    for (const warning of sectionWarnings) {
+      warnings?.push(warning);
+    }
+    const candidate = this.buildAgentFileContent(rawContent, template);
 
     const validationResult = await this.outputValidation.validate(
       candidate,
@@ -904,16 +995,18 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     options: OrchestratorGenerationOptions,
   ): string {
-    const withoutDynamicMarkers = template.content.replace(
-      /<!--\s*\/?(?:LLM|VAR):\w+\s*-->/g,
-      '',
-    );
+    // No marker stripping here. It used to blank the `LLM`/`VAR` markers with
+    // an inline `replace(..., '')`, which emptied the line instead of removing
+    // it and left the seam of blank lines that `stripCompositionMarkers` exists
+    // to close — and it handled `LLM`/`VAR` while `buildAgentFileContent`
+    // handled `STATIC`, so the same job lived in two places with two different
+    // notions of "stripped". `buildAgentFileContent` now does all three.
     const variables = this.buildVariables(context, options.variableOverrides);
-    let body = withoutDynamicMarkers;
+    let body = template.content;
     for (const [key, value] of Object.entries(variables)) {
       body = body.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), value);
     }
-    return this.buildAgentFileContent(body, template, context);
+    return this.buildAgentFileContent(body, template);
   }
 
   /**
@@ -928,26 +1021,38 @@ export class AgentGenerationOrchestratorService {
    *
    * @param rawContent - Content from ContentGenerationService
    * @param template - Source template with metadata
-   * @param context - Project analysis context
    * @returns Content with proper frontmatter prepended
    */
   private buildAgentFileContent(
     rawContent: string,
     template: AgentTemplate,
-    context: AgentProjectContext,
-    llmDescription?: string,
   ): string {
-    const strippedContent = rawContent.replace(
-      /^\s*---\s*\n[\s\S]*?\n---\s*\n/,
-      '',
+    // Defensive only. This used to strip the template's SECOND frontmatter
+    // block (`---name/description---`), which no longer exists — templates carry
+    // one block and `TemplateStorageService` consumes it. What is left is the
+    // case the LLM content pass can still produce: generated content that opens
+    // with its own frontmatter, which would emit an agent file with two blocks.
+    const strippedContent = stripCompositionMarkers(
+      rawContent.replace(/^\s*---\s*\n[\s\S]*?\n---\s*\n/, ''),
     );
+    // The AUTHORED description is the only source. It is the `description:`
+    // frontmatter of a hand-written template, and every harness that lists
+    // subagents selects on it — the one sentence a dispatcher reads before
+    // choosing. There used to be a second source: a one-liner the content pass
+    // asked the model for, which replaced 400-600 characters of carefully
+    // bounded "use when / not for" with a generic restatement of the role,
+    // written without knowing which sibling agents it had to be distinguishable
+    // from. Once the template won that contest the generated one had no
+    // reachable success path, so it is gone rather than kept as a fallback.
+    // What remains for a template that declares none is deterministic.
     const description =
-      (llmDescription && llmDescription.trim()) ||
-      this.extractTemplateDescription(template) ||
-      `${this.humanizeName(template.name)} for ${context.projectType} projects`;
+      template.description || `${this.humanizeName(template.name)} agent`;
+    // 1,024 is the harness targets' own description ceiling. It was 120, which
+    // truncated all 15 shipped descriptions (417-647 chars) mid-sentence and
+    // always inside the WHEN clause — the half that makes an agent selectable.
     const cappedDescription =
-      description.length > 120
-        ? description.substring(0, 117) + '...'
+      description.length > 1024
+        ? description.substring(0, 1021) + '...'
         : description;
     const safeDescription = cappedDescription
       .replace(/\n/g, ' ')
@@ -975,42 +1080,6 @@ export class AgentGenerationOrchestratorService {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-
-  /**
-   * Extract the description from a template's content second frontmatter block.
-   *
-   * Templates have a dual-frontmatter format:
-   *   First block: template metadata (parsed by gray-matter, not in content)
-   *   Second block: output frontmatter (included in template.content)
-   *
-   * This method reads the second frontmatter block from the template content
-   * and extracts the description field value.
-   *
-   * @returns The description string, or undefined if not found
-   */
-  private extractTemplateDescription(
-    template: AgentTemplate,
-  ): string | undefined {
-    const frontmatterMatch = template.content.match(
-      /^\s*---\s*\n([\s\S]*?)\n---/,
-    );
-    if (!frontmatterMatch) {
-      return undefined;
-    }
-    const descriptionMatch = frontmatterMatch[1].match(
-      /^description:\s*(.+)$/m,
-    );
-    if (!descriptionMatch) {
-      return undefined;
-    }
-
-    const desc = descriptionMatch[1].trim();
-    if (desc.includes('{{')) {
-      return undefined;
-    }
-
-    return desc;
   }
 
   /**

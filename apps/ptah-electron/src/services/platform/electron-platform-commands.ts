@@ -2,7 +2,7 @@
  * Electron Platform Commands Implementation
  *
  * Stub/limited implementation for Electron:
- * - reloadWindow: Uses Electron app.relaunch() + app.exit()
+ * - reloadWindow: reloads the focused window, or app.relaunch() + app.quit()
  * - openTerminal: No-op (Electron has no integrated terminal)
  */
 
@@ -46,7 +46,12 @@ export class ElectronPlatformCommands implements IPlatformCommands {
         );
         const { app } = await import('electron');
         app.relaunch();
-        app.exit(0);
+        // `quit`, never `exit`. `app.exit()` emits neither `before-quit` nor
+        // `will-quit`, so it skips the entire LIFO teardown chain in
+        // `main.ts` — the CLI agent subprocesses, the provider proxy leases,
+        // the SQLite handle, the settings flush (TASK_2026_326). A relaunch
+        // that strands its own children is worse than a slower relaunch.
+        app.quit();
       }
     } catch (error) {
       this.logger.warn('[ElectronPlatformCommands] Failed to reload window', {

@@ -284,6 +284,11 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // through Ptah tools when they are reachable.
         ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
+        // The curator's own concurrency lane. Before TASK_2026_352 every
+        // internal one-shot shared a single host-wide slot, so a curation pass
+        // queued behind an unrelated skill-synthesis lane call and back again
+        // — nine times on one boot (`tmp/logs/log.log:938 … 1424`).
+        lane: 'memory-curator',
         abortController,
         auth,
       });

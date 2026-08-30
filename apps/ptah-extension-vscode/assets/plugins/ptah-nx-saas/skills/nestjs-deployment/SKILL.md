@@ -51,7 +51,7 @@ Before shipping to production, verify every item:
       -> Explicitly install webpack externals
 
     Stage 3: Runtime
-      -> node:20-alpine minimal image
+      -> node:24-alpine minimal image
       -> Non-root user (nestjs:nodejs)
       -> Copy: node_modules, built app, Prisma files
       -> Regenerate Prisma client (Alpine binaries)
@@ -63,7 +63,7 @@ Before shipping to production, verify every item:
 
 ```dockerfile
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 COPY package.json package-lock.json nx.json tsconfig.base.json ./
@@ -74,14 +74,14 @@ RUN cd apps/my-api && npx prisma generate
 RUN npx nx build my-api --configuration=production
 
 # Stage 2: Production deps
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 COPY --from=builder /app/dist/apps/my-api/package.json ./
 RUN npm install --omit=dev
 
 # Stage 3: Runtime
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
 RUN addgroup --system --gid 1001 nodejs && \
@@ -102,53 +102,9 @@ CMD ["sh", "-c", "npx prisma migrate deploy && node main.js"]
 
 ## Quick Start: Production main.ts
 
-```typescript
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app/app.module';
-import cookieParser = require('cookie-parser');
+The production `bootstrap()` is where every global concern converges, and order matters. It must: pick log levels from `NODE_ENV` (no `debug`/`verbose` in production); create the app with `rawBody: true` so webhook HMAC verification can read the unparsed body; register the cookie parser; install a global `ValidationPipe` with `whitelist`, `forbidNonWhitelisted` and `transform`; restrict CORS to the configured frontend URL with `credentials: true`; and set the `api` global prefix while excluding webhook paths.
 
-async function bootstrap() {
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const logLevels: ('log' | 'error' | 'warn' | 'debug' | 'verbose')[] = isProduction ? ['log', 'error', 'warn'] : ['log', 'error', 'warn', 'debug', 'verbose'];
-
-  const app = await NestFactory.create(AppModule, {
-    rawBody: true,
-    logger: logLevels,
-  });
-
-  app.use(cookieParser());
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
-  const configService = app.get(ConfigService);
-  const frontendUrl = configService.get<string>('FRONTEND_URL') || 'http://localhost:4200';
-
-  app.enableCors({
-    origin: [frontendUrl],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
-
-  app.setGlobalPrefix('api', {
-    exclude: ['webhooks/{*path}'],
-  });
-
-  const port = configService.get<number>('PORT') || 3000;
-  await app.listen(port);
-  Logger.log(`Application running on http://localhost:${port}/api`);
-}
-
-bootstrap();
-```
+For the full annotated implementation, plus the table explaining each setting, see [production-hardening.md](references/production-hardening.md).
 
 ## Decision Matrix
 

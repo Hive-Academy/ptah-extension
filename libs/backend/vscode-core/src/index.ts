@@ -97,3 +97,24 @@ export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-sto
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
 export { bringUpSubsystems } from './services/subsystem-bringup';
 export type { SubsystemBringUpDeps } from './services/subsystem-bringup';
+export {
+  EventLoopMonitor,
+  CpuProfileCapture,
+  armDiagnostics,
+  readMsEnv,
+  roundMs,
+  EVENT_LOOP_LAG_WARN_MS_ENV,
+  DEFAULT_EVENT_LOOP_LAG_WARN_MS,
+  DEFAULT_EVENT_LOOP_SAMPLE_INTERVAL_MS,
+  CPU_PROFILE_ON_LAG_MS_ENV,
+  CPU_PROFILE_DIR_ENV,
+  DEFAULT_CPU_PROFILE_DURATION_MS,
+  AUTO_CAPTURE_COOLDOWN_MS,
+} from './diagnostics';
+export type {
+  EventLoopLagSample,
+  EventLoopLagListener,
+  EventLoopMonitorOptions,
+  ArmDiagnosticsOptions,
+  DiagnosticsHandle,
+} from './diagnostics';

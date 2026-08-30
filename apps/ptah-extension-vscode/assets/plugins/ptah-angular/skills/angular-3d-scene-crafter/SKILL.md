@@ -1,11 +1,13 @@
 ---
 name: angular-3d-scene-crafter
-description: "Interactive 3D scene designer for @hive-academy/angular-3d library. Guides users through creating stunning Three.js scenes using declarative Angular components. Use when users want to: (1) Create new 3D scenes or hero sections, (2) Design visual effects (neon, space, glass, particles), (3) Get recommendations for primitives, lighting, and materials, (4) Learn composition patterns and best practices, (5) Generate complete Angular scene components with proper configuration, (6) Analyze reference images and reverse-engineer scenes to recreate similar aesthetics with available components (extracts colors, lighting, materials, composition)."
+description: 'Interactive 3D scene designer for @hive-academy/angular-3d library. Guides users through creating stunning Three.js scenes using declarative Angular components. Use when users want to: (1) Create new 3D scenes or hero sections, (2) Design visual effects (neon, space, glass, particles), (3) Get recommendations for primitives, lighting, and materials, (4) Learn composition patterns and best practices, (5) Generate complete Angular scene components with proper configuration, (6) Analyze reference images and reverse-engineer scenes to recreate similar aesthetics with available components (extracts colors, lighting, materials, composition).'
 ---
 
 # Angular 3D Scene Crafter
 
 Create stunning 3D scenes using the @hive-academy/angular-3d library through guided, conversational design.
+
+Before generating any scene code, verify that `@hive-academy/angular-3d` is listed in the project's `package.json`; if it is not, install it (or confirm the intended version with the user) first.
 
 ## Overview
 
@@ -21,8 +23,8 @@ This skill helps you design and generate complete Angular components for 3D scen
 
 The skill supports two primary workflows:
 
-- **A. Text-Based Design** - Conversational scene crafting from user descriptions
-- **B. Image-Based Reverse Engineering** - Analyze reference images and recreate similar scenes
+- **A. Image-Based Reverse Engineering** - Analyze reference images and recreate similar scenes
+- **B. Text-Based Design** - Conversational scene crafting from user descriptions
 
 ---
 

@@ -42,7 +42,6 @@ import {
   type WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
 import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-handler';
@@ -183,6 +182,27 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
 
   return null;
+}
+
+/**
+ * Whether this `AuthEnv` carries a credential the Anthropic API treats as an
+ * "API key user".
+ *
+ * The two accepted shapes are the two an auth strategy can write:
+ * `ANTHROPIC_API_KEY` (the direct Anthropic key path) and
+ * `ANTHROPIC_AUTH_TOKEN` (the per-provider bearer path). A `claudeCli` session
+ * has NEITHER by design -- `CliStrategy` writes no env vars at all and lets the
+ * binary read its own credential store -- which is exactly the case this
+ * predicate exists to separate from "Anthropic direct".
+ *
+ * Whitespace-only counts as absent: the translation-proxy path assigns
+ * `ANTHROPIC_API_KEY = ''` to clear it rather than deleting the key, so a
+ * presence check on the key alone would read a cleared slot as a credential.
+ */
+function hasApiCredential(authEnv: AuthEnv): boolean {
+  return Boolean(
+    authEnv.ANTHROPIC_API_KEY?.trim() || authEnv.ANTHROPIC_AUTH_TOKEN?.trim(),
+  );
 }
 
 /**
@@ -559,8 +579,6 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionEndHookHandler: SessionEndHookHandler,
     @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
     private readonly toolFailureHookHandler: ToolFailureHookHandler,
-    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER)
-    private readonly preToolUseHookHandler: PreToolUseHookHandler,
     @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
@@ -1029,6 +1047,27 @@ export class SdkQueryOptionsBuilder {
    * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
    * they don't support Anthropic beta headers and would return 400 errors.
    *
+   * TWO gates, and they ask different questions. The base URL answers the
+   * TRANSPORT question ("would this endpoint understand an Anthropic beta
+   * header?"); the credential answers the ENTITLEMENT question ("will the
+   * binary accept one from this caller?"). Only the first existed, so a
+   * `claudeCli` session -- whose `AuthEnv` is deliberately EMPTY, because
+   * `CliStrategy` sets no env vars and lets the binary read its own store in
+   * `~/.claude/` -- fell into the `!baseUrl` branch, was classified
+   * "Anthropic direct", and shipped the beta on every launch. The CLI answered
+   * on stderr: "Custom betas are only available for API key users. Ignoring
+   * provided betas." (TASK_2026_349; measured at log.log:2312/2331 with the
+   * strategy logged as Claude CLI at log.log:583). The request still worked --
+   * the cost was an INFO line claiming a 1M window the session never had.
+   *
+   * The credential is read from `AuthEnv` ONLY, never with a `process.env`
+   * fallback. `AuthManager.doConfigureAuthentication` clears all three auth
+   * vars out of `process.env` as well as the `AuthEnv` singleton before every
+   * strategy runs, so an ambient key cannot survive a switch to `claudeCli`;
+   * falling back would resurrect a credential the chosen auth method deleted.
+   * Blank counts as absent -- the proxy path writes `ANTHROPIC_API_KEY = ''`
+   * rather than deleting the key.
+   *
    * @returns Array of beta strings, or undefined if no betas should be sent
    */
   private buildBetas(authEnvOverride?: AuthEnv): SdkBeta[] | undefined {
@@ -1041,6 +1080,14 @@ export class SdkQueryOptionsBuilder {
       this.logger.debug(
         '[SdkQueryOptionsBuilder] Skipping 1M context beta for third-party provider',
         { baseUrl },
+      );
+      return undefined;
+    }
+
+    if (!hasApiCredential(env)) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Skipping 1M context beta: no API key or auth token ' +
+          '(subscription credentials managed by the Claude CLI do not accept custom betas)',
       );
       return undefined;
     }
@@ -1306,10 +1353,6 @@ export class SdkQueryOptionsBuilder {
       sessionId,
       cwd,
     );
-    const preToolUseHooks = this.preToolUseHookHandler.createHooks(
-      sessionId,
-      cwd,
-    );
     const sessionStartHooks = this.sessionStartHookHandler.createHooks(
       sessionId,
       cwd,
@@ -1332,7 +1375,6 @@ export class SdkQueryOptionsBuilder {
       stopFailureHooks,
       sessionEndHooks,
       toolFailureHooks,
-      preToolUseHooks,
       sessionStartHooks,
       subagentStopHooks,
       teammateLifecycleHooks,

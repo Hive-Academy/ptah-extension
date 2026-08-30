@@ -55,6 +55,7 @@ jest.mock('fs/promises', () => {
 
 import {
   blockedTargetPaths,
+  HARNESS_REPAIR_REASONS,
   type HarnessHealth,
   type HarnessTargetId,
 } from '@ptah-extension/shared';
@@ -99,6 +100,15 @@ const MCP_KEY = '.vscode/mcp.json#wanted';
 
 const USER_SKILL = 'hand-written by the user\n';
 const USER_COMMAND = 'the user wrote this command\n';
+
+/**
+ * Anchor an approved reason HEAD, for the two `reason` values that are
+ * templates. The tail is `describeError(error)` or a quarantine path — data,
+ * and deliberately not approved wording.
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 interface FakeLogger {
   debug: jest.Mock;
@@ -346,6 +356,15 @@ describe('HarnessBlockedRepairService', () => {
     expect(propagate).not.toHaveBeenCalled();
 
     expect(report.paths[0].outcome).toBe('not-blocked');
+    // `reason` is the SIXTH blocked-path wording surface: it renders
+    // unconditionally in the repair dialog
+    // (`harness-repair-dialog.component.ts:276-280`), so every literal this
+    // service puts in it is prose a user reads while deciding what to do with
+    // their own files. Pinned WHOLE against the shared allowlist, which is the
+    // backend half of the two-sided pin — the dialog spec proves the allowlist
+    // renders cleanly, and this proves the service emits what the allowlist
+    // says. Without this half, rewriting the literal here would fail nothing.
+    expect(report.paths[0].reason).toBe(HARNESS_REPAIR_REASONS.notBlocked);
     expect(report.paths[0].quarantinePath).toBeUndefined();
     expect(report.repaired).toBe(0);
     expect(
@@ -362,6 +381,8 @@ describe('HarnessBlockedRepairService', () => {
 
     expect(report.paths[0].outcome).toBe('not-a-path');
     expect(report.paths[0].reason).toContain('nothing to move aside');
+    // The sixth wording surface — see the `not-blocked` case above.
+    expect(report.paths[0].reason).toBe(HARNESS_REPAIR_REASONS.notAPath);
     const config = JSON.parse(
       readFileSync(join(ws, '.vscode', 'mcp.json'), 'utf-8'),
     ) as { servers: Record<string, { command?: string }> };
@@ -489,6 +510,12 @@ describe('HarnessBlockedRepairService', () => {
 
     expect(report.paths[0].outcome).toBe('move-failed');
     expect(report.paths[0].reason).toContain('nothing was written here');
+    // The sixth wording surface. This one is a TEMPLATE — the tail is
+    // `describeError(error)`, which is the OS talking — so only the fixed head
+    // is on the allowlist and only the fixed head is pinned.
+    expect(report.paths[0].reason).toMatch(
+      new RegExp(`^${escapeRegExp(HARNESS_REPAIR_REASONS.moveFailed)} `),
+    );
     // Untouched — and, crucially, the reconcile that followed did NOT write
     // over it. That is structural: the occupant is still unowned, so the plan
     // classifies it foreign and it never enters `plan.writes`.
@@ -565,6 +592,8 @@ describe('HarnessBlockedRepairService', () => {
     ]);
 
     expect(report.paths[0].outcome).toBe('restored');
+    // The sixth wording surface — see the `not-blocked` case above.
+    expect(report.paths[0].reason).toBe(HARNESS_REPAIR_REASONS.restored);
     expect(report.repaired).toBe(0);
     expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
       USER_SKILL,
@@ -611,6 +640,11 @@ describe('HarnessBlockedRepairService', () => {
     // implementation: at this point the directory is in one place only.
     expect(report.paths[0].quarantinePath).toBe(quarantineFor(ALPHA));
     expect(report.paths[0].reason).toContain(quarantineFor(ALPHA));
+    // The sixth wording surface. A TEMPLATE again: the quarantine path and the
+    // OS error are data, the sentence in front of them is Ptah's.
+    expect(report.paths[0].reason).toMatch(
+      new RegExp(`^${escapeRegExp(HARNESS_REPAIR_REASONS.restoreFailed)} `),
+    );
   });
 
   // ------------------------------------------------- the quarantine is invisible

@@ -5,12 +5,28 @@ description: The curator pipeline — extract, resolve, score, store, embed.
 
 # How Memory Works
 
-Memory updates happen during **context compaction**, not on every turn. That keeps the conversation hot path cheap and lets the curator see a meaningful slice of recent activity.
+Memory updates do not run on every turn. A **trigger** starts a curate pass, and
+a per-hour ceiling caps how often that can happen. This keeps the conversation
+hot path cheap and lets the curator see a meaningful slice of recent activity.
+
+## What starts a curate pass
+
+| Trigger            | Fires when                                             |
+| ------------------ | ------------------------------------------------------ |
+| **Pre-compact**    | The context is about to be compacted                   |
+| **Idle**           | The session has been idle for `memory.triggers.idleMs` |
+| **Turn threshold** | `memory.triggers.turnThreshold` turns have accumulated |
+| **Boot scan**      | Ptah starts and finds uncurated sessions               |
+| **Prompt submit**  | Your prompt contains a recall cue (this retrieves)     |
+| **Post tool use**  | A tool call completes                                  |
+
+`memory.triggers.maxCuratesPerHour` (default 20) bounds the total. See
+[Memory Settings](/memory/settings/) to tune or disable any trigger.
 
 ## The pipeline
 
 ```text
-PreCompact hook fires
+a trigger fires
         ↓
 Curator LLM      → extracts memory drafts from the about-to-be-compacted turns
         ↓
@@ -25,13 +41,13 @@ SQLite + vec     → memories land in ~/.ptah/ptah.db, chunks are embedded and
 
 ## Curator and resolver
 
-Both stages are LLM calls. By default they use **`claude-haiku-4-5-20251001`** — fast and cheap, which matters because the curator runs every compaction. You choose the curator provider and model in the **Memory** settings panel (or via `memory.curatorProvider` / `memory.curatorModel`); leaving the model empty falls back to `claude-haiku-4-5-20251001`. The curator runs on its **own independently-chosen provider** — set `memory.curatorProvider` and the curator authenticates against that provider on its own, regardless of which provider your chat is using (leave it empty to ride the active provider). Reuses the credentials you already authenticated for that provider.
+Both stages are LLM calls. Choose the curator provider and model in the **Memory** settings panel, or via `memory.curatorProvider` and `memory.curatorModel`. Both default to empty, which means the curator rides the provider and model your chat is already using. Pick a small, fast model here — the curator runs often. The curator can also run on its **own independently-chosen provider** — set `memory.curatorProvider` and the curator authenticates against that provider on its own, regardless of which provider your chat is using (leave it empty to ride the active provider). Reuses the credentials you already authenticated for that provider.
 
 The curator's output is structured: each draft has a `kind` (`fact | preference | event | entity`), a body, an optional `subject`, and a tier hint. The resolver does the work of deciding what's actually new versus what's a refinement of something Ptah already knows.
 
 ## Salience and tier movement
 
-Each memory carries a salience score. The score increases when a memory is **retrieved and used** in subsequent turns, and decays exponentially when it's not. The half-life is `memory.decayHalflifeDays` (default 14 days).
+Each memory carries a salience score. The score increases when a memory is **retrieved and used** in subsequent turns, and decays exponentially when it's not. The half-life is `memory.decayHalflifeDays` (default 30 days).
 
 - High salience + frequent hits → promoted toward `core`
 - Low salience over time → demoted toward `archival`, eventually pruned

@@ -1,10 +1,10 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   inject,
   signal,
   output,
-  ViewChild,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -20,8 +20,8 @@ import {
 } from '@ptah-extension/chat-ui';
 import {
   VSCodeService,
-  ClaudeRpcService,
   CommandDiscoveryFacade,
+  PluginCatalogService,
 } from '@ptah-extension/core';
 
 /**
@@ -192,7 +192,7 @@ import {
           <!-- Warning if skills not configured -->
           @if (!hasConfiguredSkills()) {
             <div
-              class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
+              class="border border-base-300 rounded-md bg-base-200/50 p-3 flex items-start gap-2"
             >
               <lucide-angular
                 [img]="AlertTriangleIcon"
@@ -209,7 +209,7 @@ import {
                   your Ptah Skills first for optimal results.
                 </p>
                 <button
-                  class="btn btn-xs btn-warning"
+                  class="btn btn-xs btn-primary btn-outline"
                   (click)="setActiveTab('skills')"
                   type="button"
                 >
@@ -227,7 +227,7 @@ import {
               <!-- Header with Scanner Icon -->
               <div class="flex items-start gap-3 mb-3">
                 <div
-                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
+                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0 agent-working"
                 >
                   <lucide-angular
                     [img]="ScanSearchIcon"
@@ -237,7 +237,7 @@ import {
                 </div>
                 <div class="flex-1">
                   <h3
-                    class="text-sm md:text-base font-semibold text-secondary mb-0.5"
+                    class="text-sm md:text-base font-semibold text-primary mb-0.5"
                   >
                     Intelligent Project Setup
                   </h3>
@@ -250,19 +250,13 @@ import {
 
               <!-- Feature Badges using DaisyUI -->
               <div class="flex flex-wrap gap-1.5 mb-3">
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">⚡</span> Auto-detect
                 </span>
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">🔗</span> VS Code AI
                 </span>
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">🛠️</span> MCP Server
                 </span>
               </div>
@@ -338,11 +332,17 @@ import {
 })
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
-  private readonly rpcService = inject(ClaudeRpcService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
+  /**
+   * The same shared catalog the widget and the modal below read
+   * (TASK_2026_345). This component used to issue a THIRD bare
+   * `plugins:get-config` of its own, on a view whose widget had already read it.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
-  @ViewChild(PluginStatusWidgetComponent)
-  private pluginWidget?: PluginStatusWidgetComponent;
+  // The `@ViewChild(PluginStatusWidgetComponent)` handle is gone: it existed
+  // only to imperatively re-fetch the widget after a save, and the widget now
+  // renders from the shared catalog the save already refreshed.
 
   /** Emitted when user selects a prompt suggestion */
   readonly promptSelected = output<string>();
@@ -361,27 +361,26 @@ export class ChatEmptyStateComponent {
   /** Active tab: 'skills' or 'setup' */
   protected readonly activeTab = signal<'skills' | 'setup'>('skills');
 
-  /** Whether skills are configured (used for warning display) */
-  protected readonly hasConfiguredSkills = signal(false);
+  /**
+   * Whether skills are configured (used for the "not configured" warning).
+   *
+   * Derived from the shared catalog rather than a private signal fed by a
+   * private RPC. The warning is deliberately SUPPRESSED until the catalog has
+   * been read: `hasEnabledPlugins` is false on an empty store, and flashing
+   * "you have no skills" at a user who has plenty is worse than showing nothing
+   * for one round trip.
+   */
+  protected readonly hasConfiguredSkills = computed(
+    () => !this.catalog.isLoaded() || this.catalog.hasEnabledPlugins(),
+  );
 
-  /** Set the active tab and check skills configuration if switching to setup */
+  /** Set the active tab and read the catalog if nothing has read it yet */
   protected setActiveTab(tab: 'skills' | 'setup'): void {
     this.activeTab.set(tab);
     if (tab === 'setup') {
-      this.checkSkillsConfiguration();
-    }
-  }
-
-  /** Check if user has configured any skills */
-  private async checkSkillsConfiguration(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('plugins:get-config', {});
-      if (result.isSuccess()) {
-        const hasEnabled = result.data.enabledPluginIds.length > 0;
-        this.hasConfiguredSkills.set(hasEnabled);
-      }
-    } catch {
-      this.hasConfiguredSkills.set(true);
+      // A no-op when the widget above already loaded it, which is the normal
+      // case — this used to be an unconditional third round trip.
+      void this.catalog.ensureLoaded();
     }
   }
 
@@ -395,11 +394,16 @@ export class ChatEmptyStateComponent {
     this.isPluginBrowserOpen.set(false);
   }
 
-  /** Handle plugins saved event from modal - refresh widget count and command cache */
+  /**
+   * Handle plugins saved event from the modal.
+   *
+   * The modal has already re-read the shared catalog by the time it emits, so
+   * the widget's count and `hasConfiguredSkills` are current without a second
+   * fetch here — that fetch was one of the duplicate pairs. Only the command
+   * cache, which the catalog knows nothing about, still needs clearing.
+   */
   protected onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
-    this.pluginWidget?.fetchPluginStatus();
-    this.hasConfiguredSkills.set(_enabledIds.length > 0);
     this.commandDiscovery.clearCache();
   }
 }

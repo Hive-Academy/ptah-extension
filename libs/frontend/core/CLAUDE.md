@@ -35,6 +35,8 @@ Foundational service layer for the webview: VS Code integration, signal-based na
 - `src/lib/services/agent-discovery.facade.ts` / `command-discovery.facade.ts` — `@agent` / `/command` autocomplete
 - `src/lib/services/model-state.service.ts` / `autopilot-state.service.ts` / `effort-state.service.ts` / `llm-provider-state.service.ts` — provider/permission/effort signals
 - `src/lib/services/auth-state.service.ts` — auth/license state
+- `src/lib/services/plugin-catalog.service.ts` — the ONE reader of `plugins:get-config` + `plugins:list-available`. `ensureLoaded()` is idempotent and dedupes concurrent callers; `refresh()` is the explicit post-save invalidation. Keyed by `WorkspaceScopeService` — plugin config is per-workspace (`{ws}/.ptah/plugins`) and Electron keeps several roots open, so a session-wide loaded flag showed the first workspace's list forever. Every plugin surface (status widget, browser modal, chat empty state) renders from its signals — they each used to fetch the pair into component-local state, which is why the pair appeared 2-4 times per view (TASK_2026_345)
+- `src/lib/services/workspace-scope.service.ts` — the invalidation key every workspace-scoped cache reads. `scopeKey` changes iff the active workspace changes; `WorkspaceCoordinatorService.switchWorkspace` calls `switchTo` FIRST in its synchronous fan-out. A cache files each read under the key current when it STARTED and serves or joins it only while that key still matches (TASK_2026_345)
 - `src/lib/services/theme.service.ts` / `electron-layout.service.ts` — environment-specific UI state
 - `src/lib/services/ptah-cli-state.service.ts` — CLI provider state
 - `src/lib/services/idempotent-setters.ts` — `setIfChanged` signal helper (TASK_2026_115)

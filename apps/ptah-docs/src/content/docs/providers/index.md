@@ -28,6 +28,21 @@ Ptah is multi-provider by design. You configure the AI services you want to use,
 | [Z.AI (GLM)](/providers/z-ai/)          | API key         | 1M context, open-source coding leader (`glm-5.2`).           | Z.AI published rates.                  |
 | [Ptah CLI](/providers/ptah-cli/)        | User-configured | Wrap any CLI-based agent. Highest priority in CLI detection. | Delegated to wrapped tool.             |
 
+| [LM Studio](/providers/lm-studio/) | Local (no key) | Local models over an OpenAI-compatible server; models fetched live. | $0 — runs on your hardware. |
+| [Requesty](/providers/requesty/) | API key | Multi-model routing with no translation layer. | Requesty published rates. |
+| [Sakana (Fugu)](/providers/sakana/) | API key | Fugu and Fugu Ultra, 200K context. | Unpublished — reported as $0. |
+
+Ollama Cloud is configured from the same panel as local Ollama. See
+[Ollama](/providers/ollama/).
+
+You can also add a **custom provider** — any Anthropic-compatible or
+OpenAI-compatible endpoint you define yourself, with your own base URL, key,
+model list, and tier map:
+
+```bash
+ptah provider custom add my-endpoint --base-url https://... --key <key>
+```
+
 And three web search providers for grounding:
 
 - [Tavily, Serper, Exa](/providers/web-search/) — API keys for web search tools.

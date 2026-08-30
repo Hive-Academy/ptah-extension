@@ -13,6 +13,8 @@ export {
   DAISYUI_THEMES,
 } from './theme.service';
 export { ModelStateService } from './model-state.service';
+export { PluginCatalogService } from './plugin-catalog.service';
+export { WorkspaceScopeService } from './workspace-scope.service';
 export { AutopilotStateService } from './autopilot-state.service';
 export { EffortStateService } from './effort-state.service';
 export { AuthStateService } from './auth-state.service';
