@@ -133,7 +133,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: oklch(var(--s) / 0.85);
+  color: oklch(var(--bc) / 0.7);
 }
 
 :host ::ng-deep .code-line-count {
@@ -160,7 +160,7 @@
 }
 
 :host ::ng-deep .code-block-collapsible summary.code-block-toggle::marker {
-  color: oklch(var(--s) / 0.5);
+  color: oklch(var(--bc) / 0.5);
 }
 
 /* ==========================================================================
