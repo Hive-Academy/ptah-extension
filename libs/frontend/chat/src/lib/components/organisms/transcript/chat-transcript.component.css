@@ -12,7 +12,7 @@
   scrollbar-width: thin;
   scrollbar-color: var(
       --vscode-scrollbarSlider-background,
-      oklch(var(--s) / 0.3)
+      oklch(var(--bc) / 0.2)
     )
     var(--vscode-scrollbar-shadow, transparent);
 }
@@ -54,7 +54,7 @@
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb,
 .chat-scroll-container::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background, oklch(var(--s) / 0.3));
+  background: var(--vscode-scrollbarSlider-background, oklch(var(--bc) / 0.2));
   border-radius: 4px;
 }
 
@@ -62,7 +62,7 @@
 .chat-scroll-container::-webkit-scrollbar-thumb:hover {
   background: var(
     --vscode-scrollbarSlider-hoverBackground,
-    oklch(var(--s) / 0.5)
+    oklch(var(--bc) / 0.35)
   );
 }
 

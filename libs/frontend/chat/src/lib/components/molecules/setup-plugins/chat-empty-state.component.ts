@@ -192,7 +192,7 @@ import {
           <!-- Warning if skills not configured -->
           @if (!hasConfiguredSkills()) {
             <div
-              class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
+              class="border border-base-300 rounded-md bg-base-200/50 p-3 flex items-start gap-2"
             >
               <lucide-angular
                 [img]="AlertTriangleIcon"
@@ -209,7 +209,7 @@ import {
                   your Ptah Skills first for optimal results.
                 </p>
                 <button
-                  class="btn btn-xs btn-warning"
+                  class="btn btn-xs btn-primary btn-outline"
                   (click)="setActiveTab('skills')"
                   type="button"
                 >
@@ -227,7 +227,7 @@ import {
               <!-- Header with Scanner Icon -->
               <div class="flex items-start gap-3 mb-3">
                 <div
-                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
+                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0 agent-working"
                 >
                   <lucide-angular
                     [img]="ScanSearchIcon"
@@ -237,7 +237,7 @@ import {
                 </div>
                 <div class="flex-1">
                   <h3
-                    class="text-sm md:text-base font-semibold text-secondary mb-0.5"
+                    class="text-sm md:text-base font-semibold text-primary mb-0.5"
                   >
                     Intelligent Project Setup
                   </h3>
@@ -250,19 +250,13 @@ import {
 
               <!-- Feature Badges using DaisyUI -->
               <div class="flex flex-wrap gap-1.5 mb-3">
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">⚡</span> Auto-detect
                 </span>
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">🔗</span> VS Code AI
                 </span>
-                <span
-                  class="badge badge-sm badge-outline badge-secondary gap-1"
-                >
+                <span class="badge badge-sm badge-ghost gap-1">
                   <span class="text-[10px]">🛠️</span> MCP Server
                 </span>
               </div>

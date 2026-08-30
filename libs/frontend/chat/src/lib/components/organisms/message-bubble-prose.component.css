@@ -177,9 +177,9 @@
   background: linear-gradient(
     90deg,
     transparent,
-    oklch(var(--s) / 0.25) 15%,
-    oklch(var(--s) / 0.4) 50%,
-    oklch(var(--s) / 0.25) 85%,
+    oklch(var(--s) / 0.12) 15%,
+    oklch(var(--s) / 0.2) 50%,
+    oklch(var(--s) / 0.12) 85%,
     transparent
   );
 }
@@ -188,7 +188,7 @@
   position: absolute;
   width: 6px;
   height: 6px;
-  background-color: oklch(var(--s) / 0.5);
+  background-color: oklch(var(--s) / 0.25);
   transform: rotate(45deg);
 }
 
@@ -207,13 +207,13 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: oklch(var(--s) / 0.7);
+  background-color: oklch(var(--s) / 0.35);
   flex-shrink: 0;
 }
 
 :host ::ng-deep .prose-heading-bordered {
   padding-left: 0.5em;
-  border-left: 3px solid oklch(var(--s) / 0.35);
+  border-left: 3px solid oklch(var(--s) / 0.18);
 }
 
 /* ==========================================================================
@@ -259,7 +259,7 @@
 
 /* Gold-accented markers for ordered lists */
 :host ::ng-deep .prose-list-card ol > li::marker {
-  color: oklch(var(--s) / 0.7);
+  color: oklch(var(--s) / 0.35);
   font-weight: 600;
 }
 
@@ -280,7 +280,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: oklch(var(--s) / 0.5);
+  background-color: oklch(var(--s) / 0.25);
 }
 
 /* Nested lists — tighter, dimmer bullets */
@@ -303,7 +303,7 @@
    ========================================================================== */
 
 :host ::ng-deep markdown table {
-  border-top: 2px solid oklch(var(--s) / 0.3);
+  border-top: 2px solid oklch(var(--s) / 0.15);
 }
 
 :host ::ng-deep markdown tr:nth-child(even) td {
