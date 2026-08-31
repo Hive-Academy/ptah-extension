@@ -23,6 +23,7 @@ import type {
 import {
   getCallerSessionId,
   getCallerWorkspaceRoot,
+  isMcpRequestInFlight,
 } from './mcp-core/mcp-request-context';
 
 /**
@@ -84,7 +85,41 @@ export class McpCallerWorkspaceResolver implements ICallerWorkspaceResolver {
       if (sessionWorkspace) {
         return sessionWorkspace;
       }
+      return undefined;
     }
+    this.refuseAmbiguousAnonymousCall();
     return undefined;
+  }
+
+  /**
+   * The anonymous MCP caller with several folders open (TASK_2026_364 Batch D).
+   *
+   * An MCP `tools/call` that declared no workspace AND carried no caller
+   * session id has stated nothing about which workspace it means. With one
+   * folder open — or none — there is nothing to be ambiguous about, so this
+   * returns and the consumer falls back to the platform provider exactly as
+   * before. With SEVERAL folders open, answering would pick the process-global
+   * active folder, which is the original defect: the caller gets a truthful
+   * answer about a workspace it never asked about.
+   *
+   * The gate is `isMcpRequestInFlight()`, not the absent identity, because
+   * everything that is not an MCP call — webview RPC, file watchers, the
+   * indexer warm-up, internal calls — also has no caller identity and must
+   * keep resolving through the provider. Only a bound request context marks a
+   * caller that COULD have named its workspace and did not.
+   */
+  private refuseAmbiguousAnonymousCall(): void {
+    if (!isMcpRequestInFlight()) {
+      return;
+    }
+    const openFolders = this.workspaceProvider.getWorkspaceFolders();
+    if (openFolders.length <= 1) {
+      return;
+    }
+    throw new Error(
+      `The caller did not say which workspace this call is about, and ${openFolders.length} folders are open in this window (${openFolders.join(', ')}). ` +
+        `Ptah will not guess — answering for one of them would attribute the call to a workspace the caller never named. ` +
+        `Re-read the 'ptah' entry in the .mcp.json of the workspace you mean: it now carries a workspace-scoped URL that states the workspace for you.`,
+    );
   }
 }

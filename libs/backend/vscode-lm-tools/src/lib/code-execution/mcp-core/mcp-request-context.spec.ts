@@ -11,6 +11,7 @@ import {
   runWithMcpRequestContext,
   getCallerSessionId,
   getCallerWorkspaceRoot,
+  isMcpRequestInFlight,
 } from './mcp-request-context';
 
 describe('mcp-request-context', () => {
@@ -104,5 +105,30 @@ describe('mcp-request-context', () => {
 
     expect(a).toBe('D:\\ws-A');
     expect(b).toBe('D:\\ws-B');
+  });
+
+  describe('isMcpRequestInFlight', () => {
+    it('is false outside any context — a watcher, webview RPC or internal call', () => {
+      expect(isMcpRequestInFlight()).toBe(false);
+    });
+
+    it('is true for an ANONYMOUS tool call — the empty context still binds a store', () => {
+      expect(runWithMcpRequestContext({}, () => isMcpRequestInFlight())).toBe(
+        true,
+      );
+    });
+
+    it('is true for an identified tool call', () => {
+      expect(
+        runWithMcpRequestContext({ callerSessionId: 'sess-A' }, () =>
+          isMcpRequestInFlight(),
+        ),
+      ).toBe(true);
+    });
+
+    it('is false again after the call settles', () => {
+      runWithMcpRequestContext({}, () => isMcpRequestInFlight());
+      expect(isMcpRequestInFlight()).toBe(false);
+    });
   });
 });

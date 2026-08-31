@@ -62,3 +62,22 @@ export function getCallerSessionId(): string | undefined {
 export function getCallerWorkspaceRoot(): string | undefined {
   return storage.getStore()?.callerWorkspaceRoot;
 }
+
+/**
+ * Whether an MCP tool call is currently in flight.
+ *
+ * `getCallerSessionId()` and `getCallerWorkspaceRoot()` both return `undefined`
+ * for two very different callers: an ANONYMOUS MCP call (a `tools/call` whose
+ * URL carried neither `/workspace/{root}` nor `/session/{id}`) and a call that
+ * is not MCP at all (webview RPC, a file watcher, the indexer warm-up, the
+ * stdio/CLI path). Only the first is ambiguous about which workspace it means;
+ * the second legitimately has no caller identity and must keep resolving
+ * through the platform provider.
+ *
+ * The AsyncLocalStorage store itself is the discriminator: every `tools/call`
+ * runs inside `runWithMcpRequestContext`, which binds a store even when both
+ * fields are absent, and nothing else binds one (TASK_2026_364 Batch D).
+ */
+export function isMcpRequestInFlight(): boolean {
+  return storage.getStore() !== undefined;
+}

@@ -88,7 +88,21 @@ owned by another workspace says so instead of `Agent not found`.
 
 ## Batch D — the ambiguity refusal
 
-Status: PENDING — depends on A and C
+Status: COMPLETE — see `batch-d.report.md`
+
+The crux was distinguishing an anonymous MCP call from a call that is not an
+MCP call at all: `getCallerSessionId()` and `getCallerWorkspaceRoot()` both
+return `undefined` in both cases. The discriminator is the AsyncLocalStorage
+STORE itself — `protocol-dispatcher.ts:174` binds a store for every
+`tools/call` even when both fields are empty, and nothing binds one outside.
+`isMcpRequestInFlight()` reads that, so a watcher or a webview RPC in a
+two-folder window is untouched.
+
+Deliberately out of scope, flagged by the executor: the refusal covers the AGENT
+tools only. `resolveSessionWorkspaceRoot()` in `ptah-api-builder.service.ts`
+reads the context directly rather than through the port, so the path-resolving
+namespace tools do not inherit it. Extending it there would change every
+anonymous file read in a multi-root window and needs its own measurement.
 
 An anonymous call, with more than one workspace folder open, to a
 workspace-resolving agent tool returns an error naming the open folders. Gated

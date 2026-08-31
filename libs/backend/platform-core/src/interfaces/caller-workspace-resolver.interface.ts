@@ -28,6 +28,11 @@ export interface ICallerWorkspaceResolver {
    * this host. A stale or mistargeted URL must be refused by name — degrading
    * to another workspace's root is the silent misattribution this port exists
    * to close.
+   * @throws Error when an MCP call named NO workspace and NO caller session
+   * and more than one folder is open. The two refusals are symmetric: the
+   * first is a caller that asked for the wrong workspace, the second a caller
+   * that asked for none while several were possible. With zero or one folder
+   * open there is no ambiguity and this returns `undefined` as before.
    */
   resolveCallerWorkspaceRoot(): string | undefined;
 }

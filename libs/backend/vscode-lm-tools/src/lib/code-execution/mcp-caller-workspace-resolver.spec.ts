@@ -8,7 +8,10 @@
  * - declared workspace open (or inside an open folder — the worktree case) →
  *   returned;
  * - declared workspace NOT open → refused, naming it — never another root;
- * - anonymous caller with a session id → that session's workspace.
+ * - anonymous caller with a session id → that session's workspace;
+ * - anonymous MCP caller with SEVERAL folders open → refused, naming them
+ *   (Batch D), while one folder, no folder and every non-MCP caller keep the
+ *   behaviour they had before that refusal existed.
  */
 import 'reflect-metadata';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -46,14 +49,24 @@ function makeResolver(
   );
 }
 
+/** The message of the error `fn` threw, or `''` when it did not throw. */
+function refusalMessage(fn: () => unknown): string {
+  try {
+    fn();
+    return '';
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 describe('McpCallerWorkspaceResolver', () => {
   it('returns undefined outside any MCP request context (UI RPC, CLI stdio)', () => {
     const resolver = makeResolver([OPEN_A]);
     expect(resolver.resolveCallerWorkspaceRoot()).toBeUndefined();
   });
 
-  it('returns undefined for an anonymous call (no declared root, no session id)', () => {
-    const resolver = makeResolver([OPEN_A, OPEN_B]);
+  it('returns undefined for an anonymous call when ONE folder is open', () => {
+    const resolver = makeResolver([OPEN_A]);
     const result = runWithMcpRequestContext({}, () =>
       resolver.resolveCallerWorkspaceRoot(),
     );
@@ -135,5 +148,71 @@ describe('McpCallerWorkspaceResolver', () => {
       () => resolver.resolveCallerWorkspaceRoot(),
     );
     expect(result).toBeUndefined();
+  });
+
+  describe('the anonymous caller with several folders open (Batch D)', () => {
+    it('refuses an anonymous MCP call when two folders are open, naming both', () => {
+      const resolver = makeResolver([OPEN_A, OPEN_B]);
+      const message = refusalMessage(() =>
+        runWithMcpRequestContext({}, () =>
+          resolver.resolveCallerWorkspaceRoot(),
+        ),
+      );
+      expect(message).toContain('did not say which workspace');
+      expect(message).toContain(OPEN_A);
+      expect(message).toContain(OPEN_B);
+    });
+
+    it('tells the refused caller to re-read the scoped URL in .mcp.json', () => {
+      const resolver = makeResolver([OPEN_A, OPEN_B]);
+      const message = refusalMessage(() =>
+        runWithMcpRequestContext({}, () =>
+          resolver.resolveCallerWorkspaceRoot(),
+        ),
+      );
+      expect(message).toContain('.mcp.json');
+      expect(message).toContain('workspace-scoped URL');
+    });
+
+    it('does NOT refuse with exactly one folder open — the overwhelming majority case', () => {
+      const resolver = makeResolver([OPEN_A]);
+      expect(
+        runWithMcpRequestContext({}, () =>
+          resolver.resolveCallerWorkspaceRoot(),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('does NOT refuse with no folder open at all', () => {
+      const resolver = makeResolver([]);
+      expect(
+        runWithMcpRequestContext({}, () =>
+          resolver.resolveCallerWorkspaceRoot(),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('does NOT refuse outside an MCP request — a watcher or webview RPC with two folders open', () => {
+      const resolver = makeResolver([OPEN_A, OPEN_B]);
+      expect(resolver.resolveCallerWorkspaceRoot()).toBeUndefined();
+    });
+
+    it('does NOT refuse a caller that declared its workspace, with two folders open', () => {
+      const resolver = makeResolver([OPEN_A, OPEN_B]);
+      const result = runWithMcpRequestContext(
+        { callerWorkspaceRoot: OPEN_A },
+        () => resolver.resolveCallerWorkspaceRoot(),
+      );
+      expect(result).toBe(OPEN_A);
+    });
+
+    it('does NOT refuse a caller that carried a session id, even when its workspace is unknown', () => {
+      const resolver = makeResolver([OPEN_A, OPEN_B], {});
+      const result = runWithMcpRequestContext(
+        { callerSessionId: 'unknown-session' },
+        () => resolver.resolveCallerWorkspaceRoot(),
+      );
+      expect(result).toBeUndefined();
+    });
   });
 });
