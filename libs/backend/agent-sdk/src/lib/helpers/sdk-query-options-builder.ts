@@ -734,6 +734,7 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
       onWorktreeCreated,
       onWorktreeRemoved,
+      activityHold,
     );
     const compactionConfig = this.compactionConfigProvider.getConfig();
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
@@ -1318,8 +1319,15 @@ export class SdkQueryOptionsBuilder {
     onCompactionStart?: CompactionStartCallback,
     onWorktreeCreated?: WorktreeCreatedCallback,
     onWorktreeRemoved?: WorktreeRemovedCallback,
+    activityHold?: ActivityHold,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
+    // The subagent hooks hold the watchdog for every registered subagent
+    // (TASK_2026_363) — see `SubagentHookHandler.createHooks`.
+    const subagentHooks = this.subagentHookHandler.createHooks(
+      cwd,
+      sessionId,
+      activityHold,
+    );
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId,
       cwd,

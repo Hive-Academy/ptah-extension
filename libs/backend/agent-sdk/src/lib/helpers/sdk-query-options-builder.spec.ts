@@ -339,6 +339,112 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
+// build() — activityHold reaches the subagent hooks (TASK_2026_363).
+// The subagent hooks hold the watchdog for every registered subagent; the
+// builder is the only place that can hand the hold to them.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent hooks (TASK_2026_363)', () => {
+  function makeBuilderWithSubagentSpy(): {
+    builder: SdkQueryOptionsBuilder;
+    createHooksSpy: jest.Mock;
+  } {
+    const noopHooks = () => ({ createHooks: jest.fn().mockReturnValue({}) });
+    const createHooksSpy = jest
+      .fn()
+      .mockReturnValue({} as Partial<Record<HookEvent, HookCallbackMatcher[]>>);
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      { createHooks: createHooksSpy },
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+      },
+      noopHooks(),
+      noopHooks(),
+      {} as AuthEnv,
+      {
+        resolveModelId: jest
+          .fn()
+          .mockImplementation((m: string) => m || 'claude-sonnet-4'),
+      },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+    );
+    return { builder, createHooksSpy };
+  }
+
+  async function buildWithHold(activityHold?: {
+    hold: jest.Mock;
+    release: jest.Mock;
+  }): Promise<jest.Mock> {
+    const { builder, createHooksSpy } = makeBuilderWithSubagentSpy();
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    await builder.build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4',
+        projectPath: 'D:/tmp/ws',
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
+      sessionId: 'sess-1',
+      activityHold,
+    });
+    return createHooksSpy;
+  }
+
+  it('passes activityHold as the third argument to subagentHookHandler.createHooks', async () => {
+    const activityHold = { hold: jest.fn(), release: jest.fn() };
+
+    const createHooksSpy = await buildWithHold(activityHold);
+
+    expect(createHooksSpy).toHaveBeenCalledTimes(1);
+    expect(createHooksSpy).toHaveBeenCalledWith(
+      'D:/tmp/ws',
+      'sess-1',
+      activityHold,
+    );
+  });
+
+  it('passes undefined when the caller has no watchdog', async () => {
+    const createHooksSpy = await buildWithHold(undefined);
+
+    expect(createHooksSpy).toHaveBeenCalledWith(
+      'D:/tmp/ws',
+      'sess-1',
+      undefined,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // build() — CLAUDE_CODE_MAX_CONTEXT_TOKENS override for proxied providers.
 // The SDK only auto-detects the context window for first-party Anthropic; behind
 // a translation proxy it defaults to 200k, mis-timing auto-compaction. We pin the
