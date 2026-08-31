@@ -185,6 +185,7 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
 import * as namespaceBuilders from './namespace-builders';
 import { WebSearchService } from './services/web-search.service';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
+import { runWithMcpRequestContext } from './mcp-core/mcp-request-context';
 import type { DiagnosticsCacheInvalidator } from '../diagnostics/diagnostics-cache-invalidator.service';
 import type { Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type {
@@ -215,6 +216,7 @@ import type {
 
 const PLATFORM_ROOT = 'D:\\platform-root';
 const SESSION_ROOT = 'D:\\session-root';
+const DECLARED_ROOT = 'D:\\declared-root';
 
 /**
  * The count of currently-known root-resolving capability sites `build()`
@@ -380,6 +382,34 @@ describe('PtahAPIBuilder.build() — session-aware root resolution (criterion 6)
     expect(collectedRoots.length).toBe(EXPECTED_ROOT_CAPABLE_SITES);
     for (const root of collectedRoots) {
       expect(root).toBe(SESSION_ROOT);
+      expect(root).not.toBe(PLATFORM_ROOT);
+    }
+  });
+
+  it('a caller-DECLARED workspace root outranks every inferred tier at every root-capable site (TASK_2026_364 Batch C — the seam Batch A left open)', () => {
+    const rawProvider = makeRawWorkspaceProvider();
+    const sessionManager = makeSessionManager();
+    const spies = spyOnEveryNamespaceBuilder();
+
+    const builder = buildTestBuilder(rawProvider, sessionManager);
+
+    // build() AND the capability evaluation both run inside the request
+    // context: value-shaped `workspaceRoot` fields are computed at build time,
+    // closure-shaped capabilities at call time, and BOTH must see tier 1.
+    const collectedRoots = runWithMcpRequestContext(
+      { callerWorkspaceRoot: DECLARED_ROOT },
+      () => {
+        builder.build();
+        return spies.flatMap((spy) =>
+          spy.mock.calls.flatMap((call) => extractResolvedRoots(call)),
+        );
+      },
+    );
+
+    expect(collectedRoots.length).toBe(EXPECTED_ROOT_CAPABLE_SITES);
+    for (const root of collectedRoots) {
+      expect(root).toBe(DECLARED_ROOT);
+      expect(root).not.toBe(SESSION_ROOT);
       expect(root).not.toBe(PLATFORM_ROOT);
     }
   });

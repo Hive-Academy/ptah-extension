@@ -23,6 +23,7 @@ import {
   BROWSER_CAPABILITIES_TOKEN,
   ChromeLauncherBrowserCapabilities,
   IDE_CAPABILITIES_TOKEN,
+  McpCallerWorkspaceResolver,
 } from '@ptah-extension/vscode-lm-tools';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import type {
@@ -141,6 +142,15 @@ export function registerPhase3Storage(
     );
   }
   registerVsCodeLmToolsServices(container, logger);
+  // The caller-workspace port (TASK_2026_364): lets AgentProcessManager scope
+  // spawns and status reads to the calling MCP request's workspace without
+  // importing vscode-lm-tools. Registered only by hosts that run the
+  // in-process HTTP MCP server — the CLI host stays unregistered and falls
+  // back to the platform provider.
+  container.registerSingleton(
+    PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER,
+    McpCallerWorkspaceResolver,
+  );
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );

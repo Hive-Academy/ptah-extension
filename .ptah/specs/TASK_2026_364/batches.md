@@ -56,7 +56,14 @@ every pass. Pin that with a spec.
 
 ## Batch C — the agent surface (`platform-core`, `shared`, `cli-agent-runtime`)
 
-Status: PENDING — depends on A
+Status: IN PROGRESS — A and B are committed as `ece7ff623`
+
+Added to this batch by the orchestrator: the one-line seam Batch A deliberately
+left open. `WorkspaceRootResolverDeps.getCallerWorkspaceRoot` is optional, and
+the production caller — `ptah-api-builder.service.ts:833`
+(`resolveSessionWorkspaceRoot`) — does not yet pass it, because that file was
+outside Batch A's ownership set. Until it is wired, the namespace-builder tools
+still resolve on the old three-tier precedence. Batch C owns that file now.
 
 Files:
 

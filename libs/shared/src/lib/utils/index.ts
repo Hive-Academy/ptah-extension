@@ -15,6 +15,7 @@ export {
   CODEX_TOKEN_EXPIRY_SKEW_MS,
   type CodexTokenFreshnessInput,
 } from './codex-token-freshness';
+export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
 export {
   mergeAgentsRegion,
   PTAH_AGENTS_REGION_BEGIN,

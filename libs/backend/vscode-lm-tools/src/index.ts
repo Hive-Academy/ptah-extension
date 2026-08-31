@@ -13,6 +13,7 @@ export {
   type McpRegistrationFailure,
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';
+export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
 export {
   DiagnosticsCacheInvalidator,
   DIAGNOSTICS_CACHE_INVALIDATOR,

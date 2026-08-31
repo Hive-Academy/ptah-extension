@@ -24,6 +24,7 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
+  ICallerWorkspaceResolver,
   IMcpServerStatus,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -39,6 +40,7 @@ import {
   AgentOutput,
   CliType,
   SYSTEM_CLI_TYPES,
+  normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import type {
   CliOutputSegment,
@@ -293,6 +295,17 @@ export class AgentProcessManager {
      */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    /**
+     * The calling MCP request's workspace root (TASK_2026_364). Optional:
+     * only hosts that run the in-process HTTP MCP server (VS Code, Electron)
+     * register an implementation. Unregistered — the CLI host and unit
+     * tests — every resolution falls to the platform provider exactly as
+     * before the port existed. Never import `vscode-lm-tools` here instead:
+     * the dependency runs `vscode-lm-tools` → this lib, and inverting it is a
+     * module-boundary error.
+     */
+    @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
+    private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -640,13 +653,39 @@ export class AgentProcessManager {
   }
 
   /**
-   * Get status of a specific agent or all agents
+   * Get the status of a specific agent, or of every agent in the caller's
+   * workspace.
+   *
+   * The list is scoped (TASK_2026_364): agents whose `workingDirectory` lies
+   * outside the caller's resolved workspace root are omitted, so a status
+   * call from workspace A never mixes in workspace B's agents. Hosts with no
+   * scope (no caller context AND no open folder) return everything, as
+   * before.
+   *
+   * The single-id path must never conflate "yours is gone" with "exists
+   * elsewhere": on 2026-08-31 two sessions read a bare `Agent not found` /
+   * empty registry as "the agent died" and both began overwriting files a
+   * live agent was still writing. An agent that EXISTS but belongs to another
+   * workspace therefore gets an error saying exactly that.
    */
   getStatus(agentId?: string): AgentProcessInfo | AgentProcessInfo[] {
+    const scopeRoot = this.resolveScopedWorkspaceRoot();
+    const scopeKey =
+      scopeRoot === undefined ? undefined : normalizeWorkspaceRoot(scopeRoot);
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
         throw new Error(`Agent not found: ${agentId}`);
+      }
+      if (
+        !this.isWithinWorkspaceScope(tracked.info.workingDirectory, scopeKey)
+      ) {
+        throw new Error(
+          `Agent ${agentId} exists but belongs to another workspace: its working directory is ` +
+            `${tracked.info.workingDirectory}, and this call is scoped to ${scopeRoot}. ` +
+            `The agent is still tracked (status: ${tracked.info.status}) — it did not disappear. ` +
+            `Ask again from its own workspace to read or manage it.`,
+        );
       }
       return {
         ...tracked.info,
@@ -654,9 +693,13 @@ export class AgentProcessManager {
       };
     }
 
-    return Array.from(this.agents.values()).map((t) => ({
-      ...t.info,
-    }));
+    return Array.from(this.agents.values())
+      .filter((t) =>
+        this.isWithinWorkspaceScope(t.info.workingDirectory, scopeKey),
+      )
+      .map((t) => ({
+        ...t.info,
+      }));
   }
 
   /**
@@ -1723,8 +1766,46 @@ export class AgentProcessManager {
     return enabled[0].cli;
   }
 
+  /**
+   * The workspace root this call is scoped to: the calling MCP request's
+   * workspace (declared in its URL, or inferred from its session) first, then
+   * the platform provider's active folder. `undefined` when neither resolves.
+   *
+   * A throw from the resolver — a caller that declared a workspace this host
+   * does not have open — propagates deliberately. Refusing by name is the
+   * point; degrading to the provider root would answer for an unrelated
+   * workspace, the exact defect TASK_2026_364 exists to close.
+   */
+  private resolveScopedWorkspaceRoot(): string | undefined {
+    return (
+      this.callerWorkspaceResolver?.resolveCallerWorkspaceRoot() ??
+      this.workspace.getWorkspaceRoot() ??
+      undefined
+    );
+  }
+
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? require('os').homedir();
+    return this.resolveScopedWorkspaceRoot() ?? require('os').homedir();
+  }
+
+  /**
+   * Whether an agent's working directory falls under the caller's workspace
+   * scope, compared with the shared normalized key (`normalizeWorkspaceRoot`),
+   * so separator and case spellings of one directory land on one answer.
+   *
+   * An `undefined` scope (no caller context and no open folder) keeps the
+   * pre-scoping behaviour: everything is visible. A record with no working
+   * directory is also visible — it cannot be attributed to any workspace, and
+   * hiding it recreates the invisible-live-agent hazard this scoping fixes.
+   */
+  private isWithinWorkspaceScope(
+    workingDirectory: string | undefined,
+    scopeKey: string | undefined,
+  ): boolean {
+    if (scopeKey === undefined) return true;
+    if (!workingDirectory) return true;
+    const dirKey = normalizeWorkspaceRoot(workingDirectory);
+    return dirKey === scopeKey || dirKey.startsWith(`${scopeKey}/`);
   }
 
   /**
