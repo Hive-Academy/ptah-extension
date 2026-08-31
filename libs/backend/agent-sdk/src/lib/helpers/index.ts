@@ -49,6 +49,12 @@ export {
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
 export {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+  type TurnStopSnapshot,
+  type TurnFailureSnapshot,
+} from './session-turn-state.registry';
+export {
   SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedPayload,
   type SessionIdResolvedRegistryCallback,

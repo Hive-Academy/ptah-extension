@@ -428,6 +428,9 @@ export class StreamTransformer {
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||
               sdkMessage.type === 'user' ||
+              // The result's `turn_state` must travel IN the stream, after the
+              // last chunk of the turn it closes (TASK_2026_360).
+              isResultMessage(sdkMessage) ||
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage) ||
               isTaskStarted(sdkMessage) ||

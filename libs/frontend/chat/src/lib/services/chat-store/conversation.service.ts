@@ -16,10 +16,7 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import {
-  MessageFinalizationService,
-  StreamingHandlerService,
-} from '@ptah-extension/chat-streaming';
+import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from '../message-validation.service';
 import { SessionLoaderService } from './session-loader.service';
 
@@ -109,26 +106,21 @@ export class ConversationService {
   }
 
   /**
-   * Finalize current message (reset state)
-   * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
-   */
-  private finalizeCurrentMessage(tabId?: string): void {
-    const targetTabId = tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
-
-    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
-    if (!targetTab) return;
-    if (targetTab.status === 'streaming' || targetTab.status === 'resuming') {
-      this.tabManager.applyStatusErrorReset(targetTabId);
-    }
-  }
-
-  /**
    * Abort current message
    * Handles queued content restoration and calls backend to stop Claude CLI process
    *
-   * IMPORTANT: On abort, we finalize any partial streaming content so it's not lost.
-   * Uses lazy injection of StreamingHandlerService to avoid circular dependency.
+   * Lifecycle ownership depends on whether the abort reached a live stream:
+   *
+   * - Success: partial streaming content is NOT finalized here. The backend's
+   *   ordered abort `turn_state` (terminalReason `aborted_streaming`) arrives
+   *   after the last chunk and `TurnStateApplier` finalizes + idles the tab.
+   * - Failure (`{ success: false }` or the RPC throws): the backend could not
+   *   interrupt a live session (e.g. `SessionNotActiveError`, or the request
+   *   never reached it), so no broadcaster loop exists to emit a terminal
+   *   `turn_state`. The local reset in `idleAbortedTabLocally` is the only
+   *   thing that can clear the spinner. It is scoped to the tab that owned
+   *   the aborted session at the time the abort was issued and is skipped if
+   *   that tab's `claudeSessionId` changed while the RPC was in flight.
    */
   async abortCurrentMessage(): Promise<void> {
     try {
@@ -175,9 +167,23 @@ export class ConversationService {
         '[ConversationService] Calling chat:abort RPC for session:',
         sessionId,
       );
-      const result = await this.claudeRpcService.call('chat:abort', {
-        sessionId,
-      });
+      // Captured before the RPC so the failure fallback targets the tab that
+      // owned this session at abort time, not whatever is active afterwards.
+      const abortedTabId = activeTab?.id ?? null;
+      let result: Awaited<
+        ReturnType<typeof this.claudeRpcService.call<'chat:abort'>>
+      >;
+      try {
+        result = await this.claudeRpcService.call('chat:abort', {
+          sessionId,
+        });
+      } catch (error: unknown) {
+        // Transport failure: the request may never have reached the backend,
+        // so no ordered turn_state will ever arrive for this session.
+        console.error('[ConversationService] chat:abort RPC failed:', error);
+        this.idleAbortedTabLocally(abortedTabId, sessionId);
+        return;
+      }
 
       if (result.success) {
         console.log(
@@ -189,18 +195,16 @@ export class ConversationService {
           '[ConversationService] Failed to abort chat:',
           result.error,
         );
+        // The backend had no live stream to interrupt (e.g. the session left
+        // the SDK registry), so nothing will emit the terminal turn_state.
+        this.idleAbortedTabLocally(abortedTabId, sessionId);
       }
+      // On success no finalize / markTabIdle here (TASK_2026_360, review F3):
+      // the backend emits the ordered `idle` turn_state with terminalReason
+      // 'aborted_streaming' after the last chunk (result -> settleTurn, or the
+      // broadcaster's catch/finally -> forceIdle), and `TurnStateApplier`
+      // finalizes and idles the tab from it. Only bookkeeping stays below.
       const activeTabId = this.tabManager.activeTabId();
-      const tab = activeTabId
-        ? this.tabManager.tabs().find((t) => t.id === activeTabId)
-        : null;
-
-      if (tab?.streamingState) {
-        const streamingHandler = this.injector.get(StreamingHandlerService);
-        streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined, true);
-      } else {
-        this.finalizeCurrentMessage();
-      }
       const resumableSubagents = result.data?.resumableSubagents;
       if (resumableSubagents && resumableSubagents.length > 0) {
         console.log(
@@ -218,14 +222,38 @@ export class ConversationService {
           );
         }
       }
-      if (activeTabId) {
-        this.tabManager.markTabIdle(activeTabId);
-      }
     } catch (error) {
       console.error('[ConversationService] Failed to abort message:', error);
     } finally {
       this._isStopping.set(false);
     }
+  }
+
+  /**
+   * Failure-path fallback for {@link abortCurrentMessage}: no stream exists
+   * to emit the terminal `turn_state`, so finalize + idle the tab locally.
+   *
+   * Session-scoped: the tab is re-resolved by id at call time and is left
+   * untouched unless its `claudeSessionId` still equals the session the abort
+   * was issued for, so a replacement query on the same tab is never reset.
+   */
+  private idleAbortedTabLocally(
+    tabId: string | null,
+    sessionId: SessionId,
+  ): void {
+    if (!tabId) return;
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab || tab.claudeSessionId !== sessionId) {
+      console.log(
+        '[ConversationService] Skipping local abort reset — tab no longer owns session:',
+        { tabId, sessionId, currentSessionId: tab?.claudeSessionId ?? null },
+      );
+      return;
+    }
+    if (tab.streamingState) {
+      this.messageFinalization.finalizeCurrentMessage(tabId, true);
+    }
+    this.tabManager.markTabIdle(tabId);
   }
 
   /**

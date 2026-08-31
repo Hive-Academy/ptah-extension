@@ -20,8 +20,8 @@
  *   - handleChatError: tabId routing wins
  *   - handleChatError: sessionId fallback when tabId absent
  *   - handleChatError: active-tab last-resort with sessionId mismatch warning + return
- *   - handleChatError: finalizes streaming BEFORE clearing currentMessageId
- *   - handleChatError: resets full state (status/queued + markTabIdle + setStatus)
+ *   - handleChatError: presentation only — drops the queued input, never
+ *     finalizes, writes status or clears the spinner (TASK_2026_360 review F3)
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -35,6 +35,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SessionManager,
   StreamingHandlerService,
+  TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -97,6 +98,7 @@ describe('ChatLifecycleService', () => {
   let activeTabMock: jest.Mock;
   let activeTabIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
+  let clearQueuedContentAndOptionsMock: jest.Mock;
   let setStatusMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
   let restoreCliSessionsMock: jest.Mock;
@@ -152,6 +154,11 @@ describe('ChatLifecycleService', () => {
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     activeTabIdMock = jest.fn(() => tabs[0]?.id ?? null);
     markTabIdleMock = jest.fn();
+    clearQueuedContentAndOptionsMock = jest.fn((id: string) => {
+      tabs = tabs.map((t) =>
+        t.id === id ? { ...t, queuedContent: null, queuedOptions: null } : t,
+      );
+    });
     setStatusMock = jest.fn();
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
     restoreCliSessionsMock = jest.fn().mockResolvedValue(undefined);
@@ -174,6 +181,7 @@ describe('ChatLifecycleService', () => {
       activeTab: activeTabMock,
       activeTabId: activeTabIdMock,
       markTabIdle: markTabIdleMock,
+      clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
     } as unknown as TabManagerService;
 
     const sessionManagerMock = {
@@ -218,6 +226,9 @@ describe('ChatLifecycleService', () => {
         { provide: ClaudeRpcService, useValue: claudeRpcMock },
         { provide: AuthStateService, useValue: authStateMock },
         { provide: VSCodeService, useValue: vscodeServiceMock },
+        // The real reconciler is exercised; its applier (which would pull the
+        // whole chat-streaming write path into this spec) is not.
+        { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
       ],
     });
     service = TestBed.inject(ChatLifecycleService);
@@ -480,16 +491,14 @@ describe('ChatLifecycleService', () => {
 
     it('routes by tabId when present (primary)', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
-      expect(applyErrorResetMock).toHaveBeenCalledWith('tab-1');
-      expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
-      expect(setStatusMock).toHaveBeenCalledWith('loaded');
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
     it('falls back to sessionId lookup when tabId absent', () => {
       tabs = [makeTab({ id: 'tab-2', claudeSessionId: SESS_2 })];
       service.handleChatError({ sessionId: SESS_2, error: 'boom' });
       expect(findTabsBySessionIdMock).toHaveBeenCalledWith(SESS_2);
-      expect(markTabIdleMock).toHaveBeenCalledWith('tab-2');
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-2');
     });
 
     it('warns and returns when sessionId mismatches active tab', () => {
@@ -502,48 +511,37 @@ describe('ChatLifecycleService', () => {
           activeTabSessionId: SESS_ACTUAL,
         },
       );
-      expect(markTabIdleMock).not.toHaveBeenCalled();
+      expect(clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
     });
 
-    it('finalizes streaming BEFORE clearing currentMessageId', () => {
+    // TASK_2026_360 review F3: SESSION_TURN_FAILED is an unordered hook push
+    // and CHAT_ERROR trails the chunk batch — finalizing here could cut off
+    // the last delta still in the batch buffer. The ordered `failed` / `idle`
+    // turn_state owns finalization, status and the spinner.
+    it('surfaces the error and drops the queue, but never finalizes, writes status or clears the spinner', () => {
       tabs = [
         makeTab({
           id: 'tab-1',
+          status: 'streaming',
+          queuedContent: 'queued',
           streamingState: makeStreamingState({ currentMessageId: 'msg-1' }),
         }),
       ];
-      const callOrder: string[] = [];
-      finalizeCurrentMessageMock.mockImplementation(() =>
-        callOrder.push('finalize'),
-      );
-      applyErrorResetMock.mockImplementation((id: string) => {
-        callOrder.push('clear');
-        tabs = tabs.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                status: 'loaded',
-                currentMessageId: null,
-                queuedContent: null,
-                queuedOptions: null,
-              }
-            : t,
-        );
-      });
-      service.handleChatError({ tabId: 'tab-1', error: 'boom' });
-      expect(callOrder).toEqual(['finalize', 'clear']);
-      expect(finalizeCurrentMessageMock).toHaveBeenCalledWith('tab-1', true);
-    });
 
-    it('skips finalization when no currentMessageId on streamingState', () => {
-      tabs = [
-        makeTab({
-          id: 'tab-1',
-          streamingState: makeStreamingState({ currentMessageId: null }),
-        }),
-      ];
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
+
+      expect(error).toHaveBeenCalledWith(
+        '[ChatStore] Chat error:',
+        expect.objectContaining({ tabId: 'tab-1', error: 'boom' }),
+      );
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
       expect(finalizeCurrentMessageMock).not.toHaveBeenCalled();
+      expect(applyErrorResetMock).not.toHaveBeenCalled();
+      expect(markTabIdleMock).not.toHaveBeenCalled();
+      expect(setStatusMock).not.toHaveBeenCalled();
+      expect(tabs[0].status).toBe('streaming');
+      expect(tabs[0].streamingState?.currentMessageId).toBe('msg-1');
+      expect(tabs[0].queuedContent).toBeNull();
     });
 
     it('refreshes sidebar after error reset', () => {

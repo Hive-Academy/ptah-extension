@@ -443,6 +443,9 @@ export type TabViewMode = 'full' | 'compact';
  * - `awaiting-background` — agent stopped but background tasks
  *   (subagents / shells / monitors / workflows) are still in flight; user
  *   input remains enabled, agent itself is idle.
+ * - `sleeping` — agent stopped with session crons (`ScheduleWakeup` / loop)
+ *   registered; the session will wake itself. User input remains enabled,
+ *   agent itself is idle. Backend-driven via the `turn_state` stream event.
  */
 export type SessionStatus =
   | 'fresh'
@@ -451,7 +454,8 @@ export type SessionStatus =
   | 'streaming'
   | 'resuming'
   | 'switching'
-  | 'awaiting-background';
+  | 'awaiting-background'
+  | 'sleeping';
 
 /**
  * Session state information.
@@ -672,6 +676,23 @@ export interface TabState {
    *   The safety-net is SKIPPED.
    */
   lastTerminalReason?: SdkTerminalReason | null;
+
+  /**
+   * Revision of the last backend `turn_state` event applied to this tab
+   * (`TabManagerService.applyTurnState`). An event whose `revision` is `<=`
+   * this value is a replay or a duplicate and is dropped so it cannot regress
+   * the tab. Never persisted — a restored tab re-learns its state from
+   * `session:status`, whose revision may have restarted.
+   */
+  lastTurnStateRevision?: number;
+
+  /**
+   * The session the last applied `turn_state` came from. Revisions are only
+   * comparable within one SDK query, so `lastTurnStateRevision` is meaningful
+   * only together with this id (`TabManagerService.canApplyTurnState`). Never
+   * persisted, for the same reason as the revision.
+   */
+  lastTurnStateSessionId?: string;
 
   /**
    * Full per-model usage breakdown for collapsible display.

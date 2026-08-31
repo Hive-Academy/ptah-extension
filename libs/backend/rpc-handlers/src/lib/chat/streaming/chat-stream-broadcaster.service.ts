@@ -50,7 +50,12 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  SessionMetadataStore,
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+} from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -96,6 +101,8 @@ export class ChatStreamBroadcaster {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {}
 
   private readonly streamingSessionIds = new Set<string>();
@@ -139,6 +146,24 @@ export class ChatStreamBroadcaster {
     let childMetadataSaved = false;
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
+    let recordReplaced = false;
+    // The id the turn state is keyed under. `sessionId` is the tabId for a
+    // fresh session; the events carry the real SDK UUID once known, and the
+    // registry's alias (`rekey`) covers the gap either way (TASK_2026_360).
+    let turnSessionId: string = sessionId;
+    const pushTurnState = (
+      state: ReturnType<SessionTurnStateRegistry['forceIdle']>,
+    ): void => {
+      batch.push({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: {
+          tabId,
+          sessionId: turnSessionId,
+          event: toTurnStateEvent(turnSessionId, state),
+          ...(surfaceMode ? { surfaceMode: true } : {}),
+        },
+      });
+    };
 
     this.streamingSessionIds.add(sessionId as string);
     // Identity of the record this loop is the consumer OF, captured before the
@@ -157,6 +182,9 @@ export class ChatStreamBroadcaster {
     try {
       for await (const event of stream) {
         eventCount++;
+        if (event.sessionId) {
+          turnSessionId = event.sessionId;
+        }
         if (eventCount % DEBUG_LOG_EVERY_N_EVENTS === 0) {
           this.logger.debug(
             `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
@@ -280,6 +308,15 @@ export class ChatStreamBroadcaster {
           { errorSource: 'ChatRpcHandlers.streamExecutionNodesToWebview' },
         );
       }
+      // The turn is over whatever happened; tell the UI IN the chunk stream so
+      // the idle state lands after the chunks and before CHAT_ERROR.
+      pushTurnState(
+        this.turnState.forceIdle(
+          turnSessionId,
+          isUserAbort ? 'aborted_streaming' : undefined,
+        ),
+      );
+      await batch.flush();
       const isCorruptedResume = eventCount === 0 && !isUserAbort;
       if (isCorruptedResume) {
         this.logger.warn(
@@ -307,6 +344,12 @@ export class ChatStreamBroadcaster {
         });
       }
     } finally {
+      // A loop that exits mid-turn (clean end with no `result`) leaves the UI
+      // believing the agent still generates. Settle it before teardown.
+      if (this.turnState.get(turnSessionId)?.phase === 'generating') {
+        pushTurnState(this.turnState.forceIdle(turnSessionId));
+        await batch.flush();
+      }
       // Release the timer and let any size-triggered flush that is still in
       // flight land before teardown ends the session underneath it.
       batch.dispose();
@@ -343,6 +386,7 @@ export class ChatStreamBroadcaster {
               { normalExit: streamExitedNormally, eventCount },
             );
           } else {
+            recordReplaced = true;
             this.logger.info(
               `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`,
               { normalExit: streamExitedNormally, eventCount },
@@ -356,6 +400,12 @@ export class ChatStreamBroadcaster {
               : new Error(String(cleanupErr)),
           );
         }
+      }
+      // The turn state dies with the session — but not when a newer record
+      // under the same id is already streaming its own (slash follow-up race).
+      if (!recordReplaced) {
+        this.turnState.clear(turnSessionId);
+        this.turnState.clear(sessionId);
       }
     }
   }

@@ -22,6 +22,7 @@ import {
   isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import { buildBackgroundAgentStartedEvent } from './background-started-event';
 import type {
   TransformerState,
@@ -77,6 +78,14 @@ export class AssistantMessageTransformer {
       role: 'assistant',
       parentToolUseId: parent_tool_use_id ?? undefined,
     };
+    // Root assistant turn start → 'generating', once per turn (the streaming
+    // message_start normally wins; this is the non-streaming fallback).
+    if (!parent_tool_use_id && sessionId) {
+      const turn = helpers.turnState.markGenerating(sessionId);
+      if (turn) {
+        events.push(toTurnStateEvent(sessionId, turn));
+      }
+    }
     events.push(messageStartEvent);
 
     // If this assistant turn is itself running inside a workflow run (its

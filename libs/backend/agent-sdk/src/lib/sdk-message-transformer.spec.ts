@@ -27,6 +27,7 @@ import type { SessionLifecycleManager } from './helpers/session-lifecycle-manage
 
 import { SdkMessageTransformer } from './sdk-message-transformer';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
+import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -128,6 +129,7 @@ describe('SdkMessageTransformer â€” compact_boundary (TASK_2026_109)', () =
       modelResolver as unknown as IModelResolver,
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
@@ -246,6 +248,7 @@ describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
       modelResolver as unknown as IModelResolver,
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
@@ -419,6 +422,7 @@ describe('SdkMessageTransformer — workflow run correlation', () => {
       makeModelResolver() as unknown as IModelResolver,
       makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
@@ -538,6 +542,7 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
       makeModelResolver() as unknown as IModelResolver,
       makeSessionLifecycle(activeIds) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 

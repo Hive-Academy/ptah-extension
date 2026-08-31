@@ -70,6 +70,12 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       getCumulativeTokens: jest.fn().mockReturnValue(0),
       clearSessionTokenSnapshot: jest.fn(),
     },
+    turnState: {
+      markGenerating: jest.fn().mockReturnValue(null),
+      settleTurn: jest.fn(),
+      applySnapshot: jest.fn().mockReturnValue(null),
+      get: jest.fn().mockReturnValue(undefined),
+    },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }
 
@@ -550,5 +556,83 @@ describe('AssistantMessageTransformer', () => {
     transformer.transform(msg, state, helpers, 'sess-6' as never);
 
     expect(state.clearActiveSkillToolUseIds).toHaveBeenCalled();
+  });
+});
+
+describe('AssistantMessageTransformer - turn_state (TASK_2026_360)', () => {
+  const GENERATING = {
+    phase: 'generating',
+    revision: 1,
+    backgroundTasks: [],
+    sessionCrons: [],
+    terminalReason: null,
+    timestamp: 1,
+  };
+
+  function textMessage(parentToolUseId?: string): never {
+    return {
+      uuid: 'u-1',
+      parent_tool_use_id: parentToolUseId ?? null,
+      message: {
+        id: 'm-1',
+        model: 'claude-opus',
+        content: [{ type: 'text', text: 'hello' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+        stop_reason: 'end_turn',
+      },
+    } as never;
+  }
+
+  it('PREPENDS a turn_state to the root message_start when the registry reports a new turn', () => {
+    const transformer = new AssistantMessageTransformer();
+    const helpers = makeHelpers();
+    (helpers.turnState.markGenerating as jest.Mock).mockReturnValue(GENERATING);
+
+    const events = transformer.transform(
+      textMessage(),
+      makeState(),
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual([
+      'turn_state',
+      'message_start',
+      'text_delta',
+      'message_complete',
+    ]);
+    expect(events[0]).toMatchObject({
+      phase: 'generating',
+      sessionId: 'sess-1',
+    });
+  });
+
+  it('emits nothing extra when the registry says the turn already started', () => {
+    const transformer = new AssistantMessageTransformer();
+    const helpers = makeHelpers();
+
+    const events = transformer.transform(
+      textMessage(),
+      makeState(),
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events[0].eventType).toBe('message_start');
+    expect(helpers.turnState.markGenerating).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('does not consult the registry for a subagent message', () => {
+    const transformer = new AssistantMessageTransformer();
+    const helpers = makeHelpers();
+
+    transformer.transform(
+      textMessage('toolu_parent'),
+      makeState(),
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(helpers.turnState.markGenerating).not.toHaveBeenCalled();
   });
 });

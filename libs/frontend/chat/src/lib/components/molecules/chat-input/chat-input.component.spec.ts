@@ -717,6 +717,7 @@ describe('ChatInputComponent', () => {
       ['draft', true],
       ['loaded', true],
       ['awaiting-background', true],
+      ['sleeping', true],
       ['streaming', false],
       ['resuming', false],
       ['switching', false],

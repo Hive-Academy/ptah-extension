@@ -5,6 +5,7 @@ import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { StopCallbackRegistry } from './stop-callback-registry';
 import { StopHookHandler } from './stop-hook-handler';
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
+import { SessionTurnStateRegistry } from './session-turn-state.registry';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -429,5 +430,73 @@ describe('StopHookHandler', () => {
       expect(result).toEqual({ continue: true });
       expect(captured).toHaveLength(1);
     });
+  });
+});
+
+describe('StopHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', () => {
+  const TASK = {
+    id: 't1',
+    type: 'subagent',
+    status: 'running',
+    description: 'bg',
+  };
+  const CRON = {
+    id: 'c1',
+    schedule: '* * * * *',
+    recurring: true,
+    prompt: 'p',
+  };
+
+  it('records the Stop snapshot without changing the phase', async () => {
+    const logger = makeLogger();
+    const registry = new StopCallbackRegistry(logger);
+    const turnState = new SessionTurnStateRegistry();
+    const generating = turnState.markGenerating('sess-1');
+    const handler = new StopHookHandler(logger, registry, undefined, turnState);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    await fn(
+      {
+        hook_event_name: 'Stop',
+        session_id: 'sess-1',
+        cwd: '/workspace',
+        background_tasks: [TASK],
+        session_crons: [CRON],
+        terminal_reason: 'completed',
+      } as unknown as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    // Snapshot only: still generating, same revision.
+    expect(turnState.get('sess-1')).toBe(generating);
+    expect(turnState.settleTurn('sess-1')).toMatchObject({
+      phase: 'awaiting-background',
+      backgroundTasks: [TASK],
+      sessionCrons: [CRON],
+      terminalReason: 'completed',
+    });
+  });
+
+  it('records nothing when the session id cannot be resolved', async () => {
+    const logger = makeLogger();
+    const registry = new StopCallbackRegistry(logger);
+    const turnState = new SessionTurnStateRegistry();
+    const handler = new StopHookHandler(logger, registry, undefined, turnState);
+    const fn = getHookCallback(handler, '', '/workspace');
+
+    await fn(
+      {
+        hook_event_name: 'Stop',
+        session_id: '',
+        cwd: '/workspace',
+        background_tasks: [TASK],
+      } as unknown as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(turnState.get('')).toBeUndefined();
+    expect(turnState.settleTurn('sess-1').phase).toBe('idle');
   });
 });

@@ -15,6 +15,7 @@ import {
 
 import type { SDKPartialAssistantMessage } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -165,6 +166,15 @@ export class StreamEventTransformer {
       role: 'assistant',
       parentToolUseId,
     };
+
+    // Root assistant turn start → 'generating', once per turn. Subagent
+    // message_starts carry a parentToolUseId and never flip the phase.
+    if (!parentToolUseId && sessionId) {
+      const turn = helpers.turnState.markGenerating(sessionId);
+      if (turn) {
+        return [toTurnStateEvent(sessionId, turn), messageStartEvent];
+      }
+    }
 
     return [messageStartEvent];
   }

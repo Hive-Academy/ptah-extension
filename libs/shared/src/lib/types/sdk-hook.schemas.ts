@@ -95,3 +95,23 @@ export const SdkSubagentEndedPayloadSchema = z.object({
   backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
   timestamp: z.number().int().nonnegative(),
 });
+
+/** Zod schema for {@link SessionTurnPhase}. */
+export const SessionTurnPhaseSchema = z.enum([
+  'generating',
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'failed',
+]);
+
+/** Zod schema for {@link SessionTurnState}, used at the `session:status` RPC boundary. */
+export const SessionTurnStateSchema = z.object({
+  phase: SessionTurnPhaseSchema,
+  revision: z.number().int().nonnegative(),
+  backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
+  sessionCrons: z.array(SdkSessionCronSummarySchema).readonly(),
+  terminalReason: SdkTerminalReasonSchema.nullable(),
+  error: SdkAssistantMessageErrorSchema.optional(),
+  timestamp: z.number().int().nonnegative(),
+});

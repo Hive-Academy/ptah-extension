@@ -27,6 +27,7 @@ import {
   SessionNotActiveError,
   SdkError,
   MESSAGE_ID_NOT_FOUND_PHRASE,
+  SessionTurnStateRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -55,7 +56,6 @@ import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
-import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type {
   SessionStatusParams,
   SessionStatusResponse,
@@ -117,8 +117,8 @@ export class SessionRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(CHAT_TOKENS.SESSION)
     private readonly chatSession: ChatSessionService,
-    @inject(CHAT_TOKENS.STREAM_BROADCASTER)
-    private readonly streamBroadcaster: ChatStreamBroadcaster,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {}
 
   /**
@@ -1104,11 +1104,14 @@ export class SessionRpcHandlers {
    *
    * A freshly cold-loaded webview (VS Code recreates the webview when its
    * panel is hidden→reshown; HMR/devtools reload) cannot observe in-flight
-   * streaming state. This returns both whether the session process is alive
-   * (`isActive`, from the SDK lifecycle registry) and whether a turn is
-   * actively streaming right now (`isStreaming`, from the broadcaster's
-   * in-flight set). Unexpected errors degrade to `{ false, false }` rather
-   * than leaking raw error text to the client.
+   * streaming state. This returns whether the session process is alive
+   * (`isActive`, from the SDK lifecycle registry) and the backend-owned turn
+   * state (`turnState`, from `SessionTurnStateRegistry`; absent when the
+   * session is unknown to it). `isStreaming` is derived from
+   * `turnState.phase === 'generating'` — "generates now", NOT "a broadcast
+   * loop is attached", which is true for the whole life of a streaming-input
+   * session (TASK_2026_360 defect 4). Unexpected errors degrade to
+   * `{ false, false }` rather than leaking raw error text to the client.
    */
   private registerSessionStatus(): void {
     this.rpcHandler.registerMethod<SessionStatusParams, SessionStatusResponse>(
@@ -1116,12 +1119,14 @@ export class SessionRpcHandlers {
       async (params: SessionStatusParams) => {
         try {
           const { sessionId } = SessionStatusParamsSchema.parse(params);
+          const state = this.turnState.get(sessionId);
 
           return {
             isActive: this.sdkAdapter.isSessionActive(
               SessionId.from(sessionId),
             ),
-            isStreaming: this.streamBroadcaster.isStreaming(sessionId),
+            isStreaming: state?.phase === 'generating',
+            ...(state ? { turnState: state } : {}),
           };
         } catch (error) {
           this.logger.error(

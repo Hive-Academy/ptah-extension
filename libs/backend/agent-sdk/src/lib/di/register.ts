@@ -46,6 +46,7 @@ import {
   CompactionHookHandler,
   CompactionCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
+  SessionTurnStateRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
   SubagentStopCallbackRegistry,
@@ -369,6 +370,26 @@ export function registerSdkServices(
     { useClass: SessionIdResolvedCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  container.registerSingleton(
+    SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+    SessionTurnStateRegistry,
+  );
+  // Alias: a fresh session streams under its tabId until the SDK reports the
+  // real UUID. Same subscriber contract as MemoryTriggerService /
+  // SkillTriggerService — synchronous, never overwrites the real-id entry.
+  const turnStateRegistry = container.resolve<SessionTurnStateRegistry>(
+    SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+  );
+  container
+    .resolve<SessionIdResolvedCallbackRegistry>(
+      SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    )
+    .register(({ tabId, realSessionId }) => {
+      if (tabId) {
+        turnStateRegistry.rekey(tabId, realSessionId);
+      }
+    });
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,

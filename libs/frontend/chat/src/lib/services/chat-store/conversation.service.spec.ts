@@ -11,7 +11,8 @@
  *     stored only on first write, invalid content is warned + skipped
  *   - clearQueuedContent: resets queue fields on active or explicit tab
  *   - clearQueueRestoreSignal: resets queue-restore signal
- *   - abortCurrentMessage: re-entry guard, chat:abort RPC, queue restore signal
+ *   - abortCurrentMessage: re-entry guard, chat:abort RPC, queue restore signal,
+ *     no finalize / markTabIdle on success (TASK_2026_360 review F3)
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -299,6 +300,35 @@ describe('ConversationService', () => {
       expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
         'tab-1',
       );
+    });
+
+    // TASK_2026_360 review F3: the backend emits the ordered abort
+    // `turn_state` (terminalReason 'aborted_streaming') after the last chunk;
+    // finalizing or idling here raced it and cut off the tail of the tree.
+    it('does not finalize or idle the tab after the abort RPC succeeds — the ordered turn_state does', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+        }),
+      ]);
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.abortCurrentMessage();
+
+      expect(tabManager.setLastTerminalReason).toHaveBeenCalledWith(
+        'tab-1',
+        'aborted_streaming',
+      );
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(tabManager.applyStatusErrorReset).not.toHaveBeenCalled();
+      expect(tabManager.markLoaded).not.toHaveBeenCalled();
+      const tab = tabsSignal()[0];
+      expect(tab.status).toBe('streaming');
+      expect(tab.streamingState).toEqual({ currentMessageId: 'msg-1' });
+      expect(service.isStopping()).toBe(false);
     });
   });
 });

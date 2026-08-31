@@ -58,6 +58,12 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       getCumulativeTokens: jest.fn().mockReturnValue(0),
       clearSessionTokenSnapshot: jest.fn(),
     },
+    turnState: {
+      markGenerating: jest.fn().mockReturnValue(null),
+      settleTurn: jest.fn(),
+      applySnapshot: jest.fn().mockReturnValue(null),
+      get: jest.fn().mockReturnValue(undefined),
+    },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }
 

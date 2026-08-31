@@ -33,6 +33,7 @@ import {
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { SessionLivenessReconcilerService } from './chat-store/session-liveness-reconciler.service';
 import { FilePickerService } from './file-picker.service';
 import type { TabState } from '@ptah-extension/chat-types';
 
@@ -98,6 +99,7 @@ interface CoordinatorInternals {
 }
 
 describe('WorkspaceCoordinatorService', () => {
+  let livenessReconciler: { reconcileRestoredTabs: jest.Mock };
   let service: WorkspaceCoordinatorService;
   let appState: AppStateManager;
   let workspaceScope: WorkspaceScopeService;
@@ -155,6 +157,10 @@ describe('WorkspaceCoordinatorService', () => {
       confirm: jest.fn(),
     } as unknown as jest.Mocked<ConfirmSlice>;
 
+    livenessReconciler = {
+      reconcileRestoredTabs: jest.fn(async () => undefined),
+    };
+
     authState = {
       refreshAuthStatus: jest.fn(async () => undefined),
     } as jest.Mocked<AuthStateSlice>;
@@ -173,6 +179,10 @@ describe('WorkspaceCoordinatorService', () => {
         WorkspaceCoordinatorService,
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionLoaderService, useValue: sessionLoader },
+        {
+          provide: SessionLivenessReconcilerService,
+          useValue: livenessReconciler,
+        },
         { provide: ConfirmationDialogService, useValue: confirmDialog },
         { provide: FilePickerService, useValue: filePicker },
         { provide: AgentDiscoveryFacade, useValue: agentDiscovery },
@@ -222,6 +232,26 @@ describe('WorkspaceCoordinatorService', () => {
       await service.switchWorkspace('D:/repo/foo');
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
       expect(sessionLoader.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
+    });
+
+    it('re-reconciles the restored tabs of the new workspace (TASK_2026_360)', async () => {
+      await service.switchWorkspace('/ws/b');
+
+      expect(livenessReconciler.reconcileRestoredTabs).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not let a failed reconcile break the switch', async () => {
+      livenessReconciler.reconcileRestoredTabs.mockRejectedValueOnce(
+        new Error('rpc down'),
+      );
+
+      await expect(service.switchWorkspace('/ws/b')).resolves.toBeUndefined();
+      await Promise.resolve();
+
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('reconcile session liveness'),
+        expect.any(Error),
+      );
     });
 
     it('invalidates the @ file picker cache (TASK_2026_200, criterion 11)', async () => {

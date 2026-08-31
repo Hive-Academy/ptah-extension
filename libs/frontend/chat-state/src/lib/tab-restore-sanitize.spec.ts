@@ -44,6 +44,7 @@ const IN_FLIGHT_STATUSES: readonly SessionStatus[] = [
   'resuming',
   'switching',
   'awaiting-background',
+  'sleeping',
 ];
 
 /** Statuses that describe a settled tab and must survive a reload untouched. */
@@ -70,6 +71,8 @@ function storedTab(
     queuedContent: 'a message the user typed during the turn',
     queuedOptions: { files: ['/a.ts'], effort: 'high' },
     attachedBinding: { bindingId: 'b-1', platform: 'telegram' },
+    lastTurnStateRevision: 12,
+    lastTurnStateSessionId: 'sess-old-process',
     ...extra,
   };
 }
@@ -173,6 +176,16 @@ describe('restored tabs — one sanitize, both readers', () => {
       const [tab] = restore([storedTab('tab-1', 'streaming')]);
       expect(tab.queuedContent).toBeNull();
       expect(tab.queuedOptions).toBeNull();
+    });
+
+    it('drops lastTurnStateRevision — the backend counter belongs to the old process (TASK_2026_360)', () => {
+      const [tab] = restore([storedTab('tab-1', 'sleeping')]);
+      expect(tab.lastTurnStateRevision).toBeUndefined();
+    });
+
+    it('drops lastTurnStateSessionId with the revision it qualifies (TASK_2026_360 review F1)', () => {
+      const [tab] = restore([storedTab('tab-1', 'sleeping')]);
+      expect(tab.lastTurnStateSessionId).toBeUndefined();
     });
 
     it('keeps everything else verbatim', () => {

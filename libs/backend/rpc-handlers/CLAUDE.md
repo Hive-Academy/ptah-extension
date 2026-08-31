@@ -186,6 +186,7 @@ is the half that rejects them. Never loosen either regex to "simplify" this.
 - **Platform-agnostic only** — never `import * from 'vscode'`. Use `platform-core` ports (`IUserInteraction`, `IFileSystemProvider`, `IPlatformCommands`, …) via DI.
 - **Catch unknown**: `catch (error: unknown)` and narrow before logging/returning.
 - **Workspace guard** — privileged operations call `isAuthorizedWorkspace` before acting.
+- **`session:status` answers from `SessionTurnStateRegistry`, not from `ChatStreamBroadcaster.isStreaming` (TASK_2026_360).** `isStreaming` on the broadcaster means "a broadcast loop is attached", which in streaming-input mode is true for the whole life of the session — the webview read it as "generates now" and lit a stop button on every idle-but-live session after a reload. The response carries `turnState` (the registry's revision-stamped phase); `isStreaming` is kept only as `phase === 'generating'` for the CLI/TUI readers. `ChatStreamBroadcaster` also pushes the registry's `forceIdle` state INTO the chunk batch on stream error / abort / mid-turn loop exit, before `CHAT_ERROR`, so the UI's idle lands after the chunks it closes.
 
 ## Cross-Lib Rules
 

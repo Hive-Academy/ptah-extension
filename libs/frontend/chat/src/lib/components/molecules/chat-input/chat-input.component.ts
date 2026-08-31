@@ -416,6 +416,7 @@ export class ChatInputComponent implements OnInit {
    * - `draft` — enabled
    * - `loaded` — enabled
    * - `awaiting-background` — enabled
+   * - `sleeping` — enabled (agent idle until its next scheduled wakeup)
    * - `streaming` — disabled
    * - `resuming` — disabled
    * - `switching` — disabled
@@ -430,6 +431,7 @@ export class ChatInputComponent implements OnInit {
       case 'draft':
       case 'loaded':
       case 'awaiting-background':
+      case 'sleeping':
         return true;
       case 'streaming':
       case 'resuming':

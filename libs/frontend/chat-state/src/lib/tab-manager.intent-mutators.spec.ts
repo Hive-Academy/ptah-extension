@@ -11,8 +11,13 @@ import { TestBed } from '@angular/core/testing';
 import {
   StreamingState,
   createEmptyStreamingState,
+  type TabState,
 } from '@ptah-extension/chat-types';
-import { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import {
+  ExecutionChatMessage,
+  SessionId,
+  type SessionTurnState,
+} from '@ptah-extension/shared';
 
 // Production `TabManagerService.attachSession` and `applyResumingSession`
 // validate the incoming sessionId via `SessionId.from()` (UUID v4). Mint
@@ -52,6 +57,14 @@ describe('TabManagerService — intent-named mutators', () => {
       registerSessionForWorkspace: jest.fn(),
       unregisterSession: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      // `applyTurnState` / the `applyFinalizedTurn` microtask resolve the tab
+      // by id across workspaces; every tab in this spec is active.
+      findTabByIdAcrossWorkspaces: jest
+        .fn()
+        .mockImplementation((tabId: string, tabs: readonly TabState[]) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: '/ws' } : null;
+        }),
       getStorageKeyForWorkspace: jest.fn().mockReturnValue('ptah.tabs'),
       syncActiveWorkspaceState: jest.fn(),
       switchWorkspace: jest.fn().mockReturnValue(null),
@@ -91,15 +104,265 @@ describe('TabManagerService — intent-named mutators', () => {
       service.setStatus(id, 'switching');
       expect(service.tabs().find((t) => t.id === id)?.status).toBe('switching');
     });
+  });
 
-    it('markTabAwaitingBackground flips status to awaiting-background on microtask', async () => {
-      const id = service.createTab('awaiting');
-      service.markStreaming(id);
-      service.markTabAwaitingBackground(id);
-      await Promise.resolve();
-      expect(service.tabs().find((t) => t.id === id)?.status).toBe(
-        'awaiting-background',
+  describe('applyTurnState (TASK_2026_360)', () => {
+    const base = (
+      overrides: Partial<SessionTurnState> = {},
+    ): SessionTurnState => ({
+      phase: 'idle',
+      revision: 1,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'completed',
+      timestamp: 1,
+      ...overrides,
+    });
+    const tabOf = (id: string) => service.tabs().find((t) => t.id === id);
+    const task = {
+      id: 'bg-1',
+      type: 'subagent' as const,
+      status: 'running' as const,
+      description: 'd',
+    };
+    const cron = {
+      id: 'c-1',
+      schedule: '*/5 * * * *',
+      recurring: true,
+      prompt: 'p',
+    };
+
+    it('generating → streaming, spinner on, live session, terminal reason cleared, tasks emptied', () => {
+      const id = service.createTab('g');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [task],
+        pendingSessionCrons: [cron],
+        lastTerminalReason: 'completed',
+      });
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', terminalReason: null }),
       );
+
+      const tab = tabOf(id);
+      expect(tab?.status).toBe('streaming');
+      expect(tab?.hasLiveSession).toBe(true);
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tab?.lastTerminalReason).toBeUndefined();
+      expect(tab?.pendingBackgroundTasks).toEqual([]);
+      expect(tab?.lastTurnStateRevision).toBe(1);
+    });
+
+    it.each([
+      ['awaiting-background', 'awaiting-background'],
+      ['sleeping', 'sleeping'],
+      ['idle', 'loaded'],
+      ['failed', 'loaded'],
+    ] as const)(
+      '%s → status %s, spinner off, snapshot copied from the event',
+      (phase, status) => {
+        const id = service.createTab(phase);
+        service.markStreaming(id);
+        service.markTabStreaming(id);
+
+        service.applyTurnState(
+          id,
+          base({
+            phase,
+            backgroundTasks: [task],
+            sessionCrons: [cron],
+            terminalReason: 'aborted_streaming',
+          }),
+        );
+
+        const tab = tabOf(id);
+        expect(tab?.status).toBe(status);
+        expect(service.isTabStreaming(id)).toBe(false);
+        expect(tab?.pendingBackgroundTasks).toEqual([task]);
+        expect(tab?.pendingSessionCrons).toEqual([cron]);
+        expect(tab?.lastTerminalReason).toBe('aborted_streaming');
+      },
+    );
+
+    it('drops an event whose revision is <= the last applied one (replayed batch)', () => {
+      const id = service.createTab('rev');
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 3, terminalReason: null }),
+      );
+
+      service.applyTurnState(id, base({ phase: 'idle', revision: 3 }));
+      expect(tabOf(id)?.status).toBe('streaming');
+      service.applyTurnState(id, base({ phase: 'idle', revision: 2 }));
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(3);
+
+      service.applyTurnState(id, base({ phase: 'idle', revision: 4 }));
+      expect(tabOf(id)?.status).toBe('loaded');
+      expect(service.isTabStreaming(id)).toBe(false);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(4);
+    });
+
+    it('accepts any revision on a tab with none recorded (optimistic send, restore, resume)', () => {
+      const id = service.createTab('fresh');
+      service.markStreaming(id);
+      service.markTabStreaming(id);
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 1, terminalReason: null }),
+      );
+
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(1);
+    });
+
+    it('is a no-op for an unknown tab id', () => {
+      expect(() => service.applyTurnState('nope', base())).not.toThrow();
+    });
+
+    it('applyFinalizedTurn no longer overrides a status the applier wrote', async () => {
+      const id = service.createTab('fin');
+      service.markStreaming(id);
+      service.setStreamingState(id, createEmptyStreamingState());
+
+      // Same order as TurnStateApplier: finalize (queues the microtask), then
+      // the backend phase, synchronously.
+      service.applyFinalizedTurn(id, []);
+      service.applyTurnState(
+        id,
+        base({ phase: 'awaiting-background', backgroundTasks: [task] }),
+      );
+      await Promise.resolve();
+
+      expect(tabOf(id)?.status).toBe('awaiting-background');
+      expect(tabOf(id)?.streamingState).toBeNull();
+    });
+
+    it('applyFinalizedTurn still flips a plain streaming tab to loaded', async () => {
+      const id = service.createTab('fin2');
+      service.markStreaming(id);
+      service.setStreamingState(id, createEmptyStreamingState());
+
+      service.applyFinalizedTurn(id, []);
+      await Promise.resolve();
+
+      expect(tabOf(id)?.status).toBe('loaded');
+      expect(tabOf(id)?.streamingState).toBeNull();
+    });
+
+    it('records the session the revision came from and refuses a foreign session on a bound tab', () => {
+      const id = service.createTab('bound');
+      service.attachSession(id, SESS_123);
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 1, terminalReason: null }),
+        SESS_123,
+      );
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+
+      // The old broadcaster: higher revision, other session, same tab id.
+      service.applyTurnState(
+        id,
+        base({
+          phase: 'idle',
+          revision: 6,
+          terminalReason: 'aborted_streaming',
+        }),
+        SESS_XYZ,
+      );
+
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(1);
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+    });
+  });
+
+  describe('canApplyTurnState (TASK_2026_360 review F1)', () => {
+    const tabOf = (id: string) => service.tabs().find((t) => t.id === id);
+    const state = (
+      sessionId: string | undefined,
+      revision: number,
+    ): SessionTurnState & { sessionId: string | undefined } => ({
+      phase: 'idle',
+      revision,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'completed',
+      timestamp: 1,
+      sessionId,
+    });
+    const applied = (id: string, sessionId: string | undefined, rev: number) =>
+      service.applyTurnState(id, state(sessionId, rev), sessionId);
+
+    it('is false for an unknown tab', () => {
+      expect(service.canApplyTurnState('nope', SESS_123, 1)).toBe(false);
+    });
+
+    it('placeholder tab (claudeSessionId null): accepts any session when nothing was recorded', () => {
+      const id = service.createTab('ph');
+      expect(service.canApplyTurnState(id, undefined, 1)).toBe(true);
+      expect(service.canApplyTurnState(id, id, 1)).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 7)).toBe(true);
+    });
+
+    it('placeholder tab: the counter is continuous across the placeholder → real-id rekey', () => {
+      const id = service.createTab('ph2');
+      applied(id, id, 2);
+
+      expect(service.canApplyTurnState(id, id, 2)).toBe(false);
+      expect(service.canApplyTurnState(id, id, 3)).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 1)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 3)).toBe(true);
+    });
+
+    it('bound tab: rejects every event from another session, whatever its revision', () => {
+      const id = service.createTab('bound');
+      service.attachSession(id, SESS_123);
+
+      expect(service.canApplyTurnState(id, SESS_XYZ, 1)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_XYZ, 99)).toBe(false);
+      expect(service.canApplyTurnState(id, undefined, 99)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 1)).toBe(true);
+    });
+
+    it('bound tab: same session compares revisions monotonically', () => {
+      const id = service.createTab('mono');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 3);
+
+      expect(service.canApplyTurnState(id, SESS_123, 2)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 3)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 4)).toBe(true);
+    });
+
+    it('bound tab: a newly bound session restarts the counter', () => {
+      const id = service.createTab('restart');
+      applied(id, id, 5); // placeholder-era revision
+      service.attachSession(id, SESS_123);
+
+      expect(service.canApplyTurnState(id, SESS_123, 1)).toBe(true);
+      applied(id, SESS_123, 1);
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+      expect(service.canApplyTurnState(id, SESS_123, 1)).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 2)).toBe(true);
+      // The placeholder-era counter is no longer comparable.
+      expect(service.canApplyTurnState(id, id, 6)).toBe(false);
+    });
+
+    it('resetTabToFresh clears both revision and session so the next query starts clean', () => {
+      const id = service.createTab('fresh');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 4);
+
+      service.resetTabToFresh(id);
+
+      expect(tabOf(id)?.lastTurnStateRevision).toBeUndefined();
+      expect(tabOf(id)?.lastTurnStateSessionId).toBeUndefined();
     });
   });
 

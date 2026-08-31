@@ -1,3 +1,8 @@
+import type {
+  FlatStreamEventUnion,
+  TurnStateEvent,
+} from '../../types/execution/stream-background';
+
 /** Bash tool input — Tool: Bash (execute bash command). */
 export interface BashToolInput {
   /** The command to execute */
@@ -393,4 +398,13 @@ export function isTodoWriteToolOutput(
     'message' in output &&
     'stats' in output
   );
+}
+/**
+ * Type guard for the in-stream turn state event. Routed to the turn-state
+ * applier before dedup and before the accumulator; never stored as a node.
+ */
+export function isTurnStateEvent(
+  event: FlatStreamEventUnion,
+): event is TurnStateEvent {
+  return event.eventType === 'turn_state';
 }

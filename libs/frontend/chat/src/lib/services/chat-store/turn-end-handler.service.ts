@@ -13,11 +13,7 @@ import {
   type BackgroundAgentId,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
-import type { TabState } from '@ptah-extension/chat-types';
-import {
-  BackgroundAgentStore,
-  MessageFinalizationService,
-} from '@ptah-extension/chat-streaming';
+import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { ChatLifecycleService } from './chat-lifecycle.service';
 
 const SDK_ERROR_MESSAGES: Readonly<Record<SdkAssistantMessageError, string>> = {
@@ -35,33 +31,29 @@ const SDK_ERROR_MESSAGES: Readonly<Record<SdkAssistantMessageError, string>> = {
 };
 
 /**
- * TurnEndHandlerService - Owns the SDK `Stop` / `StopFailure` / `SubagentStop`
- * turn-end pivot.
+ * TurnEndHandlerService - Consumes the SDK `Stop` / `StopFailure` /
+ * `SubagentStop` hook pushes for their SNAPSHOT fields only.
  *
- * Responsibilities:
- * - Resolve tabs bound to the payload's sessionId and fan out turn-end
- *   side-effects (no-tab-bound case warns and no-ops).
- * - Persist the SDK snapshot (`pendingBackgroundTasks`, `pendingSessionCrons`,
- *   `lastTerminalReason`) onto each bound tab so later batches (Phase 3 UI,
- *   streaming-handler safety-net) can read them.
- * - Finalize the in-flight assistant message via
- *   `MessageFinalizationService.finalizeCurrentMessage(tabId, isAborted)`.
- * - Pivot the tab status: `'awaiting-background'` when the Stop snapshot
- *   reports in-flight background tasks, else `'loaded'` via the visual
- *   `markTabIdle` path (Phase 2 behavior preserved when no background work).
- * - Reconcile `BackgroundAgentStore` + per-tab `pendingBackgroundTasks` on
- *   each SubagentStop and flip `'awaiting-background' → 'loaded'` when the
- *   SDK reports zero remaining background tasks.
+ * Since TASK_2026_360 the turn boundary is the backend `turn_state` event,
+ * delivered in the chunk stream and applied by `TurnStateApplier`. That event
+ * owns finalization, `status`, the tab-bar spinner and workspace liveness. The
+ * hook pushes travel on a separate channel with no ordering guarantee against
+ * the chunks, so nothing here may touch `status` or the spinner any more.
  *
- * StopFailure path reuses `ChatLifecycleService.handleChatError` for the
- * user-facing error surface so the existing 3-tier tab routing + state reset
- * remains the single error-rendering channel. The raw SDK error code is
- * mapped to a user-readable string via `formatTurnFailedError`.
+ * What remains:
+ * - `handleTurnEnded`: stamp `pendingBackgroundTasks` / `pendingSessionCrons`
+ *   / `lastTerminalReason` on every bound tab (the Stop hook fires before the
+ *   final assistant message is pulled, so this is the earliest the snapshot
+ *   is known).
+ * - `handleSubagentEnded`: reconcile `BackgroundAgentStore` for a KNOWN
+ *   background agent and stamp the SDK's "who is still running" snapshot. A
+ *   foreground subagent is not a background agent and is not stopped here.
+ * - `handleTurnFailed`: stamp `lastTerminalReason` and route the SDK error
+ *   through `ChatLifecycleService.handleChatError` (the single error surface).
  */
 @Injectable({ providedIn: 'root' })
 export class TurnEndHandlerService {
   private readonly tabManager = inject(TabManagerService);
-  private readonly finalization = inject(MessageFinalizationService);
   private readonly lifecycle = inject(ChatLifecycleService);
   private readonly backgroundAgents = inject(BackgroundAgentStore);
   private readonly conversations = inject(ConversationRegistry);
@@ -72,12 +64,12 @@ export class TurnEndHandlerService {
    * / New Project workflow, the wizard, any non-tab host.
    *
    * Those flows never create a `TabState`: they claim a `SurfaceId`, and their
-   * turn-end effects (liveness, spinner, transcript) are driven by the surface
-   * path in `ChatMessageHandler` + `StreamRouter` before this service is ever
-   * called. Both tab lookups therefore come back empty for them, which used to
-   * fire "no tab bound to sessionId" on every single workflow turn — a warning
-   * that was never true and that drowned the case it exists to report, an event
-   * for a session nothing at all is listening to.
+   * turn-end effects (liveness, transcript) are driven by the surface path in
+   * `ChatMessageHandler` + `StreamRouter` before this service is ever called.
+   * Both tab lookups therefore come back empty for them, which used to fire
+   * "no tab bound to sessionId" on every single workflow turn — a warning that
+   * was never true and that drowned the case it exists to report, an event for
+   * a session nothing at all is listening to.
    */
   private isSurfaceOwned(sessionId: string): boolean {
     const record = this.conversations.findContainingSession(
@@ -87,18 +79,14 @@ export class TurnEndHandlerService {
   }
 
   /**
-   * Handle the `session:turnEnded` push (backend `Stop` SDK hook). Fans out to
-   * every tab bound to the payload's session id; stamps the SDK snapshot,
-   * finalizes the in-flight message, and marks each tab idle. `isAborted` is
-   * derived from `terminalReason`: any non-`completed` non-null value counts.
+   * Handle the `session:turnEnded` push (backend `Stop` SDK hook). Stamps the
+   * SDK snapshot on every tab bound to the payload's session id — active
+   * workspace first, background partition as the fallback. No status write.
    */
   handleTurnEnded(payload: SdkTurnEndedPayload): void {
     const tabs = this.tabManager.findTabsBySessionId(
       SessionId.from(payload.sessionId),
     );
-    const isAborted =
-      payload.terminalReason !== 'completed' && payload.terminalReason !== null;
-    const hasBackgroundWork = payload.backgroundTasks.length > 0;
     if (tabs.length === 0) {
       const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
         payload.sessionId,
@@ -106,37 +94,11 @@ export class TurnEndHandlerService {
       if (lookup) {
         const effectiveReason =
           payload.terminalReason ?? lookup.tab.lastTerminalReason ?? null;
-        // Snapshot the SDK turn-end fields onto the background partition. Status
-        // defaults to 'loaded'; the `awaiting-background` flip (when background
-        // work remains) is applied AFTER finalize via `markTabAwaitingBackground`
-        // below so it survives finalize's own status microtask — exactly as the
-        // active branch does.
         this.tabManager.updateBackgroundTab(lookup.tab.id, {
           pendingBackgroundTasks: payload.backgroundTasks,
           pendingSessionCrons: payload.sessionCrons,
           lastTerminalReason: effectiveReason,
-          status: 'loaded',
         });
-        // Promote the in-flight assistant reply from `streamingState` into the
-        // persisted `messages` array. Without this a turn that completes while
-        // its tab is backgrounded leaves its reply solely in `streamingState`,
-        // which the reload sanitize nulls — silent data loss. `finalizeCurrentMessage`
-        // is workspace-aware (resolves the owner across partitions) and writes
-        // through the workspace-aware `applyFinalizedTurn` path.
-        this.finalization.finalizeCurrentMessage(lookup.tab.id, isAborted);
-        // `updateBackgroundTab` mutates only the partitioned TabState — it does
-        // NOT touch the global `_streamingTabIds` visual set that drives the
-        // tab-bar spinner. Without this the spinner stays lit forever once the
-        // owning tab is backgrounded (turn started active → spinner lit → user
-        // switched away → turn ends here with no markTabIdle). The active
-        // branch below always pairs turn-end with `markTabIdle` regardless of
-        // background work (awaiting-background is a separate indicator), so the
-        // background branch mirrors that. `markTabIdle` keys purely on tab id,
-        // so it is safe for a background tab.
-        this.tabManager.markTabIdle(lookup.tab.id);
-        if (hasBackgroundWork) {
-          this.tabManager.markTabAwaitingBackground(lookup.tab.id);
-        }
         return;
       }
       if (!this.isSurfaceOwned(payload.sessionId)) {
@@ -157,64 +119,42 @@ export class TurnEndHandlerService {
         pendingSessionCrons: payload.sessionCrons,
         lastTerminalReason: effectiveReason,
       });
-      this.finalization.finalizeCurrentMessage(tab.id, isAborted);
-      this.tabManager.markTabIdle(tab.id);
-      if (hasBackgroundWork) {
-        this.tabManager.markTabAwaitingBackground(tab.id);
-      }
     }
   }
 
   /**
    * Handle the `session:subagentEnded` push (backend `SubagentStop` SDK hook).
-   * Reconciles `BackgroundAgentStore` with the stopped agent and applies the
-   * SDK's authoritative `backgroundTasks` snapshot onto every bound tab.
-   *
-   * Status-transition matrix (`tab.status` before → after):
-   *   `awaiting-background` + remaining === 0 → `loaded`
-   *   `awaiting-background` + remaining > 0   → `awaiting-background` (snapshot only)
-   *   `loaded`                                → `loaded` (idempotent snapshot)
-   *   `streaming`                             → `streaming` (race: Stop pending)
-   *   `resuming` / `fresh` / `draft`          → unchanged (snapshot only)
+   * Stops the matching entry in `BackgroundAgentStore` when the agent is a
+   * known BACKGROUND agent, and applies the SDK's authoritative
+   * `backgroundTasks` snapshot onto every bound tab. The
+   * `awaiting-background → loaded` flip is the backend's call: it arrives as
+   * an `idle` `turn_state` once the registry sees no remaining tasks.
    */
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
     const sessionId = SessionId.from(payload.sessionId);
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
     const agentKey = payload.agentId as BackgroundAgentId;
     const knownEntry = this.backgroundAgents.findByAgentId(agentKey);
-    const resolvedToolCallId = knownEntry?.toolCallId ?? '';
-    this.backgroundAgents.onStopped({
-      id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,
-      eventType: 'background_agent_stopped',
-      timestamp: payload.timestamp,
-      sessionId: payload.sessionId,
-      messageId: '',
-      toolCallId: resolvedToolCallId,
-      agentId: payload.agentId,
-      agentType: payload.agentType,
-    });
-    const remaining = payload.backgroundTasks.length;
+    if (knownEntry) {
+      this.backgroundAgents.onStopped({
+        id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,
+        eventType: 'background_agent_stopped',
+        timestamp: payload.timestamp,
+        sessionId: payload.sessionId,
+        messageId: '',
+        toolCallId: knownEntry.toolCallId,
+        agentId: payload.agentId,
+        agentType: payload.agentType,
+      });
+    }
     if (tabs.length === 0) {
       const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
         payload.sessionId,
       );
       if (lookup) {
-        const updates: Partial<TabState> = {
+        this.tabManager.updateBackgroundTab(lookup.tab.id, {
           pendingBackgroundTasks: payload.backgroundTasks,
-        };
-        const transitionsToLoaded =
-          lookup.tab.status === 'awaiting-background' && remaining === 0;
-        if (transitionsToLoaded) {
-          updates.status = 'loaded';
-        }
-        this.tabManager.updateBackgroundTab(lookup.tab.id, updates);
-        // Only clear the spinner when this subagent-stop actually ends the
-        // turn (awaiting-background → loaded with no remaining tasks). A
-        // subagent ending mid-turn (tasks still running) must NOT clear the
-        // parent turn's spinner.
-        if (transitionsToLoaded) {
-          this.tabManager.markTabIdle(lookup.tab.id);
-        }
+        });
         return;
       }
       if (!this.isSurfaceOwned(payload.sessionId)) {
@@ -230,24 +170,22 @@ export class TurnEndHandlerService {
         tab.id,
         payload.backgroundTasks,
       );
-      if (tab.status === 'awaiting-background' && remaining === 0) {
-        this.tabManager.markLoaded(tab.id);
-      }
     }
   }
 
   /**
    * Handle the `session:turnFailed` push (backend `StopFailure` SDK hook).
    *
-   * When a foreground tab is bound to the session, finalizes as aborted and
-   * routes the SDK error through `ChatLifecycleService.handleChatError` so the
-   * error surface, reset semantics, and session refresh stay co-located.
+   * When a foreground tab is bound to the session, stamps the terminal reason
+   * and routes the SDK error through `ChatLifecycleService.handleChatError` so
+   * the error surface, reset semantics, and session refresh stay co-located.
+   * Finalization of the aborted reply is done by the `failed` `turn_state`.
    *
    * When no foreground tab is bound, the failure belongs to a background
-   * workspace (or no tab at all): stamp the background tab's terminal state via
-   * `updateBackgroundTab` and return. The foreground `handleChatError` channel
-   * is intentionally skipped — its active-tab fallback would otherwise reset an
-   * unrelated foreground tab for a failure that is not its own.
+   * workspace (or no tab at all): stamp the background tab's terminal reason
+   * via `updateBackgroundTab` and return. The foreground `handleChatError`
+   * channel is intentionally skipped — its active-tab fallback would otherwise
+   * reset an unrelated foreground tab for a failure that is not its own.
    */
   handleTurnFailed(payload: SdkTurnFailedPayload): void {
     const tabs = this.tabManager.findTabsBySessionId(
@@ -260,16 +198,7 @@ export class TurnEndHandlerService {
       if (lookup) {
         this.tabManager.updateBackgroundTab(lookup.tab.id, {
           lastTerminalReason: payload.terminalReason,
-          status: 'loaded',
         });
-        // Promote the aborted turn's reply into `messages` (workspace-aware,
-        // marks streaming nodes interrupted) so it survives reload — mirrors the
-        // active branch's `finalizeCurrentMessage(tab.id, true)`.
-        this.finalization.finalizeCurrentMessage(lookup.tab.id, true);
-        // Clear the tab-bar spinner for the backgrounded tab — see the
-        // handleTurnEnded background branch for why `updateBackgroundTab`
-        // alone leaves `_streamingTabIds` (and thus the spinner) stuck.
-        this.tabManager.markTabIdle(lookup.tab.id);
         return;
       }
       if (!this.isSurfaceOwned(payload.sessionId)) {
@@ -286,8 +215,6 @@ export class TurnEndHandlerService {
     }
     for (const tab of tabs) {
       this.tabManager.setLastTerminalReason(tab.id, payload.terminalReason);
-      this.finalization.finalizeCurrentMessage(tab.id, true);
-      this.tabManager.markTabIdle(tab.id);
     }
     const errorMessage = this.formatTurnFailedError(payload);
     this.lifecycle.handleChatError({

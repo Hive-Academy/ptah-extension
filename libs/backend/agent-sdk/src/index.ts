@@ -68,6 +68,12 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+  type TurnStopSnapshot,
+  type TurnFailureSnapshot,
+} from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
 export {
   CallbackRegistryBase,

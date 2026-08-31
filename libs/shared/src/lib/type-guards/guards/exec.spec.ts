@@ -17,7 +17,9 @@ import {
   isTaskToolOutput,
   isBashToolOutput,
   isTodoWriteToolOutput,
+  isTurnStateEvent,
 } from './exec';
+import type { TextDeltaEvent, TurnStateEvent } from '../../types/execution';
 
 describe('exec tool-name guards', () => {
   describe('isTaskManagementTool', () => {
@@ -180,6 +182,36 @@ describe('exec tool-name guards', () => {
       expect(isTodoWriteToolOutput(null)).toBe(false);
       expect(isTodoWriteToolOutput('ok')).toBe(false);
       expect(isTodoWriteToolOutput({ message: 'ok' })).toBe(false);
+    });
+  });
+
+  describe('isTurnStateEvent', () => {
+    it('accepts a minimal TurnStateEvent', () => {
+      const event: TurnStateEvent = {
+        id: 'evt-1',
+        eventType: 'turn_state',
+        timestamp: 1,
+        sessionId: 'sess-1',
+        messageId: 'turn-state-sess-1',
+        phase: 'idle',
+        revision: 0,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: null,
+      };
+      expect(isTurnStateEvent(event)).toBe(true);
+    });
+
+    it('rejects a text_delta event', () => {
+      const event: TextDeltaEvent = {
+        id: 'evt-2',
+        eventType: 'text_delta',
+        timestamp: 1,
+        messageId: 'msg-1',
+        delta: 'hello',
+        blockIndex: 0,
+      };
+      expect(isTurnStateEvent(event)).toBe(false);
     });
   });
 });

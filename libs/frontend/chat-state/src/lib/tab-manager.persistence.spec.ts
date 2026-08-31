@@ -60,6 +60,14 @@ describe('TabManagerService — persistence payload + write cadence', () => {
       registerSessionForWorkspace: jest.fn(),
       unregisterSession: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      findTabByIdAcrossWorkspaces: jest
+        .fn()
+        .mockImplementation(
+          (tabId: string, tabs: ReadonlyArray<{ id: string }>) => {
+            const tab = tabs.find((t) => t.id === tabId);
+            return tab ? { tab, workspacePath: '/ws' } : null;
+          },
+        ),
       getStorageKeyForWorkspace: jest.fn().mockReturnValue(STORAGE_KEY),
       syncActiveWorkspaceState: jest.fn(),
       switchWorkspace: jest.fn().mockReturnValue(null),
@@ -116,6 +124,33 @@ describe('TabManagerService — persistence payload + write cadence', () => {
     expect(stored.tabs[0].attachedBinding).toBeNull();
     // The serialized blob must not mention the live event model at all.
     expect(localStorage.getItem(STORAGE_KEY)).not.toContain('messageEventIds');
+  });
+
+  it('never persists lastTurnStateRevision / lastTurnStateSessionId — the backend counter dies with the process (TASK_2026_360)', () => {
+    const tabId = service.createTab('turn-state');
+    service.applyTurnState(
+      tabId,
+      {
+        phase: 'idle',
+        revision: 9,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: 'completed',
+        timestamp: 1,
+      },
+      'sess-turn-state',
+    );
+    jest.advanceTimersByTime(600);
+
+    expect(service.tabs()[0].lastTurnStateRevision).toBe(9);
+    expect(service.tabs()[0].lastTurnStateSessionId).toBe('sess-turn-state');
+    const stored = readStored();
+    expect('lastTurnStateRevision' in stored.tabs[0]).toBe(false);
+    expect('lastTurnStateSessionId' in stored.tabs[0]).toBe(false);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(raw).not.toContain('lastTurnStateRevision');
+    expect(raw).not.toContain('lastTurnStateSessionId');
+    expect(raw).not.toContain('sess-turn-state');
   });
 
   it('keeps each finalized message and its execution tree — nothing re-fetches them on restore', () => {

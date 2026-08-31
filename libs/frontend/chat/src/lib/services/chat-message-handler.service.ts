@@ -25,6 +25,7 @@ import {
   GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
   SessionId,
+  isTurnStateEvent,
   parseAskUserQuestionRequest,
   parsePermissionRequest,
   parseSdkCompactionCompletePayload,
@@ -33,7 +34,10 @@ import {
   parseSdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
   SurfaceId,
@@ -53,6 +57,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   /**
@@ -324,12 +329,9 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    if (parsed.backgroundTasks.length === 0) {
-      this.liveness.markIdle(
-        parsed.sessionId,
-        this.workspaceFor(parsed.sessionId),
-      );
-    }
+    // Liveness is driven by the in-stream `turn_state` event only
+    // (TASK_2026_360): a FOREGROUND subagent ending mid-turn used to flick the
+    // workspace dot off while the parent still streamed (Defect 5).
     this.chatStore.handleSubagentEndedNotification(parsed);
   }
 
@@ -347,12 +349,6 @@ export class ChatMessageHandler implements MessageHandler {
         ChatMessageHandler.describePayload(payload),
       );
       return;
-    }
-    const ws = this.workspaceFor(parsed.sessionId);
-    if (parsed.backgroundTasks.length > 0) {
-      this.liveness.markAwaitingBackground(parsed.sessionId, ws);
-    } else {
-      this.liveness.markIdle(parsed.sessionId, ws);
     }
     this.chatStore.handleTurnEndedNotification(parsed);
   }
@@ -372,10 +368,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.liveness.markFailed(
-      parsed.sessionId,
-      this.workspaceFor(parsed.sessionId),
-    );
     this.chatStore.handleTurnFailedNotification(parsed);
   }
 
@@ -438,11 +430,12 @@ export class ChatMessageHandler implements MessageHandler {
 
     const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
-      if (event?.sessionId) {
-        this.liveness.markStreaming(
-          event.sessionId,
-          this.workspaceFor(event.sessionId),
-        );
+      // A surface owns no tab, so the tab path never sees this session's
+      // turn state; apply it here so the sidebar dot follows the surface's
+      // session (TASK_2026_360). The surface transcript does not render it.
+      if (event && isTurnStateEvent(event)) {
+        this.turnStateApplier.apply(event);
+        return;
       }
       this.streamRouter.routeStreamEventForSurface(event, claimedSurface);
       return;
@@ -452,12 +445,8 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
 
-    if (event?.sessionId) {
-      this.liveness.markStreaming(
-        event.sessionId,
-        this.workspaceFor(event.sessionId),
-      );
-    }
+    // Liveness is no longer pinged per chunk: `StreamingHandlerService`
+    // intercepts the `turn_state` event and `TurnStateApplier` marks it.
     this.chatStore.processStreamEvent(event, tabId, sessionId);
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
     this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);

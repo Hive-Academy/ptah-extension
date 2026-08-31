@@ -16,6 +16,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
+import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import {
   SDKMessage,
   isResultMessage,
@@ -82,6 +83,8 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly sessionLifecycle: SessionLifecycleManager,
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {
     this.helpers = {
       logger: this.logger,
@@ -89,6 +92,7 @@ export class SdkMessageTransformer implements TransformerState {
       modelResolver: this.modelResolver,
       sessionLifecycle: this.sessionLifecycle,
       usageTracker: this.usageTracker,
+      turnState: this.turnState,
     };
     this.assistantTransformer = new AssistantMessageTransformer();
     this.userTransformer = new UserMessageTransformer();
@@ -105,6 +109,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.modelResolver,
       this.sessionLifecycle,
       this.usageTracker,
+      this.turnState,
     );
   }
 

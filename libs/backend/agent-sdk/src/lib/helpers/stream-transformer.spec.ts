@@ -744,3 +744,45 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
     expect(onTurnEnd).not.toHaveBeenCalled();
   });
 });
+
+describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () => {
+  it('forwards the result to the transformer AFTER onTurnEnd, and yields its turn_state after the preceding message_complete', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const calls: string[] = [];
+    const onTurnEnd = jest.fn(() => {
+      calls.push('onTurnEnd');
+    });
+    messageTransformer.transform.mockImplementation((msg: SDKMessage) => {
+      calls.push(`transform:${msg.type}`);
+      if (msg.type === 'result') {
+        return [{ eventType: 'turn_state', phase: 'idle' } as never];
+      }
+      return [{ eventType: 'message_complete' } as never];
+    });
+
+    const yielded: string[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([
+        messageStart(MODEL, { input_tokens: 10 }),
+        resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+      ]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      onTurnEnd,
+    })) {
+      yielded.push((event as { eventType: string }).eventType);
+    }
+
+    expect(messageTransformer.transform).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'result' }),
+      'sess-1',
+    );
+    expect(calls).toEqual([
+      'transform:stream_event',
+      'onTurnEnd',
+      'transform:result',
+    ]);
+    expect(yielded).toEqual(['message_complete', 'turn_state']);
+  });
+});

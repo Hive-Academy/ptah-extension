@@ -6,7 +6,7 @@
  */
 
 import type { SessionId } from '../branded.types';
-import type { ChatSessionSummary } from '../execution';
+import type { ChatSessionSummary, SessionTurnState } from '../execution';
 import type {
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
@@ -308,8 +308,13 @@ export interface SessionStatusParams {
 export interface SessionStatusResponse {
   /** Session is in the SDK lifecycle registry (process alive + known). */
   isActive: boolean;
-  /** A turn is currently mid-stream to the webview for this session. */
+  /**
+   * A turn is currently mid-stream to the webview for this session.
+   * @deprecated Derived from `turnState.phase === 'generating'`. Kept for the CLI/TUI readers.
+   */
   isStreaming: boolean;
+  /** Absent when the session is unknown to the backend. */
+  turnState?: SessionTurnState;
 }
 
 /** Catalog entry for an MCP-style tool advertised by `session.describe`. */
