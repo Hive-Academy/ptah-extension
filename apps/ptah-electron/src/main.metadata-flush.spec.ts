@@ -6,16 +6,31 @@
  * leaves its reference STAGED, not stored. Nothing used to call `flush()` on
  * the way out and the reference was simply lost (TASK_2026_324 finding 3).
  *
- * ## Why the flush is FIRST here, and awaited in the other two hosts
+ * ## There are TWO flushes, and they answer different questions
  *
- * `will-quit` cannot block: Electron proceeds to tear the process down
- * regardless of what the listener returns. So this host cannot do what the CLI
- * and the extension do — reap the agents, then await the flush that their exits
- * produced. It does the only other useful thing: start the flush at the top of
- * the teardown so the staged snapshot gets the whole window to reach storage.
- * That is a smaller guarantee, and it is deliberate. Do not "fix" it by moving
- * the call below the disposals — there it would be started with no window left
- * at all.
+ * This file used to assert one flush, placed first, and argued that Electron
+ * could not do what the CLI and the extension do — reap the agents, then await
+ * the flush their exits produced — because `will-quit` cannot block.
+ *
+ * The premise was right and the conclusion was too strong. `will-quit` cannot
+ * block, but it can be DEFERRED: `event.preventDefault()` plus a later
+ * `app.quit()` is exactly how the messaging-gateway drain already buys itself a
+ * window. The agent reap needs the same window for the same reason, so
+ * `requiresDeferredDisposal` now names the agent manager too (TASK_2026_334).
+ *
+ * So:
+ *
+ *  - The EARLY flush drains what was already staged when the quit arrived. It
+ *    is started and not awaited, and it is the only flush the undeferred path
+ *    gets. Do not move it below the disposals — there it would be started with
+ *    no window at all, which is the TASK_2026_324 regression.
+ *  - The FINAL flush drains what the teardown itself produced: the session
+ *    reference each agent stages as it exits. It is awaited, it runs after the
+ *    reap, and without it that reference is lost and the relaunched session
+ *    shows no CLI agent.
+ *
+ * Neither replaces the other. Asserting only the first is what let the reap
+ * stay fire-and-forget.
  *
  * ## Why this is now a behavioural spec
  *
@@ -53,7 +68,7 @@ function makeRefs(order: string[]): BootRefs {
   return refs;
 }
 
-function drive(order: string[], flush: () => void): Recorded {
+function drive(order: string[], flush: () => Promise<void>): Recorded {
   const refs = makeRefs(order);
   handleWillQuit({
     refs,
@@ -70,6 +85,13 @@ function drive(order: string[], flush: () => void): Recorded {
   return { order, refs };
 }
 
+/** Records the call, then resolves — the shape of the real flush. */
+function recordingFlush(order: string[]): () => Promise<void> {
+  return async () => {
+    order.push('flushSessionMetadataStores');
+  };
+}
+
 describe('will-quit session metadata flush', () => {
   beforeEach(() => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -79,18 +101,22 @@ describe('will-quit session metadata flush', () => {
     jest.restoreAllMocks();
   });
 
-  it('drains the coalesced write queue exactly once', () => {
+  it('drains the coalesced write queue once on an undeferred quit', () => {
     const order: string[] = [];
-    const flush = jest.fn(() => order.push('flushSessionMetadataStores'));
+    const flush = jest.fn(async () => {
+      order.push('flushSessionMetadataStores');
+    });
 
     drive(order, flush);
 
+    // Once, not twice: with no agents and no gateway the quit is undeferred, so
+    // the final flush is never reached. The early one is all this path gets.
     expect(flush).toHaveBeenCalledTimes(1);
   });
 
   it('starts the flush before the disposals, so it has the teardown window', () => {
     const order: string[] = [];
-    drive(order, () => order.push('flushSessionMetadataStores'));
+    drive(order, recordingFlush(order));
 
     expect(order.indexOf('flushSessionMetadataStores')).toBeLessThan(
       order.indexOf('providerProxyPool'),
@@ -123,8 +149,7 @@ describe('will-quit session metadata flush', () => {
           releaseDrain = resolve;
         }),
       flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
-      flushSessionMetadataStores: () =>
-        order.push('flushSessionMetadataStores'),
+      flushSessionMetadataStores: recordingFlush(order),
       clearTimers: () => order.push('clearTimers'),
       disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
       deferQuit: () => order.push('deferQuit'),
@@ -144,6 +169,146 @@ describe('will-quit session metadata flush', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(order).toContain('providerProxyPool');
+  });
+});
+
+/**
+ * TASK_2026_334 defect 1 — the reference an agent stages as it EXITS.
+ *
+ * `disposeAll()` ends each running agent; the agent's `done` handler then
+ * stages its bulk output and its session reference into the store's coalesced
+ * queue. Only a flush writes that queue. While the reap was fire-and-forget and
+ * the only flush ran first, the reference was staged into a queue nothing would
+ * ever drain, and the relaunched session showed no CLI agent.
+ */
+describe('will-quit reaps the agents before it flushes', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /**
+   * An agent manager whose `disposeAll()` settles over several microtasks and
+   * stages a reference on the way out — the real shape, where the staging is
+   * not synchronous with the kill.
+   */
+  function makeRefsWithAgent(order: string[]): BootRefs {
+    const refs = makeRefs(order);
+    refs.agentProcessManager = {
+      disposeAll: async () => {
+        order.push('disposeAll:start');
+        await Promise.resolve();
+        await Promise.resolve();
+        order.push('stageReference');
+      },
+    } as unknown as BootRefs['agentProcessManager'];
+    refs.cliRegistry = {
+      disposeAll: () => order.push('cliRegistry'),
+    } as unknown as BootRefs['cliRegistry'];
+    return refs;
+  }
+
+  function driveWithAgent(order: string[]): {
+    refs: BootRefs;
+    deferred: boolean;
+  } {
+    const refs = makeRefsWithAgent(order);
+    const deferred = !handleWillQuit({
+      refs,
+      abortBoot: () => order.push('abortBoot'),
+      isBootRunning: () => false,
+      awaitBootCompletion: async () => undefined,
+      flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
+      flushSessionMetadataStores: recordingFlush(order),
+      clearTimers: () => order.push('clearTimers'),
+      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+      deferQuit: () => order.push('deferQuit'),
+      quit: () => order.push('quit'),
+      agentReapBudgetMs: 50,
+    });
+    return { refs, deferred };
+  }
+
+  /** Let the deferred chain run to completion. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 20; i += 1) {
+      await Promise.resolve();
+    }
+  }
+
+  it('defers the quit when there are agents to reap', () => {
+    const order: string[] = [];
+    const { deferred } = driveWithAgent(order);
+
+    // Without the deferral there is no window for the final flush at all, so
+    // this is the precondition the whole fix rests on.
+    expect(deferred).toBe(true);
+    expect(order).toContain('deferQuit');
+  });
+
+  it('flushes AFTER the agents staged their references', async () => {
+    const order: string[] = [];
+    driveWithAgent(order);
+    await settle();
+
+    const staged = order.indexOf('stageReference');
+    const flushes = order.reduce<number[]>((acc, name, index) => {
+      if (name === 'flushSessionMetadataStores') acc.push(index);
+      return acc;
+    }, []);
+
+    expect(staged).toBeGreaterThan(-1);
+    // Two flushes: the early one before the disposals, the final one after the
+    // reap. The second is the one that carries the staged reference.
+    expect(flushes).toHaveLength(2);
+    expect(flushes[0]).toBeLessThan(staged);
+    expect(flushes[1]).toBeGreaterThan(staged);
+  });
+
+  it('reaps the agents before their translation proxies (LOW finding 1)', async () => {
+    const order: string[] = [];
+    driveWithAgent(order);
+    await settle();
+
+    // The proxy exists to serve a live agent. Disposing it while the agent is
+    // still exiting leaves that agent talking to a closed socket.
+    expect(order.indexOf('stageReference')).toBeLessThan(
+      order.indexOf('cliRegistry'),
+    );
+  });
+
+  it('gives up on a wedged reap and still runs the final flush', async () => {
+    const order: string[] = [];
+    const refs = makeRefs(order);
+    refs.agentProcessManager = {
+      disposeAll: () => new Promise<void>(() => undefined),
+    } as unknown as BootRefs['agentProcessManager'];
+
+    handleWillQuit({
+      refs,
+      abortBoot: () => order.push('abortBoot'),
+      isBootRunning: () => false,
+      awaitBootCompletion: async () => undefined,
+      flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
+      flushSessionMetadataStores: recordingFlush(order),
+      clearTimers: () => order.push('clearTimers'),
+      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+      deferQuit: () => order.push('deferQuit'),
+      quit: () => order.push('quit'),
+      agentReapBudgetMs: 1,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await settle();
+
+    // An agent that never dies costs the budget, not the quit.
+    expect(order).toContain('quit');
+    expect(
+      order.filter((name) => name === 'flushSessionMetadataStores'),
+    ).toHaveLength(2);
   });
 });
 

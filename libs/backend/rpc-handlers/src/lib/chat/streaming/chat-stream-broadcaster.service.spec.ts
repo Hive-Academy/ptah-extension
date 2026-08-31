@@ -36,6 +36,10 @@ import {
   ChatStreamBroadcaster,
   type WebviewManager,
 } from './chat-stream-broadcaster.service';
+import {
+  STREAM_BATCH_MAX_EVENTS,
+  STREAM_BATCH_MAX_IN_FLIGHT,
+} from './stream-batch-buffer';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 
 const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' as SessionId;
@@ -553,7 +557,7 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — chunk coalescing (B7)'
     expect(calls.some(([type]) => type === 'chat:chunk')).toBe(true);
   });
 
-  it('does not await each chunk, so a slow transport cannot stall the drain', async () => {
+  it('does not await transport below the cap, so ordinary bursts drain without stalling', async () => {
     const h = makeHarness();
     let resolveTransport: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -584,6 +588,99 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — chunk coalescing (B7)'
 
     resolveTransport?.();
     await running;
+  });
+
+  it('pauses the SDK drain at the transport cap and resumes when sends settle', async () => {
+    const h = makeHarness();
+    let releaseTransport: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    h.webviewManager.broadcastMessage.mockImplementation(() => gate);
+
+    const total = STREAM_BATCH_MAX_EVENTS * STREAM_BATCH_MAX_IN_FLIGHT + 1;
+    let drained = 0;
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      for (let i = 0; i < total; i++) {
+        drained++;
+        yield makeIndexedEvent(i);
+      }
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(drained).toBe(STREAM_BATCH_MAX_EVENTS * STREAM_BATCH_MAX_IN_FLIGHT);
+
+    releaseTransport?.();
+    await running;
+    expect(drained).toBe(total);
+  });
+
+  it('calls transport in event order even when its second batch settles first', async () => {
+    const h = makeHarness();
+    const batchResolvers: Array<() => void> = [];
+    const resolutionOrder: number[] = [];
+    h.webviewManager.broadcastMessage.mockImplementation((type) => {
+      if (type !== MESSAGE_TYPES.BATCH) return Promise.resolve();
+      const index = batchResolvers.length;
+      return new Promise<void>((resolve) => {
+        batchResolvers.push(() => {
+          resolutionOrder.push(index);
+          resolve();
+        });
+      });
+    });
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      for (let i = 0; i < STREAM_BATCH_MAX_EVENTS * 2; i++) {
+        yield makeIndexedEvent(i);
+      }
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const batches = (
+      h.webviewManager.broadcastMessage as jest.Mock
+    ).mock.calls.filter(([type]) => type === MESSAGE_TYPES.BATCH);
+    expect(batches).toHaveLength(2);
+    expect(
+      (batches[0][1] as BatchMessagePayload).events.map(
+        ({ payload }) =>
+          (payload as { event: FlatStreamEventUnion }).event.messageId,
+      ),
+    ).toEqual(
+      Array.from({ length: STREAM_BATCH_MAX_EVENTS }, (_, i) => `msg-${i}`),
+    );
+    expect(
+      (batches[1][1] as BatchMessagePayload).events.map(
+        ({ payload }) =>
+          (payload as { event: FlatStreamEventUnion }).event.messageId,
+      ),
+    ).toEqual(
+      Array.from(
+        { length: STREAM_BATCH_MAX_EVENTS },
+        (_, i) => `msg-${i + STREAM_BATCH_MAX_EVENTS}`,
+      ),
+    );
+
+    // The buffer owns call order only. A transport may acknowledge those calls
+    // in another order without making later batches wait on earlier promises.
+    batchResolvers[1]();
+    await Promise.resolve();
+    expect(resolutionOrder).toEqual([1]);
+    batchResolvers[0]();
+    await running;
+    expect(resolutionOrder).toEqual([1, 0]);
   });
 });
 

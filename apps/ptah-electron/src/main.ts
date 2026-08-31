@@ -227,9 +227,7 @@ if (!gotLock) {
       awaitBootCompletion: (timeoutMs) =>
         coordinator.awaitCompletion(timeoutMs),
       flushWorkspacePersistence: () => flushWorkspacePersistence?.(),
-      flushSessionMetadataStores: () => {
-        void flushSessionMetadataStores();
-      },
+      flushSessionMetadataStores: () => flushSessionMetadataStores(),
       clearTimers: () => {
         if (revalidationInterval !== null) {
           clearInterval(revalidationInterval);

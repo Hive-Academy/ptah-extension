@@ -299,7 +299,7 @@ function makeFullRefs(order: string[]): BootRefs {
 }
 
 /** Let every already-queued microtask run. Deterministic; no timers involved. */
-async function flushMicrotasks(turns = 12): Promise<void> {
+async function flushMicrotasks(turns = 30): Promise<void> {
   for (let i = 0; i < turns; i += 1) {
     await Promise.resolve();
   }
@@ -369,13 +369,19 @@ describe('will-quit — LIFO disposal order', () => {
   });
 
   it('stays fully synchronous when there is nothing to await', () => {
-    // No gateway means no `await` anywhere in the chain, which is the
-    // pre-change shape: one synchronous listener, no `preventDefault`, no
-    // re-issued quit. This is the parity case, and it must produce the same
-    // order as the deferred path minus the entry that forced the deferral.
+    // No gateway AND no agent manager means no `await` anywhere in the chain,
+    // which is the pre-change shape: one synchronous listener, no
+    // `preventDefault`, no re-issued quit. This is the parity case, and it must
+    // produce the same order as the deferred path minus the two entries that
+    // would have forced the deferral.
+    //
+    // The agent manager joined the gateway here in TASK_2026_334: its
+    // `disposeAll()` is now awaited, because the final metadata flush has to
+    // run after the references its exits stage.
     const order: string[] = [];
     const refs = makeFullRefs(order);
     refs.messagingGateway = null;
+    refs.agentProcessManager = null;
     const deferQuit = jest.fn();
     const quit = jest.fn();
 
@@ -388,7 +394,9 @@ describe('will-quit — LIFO disposal order', () => {
 
     expect(ranSynchronously).toBe(true);
     expect(order).toEqual(
-      EXPECTED_LIFO_ORDER.filter((name) => name !== 'messagingGateway'),
+      EXPECTED_LIFO_ORDER.filter(
+        (name) => name !== 'messagingGateway' && name !== 'agentProcessManager',
+      ),
     );
     expect(deferQuit).not.toHaveBeenCalled();
     expect(quit).not.toHaveBeenCalled();
@@ -538,14 +546,25 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
     );
   });
 
-  it('names the gateway as the reason the quit must be deferred', () => {
+  it('names BOTH the gateway and the agent reaper as reasons to defer', () => {
     const order: string[] = [];
     const refs = makeFullRefs(order);
 
     expect(requiresDeferredDisposal(refs)).toBe(true);
 
+    // Each is sufficient on its own, because each writes after an `await`: the
+    // gateway drains into SQLite, and an exiting agent stages a session
+    // reference that only the final flush writes (TASK_2026_334).
     refs.messagingGateway = null;
+    expect(requiresDeferredDisposal(refs)).toBe(true);
+
+    refs.agentProcessManager = null;
     expect(requiresDeferredDisposal(refs)).toBe(false);
+
+    refs.messagingGateway = {
+      stop: async () => undefined,
+    } as unknown as BootRefs['messagingGateway'];
+    expect(requiresDeferredDisposal(refs)).toBe(true);
   });
 });
 

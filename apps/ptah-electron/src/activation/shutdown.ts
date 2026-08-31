@@ -61,6 +61,25 @@ export const BOOT_DRAIN_BUDGET_MS = 2000;
  */
 export const GATEWAY_STOP_BUDGET_MS = 2000;
 
+/**
+ * How long the disposal chain may wait for the agents to exit before it gives
+ * up and flushes whatever they managed to stage.
+ *
+ * The wait exists because an agent exit PRODUCES a write. `disposeAll()` ends
+ * each running ptah-cli agent, its `done` handler stages the agent's bulk
+ * output and then its session reference, and the store coalesces both into one
+ * `IStateStorage.update` that only the final flush performs. Reaping without
+ * waiting means the flush runs against a queue those exits have not reached
+ * yet, and on relaunch the session shows no CLI agent and the agent cannot be
+ * continued (TASK_2026_334 defect 1).
+ *
+ * Two seconds for the same reason the two budgets above are bounded: an agent
+ * whose process refuses to die must cost a bounded pause, not an unquittable
+ * app. The kills are issued synchronously inside `disposeAll()`, so this budget
+ * buys the staging its microtasks — it is not waiting on a process to die.
+ */
+export const AGENT_REAP_BUDGET_MS = 2000;
+
 export interface QuitSequenceDeps {
   /** The coordinator's stable refs object — read, never copied. */
   refs: BootRefs;
@@ -72,8 +91,14 @@ export interface QuitSequenceDeps {
   awaitBootCompletion: (timeoutMs: number) => Promise<void>;
   /** Synchronous workspace-persistence flush. No-op when never wired. */
   flushWorkspacePersistence: () => void;
-  /** Started, not awaited — see the call site comment. */
-  flushSessionMetadataStores: () => void;
+  /**
+   * Drain the session metadata store's coalesced write queue.
+   *
+   * Called TWICE, and the two calls answer different questions. See
+   * {@link handleWillQuit} for the early one and {@link disposeBootRefs} for
+   * the final one.
+   */
+  flushSessionMetadataStores: () => Promise<void>;
   /** Clears the licence-revalidation and update-check intervals. */
   clearTimers: () => void;
   /** Terminates the voice `utilityProcess` worker, if one was registered. */
@@ -86,12 +111,19 @@ export interface QuitSequenceDeps {
   drainBudgetMs?: number;
   /** Override for tests. Defaults to {@link GATEWAY_STOP_BUDGET_MS}. */
   gatewayStopBudgetMs?: number;
+  /** Override for tests. Defaults to {@link AGENT_REAP_BUDGET_MS}. */
+  agentReapBudgetMs?: number;
 }
 
 /** The subset of {@link QuitSequenceDeps} the disposal chain reads. */
 export type DisposalDeps = Pick<
   QuitSequenceDeps,
-  'refs' | 'clearTimers' | 'disposeVoiceWorker' | 'gatewayStopBudgetMs'
+  | 'refs'
+  | 'clearTimers'
+  | 'disposeVoiceWorker'
+  | 'flushSessionMetadataStores'
+  | 'gatewayStopBudgetMs'
+  | 'agentReapBudgetMs'
 >;
 
 /** Run `fn`, log and continue on failure. Every disposal is non-fatal. */
@@ -163,21 +195,59 @@ function disposeBeforePersistence(deps: DisposalDeps): void {
  * running this app. Removing them on quit is the defect TASK_2026_278 exists to
  * close.
  */
-function disposeAfterPersistence(deps: DisposalDeps): void {
+async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const { refs } = deps;
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
-  nonFatal('Agent process disposal', () => {
-    void refs.agentProcessManager?.disposeAll().catch((error: unknown) => {
-      console.warn(
-        '[Ptah Electron] Agent process disposal failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    });
-  });
+
+  // The guard is HERE rather than inside `reapAgents`, and that placement is
+  // the whole reason the undeferred path still works. `await f()` suspends even
+  // when `f` returns immediately, so hiding the null check inside an async
+  // helper would push `cliRegistry` and `diagnostics` into a microtask — and on
+  // a path Electron does not wait for, a microtask is never.
+  const manager = refs.agentProcessManager;
+  if (manager !== null) {
+    await reapAgents(manager, deps.agentReapBudgetMs ?? AGENT_REAP_BUDGET_MS);
+  }
+
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
   nonFatal('Diagnostics dispose', () => refs.diagnostics?.dispose());
+}
+
+/**
+ * Reap the agents and WAIT for them, bounded by {@link AGENT_REAP_BUDGET_MS}.
+ * Never rejects.
+ *
+ * Two things depend on this being awaited, and both were broken while it was
+ * fire-and-forget (TASK_2026_334):
+ *
+ *  - **The final metadata flush.** An agent exit stages the agent's bulk output
+ *    and then its session reference. Flushing before those land loses the
+ *    reference, and the reference is the only route to
+ *    `ptah.agentOutput:<agentId>` — so the relaunched session shows no CLI
+ *    agent and cannot continue it.
+ *  - **"Agents before proxies."** `disposeBeforePersistence` documents that an
+ *    agent must stop before the translation proxy serving it. The CLI registry
+ *    on the next line is that proxy, and it used to be disposed while the
+ *    agents were still exiting, so an agent mid-request hit a closed socket and
+ *    logged a transport error before its SIGTERM landed. The CLI host has
+ *    always awaited both (`shutdown-host-runtime.ts:131-132`); Electron was the
+ *    outlier.
+ *
+ * Takes the manager rather than the deps because the caller must decide whether
+ * to await at all — see the comment at that call site.
+ */
+async function reapAgents(
+  manager: NonNullable<BootRefs['agentProcessManager']>,
+  budgetMs: number,
+): Promise<void> {
+  await withBudget(
+    'Agent process disposal',
+    () => manager.disposeAll(),
+    budgetMs,
+    'flushing whatever the agents staged.',
+  );
 }
 
 /**
@@ -195,13 +265,38 @@ async function stopMessagingGateway(
   gateway: NonNullable<BootRefs['messagingGateway']>,
   budgetMs: number,
 ): Promise<void> {
+  await withBudget(
+    'Messaging gateway stop',
+    () => gateway.stop(),
+    budgetMs,
+    'closing SQLite anyway.',
+  );
+}
+
+/**
+ * Await one teardown step, give up after `budgetMs`, and never reject.
+ *
+ * The shape is shared by every await in this chain, and each one is bounded for
+ * the same reason: a quit that hangs is a worse failure than the write the step
+ * was going to make. `onExpiry` names what happens next, so the warning tells
+ * the reader the consequence rather than only the timeout.
+ *
+ * A step that overruns is NOT cancelled — there is nothing to cancel, and
+ * letting it finish is how its write still has a chance to land in the window
+ * the rest of the teardown occupies.
+ */
+async function withBudget(
+  label: string,
+  step: () => Promise<void>,
+  budgetMs: number,
+  onExpiry: string,
+): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const deadline = new Promise<void>((resolve) => {
     timer = setTimeout(
       () => {
         console.warn(
-          `[Ptah Electron] Messaging gateway stop exceeded ${budgetMs} ms; ` +
-            'closing SQLite anyway.',
+          `[Ptah Electron] ${label} exceeded ${budgetMs} ms; ${onExpiry}`,
         );
         resolve();
       },
@@ -210,10 +305,10 @@ async function stopMessagingGateway(
   });
 
   try {
-    await Promise.race([Promise.resolve(gateway.stop()), deadline]);
+    await Promise.race([Promise.resolve(step()), deadline]);
   } catch (error: unknown) {
     console.warn(
-      '[Ptah Electron] Messaging gateway stop failed (non-fatal):',
+      `[Ptah Electron] ${label} failed (non-fatal):`,
       error instanceof Error ? error.message : String(error),
     );
   } finally {
@@ -225,13 +320,22 @@ async function stopMessagingGateway(
  * `true` when the disposal chain has something it must AWAIT, and the quit
  * therefore has to be deferred even with no boot in flight.
  *
- * Only the messaging gateway qualifies today: it is the one handle whose stop
- * writes to SQLite after an `await`. Every other entry in the chain is either
- * synchronous or deliberately fire-and-forget (the agent reaper, whose kills are
- * issued synchronously and whose settle nothing downstream depends on).
+ * Two handles qualify, and both because a WRITE happens after an `await`:
+ *
+ *  - The **messaging gateway**, whose stop drains buffered adapter sends into
+ *    the SQLite database `SQLite close` is about to shut.
+ *  - The **agent process manager**, whose `disposeAll()` makes each running
+ *    agent exit and stage its session reference, which only the final
+ *    {@link disposeBootRefs} flush writes.
+ *
+ * The agent reaper used to be listed here as the counter-example — "deliberately
+ * fire-and-forget, whose settle nothing downstream depends on". That stopped
+ * being true the moment a flush was placed after it (TASK_2026_334). An
+ * undeferred quit gives that flush no window, and Electron tears the process
+ * down with the reference still staged.
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
-  return refs.messagingGateway !== null;
+  return refs.messagingGateway !== null || refs.agentProcessManager !== null;
 }
 
 /**
@@ -254,7 +358,15 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
     );
   }
 
-  disposeAfterPersistence(deps);
+  await disposeAfterPersistence(deps);
+
+  // LAST, and AWAITED. The early flush in `handleWillQuit` drained what was
+  // staged when the quit arrived; this one drains what the TEARDOWN ITSELF
+  // produced — above all the session reference each agent stages as it exits.
+  // Without it the reap above has nobody to hand its writes to, which is the
+  // whole of TASK_2026_334 defect 1. Reaching this line at all is what
+  // `requiresDeferredDisposal` guarantees whenever there are agents to reap.
+  await deps.flushSessionMetadataStores();
 }
 
 /**
@@ -312,10 +424,18 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
   // FIRST, and started rather than awaited: `will-quit` cannot block, and the
   // session metadata store coalesces a burst of writes into one update at the
   // end of its queue drain. Starting the flush before the disposals gives the
-  // staged snapshot the whole teardown window to reach storage — without it
-  // nothing ever called `flush()` and a CLI agent that exited in the final
-  // seconds lost its reference (TASK_2026_324 finding 3).
-  nonFatal('Session metadata flush', deps.flushSessionMetadataStores);
+  // ALREADY-staged snapshot the whole teardown window to reach storage —
+  // without it nothing ever called `flush()` and a CLI agent that exited in the
+  // final seconds lost its reference (TASK_2026_324 finding 3).
+  //
+  // It is deliberately not the only flush. It cannot see what the teardown is
+  // about to stage, so `disposeBootRefs` runs a second, AWAITED one after the
+  // agents have been reaped (TASK_2026_334). Keeping this one is what leaves
+  // the undeferred path — where there is no window for that second flush — no
+  // worse off than before.
+  nonFatal('Session metadata flush', () => {
+    void deps.flushSessionMetadataStores();
+  });
 
   // Cancel in-flight boot work BEFORE anything is disposed. A scan that is
   // still running would otherwise keep writing to services the chain below is
@@ -329,8 +449,14 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
     // byte-for-byte the pre-change synchronous teardown. The two halves are run
     // inline rather than through `disposeBootRefs` precisely so that no `await`
     // can slip in front of `SQLite close` on a path Electron will not wait for.
+    //
+    // `disposeAfterPersistence` is async but takes no `await` here: its only
+    // one is the agent reap, and `requiresDeferredDisposal` returning false is
+    // exactly the statement that there is no agent manager to reap. So the body
+    // runs to completion synchronously before the promise is returned, and the
+    // `void` discards a promise that is already settled.
     disposeBeforePersistence(deps);
-    disposeAfterPersistence(deps);
+    void disposeAfterPersistence(deps);
     return true;
   }
 

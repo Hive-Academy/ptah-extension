@@ -67,8 +67,7 @@ jest.mock('@ptah-extension/harness-sync', () => ({
     root === undefined || root === ''
       ? {}
       : {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          agentSourceDir: require('path').join(root, '.claude', 'agents'),
+          agentSourceDir: path.join(root, '.claude', 'agents'),
           workspaceRoot: root,
         },
 }));

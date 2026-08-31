@@ -17,11 +17,11 @@
  * as `MESSAGE_TYPES.BATCH` envelopes. See that file for the ordering and
  * failure rules. Two invariants live HERE rather than there:
  *
- *  - **Nothing in the loop awaits a chunk broadcast.** Awaiting each hop parks
- *    the SDK stream drain behind the renderer, which is the actual mechanism
- *    behind the reported freeze. Turn boundaries still await: the buffer is
- *    flushed before `CHAT_COMPLETE` and before `CHAT_ERROR`, so a completion
- *    can never overtake the chunks it completes.
+ *  - **The loop never awaits each chunk's transport round-trip.** Below the
+ *    transport cap, `push()` returns immediately; only a full in-flight window
+ *    pauses the SDK drain until one send settles. Turn boundaries still await:
+ *    the buffer is flushed before `CHAT_COMPLETE` and before `CHAT_ERROR`, so a
+ *    completion can never overtake the chunks it completes.
  *  - **All three transports unwrap a batch.** `MessageRouterService` for the
  *    two webview hosts, `CliWebviewManagerAdapter` for CLI/TUI. The CLI one is
  *    load-bearing and easy to miss: that transport emits the message `type` as
@@ -225,7 +225,7 @@ export class ChatStreamBroadcaster {
             );
           }
         }
-        batch.push({
+        const backPressure = batch.push({
           type: MESSAGE_TYPES.CHAT_CHUNK,
           payload: {
             tabId, // For frontend tab routing
@@ -234,6 +234,12 @@ export class ChatStreamBroadcaster {
             ...(surfaceMode ? { surfaceMode: true } : {}),
           },
         });
+        // Most events stay on the allocation-free path. Once the send window is
+        // retained by the transport, pause the SDK drain until one releases;
+        // this is a bounded overlap, not the old per-send transport await.
+        if (backPressure !== undefined) {
+          await backPressure;
+        }
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
         }
