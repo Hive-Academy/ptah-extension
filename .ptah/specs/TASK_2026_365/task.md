@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_365
-status: in_review
+status: done
 type: bugfix
 title: Scope the agent user layer by workspace
 description: >-

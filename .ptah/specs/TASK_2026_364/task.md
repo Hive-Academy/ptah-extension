@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_364
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   CLI agent spawning validates against the process-global workspace root, not the
