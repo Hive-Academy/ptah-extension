@@ -165,7 +165,32 @@ fixed before Batch 3 starts, because Batch 3 imports the affected public types.
    (`libs/shared/.../rpc/rpc-setup.types.ts:160`) conflates "none" with "omitted".
    Make it `analysisDirectory: string | null`, required and nullable.
 
-## Batch 6: ptah-cli consumers of the removed `generatedCount` — PENDING (orchestrator-added)
+## Batch 6: ptah-cli consumers of the removed `generatedCount` — COMPLETE
+
+Executed by the orchestrator. The three spec files adopted the new payload
+shape, and `phase-runner.spec.ts` now extracts `writtenCount`.
+
+Two things the batch found that were not in its brief:
+
+- `apps/ptah-cli/src/cli/commands/setup.ts` sent the whole
+  `MultiPhaseAnalysisResponse` as `analysisData`, which takes a
+  `ProjectAnalysisResult`. Batch 3 added a Zod schema that drops the mismatched
+  value, so the call was already a no-op with a warn. The field is now not sent
+  at all; `analysisDir` fully specifies the analysis. The Batch 3 report named
+  this as a Batch 6 clean-up.
+- **`apps/ptah-cli/src/di/container.smoke.spec.ts` was failing after the Batch 3
+  commit `57302b996`.** Batch 3's verification ran the VS Code and Electron
+  composition roots and missed the third one, so that commit shipped with a red
+  `ptah-cli` smoke spec. Fixed here with the same `ANALYSIS_STORAGE_SERVICE`
+  registration. Rule for later batches: there are exactly THREE
+  `container.smoke.spec.ts` files — vscode, electron and cli. A constructor
+  change to a shared handler must run all three.
+
+Verification: `npx nx run-many -t typecheck,lint,test -p ptah-cli
+--skip-nx-cache` — "Successfully ran targets typecheck, lint, test", 65 suites
+passed, 970 tests passed.
+
+## Batch 6 (original brief): ptah-cli consumers of the removed `generatedCount`
 
 The reviewer was right that no batch owned these. Measured with `grep -rn
 generatedCount --include=*.ts apps/ libs/`:
