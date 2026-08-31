@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_360
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   Backend-owned session turn state as the single source of truth for streaming

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_363
-status: in_progress
+status: done
 type: BUGFIX
 title: >-
   No-activity watchdog kills idle sessions and long subagent generations
