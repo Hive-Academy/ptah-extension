@@ -7,6 +7,7 @@ import type {
   EnhancedPromptsGetStatusResponse,
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
+  WizardGetResumableRunResponse,
   WizardInstallPackAgentsResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
@@ -54,7 +55,8 @@ export interface AgentSelectionResponse {
  * - wizard:cancel - Cancel the wizard session
  * - wizard:retry-item - Retry a failed generation item
  * - wizard:cancel-analysis - Cancel a running analysis
- * - wizard:deep-analyze - Deep workspace analysis
+ * - wizard:deep-analyze - Deep workspace analysis (supports resume)
+ * - wizard:get-resumable-run - Read-only discovery of an unfinished run
  * - wizard:recommend-agents - Get agent recommendations
  * - enhancedPrompts:runWizard - Run Enhanced Prompts wizard
  * - enhancedPrompts:getStatus - Get Enhanced Prompts status
@@ -167,18 +169,78 @@ export class WizardRpcService {
    * Deep analyze the workspace project structure.
    * Calls wizard:deep-analyze backend handler (registered in RpcMethodRegistry).
    *
+   * Pass `{ resume: true }` to continue an unfinished version-3 analysis
+   * run instead of starting a new one.
+   *
    * Returns MultiPhaseAnalysisResponse (MCP required).
    */
-  public async deepAnalyze(): Promise<MultiPhaseAnalysisResponse> {
+  public async deepAnalyze(options?: {
+    resume?: boolean;
+  }): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
-      { model: this.modelState.currentModel() || undefined },
+      {
+        model: this.modelState.currentModel() || undefined,
+        ...(options?.resume ? { resume: true } : {}),
+      },
       { timeout: WIZARD_RPC_TIMEOUTS.DEEP_ANALYSIS_MS },
     );
     if (result.isSuccess() && result.data) {
       return result.data as MultiPhaseAnalysisResponse;
     }
     throw new Error(result.error || 'Deep analysis failed');
+  }
+
+  /**
+   * Discover an unfinished analysis/generation run persisted by the backend.
+   * Calls the read-only wizard:get-resumable-run handler.
+   *
+   * Discovery is best-effort: a failure returns an empty response so wizard
+   * startup never breaks on it.
+   */
+  public async getResumableRun(): Promise<WizardGetResumableRunResponse> {
+    try {
+      const result = await this.rpcService.call(
+        'wizard:get-resumable-run',
+        {},
+        { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+      );
+      if (result.isSuccess() && result.data) {
+        return result.data as WizardGetResumableRunResponse;
+      }
+      if (result.error) {
+        console.warn(
+          '[WizardRpcService] getResumableRun failed:',
+          result.error,
+        );
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[WizardRpcService] getResumableRun failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return { analysis: null, generation: null };
+  }
+
+  /**
+   * Resume a persisted generation run.
+   *
+   * Sends `wizard:submit-selection` with `resume: true` and an empty
+   * selection — the backend reuses the persisted selection and inputs from
+   * its checkpoint, never a frontend-memory reconstruction. (The schema
+   * allows an empty `selectedAgentIds` only together with `resume: true`.)
+   */
+  public async resumeGeneration(): Promise<AgentSelectionResponse> {
+    const result = await this.rpcService.call(
+      'wizard:submit-selection',
+      { selectedAgentIds: [], resume: true },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (result.isSuccess()) {
+      return (result.data as AgentSelectionResponse) ?? { success: true };
+    }
+    throw new Error(result.error || 'Failed to resume generation');
   }
 
   /**

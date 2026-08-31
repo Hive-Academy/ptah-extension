@@ -113,7 +113,40 @@ interface PhaseStep {
 
       <!-- Main Content Area -->
       <div class="flex-1 min-h-0 px-3 pb-3">
-        @if (progress(); as progressData) {
+        @if (resumableAnalysis()) {
+          <!-- Resume hold: the prior run is kept until the user decides -->
+          <div class="h-full flex flex-col items-center justify-center gap-4">
+            <div
+              class="card bg-base-200/60 border border-base-300 max-w-md"
+              data-testid="resume-analysis-card"
+            >
+              <div class="card-body items-center text-center gap-3">
+                <h3 class="text-sm font-semibold">Unfinished analysis found</h3>
+                <p class="text-xs text-base-content-muted">
+                  A previous workspace analysis did not finish. Resume it, or
+                  start a fresh analysis. The saved progress is kept until you
+                  decide.
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    class="btn btn-primary btn-sm"
+                    aria-label="Resume analysis"
+                    (click)="onResumeAnalysis()"
+                  >
+                    Resume Analysis
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    aria-label="Start a fresh analysis"
+                    (click)="onStartFresh()"
+                  >
+                    Start Fresh
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        } @else if (progress(); as progressData) {
           <!-- Phase Cards (agentic analysis) -->
           @if (progressData.currentPhase) {
             <div class="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
@@ -442,6 +475,7 @@ export class ScanProgressComponent implements OnInit {
   protected readonly errorMessage = this.runner.errorMessage;
   protected readonly statusText = this.runner.statusText;
   protected readonly isAnalyzing = this.runner.isRunning;
+  protected readonly resumableAnalysis = this.runner.resumableAnalysis;
 
   /**
    * Check if a phase is completed or is the current active phase.
@@ -506,6 +540,16 @@ export class ScanProgressComponent implements OnInit {
    */
   protected onRetry(): void {
     void this.runner.retry();
+  }
+
+  /** Handle "Resume Analysis" — continue the persisted unfinished run. */
+  protected onResumeAnalysis(): void {
+    void this.runner.resumeAnalysis();
+  }
+
+  /** Handle "Start Fresh" — discard the resume offer and analyze anew. */
+  protected onStartFresh(): void {
+    void this.runner.startFreshAnalysis();
   }
 
   /**

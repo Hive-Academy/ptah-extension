@@ -278,7 +278,31 @@ shared 49 / 1216, vscode 32 suites, electron 4 suites. Zero lint errors.
 - Typecheck/lint: `npx nx run-many -t typecheck,lint -p @ptah-extension/rpc-handlers @ptah-extension/shared`
 - Confirm the setup-handler static method manifest exposes `wizard:get-resumable-run`, and no handler imports a platform adapter or agent-generation internal service.
 
-## Batch 4: Setup-wizard recovery actions and outcome presentation — PENDING
+## Batch 4: Setup-wizard recovery actions and outcome presentation — COMPLETE
+
+Executed by a claude CLI agent (report: `batch-4.report.md`), exit 0. It
+confirmed the pre-start breakage before editing: the lib did not typecheck,
+because `wizard-phase-generation.ts:93` still read the removed
+`payload.generatedCount`.
+
+The judgment call worth keeping: the `phase === 'complete'` branch in
+`handleGenerationProgress` was REMOVED, not bypassed. It marked every pending
+item complete on the final progress event, which is the same "infer success
+from a progress tick" defect this task exists to remove. Terminal item state
+now has one source, `applyAgentOutcomes`.
+
+Orchestrator verification (independent, `--skip-nx-cache`): `typecheck`, `lint`
+and `test` for `@ptah-extension/setup-wizard` — 12 suites, 319 tests, all
+passing. Downstream consumers `ptah-extension-webview` and
+`@ptah-extension/canvas` also pass (3 + 7 suites, 36 + 141 tests). House rules
+checked by hand: no `[innerHTML]` anywhere in the lib, and all three touched
+components keep `ChangeDetectionStrategy.OnPush`.
+
+Known limit, stated by the executor: no spec drives the full step routing
+across a restart end-to-end (welcome → scan → hold → resume). The flow is
+covered at the runner and component seams only.
+
+## Batch 4 (original brief): Setup-wizard recovery actions and outcome presentation
 
 - Recommended Executor: frontend-developer
 - Fallback Executor: CLI agent selected by the ORCHESTRATOR

@@ -120,6 +120,53 @@ Task type: BUGFIX + FEATURE. Depth: Full (analysis done by orchestrator, recorde
 above). Sequence: software-architect → user review → team-leader (batches) →
 backend-developer / frontend-developer → senior-tester → reviewers → commit.
 
+## Execution log
+
+- 2026-08-31 ~04:00–05:45: three `software-architect` Task sub-agents were interrupted
+  before writing anything. User instruction: **use CLI agents, not Claude Task
+  sub-agents**, for the rest of this task.
+- 2026-08-31 02:49Z: architect delegated to codex CLI agent
+  `7060e74e-3ff0-4b21-b0cf-d5bc000e1bdf` (deliverable: `implementation-plan.md`).
+  Resume with `ptah_agent_status` → CLI Session ID → `ptah_agent_spawn { resume_session_id }`.
+- 2026-08-31 02:56Z: that run FAILED with `Selected model is at capacity` (default
+  codex model `gpt-5.6-sol`). CLI session `01a055b8-bb46-7703-b7a3-fd8c2707ea2f`.
+- 2026-08-31 ~03:00Z: resumed the same session with `model: gpt-5.6-terra`
+  (ids from `~/.codex/models_cache.json`: gpt-5.4, gpt-5.4-mini, gpt-5.5,
+  gpt-5.6-luna, gpt-5.6-sol, gpt-5.6-terra).
+- 2026-08-31 03:07Z: codex agent `7127a467-591b-4c01-8023-35cc02ed6aed` completed
+  (exit 0). Wrote `implementation-plan.md` (428 lines). Checkpoint 2 presented to
+  the user. User replied APPROVED.
+- 2026-08-31 03:17Z: team-leader MODE 1 delegated to codex CLI agent
+  `788cc368-8ffa-43ac-af17-86b2ea646e1c` (model gpt-5.6-terra, deliverable `batches.md`).
+- 2026-08-31 03:3xZ: team-leader completed (exit 0), `batches.md` written: 5 batches
+  (1 contracts → 2 agent-generation services → 3 rpc-handlers → 4 setup-wizard;
+  5 `.gitignore` independent). Batch 1 spawned as codex CLI agent (see below).
+  Batch 5 executed by the orchestrator (mechanical policy edit). Executors write
+  `batch-N.report.md` into this folder when done.
+- 2026-08-31 03:26Z: Batch 1 spawned as codex CLI agent
+  `20df127d-6754-4f20-91bf-58ad9432f557` (gpt-5.6-terra).
+- 2026-08-31 03:4xZ: Batch 5 COMMITTED as `84892c088` on branch
+  `chore/normalize-husky-line-endings` (the user's current working branch; not
+  switched to avoid disturbing their unrelated in-progress agent-sdk changes).
+  Deviations recorded in batches.md. `.prettierignore` gained `.claude/`.
+- 2026-08-31 ~03:55Z: Batch 1 IMPLEMENTED (report: batch-1.report.md). Commit
+  deferred — folded into Batch 2's commit. Batch 2 spawned as codex CLI agent
+  `80fa7097-1eaa-4667-aee8-eac81a951979` (gpt-5.6-terra) at 03:36Z.
+- STAGING RULE for the Batch 1+2 commit: the worktree also carries the user's
+  unrelated edits in `libs/shared/src/lib/types/execution/stream-background.ts`,
+  `execution/stream.ts`, `rpc/rpc-session.types.ts`, `sdk-hook.schemas.ts` and many
+  `libs/backend/agent-sdk/**` files. Stage ONLY: Batch 1's nine files
+  (`shared/.../rpc/rpc-setup.types.ts`, `shared/.../rpc.types.ts`,
+  `shared/.../wizard/phase.ts`, `agent-generation/.../types/{multi-phase,core,
+enhanced-prompts,generation-checkpoint}.types.ts`, `types/index.ts`,
+  `interfaces/{content-generation,agent-file-writer}.interface.ts`) plus the
+  Batch 2 file list from batches.md (+ `core.types.spec.ts` if touched).
+
+- 2026-08-31 ~06:0xZ: Batches 1+2 COMMITTED as `34b928a44` (25 files, +3752/-964).
+  Batch 2b (three remaining code-logic review fixes) applied by the orchestrator
+  and COMMITTED as `0424addac` (6 files). agent-generation: 30/30 suites,
+  947/947 tests. Next: Batch 3 (rpc-handlers), then Batch 4, then Batch 6.
+
 ## Decisions
 
 - cli_delegation: **auto** (user, checkpoint 0.1). Available: codex (cli),

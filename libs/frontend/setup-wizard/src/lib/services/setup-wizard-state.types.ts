@@ -1,5 +1,8 @@
 import type { StreamingState } from '@ptah-extension/chat-types';
-import type { AnalysisPhase } from '@ptah-extension/shared';
+import type {
+  AnalysisPhase,
+  GenerationAgentOutcome,
+} from '@ptah-extension/shared';
 
 /**
  * Wizard state types extracted from `setup-wizard-state.service.ts`.
@@ -96,11 +99,28 @@ export interface AnalysisResults {
 }
 
 /**
- * Completion data payload
+ * Completion data payload.
+ *
+ * Mirrors `GenerationCompletePayload`: explicit terminal agent outcomes plus
+ * aggregate counts. The UI derives every completion card from these outcomes,
+ * never from streamed progress items.
  */
 export interface CompletionData {
   success: boolean;
-  generatedCount: number;
+  /** Absolute directory containing generated agent files. */
+  outputDirectory: string;
+  /** Number of files newly written during this run. */
+  writtenCount: number;
+  /** Number of files already matching the generated content. */
+  unchangedCount: number;
+  /** Number of agents whose generation failed. */
+  failedCount: number;
+  /** Aggregate count of LLM sections rejected by output validation. */
+  rejectedSections: number;
+  /** Aggregate count of accepted, non-empty LLM section replacements. */
+  tailoredSections: number;
+  /** Terminal outcome for every selected agent. */
+  agents: GenerationAgentOutcome[];
   duration?: number;
   errors?: string[];
   warnings?: string[];

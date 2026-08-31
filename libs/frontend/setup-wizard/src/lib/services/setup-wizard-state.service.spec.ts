@@ -8,14 +8,37 @@ import {
   GenerationProgress,
   ScanProgress,
   AnalysisResults,
-  CompletionData,
   ErrorState,
 } from './setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
+import type { GenerationCompletePayload } from '@ptah-extension/shared';
 import {
   StreamRouter,
   StreamingSurfaceRegistry,
 } from '@ptah-extension/chat-routing';
+
+/** Outcome-carrying generation-complete payload fixture. */
+const generationComplete = (
+  overrides: Partial<GenerationCompletePayload> = {},
+): GenerationCompletePayload => ({
+  success: true,
+  outputDirectory: '/test/workspace/.claude/agents',
+  writtenCount: 1,
+  unchangedCount: 0,
+  failedCount: 0,
+  rejectedSections: 0,
+  tailoredSections: 0,
+  agents: [
+    {
+      agentId: 'frontend-developer',
+      filePath: '/test/workspace/.claude/agents/frontend-developer.md',
+      status: 'written',
+      rejectedSections: 0,
+      tailoredSections: 0,
+    },
+  ],
+  ...overrides,
+});
 
 describe('SetupWizardStateService', () => {
   let service: SetupWizardStateService;
@@ -416,11 +439,7 @@ describe('SetupWizardStateService', () => {
     });
 
     it('should handle generation complete message and store completion data', () => {
-      const payload: CompletionData = {
-        success: true,
-        generatedCount: 5,
-        duration: 120000,
-      };
+      const payload = generationComplete({ duration: 120000 });
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -442,11 +461,7 @@ describe('SetupWizardStateService', () => {
       // generation-complete message only when the current step is 'generation'.
       service.setCurrentStep('generation');
 
-      const payload: CompletionData = {
-        success: true,
-        generatedCount: 5,
-        duration: 120000,
-      };
+      const payload = generationComplete({ duration: 120000 });
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -456,6 +471,45 @@ describe('SetupWizardStateService', () => {
 
       expect(service.completionData()).toEqual(payload);
       expect(service.currentStep()).toBe('enhance');
+    });
+
+    it('should map explicit failed outcomes into item progress on complete', () => {
+      service.setSkillGenerationProgress([
+        {
+          id: 'frontend-developer',
+          name: 'frontend-developer.md',
+          type: 'agent',
+          status: 'in-progress',
+        },
+      ]);
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: generationComplete({
+              success: false,
+              writtenCount: 0,
+              failedCount: 1,
+              agents: [
+                {
+                  agentId: 'frontend-developer',
+                  filePath:
+                    '/test/workspace/.claude/agents/frontend-developer.md',
+                  status: 'failed',
+                  rejectedSections: 0,
+                  tailoredSections: 0,
+                  error: 'SDK stream aborted',
+                },
+              ],
+            }),
+          },
+        }),
+      );
+
+      const item = service.skillGenerationProgress()[0];
+      expect(item.status).toBe('error');
+      expect(item.errorMessage).toBe('SDK stream aborted');
     });
 
     it('should handle error message', () => {
@@ -670,13 +724,12 @@ describe('SetupWizardStateService', () => {
         new MessageEvent('message', {
           data: {
             type: 'setup-wizard:generation-complete',
-            payload: {
-              success: true,
-              generatedCount: 3,
+            payload: generationComplete({
+              writtenCount: 3,
               duration: 45000,
               warnings,
               enhancedPromptsUsed: true,
-            },
+            }),
           },
         }),
       );
@@ -692,11 +745,7 @@ describe('SetupWizardStateService', () => {
         new MessageEvent('message', {
           data: {
             type: 'setup-wizard:generation-complete',
-            payload: {
-              success: true,
-              generatedCount: 5,
-              duration: 30000,
-            },
+            payload: generationComplete({ writtenCount: 5, duration: 30000 }),
           },
         }),
       );
@@ -712,11 +761,10 @@ describe('SetupWizardStateService', () => {
         new MessageEvent('message', {
           data: {
             type: 'setup-wizard:generation-complete',
-            payload: {
-              success: true,
-              generatedCount: 2,
+            payload: generationComplete({
+              writtenCount: 2,
               enhancedPromptsUsed: false,
-            },
+            }),
           },
         }),
       );
