@@ -38,11 +38,18 @@ export type {
 } from './analysis.types';
 export type {
   MultiPhaseId,
+  AnalysisPhaseStatus,
   PhaseResult,
   MultiPhaseManifest,
   MultiPhaseAnalysisOptions,
 } from './multi-phase.types';
-export { PHASE_CONFIGS } from './multi-phase.types';
+export { PHASE_CONFIGS, MultiPhaseManifestSchema } from './multi-phase.types';
+export type {
+  GenerationAgentCheckpoint,
+  GenerationCheckpointManifest,
+} from './generation-checkpoint.types';
+export { GenerationCheckpointManifestSchema } from './generation-checkpoint.types';
+export type { EnhancedPromptTraceMetadata } from './enhanced-prompts.types';
 export type {
   ProjectType,
   Framework,
@@ -54,4 +61,5 @@ export type {
   QualityAssessment,
   QualityGap,
   PrescriptiveGuidance,
+  GenerationAgentOutcome,
 } from '@ptah-extension/shared';

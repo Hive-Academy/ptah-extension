@@ -185,6 +185,8 @@ import type {
   SetupWizardLaunchResponse,
   WizardDeepAnalyzeParams,
   WizardDeepAnalyzeResponse,
+  WizardGetResumableRunParams,
+  WizardGetResumableRunResponse,
   WizardRecommendAgentsParams,
   WizardRecommendAgentsResponse,
   WizardCancelAnalysisParams,
@@ -770,6 +772,10 @@ export interface RpcMethodRegistry {
   'wizard:deep-analyze': {
     params: WizardDeepAnalyzeParams;
     result: WizardDeepAnalyzeResponse;
+  };
+  'wizard:get-resumable-run': {
+    params: WizardGetResumableRunParams;
+    result: WizardGetResumableRunResponse;
   };
   'wizard:recommend-agents': {
     params: WizardRecommendAgentsParams;
@@ -3388,6 +3394,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
+  'wizard:get-resumable-run': true,
   'wizard:recommend-agents': true,
   'wizard:cancel-analysis': true,
   'wizard:submit-selection': true,

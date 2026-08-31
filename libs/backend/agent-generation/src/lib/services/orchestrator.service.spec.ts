@@ -306,6 +306,8 @@ function wireHappyPath(
     Result.ok({
       content: '# Generated\n\nBody',
       warnings: [],
+      rejectedSections: 0,
+      tailoredSections: 0,
     }),
   );
 
@@ -314,7 +316,10 @@ function wireHappyPath(
   );
 
   mocks.fileWriter.writeAgent.mockResolvedValue(
-    Result.ok('/workspace/test-project/.claude/agents/backend-developer.md'),
+    Result.ok({
+      filePath: '/workspace/test-project/.claude/agents/backend-developer.md',
+      status: 'written' as const,
+    }),
   );
 }
 
@@ -670,6 +675,8 @@ describe('AgentGenerationOrchestratorService', () => {
           content:
             '\n---\nname: stale\ndescription: stale\n---\n\nReal body content',
           warnings: [],
+          rejectedSections: 0,
+          tailoredSections: 0,
         }),
       );
 
@@ -785,6 +792,8 @@ describe('AgentGenerationOrchestratorService', () => {
           warnings: [
             '[Backend Developer] LLM section FRAMEWORK_CONVENTIONS rejected (states a version number) — kept the authored fallback',
           ],
+          rejectedSections: 1,
+          tailoredSections: 0,
         }),
       );
 
@@ -1089,7 +1098,12 @@ describe('AgentGenerationOrchestratorService', () => {
       let writeCalls = 0;
       mocks.fileWriter.writeAgent.mockImplementation(async () => {
         writeCalls++;
-        if (writeCalls === 1) return Result.ok('/path/agent-a.md');
+        if (writeCalls === 1) {
+          return Result.ok({
+            filePath: '/path/agent-a.md',
+            status: 'written' as const,
+          });
+        }
         return Result.err(new Error('Permission denied'));
       });
 
@@ -1297,6 +1311,8 @@ describe('AgentGenerationOrchestratorService', () => {
         }
         return Result.ok({
           content: '# B',
+          rejectedSections: 0,
+          tailoredSections: 0,
           warnings: [],
         });
       });
@@ -1385,6 +1401,8 @@ describe('AgentGenerationOrchestratorService', () => {
           : Result.ok({
               content: `# ${t.id}`,
               warnings: [],
+              rejectedSections: 0,
+              tailoredSections: 0,
             }),
       );
       mocks.outputValidation.validate.mockResolvedValue(
@@ -1394,9 +1412,10 @@ describe('AgentGenerationOrchestratorService', () => {
       const written: string[] = [];
       mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
         written.push(agent.sourceTemplateId);
-        return Result.ok(
-          `/workspace/test-project/.claude/agents/${agent.sourceTemplateId}.md`,
-        );
+        return Result.ok({
+          filePath: `/workspace/test-project/.claude/agents/${agent.sourceTemplateId}.md`,
+          status: 'written' as const,
+        });
       });
 
       const result = await service.generateAgents({
@@ -1632,5 +1651,227 @@ describe('stripCompositionMarkers', () => {
     // Prettier-safe: a template may legitimately carry an HTML comment.
     const content = 'a\n<!-- prettier-ignore -->\nb';
     expect(stripCompositionMarkers(content)).toBe(content);
+  });
+});
+
+// =============================================================================
+// 6. ABORTABLE, OUTCOME-HONEST GENERATION (TASK_2026_361)
+//    The abort signal reaches the SDK config, stops every later render/write,
+//    and each selected agent ends with exactly one terminal outcome.
+// =============================================================================
+
+type AgentOutcome = Parameters<
+  NonNullable<OrchestratorGenerationOptions['onAgentOutcome']>
+>[0];
+
+describe('AgentGenerationOrchestratorService — abortable, outcome-honest generation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    existsSyncMock.mockReturnValue(false);
+  });
+
+  function wireAgents(
+    mocks: OrchestratorMocks,
+    ids: string[],
+  ): Record<string, AgentTemplate> {
+    wireHappyPath(mocks);
+    const templates: Record<string, AgentTemplate> = {};
+    for (const id of ids) templates[id] = createMockTemplate({ id });
+    mocks.agentSelector.selectAgents.mockResolvedValue(
+      Result.ok(
+        ids.map((id) => ({
+          template: templates[id],
+          relevanceScore: 100,
+          matchedCriteria: [],
+        })),
+      ),
+    );
+    mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+      Result.ok(templates[id]),
+    );
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) =>
+      Result.ok({ filePath: agent.filePath, status: 'written' as const }),
+    );
+    return templates;
+  }
+
+  it('passes the abort signal into the content-generation SDK config', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a']);
+    const controller = new AbortController();
+
+    await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    const sdkConfig = mocks.contentGenerator.generateContent.mock.calls[0]![2];
+    expect(sdkConfig?.abortSignal).toBe(controller.signal);
+  });
+
+  it('records every remaining agent as not generated and writes nothing after an abort during rendering', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const controller = new AbortController();
+    mocks.contentGenerator.generateContent.mockImplementation(async () => {
+      controller.abort('user_cancelled');
+      throw new Error('Content generation aborted: user_cancelled');
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
+    expect(mocks.contentGenerator.generateContent).toHaveBeenCalledTimes(1);
+    expect(summary.lifecycle).toBe('paused');
+    expect(summary.outcomes.map((o) => o.status)).toEqual(['failed', 'failed']);
+    expect(summary.outcomes.map((o) => o.error)).toEqual([
+      'not generated: user_cancelled',
+      'not generated: user_cancelled',
+    ]);
+    expect(summary.writtenCount).toBe(0);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.successful).toBe(0);
+  });
+
+  it('stops before the next write once the watchdog aborts, and reports timed-out', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b', 'agent-c']);
+    const controller = new AbortController();
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
+      controller.abort('generation_timeout');
+      return Result.ok({
+        filePath: agent.filePath,
+        status: 'written' as const,
+      });
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+    expect(mocks.contentGenerator.generateContent).toHaveBeenCalledTimes(1);
+    expect(summary.lifecycle).toBe('timed-out');
+    expect(summary.writtenCount).toBe(1);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.outcomes[0]).toEqual(
+      expect.objectContaining({ agentId: 'agent-a', status: 'written' }),
+    );
+    expect(summary.outcomes[1].error).toBe('not generated: generation_timeout');
+    expect(summary.outcomes[2].error).toBe('not generated: generation_timeout');
+  });
+
+  it('aggregates mixed written / unchanged / failed outcomes with their section counts', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b', 'agent-c']);
+    const counts: Record<string, [number, number]> = {
+      'agent-a': [1, 2],
+      'agent-b': [0, 3],
+      'agent-c': [2, 0],
+    };
+    mocks.contentGenerator.generateContent.mockImplementation(async (t) =>
+      Result.ok({
+        content: `# ${t.id}`,
+        warnings: [],
+        rejectedSections: counts[t.id][0],
+        tailoredSections: counts[t.id][1],
+      }),
+    );
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
+      if (agent.sourceTemplateId === 'agent-a') {
+        return Result.ok({
+          filePath: agent.filePath,
+          status: 'written' as const,
+        });
+      }
+      if (agent.sourceTemplateId === 'agent-b') {
+        return Result.ok({
+          filePath: agent.filePath,
+          status: 'unchanged' as const,
+        });
+      }
+      return Result.err(new Error('Disk full'));
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(summary.lifecycle).toBe('completed');
+    expect(summary.totalAgents).toBe(3);
+    expect(summary.writtenCount).toBe(1);
+    expect(summary.unchangedCount).toBe(1);
+    expect(summary.failedCount).toBe(1);
+    expect(summary.successful).toBe(2);
+    expect(summary.failed).toBe(1);
+    expect(summary.rejectedSections).toBe(3);
+    expect(summary.tailoredSections).toBe(5);
+    expect(summary.outcomes.map((o) => o.status)).toEqual([
+      'written',
+      'unchanged',
+      'failed',
+    ]);
+    expect(summary.outcomes[2].error).toBe('Disk full');
+    expect(summary.outcomes[2].rejectedSections).toBe(2);
+    expect(summary.outputDirectory.replace(/\\/g, '/')).toBe(
+      '/workspace/test-project/.claude/agents',
+    );
+    expect(
+      summary.warnings.some((w) => w.includes('Failed to write agent-c')),
+    ).toBe(true);
+  });
+
+  it('fires onAgentOutcome exactly once per selected agent, in order', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const seen: AgentOutcome[] = [];
+    const onAgentOutcome = jest.fn(async (outcome: AgentOutcome) => {
+      seen.push(outcome);
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      onAgentOutcome,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
+    expect(seen.map((o) => o.agentId)).toEqual(['agent-a', 'agent-b']);
+    expect(seen.every((o) => o.status === 'written')).toBe(true);
+    expect(result.value!.outcomes).toEqual(seen);
+  });
+
+  it('records a failed template load as a failed outcome and still reports the run', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+      id === 'agent-b'
+        ? Result.err(new Error('template missing'))
+        : Result.ok(createMockTemplate({ id })),
+    );
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.outcomes[1]).toEqual(
+      expect.objectContaining({
+        agentId: 'agent-b',
+        status: 'failed',
+        error: 'Failed to load template: template missing',
+      }),
+    );
+    expect(result.value!.writtenCount).toBe(1);
   });
 });
