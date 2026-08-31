@@ -48,7 +48,10 @@ export type {
   GenerationAgentCheckpoint,
   GenerationCheckpointManifest,
 } from './generation-checkpoint.types';
-export { GenerationCheckpointManifestSchema } from './generation-checkpoint.types';
+export {
+  GenerationCheckpointManifestSchema,
+  ProjectAnalysisResultSchema,
+} from './generation-checkpoint.types';
 export type { EnhancedPromptTraceMetadata } from './enhanced-prompts.types';
 export type {
   ProjectType,

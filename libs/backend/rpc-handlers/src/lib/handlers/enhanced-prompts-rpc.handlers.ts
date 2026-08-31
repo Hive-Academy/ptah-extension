@@ -11,17 +11,27 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import type { z } from 'zod';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   EnhancedPromptsService,
+  AnalysisStorageService,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
 import type {
   PromptDesignerInput,
   EnhancedPromptsSdkConfig,
 } from '@ptah-extension/agent-generation';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import {
+  EnhancedPromptsRegenerateParamsSchema,
+  EnhancedPromptsRunWizardParamsSchema,
+  EnhancedPromptsSetEnabledParamsSchema,
+  EnhancedPromptsWorkspaceParamsSchema,
+  describeEnhancedPromptsParamsIssue,
+} from './enhanced-prompts-rpc.schema';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   EnhancedPromptsGetStatusParams,
@@ -51,6 +61,13 @@ import type { WebviewBroadcaster } from '../harness/streaming';
  *
  * Security:
  * - Generated prompt content is NEVER exposed (IP protection)
+ * - Every request is parsed with the Zod schemas in
+ *   `enhanced-prompts-rpc.schema.ts`; failures come back as the handler's
+ *   structured `{ success: false, error }` shape, never as a throw.
+ * - `runWizard` / `regenerate` write the enhanced-prompt trace to disk, so
+ *   they require an authorized workspace, and an inbound `analysisDir` is
+ *   canonicalized under that workspace's `.ptah/analysis` root before the
+ *   service (and its trace writer) sees it.
  */
 
 @injectable()
@@ -69,6 +86,8 @@ export class EnhancedPromptsRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
+    private readonly analysisStorage: AnalysisStorageService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -118,21 +137,25 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       EnhancedPromptsGetStatusParams,
       EnhancedPromptsGetStatusResponse
-    >('enhancedPrompts:getStatus', async (params) => {
+    >('enhancedPrompts:getStatus', async (rawParams) => {
       try {
-        const rawPath = params?.workspacePath;
-
-        if (!rawPath) {
+        const parsed = this.parse(
+          EnhancedPromptsWorkspaceParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
           return {
             enabled: false,
             hasGeneratedPrompt: false,
             generatedAt: null,
             detectedStack: null,
             cacheValid: false,
-            error: 'Workspace path is required',
+            error: parsed.error,
           };
         }
-        const workspacePath = this.resolveWorkspacePath(rawPath);
+        const workspacePath = this.resolveWorkspacePath(
+          parsed.data.workspacePath,
+        );
 
         this.logger.debug('RPC: enhancedPrompts:getStatus called', {
           workspacePath,
@@ -187,21 +210,40 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       EnhancedPromptsRunWizardParams,
       EnhancedPromptsRunWizardResponse
-    >('enhancedPrompts:runWizard', async (params) => {
+    >('enhancedPrompts:runWizard', async (rawParams) => {
       try {
-        const rawPath = params?.workspacePath;
-
-        if (!rawPath) {
+        const parsed = this.parse(
+          EnhancedPromptsRunWizardParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
+          return { success: false, error: parsed.error };
+        }
+        const params = parsed.data;
+        const rawPath = params.workspacePath;
+        const workspacePath = this.resolveWorkspacePath(rawPath);
+        if (!isAuthorizedWorkspace(workspacePath, this.workspaceProvider)) {
           return {
             success: false,
-            error: 'Workspace path is required',
+            error: 'Access denied: workspace path is not an open folder.',
           };
         }
-        const workspacePath = this.resolveWorkspacePath(rawPath);
+        const analysisDir = this.authorizeAnalysisDir(
+          workspacePath,
+          params.analysisDir,
+        );
+        if (params.analysisDir !== undefined && analysisDir === undefined) {
+          return {
+            success: false,
+            error:
+              'Access denied: analysis directory is outside the workspace analysis root.',
+          };
+        }
 
         this.logger.info('RPC: enhancedPrompts:runWizard started', {
           workspacePath,
           rawPath: rawPath !== workspacePath ? rawPath : undefined,
+          analysisDir,
         });
         let preComputedInput: PromptDesignerInput | undefined;
         if (params.analysisData) {
@@ -303,7 +345,7 @@ export class EnhancedPromptsRpcHandlers {
           undefined,
           preComputedInput,
           sdkConfig,
-          params.analysisDir,
+          analysisDir,
         );
 
         if (result.success && result.state) {
@@ -352,25 +394,19 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       EnhancedPromptsSetEnabledParams,
       EnhancedPromptsSetEnabledResponse
-    >('enhancedPrompts:setEnabled', async (params) => {
+    >('enhancedPrompts:setEnabled', async (rawParams) => {
       try {
-        const { workspacePath: rawPath, enabled } = params || {};
-
-        if (!rawPath) {
-          return {
-            success: false,
-            error: 'Workspace path is required',
-          };
+        const parsed = this.parse(
+          EnhancedPromptsSetEnabledParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
+          return { success: false, error: parsed.error };
         }
-
-        const workspacePath = this.resolveWorkspacePath(rawPath);
-
-        if (typeof enabled !== 'boolean') {
-          return {
-            success: false,
-            error: 'Enabled flag is required',
-          };
-        }
+        const { enabled } = parsed.data;
+        const workspacePath = this.resolveWorkspacePath(
+          parsed.data.workspacePath,
+        );
 
         this.logger.info('RPC: enhancedPrompts:setEnabled', {
           workspacePath,
@@ -416,17 +452,23 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       EnhancedPromptsRegenerateParams,
       EnhancedPromptsRegenerateResponse
-    >('enhancedPrompts:regenerate', async (params) => {
+    >('enhancedPrompts:regenerate', async (rawParams) => {
       try {
-        const rawPath = params?.workspacePath;
-
-        if (!rawPath) {
+        const parsed = this.parse(
+          EnhancedPromptsRegenerateParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
+          return { success: false, error: parsed.error };
+        }
+        const params = parsed.data;
+        const workspacePath = this.resolveWorkspacePath(params.workspacePath);
+        if (!isAuthorizedWorkspace(workspacePath, this.workspaceProvider)) {
           return {
             success: false,
-            error: 'Workspace path is required',
+            error: 'Access denied: workspace path is not an open folder.',
           };
         }
-        const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:regenerate started', {
           workspacePath,
@@ -489,18 +531,18 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       { workspacePath: string },
       { content: string | null; error?: string }
-    >('enhancedPrompts:getPromptContent', async (params) => {
+    >('enhancedPrompts:getPromptContent', async (rawParams) => {
       try {
-        const rawPath = params?.workspacePath;
-
-        if (!rawPath) {
-          return {
-            content: null,
-            error: 'Workspace path is required',
-          };
+        const parsed = this.parse(
+          EnhancedPromptsWorkspaceParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
+          return { content: null, error: parsed.error };
         }
-
-        const workspacePath = this.resolveWorkspacePath(rawPath);
+        const workspacePath = this.resolveWorkspacePath(
+          parsed.data.workspacePath,
+        );
 
         this.logger.debug('RPC: enhancedPrompts:getPromptContent called', {
           workspacePath,
@@ -545,18 +587,18 @@ export class EnhancedPromptsRpcHandlers {
     this.rpcHandler.registerMethod<
       { workspacePath: string },
       { success: boolean; filePath?: string; error?: string }
-    >('enhancedPrompts:download', async (params) => {
+    >('enhancedPrompts:download', async (rawParams) => {
       try {
-        const rawPath = params?.workspacePath;
-
-        if (!rawPath) {
-          return {
-            success: false,
-            error: 'Workspace path is required',
-          };
+        const parsed = this.parse(
+          EnhancedPromptsWorkspaceParamsSchema,
+          rawParams,
+        );
+        if (!parsed.ok) {
+          return { success: false, error: parsed.error };
         }
-
-        const workspacePath = this.resolveWorkspacePath(rawPath);
+        const workspacePath = this.resolveWorkspacePath(
+          parsed.data.workspacePath,
+        );
 
         this.logger.debug('RPC: enhancedPrompts:download called', {
           workspacePath,
@@ -704,5 +746,49 @@ export class EnhancedPromptsRpcHandlers {
       return this.workspaceProvider.getWorkspaceRoot() ?? rawPath;
     }
     return rawPath;
+  }
+
+  /**
+   * Canonicalize an inbound analysis directory under the workspace's
+   * `.ptah/analysis` root. Absent → undefined (the service discovers the
+   * latest analysis itself). Present but escaping the root → undefined too;
+   * the caller tells the two cases apart by whether one was supplied.
+   */
+  private authorizeAnalysisDir(
+    workspacePath: string,
+    candidate: string | undefined,
+  ): string | undefined {
+    if (candidate === undefined) return undefined;
+    const canonical = this.analysisStorage.resolveAuthorizedAnalysisDir(
+      workspacePath,
+      candidate,
+    );
+    if (canonical === null) {
+      this.logger.warn(
+        'RPC: enhancedPrompts rejected an analysis directory outside the workspace analysis root',
+        { workspacePath },
+      );
+      return undefined;
+    }
+    return canonical;
+  }
+
+  /**
+   * Parse RPC params at the boundary. This handler answers with structured
+   * errors rather than throwing, so the result is a discriminated union the
+   * caller turns into its own error shape.
+   */
+  private parse<T>(
+    schema: z.ZodType<T>,
+    params: unknown,
+  ): { ok: true; data: T } | { ok: false; error: string } {
+    const result = schema.safeParse(params ?? {});
+    if (!result.success) {
+      return {
+        ok: false,
+        error: describeEnhancedPromptsParamsIssue(result.error),
+      };
+    }
+    return { ok: true, data: result.data };
   }
 }
