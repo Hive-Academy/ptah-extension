@@ -156,7 +156,8 @@ export interface ResumableGenerationAgent {
 /** Read-only DTO for a persisted generation checkpoint. */
 export interface ResumableGenerationRun {
   runId: string;
-  analysisDirectory?: string;
+  /** `null` when the checkpoint carries no analysis directory. */
+  analysisDirectory: string | null;
   outputDirectory: string;
   lifecycle: 'running' | 'paused' | 'completed' | 'timed-out' | 'failed';
   selectedAgentIds: string[];

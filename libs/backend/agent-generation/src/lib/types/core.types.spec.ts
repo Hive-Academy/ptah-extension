@@ -243,7 +243,6 @@ describe('Core Types', () => {
             error: 'Disk full',
           },
         ],
-        agents: [],
       };
 
       expect(summary.successful).toBe(4);

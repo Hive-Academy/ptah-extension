@@ -578,8 +578,8 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(summary.failed).toBe(0);
       expect(typeof summary.durationMs).toBe('number');
       expect(summary.durationMs).toBeGreaterThanOrEqual(0);
-      expect(summary.agents).toHaveLength(1);
-      expect(summary.agents[0].sourceTemplateId).toBe('backend-developer');
+      expect(summary.outcomes).toHaveLength(1);
+      expect(summary.outcomes[0].agentId).toBe('backend-developer');
     });
 
     it('writes generated agents to context.rootPath/.claude/agents/<id>.md', async () => {

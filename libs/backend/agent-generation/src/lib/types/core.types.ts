@@ -675,11 +675,6 @@ export interface GenerationSummary {
   outcomes: GenerationAgentOutcome[];
 
   /**
-   * All successfully generated agents.
-   */
-  agents: GeneratedAgent[];
-
-  /**
    * Whether enhanced prompts were used during Phase 3 customization.
    * True when project-specific enhanced prompt content was provided and
    * prepended to the LLM system prompt for section customization.

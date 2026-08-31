@@ -423,7 +423,6 @@ export class AgentGenerationOrchestratorService {
           tailoredSections: 0,
           lifecycle: 'completed',
           outcomes: [],
-          agents: [],
         });
       }
       this.logger.info(
@@ -510,7 +509,6 @@ export class AgentGenerationOrchestratorService {
         ),
         lifecycle,
         outcomes,
-        agents: renderedAgents,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
       };
 
