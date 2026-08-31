@@ -39,6 +39,7 @@
  * workspace as un-propagated and gate it.
  */
 
+import { join } from 'path';
 import { HARNESS_TARGET_IDS } from '@ptah-extension/shared';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
 import type { ManagedManifestStore } from '../manifest-store/managed-manifest';
@@ -119,4 +120,74 @@ export class AgentSyncGate {
     }
     return false;
   }
+}
+
+/**
+ * The one question {@link resolveAgentMirrorSource} asks the gate.
+ *
+ * Structural rather than the `AgentSyncGate` class, for the same reason
+ * `HarnessPluginConfigReader` is: the caller needs one read-only method, and a
+ * class type would make every host and every spec construct a manifest store
+ * and a state store to answer it. `AgentSyncGate` satisfies this as-is.
+ */
+export interface AgentConsentReader {
+  resolve(workspaceRoot: string): { enabled: boolean };
+}
+
+/**
+ * The agent fields of a host's user-layer mirror call.
+ *
+ * Declared here rather than imported from `agent-generation`: this lib must
+ * never depend on that one. `MirrorSources` satisfies this shape structurally,
+ * so a host spreads the result straight into its mirror sources.
+ */
+export interface AgentMirrorSource {
+  /** `{ws}/.claude/agents` — absent when this workspace has not consented. */
+  agentSourceDir?: string;
+  /** The root the agent clone directory is keyed by. */
+  workspaceRoot?: string;
+}
+
+/**
+ * What a host should mirror for the `agents` facet, and for which workspace.
+ *
+ * ONE implementation because there are THREE hosts — VS Code, Electron and the
+ * CLI — and both rules below fail silently when one of them drifts.
+ *
+ * **The root must be the one this lib reconciles.** Agent clones live under a
+ * key derived from it (`userLayerAgentDirName`), and `PluginConfigSourceResolver`
+ * derives the same key from `resolveHarnessWorkspaceRoot(ws)`. A host that
+ * passed its raw folder — a sub-folder of the real root, or another spelling of
+ * it — would mirror into a directory the reconciler never reads. The reconciler
+ * would then find no agents, and agents are manifest-owned, so it would REAP
+ * every copy it has.
+ *
+ * **Consent gates the mirror, not only the propagation.** `buildAgents()` has
+ * been gated since TASK_2026_286, but every host passed `agentSourceDir`
+ * unconditionally — so any repository that ships `.claude/agents` populated the
+ * machine-wide user layer on its first activation, whoever wrote those files and
+ * whether or not the setup wizard had ever run (TASK_2026_365).
+ *
+ * The gate is read through `resolve`, never `HarnessState.agentSyncEnabled`
+ * directly: an absent flag is answered from manifest evidence, and the mirror
+ * runs BEFORE the reconcile that persists that answer. Reading the raw flag
+ * would skip the mirror on the first pass after an upgrade and hand the
+ * reconciler an empty desired state, which is a reap.
+ *
+ * A `null` gate is a wiring gap, not a consent answer, and it reads as
+ * consented: mirroring only ever CREATES clones, so the unknown answer falls to
+ * the non-destructive side, and the reconciler resolves the gate itself before
+ * it can delete anything.
+ */
+export function resolveAgentMirrorSource(
+  workspaceRoot: string | undefined,
+  gate: AgentConsentReader | null,
+): AgentMirrorSource {
+  if (workspaceRoot === undefined || workspaceRoot === '') return {};
+  const harnessRoot = resolveHarnessWorkspaceRoot(workspaceRoot);
+  if (gate !== null && !gate.resolve(harnessRoot).enabled) return {};
+  return {
+    agentSourceDir: join(harnessRoot, '.claude', 'agents'),
+    workspaceRoot: harnessRoot,
+  };
 }

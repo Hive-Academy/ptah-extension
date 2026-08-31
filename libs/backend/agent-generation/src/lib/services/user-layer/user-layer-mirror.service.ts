@@ -3,6 +3,10 @@ import { homedir } from 'os';
 import { join, basename } from 'path';
 import { mkdir, readdir, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import {
+  USER_LAYER_AGENTS_DIR_NAME,
+  userLayerAgentDirName,
+} from '@ptah-extension/shared';
 import type {
   OriginKind,
   OriginSidecar,
@@ -61,6 +65,16 @@ export interface MirrorSources {
   synthesizedSkillsRoot?: string;
   agentSourceDir?: string;
   /**
+   * The workspace {@link agentSourceDir} belongs to. Agent clones are keyed by
+   * it — see {@link UserLayerMirrorService.getUserLayerRoots}.
+   *
+   * Optional and independent of `agentSourceDir` on purpose: a caller mirroring
+   * only plugins has no workspace to name, and a caller that supplies the
+   * source directory without the root lands in the unscoped base, which is what
+   * every pass did before TASK_2026_365.
+   */
+  workspaceRoot?: string;
+  /**
    * `~/.ptah/plugins`. Only the reap path needs it — to tell a DISABLED plugin
    * (dir still present, clones kept) from an UNINSTALLED one (dir gone, clones
    * reaped). Defaults to the parent of the first supplied plugin path.
@@ -115,7 +129,18 @@ export interface ReconcileResult {
   orphanedClones: OrphanedClone[];
 }
 
-export interface RebaseCloneArgs {
+/**
+ * The workspace whose agent clones a single-clone operation addresses.
+ *
+ * Ignored for `skill` and `command`, whose roots are per-machine and flat. An
+ * `agent` operation that omits it addresses the unscoped base, which holds only
+ * the clones written before TASK_2026_365.
+ */
+interface WorkspaceScopedArgs {
+  workspaceRoot?: string;
+}
+
+export interface RebaseCloneArgs extends WorkspaceScopedArgs {
   kind: OriginKind;
   slug: string;
   sourceDir: string;
@@ -130,7 +155,7 @@ export interface RebaseResult {
   reason?: string;
 }
 
-export interface KeepCloneArgs {
+export interface KeepCloneArgs extends WorkspaceScopedArgs {
   kind: OriginKind;
   slug: string;
 }
@@ -146,7 +171,7 @@ export interface WriteEnhancedSkillArgs {
   newBody: string;
 }
 
-export interface WriteEnhancedFileCloneArgs {
+export interface WriteEnhancedFileCloneArgs extends WorkspaceScopedArgs {
   kind: 'agent' | 'command';
   slug: string;
   newBody: string;
@@ -158,7 +183,7 @@ export interface WriteEnhancedResult {
   currentContentHash: string;
 }
 
-export interface RevertCloneArgs {
+export interface RevertCloneArgs extends WorkspaceScopedArgs {
   kind: OriginKind;
   slug: string;
   historyTs: string;
@@ -197,13 +222,37 @@ export class UserLayerMirrorService {
     this.reaper = new UserLayerOrphanReaper(logger, this.fsOps);
   }
 
-  getUserLayerRoots(): UserLayerRoots {
+  /**
+   * The three user-layer roots, with `agents` scoped to ONE workspace.
+   *
+   * Skills and commands are per-machine content and keep a flat root. Agents do
+   * not: the setup wizard tailors each one to a project's stack and names it
+   * after the ROLE, so two projects write two different `backend-developer.md`.
+   * A flat root gave them one destination, and `reconcileFileClone`'s
+   * fast-forward then flipped it back and forth on every activation — with the
+   * reconciler rewriting `.codex/agents` and `.github/agents` behind it in
+   * whichever workspace ran last (TASK_2026_365).
+   *
+   * This is the ONE place the scope is applied. Every method below reads its
+   * agent root from here, so a caller that forgets to pass the workspace lands
+   * in the unscoped base rather than in another project's directory.
+   */
+  getUserLayerRoots(workspaceRoot?: string): UserLayerRoots {
     const base = join(homedir(), '.ptah', 'user');
+    const agentsBase = join(base, USER_LAYER_AGENTS_DIR_NAME);
     return {
       skills: join(base, 'skills'),
-      agents: join(base, 'agents'),
+      agents:
+        workspaceRoot === undefined
+          ? agentsBase
+          : join(agentsBase, userLayerAgentDirName(workspaceRoot)),
       commands: join(base, 'commands'),
     };
+  }
+
+  /** The unscoped `~/.ptah/user/agents`, which holds the pre-key clones. */
+  private legacyAgentsRoot(): string {
+    return join(homedir(), '.ptah', 'user', USER_LAYER_AGENTS_DIR_NAME);
   }
 
   async mirrorAll(sources: MirrorSources): Promise<MirrorResult> {
@@ -215,7 +264,7 @@ export class UserLayerMirrorService {
       conflicts: 0,
       errors: 0,
     };
-    const roots = this.getUserLayerRoots();
+    const roots = this.getUserLayerRoots(sources.workspaceRoot);
     const seenSkillSlugs = new Map<string, string>();
 
     for (const pluginPath of allPluginRoots(sources)) {
@@ -240,6 +289,7 @@ export class UserLayerMirrorService {
     }
 
     if (sources.agentSourceDir) {
+      await this.seedLegacyAgents(sources.workspaceRoot, roots.agents);
       await this.mirrorAgents(sources.agentSourceDir, roots.agents, result);
     }
 
@@ -249,8 +299,8 @@ export class UserLayerMirrorService {
     return result;
   }
 
-  async listClones(): Promise<CloneEntry[]> {
-    const roots = this.getUserLayerRoots();
+  async listClones(workspaceRoot?: string): Promise<CloneEntry[]> {
+    const roots = this.getUserLayerRoots(workspaceRoot);
     const entries: CloneEntry[] = [];
     const scanRoots: string[] = [roots.skills, roots.agents, roots.commands];
 
@@ -304,8 +354,9 @@ export class UserLayerMirrorService {
   async readCloneOrigin(
     kind: OriginKind,
     slug: string,
+    workspaceRoot?: string,
   ): Promise<CloneEntry | null> {
-    const roots = this.getUserLayerRoots();
+    const roots = this.getUserLayerRoots(workspaceRoot);
     const sidecar =
       kind === 'skill'
         ? await readSidecar(join(roots.skills, slug))
@@ -320,7 +371,7 @@ export class UserLayerMirrorService {
 
   async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
     const result = emptyReconcileResult();
-    const roots = this.getUserLayerRoots();
+    const roots = this.getUserLayerRoots(sources.workspaceRoot);
 
     for (const pluginPath of allPluginRoots(sources)) {
       const pluginId = basename(pluginPath);
@@ -405,7 +456,10 @@ export class UserLayerMirrorService {
         synthCandidatesDirName: SYNTH_CANDIDATES_DIR,
         fs: this.fsOps,
       });
-      return await this.reaper.reap(this.getUserLayerRoots(), live);
+      return await this.reaper.reap(
+        this.getUserLayerRoots(sources.workspaceRoot),
+        live,
+      );
     } catch (error: unknown) {
       this.logger.warn('[UserLayerMirror] deleted-upstream sweep failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -418,7 +472,7 @@ export class UserLayerMirrorService {
 
   async rebaseClone(args: RebaseCloneArgs): Promise<RebaseResult> {
     return this.withSlugLock(args.kind, args.slug, async () => {
-      const roots = this.getUserLayerRoots();
+      const roots = this.getUserLayerRoots(args.workspaceRoot);
       if (args.kind === 'skill') {
         return this.rebaseDirClone(args.slug, args.sourceDir, roots.skills);
       }
@@ -429,7 +483,7 @@ export class UserLayerMirrorService {
 
   async keepClone(args: KeepCloneArgs): Promise<KeepResult> {
     return this.withSlugLock(args.kind, args.slug, async () => {
-      const roots = this.getUserLayerRoots();
+      const roots = this.getUserLayerRoots(args.workspaceRoot);
       if (args.kind === 'skill') {
         return this.keepDirClone(args.slug, roots.skills);
       }
@@ -472,7 +526,7 @@ export class UserLayerMirrorService {
     args: WriteEnhancedFileCloneArgs,
   ): Promise<WriteEnhancedResult> {
     return this.withSlugLock(args.kind, args.slug, async () => {
-      const roots = this.getUserLayerRoots();
+      const roots = this.getUserLayerRoots(args.workspaceRoot);
       const rootDir = args.kind === 'agent' ? roots.agents : roots.commands;
       const cloneFile = join(rootDir, `${args.slug}.md`);
       const sidecarPath = join(rootDir, `${args.slug}${ORIGIN_SIDECAR_SUFFIX}`);
@@ -514,7 +568,7 @@ export class UserLayerMirrorService {
 
   async revert(args: RevertCloneArgs): Promise<RevertResult> {
     return this.withSlugLock(args.kind, args.slug, async () => {
-      const roots = this.getUserLayerRoots();
+      const roots = this.getUserLayerRoots(args.workspaceRoot);
       if (args.kind === 'skill') {
         return this.revertDirClone(args.slug, args.historyTs, roots.skills);
       }
@@ -523,8 +577,12 @@ export class UserLayerMirrorService {
     });
   }
 
-  async listHistory(kind: OriginKind, slug: string): Promise<HistoryEntry[]> {
-    const roots = this.getUserLayerRoots();
+  async listHistory(
+    kind: OriginKind,
+    slug: string,
+    workspaceRoot?: string,
+  ): Promise<HistoryEntry[]> {
+    const roots = this.getUserLayerRoots(workspaceRoot);
     const historyParent =
       kind === 'skill'
         ? join(roots.skills, slug, DEFAULT_HISTORY_DIR)
@@ -1473,6 +1531,85 @@ export class UserLayerMirrorService {
         });
       }
     }
+  }
+
+  /**
+   * Carry the pre-key clones into a workspace's own directory, once.
+   *
+   * Agents are MANIFEST-OWNED downstream, so a desired state that goes empty is
+   * a deletion of every `.codex/agents/*.toml` and `.github/agents/*.agent.md`
+   * the workspace has. Introducing the key without this step would empty the
+   * scoped directory on the first pass after the upgrade and reap all of them,
+   * silently, reported as an ordinary clean pass — the same failure mode the
+   * `agentSyncEnabled` and `skillSyncMode` migrations exist to avoid.
+   *
+   * So the flat clones are copied in as a SEED. The mirror and reconcile that
+   * run immediately after converge that seed onto the workspace's own
+   * `{ws}/.claude/agents`, which is the truth for this project. A workspace with
+   * no `.claude/agents` keeps exactly what it has today, now private to it.
+   *
+   * Three deliberate limits:
+   *
+   * - It runs only when the scoped directory does not exist. Once the workspace
+   *   has one, the flat base is never read again.
+   * - It copies `.md` clones and their sidecars, and NOT `.history`. That
+   *   history is the interleaved record of every workspace on the machine, so
+   *   copying it into one project would assert an edit trail that project never
+   *   had.
+   * - It never deletes the flat originals. Cleanup of a user's files is not
+   *   automatic here, on the quarantine precedent.
+   */
+  private async seedLegacyAgents(
+    workspaceRoot: string | undefined,
+    scopedAgentsRoot: string,
+  ): Promise<void> {
+    const legacyRoot = this.legacyAgentsRoot();
+    if (workspaceRoot === undefined || scopedAgentsRoot === legacyRoot) return;
+    if (await this.dirExists(scopedAgentsRoot)) return;
+
+    let names: string[];
+    try {
+      names = (await readdir(legacyRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+        .map((entry) => entry.name);
+    } catch {
+      return;
+    }
+    if (names.length === 0) return;
+
+    this.assertUnderUserLayer(scopedAgentsRoot);
+    let seeded = 0;
+    for (const fileName of names) {
+      const slug = fileName.replace(/\.md$/, '');
+      const sidecarName = `${slug}${ORIGIN_SIDECAR_SUFFIX}`;
+      try {
+        await mkdir(scopedAgentsRoot, { recursive: true });
+        await this.copyFileAtomic(
+          join(legacyRoot, fileName),
+          join(scopedAgentsRoot, fileName),
+        );
+        if (await this.fileExists(join(legacyRoot, sidecarName))) {
+          await this.copyFileAtomic(
+            join(legacyRoot, sidecarName),
+            join(scopedAgentsRoot, sidecarName),
+          );
+        }
+        seeded += 1;
+      } catch (error: unknown) {
+        // Reported and skipped rather than thrown: a seed that copies fourteen
+        // of fifteen leaves one agent to be re-mirrored from the workspace's own
+        // source, while a throw would abandon the whole mirror pass.
+        this.logger.warn('[UserLayerMirror] failed to seed legacy agent', {
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    this.logger.info('[UserLayerMirror] seeded agent clones from legacy root', {
+      workspaceRoot,
+      scopedAgentsRoot,
+      seeded,
+    });
   }
 
   private async mirrorAgents(

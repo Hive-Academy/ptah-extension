@@ -33,6 +33,7 @@ const SKILL_REGISTRY_STORE_TOKEN = Symbol.for('SkillRegistryStore');
 const SKILL_REGISTRY_CATALOG_TOKEN = Symbol.for('SkillRegistryCatalogService');
 const SKILL_CANDIDATE_STORE_TOKEN = Symbol.for('SkillCandidateStore');
 const SQLITE_CONNECTION_TOKEN = Symbol.for('PtahSqliteConnection');
+const AGENT_SYNC_GATE_TOKEN = Symbol.for('HarnessSyncAgentSyncGate');
 
 const CONFIGURED_SKILLS_ROOT = path.join('/configured', 'skills-root');
 
@@ -49,11 +50,27 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: { SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader') },
 }));
 
+// `resolveAgentMirrorSource` is stubbed with its own shape rather than left
+// undefined: the host now DELEGATES the agent decision to `harness-sync`, so a
+// bare token mock would throw inside `buildMirrorSources` and every pass below
+// would report zero calls. The real rules it applies — resolve the root the
+// reconciler keys on, gate the mirror on consent — are pinned in that lib's own
+// spec, which is where they belong (TASK_2026_365).
 jest.mock('@ptah-extension/harness-sync', () => ({
   HARNESS_SYNC_TOKENS: {
     RECONCILER: Symbol.for('HarnessReconciler'),
     PROPAGATION: Symbol.for('HarnessSyncPropagation'),
+    AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
   },
+  resolveHarnessWorkspaceRoot: (root: string) => root,
+  resolveAgentMirrorSource: (root: string | undefined) =>
+    root === undefined || root === ''
+      ? {}
+      : {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          agentSourceDir: require('path').join(root, '.claude', 'agents'),
+          workspaceRoot: root,
+        },
 }));
 
 jest.mock('@ptah-extension/agent-generation', () => ({
@@ -173,6 +190,10 @@ function makeHarness(
     [SKILL_REGISTRY_CATALOG_TOKEN, { sync: catalogSync }],
     [SKILL_CANDIDATE_STORE_TOKEN, { listDormantPromotedSlugs: () => [] }],
     [SQLITE_CONNECTION_TOKEN, { isOpen: options.sqliteOpen ?? true }],
+    [
+      AGENT_SYNC_GATE_TOKEN,
+      { resolve: () => ({ enabled: true, derived: false }) },
+    ],
   ]);
 
   return {
@@ -200,6 +221,9 @@ const EXPECTED_SOURCES = {
   pluginsBasePath: PLUGINS_BASE,
   synthesizedSkillsRoot: CONFIGURED_SKILLS_ROOT,
   agentSourceDir: path.join(WORKSPACE_ROOT, '.claude', 'agents'),
+  // Agent clones are keyed by workspace, so the mirror is told which one it is
+  // writing for (TASK_2026_365).
+  workspaceRoot: WORKSPACE_ROOT,
 };
 
 describe('electron plugin-activation — user-layer sources (TASK_2026_278)', () => {

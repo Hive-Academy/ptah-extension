@@ -38,6 +38,7 @@ export * from './lib/types/stack-profile.types';
 export * from './lib/types/harness-sync.types';
 export * from './lib/types/harness-blocked-wording';
 export * from './lib/types/origin-sidecar.types';
+export * from './lib/types/user-layer-agents';
 export * from './lib/type-guards/guards';
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';
