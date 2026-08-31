@@ -10,3 +10,10 @@
 # genuinely unparseable — which is also a file prettier cannot format. Without
 # this entry the pre-commit hook fails on a fixture that is doing its job.
 apps/ptah-license-server/prisma/seed/__fixtures__/malformed.json
+
+# Managed Claude harness assets (TASK_2026_361). `.claude/{agents,commands,
+# skills,output-styles}` are git-tracked but WRITTEN by the setup wizard and the
+# harness-sync reconciler, byte-for-byte. If the pre-commit hook reformatted them,
+# the committed bytes would differ from what those writers produce and every
+# regeneration or reconcile would surface as a diff. Keep prettier off them.
+.claude/
