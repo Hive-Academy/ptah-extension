@@ -61,6 +61,7 @@ import {
   createBufferedEmitter,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
 
 /**
  * Provider API-key env vars treated as a "credentials present" signal when no
@@ -348,12 +349,17 @@ export class OpencodeCliAdapter implements CliAdapter {
    * server as a remote endpoint. opencode deep-merges this per-process at the
    * highest precedence, so it never touches the shared project config on disk.
    */
-  private buildMcpConfigContent(port: number): string {
+  private buildMcpConfigContent(
+    port: number,
+    workingDirectory: string,
+  ): string {
     return JSON.stringify({
       mcp: {
         ptah: {
           type: 'remote',
-          url: `http://localhost:${port}`,
+          // Scoped to the spawn's working directory so the server attributes
+          // this agent's calls to the right workspace (TASK_2026_364).
+          url: ptahMcpServerUrl(port, workingDirectory),
           enabled: true,
         },
       },
@@ -411,6 +417,7 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (options.mcpPort) {
       env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
         options.mcpPort,
+        options.workingDirectory,
       );
     }
 

@@ -51,6 +51,7 @@ import {
 import {
   planPtahMcpSlots,
   ptahMcpEntry,
+  ptahMcpUrl,
   CLAUDE_TARGET,
   type PtahMcpSlot,
 } from './ptah-mcp-slots';
@@ -638,7 +639,11 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     try {
       const wrote =
         slot.target === CLAUDE_TARGET
-          ? await this.writeMcpJsonEntry(slot.configPath, port)
+          ? await this.writeMcpJsonEntry(
+              slot.configPath,
+              port,
+              slot.workspaceRoot,
+            )
           : await this.writeFacetEntry(slot, port);
 
       this.registrations.set(slot.configPath, { port, slot });
@@ -694,10 +699,15 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private async writeMcpJsonEntry(
     mcpJsonPath: string,
     port: number,
+    workspaceRoot: string,
   ): Promise<boolean> {
+    // The `/workspace/...` segment is what lets the server attribute an
+    // external caller — Claude Code subagents, Copilot, `ptah-cli` — to THIS
+    // folder instead of whichever folder was most recently activated
+    // (TASK_2026_364). `ptahMcpUrl` owns the grammar.
     const desiredEntry: McpHttpServerEntry = {
       type: 'http',
-      url: `http://localhost:${port}`,
+      url: ptahMcpUrl(port, workspaceRoot),
     };
     let wrote = false;
 
@@ -757,7 +767,10 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     slot: PtahMcpSlot,
     port: number,
   ): Promise<boolean> {
-    const desired = ptahMcpEntry(port);
+    // A workspace-scoped slot declares its folder in the URL; a home-scoped
+    // slot (`workspaceRoot === ''`) keeps the bare URL, because one home file
+    // serves every open folder at once.
+    const desired = ptahMcpEntry(port, slot.workspaceRoot);
     const existing = slot.facet
       .readAll(slot.workspaceRoot)
       .get(PTAH_SPAWN_MCP_KEY);

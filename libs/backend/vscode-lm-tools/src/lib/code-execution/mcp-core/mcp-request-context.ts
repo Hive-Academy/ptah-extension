@@ -21,6 +21,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface McpRequestContext {
   /** tabId or realSessionId of the session that issued this tool call. */
   readonly callerSessionId?: string;
+  /**
+   * Workspace root the caller DECLARED via the `/workspace/{root}` URL segment
+   * (decoded to `request._callerWorkspaceRoot` by the HTTP handler). This is
+   * the identity channel for external callers (Claude Code, Codex, Cursor
+   * reading `{ws}/.mcp.json`) that have no Ptah session id and would otherwise
+   * be anonymous by construction.
+   */
+  readonly callerWorkspaceRoot?: string;
 }
 
 const storage = new AsyncLocalStorage<McpRequestContext>();
@@ -44,4 +52,13 @@ export function runWithMcpRequestContext<T>(
  */
 export function getCallerSessionId(): string | undefined {
   return storage.getStore()?.callerSessionId;
+}
+
+/**
+ * The workspace root the in-flight MCP tool call declared in its URL, or
+ * `undefined` when the caller declared none (bare URL) or when not running
+ * inside `runWithMcpRequestContext`.
+ */
+export function getCallerWorkspaceRoot(): string | undefined {
+  return storage.getStore()?.callerWorkspaceRoot;
 }

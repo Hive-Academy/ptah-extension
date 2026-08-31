@@ -28,6 +28,10 @@ import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
+import {
+  getCallerSessionId,
+  getCallerWorkspaceRoot,
+} from './mcp-request-context';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -1153,5 +1157,70 @@ describe('protocol-handlers › malformed message rejection', () => {
     expect(res.result).toBeUndefined();
     expect(res.error?.code).toBe(-32602);
     expect(res.error?.message).toMatch(/[Ii]nvalid params/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call — request-scoped caller identity (TASK_2026_364, Batch A)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › tools/call caller identity context', () => {
+  it('runs the tool inside a context carrying BOTH identity fields', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-1',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+        _callerSessionId: 'sess-A',
+        _callerWorkspaceRoot: 'D:\\projects\\ptah-extension',
+      }),
+      deps,
+    );
+
+    expect(res.error).toBeUndefined();
+    expect(seenSession).toBe('sess-A');
+    expect(seenWorkspace).toBe('D:\\projects\\ptah-extension');
+  });
+
+  it('leaves both identity fields undefined for an anonymous call', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-2',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+      }),
+      deps,
+    );
+
+    expect(seenSession).toBeUndefined();
+    expect(seenWorkspace).toBeUndefined();
   });
 });

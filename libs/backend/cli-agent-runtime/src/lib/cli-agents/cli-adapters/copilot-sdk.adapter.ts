@@ -58,6 +58,7 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 /** Shell/command execution tool names across providers */
@@ -298,7 +299,10 @@ export class CopilotSdkAdapter implements CliAdapter {
           mcpServers: {
             ptah: {
               type: 'http',
-              url: `http://localhost:${options.mcpPort}`,
+              // Scoped to the spawn's working directory so the server
+              // attributes this agent's calls to the right workspace
+              // (TASK_2026_364).
+              url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
             },
           },
         });

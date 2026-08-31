@@ -36,5 +36,6 @@ export {
 export {
   runWithMcpRequestContext,
   getCallerSessionId,
+  getCallerWorkspaceRoot,
   type McpRequestContext,
 } from './mcp-request-context';

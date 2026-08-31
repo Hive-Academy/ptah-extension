@@ -567,9 +567,11 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     const parsed = JSON.parse(String(writtenContent)) as {
       mcpServers: Record<string, { type: string; url: string }>;
     };
+    // The URL declares the folder, so a subagent reading this file states
+    // its workspace on every call (TASK_2026_364).
     expect(parsed.mcpServers['ptah']).toEqual({
       type: 'http',
-      url: 'http://localhost:51820',
+      url: 'http://localhost:51820/workspace/%2Fws',
     });
   });
 
@@ -814,13 +816,9 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     expect(await service.ensureRegisteredForSubagents()).toEqual({
       registered: true,
     });
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
     // A's entry is still on disk because the lock refused the removal...
-    expect(serversIn(disk, ROOT_A)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
 
     // ...and the record of it survived, so the retry cleans it up.
     (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
@@ -1004,6 +1002,23 @@ function serversIn(disk: Map<string, string>, file: string): unknown {
 }
 
 /**
+ * The `mcpServers` map holding exactly the entry TASK_2026_364 writes for one
+ * folder: workspace-scoped, so an external CLI reading this file states its
+ * folder in every call instead of arriving anonymous.
+ */
+function ptahEntryFor(
+  root: string,
+  port = 51820,
+): Record<string, { type: string; url: string }> {
+  return {
+    ptah: {
+      type: 'http',
+      url: `http://localhost:${port}/workspace/${encodeURIComponent(root)}`,
+    },
+  };
+}
+
+/**
  * Drain the fire-and-forget re-point that `onDidChangeWorkspaceFolders`
  * triggers. The `.mcp.json` writes became async in TASK_2026_318 (they take
  * `harness-sync`'s config-file lock), and the folder event has no promise to
@@ -1070,9 +1085,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     await service.start();
 
     await service.ensureRegisteredForSubagents();
-    expect(serversIn(disk, ROOT_A)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
 
     // Workspace root moves A -> B.
     workspaceProvider.__state.setFolders(['/wsB']);
@@ -1105,7 +1118,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     await service.ensureRegisteredForSubagents();
     expect(serversIn(disk, ROOT_A)).toEqual({
       'my-own-server': { type: 'stdio', command: 'node', args: ['x.js'] },
-      ptah: { type: 'http', url: 'http://localhost:51820' },
+      ...ptahEntryFor('/wsA'),
     });
 
     workspaceProvider.__state.setFolders(['/wsB']);
@@ -1135,9 +1148,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     // before reading the disk.
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 
@@ -1152,9 +1163,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     // The one-shot boolean used to make this a no-op forever.
     await service.ensureRegisteredForSubagents();
 
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
   });
 
   it('unregisters from the written path when the LAST folder is removed, and stop() is then clean', async () => {
@@ -1215,10 +1224,10 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
       registered: true,
     });
 
-    // A subagent spawned for either folder reads ITS file, so both need one.
-    const entry = { ptah: { type: 'http', url: 'http://localhost:51820' } };
-    expect(serversIn(disk, ROOT_A)).toEqual(entry);
-    expect(serversIn(disk, ROOT_B)).toEqual(entry);
+    // A subagent spawned for either folder reads ITS file, so both need one —
+    // and each carries ITS OWN folder in the URL (TASK_2026_364).
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
   });
 
   it('switching the active folder between two open folders writes nothing', async () => {
@@ -1265,7 +1274,10 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
             mcpServers: {
               // Field order deliberately reversed: the comparison is
               // structural, so this must still count as "already correct".
-              ptah: { url: 'http://localhost:51820', type: 'http' },
+              ptah: {
+                url: 'http://localhost:51820/workspace/%2FwsA',
+                type: 'http',
+              },
             },
           },
           null,
@@ -1301,9 +1313,32 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
     await service.start();
     await service.ensureRegisteredForSubagents();
 
-    expect(serversIn(disk, ROOT_A)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+  });
+
+  it('upgrades a pre-TASK_2026_364 bare URL to the scoped one, once', async () => {
+    // A `.mcp.json` written before the workspace segment existed holds the
+    // bare URL. The first pass rewrites it — that is the one rewrite the plan
+    // costs — and the entry then compares equal forever.
+    const disk = useVirtualDisk({
+      [ROOT_A]:
+        JSON.stringify({
+          mcpServers: { ptah: { type: 'http', url: 'http://localhost:51820' } },
+        }) + '\n',
     });
+
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+    const afterFirst = disk.get(ROOT_A);
+
+    fsWriteFileSyncMock.mockClear();
+    await service.ensureRegisteredForSubagents();
+
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    expect(disk.get(ROOT_A)).toBe(afterFirst);
   });
 
   it('unregisters only the folder that left the workspace', async () => {
@@ -1318,9 +1353,7 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
     workspaceProvider.__state.setFolders(['/wsA']);
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_A)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
     expect(serversIn(disk, ROOT_B)).toEqual({});
   });
 
@@ -1333,9 +1366,8 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
     workspaceProvider.__state.setFolders(['/wsA', '/wsB']);
     await settleMcpJsonWrites();
 
-    const entry = { ptah: { type: 'http', url: 'http://localhost:51820' } };
-    expect(serversIn(disk, ROOT_A)).toEqual(entry);
-    expect(serversIn(disk, ROOT_B)).toEqual(entry);
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
   });
 
   it('stop() gives back the entry in EVERY open folder', async () => {
@@ -1384,9 +1416,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     release();
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_C)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_C)).toEqual(ptahEntryFor('/wsC'));
     // B was never written at all â€” the superseded re-point is dropped before
     // it touches disk, so there is no transient entry to strand.
     expect(serversIn(disk, ROOT_B)).toBeUndefined();
@@ -1407,9 +1437,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     await settleMcpJsonWrites();
 
     // Exactly one workspace advertises this server, and it is the current one.
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
     expect(serversIn(disk, ROOT_C)).toBeUndefined();
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
@@ -1464,9 +1492,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     workspaceProvider.__state.setFolders(['/wsB']);
     await settleMcpJsonWrites();
 
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 
@@ -1487,9 +1513,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
 
     // The awaited call still resolves only once ITS write has landed, which is
     // the contract `ChatSessionService` depends on before spawning a subagent.
-    expect(serversIn(disk, ROOT_B)).toEqual({
-      ptah: { type: 'http', url: 'http://localhost:51820' },
-    });
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 });

@@ -297,6 +297,8 @@ describe('CopilotSdkAdapter', () => {
       const mcpJson = argsArg[idx + 1];
       expect(mcpJson).toContain('51820');
       expect(mcpJson).toContain('ptah');
+      // The URL carries the spawn's working directory (TASK_2026_364).
+      expect(mcpJson).toContain('http://localhost:51820/workspace/%2Fproj');
 
       currentChild?.emitClose(0);
       await handle.done;

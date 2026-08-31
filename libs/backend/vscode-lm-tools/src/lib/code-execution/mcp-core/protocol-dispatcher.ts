@@ -172,7 +172,10 @@ export async function handleMCPRequest(
 
       case 'tools/call':
         return await runWithMcpRequestContext(
-          { callerSessionId: request._callerSessionId },
+          {
+            callerSessionId: request._callerSessionId,
+            callerWorkspaceRoot: request._callerWorkspaceRoot,
+          },
           () => handleToolsCall(request, deps),
         );
 

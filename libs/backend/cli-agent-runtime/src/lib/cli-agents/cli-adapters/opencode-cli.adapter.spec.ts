@@ -509,9 +509,10 @@ describe('OpencodeCliAdapter', () => {
       const parsed = JSON.parse(content as string) as {
         mcp: { ptah: { type: string; url: string; enabled: boolean } };
       };
+      // The URL carries the spawn's working directory (TASK_2026_364).
       expect(parsed.mcp.ptah).toEqual({
         type: 'remote',
-        url: 'http://localhost:51820',
+        url: 'http://localhost:51820/workspace/%2Fproj',
         enabled: true,
       });
 

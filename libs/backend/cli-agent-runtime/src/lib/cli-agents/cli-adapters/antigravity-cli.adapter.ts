@@ -78,6 +78,7 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -325,6 +326,7 @@ export class AntigravityCliAdapter implements CliAdapter {
    */
   private async configureMcpServer(
     port: number,
+    workingDirectory: string,
   ): Promise<McpServerConfig | undefined> {
     try {
       const facet = AntigravityCliAdapter.mcpFacet();
@@ -339,7 +341,14 @@ export class AntigravityCliAdapter implements CliAdapter {
         PTAH_SPAWN_MCP_KEY,
         // `agy`'s remote transport is SSE and the facet serializes this as
         // `{ serverUrl }`, which is the only remote shape the CLI reads.
-        { type: 'sse', url: `http://localhost:${port}` },
+        // Passing `sse` is safe beside the persistent writer because the facet
+        // drops the discriminant on disk — and `ptahMcpServerUrl` percent-
+        // encodes the directory, so the URL cannot grow a literal `/sse` that
+        // would flip `inferTransportType` on read-back. The URL itself is
+        // scoped to this run's working directory (TASK_2026_364); it differs
+        // from the persistent bare home entry only while this run is in
+        // flight, and cleanup restores whatever this run found.
+        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory) },
       );
       return prior;
     } catch {
@@ -400,7 +409,10 @@ export class AntigravityCliAdapter implements CliAdapter {
     // one run's cleanup restore the other run's snapshot.
     let priorMcpEntry: McpServerConfig | undefined;
     if (options.mcpPort) {
-      priorMcpEntry = await this.configureMcpServer(options.mcpPort);
+      priorMcpEntry = await this.configureMcpServer(
+        options.mcpPort,
+        options.workingDirectory,
+      );
     }
 
     const spawnEnv: Record<string, string> = {};
