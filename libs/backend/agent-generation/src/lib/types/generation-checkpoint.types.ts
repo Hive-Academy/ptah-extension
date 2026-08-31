@@ -46,117 +46,118 @@ export interface GenerationCheckpointManifest {
  * an `z.unknown()` here would let arbitrary JSON reach that code typed as a
  * `ProjectAnalysisResult`.
  */
-const ProjectAnalysisResultSchema: z.ZodType<ProjectAnalysisResult> = z.object({
-  projectType: z.string(),
-  projectTypeDescription: z.string().optional(),
-  fileCount: z.number(),
-  languages: z.array(z.string()),
-  frameworks: z.array(z.string()),
-  monorepoType: z.string().optional(),
-  architecturePatterns: z.array(
-    z.object({
-      name: z.string(),
-      confidence: z.number(),
-      evidence: z.array(z.string()),
-      description: z.string().optional(),
-    }),
-  ),
-  keyFileLocations: z.object({
-    entryPoints: z.array(z.string()),
-    configs: z.array(z.string()),
-    testDirectories: z.array(z.string()),
-    apiRoutes: z.array(z.string()),
-    components: z.array(z.string()),
-    services: z.array(z.string()),
-    models: z.array(z.string()).optional(),
-    repositories: z.array(z.string()).optional(),
-    utilities: z.array(z.string()).optional(),
-  }),
-  languageDistribution: z
-    .array(
+export const ProjectAnalysisResultSchema: z.ZodType<ProjectAnalysisResult> =
+  z.object({
+    projectType: z.string(),
+    projectTypeDescription: z.string().optional(),
+    fileCount: z.number(),
+    languages: z.array(z.string()),
+    frameworks: z.array(z.string()),
+    monorepoType: z.string().optional(),
+    architecturePatterns: z.array(
       z.object({
-        language: z.string(),
-        percentage: z.number(),
-        fileCount: z.number(),
-        linesOfCode: z.number().optional(),
+        name: z.string(),
+        confidence: z.number(),
+        evidence: z.array(z.string()),
+        description: z.string().optional(),
       }),
-    )
-    .optional(),
-  existingIssues: z.object({
-    errorCount: z.number(),
-    warningCount: z.number(),
-    infoCount: z.number(),
-    errorsByType: z.record(z.string(), z.number()),
-    warningsByType: z.record(z.string(), z.number()),
-    topErrors: z
+    ),
+    keyFileLocations: z.object({
+      entryPoints: z.array(z.string()),
+      configs: z.array(z.string()),
+      testDirectories: z.array(z.string()),
+      apiRoutes: z.array(z.string()),
+      components: z.array(z.string()),
+      services: z.array(z.string()),
+      models: z.array(z.string()).optional(),
+      repositories: z.array(z.string()).optional(),
+      utilities: z.array(z.string()).optional(),
+    }),
+    languageDistribution: z
       .array(
         z.object({
-          message: z.string(),
-          count: z.number(),
-          source: z.string(),
+          language: z.string(),
+          percentage: z.number(),
+          fileCount: z.number(),
+          linesOfCode: z.number().optional(),
         }),
       )
       .optional(),
-  }),
-  testCoverage: z.object({
-    percentage: z.number(),
-    hasTests: z.boolean(),
-    testFramework: z.string().nullable().optional(),
-    hasUnitTests: z.boolean(),
-    hasIntegrationTests: z.boolean(),
-    hasE2eTests: z.boolean(),
-    testFileCount: z.number().optional(),
-    sourceFileCount: z.number().optional(),
-    testToSourceRatio: z.number().optional(),
-  }),
-  codeConventions: z
-    .object({
-      indentation: z.enum(['tabs', 'spaces']),
-      indentSize: z.number(),
-      quoteStyle: z.enum(['single', 'double']),
-      semicolons: z.boolean(),
-      trailingComma: z.enum(['none', 'es5', 'all']),
-      namingConventions: z
-        .object({
-          files: z.string().optional(),
-          classes: z.string().optional(),
-          functions: z.string().optional(),
-          variables: z.string().optional(),
-          constants: z.string().optional(),
-          interfaces: z.string().optional(),
-          types: z.string().optional(),
-        })
+    existingIssues: z.object({
+      errorCount: z.number(),
+      warningCount: z.number(),
+      infoCount: z.number(),
+      errorsByType: z.record(z.string(), z.number()),
+      warningsByType: z.record(z.string(), z.number()),
+      topErrors: z
+        .array(
+          z.object({
+            message: z.string(),
+            count: z.number(),
+            source: z.string(),
+          }),
+        )
         .optional(),
-      maxLineLength: z.number().optional(),
-      usePrettier: z.boolean().optional(),
-      useEslint: z.boolean().optional(),
-      additionalTools: z.array(z.string()).optional(),
-    })
-    .optional(),
-  qualityScore: z.number().optional(),
-  qualityIssues: z
-    .array(
-      z.object({
-        area: z.string(),
-        severity: z.enum(['high', 'medium', 'low']),
-        description: z.string(),
-        recommendation: z.string(),
-        affectedFiles: z.array(z.string()).optional(),
-      }),
-    )
-    .optional(),
-  qualityStrengths: z.array(z.string()).optional(),
-  qualityRecommendations: z
-    .array(
-      z.object({
-        priority: z.number(),
-        category: z.string(),
-        issue: z.string(),
-        solution: z.string(),
-      }),
-    )
-    .optional(),
-});
+    }),
+    testCoverage: z.object({
+      percentage: z.number(),
+      hasTests: z.boolean(),
+      testFramework: z.string().nullable().optional(),
+      hasUnitTests: z.boolean(),
+      hasIntegrationTests: z.boolean(),
+      hasE2eTests: z.boolean(),
+      testFileCount: z.number().optional(),
+      sourceFileCount: z.number().optional(),
+      testToSourceRatio: z.number().optional(),
+    }),
+    codeConventions: z
+      .object({
+        indentation: z.enum(['tabs', 'spaces']),
+        indentSize: z.number(),
+        quoteStyle: z.enum(['single', 'double']),
+        semicolons: z.boolean(),
+        trailingComma: z.enum(['none', 'es5', 'all']),
+        namingConventions: z
+          .object({
+            files: z.string().optional(),
+            classes: z.string().optional(),
+            functions: z.string().optional(),
+            variables: z.string().optional(),
+            constants: z.string().optional(),
+            interfaces: z.string().optional(),
+            types: z.string().optional(),
+          })
+          .optional(),
+        maxLineLength: z.number().optional(),
+        usePrettier: z.boolean().optional(),
+        useEslint: z.boolean().optional(),
+        additionalTools: z.array(z.string()).optional(),
+      })
+      .optional(),
+    qualityScore: z.number().optional(),
+    qualityIssues: z
+      .array(
+        z.object({
+          area: z.string(),
+          severity: z.enum(['high', 'medium', 'low']),
+          description: z.string(),
+          recommendation: z.string(),
+          affectedFiles: z.array(z.string()).optional(),
+        }),
+      )
+      .optional(),
+    qualityStrengths: z.array(z.string()).optional(),
+    qualityRecommendations: z
+      .array(
+        z.object({
+          priority: z.number(),
+          category: z.string(),
+          issue: z.string(),
+          solution: z.string(),
+        }),
+      )
+      .optional(),
+  });
 
 const GenerationAgentCheckpointSchema = z.object({
   agentId: z.string(),
