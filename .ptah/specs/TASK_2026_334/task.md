@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_334
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   The Electron quit flushes session metadata before it reaps the agents, and the
