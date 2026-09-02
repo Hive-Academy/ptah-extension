@@ -218,6 +218,7 @@ export interface ToolResultBlock {
 export interface ThinkingBlock {
   type: 'thinking';
   thinking: string;
+  signature?: string;
 }
 
 export type ContentBlock =

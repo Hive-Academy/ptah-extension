@@ -42,14 +42,16 @@ const FALLBACK_LABEL = 'ws';
 /**
  * The host platform, or `''` where there is no `process` to ask.
  *
- * Guarded rather than read directly for the reason in this file's header: the
- * frontend imports this barrel, and a bare `process.platform` in a default
- * parameter throws in a browser the moment anything calls the function. `''` is
- * never `'win32'`, so the browser answer is the case-sensitive one — which is
- * the safe direction, because it can only ever keep two roots apart.
+ * Read off `globalThis` rather than directly for the reason in this file's
+ * header: the frontend imports this barrel, and a bare `process.platform` in a
+ * default parameter both throws in a browser and fails to compile in the
+ * webview, whose tsconfig carries no `node` types. `''` is never `'win32'`, so
+ * the browser answer is the case-sensitive one — which is the safe direction,
+ * because it can only ever keep two roots apart.
  */
 function currentPlatform(): string {
-  return typeof process === 'undefined' ? '' : process.platform;
+  const host = globalThis as { process?: { platform?: string } };
+  return host.process?.platform ?? '';
 }
 
 /**

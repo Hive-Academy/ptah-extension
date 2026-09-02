@@ -15,6 +15,7 @@ import {
 
 import {
   SDKAssistantMessage,
+  ContentBlock,
   isTextBlock,
   isThinkingBlock,
   isToolUseBlock,
@@ -30,6 +31,14 @@ import type {
 } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasContentBlockType(value: unknown): value is { type: string } {
+  return isRecord(value) && typeof value['type'] === 'string';
+}
+
 export class AssistantMessageTransformer {
   transform(
     sdkMessage: SDKAssistantMessage,
@@ -40,10 +49,54 @@ export class AssistantMessageTransformer {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
     const events: FlatStreamEventUnion[] = [];
 
-    const content = (message.content || []) as unknown as Array<{
-      type: string;
-      [key: string]: unknown;
-    }>;
+    const content: ContentBlock[] = [];
+    const rawContent: unknown[] = message.content || [];
+    for (const rawBlock of rawContent) {
+      if (!hasContentBlockType(rawBlock)) {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Skipping malformed content block',
+          { block: rawBlock },
+        );
+        continue;
+      }
+
+      const block = rawBlock;
+      if (isTextBlock(block)) {
+        content.push({ type: 'text', text: block.text });
+      } else if (isThinkingBlock(block)) {
+        content.push({
+          type: 'thinking',
+          thinking: block.thinking,
+          signature: block.signature,
+        });
+      } else if (isToolUseBlock(block)) {
+        if (!isRecord(block.input)) {
+          helpers.logger.warn(
+            '[SdkMessageTransformer] Skipping tool_use content block with non-object input',
+            { block },
+          );
+          continue;
+        }
+        content.push({
+          type: 'tool_use',
+          id: block.id,
+          name: block.name,
+          input: block.input,
+        });
+      } else if (isToolResultBlock(block)) {
+        content.push({
+          type: 'tool_result',
+          tool_use_id: block.tool_use_id,
+          content: block.content,
+          is_error: block.is_error,
+        });
+      } else {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Skipping unsupported content block',
+          { block },
+        );
+      }
+    }
 
     const messageId = message?.id || uuid;
 
@@ -67,26 +120,6 @@ export class AssistantMessageTransformer {
       );
       state.clearActiveSkillToolUseIds();
     }
-
-    const messageStartEvent: MessageStartEvent = {
-      id: generateEventId(),
-      eventType: 'message_start',
-      timestamp: Date.now(),
-      sessionId,
-      source: 'complete' as EventSource,
-      messageId,
-      role: 'assistant',
-      parentToolUseId: parent_tool_use_id ?? undefined,
-    };
-    // Root assistant turn start → 'generating', once per turn (the streaming
-    // message_start normally wins; this is the non-streaming fallback).
-    if (!parent_tool_use_id && sessionId) {
-      const turn = helpers.turnState.markGenerating(sessionId);
-      if (turn) {
-        events.push(toTurnStateEvent(sessionId, turn));
-      }
-    }
-    events.push(messageStartEvent);
 
     // If this assistant turn is itself running inside a workflow run (its
     // parent tool_use is a known run member), any subagent it dispatches
@@ -290,8 +323,40 @@ export class AssistantMessageTransformer {
             },
           );
         }
+      } else {
+        const unhandledBlock: never = block;
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Skipping unsupported content block',
+          { block: unhandledBlock },
+        );
       }
     }
+
+    const turn =
+      !parent_tool_use_id && sessionId
+        ? helpers.turnState.markGenerating(sessionId)
+        : undefined;
+    const turnStateEvent =
+      turn && sessionId ? toTurnStateEvent(sessionId, turn) : undefined;
+
+    if (events.length === 0) {
+      helpers.logger.debug(
+        '[SdkMessageTransformer] Skipping assistant message without renderable events',
+        { messageId },
+      );
+      return turnStateEvent ? [turnStateEvent] : [];
+    }
+
+    const messageStartEvent: MessageStartEvent = {
+      id: generateEventId(),
+      eventType: 'message_start',
+      timestamp: Date.now(),
+      sessionId,
+      source: 'complete' as EventSource,
+      messageId,
+      role: 'assistant',
+      parentToolUseId: parent_tool_use_id ?? undefined,
+    };
 
     const tokenUsage =
       message.usage &&
@@ -325,8 +390,11 @@ export class AssistantMessageTransformer {
       model: message.model,
       parentToolUseId: parent_tool_use_id ?? undefined,
     };
-    events.push(messageCompleteEvent);
-
-    return events;
+    return [
+      ...(turnStateEvent ? [turnStateEvent] : []),
+      messageStartEvent,
+      ...events,
+      messageCompleteEvent,
+    ];
   }
 }

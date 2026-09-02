@@ -135,6 +135,123 @@ describe('AssistantMessageTransformer', () => {
     expect(events).toEqual([]);
   });
 
+  it('suppresses envelopes for signature-only empty thinking', () => {
+    const msg = {
+      uuid: 'u-empty-thinking',
+      message: {
+        id: 'm-empty-thinking',
+        model: 'claude-opus',
+        content: [{ type: 'thinking', thinking: '', signature: 'sig' }],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-empty-thinking' as never,
+    );
+
+    expect(events).toEqual([]);
+    expect(helpers.logger.debug).toHaveBeenCalledWith(
+      '[SdkMessageTransformer] Skipping assistant message without renderable events',
+      { messageId: 'm-empty-thinking' },
+    );
+  });
+
+  it('preserves root turn_state when suppressing empty thinking envelopes', () => {
+    const generating = {
+      phase: 'generating',
+      revision: 1,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: null,
+      timestamp: 1,
+    };
+    (helpers.turnState.markGenerating as jest.Mock).mockReturnValue(generating);
+    const msg = {
+      uuid: 'u-empty-thinking-turn',
+      message: {
+        id: 'm-empty-thinking-turn',
+        model: 'claude-opus',
+        content: [{ type: 'thinking', thinking: '', signature: 'sig' }],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-empty-thinking-turn' as never,
+    );
+
+    expect(events.map((event) => event.eventType)).toEqual(['turn_state']);
+    expect(events[0]).toMatchObject({
+      phase: 'generating',
+      sessionId: 'sess-empty-thinking-turn',
+    });
+  });
+
+  it('emits envelopes for renderable thinking and text', () => {
+    const msg = {
+      uuid: 'u-thinking-text',
+      message: {
+        id: 'm-thinking-text',
+        model: 'claude-opus',
+        content: [
+          { type: 'thinking', thinking: 'considering', signature: 'sig' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-thinking-text' as never,
+    );
+
+    expect(events.map((event) => event.eventType)).toEqual([
+      'message_start',
+      'thinking_delta',
+      'text_delta',
+      'message_complete',
+    ]);
+  });
+
+  it('emits the full event set for a tool_use-only message', () => {
+    const msg = {
+      uuid: 'u-tool-use',
+      message: {
+        id: 'm-tool-use',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-1',
+            name: 'Task',
+            input: { description: 'do work', prompt: 'work' },
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-tool-use' as never,
+    );
+
+    expect(events.map((event) => event.eventType)).toEqual([
+      'message_start',
+      'agent_start',
+      'tool_start',
+      'message_complete',
+    ]);
+  });
+
   it('marks background Task tools through the state mutator and registry', () => {
     const msg = {
       uuid: 'u-2',
