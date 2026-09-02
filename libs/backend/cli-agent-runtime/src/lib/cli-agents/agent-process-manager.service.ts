@@ -44,6 +44,7 @@ import {
 } from '@ptah-extension/shared';
 import type {
   CliOutputSegment,
+  CliSessionReference,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
@@ -124,7 +125,8 @@ interface TrackedAgent {
   sdkAbortController?: AbortController;
   stdoutBuffer: string;
   stderrBuffer: string;
-  timeoutHandle: NodeJS.Timeout;
+  /** Absent for a restored record: it has no live run to time out. */
+  timeoutHandle?: NodeJS.Timeout;
   stdoutLineCount: number;
   stderrLineCount: number;
   truncated: boolean;
@@ -150,6 +152,12 @@ interface TrackedAgent {
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
   streamCapLogged: boolean;
+  /**
+   * Set only by {@link AgentProcessManager.restoreAgents}: this record was
+   * rebuilt from persisted session state, not from a run this host supervised.
+   * Its output is readable; nothing about it is live.
+   */
+  restored?: true;
 }
 
 @injectable()
@@ -657,6 +665,128 @@ export class AgentProcessManager {
   }
 
   /**
+   * The message for an id this host holds no record of, live or restored.
+   *
+   * A bare `Agent not found: <id>` is read by a model as "the agent died", and
+   * the recovery it invites is to retry — which can never succeed, because the
+   * map is the only registry and nothing will put the id back into it. Say
+   * that the record is absent rather than the agent, and name the one recovery
+   * that works.
+   *
+   * The `Agent not found: <id>` PREFIX is load-bearing: callers and specs match
+   * on it. Extend this message, never re-word its opening.
+   */
+  private static noSuchAgentMessage(agentId: string): string {
+    return (
+      `Agent not found: ${agentId}. This host holds no record under that id — ` +
+      `neither a live agent nor one restored from persisted session state. ` +
+      `The id is from a run that was never persisted, or from one older than ` +
+      `the retention window. Retrying cannot recover it: spawn a new agent if ` +
+      `the work still needs doing.`
+    );
+  }
+
+  /**
+   * The message for an operation a restored record cannot serve.
+   *
+   * Restored records are readable and nothing else. The old wording for each
+   * refusal described a live agent in the wrong state ("is not running"), which
+   * says neither why nor what to do next.
+   */
+  private static restoredRecordMessage(
+    agentId: string,
+    cliSessionId: string | undefined,
+  ): string {
+    return (
+      `Agent ${agentId} was restored from a previous run of this host. Its ` +
+      `output is readable, but nothing about it is live — the process ended ` +
+      `when that run did. Resume the conversation instead: spawn with ` +
+      `resume_session_id: ${cliSessionId ?? '<unknown>'}.`
+    );
+  }
+
+  /**
+   * Rebuild read-only records from persisted CLI session references.
+   *
+   * The agent map is in-memory, so it is empty after a host restart and
+   * {@link COMPLETED_AGENT_TTL} empties it again thirty minutes after an agent
+   * finishes. The OUTPUT survives both: `persistCliSessionReference` writes it
+   * to the session metadata store on exit, and the restore paths
+   * (`chat:resume`, `session:cli-sessions`) already read it back for the UI.
+   * Nothing put it back HERE, so a resumed session replayed agent cards whose
+   * ids `ptah_agent_read` answered `Agent not found` for — and the model read
+   * that as "the agent died" rather than "ask the store".
+   *
+   * **A live agent is never clobbered by a stale persisted snapshot.** The
+   * reference is a point-in-time copy taken at exit; an id already in the map
+   * has a record that is at least as current, and may be a run in flight.
+   *
+   * `workingDirectory` comes from the caller because a `CliSessionReference`
+   * carries none, and {@link getStatus} scopes on it — a restored agent filed
+   * under the wrong root is either invisible or another workspace's.
+   *
+   * @returns how many records were added (ids already present are skipped).
+   */
+  restoreAgents(
+    refs: readonly CliSessionReference[],
+    workingDirectory: string,
+  ): number {
+    let restored = 0;
+
+    for (const ref of refs) {
+      const agentId = String(ref.agentId);
+      if (!agentId || this.agents.has(agentId)) continue;
+
+      const stdout = ref.stdout ?? '';
+      const info: AgentProcessInfo = {
+        agentId: ref.agentId,
+        cli: ref.cli,
+        task: ref.task,
+        workingDirectory,
+        // A reference persisted as `running` describes a process that died with
+        // the run that wrote it. Carrying it through would show a spinner that
+        // never resolves and would count against the concurrency cap.
+        status: ref.status === 'running' ? 'stopped' : ref.status,
+        startedAt: ref.startedAt,
+        ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
+        ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
+      };
+
+      this.agents.set(agentId, {
+        info,
+        process: null,
+        stdoutBuffer: stdout,
+        stderrBuffer: '',
+        stdoutLineCount: countNewlines(stdout),
+        stderrLineCount: 0,
+        truncated: false,
+        hasExited: true,
+        // There is no subprocess to reclaim, which is what makes `disposeAll`
+        // and the TTL backstop no-ops for these records rather than errors.
+        subprocessReleased: true,
+        accumulatedSegments: ref.segments ? [...ref.segments] : [],
+        accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
+        streamCapLogged: false,
+        restored: true,
+      });
+
+      // Same TTL as a completed agent. Without it, a long-lived Electron
+      // process accumulates one record per restored agent per session switch.
+      this.scheduleCleanup(agentId);
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.logger.info(
+        '[AgentProcessManager] Restored agents from persisted session state',
+        { restored, offered: refs.length, workingDirectory },
+      );
+    }
+
+    return restored;
+  }
+
+  /**
    * Get the status of a specific agent, or of every agent in the caller's
    * workspace.
    *
@@ -679,7 +809,7 @@ export class AgentProcessManager {
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
-        throw new Error(`Agent not found: ${agentId}`);
+        throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
       }
       if (
         !this.isWithinWorkspaceScope(tracked.info.workingDirectory, scopeKey)
@@ -722,7 +852,7 @@ export class AgentProcessManager {
   readOutput(agentId: string, tail?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(`Agent not found: ${agentId}`);
+      throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
@@ -830,6 +960,15 @@ export class AgentProcessManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    if (tracked.restored) {
+      throw new Error(
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
+    }
+
     if (tracked.info.status !== 'running') {
       throw new Error(
         `Agent ${agentId} is not running (status: ${tracked.info.status})`,
@@ -869,6 +1008,22 @@ export class AgentProcessManager {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
+    }
+
+    // Before the `unsupported` check below: a restored record has no handle at
+    // all, so it would answer "does not support continuation" — true of the
+    // record, and wrong about the conversation, which IS resumable. `released`
+    // already means "record readable, process gone, use session resume", which
+    // is exactly this state, and the callers that recover from it are written
+    // against that code.
+    if (tracked.restored) {
+      throw new AgentContinueError(
+        'released',
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
     }
 
     const sdkHandle = tracked.sdkHandle;
@@ -973,6 +1128,17 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new Error(`Agent not found: ${agentId}`);
     }
+    // A restored record owns no process, so the release below would return
+    // early and report a successful stop for work this host never held.
+    if (tracked.restored) {
+      throw new Error(
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
+    }
+
     if (tracked.info.status !== 'running') {
       await this.releaseSubprocess(agentId, tracked, 'stopped');
       return tracked.info;

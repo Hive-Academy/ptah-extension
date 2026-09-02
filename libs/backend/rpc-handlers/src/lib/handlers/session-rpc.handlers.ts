@@ -52,6 +52,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import type { AgentProcessManager } from '@ptah-extension/cli-agent-runtime';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
@@ -119,6 +120,12 @@ export class SessionRpcHandlers {
     private readonly chatSession: ChatSessionService,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState: SessionTurnStateRegistry,
+    /**
+     * Optional so a host that never registers the manager serves this method
+     * exactly as before. See `session:cli-sessions` for the one use.
+     */
+    @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
+    private readonly agentProcessManager: AgentProcessManager | null = null,
   ) {}
 
   /**
@@ -742,6 +749,8 @@ export class SessionRpcHandlers {
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
+        this.restoreAgentRecords(cliSessions);
+
         return { cliSessions };
       } catch (error) {
         this.logger.error(
@@ -755,6 +764,30 @@ export class SessionRpcHandlers {
         return { cliSessions: [] };
       }
     });
+  }
+
+  /**
+   * Put restored CLI session references back into the agent registry.
+   *
+   * `AgentProcessManager` keeps agents in memory, so a webview reopened after a
+   * host restart shows agent cards whose ids `ptah_agent_read` cannot answer
+   * for. The references carry the persisted output; this hands it back.
+   *
+   * A failure here NEVER costs the caller its cards. The enclosing handler
+   * returns an empty list on any throw, so this keeps its own guard.
+   */
+  private restoreAgentRecords(refs: readonly CliSessionReference[]): void {
+    if (!this.agentProcessManager || refs.length === 0) return;
+    try {
+      this.agentProcessManager.restoreAgents(
+        refs,
+        this.workspaceProvider.getWorkspaceRoot() ?? '',
+      );
+    } catch (error: unknown) {
+      this.logger.warn('[RPC] Could not restore agent records', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

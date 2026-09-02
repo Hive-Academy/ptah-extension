@@ -34,6 +34,7 @@ import {
   McpOAuthInstalledManifestStore,
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
+  type AgentProcessManager,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -159,6 +160,14 @@ export class ChatSessionService {
      */
     @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION)
     private readonly outputStyleActivation: OutputStyleSessionActivationService,
+    /**
+     * Optional so a host that never registers the manager resumes exactly as
+     * before. Used for one thing: putting the CLI session references this
+     * method already reads back into the agent registry, so `ptah_agent_read`
+     * can answer for them after a restart.
+     */
+    @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
+    private readonly agentProcessManager: AgentProcessManager | null = null,
   ) {}
 
   /**
@@ -746,6 +755,13 @@ export class ChatSessionService {
             sessionId,
             cliSessionCount: cliSessions.length,
           });
+          // The UI gets these cards either way. Put them back into the agent
+          // registry too, or `ptah_agent_read` answers `Agent not found` for
+          // every id the restored transcript names.
+          this.agentProcessManager?.restoreAgents(
+            restored,
+            resolvedWorkspacePath,
+          );
         }
       } catch (error) {
         this.logger.debug('[RPC] Could not query CLI sessions', {
