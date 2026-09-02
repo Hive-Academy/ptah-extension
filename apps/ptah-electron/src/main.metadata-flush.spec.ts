@@ -280,6 +280,40 @@ describe('will-quit reaps the agents before it flushes', () => {
     );
   });
 
+  it('gives up on a flush that HANGS, so the app stays closable', async () => {
+    // `agentProcessManager` is resolved eagerly pre-window, so essentially
+    // every quit is now deferred and every quit awaits this flush. The flush
+    // never rejects, but it ends in `IStateStorage.update` and a storage that
+    // is going away can leave that pending forever — ahead of the `finally`
+    // that re-issues `app.quit()`. Unbounded, the one failure it produces is an
+    // app the user cannot close.
+    const order: string[] = [];
+    const refs = makeRefs(order);
+    refs.agentProcessManager = {
+      disposeAll: async () => undefined,
+    } as unknown as BootRefs['agentProcessManager'];
+
+    handleWillQuit({
+      refs,
+      abortBoot: () => order.push('abortBoot'),
+      isBootRunning: () => false,
+      awaitBootCompletion: async () => undefined,
+      flushWorkspacePersistence: () => order.push('flushWorkspacePersistence'),
+      flushSessionMetadataStores: () => new Promise<void>(() => undefined),
+      clearTimers: () => order.push('clearTimers'),
+      disposeVoiceWorker: () => order.push('disposeVoiceWorker'),
+      deferQuit: () => order.push('deferQuit'),
+      quit: () => order.push('quit'),
+      agentReapBudgetMs: 1,
+      metadataFlushBudgetMs: 1,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await settle();
+
+    expect(order).toContain('quit');
+  });
+
   it('gives up on a wedged reap and still runs the final flush', async () => {
     const order: string[] = [];
     const refs = makeRefs(order);

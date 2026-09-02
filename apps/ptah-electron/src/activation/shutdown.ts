@@ -80,6 +80,23 @@ export const GATEWAY_STOP_BUDGET_MS = 2000;
  */
 export const AGENT_REAP_BUDGET_MS = 2000;
 
+/**
+ * How long the chain may wait for the FINAL metadata flush.
+ *
+ * Bounded for a reason that is easy to miss. `agentProcessManager` is resolved
+ * eagerly in the PRE-window phase (`wire-runtime.ts:375`), so it is non-null on
+ * essentially every run — which means {@link requiresDeferredDisposal} is now
+ * true on essentially every quit, and the final flush is awaited every time.
+ *
+ * `flushSessionMetadataStores` never REJECTS, but nothing stops it hanging: it
+ * ends in `IStateStorage.update`, and a storage that is already going away can
+ * leave that promise pending forever. An unbounded await there sits ahead of
+ * the `finally` that re-issues `app.quit()`, so the one failure it could
+ * produce is an app the user cannot close. A lost final write is the lesser
+ * failure, and it is the same trade the two budgets above already make.
+ */
+export const METADATA_FLUSH_BUDGET_MS = 2000;
+
 export interface QuitSequenceDeps {
   /** The coordinator's stable refs object — read, never copied. */
   refs: BootRefs;
@@ -113,6 +130,8 @@ export interface QuitSequenceDeps {
   gatewayStopBudgetMs?: number;
   /** Override for tests. Defaults to {@link AGENT_REAP_BUDGET_MS}. */
   agentReapBudgetMs?: number;
+  /** Override for tests. Defaults to {@link METADATA_FLUSH_BUDGET_MS}. */
+  metadataFlushBudgetMs?: number;
 }
 
 /** The subset of {@link QuitSequenceDeps} the disposal chain reads. */
@@ -124,6 +143,7 @@ export type DisposalDeps = Pick<
   | 'flushSessionMetadataStores'
   | 'gatewayStopBudgetMs'
   | 'agentReapBudgetMs'
+  | 'metadataFlushBudgetMs'
 >;
 
 /** Run `fn`, log and continue on failure. Every disposal is non-fatal. */
@@ -366,7 +386,16 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
   // Without it the reap above has nobody to hand its writes to, which is the
   // whole of TASK_2026_334 defect 1. Reaching this line at all is what
   // `requiresDeferredDisposal` guarantees whenever there are agents to reap.
-  await deps.flushSessionMetadataStores();
+  //
+  // Bounded like every other await here: this one sits ahead of the `finally`
+  // that re-issues the quit, so a storage that hangs rather than rejects would
+  // leave the app unclosable. See {@link METADATA_FLUSH_BUDGET_MS}.
+  await withBudget(
+    'Final session metadata flush',
+    () => deps.flushSessionMetadataStores(),
+    deps.metadataFlushBudgetMs ?? METADATA_FLUSH_BUDGET_MS,
+    'quitting anyway.',
+  );
 }
 
 /**

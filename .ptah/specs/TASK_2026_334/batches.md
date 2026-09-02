@@ -36,14 +36,35 @@ Files:
 
 Report: `batch-b.report.md`
 
-## Deferred to Batch C
+## Batch C — the three remaining LOW findings (two CLI agents, in parallel)
 
-- LOW 2 — `getMaxConcurrentAgents` has no clamp to the documented maximum of 20.
-- LOW 3 — `trimBufferToLowWater` can split a surrogate pair.
-- LOW 4 — `session-metadata-store.ts` `_deleteInternal` drops the per-agent
-  output keys before the staged session list is flushed. Its lib (`agent-sdk`)
-  is disjoint from both batches above, so it can move as soon as someone takes
-  it.
+Run once the concurrent session had stopped writing to `cli-agent-runtime`.
+
+### C1 — Codex CLI
+
+- LOW 2 — `getMaxConcurrentAgents` clamps to 1..20, non-finite falls back to 5.
+  The bounds are exported from `cli-agent-runtime` and `agent-rpc.handlers.ts`
+  imports them, so the number now has one definition.
+- LOW 3 — `trimBufferToLowWater`'s no-newline fallback advances past a low
+  surrogate. The newline branch is left alone: `\n` is never part of a pair.
+
+Report: `batch-c1.report.md`
+
+### C2 — Antigravity CLI
+
+- LOW 4 — `_deleteInternal` flushes the staged session list BEFORE it deletes
+  the per-agent output keys, so a failed flush destroys nothing.
+
+Report: `batch-c2.report.md`
+
+## Review finding on Batch A, fixed alongside Batch C
+
+`agentProcessManager` is resolved eagerly pre-window, so after Batch A
+essentially every quit is deferred and every quit awaits the final flush — which
+was unbounded. The flush never rejects, but a storage that is going away can
+leave it pending forever, ahead of the `finally` that re-issues `app.quit()`.
+Now bounded by `METADATA_FLUSH_BUDGET_MS` through the same `withBudget` helper.
+Pinned by `gives up on a flush that HANGS, so the app stays closable`.
 
 ## Verification (orchestrator)
 

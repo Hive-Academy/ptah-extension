@@ -10,6 +10,9 @@ export { CliDetectionService } from './cli-detection.service';
 export {
   AgentProcessManager,
   AgentContinueError,
+  MIN_CONCURRENT_AGENTS,
+  MAX_CONCURRENT_AGENTS,
+  DEFAULT_CONCURRENT_AGENTS,
 } from './agent-process-manager.service';
 export type {
   AgentContinueErrorCode,

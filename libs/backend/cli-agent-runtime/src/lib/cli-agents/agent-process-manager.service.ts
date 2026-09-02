@@ -76,6 +76,10 @@ import {
   mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
 
+export const MIN_CONCURRENT_AGENTS = 1;
+export const MAX_CONCURRENT_AGENTS = 20;
+export const DEFAULT_CONCURRENT_AGENTS = 5;
+
 /**
  * Shell metacharacters — kept for reference only.
  * spawn() is called WITHOUT shell:true, so args are passed directly
@@ -1685,18 +1689,30 @@ export class AgentProcessManager {
   /**
    * The concurrent-agent cap.
    *
+   * The extension manifest schema protects only the VS Code settings UI.
+   * Electron, CLI, and hand-edited settings reach this runtime unchecked, so
+   * the 1..20 bounds are enforced here and non-finite values fall back to 5.
+   *
    * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
    * declared in the extension's `package.json`. Prompt text and docs that say
    * "max 3 concurrent" are stale and describe a limit that has not existed for
    * some time; the number here is the one the runtime enforces.
    */
   private getMaxConcurrentAgents(): number {
-    return (
+    const configured =
       this.workspace.getConfiguration<number>(
         'ptah',
         'agentOrchestration.maxConcurrentAgents',
-        5,
-      ) ?? 5
+        DEFAULT_CONCURRENT_AGENTS,
+      ) ?? DEFAULT_CONCURRENT_AGENTS;
+
+    if (!Number.isFinite(configured)) {
+      return DEFAULT_CONCURRENT_AGENTS;
+    }
+
+    return Math.max(
+      MIN_CONCURRENT_AGENTS,
+      Math.min(MAX_CONCURRENT_AGENTS, configured),
     );
   }
 
