@@ -1275,7 +1275,13 @@ export class TabManagerService {
   ): boolean {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     return tab
-      ? this.acceptsTurnState(tab, sessionId, revision, phase, allowTerminalHeal)
+      ? this.acceptsTurnState(
+          tab,
+          sessionId,
+          revision,
+          phase,
+          allowTerminalHeal,
+        )
       : false;
   }
 

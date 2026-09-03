@@ -30,7 +30,7 @@ holds at every point where `commit` reads it.**
 - `noteFloor` (`:396-404`) raises the floor with `Math.max`, so a floor never
   goes down.
 - `rekey` (`:310-341`) stores `baseline = max(merged record revision,
-  placeholder floor, real-id floor)` onto the record and onto the floor. A
+placeholder floor, real-id floor)` onto the record and onto the floor. A
   `max` can only raise both.
 - `recordStop` / `recordFailure` call `ensure` but never `commit`, so they
   issue no number.
@@ -40,12 +40,12 @@ holds at every point where `commit` reads it.**
 I walked `rekey` through all four record combinations, each crossed with a
 floor present or absent on either id:
 
-| `from` record | `to` record | Result | Re-issue possible? |
-| --- | --- | --- | --- |
-| present | present | `mergeRecords`, then raised to `baseline` | No. `baseline >= max(both records, both floors)`. |
-| present | absent | `merged = from`, raised to `baseline` | No. This is the resumed-alias case pinned at `spec:414`. |
-| absent | present | `merged = to`, raised to `baseline` | No. This is the branch added beyond the plan; see below. |
-| absent | absent | no record written, `noteFloor(realId, baseline)` when `baseline > 0` | No. The placeholder floor folds forward and `ensure` will seed from it. |
+| `from` record | `to` record | Result                                                               | Re-issue possible?                                                      |
+| ------------- | ----------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| present       | present     | `mergeRecords`, then raised to `baseline`                            | No. `baseline >= max(both records, both floors)`.                       |
+| present       | absent      | `merged = from`, raised to `baseline`                                | No. This is the resumed-alias case pinned at `spec:414`.                |
+| absent        | present     | `merged = to`, raised to `baseline`                                  | No. This is the branch added beyond the plan; see below.                |
+| absent        | absent      | no record written, `noteFloor(realId, baseline)` when `baseline > 0` | No. The placeholder floor folds forward and `ensure` will seed from it. |
 
 The third row is the one the brief asked me to scrutinise hardest, because
 pre-change `rekey` returned early on a missing placeholder record
@@ -114,15 +114,15 @@ Four of the six new registry cases and the new broadcaster case fail against
 the pre-change registry by behaviour, not only through the missing export. I
 checked each by hand-executing the pre-change code from the diff:
 
-| Case | Pre-change result | Fails pre-change? |
-| --- | --- | --- |
-| `spec:414` does not resurrect a lower baseline under the real id | `settleTurn` returns 2, not 5 | Yes |
-| `spec:434` the same under the placeholder id | `markGenerating(SESSION)` returns 1, not 3 | Yes |
-| `spec:496` does not restart the counter | `1 > 1` is false | Yes |
-| `spec:505` strictly increasing across a clear | `[1,2,1,2,1]`, not `[1,2,3,4,5]` | Yes |
-| `spec:521` leaves the floor per session | `1` — identical | **No. It passes on the old code.** |
-| `spec:527` bounds the floor map | `session-256` returns 1, not 2 | Yes |
-| `broadcaster spec:823` next loop starts above the last revision | `1 > 2` is false | Yes |
+| Case                                                             | Pre-change result                          | Fails pre-change?                  |
+| ---------------------------------------------------------------- | ------------------------------------------ | ---------------------------------- |
+| `spec:414` does not resurrect a lower baseline under the real id | `settleTurn` returns 2, not 5              | Yes                                |
+| `spec:434` the same under the placeholder id                     | `markGenerating(SESSION)` returns 1, not 3 | Yes                                |
+| `spec:496` does not restart the counter                          | `1 > 1` is false                           | Yes                                |
+| `spec:505` strictly increasing across a clear                    | `[1,2,1,2,1]`, not `[1,2,3,4,5]`           | Yes                                |
+| `spec:521` leaves the floor per session                          | `1` — identical                            | **No. It passes on the old code.** |
+| `spec:527` bounds the floor map                                  | `session-256` returns 1, not 2             | Yes                                |
+| `broadcaster spec:823` next loop starts above the last revision  | `1 > 2` is false                           | Yes                                |
 
 `spec:521` is a legitimate scoping guard (a floor must not leak between
 sessions), not a regression pin. I flag it only because the brief asked.
@@ -240,7 +240,7 @@ Two things make it worth its own task rather than a shrug:
   there.
 - **It is coupled to F1.** The leaked record is what protects an aborted session
   from the eviction hazard, because `ensure` never re-seeds from the floor. A
-  fix for this leak alone would *widen* F1. Whoever picks it up must fix both
+  fix for this leak alone would _widen_ F1. Whoever picks it up must fix both
   together.
 
 The commit's own rationale for bounding `revisionFloors` (`registry.ts:33-35`:
