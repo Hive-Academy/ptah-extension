@@ -8,17 +8,10 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import {
-  Injectable,
-  inject,
-  signal,
-  Injector,
-  effect,
-  untracked,
-} from '@angular/core';
+import { Injectable, inject, signal, Injector } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
-import type { SendMessageOptions } from '@ptah-extension/chat-types';
+import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
 import {
   ConfirmationDialogService,
   TabManagerService,
@@ -44,20 +37,19 @@ export class ConversationService {
     content: string;
   } | null>(null);
   readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
-  private readonly _lastAbortedSessionId = signal<string | null>(null);
-
-  constructor() {
-    let previousSessionId = this.currentSessionId();
-    effect(() => {
-      const current = this.currentSessionId();
-      untracked(() => {
-        if (current !== previousSessionId) {
-          previousSessionId = current;
-          this._lastAbortedSessionId.set(null);
-        }
-      });
-    });
-  }
+  /**
+   * Turn key ({@link currentTurnKey}) of the last abort whose `chat:abort` RPC
+   * was issued and answered successfully. A repeat Stop on that same turn skips
+   * the RPC and idles the tab locally, because the backend has nothing left to
+   * interrupt and will never emit the terminal `turn_state` (TASK_2026_367).
+   *
+   * It is turn-scoped, not session-scoped: a follow-up message reuses the same
+   * session id, so a session-scoped marker would swallow the Stop of the NEXT
+   * live turn and leave the backend running. It is also cleared whenever the
+   * RPC throws or reports failure, so a retry after a transport failure still
+   * reaches the backend.
+   */
+  private readonly _lastAbortedTurnKey = signal<string | null>(null);
 
   /**
    * Clear the queue restore signal after content has been consumed by ChatInputComponent.
@@ -73,6 +65,34 @@ export class ConversationService {
    */
   private currentSessionId(): SessionId | null {
     return this.tabManager.activeTab()?.claudeSessionId ?? null;
+  }
+
+  /**
+   * Identity of the streaming turn an abort targets.
+   *
+   * A follow-up message continues the SAME session (`chat:continue`), so the
+   * session id alone cannot tell one turn from the next. The key combines the
+   * session with the streaming message id of the running turn and the id of the
+   * user bubble that started it. Either component can be absent on its own (no
+   * assistant message has streamed yet; a tab whose messages are not loaded),
+   * so both are used. A turn with neither is unidentified and returns null: the
+   * abort then always reaches the backend, which is the safe direction.
+   */
+  private currentTurnKey(
+    sessionId: SessionId,
+    tab: TabState | null | undefined,
+  ): string | null {
+    const streamingMessageId = tab?.streamingState?.currentMessageId ?? null;
+    const messages = tab?.messages ?? [];
+    let lastUserMessageId: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMessageId = messages[i].id;
+        break;
+      }
+    }
+    if (!streamingMessageId && !lastUserMessageId) return null;
+    return `${sessionId}::${streamingMessageId ?? '-'}::${lastUserMessageId ?? '-'}`;
   }
 
   /**
@@ -170,10 +190,12 @@ export class ConversationService {
       const activeTab = this.tabManager.activeTab();
       const abortedTabId = activeTab?.id ?? null;
 
-      if (sessionId === this._lastAbortedSessionId()) {
+      const turnKey = this.currentTurnKey(sessionId, activeTab);
+
+      if (turnKey !== null && turnKey === this._lastAbortedTurnKey()) {
         console.log(
-          '[ConversationService] Session already aborted, idling tab locally:',
-          sessionId,
+          '[ConversationService] Turn already aborted, idling tab locally:',
+          turnKey,
         );
         this.idleAbortedTabLocally(abortedTabId, sessionId);
         return;
@@ -199,7 +221,7 @@ export class ConversationService {
         '[ConversationService] Calling chat:abort RPC for session:',
         sessionId,
       );
-      this._lastAbortedSessionId.set(sessionId);
+      this._lastAbortedTurnKey.set(turnKey);
       let result: Awaited<
         ReturnType<typeof this.claudeRpcService.call<'chat:abort'>>
       >;
@@ -209,8 +231,10 @@ export class ConversationService {
         });
       } catch (error: unknown) {
         // Transport failure: the request may never have reached the backend,
-        // so no ordered turn_state will ever arrive for this session.
+        // so no ordered turn_state will ever arrive for this session, and a
+        // later Stop on this same turn must be able to retry the RPC.
         console.error('[ConversationService] chat:abort RPC failed:', error);
+        this._lastAbortedTurnKey.set(null);
         this.idleAbortedTabLocally(abortedTabId, sessionId);
         return;
       }
@@ -227,6 +251,8 @@ export class ConversationService {
         );
         // The backend had no live stream to interrupt (e.g. the session left
         // the SDK registry), so nothing will emit the terminal turn_state.
+        // The abort did not take effect, so a retry must reach the backend.
+        this._lastAbortedTurnKey.set(null);
         this.idleAbortedTabLocally(abortedTabId, sessionId);
       }
       // On success no finalize / markTabIdle here (TASK_2026_360, review F3):
