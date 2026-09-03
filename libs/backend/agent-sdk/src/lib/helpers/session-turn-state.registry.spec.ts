@@ -538,6 +538,68 @@ describe('SessionTurnStateRegistry', () => {
       expect(registry.markGenerating(`session-${total - 1}`)?.revision).toBe(2);
       expect(registry.markGenerating('session-0')?.revision).toBe(1);
     });
+
+    // TASK_2026_371 F3. The case above writes each session exactly once, so
+    // insertion order and write recency are identical and it passes even under
+    // plain first-inserted-first-out. The two cases below pin the rule the
+    // name claims: the `delete`-then-`set` re-insertion in `noteFloor`.
+    it('evicts the least recently WRITTEN entry, not the first inserted', () => {
+      // Stop one short of the limit. The second commit below MUST land while
+      // the map is NOT full: on a full map a first-inserted-first-out
+      // `noteFloor` would evict the key it is about to re-insert and append it
+      // again, which imitates write-recency ordering for that one key and
+      // hides the difference this case exists to show.
+      for (let i = 0; i < REVISION_FLOOR_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`session-${i}`);
+        registry.clear(`session-${i}`);
+      }
+
+      // A second turn on session-0: the most recently WRITTEN key, still the
+      // FIRST inserted one. Its floor is now 2.
+      registry.markGenerating('session-0');
+      registry.clear('session-0');
+
+      // Fill the last slot, then overflow by one.
+      registry.markGenerating(`session-${REVISION_FLOOR_MAP_LIMIT - 1}`);
+      registry.clear(`session-${REVISION_FLOOR_MAP_LIMIT - 1}`);
+      registry.markGenerating(`session-${REVISION_FLOOR_MAP_LIMIT}`);
+      registry.clear(`session-${REVISION_FLOOR_MAP_LIMIT}`);
+
+      // Ordering trap: every `markGenerating` READ writes a floor of its own
+      // and can itself evict, so assert the VICTIM first. Reading an evicted
+      // key inserts it fresh and evicts the next entry in turn, but session-0
+      // sits near the recent end and survives that.
+      // session-1 is the least recently written key, so it is the victim: no
+      // floor left, so the counter restarts at 1.
+      expect(registry.markGenerating('session-1')?.revision).toBe(1);
+      // session-0 survived with its floor of 2, so the next commit is 3.
+      // First-inserted-first-out would have evicted session-0 instead and this
+      // would read 1, with session-1 reading 2.
+      expect(registry.markGenerating('session-0')?.revision).toBe(3);
+    });
+
+    it('a commit on an EXISTING key in a full map evicts nothing', () => {
+      // Exactly LIMIT distinct keys, so the map is full.
+      for (let i = 0; i < REVISION_FLOOR_MAP_LIMIT; i++) {
+        registry.markGenerating(`session-${i}`);
+        registry.clear(`session-${i}`);
+      }
+
+      // An update, not an insertion. `noteFloor` shrinks the map before it
+      // tests the limit, so this path can never evict.
+      registry.markGenerating('session-0');
+      registry.clear('session-0');
+
+      // Ordering trap: each read below writes a floor of its own. Every key is
+      // still present, so every read is an update and evicts nothing, which is
+      // what makes the whole sweep safe to run in one pass. session-0
+      // committed twice (floor 2), every other session once (floor 1).
+      expect(registry.markGenerating('session-0')?.revision).toBe(3);
+      for (let i = 1; i < REVISION_FLOOR_MAP_LIMIT; i++) {
+        expect(registry.markGenerating(`session-${i}`)?.revision).toBe(2);
+        registry.clear(`session-${i}`);
+      }
+    });
   });
 
   describe('toTurnStateEvent', () => {

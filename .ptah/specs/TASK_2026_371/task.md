@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: in_review
 type: bugfix
 title: Resumed session drops its terminal turn_state, so the UI spinner never clears
 description: >-

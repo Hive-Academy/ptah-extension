@@ -21,6 +21,8 @@ import {
   SdkSessionCronSummary,
   SdkTerminalReason,
   SessionTurnState,
+  SessionTurnPhase,
+  isTerminalTurnPhase,
   GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -1150,7 +1152,9 @@ export class TabManagerService {
   ): void {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab) return;
-    if (!this.acceptsTurnState(tab, sessionId, state.revision)) return;
+    if (!this.acceptsTurnState(tab, sessionId, state.revision, state.phase)) {
+      return;
+    }
 
     const updates: Partial<TabState> = {
       lastTurnStateRevision: state.revision,
@@ -1217,20 +1221,70 @@ export class TabManagerService {
    *    a per-session floor across `clear` (TASK_2026_371). Do NOT loosen it
    *    into "a different session id means accept whatever arrives" — that is
    *    the replay window review F1 (TASK_2026_360) closed.
+   * 3. The terminal heal — the one exception to rule 2, described below.
+   *
+   * ## The terminal heal (TASK_2026_371)
+   *
+   * WHY. The per-session floor that makes rule 2 sound lives in a BOUNDED map
+   * (`REVISION_FLOOR_MAP_LIMIT` in
+   * `libs/backend/agent-sdk/src/lib/helpers/session-turn-state.registry.ts`).
+   * An eviction inside a live process restarts the backend counter for a
+   * session whose tab is still open and still holds a high
+   * `lastTurnStateRevision`. Every event of the next turn then loses
+   * `revision > last`, and the tab keeps `streaming` forever.
+   *
+   * WHAT IT ACCEPTS. A TERMINAL phase, on a tab BOUND to exactly this session,
+   * whose revision is `<=` the last accepted revision for the SAME session. A
+   * backend saying the turn ended, against a tab that would otherwise hold
+   * `streaming` for good, means the tab is out of step — and holding
+   * `streaming` is the worse of the two errors.
+   *
+   * WHAT IT STILL REJECTS.
+   * - Any NON-terminal phase (`generating`) at or below `last`. The replay
+   *   window review F1 (TASK_2026_360) closed stays closed: a replayed
+   *   `generating` can never resurrect a spinner.
+   * - Any event failing session ownership (rule 1).
+   * - A placeholder tab (`claudeSessionId` null) at or below `last`, because
+   *   `rekey` carries the floors through the placeholder → real-id migration,
+   *   so a low revision there is a true replay.
+   * - Any event the caller marks as UNORDERED (`allowTerminalHeal: false`).
+   *   Only `SessionLivenessReconcilerService` does: its event is synthesized
+   *   from a `session:status` RPC, not pulled from the tab's chunk stream, so
+   *   it carries whatever revision the registry held when the RPC was ANSWERED.
+   *   A turn starting while that call is in flight lands it behind a live
+   *   `generating`, and healing it would finalize the in-flight message and
+   *   idle a tab mid-turn. A probe is never the right healer anyway: a stranded
+   *   tab is healed by the next real turn's terminal event, which is ordered.
+   *
+
+   * THE KNOWN COST. `applyTurnState` writes `lastTurnStateRevision =
+   * state.revision`, so a heal REALIGNS the watermark DOWN onto the restarted
+   * backend counter. That is deliberate — without it every later turn in the
+   * session would stick and heal again. The price is that a genuinely late
+   * duplicate terminal event, reordered behind a newer event from a concurrent
+   * broadcast loop on the same session id, can idle a streaming tab early; the
+   * live turn's own terminal event then corrects it. A permanently stuck tab
+   * that needs an app restart is strictly worse.
    */
   canApplyTurnState(
     tabId: string,
     sessionId: string | undefined,
     revision: number,
+    phase: SessionTurnPhase,
+    allowTerminalHeal = true,
   ): boolean {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    return tab ? this.acceptsTurnState(tab, sessionId, revision) : false;
+    return tab
+      ? this.acceptsTurnState(tab, sessionId, revision, phase, allowTerminalHeal)
+      : false;
   }
 
   private acceptsTurnState(
     tab: TabState,
     sessionId: string | undefined,
     revision: number,
+    phase: SessionTurnPhase,
+    allowTerminalHeal = true,
   ): boolean {
     const bound = tab.claudeSessionId;
     if (bound && bound !== sessionId) return false;
@@ -1246,7 +1300,13 @@ export class TabManagerService {
       // session, which says nothing about this one's counter.
       if (bound) return true;
     }
-    return revision > last;
+    if (revision > last) return true;
+    // The terminal heal — see the doc block. `bound` is truthy only when
+    // ownership passed, so it is this session; and reaching here with a
+    // truthy `bound` means the recorded revision belongs to this session too.
+    // `allowTerminalHeal` is the caller's statement that this event is ORDERED
+    // against the tab's stream; an out-of-band probe passes `false`.
+    return allowTerminalHeal && Boolean(bound) && isTerminalTurnPhase(phase);
   }
 
   /**

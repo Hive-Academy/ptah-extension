@@ -58,9 +58,17 @@ export class SessionLivenessReconcilerService {
 
       const { isActive, turnState } = result.data;
       if (turnState) {
+        // `ordered: false` — this event is synthesized from an RPC answer, not
+        // pulled from the tab's chunk stream, so it carries whatever revision
+        // the registry held when the call was ANSWERED. A turn starting while
+        // the call was in flight lands it behind a live `generating`, and the
+        // terminal heal would then finalize the in-flight message and idle the
+        // tab mid-turn (TASK_2026_371). A stranded tab is healed by the next
+        // real turn's terminal event, which IS ordered.
         this.turnStateApplier.apply(
           toTurnStateEvent(sessionId, turnState),
           tabId,
+          { ordered: false },
         );
       } else if (isActive) {
         // Known to the backend but no turn recorded yet: live and idle.

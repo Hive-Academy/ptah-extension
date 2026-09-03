@@ -22,7 +22,7 @@ import { SessionLoaderService } from './session-loader.service';
  *
  * Responsibilities:
  * - Per-tab `isCompacting` flag management
- * - Compaction safety-fallback timeout (120s) — dismisses banner if backend
+ * - Compaction safety-fallback timeout (10 min) — dismisses banner if backend
  *   never sends `compaction_complete`
  * - Compaction-complete reload flow: tree-cache clear, preloadedStats
  *   snapshot, message clear, sidebar refresh, session re-switch
@@ -60,8 +60,22 @@ export class CompactionLifecycleService {
    * Safety fallback timeout for compaction notification (milliseconds).
    * The banner is normally dismissed by the `compaction_complete` event.
    * This timeout is a safety net in case the complete event is lost.
+   *
+   * It is a LOST-EVENT NET, NOT A DEADLINE. Nothing about compaction is
+   * cancelled when it fires — the callback only un-sticks the UI (resets the
+   * fan-out tabs, drops `inFlight`, sets the session status back to `loaded`)
+   * and logs a warning that reads as a failure. So the only cost of waiting
+   * longer is a banner that stays up for a compaction that is merely slow,
+   * while the cost of firing early is a *false* failure warning plus a full
+   * duplicate reload when the genuine `compaction_complete` lands afterwards.
+   *
+   * The previous 120s ceiling sat BELOW the slowest legitimate compaction: a
+   * manual `/compact` on a resumed 372-event / 333k-token session was measured
+   * at ~2 minutes end to end and tripped it every time. Ten minutes sits far
+   * above any compaction observed on a real session, which is the property
+   * this constant needs — not tightness.
    */
-  private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 120000;
+  private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 600000;
 
   /**
    * One-tick auto-animate suppression flag.
@@ -94,7 +108,8 @@ export class CompactionLifecycleService {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    const tabs = this.tabManager.findTabsBySessionId(SessionId.from(sessionId));
+    const compactionSid = SessionId.from(sessionId);
+    const tabs = this.tabManager.findTabsBySessionId(compactionSid);
     if (tabs.length === 0) {
       console.warn(
         '[ChatStore] handleCompactionStart: no tab found for sessionId',
@@ -106,8 +121,9 @@ export class CompactionLifecycleService {
       clearTimeout(this.compactionTimeoutId);
       this.compactionTimeoutId = null;
     }
-    const compactingConvIds = this.collectConversationIdsForTabs(
+    const compactingConvIds = this.ensureConversationIdsForTabs(
       tabs.map((t) => t.id),
+      compactionSid,
     );
     const startedAt = Date.now();
     for (const convId of compactingConvIds) {
@@ -136,11 +152,22 @@ export class CompactionLifecycleService {
   }
 
   /**
-   * Resolve the set of unique conversation ids bound to the given tabs. Tabs
-   * with no binding (pre-router-hydration legacy path) are silently skipped —
-   * see C1 fallback contract: `chat-view` reads exclusively from the registry,
-   * so an unbound tab simply will not render a banner. The previous fallback
-   * to `tab.isCompacting` is the bug this fix is removing.
+   * READ-ONLY resolution: the set of unique conversation ids ALREADY bound to
+   * the given tabs. Tabs with no binding are silently skipped — see the C1
+   * fallback contract: `chat-view` reads exclusively from the registry, so an
+   * unbound tab simply will not render a banner. The previous fallback to
+   * `tab.isCompacting` is the bug that fix removed, and it STAYS removed: a
+   * per-tab boolean is a second source of truth for compaction state and is
+   * exactly the registry/tab drift the registry exists to eliminate.
+   *
+   * `ensureConversationIdsForTabs` is NOT a reintroduction of that fallback.
+   * It never reads `tab.isCompacting` and never invents state — it mints a
+   * real `ConversationRegistry` record and a real `TabSessionBinding` edge, so
+   * afterwards this method resolves the tab through the ordinary path like any
+   * router-bound tab. One is "guess from a stale tab flag"; the other is
+   * "create the binding that was missing". Use this read-only variant on the
+   * fan-out/teardown paths, where a tab that was never part of the compaction
+   * must not acquire a conversation as a side effect of cleanup.
    */
   private collectConversationIdsForTabs(
     tabIds: readonly TabId[],
@@ -155,6 +182,63 @@ export class CompactionLifecycleService {
       }
     }
     return out;
+  }
+
+  /**
+   * Resolve the unique conversation ids for the given tabs, ESTABLISHING a
+   * binding for any tab that does not have one yet.
+   *
+   * `TabSessionBinding.bind` is called only by `StreamRouter`, and only once a
+   * routed stream event carries an `originTabId`. Both compaction
+   * notifications (`compaction_start` and the `PostCompact` push) arrive
+   * BEFORE the first routed chunk of the turn, so on a freshly resumed session
+   * every tab is still unbound at compaction time. Resolving read-only there
+   * yielded an empty set, which silently dropped the `inFlight` write (no
+   * banner source but the safety timer) and the marker summary stamp (the
+   * compaction marker never got its recap text).
+   *
+   * Resolution order, most-authoritative first:
+   *   1. an existing binding for the tab;
+   *   2. the conversation that already contains `sessionId` anywhere in its
+   *      history — a compaction never starts a new thread, so if the registry
+   *      knows this session the tab belongs to that conversation;
+   *   3. a new conversation seeded with `sessionId`.
+   * The tab is bound to the resolved conversation in cases 2 and 3, so the
+   * later fan-out and teardown paths — which stay read-only — now resolve it.
+   */
+  private ensureConversationIdsForTabs(
+    tabIds: readonly TabId[],
+    sessionId: SessionId,
+  ): readonly ConversationId[] {
+    const seen = new Set<ConversationId>();
+    const out: ConversationId[] = [];
+    for (const tabId of tabIds) {
+      const convId = this.resolveOrCreateConversationForTab(tabId, sessionId);
+      if (!seen.has(convId)) {
+        seen.add(convId);
+        out.push(convId);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Resolve-or-create the conversation for a `(tabId, sessionId)` pair and
+   * guarantee the tab is bound to it. See `ensureConversationIdsForTabs` for
+   * the resolution order and why the compaction path needs it.
+   */
+  private resolveOrCreateConversationForTab(
+    tabId: TabId,
+    sessionId: SessionId,
+  ): ConversationId {
+    const bound = this.tabSessionBinding.conversationFor(tabId);
+    if (bound) return bound;
+    const containing =
+      this.conversationRegistry.findContainingSession(sessionId);
+    const convId =
+      containing?.id ?? this.conversationRegistry.create(sessionId);
+    this.tabSessionBinding.bind(tabId, convId);
+    return convId;
   }
 
   /**
@@ -359,13 +443,18 @@ export class CompactionLifecycleService {
    * bound to the payload's session id and stamps each conversation once.
    * No-tab-bound case warns and no-ops (does NOT throw) so a stale RPC
    * delivery after tab close does not crash the webview.
+   *
+   * A tab that exists but has no conversation binding is NOT the no-op case.
+   * This push routinely lands before `StreamRouter` has bound the tab, and
+   * returning early there is what left the compaction marker without its
+   * summary. `ensureConversationIdsForTabs` establishes the binding instead,
+   * so the stamp always has somewhere to land.
    */
   handleCompactionCompleteNotification(
     payload: SdkCompactionCompletePayload,
   ): void {
-    const tabs = this.tabManager.findTabsBySessionId(
-      SessionId.from(payload.sessionId),
-    );
+    const compactionSid = SessionId.from(payload.sessionId);
+    const tabs = this.tabManager.findTabsBySessionId(compactionSid);
     if (tabs.length === 0) {
       console.warn(
         '[ChatStore] handleCompactionCompleteNotification: no tab bound to sessionId',
@@ -373,14 +462,10 @@ export class CompactionLifecycleService {
       );
       return;
     }
-    const convIds = this.collectConversationIdsForTabs(tabs.map((t) => t.id));
-    if (convIds.length === 0) {
-      console.warn(
-        '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
-        { sessionId: payload.sessionId },
-      );
-      return;
-    }
+    const convIds = this.ensureConversationIdsForTabs(
+      tabs.map((t) => t.id),
+      compactionSid,
+    );
     for (const convId of convIds) {
       try {
         this.conversationRegistry.markCompactionComplete(

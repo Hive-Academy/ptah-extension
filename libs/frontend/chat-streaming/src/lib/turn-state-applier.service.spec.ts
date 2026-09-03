@@ -27,6 +27,8 @@ import type { TabState } from '@ptah-extension/chat-types';
 import {
   SessionId,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  isTerminalTurnPhase,
+  type SessionTurnPhase,
   type TurnStateEvent,
 } from '@ptah-extension/shared';
 import { MessageFinalizationService } from './message-finalization.service';
@@ -111,7 +113,13 @@ describe('TurnStateApplier', () => {
     // tab-manager.intent-mutators.spec.ts) so the applier is driven by real
     // tab fields rather than a canned boolean.
     canApplyTurnState = jest.fn(
-      (tabId: string, sessionId: string | undefined, revision: number) => {
+      (
+        tabId: string,
+        sessionId: string | undefined,
+        revision: number,
+        phase: SessionTurnPhase,
+        allowTerminalHeal = true,
+      ) => {
         const tab = findTabByIdAcrossWorkspaces(tabId)?.tab as
           | TabState
           | undefined;
@@ -124,7 +132,17 @@ describe('TurnStateApplier', () => {
         if (tab.lastTurnStateSessionId !== sessionId && tab.claudeSessionId) {
           return true;
         }
-        return revision > last;
+        if (revision > last) return true;
+        // The terminal heal (TASK_2026_371): a bound tab accepts a terminal
+        // phase even at or below `last`, because the backend floor map can
+        // evict and restart the counter inside a live process. Only for an
+        // ORDERED event — an out-of-band probe passes `allowTerminalHeal`
+        // false.
+        return (
+          allowTerminalHeal &&
+          Boolean(tab.claudeSessionId) &&
+          isTerminalTurnPhase(phase)
+        );
       },
     );
     finalizeCurrentMessage = jest.fn();
@@ -261,7 +279,14 @@ describe('TurnStateApplier', () => {
     it('runs the check BEFORE finalization, with the event session and revision', () => {
       applier.apply(turnState({ phase: 'idle', revision: 4 }), 'tab-1');
 
-      expect(canApplyTurnState).toHaveBeenCalledWith('tab-1', SESSION_ID, 4);
+      expect(canApplyTurnState).toHaveBeenCalledWith(
+        'tab-1',
+        SESSION_ID,
+        4,
+        'idle',
+        // An event off the chunk stream is ordered, so the heal is allowed.
+        true,
+      );
       expect(canApplyTurnState.mock.invocationCallOrder[0]).toBeLessThan(
         finalizeCurrentMessage.mock.invocationCallOrder[0],
       );
@@ -310,7 +335,11 @@ describe('TurnStateApplier', () => {
       );
     });
 
-    it('rejects a delayed probe idle@2 after a live generating@3 before finalization or liveness', () => {
+    // Re-expressed for the terminal heal (TASK_2026_371): on a BOUND tab a
+    // terminal phase at or below `last` is now accepted, so the rejection this
+    // case pins is the non-terminal one - the replay window TASK_2026_360
+    // review F1 closed. The terminal counterpart is the next case.
+    it('rejects a delayed probe generating@2 after a live generating@3 before finalization or liveness', () => {
       activeTabs = [
         makeTab({
           id: 'tab-1',
@@ -320,13 +349,63 @@ describe('TurnStateApplier', () => {
       ];
 
       applier.apply(
-        turnState({ phase: 'idle', revision: 2, source: 'probe' as never }),
+        turnState({
+          phase: 'generating',
+          revision: 2,
+          terminalReason: null,
+          source: 'probe' as never,
+        }),
         'tab-1',
       );
 
       expect(finalizeCurrentMessage).not.toHaveBeenCalled();
       expect(applyTurnState).not.toHaveBeenCalled();
       expect(consumeHardDenyToolUseIds).not.toHaveBeenCalled();
+      expect(liveness.markStreaming).not.toHaveBeenCalled();
+      expect(liveness.markIdle).not.toHaveBeenCalled();
+    });
+
+    // The other half of the same rule: the backend floor map evicted this
+    // session, so its counter restarted and the terminal idle carries a
+    // revision far below what the tab holds. The applier must still finalize
+    // and idle the tab, or it stays `streaming` for good (TASK_2026_371 D1).
+    it('accepts a terminal idle@2 below the tab revision on a bound tab (floor eviction heal)', () => {
+      activeTabs = [
+        makeTab({
+          id: 'tab-1',
+          lastTurnStateRevision: 120,
+          lastTurnStateSessionId: SESSION_ID,
+        }),
+      ];
+      const event = turnState({ phase: 'idle', revision: 2 });
+
+      applier.apply(event, 'tab-1');
+
+      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', false);
+      expect(applyTurnState).toHaveBeenCalledWith('tab-1', event, SESSION_ID);
+      expect(liveness.markIdle).toHaveBeenCalledWith(SESSION_ID, ACTIVE_WS);
+    });
+
+    // The heal is for ORDERED events only. The reconciler's `session:status`
+    // probe carries whatever revision the registry held when the RPC was
+    // ANSWERED, so a turn starting while it was in flight lands it behind a
+    // live `generating`. Healing it would finalize the in-flight message and
+    // idle a tab mid-turn — the case the deleted "delayed probe idle@2" test
+    // guarded, kept alive here for the terminal phase (TASK_2026_371).
+    it('does NOT heal a terminal idle@2 delivered out of band (ordered: false)', () => {
+      activeTabs = [
+        makeTab({
+          id: 'tab-1',
+          lastTurnStateRevision: 120,
+          lastTurnStateSessionId: SESSION_ID,
+        }),
+      ];
+      const event = turnState({ phase: 'idle', revision: 2 });
+
+      applier.apply(event, 'tab-1', { ordered: false });
+
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(applyTurnState).not.toHaveBeenCalled();
       expect(liveness.markIdle).not.toHaveBeenCalled();
     });
 
@@ -362,7 +441,43 @@ describe('TurnStateApplier', () => {
       expect(liveness.markIdle).toHaveBeenCalledWith(SESSION_ID, ACTIVE_WS);
     });
 
+    // Phase changed from `idle` to `generating` for the terminal heal
+    // (TASK_2026_371): every tab of this fan-out is BOUND to the session, and
+    // a terminal phase now heals a bound tab whatever its recorded revision.
+    // The revision filter is observable on a fan-out only for `generating`.
     it('keeps only the accepting tabs of a fan-out', () => {
+      activeTabs = [
+        makeTab({ id: 'tab-a' }),
+        makeTab({
+          id: 'tab-b',
+          lastTurnStateRevision: 9,
+          lastTurnStateSessionId: SESSION_ID,
+        }),
+      ];
+      const event = turnState({
+        phase: 'generating',
+        revision: 5,
+        terminalReason: null,
+      });
+
+      applier.apply(event);
+
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(applyTurnState).toHaveBeenCalledWith('tab-a', event, SESSION_ID);
+      expect(applyTurnState).not.toHaveBeenCalledWith(
+        'tab-b',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(liveness.markStreaming).toHaveBeenCalledWith(
+        SESSION_ID,
+        ACTIVE_WS,
+      );
+    });
+
+    // The terminal counterpart of the case above: nothing is filtered, because
+    // a terminal phase heals tab-b instead of dropping it.
+    it('fans a terminal event out to every bound tab, healing the one behind on revisions', () => {
       activeTabs = [
         makeTab({ id: 'tab-a' }),
         makeTab({
@@ -376,16 +491,9 @@ describe('TurnStateApplier', () => {
       applier.apply(event);
 
       expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-a', false);
-      expect(finalizeCurrentMessage).not.toHaveBeenCalledWith(
-        'tab-b',
-        expect.anything(),
-      );
+      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-b', false);
       expect(applyTurnState).toHaveBeenCalledWith('tab-a', event, SESSION_ID);
-      expect(applyTurnState).not.toHaveBeenCalledWith(
-        'tab-b',
-        expect.anything(),
-        expect.anything(),
-      );
+      expect(applyTurnState).toHaveBeenCalledWith('tab-b', event, SESSION_ID);
       expect(liveness.markIdle).toHaveBeenCalledWith(SESSION_ID, ACTIVE_WS);
     });
 

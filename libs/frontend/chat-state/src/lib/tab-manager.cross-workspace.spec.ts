@@ -248,15 +248,36 @@ describe('TabManagerService.applyTurnState on a background partition (TASK_2026_
     expect(service.isTabStreaming(tabId)).toBe(true);
   });
 
+  // Re-expressed for the TASK_2026_371 terminal heal: the tab is BOUND to
+  // BG_SESSION, so a terminal phase at or below the recorded revision is now
+  // accepted. The revision guard is what decides a NON-terminal phase, and
+  // that is the replay window TASK_2026_360 review F1 closed.
   it('honours the revision guard on a background tab', () => {
+    const tabId = streamingTabInBackground();
+    service.applyTurnState(tabId, turnState('sleeping', 5), BG_SESSION);
+
+    service.applyTurnState(tabId, turnState('generating', 4), BG_SESSION);
+
+    const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+    expect(bg?.status).toBe('sleeping');
+    expect(bg?.lastTurnStateRevision).toBe(5);
+    expect(service.isTabStreaming(tabId)).toBe(false);
+  });
+
+  // The other half of the same rule, on a background partition: the backend
+  // floor map evicted BG_SESSION, so its counter restarted and the terminal
+  // event lands below what the tab holds. Without the heal the tab would keep
+  // `streaming` for good (TASK_2026_371 D1).
+  it('heals a background tab on a terminal event below its recorded revision', () => {
     const tabId = streamingTabInBackground();
     service.applyTurnState(tabId, turnState('generating', 5), BG_SESSION);
 
-    service.applyTurnState(tabId, turnState('idle', 4), BG_SESSION);
+    service.applyTurnState(tabId, turnState('idle', 2), BG_SESSION);
 
     const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
-    expect(bg?.status).toBe('streaming');
-    expect(bg?.lastTurnStateRevision).toBe(5);
-    expect(service.isTabStreaming(tabId)).toBe(true);
+    expect(bg?.status).toBe('loaded');
+    // The watermark realigns DOWN onto the restarted backend counter.
+    expect(bg?.lastTurnStateRevision).toBe(2);
+    expect(service.isTabStreaming(tabId)).toBe(false);
   });
 });

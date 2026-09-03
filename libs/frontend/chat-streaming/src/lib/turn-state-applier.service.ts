@@ -24,12 +24,23 @@
  * older revision, is dropped without finalizing, idling or re-lighting
  * anything (review F1). Sessions that resolve no tab (surface-owned) get the
  * same revision guard from a small per-session map here.
+ *
+ * ONE exception, opt-in per call: the terminal heal (TASK_2026_371). A bound
+ * tab accepts a TERMINAL phase even at or below its last revision, because the
+ * backend's revision floor map is bounded and an eviction restarts that
+ * session's counter inside a live process — which would leave the tab on
+ * `streaming` for good. The heal is for events pulled from the tab's own chunk
+ * stream, which are ORDERED against the deltas they close.
+ * `apply(event, tabId, { ordered: false })` turns it off, and the reconciler's
+ * `session:status` probe is the only caller that passes it — so the sentence
+ * above still holds for that probe in full.
  */
 
 import { Injectable, inject } from '@angular/core';
 import {
   SessionId,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  isTerminalTurnPhase,
   type SessionTurnPhase,
   type TurnStateEvent,
 } from '@ptah-extension/shared';
@@ -40,13 +51,6 @@ import {
 import type { TabState } from '@ptah-extension/chat-types';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
-
-const TERMINAL_PHASES: ReadonlySet<SessionTurnPhase> = new Set([
-  'awaiting-background',
-  'sleeping',
-  'idle',
-  'failed',
-]);
 
 interface ResolvedTab {
   readonly tab: TabState;
@@ -75,14 +79,25 @@ export class TurnStateApplier {
    * @param event - The event, straight off the chunk stream or synthesized
    *   from `session:status` by the reconciler.
    * @param tabId - Direct routing hint from the chunk payload (preferred).
+   * @param options - `ordered: false` marks an event that did NOT come from
+   *   the tab's chunk stream, so it may trail the deltas it describes. It
+   *   disables the terminal heal only; every other rule is unchanged. See the
+   *   class doc.
    */
-  apply(event: TurnStateEvent, tabId?: string): void {
+  apply(
+    event: TurnStateEvent,
+    tabId?: string,
+    options?: { readonly ordered?: boolean },
+  ): void {
+    const ordered = options?.ordered ?? true;
     const resolved = this.resolveTabs(event, tabId);
     const targets = resolved.filter(({ tab }) => {
       const accepted = this.tabManager.canApplyTurnState(
         tab.id,
         event.sessionId,
         event.revision,
+        event.phase,
+        ordered,
       );
       if (!accepted) {
         console.debug('[TurnStateApplier] dropped stale/foreign turn_state', {
@@ -97,7 +112,7 @@ export class TurnStateApplier {
       return accepted;
     });
 
-    if (TERMINAL_PHASES.has(event.phase)) {
+    if (isTerminalTurnPhase(event.phase)) {
       // Finalize FIRST: `applyFinalizedTurn` flips `loaded` only while the tab
       // is still `streaming`, so the backend phase written next is what the
       // tab keeps.

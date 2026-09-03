@@ -95,17 +95,35 @@ type TurnStateDraft = Omit<SessionTurnState, 'revision' | 'timestamp'>;
 
 /**
  * Upper bound for the revision-floor map; the least-recently-written entry is
- * evicted. Same number and same shape as `SURFACE_REVISION_MAP_LIMIT` in the
- * webview's `TurnStateApplier`, deliberately: the floor exists to keep this
- * counter ahead of what that consumer remembers, so retaining floors for more
- * sessions than the consumer keeps revisions for buys nothing. One entry is a
- * session-id string plus a small integer, so the cap costs tens of kilobytes.
+ * evicted. One entry is a session-id string plus a small integer, so the cap
+ * costs tens of kilobytes. The cap stays: this is a long-lived Electron
+ * process and a map that only ever grows is a leak.
  *
- * Eviction is bounded in consequence as well as in size. A floor is re-written
- * on every commit, so the victim is a session that has emitted nothing for the
- * last 256 sessions' worth of traffic; losing it restarts that one session's
- * counter, which is exactly what a process restart does — and a restarted
- * webview has no `lastTurnStateRevision` for it either, so it accepts anything.
+ * The number matches `SURFACE_REVISION_MAP_LIMIT` in the webview's
+ * `TurnStateApplier`, but that is a coincidence and NOT a justification. That
+ * map bounds `surfaceRevisions`, which is read only for events resolving no
+ * tab and whose only effect is the sidebar dot. The consumer this floor exists
+ * to stay ahead of is `tab.lastTurnStateRevision` on `TabState`, which has no
+ * bound and no eviction at all.
+ *
+ * So eviction is NOT free. A floor is re-written on every commit, so the victim
+ * is a session that has emitted nothing for the last 256 sessions' worth of
+ * traffic — but that session's tab may still be open, inside this same running
+ * process, still holding the high revision it last accepted. Losing the floor
+ * restarts this counter under an id that consumer still remembers, and every
+ * event of the next turn loses `revision > last`. That is TASK_2026_371 D1
+ * again: a tab stuck on `status: 'streaming'` while the backend is idle.
+ *
+ * A process restart is a different event and does not have this problem: the
+ * webview reloads and `lastTurnStateRevision` is excluded from persistence
+ * (`libs/frontend/chat-state/src/lib/tab-persistence.ts`,
+ * `projectTabForPersist`), so a restored tab starts at `undefined` and accepts
+ * anything.
+ *
+ * The residual eviction gap is closed on the frontend, not here:
+ * `TabManagerService.acceptsTurnState` accepts a TERMINAL phase on a bound tab
+ * even at or below its last revision (TASK_2026_371). Change one half and read
+ * the other.
  */
 export const REVISION_FLOOR_MAP_LIMIT = 256;
 

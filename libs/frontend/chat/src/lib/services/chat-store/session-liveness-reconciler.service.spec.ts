@@ -165,6 +165,10 @@ describe('SessionLivenessReconcilerService', () => {
     expect(applyMock).toHaveBeenCalledWith(
       expect.objectContaining({ phase: 'sleeping', sessionCrons: crons }),
       `tab-${SESS_IDLE}`,
+      // A probe is synthesized from an RPC answer, not pulled from the tab's
+      // chunk stream, so it must never trigger the terminal heal
+      // (TASK_2026_371).
+      { ordered: false },
     );
   });
 
@@ -230,6 +234,7 @@ describe('SessionLivenessReconcilerService', () => {
     expect(applyMock).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: SESS_STREAM }),
       `tab-${SESS_STREAM}`,
+      { ordered: false },
     );
   });
 
