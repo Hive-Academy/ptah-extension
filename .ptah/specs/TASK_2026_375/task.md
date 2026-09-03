@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_375
-status: in_progress
+status: in_review
 type: FEATURE
 title: Ptah Connectors — one surface for every remote MCP server, with live auth status
 depends_on:
