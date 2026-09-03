@@ -36,6 +36,27 @@ export type WindowedExtraction =
   | { readonly status: 'failed'; readonly error: unknown }
   | { readonly status: 'aborted'; readonly completedWindows: number };
 
+/**
+ * Force a requested window budget into `[1, CURATOR_MAX_WINDOWS]`.
+ *
+ * A caller may only LOWER the ceiling, never raise it. `windowForModel` is
+ * documented as THE one place a transcript is bounded before it reaches the
+ * model, and that stays true only while the bound is a clamp rather than a
+ * number the call site supplies — a parameter a caller can widen is not a
+ * bound, it is a suggestion, and the fault TASK_2026_352 closed was precisely a
+ * call site that got the bounding wrong.
+ *
+ * `undefined`, a non-finite value and anything at or above the ceiling all
+ * resolve to {@link CURATOR_MAX_WINDOWS}, so every entry point that does not
+ * deliberately narrow keeps the full eight-window budget.
+ */
+export function clampWindowBudget(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) {
+    return CURATOR_MAX_WINDOWS;
+  }
+  return Math.min(CURATOR_MAX_WINDOWS, Math.max(1, Math.floor(requested)));
+}
+
 export class CuratorWindowRunner {
   constructor(
     private readonly logger: Logger,
@@ -45,27 +66,50 @@ export class CuratorWindowRunner {
   /**
    * Plan the prompts one transcript costs.
    *
-   * The warn is not decoration. It now fires only when a session exceeded even
-   * the CHUNKED budget — eight windows of compressed text — which is a far
-   * stronger signal than the old one: the transcript is genuinely enormous, and
-   * the head-and-tail clamp is the last thing standing between it and the
-   * model.
+   * `maxWindows` narrows the budget for this pass only and is clamped by
+   * {@link clampWindowBudget}, so a call site cannot widen it. The one caller
+   * that narrows is a MANUAL PreCompact (TASK_2026_374): the user asked for a
+   * compaction to happen now, and eight sequential background extract calls on
+   * the same account and quota — roughly four minutes of `claude.EXE` measured
+   * on a 372-event session — are a cost they did not ask for. Automatic
+   * threshold compaction keeps the full budget, because nobody is waiting on it.
+   *
+   * The clamp report is logged at two DIFFERENT levels, and that is the point.
+   * At the full budget it means "this session defeated even the chunked
+   * budget", which is rare and worth a warn. Under a narrowed budget the clamp
+   * is the expected consequence of the narrowing — every long session trips it,
+   * on every manual `/compact` — so warning there would turn the line that
+   * still carries the rare signal into noise people learn to scroll past.
    */
-  planWindows(transcript: string, sessionId: string): readonly CuratorWindow[] {
-    const plan = planCuratorWindows(transcript);
+  planWindows(
+    transcript: string,
+    sessionId: string,
+    maxWindows?: number,
+  ): readonly CuratorWindow[] {
+    const budgetWindows = clampWindowBudget(maxWindows);
+    const plan = planCuratorWindows(transcript, { maxWindows: budgetWindows });
     const clamped = plan.clamped;
     if (clamped) {
-      this.logger.warn(
-        '[memory-curator] transcript exceeded the chunked curation budget; head and tail kept',
-        {
-          sessionId,
-          cap: CURATOR_WINDOW_MAX_CHARS * CURATOR_MAX_WINDOWS,
-          originalChars: clamped.originalChars,
-          keptChars: clamped.keptChars,
-          droppedChars: clamped.droppedChars,
-          droppedRecords: clamped.droppedRecords,
-        },
-      );
+      const detail = {
+        sessionId,
+        budgetWindows,
+        cap: CURATOR_WINDOW_MAX_CHARS * budgetWindows,
+        originalChars: clamped.originalChars,
+        keptChars: clamped.keptChars,
+        droppedChars: clamped.droppedChars,
+        droppedRecords: clamped.droppedRecords,
+      };
+      if (budgetWindows < CURATOR_MAX_WINDOWS) {
+        this.logger.info(
+          '[memory-curator] transcript clamped to the narrowed curation budget; head and tail kept',
+          detail,
+        );
+      } else {
+        this.logger.warn(
+          '[memory-curator] transcript exceeded the chunked curation budget; head and tail kept',
+          detail,
+        );
+      }
     }
     if (plan.windows.length > 1) {
       this.logger.info(

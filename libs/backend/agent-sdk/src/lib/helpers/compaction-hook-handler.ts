@@ -47,7 +47,15 @@ import type { SdkAdapterEvents } from './sdk-adapter-events.service';
  *   PreCompact firing time. Used by the frontend to freeze the
  *   pre-compaction header stats during the compaction window and to pair
  *   the start event with the eventual `compact_boundary` for delta /
- * duration computation.
+ *   duration computation.
+ *
+ *   The sample stays a single synchronous map read — this hook runs on the
+ *   SDK's transport path and may neither do file I/O nor throw. For a session
+ *   RESUMED from JSONL, which has streamed nothing in this process, the answer
+ *   comes from the resume baseline `SessionHistoryReaderService` seeded at
+ *   `chat:resume`; see `LiveUsageTracker.seedResumedSession`. Before
+ *   TASK_2026_374 that case reported 0 and the frontend computed its delta from
+ *   a zero baseline.
  */
 export type CompactionStartCallback = (data: {
   sessionId: string;

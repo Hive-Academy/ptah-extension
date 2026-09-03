@@ -1265,3 +1265,163 @@ describe('MemoryCuratorService — the chunked curation budget (TASK_2026_367)',
     ).toHaveLength(0);
   });
 });
+
+/**
+ * TASK_2026_374 defect 1 — a MANUAL `/compact` plans ONE window.
+ *
+ * Measured before the fix: a 372-event session split into eight windows spent
+ * sequentially at 24-37 s each, roughly four minutes of background provider
+ * work on the same account and quota as the compaction the user was waiting
+ * for. Automatic threshold compaction keeps the full budget — nobody is waiting
+ * on it, and the coverage the chunked budget buys is the whole point of it.
+ */
+describe('MemoryCuratorService — manual PreCompact window budget', () => {
+  type PreCompactData = Parameters<
+    Parameters<ICompactionCallbackRegistry['register']>[0]
+  >[0];
+
+  /** A transcript of `records` blocks of `size` characters each. */
+  function transcriptOf(records: number, size: number): string {
+    return Array.from(
+      { length: records },
+      (_, i) => `USER: turn ${i} ${'x'.repeat(size)}`,
+    ).join('\n\n');
+  }
+
+  function buildHarness(transcript: string): {
+    fire: (trigger: 'manual' | 'auto') => Promise<void>;
+    extract: jest.Mock;
+    resolve: jest.Mock;
+    logger: { info: jest.Mock; warn: jest.Mock };
+  } {
+    let handler: ((data: PreCompactData) => void) | null = null;
+    const registry = {
+      register: jest.fn((cb: (data: PreCompactData) => void) => {
+        handler = cb;
+        return () => {
+          /* noop */
+        };
+      }),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(transcript),
+    } as unknown as ITranscriptReader;
+    // One draft per window: `doCurate` short-circuits before `resolve` when
+    // the union is empty, so an empty extraction could not tell "one window"
+    // from "eight windows" by the resolve count.
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [{ kind: 'fact', subject: 's', content: 'c', salienceHint: 0.5 }],
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const logger = makeLogger();
+    const svc = new MemoryCuratorService(
+      logger,
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      { extract, resolve } as unknown as ICuratorLLM,
+    );
+    svc.start();
+
+    return {
+      extract,
+      resolve,
+      logger: logger as unknown as { info: jest.Mock; warn: jest.Mock },
+      fire: async (trigger) => {
+        if (!handler)
+          throw new Error('curator did not subscribe to PreCompact');
+        handler({
+          sessionId: 's-compact',
+          trigger,
+          timestamp: Date.now(),
+          preTokens: 333_538,
+          cwd: '/ws',
+        });
+        await svc.drain();
+      },
+    };
+  }
+
+  it('plans exactly one window on a transcript that would otherwise plan eight', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('manual');
+
+    expect(h.extract).toHaveBeenCalledTimes(1);
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the full eight-window budget on an automatic trigger', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('auto');
+
+    expect(h.extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs the narrowed clamp at info, keeping the warn for the rare case', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('manual');
+
+    expect(
+      h.logger.warn.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('exceeded the chunked curation budget'),
+      ),
+    ).toHaveLength(0);
+    const narrowed = h.logger.info.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('clamped to the narrowed curation budget'),
+    );
+    expect(narrowed).toBeDefined();
+    expect(narrowed?.[1]).toMatchObject({
+      sessionId: 's-compact',
+      budgetWindows: 1,
+      cap: CURATOR_TRANSCRIPT_MAX_CHARS,
+    });
+  });
+
+  it('leaves a short manual compaction at its unchanged one-window cost', async () => {
+    const h = buildHarness('USER: hello\n\nASSISTANT: hi');
+
+    await h.fire('manual');
+
+    expect(h.extract).toHaveBeenCalledTimes(1);
+    expect(h.extract.mock.calls[0][0]).toBe('USER: hello\n\nASSISTANT: hi');
+    expect(
+      h.logger.info.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('clamped to the narrowed curation budget'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('cannot be widened past CURATOR_MAX_WINDOWS by a call site', async () => {
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    const svc = buildService({
+      llm: {
+        extract,
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-greedy',
+      transcript: transcriptOf(400, 1_000),
+      maxWindows: 64,
+    });
+
+    expect(extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+  });
+});

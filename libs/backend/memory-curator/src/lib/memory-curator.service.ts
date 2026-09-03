@@ -47,6 +47,26 @@ const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
 
 /**
+ * Windows planned for a curation triggered by a MANUAL PreCompact.
+ *
+ * A manual `/compact` is the user asking for something to happen NOW. The
+ * curator answers it with a background extract per window, spent strictly
+ * sequentially (`CuratorWindowRunner.extractAcrossWindows`, and the
+ * `memory-curator` internal-query lane has a per-lane concurrency of 1), on the
+ * same provider account and quota as the compaction the user is waiting for. A
+ * 372-event / 333 538-token session measured eight windows at 24-37 s each —
+ * about four minutes of `claude.EXE` behind a command the user expected to be
+ * cheap (TASK_2026_374).
+ *
+ * One window caps that pass at 2 LLM calls (1 extract + 1 resolve), the same as
+ * an ordinary short session. The transcript is head-and-tail clamped instead of
+ * chunked, which is a real loss of coverage — accepted deliberately here and
+ * ONLY here. Automatic threshold compaction keeps the full
+ * {@link CURATOR_MAX_WINDOWS} budget, because nobody is waiting on it.
+ */
+const MANUAL_COMPACTION_MAX_WINDOWS = 1;
+
+/**
  * Whether the pass reached the model at all — TASK_2026_306 Batch 10 (F1).
  *
  * `'ran'` covers every pass that dialled the curator LLM, including one that
@@ -140,6 +160,13 @@ export class MemoryCuratorService {
           sessionId: data.sessionId,
           workspaceRoot: cwd,
           transcript,
+          // The ONLY narrowing call site. `trigger` is carried on the
+          // PreCompact fan-out payload precisely so a subscriber can tell "the
+          // user asked for this" from "a threshold tripped".
+          maxWindows:
+            data.trigger === 'manual'
+              ? MANUAL_COMPACTION_MAX_WINDOWS
+              : undefined,
         });
       })().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -225,6 +252,13 @@ export class MemoryCuratorService {
     tier?: MemoryTier;
     salienceBoost?: number;
     signal?: AbortSignal;
+    /**
+     * Narrow this pass's window budget. Clamped into
+     * `[1, CURATOR_MAX_WINDOWS]` downstream, so it can only LOWER the ceiling.
+     * Omit it — every caller but the manual PreCompact path does — to keep the
+     * full budget.
+     */
+    maxWindows?: number;
   }): Promise<CuratorRunStats> {
     const key = this.coalesceKey(input);
     const existing = key === null ? undefined : this.inFlight.get(key);
@@ -337,12 +371,22 @@ export class MemoryCuratorService {
    * string, so the middle of a long session reaches the model instead of being
    * elided. The cost stays bounded because the set is — see
    * {@link CURATOR_MAX_WINDOWS}.
+   *
+   * TASK_2026_374 lets a caller NARROW that set, and nothing else. `maxWindows`
+   * is clamped into `[1, CURATOR_MAX_WINDOWS]` by `clampWindowBudget` inside
+   * `CuratorWindowRunner.planWindows`, so a call site can spend less than the
+   * ceiling but can never widen it — which is what keeps the sentence at the
+   * top of this comment true. The clamp lives one level down because
+   * `planWindows` is the single seam between this service and the pure
+   * windowing module; putting it here would leave the runner's own contract
+   * open.
    */
   private windowForModel(
     transcript: string,
     sessionId: string,
+    maxWindows?: number,
   ): readonly CuratorWindow[] {
-    return this.windowRunner.planWindows(transcript, sessionId);
+    return this.windowRunner.planWindows(transcript, sessionId, maxWindows);
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */
@@ -353,6 +397,7 @@ export class MemoryCuratorService {
     tier?: MemoryTier;
     salienceBoost?: number;
     signal?: AbortSignal;
+    maxWindows?: number;
   }): Promise<CuratorRunStats> {
     const transcript =
       (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
@@ -376,7 +421,11 @@ export class MemoryCuratorService {
       return emptyStats;
     }
 
-    const windows = this.windowForModel(transcript, input.sessionId);
+    const windows = this.windowForModel(
+      transcript,
+      input.sessionId,
+      input.maxWindows,
+    );
     const extraction = await this.windowRunner.extractAcrossWindows(
       windows,
       input.signal,
