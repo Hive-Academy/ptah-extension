@@ -126,6 +126,63 @@ describe('SmitheryInstalledManifestStore', () => {
     expect(await manifest.getConfig('missing')).toEqual({});
   });
 
+  describe('Connections API fields (TASK_2026_375 B2)', () => {
+    it('persists namespace + connectionId and reads them back through get()', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await manifest.install({
+        qualifiedName: 'hubspot',
+        serverKey: 'smithery_hubspot',
+        config: {},
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+
+      expect(manifest.get('smithery_hubspot')).toMatchObject({
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+    });
+
+    it('leaves both fields undefined for a legacy install', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await manifest.install({
+        qualifiedName: '@old/one',
+        serverKey: 'smithery_old_one',
+        config: {},
+      });
+
+      const record = manifest.get('smithery_old_one');
+      expect(record?.namespace).toBeUndefined();
+      expect(record?.connectionId).toBeUndefined();
+    });
+
+    it('get() returns null for a serverKey that is not installed', () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+      expect(manifest.get('never-installed')).toBeNull();
+    });
+
+    it('get() re-reads a record another instance wrote', async () => {
+      const { store } = makeSecretStore();
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+      const writer = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await writer.install({
+        qualifiedName: 'hubspot',
+        serverKey: 'smithery_hubspot',
+        config: {},
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+
+      expect(reader.get('smithery_hubspot')?.namespace).toBe('abdallah');
+    });
+  });
+
   describe('freshness (TASK_2026_375 B1.1)', () => {
     it('sees a record another live instance wrote, without reconstruction', async () => {
       const { store } = makeSecretStore();

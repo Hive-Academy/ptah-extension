@@ -166,3 +166,52 @@ describe('SmitheryConnectionResolver', () => {
     errorSpy.mockRestore();
   });
 });
+
+describe('SmitheryConnectionResolver.resolveNamespace (TASK_2026_375 B2.4)', () => {
+  const noRegistry = {} as unknown as SmitheryRegistrySource;
+
+  it('builds the namespace endpoint with the key in a header, not the URL', async () => {
+    const resolver = new SmitheryConnectionResolver(
+      async () => 'sk-secret',
+      noRegistry,
+    );
+
+    const config = await resolver.resolveNamespace('abdallah');
+
+    expect(config).toEqual({
+      type: 'http',
+      url: 'https://mcp.smithery.run/abdallah',
+      headers: { Authorization: 'Bearer sk-secret' },
+    });
+    expect(config.url).not.toContain('sk-secret');
+  });
+
+  it('percent-encodes a namespace with a slash', async () => {
+    const resolver = new SmitheryConnectionResolver(
+      async () => 'k',
+      noRegistry,
+    );
+    const config = await resolver.resolveNamespace('org/team');
+    expect(config.url).toBe('https://mcp.smithery.run/org%2Fteam');
+  });
+
+  it('throws SmitheryKeyMissingError when no key is configured', async () => {
+    const resolver = new SmitheryConnectionResolver(
+      async () => null,
+      noRegistry,
+    );
+    await expect(resolver.resolveNamespace('ns')).rejects.toBeInstanceOf(
+      SmitheryKeyMissingError,
+    );
+  });
+
+  it('never asks the registry for details — a namespace needs no config schema', async () => {
+    const getServerDetails = jest.fn();
+    const resolver = new SmitheryConnectionResolver(async () => 'k', {
+      getServerDetails,
+    } as unknown as SmitheryRegistrySource);
+
+    await resolver.resolveNamespace('ns');
+    expect(getServerDetails).not.toHaveBeenCalled();
+  });
+});

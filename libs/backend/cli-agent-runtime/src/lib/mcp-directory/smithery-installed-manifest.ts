@@ -58,6 +58,13 @@ export interface SmitheryInstallInput {
   serverKey: string;
   config: Record<string, unknown>;
   profile?: string;
+  /**
+   * Smithery namespace + connection id, when the install went through the
+   * Connections API. Both absent means a legacy record, which keeps the
+   * per-server URL until the user reconnects.
+   */
+  namespace?: string;
+  connectionId?: string;
 }
 
 function createEmpty(): SmitheryInstalledManifest {
@@ -126,6 +133,8 @@ export class SmitheryInstalledManifestStore {
       qualifiedName: input.qualifiedName,
       serverKey: input.serverKey,
       profile: input.profile,
+      namespace: input.namespace,
+      connectionId: input.connectionId,
       hasEncryptedConfig: hasConfig,
       installedAt: new Date().toISOString(),
     };
@@ -147,6 +156,12 @@ export class SmitheryInstalledManifestStore {
   list(): SmitheryInstalledRecord[] {
     this.refresh();
     return Object.values(this.manifest.servers);
+  }
+
+  /** One record by serverKey, or null when it is not installed. */
+  get(serverKey: string): SmitheryInstalledRecord | null {
+    this.refresh();
+    return this.manifest.servers[serverKey] ?? null;
   }
 
   /**

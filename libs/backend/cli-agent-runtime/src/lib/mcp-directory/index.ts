@@ -23,11 +23,29 @@ export type {
 export {
   SmitheryKeyMissingError,
   SmitheryConfigInvalidError,
+  SmitheryApiError,
 } from './smithery-errors';
 export {
+  SmitheryConnectionsClient,
+  toSmitheryConnectionStatus,
+  isPtahManagedConnection,
+  buildPtahConnectionMetadata,
+  SMITHERY_PTAH_METADATA_MARKER,
+} from './smithery-connections.client';
+export type {
+  SmitheryConnection,
+  SmitheryConnectionsClientOptions,
+  SmitheryConnectionsLogger,
+  SmitheryFetchLike,
+  SmitheryUpsertConnectionInput,
+} from './smithery-connections.client';
+export {
   buildSmitheryUrl,
+  buildSmitheryNamespaceUrl,
   SMITHERY_DEFAULT_REGISTRY_BASE,
   SMITHERY_DEFAULT_CONNECTION_HOST,
+  SMITHERY_API_BASE,
+  SMITHERY_NAMESPACE_MCP_HOST,
 } from './smithery-wire.constants';
 export type {
   BuildSmitheryUrlInput,
@@ -42,7 +60,10 @@ export type {
   SmitheryConfigSecretStore,
   SmitheryInstallInput,
 } from './smithery-installed-manifest';
-export { SmitheryOverrideResolver } from './smithery-override-resolver';
+export {
+  SmitheryOverrideResolver,
+  SMITHERY_NAMESPACE_OVERRIDE_KEY,
+} from './smithery-override-resolver';
 export type {
   SmitheryOverrideLogger,
   SmitheryOverrideResolverDeps,

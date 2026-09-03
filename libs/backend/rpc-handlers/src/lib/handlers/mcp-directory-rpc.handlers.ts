@@ -8,6 +8,10 @@
  * - mcpDirectory:uninstall - Remove server from targets
  * - mcpDirectory:listInstalled - List all installed MCP servers
  * - mcpDirectory:getPopular - Get popular/trending servers (cached)
+ * - mcpDirectory:smitheryAccount - Report the Smithery account + namespaces
+ * - mcpDirectory:listSmitheryConnections - List connections in the namespace
+ * - mcpDirectory:smitheryConnectionStatus - Report one connection's state
+ * - mcpDirectory:openSmitherySetup - Open the browser authorization step
  *
  * Lifted from
  * `apps/ptah-extension-vscode/src/services/rpc/handlers/` so all three apps
@@ -45,6 +49,9 @@ import {
   SmitheryKeyMissingError,
   SmitheryInstalledManifestStore,
   createSmitheryConfigSecretStore,
+  SmitheryConnectionsClient,
+  SmitheryApiError,
+  buildPtahConnectionMetadata,
   McpOAuthService,
   McpOAuthInstalledManifestStore,
   createMcpOAuthTokenStore,
@@ -76,6 +83,17 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectorySmitheryAccountParams,
+  McpDirectorySmitheryAccountResult,
+  McpDirectoryListSmitheryConnectionsParams,
+  McpDirectoryListSmitheryConnectionsResult,
+  McpDirectorySmitheryConnectionStatusParams,
+  McpDirectorySmitheryConnectionStatusResult,
+  McpDirectoryOpenSmitherySetupParams,
+  McpDirectoryOpenSmitherySetupResult,
+  SmitheryConnectionSummary,
+  SmitheryConnectionStatus,
+  SmitheryInstalledRecord,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
   McpDirectoryProbeOAuthDiscoveryParams,
@@ -97,6 +115,8 @@ import {
   ResolveSmitherySchema,
   InstallSmitherySchema,
   UninstallSmitherySchema,
+  SmitheryServerKeySchema,
+  deriveSmitheryConnectionId,
   ConnectOAuthSchema,
   ProbeOAuthDiscoverySchema,
   OAuthStatusSchema,
@@ -104,6 +124,9 @@ import {
   deriveSmitheryServerKey,
   SMITHERY_API_KEY_SECRET_ID,
 } from './mcp-directory-rpc.schema';
+
+/** How long the resolved Smithery namespace is trusted without a re-fetch. */
+const NAMESPACE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 @injectable()
 export class McpDirectoryRpcHandlers {
@@ -120,6 +143,10 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:installSmithery',
     'mcpDirectory:uninstallSmithery',
     'mcpDirectory:listSmitheryInstalled',
+    'mcpDirectory:smitheryAccount',
+    'mcpDirectory:listSmitheryConnections',
+    'mcpDirectory:smitheryConnectionStatus',
+    'mcpDirectory:openSmitherySetup',
     'mcpDirectory:connectOAuth',
     'mcpDirectory:probeOAuthDiscovery',
     'mcpDirectory:oauthStatus',
@@ -132,6 +159,13 @@ export class McpDirectoryRpcHandlers {
   private readonly smitherySource: SmitheryRegistrySource;
   private readonly smitheryResolver: SmitheryConnectionResolver;
   private readonly smitheryManifest: SmitheryInstalledManifestStore;
+  private readonly smitheryConnections: SmitheryConnectionsClient;
+  /**
+   * The namespace Ptah installs into. `/namespaces` is a network call on a
+   * value that changes only when the user changes accounts, so it is cached
+   * for {@link NAMESPACE_CACHE_TTL_MS} and dropped by `setSmitheryApiKey`.
+   */
+  private namespaceCache: { value: string | null; at: number } | null = null;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
   /**
    * Assigned in the constructor, not here: the reconciler comes from the
@@ -187,6 +221,11 @@ export class McpDirectoryRpcHandlers {
       getSmitheryApiKey,
       this.smitherySource,
     );
+
+    this.smitheryConnections = new SmitheryConnectionsClient({
+      getApiKey: getSmitheryApiKey,
+      logger: this.logger,
+    });
 
     this.smitheryManifest = new SmitheryInstalledManifestStore(
       createSmitheryConfigSecretStore({
@@ -254,6 +293,10 @@ export class McpDirectoryRpcHandlers {
     this.registerInstallSmithery();
     this.registerUninstallSmithery();
     this.registerListSmitheryInstalled();
+    this.registerSmitheryAccount();
+    this.registerListSmitheryConnections();
+    this.registerSmitheryConnectionStatus();
+    this.registerOpenSmitherySetup();
     this.registerConnectOAuth();
     this.registerProbeOAuthDiscovery();
     this.registerOAuthStatus();
@@ -275,6 +318,10 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:installSmithery',
         'mcpDirectory:uninstallSmithery',
         'mcpDirectory:listSmitheryInstalled',
+        'mcpDirectory:smitheryAccount',
+        'mcpDirectory:listSmitheryConnections',
+        'mcpDirectory:smitheryConnectionStatus',
+        'mcpDirectory:openSmitherySetup',
         'mcpDirectory:connectOAuth',
         'mcpDirectory:probeOAuthDiscovery',
         'mcpDirectory:oauthStatus',
@@ -547,6 +594,10 @@ export class McpDirectoryRpcHandlers {
           this.logger.info('RPC: mcpDirectory:setSmitheryApiKey cleared key');
         }
 
+        // A new key can belong to a different account, so the cached namespace
+        // is no longer trustworthy.
+        this.namespaceCache = null;
+
         return { success: true };
       } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
@@ -651,21 +702,43 @@ export class McpDirectoryRpcHandlers {
         const serverKey =
           validated.serverKey ??
           deriveSmitheryServerKey(validated.qualifiedName);
+        const connectionId = deriveSmitheryConnectionId(serverKey);
 
         this.logger.info('RPC: mcpDirectory:installSmithery', {
           qualifiedName: validated.qualifiedName,
           serverKey,
+          connectionId,
           hasConfig: Object.keys(validated.config).length > 0,
         });
+
+        // The Connections API is the path that can actually authorize an
+        // upstream provider. When it is unreachable the install is still
+        // recorded in its legacy form — losing the install because the network
+        // blinked is worse than an install the user has to retry.
+        const connection = await this.createSmitheryConnection(
+          validated.qualifiedName,
+          connectionId,
+        );
 
         await this.smitheryManifest.install({
           qualifiedName: validated.qualifiedName,
           serverKey,
           config: validated.config,
           profile: validated.profile,
+          namespace: connection.namespace,
+          connectionId: connection.namespace ? connectionId : undefined,
         });
 
-        return { success: true, serverKey };
+        return {
+          success: true,
+          serverKey,
+          status: connection.status,
+          ...(connection.setupUrl ? { setupUrl: connection.setupUrl } : {}),
+          ...(connection.namespace
+            ? { namespace: connection.namespace, connectionId }
+            : {}),
+          ...(connection.error ? { error: connection.error } : {}),
+        };
       } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
         this.sentryService.captureException(err, {
@@ -689,6 +762,27 @@ export class McpDirectoryRpcHandlers {
       try {
         const { serverKey } = UninstallSmitherySchema.parse(params);
         this.logger.info('RPC: mcpDirectory:uninstallSmithery', { serverKey });
+
+        const record = this.smitheryManifest.get(serverKey);
+        if (record?.namespace && record.connectionId) {
+          // Best effort: a connection Smithery still holds costs the user
+          // nothing, but a manifest record Ptah cannot remove is a server the
+          // user cannot get rid of. Never fail the uninstall on this.
+          try {
+            await this.smitheryConnections.deleteConnection(
+              record.namespace,
+              record.connectionId,
+            );
+          } catch (error: unknown) {
+            this.logger.warn(
+              'Smithery connection delete failed — removing the local record anyway',
+              {
+                connectionId: record.connectionId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
 
         await this.smitheryManifest.uninstall(serverKey);
         return { success: true };
@@ -726,6 +820,200 @@ export class McpDirectoryRpcHandlers {
           err,
         );
         return { servers: [] };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:smitheryAccount — report which Smithery account the stored key
+   * belongs to.
+   *
+   * SECURITY: namespace NAMES only. The key never crosses this boundary.
+   */
+  private registerSmitheryAccount(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectorySmitheryAccountParams,
+      McpDirectorySmitheryAccountResult
+    >('mcpDirectory:smitheryAccount', async () => {
+      const configured = await this.authSecretsService.hasProviderKey(
+        SMITHERY_API_KEY_SECRET_ID,
+      );
+      if (!configured) {
+        return { configured: false, namespaces: [], activeNamespace: null };
+      }
+
+      try {
+        const namespaces = await this.smitheryConnections.listNamespaces();
+        return {
+          configured: true,
+          namespaces,
+          activeNamespace: namespaces[0] ?? null,
+        };
+      } catch (error: unknown) {
+        // A rejected key or an unreachable API is a state the surface must be
+        // able to show, not a defect worth an alert.
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn('RPC: mcpDirectory:smitheryAccount failed', {
+          error: err.message,
+        });
+        return {
+          configured: true,
+          namespaces: [],
+          activeNamespace: null,
+          error: err.message,
+        };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:listSmitheryConnections — the connections in the active
+   * namespace, marked with whether Ptah installed them.
+   */
+  private registerListSmitheryConnections(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryListSmitheryConnectionsParams,
+      McpDirectoryListSmitheryConnectionsResult
+    >('mcpDirectory:listSmitheryConnections', async () => {
+      try {
+        const namespace = await this.getActiveSmitheryNamespace();
+        if (!namespace) {
+          return { connections: [], namespace: null };
+        }
+
+        const connections =
+          await this.smitheryConnections.listConnections(namespace);
+        const byConnectionId = new Map<string, SmitheryInstalledRecord>(
+          this.smitheryManifest
+            .list()
+            .filter((record) => record.connectionId)
+            .map((record) => [record.connectionId as string, record]),
+        );
+
+        const summaries: SmitheryConnectionSummary[] = connections.map(
+          (connection) => {
+            const record = byConnectionId.get(connection.connectionId);
+            return {
+              connectionId: connection.connectionId,
+              name: connection.name,
+              ...(connection.server ? { server: connection.server } : {}),
+              status: connection.status,
+              ...(connection.iconUrl ? { iconUrl: connection.iconUrl } : {}),
+              ...(connection.createdAt
+                ? { createdAt: connection.createdAt }
+                : {}),
+              managedByPtah: record !== undefined,
+              ...(record ? { serverKey: record.serverKey } : {}),
+            };
+          },
+        );
+
+        return { connections: summaries, namespace };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn('RPC: mcpDirectory:listSmitheryConnections failed', {
+          error: err.message,
+        });
+        return { connections: [], namespace: null, error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:smitheryConnectionStatus — the live state of one installed
+   * server's connection.
+   *
+   * SECURITY: `setupUrl` is returned to the renderer so it can offer the
+   * Authorize action, and is never logged.
+   */
+  private registerSmitheryConnectionStatus(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectorySmitheryConnectionStatusParams,
+      McpDirectorySmitheryConnectionStatusResult
+    >('mcpDirectory:smitheryConnectionStatus', async (params) => {
+      try {
+        const { serverKey } = SmitheryServerKeySchema.parse(params);
+        const record = this.requireConnectionsApiRecord(serverKey);
+
+        const connection = await this.smitheryConnections.getConnection(
+          record.namespace,
+          record.connectionId,
+        );
+        if (!connection) {
+          return {
+            status: 'unknown',
+            error: `Smithery has no connection "${record.connectionId}" in namespace "${record.namespace}"`,
+          };
+        }
+
+        return {
+          status: connection.status,
+          ...(connection.setupUrl ? { setupUrl: connection.setupUrl } : {}),
+          ...(connection.statusMessage
+            ? { error: connection.statusMessage }
+            : {}),
+        };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn('RPC: mcpDirectory:smitheryConnectionStatus failed', {
+          error: err.message,
+        });
+        return { status: 'unknown', error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:openSmitherySetup — start the browser authorization step.
+   *
+   * A `setupUrl` is single use, so this re-PUTs the connection to obtain a
+   * fresh one rather than replaying whatever a previous list returned.
+   *
+   * SECURITY: the URL is handed to `IUserInteraction.openExternal` and returned
+   * to the renderer. It is NEVER logged.
+   */
+  private registerOpenSmitherySetup(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryOpenSmitherySetupParams,
+      McpDirectoryOpenSmitherySetupResult
+    >('mcpDirectory:openSmitherySetup', async (params) => {
+      try {
+        const { serverKey } = SmitheryServerKeySchema.parse(params);
+        const record = this.requireConnectionsApiRecord(serverKey);
+
+        this.logger.info('RPC: mcpDirectory:openSmitherySetup', {
+          serverKey,
+          connectionId: record.connectionId,
+        });
+
+        const connection = await this.smitheryConnections.upsertConnection(
+          record.namespace,
+          record.connectionId,
+          {
+            server: record.qualifiedName,
+            metadata: buildPtahConnectionMetadata(record.qualifiedName),
+          },
+        );
+
+        if (!connection.setupUrl) {
+          return {
+            opened: false,
+            error:
+              connection.status === 'connected'
+                ? 'This connection is already authorized'
+                : `Smithery reported "${connection.status}" and offered no setup URL`,
+          };
+        }
+
+        await this.userInteraction.openExternal(connection.setupUrl);
+        return { opened: true, setupUrl: connection.setupUrl };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerOpenSmitherySetup',
+        });
+        this.logger.error('RPC: mcpDirectory:openSmitherySetup failed', err);
+        return { opened: false, error: err.message };
       }
     });
   }
@@ -900,6 +1188,100 @@ export class McpDirectoryRpcHandlers {
         return { redirectUri: null, error: err.message };
       }
     });
+  }
+
+  /**
+   * The namespace Ptah installs into: the first entry of `/namespaces`.
+   * Cached for {@link NAMESPACE_CACHE_TTL_MS} and dropped by
+   * `setSmitheryApiKey`, because the value changes only when the account does.
+   */
+  private async getActiveSmitheryNamespace(): Promise<string | null> {
+    const cached = this.namespaceCache;
+    if (cached && Date.now() - cached.at < NAMESPACE_CACHE_TTL_MS) {
+      return cached.value;
+    }
+
+    const namespaces = await this.smitheryConnections.listNamespaces();
+    const value = namespaces[0] ?? null;
+    this.namespaceCache = { value, at: Date.now() };
+    return value;
+  }
+
+  /**
+   * Create (or refresh) the Smithery connection for an install.
+   *
+   * Never throws: the caller records the install either way, and a returned
+   * `error` with `status: 'unknown'` is what lets the surface say the server
+   * was installed but not connected.
+   */
+  private async createSmitheryConnection(
+    qualifiedName: string,
+    connectionId: string,
+  ): Promise<{
+    namespace?: string;
+    status: SmitheryConnectionStatus;
+    setupUrl?: string;
+    error?: string;
+  }> {
+    try {
+      const namespace = await this.getActiveSmitheryNamespace();
+      if (!namespace) {
+        return {
+          status: 'unknown',
+          error:
+            'No Smithery namespace is available for this API key — the server was recorded but is not connected',
+        };
+      }
+
+      const connection = await this.smitheryConnections.upsertConnection(
+        namespace,
+        connectionId,
+        {
+          server: qualifiedName,
+          metadata: buildPtahConnectionMetadata(qualifiedName),
+        },
+      );
+
+      return {
+        namespace,
+        status: connection.status,
+        setupUrl: connection.setupUrl,
+      };
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.warn(
+        'Smithery connection create failed — recording a legacy install',
+        {
+          connectionId,
+          status: error instanceof SmitheryApiError ? error.status : undefined,
+          error: err.message,
+        },
+      );
+      return { status: 'unknown', error: err.message };
+    }
+  }
+
+  /**
+   * The install record for a serverKey, narrowed to one that carries both a
+   * namespace and a connection id. A legacy record cannot answer a Connections
+   * API question, and saying so beats reporting a made-up state.
+   */
+  private requireConnectionsApiRecord(
+    serverKey: string,
+  ): SmitheryInstalledRecord & { namespace: string; connectionId: string } {
+    const record = this.smitheryManifest.get(serverKey);
+    if (!record) {
+      throw new Error(`No Smithery install record for "${serverKey}"`);
+    }
+    if (!record.namespace || !record.connectionId) {
+      throw new Error(
+        `"${serverKey}" was installed before Ptah used Smithery connections — remove it and install it again`,
+      );
+    }
+    return record as SmitheryInstalledRecord & {
+      namespace: string;
+      connectionId: string;
+    };
   }
 
   private getWorkspaceRoot(): string | undefined {

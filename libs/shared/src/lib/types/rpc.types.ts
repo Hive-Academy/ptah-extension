@@ -260,6 +260,14 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectorySmitheryAccountParams,
+  McpDirectorySmitheryAccountResult,
+  McpDirectoryListSmitheryConnectionsParams,
+  McpDirectoryListSmitheryConnectionsResult,
+  McpDirectorySmitheryConnectionStatusParams,
+  McpDirectorySmitheryConnectionStatusResult,
+  McpDirectoryOpenSmitherySetupParams,
+  McpDirectoryOpenSmitherySetupResult,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
   McpDirectoryProbeOAuthDiscoveryParams,
@@ -1238,6 +1246,22 @@ export interface RpcMethodRegistry {
   'mcpDirectory:listSmitheryInstalled': {
     params: McpDirectoryListSmitheryInstalledParams;
     result: McpDirectoryListSmitheryInstalledResult;
+  };
+  'mcpDirectory:smitheryAccount': {
+    params: McpDirectorySmitheryAccountParams;
+    result: McpDirectorySmitheryAccountResult;
+  };
+  'mcpDirectory:listSmitheryConnections': {
+    params: McpDirectoryListSmitheryConnectionsParams;
+    result: McpDirectoryListSmitheryConnectionsResult;
+  };
+  'mcpDirectory:smitheryConnectionStatus': {
+    params: McpDirectorySmitheryConnectionStatusParams;
+    result: McpDirectorySmitheryConnectionStatusResult;
+  };
+  'mcpDirectory:openSmitherySetup': {
+    params: McpDirectoryOpenSmitherySetupParams;
+    result: McpDirectoryOpenSmitherySetupResult;
   };
   'mcpDirectory:connectOAuth': {
     params: McpDirectoryConnectOAuthParams;
@@ -3503,6 +3527,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:installSmithery': true,
   'mcpDirectory:uninstallSmithery': true,
   'mcpDirectory:listSmitheryInstalled': true,
+  'mcpDirectory:smitheryAccount': true,
+  'mcpDirectory:listSmitheryConnections': true,
+  'mcpDirectory:smitheryConnectionStatus': true,
+  'mcpDirectory:openSmitherySetup': true,
   'mcpDirectory:connectOAuth': true,
   'mcpDirectory:probeOAuthDiscovery': true,
   'mcpDirectory:oauthStatus': true,

@@ -70,6 +70,38 @@ export function deriveSmitheryServerKey(qualifiedName: string): string {
 }
 
 /**
+ * Validated shape for `mcpDirectory:smitheryConnectionStatus` and
+ * `mcpDirectory:openSmitherySetup`. Both address a Ptah install record, so
+ * both take the same `serverKey`.
+ */
+export const SmitheryServerKeySchema = z.object({
+  serverKey: z.string().min(1),
+});
+
+export type SmitheryServerKeyInput = z.infer<typeof SmitheryServerKeySchema>;
+
+/**
+ * Derive the Smithery CONNECTION id from a Ptah serverKey.
+ *
+ * A connection id lives in a URL path inside a namespace, so it is stricter
+ * than a serverKey: the `smithery_` prefix is dropped (the namespace already
+ * says these are Smithery connections) and every character outside
+ * `[a-z0-9-]` becomes `-`. Leading and trailing dashes are trimmed because a
+ * path segment must not start or end with one; an id that trims to nothing
+ * falls back to `server`.
+ *
+ * Example: `smithery_owner_server` → `owner-server`.
+ */
+export function deriveSmitheryConnectionId(serverKey: string): string {
+  const trimmed = serverKey
+    .toLowerCase()
+    .replace(/^smithery_/, '')
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return trimmed || 'server';
+}
+
+/**
  * Validated shape for the `mcpDirectory:connectOAuth` RPC method.
  *
  * `serverUrl` is the remote MCP server the user wants to connect via OAuth. The
