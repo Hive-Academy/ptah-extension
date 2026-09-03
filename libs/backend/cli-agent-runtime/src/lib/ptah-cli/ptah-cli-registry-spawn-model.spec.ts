@@ -137,6 +137,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     spawnOptionsService,
     null as never, // modelResolver
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
+    { spawn: jest.fn() } as unknown as never, // processSpawner
   );
 
   return {

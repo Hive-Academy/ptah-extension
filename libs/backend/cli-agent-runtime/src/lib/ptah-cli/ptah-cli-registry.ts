@@ -53,6 +53,7 @@ import {
 } from '@ptah-extension/auth-providers';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
+import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
 import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
@@ -118,6 +119,8 @@ export class PtahCliRegistry {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly processSpawner: ISdkProcessSpawner,
     /**
      * A raw Ptah CLI reads its harness from disk at process startup. Keep this
      * optional so hosts that have not bound harness-sync keep their existing
@@ -737,6 +740,10 @@ export class PtahCliRegistry {
         ...(options?.resumeSessionId && { resume: options.resumeSessionId }),
         env: buildSafeEnv(authEnv),
         stderr: handleChildStderr,
+        spawnClaudeCodeProcess: (spawnOptions) =>
+          this.processSpawner.spawn(spawnOptions, {
+            onStderr: handleChildStderr,
+          }),
         hooks: assembly.hooks,
         compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:

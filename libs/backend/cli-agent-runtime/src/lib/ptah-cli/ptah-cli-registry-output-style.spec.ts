@@ -126,6 +126,7 @@ function buildHarness(outputStyleName: string | undefined): {
     } as unknown as never,
     null as never, // modelResolver
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
+    { spawn: jest.fn() } as unknown as never, // processSpawner
   );
 
   return { registry, getCapturedSettings: () => capturedSettings };

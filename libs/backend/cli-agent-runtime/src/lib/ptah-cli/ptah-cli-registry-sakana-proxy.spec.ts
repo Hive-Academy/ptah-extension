@@ -169,6 +169,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     spawnOptionsService,
     null as never,
     configManager,
+    { spawn: jest.fn() } as unknown as never,
   );
 
   return { registry, getCapturedEnv: () => capturedEnv };

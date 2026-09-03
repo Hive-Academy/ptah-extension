@@ -113,6 +113,7 @@ function buildHarness(ensure: jest.Mock | null): Harness {
     { assembleSpawnOptions } as never,
     null as never,
     { get: jest.fn(() => undefined) } as never,
+    { spawn: jest.fn() } as unknown as never,
     ensure === null ? null : ({ ensure } as IHarnessPreflight),
   );
 

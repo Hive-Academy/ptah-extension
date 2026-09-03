@@ -146,6 +146,7 @@ function buildHarness(): LeaseHarness {
     null as never,
     null as never,
     { get: jest.fn(() => undefined) } as unknown as never,
+    { spawn: jest.fn() } as unknown as never,
   );
 
   return {
