@@ -8,7 +8,14 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import { Injectable, inject, signal, Injector } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  Injector,
+  effect,
+  untracked,
+} from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
@@ -37,6 +44,20 @@ export class ConversationService {
     content: string;
   } | null>(null);
   readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
+  private readonly _lastAbortedSessionId = signal<string | null>(null);
+
+  constructor() {
+    let previousSessionId = this.currentSessionId();
+    effect(() => {
+      const current = this.currentSessionId();
+      untracked(() => {
+        if (current !== previousSessionId) {
+          previousSessionId = current;
+          this._lastAbortedSessionId.set(null);
+        }
+      });
+    });
+  }
 
   /**
    * Clear the queue restore signal after content has been consumed by ChatInputComponent.
@@ -147,6 +168,17 @@ export class ConversationService {
         return;
       }
       const activeTab = this.tabManager.activeTab();
+      const abortedTabId = activeTab?.id ?? null;
+
+      if (sessionId === this._lastAbortedSessionId()) {
+        console.log(
+          '[ConversationService] Session already aborted, idling tab locally:',
+          sessionId,
+        );
+        this.idleAbortedTabLocally(abortedTabId, sessionId);
+        return;
+      }
+
       const queuedContent = activeTab?.queuedContent;
 
       if (activeTab) {
@@ -167,9 +199,7 @@ export class ConversationService {
         '[ConversationService] Calling chat:abort RPC for session:',
         sessionId,
       );
-      // Captured before the RPC so the failure fallback targets the tab that
-      // owned this session at abort time, not whatever is active afterwards.
-      const abortedTabId = activeTab?.id ?? null;
+      this._lastAbortedSessionId.set(sessionId);
       let result: Awaited<
         ReturnType<typeof this.claudeRpcService.call<'chat:abort'>>
       >;

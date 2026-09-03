@@ -34,6 +34,8 @@ import {
 } from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 
+export type EndSessionOutcome = 'ended' | 'already-ended';
+
 export class SessionControl {
   constructor(
     private readonly logger: Logger,
@@ -115,16 +117,17 @@ export class SessionControl {
    * This method is the ONLY reliable way to detect interrupted subagents. All running
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
-  async endSession(sessionId: SessionId): Promise<void> {
+  async endSession(sessionId: SessionId): Promise<EndSessionOutcome> {
     const rec = this.registry.find(sessionId as string);
     if (!rec) {
-      this.logger.warn(
-        `[SessionLifecycle] Cannot end session - not found: ${sessionId}`,
+      this.logger.info(
+        `[SessionLifecycle] Session already ended, nothing to interrupt`,
       );
-      return;
+      return 'already-ended';
     }
 
     await this.endRecord(rec, sessionId);
+    return 'ended';
   }
 
   /**

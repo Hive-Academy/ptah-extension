@@ -431,7 +431,7 @@ export class SessionLifecycleManager {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    return this._control.endSession(sessionId);
+    await this._control.endSession(sessionId);
   }
 
   /**
