@@ -12,6 +12,13 @@
  *   this file. It is JSON-serialized and stored in the encrypted secret store
  *   under a per-record slot via the injected `SmitheryConfigSecretStore`.
  * - No resolved secret-bearing URL is ever persisted to any disk config file.
+ *
+ * FRESHNESS (TASK_2026_375 B1.1): the manifest is a shared file with more than
+ * one live store instance (the Marketplace RPC handler writes through one, the
+ * chat session path reads through another). Every read and every mutation
+ * therefore calls `refresh()` first, which re-parses the file when its
+ * mtime/size signature changed. Without it an install only took effect after
+ * an app restart.
  */
 
 import * as fs from 'fs';
@@ -81,11 +88,20 @@ export function createSmitheryConfigSecretStore(secrets: {
 export class SmitheryInstalledManifestStore {
   private manifest: SmitheryInstalledManifest;
 
+  /**
+   * Signature of the file contents currently held in `manifest`, or null when
+   * the file was absent at the last check. Size is part of it because two
+   * writes can land inside the same millisecond and mtime alone would miss the
+   * second one.
+   */
+  private loadedSignature: string | null = null;
+
   constructor(
     private readonly secretStore: SmitheryConfigSecretStore,
     private readonly manifestPath: string = MANIFEST_PATH,
   ) {
-    this.manifest = this.load();
+    this.manifest = createEmpty();
+    this.refresh();
   }
 
   /**
@@ -93,6 +109,7 @@ export class SmitheryInstalledManifestStore {
    * the encrypted store and only non-secret metadata to the plaintext manifest.
    */
   async install(input: SmitheryInstallInput): Promise<void> {
+    this.refresh();
     const hasConfig = Object.keys(input.config).length > 0;
 
     if (hasConfig) {
@@ -119,6 +136,7 @@ export class SmitheryInstalledManifestStore {
 
   /** Remove a record and its encrypted config slot. No-op if not present. */
   async uninstall(serverKey: string): Promise<void> {
+    this.refresh();
     if (!(serverKey in this.manifest.servers)) return;
     delete this.manifest.servers[serverKey];
     this.save();
@@ -127,6 +145,7 @@ export class SmitheryInstalledManifestStore {
 
   /** List all installed records (non-secret metadata only). */
   list(): SmitheryInstalledRecord[] {
+    this.refresh();
     return Object.values(this.manifest.servers);
   }
 
@@ -136,6 +155,7 @@ export class SmitheryInstalledManifestStore {
    * at query time.
    */
   async getConfig(serverKey: string): Promise<Record<string, unknown>> {
+    this.refresh();
     const record = this.manifest.servers[serverKey];
     if (!record || !record.hasEncryptedConfig) return {};
     const raw = await this.secretStore.getConfig(serverKey);
@@ -146,6 +166,18 @@ export class SmitheryInstalledManifestStore {
     } catch {
       return {};
     }
+  }
+
+  /**
+   * Re-parse the manifest when the file changed since the copy in memory.
+   * Cheap when nothing changed: one `statSync` and a string compare. A missing,
+   * unreadable or corrupt file yields an empty manifest and never throws.
+   */
+  private refresh(): void {
+    const signature = statSignature(this.manifestPath);
+    if (signature === this.loadedSignature) return;
+    this.manifest = this.load();
+    this.loadedSignature = signature;
   }
 
   private load(): SmitheryInstalledManifest {
@@ -172,6 +204,22 @@ export class SmitheryInstalledManifestStore {
       JSON.stringify(this.manifest, null, 2) + '\n',
       'utf-8',
     );
+    // The in-memory copy IS the file now — adopt the new signature so the next
+    // read does not re-parse what this instance just wrote.
+    this.loadedSignature = statSignature(this.manifestPath);
+  }
+}
+
+/**
+ * Identity of the manifest file on disk, or null when it is absent or cannot
+ * be stat-ed. Used only to decide whether a re-parse is needed.
+ */
+function statSignature(manifestPath: string): string | null {
+  try {
+    const stat = fs.statSync(manifestPath);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return null;
   }
 }
 
