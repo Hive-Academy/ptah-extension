@@ -101,6 +101,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
+import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.registry';
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
@@ -168,6 +169,18 @@ function createMockTurnState(): MockTurnState {
     get: jest
       .fn<SessionTurnState | undefined, [string]>()
       .mockReturnValue(undefined),
+  };
+}
+
+type MockMcpStatus = {
+  get: jest.Mock<SessionMcpStatusRecord | null, [string]>;
+};
+
+function createMockMcpStatus(): MockMcpStatus {
+  return {
+    get: jest
+      .fn<SessionMcpStatusRecord | null, [string]>()
+      .mockReturnValue(null),
   };
 }
 
@@ -245,6 +258,7 @@ interface Harness {
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
   turnState: MockTurnState;
+  mcpStatus: MockMcpStatus;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -259,6 +273,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
   const turnState = createMockTurnState();
+  const mcpStatus = createMockMcpStatus();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -270,6 +285,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
     turnState as never,
+    mcpStatus as never,
   );
 
   return {
@@ -283,6 +299,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sdkAdapter,
     chatSession,
     turnState,
+    mcpStatus,
   };
 }
 
@@ -1966,6 +1983,72 @@ describe('SessionRpcHandlers', () => {
 
       expect(result).toEqual({ isActive: true, isStreaming: false });
       expect('turnState' in result).toBe(false);
+    });
+
+    // TASK_2026_375 B4.3 — a cold-loaded webview missed the
+    // `session:mcpStatus` push, so this read is how a restored tab recovers
+    // the chip.
+    it('returns the recorded MCP servers and notices', async () => {
+      const h = makeHarness();
+      const record: SessionMcpStatusRecord = {
+        servers: [{ name: 'smithery', status: 'needs-auth' }],
+        notices: [
+          {
+            code: 'claude-ai-connectors-disabled',
+            message: 'claude.ai connectors are disabled …',
+          },
+        ],
+        updatedAt: 1,
+      };
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(record);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toEqual({
+        isActive: true,
+        isStreaming: false,
+        mcpServers: record.servers,
+        notices: record.notices,
+      });
+      expect(h.mcpStatus.get).toHaveBeenCalledWith(VALID_SESSION_ID);
+    });
+
+    it('OMITS both MCP fields when nothing was recorded — absent is not empty', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(null);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect('mcpServers' in result).toBe(false);
+      expect('notices' in result).toBe(false);
+    });
+
+    it('returns an EMPTY server list verbatim — that is a real answer', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue({
+        servers: [],
+        notices: [],
+        updatedAt: 1,
+      });
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toMatchObject({ mcpServers: [], notices: [] });
     });
 
     it('reports inactive when the session is not in the lifecycle registry', async () => {

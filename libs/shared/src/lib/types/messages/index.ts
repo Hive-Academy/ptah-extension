@@ -4,6 +4,7 @@ export * from './chat';
 export * from './agent';
 export * from './system';
 export * from './session';
+export * from './session-mcp-status';
 export * from './envelope';
 export * from './batch';
 export * from './payload-map';

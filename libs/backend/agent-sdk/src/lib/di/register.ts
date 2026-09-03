@@ -46,6 +46,7 @@ import {
   CompactionHookHandler,
   CompactionCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
+  SessionMcpStatusCallbackRegistry,
   SessionTurnStateRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
@@ -368,6 +369,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
     { useClass: SessionIdResolvedCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Registered BEFORE StreamTransformer / SdkQueryOptionsBuilder resolve, both
+  // of which now inject it as a required dependency.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
+    { useClass: SessionMcpStatusCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

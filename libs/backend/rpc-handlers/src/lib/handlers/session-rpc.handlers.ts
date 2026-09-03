@@ -57,6 +57,7 @@ import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
   SessionStatusParams,
   SessionStatusResponse,
@@ -120,6 +121,13 @@ export class SessionRpcHandlers {
     private readonly chatSession: ChatSessionService,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState: SessionTurnStateRegistry,
+    /**
+     * What the CLI reported about this session's MCP servers. A cold-loaded
+     * webview missed the `session:mcpStatus` push, so this read is how a
+     * restored tab recovers the chip (TASK_2026_375 B4.3).
+     */
+    @inject(CHAT_TOKENS.MCP_STATUS)
+    private readonly mcpStatus: SessionMcpStatusRegistry,
     /**
      * Optional so a host that never registers the manager serves this method
      * exactly as before. See `session:cli-sessions` for the one use.
@@ -1153,6 +1161,7 @@ export class SessionRpcHandlers {
         try {
           const { sessionId } = SessionStatusParamsSchema.parse(params);
           const state = this.turnState.get(sessionId);
+          const mcp = this.mcpStatus.get(sessionId);
 
           return {
             isActive: this.sdkAdapter.isSessionActive(
@@ -1160,6 +1169,10 @@ export class SessionRpcHandlers {
             ),
             isStreaming: state?.phase === 'generating',
             ...(state ? { turnState: state } : {}),
+            // Both fields are omitted, not emptied, when nothing was recorded.
+            // An empty `mcpServers` array is a real answer — "this session has
+            // no MCP servers" — and the chip renders it as such.
+            ...(mcp ? { mcpServers: mcp.servers, notices: mcp.notices } : {}),
           };
         } catch (error) {
           this.logger.error(

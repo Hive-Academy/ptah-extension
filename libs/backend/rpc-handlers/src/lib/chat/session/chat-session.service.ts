@@ -50,6 +50,7 @@ import {
   SDK_TOKENS,
   SlashCommandInterceptor,
   AuthRequiredError,
+  type SessionMcpStatusCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -89,6 +90,10 @@ import {
   type OutputStyleSessionActivationService,
 } from '@ptah-extension/output-styles';
 import { hasStopIntent } from './chat-stop-intent';
+import type {
+  SessionMcpStatusRecord,
+  SessionMcpStatusRegistry,
+} from './session-mcp-status.registry';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
 /**
@@ -161,6 +166,14 @@ export class ChatSessionService {
     @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION)
     private readonly outputStyleActivation: OutputStyleSessionActivationService,
     /**
+     * The backend's record of what the CLI reported about each session's MCP
+     * servers. Written from the fan-out below; read by `session:status`.
+     */
+    @inject(CHAT_TOKENS.MCP_STATUS)
+    private readonly mcpStatusRegistry: SessionMcpStatusRegistry,
+    @inject(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY)
+    private readonly mcpStatusEvents: SessionMcpStatusCallbackRegistry,
+    /**
      * Optional so a host that never registers the manager resumes exactly as
      * before. Used for one thing: putting the CLI session references this
      * method already reads back into the agent registry, so `ptah_agent_read`
@@ -168,7 +181,62 @@ export class ChatSessionService {
      */
     @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
     private readonly agentProcessManager: AgentProcessManager | null = null,
-  ) {}
+  ) {
+    this.subscribeToMcpStatus();
+  }
+
+  /**
+   * Fold the `agent-sdk` MCP-status fan-out into the registry and push it to
+   * the webview (TASK_2026_375 B4.3).
+   *
+   * Subscribed in the constructor, not lazily: the fan-out's two producers fire
+   * during session START, and this service is resolved at bootstrap by
+   * `ChatRpcHandlers`, so the subscription is live before any session exists.
+   * The subscription is never disposed — this is a container singleton that
+   * lives as long as the process.
+   *
+   * The push uses `webviewManager.broadcastMessage`, the same DIRECT channel
+   * `session:stats` rides. That is allowed here and forbidden for turn state:
+   * `agent-sdk/CLAUDE.md` bans a `MESSAGE_TYPES` push for TURN STATE because
+   * the three-channel race (`session:turnEnded` direct, chunks batched,
+   * `session:stats` direct) is exactly the defect the in-stream `turn_state`
+   * event replaced. MCP status arrives ONCE per session at the SDK `init`
+   * message, never changes mid-turn, and no chunk depends on it — there is no
+   * ordering relationship for a race to break. Do not read this as a precedent
+   * for pushing status.
+   */
+  private subscribeToMcpStatus(): void {
+    this.mcpStatusEvents.register((event) => {
+      const record =
+        event.kind === 'servers'
+          ? this.mcpStatusRegistry.recordServers(event.sessionId, event.servers)
+          : this.mcpStatusRegistry.recordNotice(event.sessionId, event.notice);
+      if (!record) return;
+      this.publishMcpStatus(event.sessionId, record);
+    });
+  }
+
+  /** Push one session's MCP picture. Never throws into the SDK's path. */
+  private publishMcpStatus(
+    sessionId: string,
+    record: SessionMcpStatusRecord,
+  ): void {
+    this.webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_MCP_STATUS, {
+        sessionId,
+        servers: record.servers,
+        notices: record.notices,
+      })
+      .catch((error: unknown) => {
+        // A closed or disposed channel is the ordinary case on shutdown, and
+        // this is an advisory chip — deliberately no retry ladder, unlike
+        // `session:stats`, whose numbers the user is owed.
+        this.logger.debug('[RPC] session:mcpStatus broadcast failed', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
 
   /**
    * Lazily-built resolver that rebuilds session-time Smithery MCP overrides

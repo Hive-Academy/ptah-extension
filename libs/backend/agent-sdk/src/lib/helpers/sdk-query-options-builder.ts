@@ -52,6 +52,10 @@ import { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler'
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
+  classifyCliNotice,
+  type SessionMcpStatusCallbackRegistry,
+} from './session-mcp-status-callback-registry';
+import {
   CanUseTool,
   HookEvent,
   HookCallbackMatcher,
@@ -587,6 +591,25 @@ export class SdkQueryOptionsBuilder {
     private readonly teammateLifecycleHookHandler: TeammateLifecycleHookHandler,
     @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
     private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
+    /**
+     * Fan-out for the one stderr line Ptah surfaces — the CLI's own notice that
+     * a third-party auth source has taken precedence over the user's claude.ai
+     * login, which is why their Gmail / Calendar / Drive / Canva connectors
+     * never load (TASK_2026_375 F4). The other producer of the same signal is
+     * `StreamTransformer`, from the SDK `init` message.
+     *
+     * LAST and optional, deliberately. This constructor has twenty parameters
+     * and its specs build it through `new ctor(...args: unknown[])` with
+     * positional stubs — several of them shorter than the full list. Inserting
+     * a required parameter in the middle would silently re-bind ten existing
+     * stubs to the wrong fields, which is a worse defect than the one this
+     * fixes. `registerSdkServices` registers the token unconditionally, so
+     * every real host has it.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY, {
+      isOptional: true,
+    })
+    private readonly mcpStatus?: SessionMcpStatusCallbackRegistry,
   ) {}
 
   /**
@@ -827,6 +850,29 @@ export class SdkQueryOptionsBuilder {
           // stderr is for logging/observability only. Stuck-session detection
           // is handled by the no-activity watchdog (NoActivityWatchdog),
           // NOT by pattern-matching stderr text — no session is aborted here.
+          //
+          // ONE exception, and it does not change that rule: the CLI writes an
+          // informational line here when a third-party auth source takes
+          // precedence over the user's claude.ai login, which is the whole
+          // reason their claude.ai connectors are silently absent. It is
+          // published, never acted on. This is not turn state — it lands once
+          // per session at start and no chunk depends on it — so the direct
+          // channel is correct here in a way it is not for `turn_state`. See
+          // `SessionMcpStatusCallbackRegistry`'s file header.
+          const notice = classifyCliNotice(data);
+          if (notice) {
+            // The SDK UUID once it exists, else the routing id the webview
+            // already knows. The consumer re-keys on
+            // `SessionIdResolvedCallbackRegistry`, so either is routable.
+            const noticeSessionId = sessionIdResolver?.() ?? routingId;
+            if (noticeSessionId) {
+              this.mcpStatus?.notifyAll({
+                kind: 'notice',
+                sessionId: noticeSessionId,
+                notice,
+              });
+            }
+          }
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else if (data.includes('[WARN]')) {

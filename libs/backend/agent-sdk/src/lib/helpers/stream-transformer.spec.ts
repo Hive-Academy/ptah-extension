@@ -29,6 +29,10 @@ import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
+import type {
+  SessionMcpStatusCallbackRegistry,
+  SessionMcpStatusEvent,
+} from './session-mcp-status-callback-registry';
 import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
@@ -109,6 +113,8 @@ interface Harness {
   messageTransformer: ReturnType<typeof makeMessageTransformer>;
   pricingProvider: jest.Mocked<IPricingProvider>;
   logger: jest.Mocked<Logger>;
+  /** Every event the transformer published on the MCP-status fan-out. */
+  mcpEvents: SessionMcpStatusEvent[];
 }
 
 function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
@@ -116,14 +122,27 @@ function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
   const messageTransformer = makeMessageTransformer();
   const modelResolver = makeModelResolver();
   const pricingProvider = makePricingProvider();
+  const mcpEvents: SessionMcpStatusEvent[] = [];
+  const mcpStatus = {
+    notifyAll: (event: SessionMcpStatusEvent) => {
+      mcpEvents.push(event);
+    },
+  } as unknown as SessionMcpStatusCallbackRegistry;
   const transformer = new StreamTransformer(
     logger,
     messageTransformer as unknown as SdkMessageTransformer,
     authEnv,
     modelResolver as unknown as IModelResolver,
     pricingProvider,
+    mcpStatus,
   );
-  return { transformer, messageTransformer, pricingProvider, logger };
+  return {
+    transformer,
+    messageTransformer,
+    pricingProvider,
+    logger,
+    mcpEvents,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +179,16 @@ function messageStart(
         },
       },
     },
+  } as unknown as SDKMessage;
+}
+
+function systemInit(mcpServers: unknown, sessionId = 'sess-1'): SDKMessage {
+  return {
+    type: 'system',
+    subtype: 'init',
+    session_id: sessionId,
+    tools: ['Read', 'mcp__ptah__ptah_ast_analyze'],
+    mcp_servers: mcpServers,
   } as unknown as SDKMessage;
 }
 
@@ -784,5 +813,122 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
       'transform:result',
     ]);
     expect(yielded).toEqual(['message_complete', 'turn_state']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_375 B4.2 — session MCP status published from the `init` message.
+// Before this the CLI's own `needs-auth` verdict was logged at debug level and
+// nothing else, so the UI showed a dead server as installed and working.
+// ---------------------------------------------------------------------------
+
+describe('StreamTransformer — session MCP status (TASK_2026_375)', () => {
+  const MODEL = 'claude-sonnet-4-20250514';
+
+  async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
+    for await (const _ of iterable) {
+      // Consuming the stream is the point; the events are asserted elsewhere.
+    }
+  }
+
+  it('publishes the servers the init message reported, under the REAL session id', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit(
+            [
+              { name: 'smithery', status: 'needs-auth' },
+              { name: 'oauth-mcp.sentry.dev-mcp', status: 'connected' },
+            ],
+            'real-uuid',
+          ),
+        ]),
+        // The transformer starts under the tabId; the init message is what
+        // resolves the real id, and the fan-out must use the resolved one.
+        sessionId: 'tab-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toEqual([
+      {
+        kind: 'servers',
+        sessionId: 'real-uuid',
+        servers: [
+          { name: 'smithery', status: 'needs-auth' },
+          { name: 'oauth-mcp.sentry.dev-mcp', status: 'connected' },
+        ],
+      },
+    ]);
+  });
+
+  it('publishes an EMPTY list when the session has no MCP servers', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([systemInit([])]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    // An empty list is a real answer — "this session has no MCP servers" — and
+    // is what lets the chip hide itself instead of showing a stale count.
+    expect(mcpEvents).toEqual([
+      { kind: 'servers', sessionId: 'sess-1', servers: [] },
+    ]);
+  });
+
+  it('publishes NOTHING when the init message carries no mcp_servers array', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([systemInit(undefined)]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toEqual([]);
+  });
+
+  it('keeps an unknown status verbatim — the value set belongs to the CLI', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit([{ name: 'x', status: 'reconnecting' }]),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents[0]).toMatchObject({
+      servers: [{ name: 'x', status: 'reconnecting' }],
+    });
+  });
+
+  it('publishes once per init message, not once per turn', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit([{ name: 'a', status: 'connected' }]),
+          messageStart(MODEL, { input_tokens: 10 }),
+          resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toHaveLength(1);
   });
 });

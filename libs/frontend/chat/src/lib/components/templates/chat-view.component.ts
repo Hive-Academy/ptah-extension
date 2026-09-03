@@ -37,6 +37,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
+import { McpStatusChipComponent } from '../molecules/mcp-status-chip.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
@@ -115,6 +116,7 @@ import type {
     CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
+    McpStatusChipComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',

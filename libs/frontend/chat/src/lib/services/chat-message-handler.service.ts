@@ -32,6 +32,7 @@ import {
   parseSdkSubagentEndedPayload,
   parseSdkTurnEndedPayload,
   parseSdkTurnFailedPayload,
+  parseSessionMcpStatusPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import {
@@ -40,6 +41,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
+  SessionMcpStatusRegistry,
   SurfaceId,
   TabId,
   TabManagerService,
@@ -57,6 +59,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly mcpStatus = inject(SessionMcpStatusRegistry);
   private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
@@ -104,6 +107,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
     MESSAGE_TYPES.SESSION_STATS,
+    MESSAGE_TYPES.SESSION_MCP_STATUS,
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
@@ -137,6 +141,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.SESSION_STATS:
         this.handleSessionStats(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_MCP_STATUS:
+        this.handleSessionMcpStatus(message.payload);
         break;
       case MESSAGE_TYPES.SESSION_ID_RESOLVED:
         this.handleSessionIdResolved(message.payload);
@@ -521,6 +528,30 @@ export class ChatMessageHandler implements MessageHandler {
       payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0],
     );
   }
+  /**
+   * `session:mcpStatus` — what the CLI reported about this session's MCP
+   * servers, plus the one stderr notice Ptah surfaces (TASK_2026_375 B4).
+   *
+   * Pushed once per session at start, so a cold-loaded webview never sees it;
+   * the chip's own `session:status` read is the recovery path for that. Parsed
+   * with the hand-written parser rather than Zod — the 304 kB Zod runtime is
+   * deliberately kept out of the initial bundle (TASK_2026_187 Unit 10).
+   */
+  private handleSessionMcpStatus(payload: unknown): void {
+    const parsed = parseSessionMcpStatusPayload(payload);
+    if (!parsed) {
+      console.warn(
+        '[ChatMessageHandler] session:mcpStatus payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    this.mcpStatus.record(parsed.sessionId, {
+      servers: parsed.servers,
+      notices: parsed.notices,
+    });
+  }
+
   private handleSessionStats(payload: unknown): void {
     if (!payload) {
       console.warn(

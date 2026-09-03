@@ -56,3 +56,8 @@ export {
   type SurfaceModelUsage,
   type SurfaceSessionStats,
 } from './lib/surface-session-stats.registry';
+export {
+  SessionMcpStatusRegistry,
+  MCP_STATUS_MAP_LIMIT,
+  type SessionMcpStatus,
+} from './lib/session-mcp-status.registry';
