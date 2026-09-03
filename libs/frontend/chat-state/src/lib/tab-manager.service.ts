@@ -957,8 +957,11 @@ export class TabManagerService {
       lastTerminalReason: undefined,
       pendingBackgroundTasks: [],
       pendingSessionCrons: [],
-      // A fresh conversation gets a fresh backend registry — its revisions
-      // restart at 1 and must not be dropped against the old counter.
+      // The tab forgets the counter, not the backend. Revisions are monotonic
+      // per SESSION ID (TASK_2026_371), and the reset is what lets a brand-new
+      // conversation start clean anyway: a tab with no recorded revision
+      // accepts anything, so an id whose backend floor survived can never lock
+      // one out. Dropping the session id with it is what keeps that honest.
       lastTurnStateRevision: undefined,
       lastTurnStateSessionId: undefined,
     });
@@ -1126,6 +1129,15 @@ export class TabManagerService {
    * recorded revision accepts any revision — a restored tab, a fresh
    * conversation and a resumed session all start from `undefined`.
    *
+   * The backend counter is monotonic per SESSION ID, not per SDK query
+   * (`SessionTurnStateRegistry`, TASK_2026_371): it survives the record
+   * teardown on every clean broadcast-loop exit, so a second query under the
+   * same id — an auto-resumed `chat:continue`, `chat:resume --activate`, a
+   * rewind — resumes the count instead of restarting it. That is what makes
+   * the per-session comparison below sound; when it restarted, a resumed
+   * turn's `generating` and terminal `idle` both lost to the previous query's
+   * stored value and the tab stayed `streaming` forever.
+   *
    * `sessionId` is the session the event belongs to. The acceptance rule is
    * `canApplyTurnState` (session ownership + session-scoped revision); the
    * applier runs it BEFORE finalization and this method runs it again so no
@@ -1194,11 +1206,17 @@ export class TabManagerService {
    *    (`claudeSessionId` null; the event carries the tab id or nothing) or be
    *    bound to exactly `sessionId`. An old broadcaster that captured a tab id
    *    the tab has since re-used for another session fails here.
-   * 2. Revision — revisions count per SDK query, so they are compared only
-   *    against a revision recorded under the SAME session. A different session
-   *    means a restarted counter when the tab is bound to the incoming session
-   *    (accept), and a stale broadcaster otherwise (reject). A tab with no
-   *    recorded revision accepts anything.
+   * 2. Revision — revisions are monotonic per SESSION ID and comparable only
+   *    within one, so they are compared only against a revision recorded under
+   *    the SAME session. A different session means a fresh counter when the tab
+   *    is bound to the incoming session (accept), and a stale broadcaster
+   *    otherwise (reject). A tab with no recorded revision accepts anything.
+   *
+   *    This rule assumes the backend never re-issues a revision under an id it
+   *    already used, which `SessionTurnStateRegistry` now guarantees by keeping
+   *    a per-session floor across `clear` (TASK_2026_371). Do NOT loosen it
+   *    into "a different session id means accept whatever arrives" — that is
+   *    the replay window review F1 (TASK_2026_360) closed.
    */
   canApplyTurnState(
     tabId: string,
@@ -1221,9 +1239,11 @@ export class TabManagerService {
     if (last === undefined) return true;
     if (tab.lastTurnStateSessionId !== sessionId) {
       // A placeholder tab has no binding to check against; the backend keeps
-      // the counter continuous across its placeholder → real-id rekey, so the
-      // plain comparison below is right for it. A bound tab reaching here is
-      // bound to `sessionId` (ownership passed) — its counter restarted.
+      // the counter continuous across its placeholder → real-id rekey (it
+      // carries the floors too, TASK_2026_371), so the plain comparison below
+      // is right for it. A bound tab reaching here is bound to `sessionId`
+      // (ownership passed) and the recorded revision belongs to a DIFFERENT
+      // session, which says nothing about this one's counter.
       if (bound) return true;
     }
     return revision > last;
@@ -1254,6 +1274,9 @@ export class TabManagerService {
       status: 'draft',
       isDirty: false,
       claudeSessionId: null,
+      // No session is bound yet, so there is nothing to compare a revision
+      // against; a tab with no recorded revision accepts anything, which is
+      // exactly right for a conversation whose id does not exist yet.
       lastTurnStateRevision: undefined,
       lastTurnStateSessionId: undefined,
     });
@@ -1270,7 +1293,10 @@ export class TabManagerService {
       status: 'streaming',
       isDirty: false,
       hasLiveSession: true,
-      // New SDK session → new backend revision counter (see `applyTurnState`).
+      // New SDK session → a counter this tab has never seen. Forgetting the
+      // old one is safe in both directions: an unrecorded revision accepts
+      // anything, and the backend floor for the incoming id (if it ever had
+      // one) still rises monotonically. See `applyTurnState`.
       lastTurnStateRevision: undefined,
       lastTurnStateSessionId: undefined,
     });
@@ -1894,8 +1920,10 @@ export class TabManagerService {
       title: payload.title,
       name: payload.name,
       claudeSessionId: payload.sessionId,
-      // A resume installs a fresh SDK query, whose turn-state revisions
-      // restart at 1 (see `applyTurnState`).
+      // A resume installs a fresh SDK query. Its revisions do NOT restart —
+      // the backend floor is per session id (TASK_2026_371) — but this tab may
+      // be adopting a session it never streamed, so it starts with no recorded
+      // revision and accepts the first thing the resumed query emits.
       lastTurnStateRevision: undefined,
       lastTurnStateSessionId: undefined,
     });

@@ -813,6 +813,44 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
     expect(h.turnState.get(SESSION_ID)?.phase).toBe('idle');
   });
 
+  // TASK_2026_371 D1. The clean loop exit above CLEARS the registry record,
+  // and `chat:continue` → `autoResumeIfInactive` starts the next query under
+  // the SAME session id. The webview compares revisions per session and only
+  // tolerates a restarted counter when the session id CHANGED, so a second
+  // loop that began at 1 had both its `generating` and its terminal `idle`
+  // dropped before any side effect: the tab kept its spinner and Stop button
+  // while the backend was idle.
+  it('starts the next loop for the same session above the revision the previous one ended on', async () => {
+    const h = makeHarness();
+
+    h.turnState.markGenerating(SESSION_ID);
+    async function* firstLoop(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, firstLoop(), TAB_ID);
+
+    const firstStates = turnStateChunks(h);
+    expect(firstStates).toHaveLength(1);
+    const lastOfFirstLoop = firstStates[0].revision;
+    // Non-vacuity: the record really is gone, so the next query re-creates it.
+    expect(h.turnState.get(SESSION_ID)).toBeUndefined();
+
+    (h.webviewManager.broadcastMessage as jest.Mock).mockClear();
+
+    // The resumed query: same session id, fresh SDK query.
+    const resumed = h.turnState.markGenerating(SESSION_ID);
+    expect(resumed?.revision).toBeGreaterThan(lastOfFirstLoop);
+
+    async function* secondLoop(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, secondLoop(), TAB_ID);
+
+    const secondStates = turnStateChunks(h);
+    expect(secondStates).toHaveLength(1);
+    expect(secondStates[0].revision).toBeGreaterThan(resumed?.revision ?? 0);
+  });
+
   it('keys the turn state under the event session id, not the tabId it was started with', async () => {
     const h = makeHarness();
     const tabId = 'tab-as-session' as SessionId;

@@ -6,6 +6,34 @@
  * returned state carries a fresh, per-session monotonic `revision`, so a
  * consumer can drop a replayed or duplicated event by comparing revisions.
  *
+ * ## The revision is monotonic per SESSION ID, not per SDK query
+ *
+ * `revision` counts across every query that ever ran under one session id, and
+ * that is load-bearing rather than incidental. The webview compares revisions
+ * per SESSION (`TabManagerService.acceptsTurnState`) and accepts a restarted
+ * counter only when the session id CHANGED — so a counter that restarted under
+ * an UNCHANGED id is indistinguishable from a replay and gets dropped.
+ *
+ * `ChatStreamBroadcaster` deletes the record on every clean loop exit
+ * (`turnState.clear`), and `chat:continue` → `autoResumeIfInactive` starts a
+ * fresh SDK query under the SAME session id. Before this was per-session, that
+ * resumed query emitted `generating@1` and terminal `idle@2` against a stored
+ * baseline of 300-odd, so both were dropped before any side effect and the tab
+ * kept `status: 'streaming'` for good — Stop button and streaming quotes on
+ * forever while the backend sat idle (TASK_2026_371 D1).
+ *
+ * So `clear(sessionId)` deletes the RECORD but keeps a `revisionFloor`: the
+ * last revision ever issued under that id. `ensure` seeds a fresh record from
+ * that floor, which makes "the next commit is strictly greater than anything
+ * ever emitted under this id" true by construction — the frontend guard's
+ * assumption, satisfied here rather than loosened there. `chat:resume
+ * --activate` and the rewind path restart a query under an existing id too, so
+ * this closes them at the same time.
+ *
+ * The floor map is BOUNDED (`REVISION_FLOOR_MAP_LIMIT`), because this is a
+ * long-lived Electron process and a map that only ever grows is a leak
+ * whatever its retention rule.
+ *
  * ## Why the Stop hook only snapshots
  *
  * The SDK dispatches the `Stop` hook from its transport read loop, BEFORE the
@@ -24,9 +52,11 @@
  * record, `rekey` MERGES them into the real-id entry instead of dropping one:
  * an in-flight `generating` (and its dedupe flag) wins from either side, the
  * real-id snapshots win over the placeholder's, and the revision baseline is
- * `max(placeholder, real)` so the next commit is strictly greater than anything
- * already emitted under either alias. It is wired to
- * `SessionIdResolvedCallbackRegistry` in `di/register.ts`.
+ * `max(placeholder, real)` — over both records AND both floors, since the real
+ * id may have a floor from an earlier query whose record is already cleared —
+ * so the next commit is strictly greater than anything already emitted under
+ * either alias. It is wired to `SessionIdResolvedCallbackRegistry` in
+ * `di/register.ts`.
  */
 import { injectable } from 'tsyringe';
 import type {
@@ -64,6 +94,22 @@ interface TurnRecord {
 type TurnStateDraft = Omit<SessionTurnState, 'revision' | 'timestamp'>;
 
 /**
+ * Upper bound for the revision-floor map; the least-recently-written entry is
+ * evicted. Same number and same shape as `SURFACE_REVISION_MAP_LIMIT` in the
+ * webview's `TurnStateApplier`, deliberately: the floor exists to keep this
+ * counter ahead of what that consumer remembers, so retaining floors for more
+ * sessions than the consumer keeps revisions for buys nothing. One entry is a
+ * session-id string plus a small integer, so the cap costs tens of kilobytes.
+ *
+ * Eviction is bounded in consequence as well as in size. A floor is re-written
+ * on every commit, so the victim is a session that has emitted nothing for the
+ * last 256 sessions' worth of traffic; losing it restarts that one session's
+ * counter, which is exactly what a process restart does — and a restarted
+ * webview has no `lastTurnStateRevision` for it either, so it accepts anything.
+ */
+export const REVISION_FLOOR_MAP_LIMIT = 256;
+
+/**
  * Wrap a state as the `turn_state` chunk-stream event. `messageId` is never
  * rendered; it only satisfies `FlatStreamEvent`.
  */
@@ -92,7 +138,10 @@ export function toTurnStateEvent(
  * `rekey`. An in-flight `generating` wins from either side; otherwise the
  * canonical state is kept. Canonical snapshots win over the placeholder's.
  * The revision baseline is the max of both so the next `commit` is strictly
- * greater than anything already emitted under either alias.
+ * greater than anything already emitted under either alias. `rekey` raises that
+ * baseline again against both ids' revision FLOORS before storing the result,
+ * which is what extends the same guarantee over a query whose record `clear`
+ * already removed.
  */
 function mergeRecords(from: TurnRecord, to: TurnRecord): TurnRecord {
   const generating =
@@ -115,6 +164,13 @@ function mergeRecords(from: TurnRecord, to: TurnRecord): TurnRecord {
 @injectable()
 export class SessionTurnStateRegistry {
   private readonly records = new Map<string, TurnRecord>();
+  /**
+   * Last revision ISSUED under a session id, kept ACROSS `clear` — the floor a
+   * fresh record is seeded from. See the "monotonic per SESSION ID" section of
+   * the file header for why the record alone is not enough, and
+   * `REVISION_FLOOR_MAP_LIMIT` for the bound.
+   */
+  private readonly revisionFloors = new Map<string, number>();
 
   /**
    * Root assistant `message_start`. Returns a NEW state on the first call of a
@@ -129,7 +185,7 @@ export class SessionTurnStateRegistry {
       return null;
     }
     record.generatingEmitted = true;
-    return this.commit(record, {
+    return this.commit(sessionId, record, {
       phase: 'generating',
       backgroundTasks: [],
       sessionCrons: [],
@@ -170,7 +226,7 @@ export class SessionTurnStateRegistry {
     record.failure = null;
     record.generatingEmitted = false;
 
-    return this.commit(record, {
+    return this.commit(sessionId, record, {
       phase,
       backgroundTasks,
       sessionCrons,
@@ -204,7 +260,7 @@ export class SessionTurnStateRegistry {
     ) {
       phase = 'awaiting-background';
     }
-    return this.commit(record, {
+    return this.commit(sessionId, record, {
       phase,
       backgroundTasks: [...backgroundTasks],
       sessionCrons: current.sessionCrons,
@@ -222,7 +278,7 @@ export class SessionTurnStateRegistry {
     record.stopSnapshot = null;
     record.failure = null;
     record.generatingEmitted = false;
-    return this.commit(record, {
+    return this.commit(sessionId, record, {
       phase: 'idle',
       backgroundTasks: [],
       sessionCrons: [],
@@ -239,21 +295,53 @@ export class SessionTurnStateRegistry {
    * Synchronous. When `realId` already holds a record (a hook resolved its
    * payload id before the stream did), the two are merged into the real-id
    * entry — see the "Alias" section of the file header. The placeholder entry
-   * is always deleted; a missing placeholder record is a no-op.
+   * is always deleted; a missing placeholder record moves no state.
+   *
+   * The revision FLOORS migrate too, and they migrate even when there is no
+   * record to move: the placeholder's floor is always dropped (the alias is
+   * dead) and folded into the real id's, so a revision the placeholder already
+   * emitted cannot be re-issued under the canonical id after a `clear` took its
+   * record away. The surviving baseline is the max of both floors and the
+   * merged record's own revision — the real id may carry a floor from an
+   * earlier query whose record `clear` already deleted — and it is written onto
+   * the surviving record as well as the floor, so the record cannot sit below
+   * its own id's floor.
    */
   rekey(placeholderId: string, realId: string): void {
     if (!placeholderId || !realId || placeholderId === realId) {
       return;
     }
+    const placeholderFloor = this.revisionFloors.get(placeholderId) ?? 0;
+    this.revisionFloors.delete(placeholderId);
     const from = this.records.get(placeholderId);
-    if (!from) {
-      return;
+    if (from) {
+      this.records.delete(placeholderId);
     }
-    this.records.delete(placeholderId);
     const to = this.records.get(realId);
-    this.records.set(realId, to ? mergeRecords(from, to) : from);
+    const merged = from ? (to ? mergeRecords(from, to) : from) : to;
+    const baseline = Math.max(
+      merged?.state.revision ?? 0,
+      placeholderFloor,
+      this.revisionFloors.get(realId) ?? 0,
+    );
+    if (merged) {
+      this.records.set(
+        realId,
+        baseline === merged.state.revision
+          ? merged
+          : { ...merged, state: { ...merged.state, revision: baseline } },
+      );
+    }
+    if (baseline > 0) {
+      this.noteFloor(realId, baseline);
+    }
   }
 
+  /**
+   * Forget the session's record. The revision FLOOR survives on purpose, so a
+   * later query under the same id resumes the counter instead of restarting it
+   * — see the "monotonic per SESSION ID" section of the file header.
+   */
   clear(sessionId: string): void {
     this.records.delete(sessionId);
   }
@@ -264,7 +352,9 @@ export class SessionTurnStateRegistry {
       record = {
         state: {
           phase: 'idle',
-          revision: 0,
+          // Seeded from the floor, not from 0: the next commit must beat every
+          // revision ever emitted under this id, including a previous query's.
+          revision: this.revisionFloors.get(sessionId) ?? 0,
           backgroundTasks: [],
           sessionCrons: [],
           terminalReason: null,
@@ -279,13 +369,37 @@ export class SessionTurnStateRegistry {
     return record;
   }
 
-  private commit(record: TurnRecord, draft: TurnStateDraft): SessionTurnState {
+  private commit(
+    sessionId: string,
+    record: TurnRecord,
+    draft: TurnStateDraft,
+  ): SessionTurnState {
     const next: SessionTurnState = {
       ...draft,
       revision: record.state.revision + 1,
       timestamp: Date.now(),
     };
     record.state = next;
+    this.noteFloor(sessionId, next.revision);
     return next;
+  }
+
+  /**
+   * Raise the floor for `sessionId` and keep the map inside
+   * `REVISION_FLOOR_MAP_LIMIT`. `Math.max` makes "a floor never goes down" a
+   * local invariant rather than one inferred from the callers. The entry is
+   * re-inserted (delete then set) so Map key order IS write recency, which
+   * makes the eviction below drop the floor nobody has written for longest
+   * instead of the oldest session still in use; re-inserting an existing key
+   * also shrinks the map first, so an update can never evict anything.
+   */
+  private noteFloor(sessionId: string, revision: number): void {
+    const next = Math.max(revision, this.revisionFloors.get(sessionId) ?? 0);
+    this.revisionFloors.delete(sessionId);
+    if (this.revisionFloors.size >= REVISION_FLOOR_MAP_LIMIT) {
+      const oldest = this.revisionFloors.keys().next().value;
+      if (oldest !== undefined) this.revisionFloors.delete(oldest);
+    }
+    this.revisionFloors.set(sessionId, next);
   }
 }

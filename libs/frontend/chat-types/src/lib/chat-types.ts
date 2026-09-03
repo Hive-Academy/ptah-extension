@@ -681,14 +681,17 @@ export interface TabState {
    * Revision of the last backend `turn_state` event applied to this tab
    * (`TabManagerService.applyTurnState`). An event whose `revision` is `<=`
    * this value is a replay or a duplicate and is dropped so it cannot regress
-   * the tab. Never persisted — a restored tab re-learns its state from
-   * `session:status`, whose revision may have restarted.
+   * the tab. Never persisted — the backend registry is in-memory, so a restored
+   * tab faces a counter that restarted with the process and must accept
+   * whatever `session:status` reports.
    */
   lastTurnStateRevision?: number;
 
   /**
-   * The session the last applied `turn_state` came from. Revisions are only
-   * comparable within one SDK query, so `lastTurnStateRevision` is meaningful
+   * The session the last applied `turn_state` came from. The backend counts
+   * revisions per SESSION ID and keeps that count across queries
+   * (`SessionTurnStateRegistry`, TASK_2026_371), so `lastTurnStateRevision` is
+   * comparable only against an event from the SAME session and is meaningful
    * only together with this id (`TabManagerService.canApplyTurnState`). Never
    * persisted, for the same reason as the revision.
    */

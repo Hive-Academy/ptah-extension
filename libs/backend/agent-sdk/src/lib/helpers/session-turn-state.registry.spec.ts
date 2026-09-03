@@ -1,10 +1,12 @@
 /**
  * SessionTurnStateRegistry — reducer table (TASK_2026_360 §2.1).
  *
- * Every transition in the plan, the revision invariant, and the two rules
- * the frontend depends on: `applySnapshot` never touches 'generating', and
- * `rekey` merges a colliding real-id entry so no revision is ever reused
- * across the alias boundary (review F2).
+ * Every transition in the plan, the revision invariant, and the three rules
+ * the frontend depends on: `applySnapshot` never touches 'generating', `rekey`
+ * merges a colliding real-id entry so no revision is ever reused across the
+ * alias boundary (review F2), and the revision is monotonic per SESSION ID
+ * across `clear` — including the bound on the floor map that makes it so
+ * (TASK_2026_371 D1).
  */
 import 'reflect-metadata';
 import type {
@@ -13,6 +15,7 @@ import type {
 } from '@ptah-extension/shared';
 import { isTurnStateEvent } from '@ptah-extension/shared';
 import {
+  REVISION_FLOOR_MAP_LIMIT,
   SessionTurnStateRegistry,
   toTurnStateEvent,
 } from './session-turn-state.registry';
@@ -408,6 +411,47 @@ describe('SessionTurnStateRegistry', () => {
         expect(registry.settleTurn(SESSION).revision).toBe(4);
       });
 
+      it('does not resurrect a lower baseline under the real id after a clear', () => {
+        // A previous query for SESSION emitted up to 4 and its loop exit
+        // cleared the record. The resumed query streams under the tabId until
+        // the SDK reports the id, so the merge must land above 4, not at 1.
+        registry.markGenerating(SESSION);
+        registry.settleTurn(SESSION);
+        registry.markGenerating(SESSION);
+        expect(registry.settleTurn(SESSION).revision).toBe(4);
+        registry.clear(SESSION);
+
+        expect(registry.markGenerating(TAB)?.revision).toBe(1);
+        registry.rekey(TAB, SESSION);
+
+        expect(registry.get(SESSION)).toMatchObject({
+          phase: 'generating',
+          revision: 4,
+        });
+        expect(registry.settleTurn(SESSION).revision).toBe(5);
+      });
+
+      it('does not resurrect a lower baseline under the placeholder id after a clear', () => {
+        // The alias emitted 1 and 2 before its record was cleared; a hook then
+        // created the real-id entry. The floor moves with the alias, so the
+        // canonical record cannot re-issue 1.
+        registry.markGenerating(TAB);
+        expect(registry.settleTurn(TAB).revision).toBe(2);
+        registry.clear(TAB);
+        registry.recordStop(SESSION, {
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: null,
+        });
+
+        registry.rekey(TAB, SESSION);
+
+        expect(registry.get(TAB)).toBeUndefined();
+        expect(registry.markGenerating(SESSION)?.revision).toBe(3);
+        // The dead alias keeps no floor of its own.
+        expect(registry.markGenerating(TAB)?.revision).toBe(1);
+      });
+
       it('raises the baseline to the placeholder counter when it is ahead', () => {
         registry.markGenerating(TAB);
         registry.settleTurn(TAB);
@@ -441,7 +485,58 @@ describe('SessionTurnStateRegistry', () => {
       registry.markGenerating(SESSION);
       registry.clear(SESSION);
       expect(registry.get(SESSION)).toBeUndefined();
-      expect(registry.markGenerating(SESSION)?.revision).toBe(1);
+    });
+
+    // TASK_2026_371 D1. `ChatStreamBroadcaster` clears on every clean loop
+    // exit, and `chat:continue` auto-resumes under the SAME session id — so a
+    // counter that restarted here lost `revision > last` in the webview's
+    // per-session guard, the terminal `idle` was dropped before any side
+    // effect, and the tab kept its spinner and Stop button forever while the
+    // backend was idle.
+    it('does not restart the counter, so a resumed turn can still idle the tab', () => {
+      const before = registry.markGenerating(SESSION)?.revision ?? 0;
+      registry.clear(SESSION);
+
+      expect(registry.markGenerating(SESSION)?.revision).toBeGreaterThan(
+        before,
+      );
+    });
+
+    it('keeps revisions strictly increasing across a settle, a clear and a second turn', () => {
+      const revisions = [
+        registry.markGenerating(SESSION)?.revision,
+        registry.settleTurn(SESSION).revision,
+      ];
+      registry.clear(SESSION);
+      revisions.push(
+        registry.markGenerating(SESSION)?.revision,
+        registry.settleTurn(SESSION).revision,
+      );
+      registry.clear(SESSION);
+      revisions.push(registry.markGenerating(SESSION)?.revision);
+
+      expect(revisions).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('leaves the floor per session — clearing one does not move another', () => {
+      registry.markGenerating(SESSION);
+      registry.clear(SESSION);
+      expect(registry.markGenerating('other')?.revision).toBe(1);
+    });
+
+    it('bounds the floor map, evicting the least recently written entry', () => {
+      // One commit each for LIMIT + 1 distinct sessions, oldest first. The
+      // last insertion evicts the first session's floor and nothing else.
+      const total = REVISION_FLOOR_MAP_LIMIT + 1;
+      for (let i = 0; i < total; i++) {
+        registry.markGenerating(`session-${i}`);
+        registry.clear(`session-${i}`);
+      }
+
+      // Assert the SURVIVOR first: every read below writes a floor of its own,
+      // which evicts the next entry in turn.
+      expect(registry.markGenerating(`session-${total - 1}`)?.revision).toBe(2);
+      expect(registry.markGenerating('session-0')?.revision).toBe(1);
     });
   });
 
