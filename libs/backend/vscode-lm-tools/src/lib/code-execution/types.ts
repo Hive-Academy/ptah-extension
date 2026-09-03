@@ -24,6 +24,10 @@ import type { MemoryNamespace } from './namespace-builders/memory-namespace.buil
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
+import type {
+  WebSearchFailureReason,
+  WebSearchProviderType,
+} from './services/web-search-provider.interface';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
@@ -60,30 +64,30 @@ export interface PtahAPI {
         maxResults?: number;
         timeout?: number;
         /** Overrides the configured provider set for this one call. */
-        providers?: string[];
+        providers?: WebSearchProviderType[];
       },
     ): Promise<{
       query: string;
       summary: string;
       /** The providers actually attempted, in selection order. */
-      providers: string[];
+      providers: WebSearchProviderType[];
       /** 'ok' = every provider succeeded, 'partial' = at least one failed. */
-      status: string;
+      status: 'ok' | 'partial';
       durationMs: number;
       results: Array<{
         title: string;
         url: string;
         snippet: string;
-        sources: string[];
+        sources: WebSearchProviderType[];
       }>;
       resultCount: number;
       /** One entry per selected provider, ok and failed alike. */
       outcomes: Array<{
-        provider: string;
-        status: string;
+        provider: WebSearchProviderType;
+        status: 'ok' | 'failed';
         durationMs: number;
         resultCount: number;
-        reason?: string;
+        reason?: WebSearchFailureReason;
         message?: string;
       }>;
     }>;

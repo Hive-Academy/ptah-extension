@@ -709,13 +709,18 @@ export function formatWebSearch(result: {
     if (outcomes.length > 0) {
       blocks.push({ h3: 'Provider status' });
       blocks.push({
+        // Both branches carry the count AND the timing. A failure's duration
+        // is what tells the agent whether the provider timed out slowly or
+        // refused instantly, which decides whether a retry is worth making.
         ul: outcomes.map((o) => {
-          const timing = `${(o.durationMs / 1000).toFixed(1)}s`;
+          const measurements = `${o.resultCount} results, ${(
+            o.durationMs / 1000
+          ).toFixed(1)}s`;
           return o.status === 'ok'
-            ? `**${o.provider}** — ok (${o.resultCount} results, ${timing})`
-            : `**${o.provider}** — failed (${o.reason ?? 'provider-error'}): ${
-                o.message ?? 'Unknown error'
-              }`;
+            ? `**${o.provider}** — ok (${measurements})`
+            : `**${o.provider}** — failed (${measurements}) — ${
+                o.reason ?? 'provider-error'
+              }: ${o.message ?? 'Unknown error'}`;
         }),
       });
     }

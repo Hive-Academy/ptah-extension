@@ -526,8 +526,194 @@ describe('WebSearchService', () => {
 
       const result = await service.search('q', { maxResults: 2 });
 
-      expect(result.results.map((r) => r.title)).toEqual(['A', 'B']);
+      // Round-robin: tavily A, serper C, then tavily B. The cut keeps A and C.
+      expect(result.results.map((r) => r.title)).toEqual(['A', 'C']);
       expect(result.resultCount).toBe(2);
+    });
+
+    // -------------------------------------------------------------------
+    // F7 regression — the trim must not discard every row of a provider
+    // that `outcomes` still reports as ok.
+    // -------------------------------------------------------------------
+
+    it('interleaves the providers round-robin instead of concatenating them', async () => {
+      stubProvider(MockedTavily, 'tavily', {
+        results: [
+          { title: 'T1', url: 'https://t/1', snippet: 's' },
+          { title: 'T2', url: 'https://t/2', snippet: 's' },
+          { title: 'T3', url: 'https://t/3', snippet: 's' },
+        ],
+      });
+      stubProvider(MockedSerper, 'serper', {
+        results: [
+          { title: 'S1', url: 'https://s/1', snippet: 's' },
+          { title: 'S2', url: 'https://s/2', snippet: 's' },
+          { title: 'S3', url: 'https://s/3', snippet: 's' },
+        ],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q', { maxResults: 6 });
+
+      expect(result.results.map((r) => r.title)).toEqual([
+        'T1',
+        'S1',
+        'T2',
+        'S2',
+        'T3',
+        'S3',
+      ]);
+    });
+
+    it('keeps a provider reported ok visible after the maxResults trim', async () => {
+      const five = (prefix: string) =>
+        Array.from({ length: 5 }, (_, i) => ({
+          title: prefix + i,
+          url: 'https://' + prefix + '/' + i,
+          snippet: 's',
+        }));
+      stubProvider(MockedTavily, 'tavily', { results: five('tav') });
+      stubProvider(MockedSerper, 'serper', { results: five('ser') });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q', { maxResults: 5 });
+
+      expect(result.results).toHaveLength(5);
+      const visible = new Set(result.results.flatMap((r) => r.sources));
+      // Every provider whose outcome says ok contributes at least one row.
+      for (const outcome of result.outcomes) {
+        expect(outcome.status).toBe('ok');
+        expect(visible.has(outcome.provider)).toBe(true);
+      }
+    });
+
+    it('interleaves the remaining providers when one of them fails', async () => {
+      stubProvider(MockedTavily, 'tavily', new Error('boom'));
+      stubProvider(MockedSerper, 'serper', {
+        results: [
+          { title: 'S1', url: 'https://s/1', snippet: 's' },
+          { title: 'S2', url: 'https://s/2', snippet: 's' },
+        ],
+      });
+      stubProvider(MockedExa, 'exa', {
+        results: [{ title: 'E1', url: 'https://e/1', snippet: 's' }],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper', 'exa'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q', { maxResults: 2 });
+
+      expect(result.results.map((r) => r.title)).toEqual(['S1', 'E1']);
+    });
+
+    // -------------------------------------------------------------------
+    // F8 regression — the trailing-slash strip is path-scoped, and both
+    // normalization branches apply the same rule.
+    // -------------------------------------------------------------------
+
+    it('does not collapse a trailing slash that belongs to the query string', async () => {
+      stubProvider(MockedTavily, 'tavily', {
+        results: [
+          {
+            title: 'With slash',
+            url: 'https://example.com/a?b=1/',
+            snippet: 's',
+          },
+        ],
+      });
+      stubProvider(MockedSerper, 'serper', {
+        results: [
+          {
+            title: 'Without slash',
+            url: 'https://example.com/a?b=1',
+            snippet: 's',
+          },
+        ],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q');
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results.map((r) => r.title)).toEqual([
+        'With slash',
+        'Without slash',
+      ]);
+    });
+
+    it('collapses repeated trailing slashes on the path', async () => {
+      stubProvider(MockedTavily, 'tavily', {
+        results: [
+          { title: 'First', url: 'https://example.com/p//', snippet: 's' },
+        ],
+      });
+      stubProvider(MockedSerper, 'serper', {
+        results: [
+          { title: 'Second', url: 'https://example.com/p', snippet: 's' },
+        ],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q');
+
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].sources).toEqual(['tavily', 'serper']);
+    });
+
+    it('keeps two paths that differ only in case distinct', async () => {
+      stubProvider(MockedTavily, 'tavily', {
+        results: [
+          { title: 'Upper', url: 'https://EXAMPLE.com/Doc', snippet: 's' },
+        ],
+      });
+      stubProvider(MockedSerper, 'serper', {
+        results: [
+          { title: 'Lower', url: 'https://example.com/doc', snippet: 's' },
+        ],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q');
+
+      expect(result.results).toHaveLength(2);
+    });
+
+    it('applies the same trailing-slash and case rule to an unparseable URL', async () => {
+      stubProvider(MockedTavily, 'tavily', {
+        results: [
+          { title: 'First', url: 'not-a-url//', snippet: 's' },
+          { title: 'Cased', url: 'Not-A-Url', snippet: 's' },
+        ],
+      });
+      stubProvider(MockedSerper, 'serper', {
+        results: [{ title: 'Second', url: '  not-a-url  ', snippet: 's' }],
+      });
+      const workspaceProvider = createWorkspaceProvider({
+        providers: ['tavily', 'serper'],
+      });
+      const { service } = buildService({ workspaceProvider });
+
+      const result = await service.search('q');
+
+      expect(result.results.map((r) => r.title)).toEqual(['First', 'Cased']);
+      expect(result.results[0].sources).toEqual(['tavily', 'serper']);
     });
   });
 

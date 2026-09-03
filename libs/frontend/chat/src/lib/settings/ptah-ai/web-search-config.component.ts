@@ -307,6 +307,7 @@ export class WebSearchConfigComponent implements OnInit {
     results: ProviderTestResult[];
   } | null>(null);
   readonly errorMessage = signal<string | null>(null);
+  readonly configLoaded = signal(false);
 
   isSelected(provider: ProviderId): boolean {
     return this.selectedProviders().has(provider);
@@ -331,9 +332,20 @@ export class WebSearchConfigComponent implements OnInit {
         const providers = configResult.data.providers as ProviderId[];
         this.selectedProviders.set(new Set(providers));
         this.maxResults.set(configResult.data.maxResults);
+        this.configLoaded.set(true);
+      } else {
+        this.configLoaded.set(false);
+        this.errorMessage.set(
+          configResult.error ?? 'Failed to load web search configuration',
+        );
       }
-    } catch {
-      this.errorMessage.set('Failed to load web search configuration');
+    } catch (error: unknown) {
+      this.configLoaded.set(false);
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load web search configuration',
+      );
     }
 
     await this.loadApiKeyStatuses();
@@ -363,7 +375,15 @@ export class WebSearchConfigComponent implements OnInit {
    * Toggle a provider's selection. Refuses to leave zero providers selected.
    */
   async toggleProvider(provider: ProviderId): Promise<void> {
-    const current = new Set(this.selectedProviders());
+    if (!this.configLoaded()) {
+      this.errorMessage.set(
+        'Configuration failed to load. Reload the panel before changing providers.',
+      );
+      return;
+    }
+
+    const previous = this.selectedProviders();
+    const current = new Set(previous);
 
     if (current.has(provider)) {
       if (current.size === 1) {
@@ -378,7 +398,11 @@ export class WebSearchConfigComponent implements OnInit {
     this.errorMessage.set(null);
     this.selectedProviders.set(current);
     this.testResult.set(null);
-    await this.saveConfig({ providers: Array.from(current) });
+
+    const saved = await this.saveConfig({ providers: Array.from(current) });
+    if (!saved) {
+      this.selectedProviders.set(previous);
+    }
   }
 
   openKeyEditor(provider: ProviderId): void {
@@ -488,12 +512,18 @@ export class WebSearchConfigComponent implements OnInit {
    */
   async onMaxResultsChange(event: Event): Promise<void> {
     const value = (event.target as HTMLInputElement).valueAsNumber;
+    const previous = this.maxResults();
     this.maxResults.set(value);
-    await this.saveConfig({ maxResults: value });
+
+    const saved = await this.saveConfig({ maxResults: value });
+    if (!saved) {
+      this.maxResults.set(previous);
+    }
   }
 
   /**
-   * Save configuration via RPC.
+   * Save configuration via RPC. Returns whether the backend stored it, so
+   * callers can revert an optimistic UI change on failure.
    *
    * The backend handler uses a runtime duck-type check: both VscodeWorkspaceProvider
    * and ElectronWorkspaceProvider expose setConfiguration(), so this works on
@@ -502,15 +532,28 @@ export class WebSearchConfigComponent implements OnInit {
   private async saveConfig(params: {
     providers?: string[];
     maxResults?: number;
-  }): Promise<void> {
+  }): Promise<boolean> {
     this.errorMessage.set(null);
 
     try {
-      await this.rpcService.call('webSearch:setConfig', params);
-    } catch {
+      const result = await this.rpcService.call('webSearch:setConfig', params);
+
+      if (result.isSuccess()) {
+        return true;
+      }
+
       this.errorMessage.set(
-        'Could not save setting. You can also change it in VS Code Settings (Ctrl+,).',
+        result.error ??
+          'Could not save setting. You can also change it in VS Code Settings (Ctrl+,).',
       );
+      return false;
+    } catch (error: unknown) {
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Could not save setting. You can also change it in VS Code Settings (Ctrl+,).',
+      );
+      return false;
     }
   }
 }

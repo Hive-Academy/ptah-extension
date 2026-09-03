@@ -56,6 +56,7 @@ function makeStderr(): { stderr: { write: jest.Mock }; buffer: string } {
 
 interface MockEngine {
   withEngine: WebsearchExecuteHooks['withEngine'];
+  engineRuns: Array<{ globals: unknown; opts: unknown }>;
   rpcCalls: Array<{ method: string; params: unknown }>;
   scripted: Map<
     string,
@@ -65,6 +66,7 @@ interface MockEngine {
 }
 
 function makeEngine(): MockEngine {
+  const engineRuns: MockEngine['engineRuns'] = [];
   const rpcCalls: MockEngine['rpcCalls'] = [];
   const scripted: MockEngine['scripted'] = new Map();
   const transport = {
@@ -87,6 +89,7 @@ function makeEngine(): MockEngine {
       pushAdapter: { removeAllListeners(): void };
     }) => Promise<unknown>,
   ): Promise<unknown> => {
+    engineRuns.push({ globals: _globals, opts: _opts });
     return fn({
       container,
       transport,
@@ -94,7 +97,7 @@ function makeEngine(): MockEngine {
     });
   }) as unknown as WebsearchExecuteHooks['withEngine'];
 
-  return { withEngine, rpcCalls, scripted };
+  return { withEngine, engineRuns, rpcCalls, scripted };
 }
 
 function buildHooks(): {
@@ -115,11 +118,11 @@ function buildHooks(): {
 }
 
 describe('ptah websearch status', () => {
-  it('queries getConfig then getApiKeyStatus and emits websearch.status', async () => {
+  it('queries and emits status once per configured provider', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:getConfig', {
       success: true,
-      data: { provider: 'tavily', maxResults: 5 },
+      data: { providers: ['tavily', 'serper'], maxResults: 5 },
     });
     engine.scripted.set('webSearch:getApiKeyStatus', {
       success: true,
@@ -136,21 +139,27 @@ describe('ptah websearch status', () => {
     expect(engine.rpcCalls.map((c) => c.method)).toEqual([
       'webSearch:getConfig',
       'webSearch:getApiKeyStatus',
+      'webSearch:getApiKeyStatus',
     ]);
     expect(engine.rpcCalls[1]?.params).toEqual({ provider: 'tavily' });
-    expect(formatterTrace.notifications[0]?.method).toBe('websearch.status');
-    expect(formatterTrace.notifications[0]?.params).toMatchObject({
-      provider: 'tavily',
-      configured: true,
-      maxResults: 5,
-    });
+    expect(engine.rpcCalls[2]?.params).toEqual({ provider: 'serper' });
+    expect(formatterTrace.notifications).toEqual([
+      {
+        method: 'websearch.status',
+        params: { provider: 'tavily', configured: true, maxResults: 5 },
+      },
+      {
+        method: 'websearch.status',
+        params: { provider: 'serper', configured: true, maxResults: 5 },
+      },
+    ]);
   });
 
   it('honors --provider override', async () => {
     const { engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:getConfig', {
       success: true,
-      data: { provider: 'tavily' },
+      data: { providers: ['tavily', 'exa'] },
     });
     const exit = await execute(
       { subcommand: 'status', provider: 'serper' } satisfies WebsearchOptions,
@@ -158,6 +167,7 @@ describe('ptah websearch status', () => {
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toHaveLength(2);
     expect(engine.rpcCalls[1]?.params).toEqual({ provider: 'serper' });
   });
 });
@@ -227,7 +237,10 @@ describe('ptah websearch test', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:test', {
       success: true,
-      data: { success: true, provider: 'tavily' },
+      data: {
+        success: true,
+        results: [{ provider: 'tavily', success: true }],
+      },
     });
     const exit = await execute(
       { subcommand: 'test' } satisfies WebsearchOptions,
@@ -235,14 +248,62 @@ describe('ptah websearch test', () => {
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
-    expect(formatterTrace.notifications[0]?.method).toBe('websearch.test');
+    expect(formatterTrace.notifications).toEqual([
+      {
+        method: 'websearch.test',
+        params: { provider: 'tavily', success: true, error: undefined },
+      },
+    ]);
+  });
+
+  it('emits one line per provider and succeeds on a partial pass', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('webSearch:test', {
+      success: true,
+      data: {
+        success: true,
+        results: [
+          { provider: 'tavily', success: true },
+          {
+            provider: 'serper',
+            success: false,
+            error: 'No API key configured for serper',
+          },
+        ],
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'test' } satisfies WebsearchOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications).toEqual([
+      {
+        method: 'websearch.test',
+        params: { provider: 'tavily', success: true, error: undefined },
+      },
+      {
+        method: 'websearch.test',
+        params: {
+          provider: 'serper',
+          success: false,
+          error: 'No API key configured for serper',
+        },
+      },
+    ]);
   });
 
   it('returns GeneralError on test failure', async () => {
     const { engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:test', {
       success: true,
-      data: { success: false, error: 'no key' },
+      data: {
+        success: false,
+        results: [{ provider: 'tavily', success: false, error: 'no key' }],
+      },
     });
     const exit = await execute(
       { subcommand: 'test' } satisfies WebsearchOptions,
@@ -258,7 +319,7 @@ describe('ptah websearch config', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:getConfig', {
       success: true,
-      data: { provider: 'tavily', apiKey: 'sk-secret' },
+      data: { providers: ['tavily'], apiKey: 'sk-secret' },
     });
     const exit = await execute(
       { subcommand: 'config-get' } satisfies WebsearchOptions,
@@ -277,7 +338,7 @@ describe('ptah websearch config', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('webSearch:getConfig', {
       success: true,
-      data: { provider: 'tavily', apiKey: 'sk-secret' },
+      data: { providers: ['tavily'], apiKey: 'sk-secret' },
     });
     const exit = await execute(
       { subcommand: 'config-get' } satisfies WebsearchOptions,
@@ -303,12 +364,12 @@ describe('ptah websearch config', () => {
     expect(engine.rpcCalls).toHaveLength(0);
   });
 
-  it('config-set: dispatches webSearch:setConfig with provided fields', async () => {
+  it('config-set: parses, trims, and de-duplicates comma-separated providers', async () => {
     const { engine, hooks } = buildHooks();
     const exit = await execute(
       {
         subcommand: 'config-set',
-        provider: 'serper',
+        provider: 'serper, tavily,serper, exa',
         maxResults: 10,
       } satisfies WebsearchOptions,
       baseGlobals,
@@ -317,7 +378,41 @@ describe('ptah websearch config', () => {
     expect(exit).toBe(ExitCode.Success);
     expect(engine.rpcCalls[0]).toEqual({
       method: 'webSearch:setConfig',
-      params: { provider: 'serper', maxResults: 10 },
+      params: { providers: ['serper', 'tavily', 'exa'], maxResults: 10 },
     });
+  });
+
+  it('config-set: rejects an unknown provider before booting the engine', async () => {
+    const { stderrTrace, engine, hooks } = buildHooks();
+    const exit = await execute(
+      {
+        subcommand: 'config-set',
+        provider: 'tavily,bing',
+      } satisfies WebsearchOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toContain("unknown provider 'bing'");
+    expect(engine.engineRuns).toHaveLength(0);
+    expect(engine.rpcCalls).toHaveLength(0);
+  });
+
+  it('config-set: rejects an empty provider list before booting the engine', async () => {
+    const { stderrTrace, engine, hooks } = buildHooks();
+    const exit = await execute(
+      {
+        subcommand: 'config-set',
+        provider: ' , ',
+      } satisfies WebsearchOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toContain('must contain at least one provider');
+    expect(engine.engineRuns).toHaveLength(0);
+    expect(engine.rpcCalls).toHaveLength(0);
   });
 });

@@ -219,7 +219,61 @@ describe('mcp-response-formatter › formatWebSearch', () => {
     });
     expect(out).toMatch(/\*\*Status:\*\* partial/);
     expect(out).toMatch(
-      /\*\*serper\*\* — failed \(missing-api-key\): No API key configured for serper\./,
+      /\*\*serper\*\* — failed \(0 results, 0\.0s\) — missing-api-key: No API key configured for serper\./,
+    );
+  });
+
+  // STYLE 5 regression — a failed outcome carries its timing and its result
+  // count, not only the reason. The duration separates a slow timeout from an
+  // instant refusal, which is what decides whether a retry is worth making.
+  it('renders the duration and result count of a failed provider', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily', 'serper'],
+      status: 'partial',
+      durationMs: 30500,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        {
+          provider: 'tavily',
+          status: 'failed',
+          durationMs: 30000,
+          resultCount: 0,
+          reason: 'timeout',
+          message: 'Search timed out after 30s',
+        },
+        {
+          provider: 'serper',
+          status: 'failed',
+          durationMs: 20,
+          resultCount: 0,
+          reason: 'missing-api-key',
+          message: 'No API key configured for serper.',
+        },
+      ],
+    });
+    expect(out).toMatch(/\*\*tavily\*\* — failed \(0 results, 30\.0s\)/);
+    expect(out).toMatch(/\*\*serper\*\* — failed \(0 results, 0\.0s\)/);
+    expect(out).toMatch(/timeout: Search timed out after 30s/);
+  });
+
+  it('falls back to provider-error and Unknown error when a failure omits them', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['exa'],
+      status: 'partial',
+      durationMs: 100,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        { provider: 'exa', status: 'failed', durationMs: 100, resultCount: 0 },
+      ],
+    });
+    expect(out).toMatch(
+      /\*\*exa\*\* — failed \(0 results, 0\.1s\) — provider-error: Unknown error/,
     );
   });
 

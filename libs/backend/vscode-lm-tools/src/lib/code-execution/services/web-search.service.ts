@@ -87,18 +87,38 @@ interface ProviderAttempt {
 }
 
 /**
- * Normalize a URL for cross-provider de-duplication: lower-case host, no
- * fragment, no trailing slash. An unparseable URL falls back to a trimmed
- * lower-case form so two identical strings still collapse.
+ * Normalize a URL for cross-provider de-duplication: drop the fragment and
+ * strip every trailing slash from the PATH.
+ *
+ * The strip applies to the path alone. A trailing slash inside a query string
+ * is significant, so `https://example.com/a?b=1/` and `https://example.com/a?b=1`
+ * are two different pages and must not collapse. The case of a path is also
+ * significant, so a path is never case-folded; `new URL` already lower-cases
+ * the scheme and the host, which are the only parts that are case-insensitive.
+ *
+ * An unparseable URL takes the same rule applied to the raw string: trim, drop
+ * the fragment, then strip trailing slashes from the part before the query.
  */
+function stripTrailingSlashes(path: string): string {
+  return path.replace(/\/+$/, '');
+}
+
 function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
     parsed.hash = '';
-    const serialized = parsed.toString();
-    return serialized.endsWith('/') ? serialized.slice(0, -1) : serialized;
+    parsed.pathname = stripTrailingSlashes(parsed.pathname) || '/';
+    return parsed.toString();
   } catch {
-    return url.trim().replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
+    const withoutFragment = url.trim().replace(/#.*$/, '');
+    const queryAt = withoutFragment.indexOf('?');
+    if (queryAt === -1) {
+      return stripTrailingSlashes(withoutFragment);
+    }
+    return (
+      stripTrailingSlashes(withoutFragment.slice(0, queryAt)) +
+      withoutFragment.slice(queryAt)
+    );
   }
 }
 
@@ -286,22 +306,40 @@ export class WebSearchService {
   }
 
   /**
-   * Concatenate results in selection order, then collapse duplicates by
-   * normalized URL. The first occurrence keeps its title and snippet; every
-   * later duplicate only appends its provider to `sources`.
+   * Interleave the successful providers round-robin — every provider's first
+   * result, then every provider's second, and so on — then collapse duplicates
+   * by normalized URL. The first occurrence keeps its title and snippet; every
+   * later duplicate only appends its provider to `sources`. Selection order is
+   * the tie-break inside one round.
+   *
+   * The merge is round-robin rather than provider-by-provider so that the
+   * `maxResults` trim samples every provider. A concatenated merge let the trim
+   * discard every row of a provider the `Provider status` section still
+   * reported as `ok`, which told the agent about results it could not see.
    */
   private mergeResults(
     attempts: ProviderAttempt[],
   ): WebSearchAttributedResultItem[] {
     const byUrl = new Map<string, WebSearchAttributedResultItem>();
     const merged: WebSearchAttributedResultItem[] = [];
+    const succeeded = attempts.filter(
+      (
+        attempt,
+      ): attempt is ProviderAttempt & { result: WebSearchProviderResult } =>
+        attempt.result != null,
+    );
+    const deepest = succeeded.reduce(
+      (longest, attempt) => Math.max(longest, attempt.result.results.length),
+      0,
+    );
 
-    for (const attempt of attempts) {
-      if (!attempt.result) {
-        continue;
-      }
-      const provider = attempt.outcome.provider;
-      for (const item of attempt.result.results) {
+    for (let round = 0; round < deepest; round++) {
+      for (const attempt of succeeded) {
+        const item = attempt.result.results[round];
+        if (!item) {
+          continue;
+        }
+        const provider = attempt.outcome.provider;
         const key = normalizeUrl(item.url);
         const existing = byUrl.get(key);
         if (existing) {

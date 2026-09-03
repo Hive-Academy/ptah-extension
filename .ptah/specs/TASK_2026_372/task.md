@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_372
-status: in_review
+status: done
 type: FEATURE
 title: Support parallel multi-provider web search with per-provider failure reporting
 depends_on: []
