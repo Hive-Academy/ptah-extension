@@ -14,7 +14,10 @@ Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compati
 
 - CLI agent process supervision (Codex, Copilot, Cursor)
 - `PtahCliAdapter` + `PtahCliRegistry` (user-configured Anthropic-compatible CLIs)
-- MCP registry discovery (Smithery, PulseMCP, official) + OAuth
+- MCP registry discovery (official, Smithery) + OAuth. PulseMCP was removed in
+  TASK_2026_367 Batch B3: its `v0beta` endpoint (`https://api.pulsemcp.com/v0beta`)
+  returned `410 Gone` permanently, and the replacement `v0.1` API is a paid,
+  key-gated business API, so the source was removed rather than repointed.
 - `McpInstallService` — the install RPC surface, a thin wrapper that records
   intent in `~/.ptah/mcp-installed.json` and calls `HarnessReconciler`
 - `createHarnessCliDetector` — `CliDetectionService` adapted to the

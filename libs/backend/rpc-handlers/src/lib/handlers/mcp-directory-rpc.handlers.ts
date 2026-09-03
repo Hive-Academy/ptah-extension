@@ -41,7 +41,6 @@ import {
   McpRegistrySourceRegistry,
   McpInstallService,
   SmitheryRegistrySource,
-  PulseMcpRegistrySource,
   SmitheryConnectionResolver,
   SmitheryKeyMissingError,
   SmitheryInstalledManifestStore,
@@ -121,7 +120,6 @@ export class McpDirectoryRpcHandlers {
 
   private readonly registryProvider: McpRegistryProvider;
   private readonly smitherySource: SmitheryRegistrySource;
-  private readonly pulseMcpSource: PulseMcpRegistrySource;
   private readonly smitheryResolver: SmitheryConnectionResolver;
   private readonly smitheryManifest: SmitheryInstalledManifestStore;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
@@ -174,11 +172,6 @@ export class McpDirectoryRpcHandlers {
       logger: this.logger,
     });
     this.sourceRegistry.register(this.smitherySource);
-
-    // PulseMCP — trusted online directory of vendor/community servers. No API
-    // key required, so it registers unconditionally alongside official.
-    this.pulseMcpSource = new PulseMcpRegistrySource({ logger: this.logger });
-    this.sourceRegistry.register(this.pulseMcpSource);
 
     this.smitheryResolver = new SmitheryConnectionResolver(
       getSmitheryApiKey,
@@ -488,9 +481,6 @@ export class McpDirectoryRpcHandlers {
         let servers;
         if (params.source === 'smithery') {
           servers = await this.smitherySource.getPopular();
-        } else if (params.source === 'pulsemcp') {
-          // PulseMCP needs no key, so getPopular runs unconditionally.
-          servers = await this.pulseMcpSource.getPopular();
         } else {
           servers = await this.registryProvider.getPopular();
         }

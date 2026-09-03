@@ -1293,9 +1293,9 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
 /**
  * Build the ptah_harness_search_mcp_registry tool definition
  *
- * Searches the three catalogue sources. The description deliberately tells the
+ * Searches the two catalogue sources. The description deliberately tells the
  * agent what this tool CANNOT see — vendors that host their own remote MCP
- * endpoint are usually absent from all three — and points it at web search as
+ * endpoint are usually absent from both — and points it at web search as
  * the fallback, so the user is never asked to paste an official URL by hand.
  */
 export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
@@ -1303,28 +1303,26 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io), the PulseMCP directory (a trusted ' +
-      'online catalogue of vendor/community servers — e.g. Autodesk, IFC, ' +
-      'Procore — not present in the official registry), AND, when a Smithery ' +
-      'API key is configured, the Smithery registry for servers matching a ' +
-      'query. Each result is tagged with source: "official", "pulsemcp", or ' +
-      '"smithery". Returns server names and descriptions. Use specific ' +
-      'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
-      'for best results. Pair with ptah_harness_list_installed_mcp to see which ' +
-      'servers are already configured before adding more, and install a chosen ' +
-      'server with ptah_harness_install_mcp_server.\n\n' +
-      'COVERAGE LIMIT — these three sources are catalogues of PUBLISHED ' +
-      'packages. A vendor that hosts its own remote MCP endpoint is usually in ' +
-      'NONE of them (Apollo, HubSpot, Zernio, Sentry, Notion and Linear all ' +
-      'return nothing here). So when the user names a specific product and this ' +
-      'tool returns no relevant hit, do NOT conclude the server does not exist ' +
-      'and do NOT ask the user for a link. Fall back to ptah_web_search — query ' +
-      'the vendor\'s own documentation (e.g. "<vendor> MCP server endpoint ' +
-      'docs") and the official Claude connectors directory at ' +
-      'claude.com/connectors, which lists vendor-hosted remote servers. Remote ' +
-      'servers need only their HTTPS endpoint URL: Ptah connects them via OAuth ' +
-      'with dynamic client registration (RFC 9728 / 8414 / 7591), so no API key ' +
-      'or manual client setup is required.\n\n' +
+      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is ' +
+      'configured, the Smithery registry for servers matching a query. Each ' +
+      'result is tagged with source: "official" or "smithery". Returns server ' +
+      'names and descriptions. Use specific technology or vendor keywords ' +
+      '(e.g., "github", "postgresql", "autodesk") for best results. Pair with ' +
+      'ptah_harness_list_installed_mcp to see which servers are already configured ' +
+      'before adding more, and install a chosen server with ' +
+      'ptah_harness_install_mcp_server.\n\n' +
+      'COVERAGE LIMIT — these two sources are catalogues of PUBLISHED packages. ' +
+      'A vendor that hosts its own remote MCP endpoint is usually in NEITHER ' +
+      '(Apollo, HubSpot, Zernio, Sentry, Notion and Linear all return nothing ' +
+      'here). So when the user names a specific product and this tool returns no ' +
+      'relevant hit, do NOT conclude the server does not exist and do NOT ask ' +
+      "the user for a link. Fall back to ptah_web_search — query the vendor's " +
+      'own documentation (e.g. "<vendor> MCP server endpoint docs") and the ' +
+      'official Claude connectors directory at claude.com/connectors, which ' +
+      'lists vendor-hosted remote servers. Remote servers need only their HTTPS ' +
+      'endpoint URL: Ptah connects them via OAuth with dynamic client registration ' +
+      '(RFC 9728 / 8414 / 7591), so no API key or manual client setup is ' +
+      'required.\n\n' +
       "TRUST RULE — only accept an endpoint URL published on the vendor's own " +
       'domain or in the official connectors directory. Never connect a URL ' +
       'scraped from a blog, forum or third-party listicle: OAuth dynamic client ' +
@@ -1332,12 +1330,12 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
       'cannot confirm the endpoint from an authoritative source, say so and ' +
       'stop rather than guessing a URL.\n\n' +
       'READING THE RESULT — "limit" bounds the MERGED list, which is drawn ' +
-      'round-robin from the three sources so none can starve the others, and ' +
+      'round-robin from the two sources so neither can starve the other, and ' +
       'duplicate server names are dropped. The payload carries "status" ("ok" | ' +
       '"degraded") and a per-source "sources" array of {source, status, count, ' +
-      'error?}; when a source fails the others are still returned, status is ' +
+      'error?}; when a source fails the other is still returned, status is ' +
       '"degraded" and the tool result is flagged as an error, so an empty list ' +
-      'is only a true negative while status is "ok".',
+      'is only a true negative while status is "ok"',
     inputSchema: {
       type: 'object',
       properties: {
