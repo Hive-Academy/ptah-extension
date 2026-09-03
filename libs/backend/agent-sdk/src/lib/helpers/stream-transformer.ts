@@ -72,7 +72,7 @@ export interface ResultModelUsage {
   /**
    * Current context fill from the last API turn (input + cache_read tokens).
    * Unlike the cumulative inputTokens/cacheReadInputTokens, this represents
-   * the actual prompt size sent on the most recent turn â€” i.e., the real
+   * the actual prompt size sent on the most recent turn — i.e., the real
    * context window fill level. Undefined if no message_start was captured.
    */
   lastTurnContextTokens?: number;

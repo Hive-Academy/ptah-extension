@@ -32,10 +32,17 @@ jest.mock('which', () => ({
   default: (...args: unknown[]) => mockWhich(...args),
 }));
 
+import type {
+  IProcessSpawner,
+  ProcessSpawnRequest,
+  SpawnedProcessHandle,
+} from '@ptah-extension/platform-core';
+
 import {
   buildTaskPrompt,
   probeCliVersion,
   resolveDirectSpawn,
+  spawnCli,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 
@@ -83,9 +90,137 @@ describe('buildTaskPrompt', () => {
   });
 });
 
+/**
+ * A minimal `IProcessSpawner` that records its requests and hands back a fake
+ * handle, so the delegation can be asserted without a real worker thread.
+ */
+function createFakeSpawner(): {
+  spawner: IProcessSpawner;
+  requests: ProcessSpawnRequest[];
+  handles: Array<FakeChild & EventEmitter>;
+} {
+  const requests: ProcessSpawnRequest[] = [];
+  const handles: Array<FakeChild & EventEmitter> = [];
+  const spawner: IProcessSpawner = {
+    spawnProcess: (request) => {
+      requests.push(request);
+      const handle = createFakeChild();
+      handles.push(handle);
+      return handle as unknown as SpawnedProcessHandle;
+    },
+  };
+  return { spawner, requests, handles };
+}
+
+describe('spawnCli', () => {
+  const realPlatform = process.platform;
+
+  function setPlatform(platform: NodeJS.Platform): void {
+    Object.defineProperty(process, 'platform', {
+      value: platform,
+      configurable: true,
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setPlatform(realPlatform);
+  });
+
+  it('spawns inline through cross-spawn when no spawner is supplied', () => {
+    // The no-regression assertion. Without an injected spawner nothing about
+    // the launch changed: same `cross-spawn` call, same options.
+    const child = createFakeChild();
+    mockCrossSpawn.mockReturnValueOnce(child);
+
+    const handle = spawnCli('/usr/local/bin/opencode', ['run'], {
+      cwd: '/work',
+    });
+
+    expect(mockCrossSpawn).toHaveBeenCalledTimes(1);
+    const [binary, args, options] = mockCrossSpawn.mock.calls[0] as [
+      string,
+      string[],
+      { cwd?: string; stdio: string[] },
+    ];
+    expect(binary).toBe('/usr/local/bin/opencode');
+    expect(args).toEqual(['run']);
+    expect(options.cwd).toBe('/work');
+    expect(options.stdio).toEqual(['pipe', 'pipe', 'pipe']);
+    expect(handle.stdout).toBe(child.stdout);
+  });
+
+  it('delegates to the injected spawner instead of cross-spawn', () => {
+    const { spawner, requests } = createFakeSpawner();
+
+    spawnCli('opencode', ['run', '--print'], {
+      cwd: '/work',
+      env: { OPENCODE_CONFIG_CONTENT: '{}' },
+      spawner,
+    });
+
+    expect(mockCrossSpawn).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(1);
+    expect(requests[0].command).toBe('opencode');
+    expect(requests[0].args).toEqual(['run', '--print']);
+    expect(requests[0].cwd).toBe('/work');
+    // The clean-env defaults still apply, and the caller's env wins over them.
+    expect(requests[0].env['NO_COLOR']).toBe('1');
+    expect(requests[0].env['OPENCODE_CONFIG_CONTENT']).toBe('{}');
+  });
+
+  it('forwards needsConsole and detached to the spawner on POSIX', () => {
+    setPlatform('linux');
+    const { spawner, requests } = createFakeSpawner();
+
+    spawnCli('opencode', [], { needsConsole: true, detached: true, spawner });
+
+    expect(requests[0].needsConsole).toBe(true);
+    expect(requests[0].detached).toBe(true);
+  });
+
+  it('never asks for detached on Windows, where taskkill /T walks the tree', () => {
+    setPlatform('win32');
+    const { spawner, requests } = createFakeSpawner();
+
+    spawnCli('opencode.cmd', [], { detached: true, spawner });
+
+    expect(requests[0].detached).toBe(false);
+  });
+});
+
 describe('probeCliVersion', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('reads the first stdout line through an injected spawner', async () => {
+    const { spawner, requests, handles } = createFakeSpawner();
+
+    const probe = probeCliVersion('agy', ['--version'], 5000, spawner);
+    handles[0].stdout.emit('data', 'agy 1.1.3\nbanner\n');
+    handles[0].emit('close', 0);
+
+    await expect(probe).resolves.toBe('agy 1.1.3');
+    expect(mockCrossSpawn).not.toHaveBeenCalled();
+    expect(requests[0].command).toBe('agy');
+    expect(requests[0].args).toEqual(['--version']);
+  });
+
+  it('kills the child and resolves undefined when a spawner probe times out', async () => {
+    jest.useFakeTimers();
+    const { spawner, handles } = createFakeSpawner();
+
+    const probe = probeCliVersion('agy', ['--version'], 50, spawner);
+    jest.advanceTimersByTime(51);
+    handles[0].emit('close', null);
+
+    await expect(probe).resolves.toBeUndefined();
+    expect(handles[0].kill).toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('routes the spawn through cross-spawn (not child_process.execFile)', async () => {

@@ -3,7 +3,7 @@
  *
  * Extracted from ChatStore to handle permission-related operations:
  * - Managing permission requests (add/remove)
- * - Correlating permissions with tools (via toolUseId â†’ toolCallId)
+ * - Correlating permissions with tools (via toolUseId → toolCallId)
  * - Identifying unmatched permissions for fallback display
  * - Managing AskUserQuestion requests
  *
@@ -168,7 +168,7 @@ export class PermissionHandlerService {
 
   /**
    * Check if a request should be visible in the UI.
-   * Always returns true â€” permissions/questions must always be shown regardless
+   * Always returns true — permissions/questions must always be shown regardless
    * of which tab is active. Each request carries its own sessionId for response
    * routing, so the backend handles delivery to the correct session.
    * Hiding permissions behind tab matching caused them to be silently dropped

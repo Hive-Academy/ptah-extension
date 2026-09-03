@@ -1,5 +1,5 @@
 /**
- * CompactionLifecycleService specs â€” SDK session-compaction state machine.
+ * CompactionLifecycleService specs — SDK session-compaction state machine.
  *
  * Coverage:
  *   - handleCompactionStart writes inFlight=true on the conversation registry
@@ -226,7 +226,7 @@ describe('CompactionLifecycleService', () => {
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
       expect(warn).toHaveBeenCalledWith(
-        '[ChatStore] Compaction safety timeout reached â€” compaction_complete event may have been lost',
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     });
   });

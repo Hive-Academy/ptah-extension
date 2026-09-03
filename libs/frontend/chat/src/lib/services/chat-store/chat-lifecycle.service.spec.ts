@@ -1,5 +1,5 @@
 /**
- * ChatLifecycleService specs â€” bootstrap, license retry, agent-summary routing,
+ * ChatLifecycleService specs — bootstrap, license retry, agent-summary routing,
  * session-ID resolution, chat-error handling.
  *
  * Coverage:
@@ -321,7 +321,7 @@ describe('ChatLifecycleService', () => {
       const promise = service.fetchLicenseStatus(3);
       await jest.runAllTimersAsync();
       await promise;
-      // 1000 * 1, 1000 * 2 â€” only between failures (not after final success)
+      // 1000 * 1, 1000 * 2 — only between failures (not after final success)
       const delays = setTimeoutSpy.mock.calls.map((c) => c[1]);
       expect(delays).toContain(1000);
       expect(delays).toContain(2000);

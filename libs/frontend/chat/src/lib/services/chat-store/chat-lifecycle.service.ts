@@ -205,8 +205,8 @@ export class ChatLifecycleService {
    * Uses tabId for direct routing - no temp ID lookup needed.
    *
    * Flow:
-   * 1. User sends message â†’ backend creates stream with tabId
-   * 2. Backend SDK returns real UUID â†’ sends SESSION_ID_RESOLVED with tabId
+   * 1. User sends message → backend creates stream with tabId
+   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED with tabId
    * 3. This method finds tab directly by tabId and updates claudeSessionId
    * 4. Future resume attempts use valid UUID format
    */

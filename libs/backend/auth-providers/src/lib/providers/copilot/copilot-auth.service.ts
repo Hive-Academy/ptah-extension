@@ -13,7 +13,7 @@
  * 0. vscode.authentication.getSession() (highest priority, best UX)
  *
  * Pattern source: CodexAuthService (codex-auth.service.ts)
- * Security: NEVER logs full tokens â€” only length and first 4 characters.
+ * Security: NEVER logs full tokens — only length and first 4 characters.
  *
  * Previously used vscode.authentication, vscode.extensions, vscode.version.
  */
@@ -58,7 +58,7 @@ const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
 /**
  * Default Copilot token exchange URL.
  * Exchanges a GitHub OAuth token for a Copilot-specific bearer token.
- * Safe to hardcode here â€” this compiles to JS which the marketplace scanner ignores.
+ * Safe to hardcode here — this compiles to JS which the marketplace scanner ignores.
  * Can be overridden via the 'ptah.provider.github-copilot.tokenExchangeUrl' setting.
  */
 const DEFAULT_TOKEN_EXCHANGE_URL =
@@ -120,7 +120,7 @@ interface PendingLoginEntry {
 }
 
 /**
- * Safely describes a token for logging â€” never exposes the full value.
+ * Safely describes a token for logging — never exposes the full value.
  * Returns format: "length=42, prefix=ghp_abc1..."
  */
 function describeToken(token: string): string {
@@ -471,7 +471,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     const entry = this.pendingLogins.get(deviceCode);
     if (!entry) {
       this.logger.warn(
-        '[CopilotAuth] pollLogin called with unknown deviceCode â€” beginLogin must run first or the flow was already cancelled',
+        '[CopilotAuth] pollLogin called with unknown deviceCode — beginLogin must run first or the flow was already cancelled',
       );
       return false;
     }
@@ -694,7 +694,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     const tokenUrl = this.getTokenExchangeUrl();
     if (!tokenUrl) {
       this.logger.warn(
-        '[CopilotAuth] Token exchange URL is empty â€” this should not happen.',
+        '[CopilotAuth] Token exchange URL is empty — this should not happen.',
       );
       return false;
     }
@@ -751,7 +751,7 @@ export class CopilotAuthService implements ICopilotAuthService {
             ? error.response.data
             : JSON.stringify(error.response.data);
         this.logger.error(
-          `[CopilotAuth] Token exchange failed: HTTP ${error.response.status} â€” ${body}`,
+          `[CopilotAuth] Token exchange failed: HTTP ${error.response.status} — ${body}`,
         );
 
         if (error.response.status === 401) {

@@ -167,7 +167,7 @@ export interface ExecuteQueryConfig {
   forkSession?: boolean;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -180,7 +180,7 @@ export interface ExecuteQueryConfig {
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
    * built map by the options builder (caller wins on key collision).
    * Reserved for the Anthropic-compatible HTTP proxy. When `undefined` or
    * empty, the SDK's `mcpServers` is identity-preserved.
@@ -364,7 +364,7 @@ export class SessionLifecycleManager {
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    *
-   * Delegates directly to the registry â€” single storage means the registry
+   * Delegates directly to the registry — single storage means the registry
    * owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
@@ -396,7 +396,7 @@ export class SessionLifecycleManager {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use â€” the user's follow-up message
+   * The session remains active for continued use — the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -431,7 +431,7 @@ export class SessionLifecycleManager {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    return this._control.endSession(sessionId);
+    await this._control.endSession(sessionId);
   }
 
   /**
@@ -570,7 +570,7 @@ export class SessionLifecycleManager {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set

@@ -247,7 +247,16 @@ if (!gotLock) {
         }
       },
       deferQuit: () => event.preventDefault(),
-      quit: () => app.quit(),
+      // A macrotask, never a direct call. On Windows, once `will-quit` has
+      // called `preventDefault()`, an `app.quit()` issued from the same task
+      // or a microtask continuation is silently ignored — no second
+      // `before-quit`, no `will-quit`, no exit (electron/electron#33643).
+      // The deferred chain re-issues its quit from an async `finally`, which
+      // is exactly that case: the chain completed, `app.quit()` ran, and the
+      // process lived on until the e2e harness force-killed it 60 s later.
+      // Deferring by one macrotask makes the second `will-quit` fire, the
+      // guard above lets it through, and the process exits.
+      quit: () => setTimeout(() => app.quit(), 0),
     });
   });
 } // end of gotLock guard

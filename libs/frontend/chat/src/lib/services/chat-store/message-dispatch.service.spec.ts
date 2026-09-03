@@ -1,5 +1,5 @@
 /**
- * MessageDispatchService specs â€” send-vs-queue routing + slash-command guard.
+ * MessageDispatchService specs — send-vs-queue routing + slash-command guard.
  *
  * Coverage:
  *   - sendOrQueueMessage: slash-command guard blocks /context for non-Anthropic

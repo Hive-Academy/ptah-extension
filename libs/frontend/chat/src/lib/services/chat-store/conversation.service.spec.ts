@@ -1,5 +1,5 @@
 /**
- * ConversationService specs â€” queue/abort for chat conversations.
+ * ConversationService specs — queue/abort for chat conversations.
  *
  * Full integration of abortCurrentMessage (preserving partial messages) and
  * abortWithConfirmation (agent-count dialog) is exercised by the chat flow
@@ -21,8 +21,14 @@ import { ConversationService } from './conversation.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageValidationService } from '../message-validation.service';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
+import { SessionLoaderService } from './session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
+
+function makeUserMessage(id: string): ExecutionChatMessage {
+  return { id, role: 'user', rawContent: 'hi' } as ExecutionChatMessage;
+}
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -68,6 +74,10 @@ describe('ConversationService', () => {
   let validator: jest.Mocked<
     Pick<MessageValidationService, 'validate' | 'sanitize'>
   >;
+  let messageFinalization: {
+    finalizeCurrentMessage: jest.Mock;
+    markAgentsAsInterruptedByToolCallIds: jest.Mock;
+  };
   let rpcCall: jest.Mock;
   let claudeRpcService: { call: jest.Mock };
   let consoleWarn: jest.SpyInstance;
@@ -95,6 +105,7 @@ describe('ConversationService', () => {
         const id = activeTabIdSignal();
         return tabsSignal().find((t) => t.id === id) ?? null;
       }),
+      visibleTabIds: signal(new Set<string>()),
       createTab: jest.fn(() => 'tab-new'),
       switchTab: jest.fn(),
       markTabIdle: jest.fn(),
@@ -152,6 +163,11 @@ describe('ConversationService', () => {
     rpcCall = jest.fn();
     claudeRpcService = { call: rpcCall };
 
+    messageFinalization = {
+      finalizeCurrentMessage: jest.fn(),
+      markAgentsAsInterruptedByToolCallIds: jest.fn(),
+    };
+
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
     consoleError = jest.spyOn(console, 'error').mockImplementation();
     consoleLog = jest.spyOn(console, 'log').mockImplementation();
@@ -162,6 +178,11 @@ describe('ConversationService', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: MessageValidationService, useValue: validator },
         { provide: ClaudeRpcService, useValue: claudeRpcService },
+        { provide: MessageFinalizationService, useValue: messageFinalization },
+        {
+          provide: SessionLoaderService,
+          useValue: { setResumableSubagents: jest.fn() },
+        },
       ],
     });
     service = TestBed.inject(ConversationService);
@@ -253,7 +274,7 @@ describe('ConversationService', () => {
         makeTab({ id: 'tab-1', claudeSessionId: null, status: 'streaming' }),
       ]);
 
-      // Invoke twice concurrently â€” second should early-return without calling RPC
+      // Invoke twice concurrently — second should early-return without calling RPC
       // again.
       const p1 = service.abortCurrentMessage();
       const p2 = service.abortCurrentMessage();
@@ -329,6 +350,171 @@ describe('ConversationService', () => {
       expect(tab.status).toBe('streaming');
       expect(tab.streamingState).toEqual({ currentMessageId: 'msg-1' });
       expect(service.isStopping()).toBe(false);
+    });
+
+    it('pressing abort twice for the same sessionId issues EXACTLY ONE chat:abort RPC and the second press idles the tab locally; changing currentSessionId() between presses issues a second RPC', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+        }),
+      ]);
+      rpcCall.mockResolvedValue({ success: true });
+
+      // First abort: issues chat:abort RPC and does not idle tab locally
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      expect(rpcCall).toHaveBeenCalledWith('chat:abort', {
+        sessionId: 'sess-1',
+      });
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+
+      // Second abort for the same session: skips RPC and idles tab locally
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(messageFinalization.finalizeCurrentMessage).toHaveBeenCalledWith(
+        'tab-1',
+        true,
+      );
+
+      // Changing currentSessionId() between presses:
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-2' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-2' } as never,
+        }),
+      ]);
+      TestBed.flushEffects();
+
+      // Third abort: issues a second RPC for the new session
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+      expect(rpcCall).toHaveBeenLastCalledWith('chat:abort', {
+        sessionId: 'sess-2',
+      });
+    });
+
+    // TASK_2026_367 F1: a follow-up message continues the SAME session, so a
+    // session-scoped abort marker swallowed the Stop of the next live turn and
+    // left the backend turn running. The marker is scoped to the turn.
+    it('issues a second chat:abort RPC when a NEW turn starts on the same session', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+          messages: [makeUserMessage('user-1')],
+        }),
+      ]);
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      // Same session id, next turn: a new user bubble and a new streaming
+      // message id, exactly what chat:continue produces.
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-2' } as never,
+          messages: [makeUserMessage('user-1'), makeUserMessage('user-2')],
+        }),
+      ]);
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+      expect(rpcCall).toHaveBeenLastCalledWith('chat:abort', {
+        sessionId: 'sess-1',
+      });
+    });
+
+    it('retries the RPC after the previous chat:abort call threw', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+          messages: [makeUserMessage('user-1')],
+        }),
+      ]);
+      rpcCall.mockRejectedValueOnce(new Error('transport down'));
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      // Transport failure idles the tab locally, because no turn_state comes.
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+      expect(rpcCall).toHaveBeenLastCalledWith('chat:abort', {
+        sessionId: 'sess-1',
+      });
+    });
+
+    it('retries the RPC after the previous chat:abort call returned success:false', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+          messages: [makeUserMessage('user-1')],
+        }),
+      ]);
+      rpcCall.mockResolvedValueOnce({ success: false, error: 'not active' });
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+      expect(rpcCall).toHaveBeenLastCalledWith('chat:abort', {
+        sessionId: 'sess-1',
+      });
+    });
+
+    it('skips the RPC and idles the tab locally on a second abort of the SAME turn', async () => {
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-1' as never,
+          status: 'streaming',
+          streamingState: { currentMessageId: 'msg-1' } as never,
+          messages: [makeUserMessage('user-1')],
+        }),
+      ]);
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.abortCurrentMessage();
+      await service.abortCurrentMessage();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(messageFinalization.finalizeCurrentMessage).toHaveBeenCalledWith(
+        'tab-1',
+        true,
+      );
     });
   });
 });

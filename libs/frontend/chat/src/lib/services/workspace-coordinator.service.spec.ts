@@ -1,5 +1,5 @@
 /**
- * WorkspaceCoordinatorService specs â€” orchestrates workspace switching across
+ * WorkspaceCoordinatorService specs — orchestrates workspace switching across
  * TabManager, SessionLoader, ConfirmationDialog and lazy-loaded editor services.
  *
  * Coverage:
@@ -9,7 +9,7 @@
  *   - confirm passes options through to ConfirmationDialogService
  *   - Editor-service resolution fails gracefully when the lazy chunk is absent
  *     (the dynamic import() throws in test env because the alias is not
- *     registered in the module resolver â€” we swallow and continue).
+ *     registered in the module resolver — we swallow and continue).
  *   - switchWorkspace swaps AppStateManager's view slice, so the previous
  *     workspace's view does not survive the switch (TASK_2026_195), and
  *     neither does its Thoth tab or marketplace provider (TASK_2026_228).
@@ -406,7 +406,7 @@ describe('WorkspaceCoordinatorService', () => {
       // The dynamic import('@ptah-extension/editor/services') may resolve in
       // the Jest env (Nx registers path aliases) but the resulting services
       // are not provided in the TestBed, so Injector.get either returns null
-      // or throws â€” either way the service must swallow and resolve.
+      // or throws — either way the service must swallow and resolve.
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/x');
     });

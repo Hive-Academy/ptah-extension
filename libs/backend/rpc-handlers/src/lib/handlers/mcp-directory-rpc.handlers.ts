@@ -41,7 +41,6 @@ import {
   McpRegistrySourceRegistry,
   McpInstallService,
   SmitheryRegistrySource,
-  PulseMcpRegistrySource,
   SmitheryConnectionResolver,
   SmitheryKeyMissingError,
   SmitheryInstalledManifestStore,
@@ -49,6 +48,8 @@ import {
   McpOAuthService,
   McpOAuthInstalledManifestStore,
   createMcpOAuthTokenStore,
+  OAuthDiscoveryError,
+  OAUTH_DISCOVERY_ERROR_NAME,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
@@ -77,6 +78,9 @@ import type {
   McpDirectoryListSmitheryInstalledResult,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
+  McpDirectoryProbeOAuthDiscoveryParams,
+  McpDirectoryProbeOAuthDiscoveryResult,
+  McpOAuthFailureReason,
   McpDirectoryOAuthStatusParams,
   McpDirectoryOAuthStatusResult,
   McpDirectoryDisconnectOAuthParams,
@@ -92,6 +96,7 @@ import {
   InstallSmitherySchema,
   UninstallSmitherySchema,
   ConnectOAuthSchema,
+  ProbeOAuthDiscoverySchema,
   OAuthStatusSchema,
   DisconnectOAuthSchema,
   deriveSmitheryServerKey,
@@ -114,6 +119,7 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:uninstallSmithery',
     'mcpDirectory:listSmitheryInstalled',
     'mcpDirectory:connectOAuth',
+    'mcpDirectory:probeOAuthDiscovery',
     'mcpDirectory:oauthStatus',
     'mcpDirectory:disconnectOAuth',
     'mcpDirectory:listOAuthConnected',
@@ -121,7 +127,6 @@ export class McpDirectoryRpcHandlers {
 
   private readonly registryProvider: McpRegistryProvider;
   private readonly smitherySource: SmitheryRegistrySource;
-  private readonly pulseMcpSource: PulseMcpRegistrySource;
   private readonly smitheryResolver: SmitheryConnectionResolver;
   private readonly smitheryManifest: SmitheryInstalledManifestStore;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
@@ -174,11 +179,6 @@ export class McpDirectoryRpcHandlers {
       logger: this.logger,
     });
     this.sourceRegistry.register(this.smitherySource);
-
-    // PulseMCP — trusted online directory of vendor/community servers. No API
-    // key required, so it registers unconditionally alongside official.
-    this.pulseMcpSource = new PulseMcpRegistrySource({ logger: this.logger });
-    this.sourceRegistry.register(this.pulseMcpSource);
 
     this.smitheryResolver = new SmitheryConnectionResolver(
       getSmitheryApiKey,
@@ -252,6 +252,7 @@ export class McpDirectoryRpcHandlers {
     this.registerUninstallSmithery();
     this.registerListSmitheryInstalled();
     this.registerConnectOAuth();
+    this.registerProbeOAuthDiscovery();
     this.registerOAuthStatus();
     this.registerDisconnectOAuth();
     this.registerListOAuthConnected();
@@ -271,6 +272,7 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:uninstallSmithery',
         'mcpDirectory:listSmitheryInstalled',
         'mcpDirectory:connectOAuth',
+        'mcpDirectory:probeOAuthDiscovery',
         'mcpDirectory:oauthStatus',
         'mcpDirectory:disconnectOAuth',
         'mcpDirectory:listOAuthConnected',
@@ -488,9 +490,6 @@ export class McpDirectoryRpcHandlers {
         let servers;
         if (params.source === 'smithery') {
           servers = await this.smitherySource.getPopular();
-        } else if (params.source === 'pulsemcp') {
-          // PulseMCP needs no key, so getPopular runs unconditionally.
-          servers = await this.pulseMcpSource.getPopular();
         } else {
           servers = await this.registryProvider.getPopular();
         }
@@ -759,7 +758,39 @@ export class McpDirectoryRpcHandlers {
           errorSource: 'McpDirectoryRpcHandlers.registerConnectOAuth',
         });
         this.logger.error('RPC: mcpDirectory:connectOAuth failed', err);
-        return { success: false, error: err.message };
+        return {
+          success: false,
+          error: err.message,
+          reason: classifyOAuthFailure(err),
+        };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:probeOAuthDiscovery — advisory pre-submit probe.
+   *
+   * Answers one question: does this server publish OAuth discovery metadata? It
+   * runs the discovery fetches only — no browser, no client registration — so
+   * the UI may call it while the user is still typing. A transport failure is
+   * reported as `supported: false, reason: 'other'`; the UI treats anything but
+   * `'no-oauth-discovery'` as silence.
+   */
+  private registerProbeOAuthDiscovery(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryProbeOAuthDiscoveryParams,
+      McpDirectoryProbeOAuthDiscoveryResult
+    >('mcpDirectory:probeOAuthDiscovery', async (params) => {
+      try {
+        const { serverUrl } = ProbeOAuthDiscoverySchema.parse(params);
+        await this.oauthService.probeDiscovery(serverUrl);
+        return { supported: true };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.debug('RPC: mcpDirectory:probeOAuthDiscovery negative', {
+          reason: classifyOAuthFailure(err),
+        });
+        return { supported: false, reason: classifyOAuthFailure(err) };
       }
     });
   }
@@ -837,4 +868,18 @@ export class McpDirectoryRpcHandlers {
   private getWorkspaceRoot(): string | undefined {
     return this.workspaceProvider.getWorkspaceRoot();
   }
+}
+
+/**
+ * Classify an OAuth failure for the wire.
+ *
+ * `instanceof` first, `name` second: an error that crossed a bundle boundary or
+ * a `structuredClone` keeps its `name` but loses its prototype. Never match on
+ * the message — the message is user-facing copy and free to change.
+ */
+function classifyOAuthFailure(error: Error): McpOAuthFailureReason {
+  return error instanceof OAuthDiscoveryError ||
+    error.name === OAUTH_DISCOVERY_ERROR_NAME
+    ? 'no-oauth-discovery'
+    : 'other';
 }

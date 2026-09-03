@@ -786,6 +786,22 @@ hash-compared only. `.gitignore` maintenance is likewise `full`-only: preflight
 is deliberately blind to whether a target is DETECTED, so it could not name the
 right directories even if it wanted to.
 
+#### Concurrent coalescing and external-pass credit (TASK_2026_367 / C6a)
+
+Concurrent calls to `HarnessPreflightService.ensure()` for the same workspace
+root coalesce into a single in-flight promise (`inFlight` map), sharing one
+`AbortController`, one budget timer, and one hash walk. Callers passing `force: true`
+bypass the 60 s throttle interval but join any already in-flight pass for that
+root, preventing duplicate concurrent passes over the same directories. The
+promise is cleaned up in a `finally` block on settlement.
+
+Additionally, `HarnessPreflightService` subscribes to the reconciler's `health`
+events via `reconciler.onHealth()`, updating `lastPassAt` whenever any reconcile
+pass completes (preflight, full, or `propagate()`). A session starting shortly
+after an external pass skips its own preflight under the throttle interval rather
+than paying budget to re-derive the identical state. `dispose()` unsubscribes
+the health listener when the service is torn down.
+
 ## The `.gitignore` managed block (E23)
 
 Every artifact this lib writes is a derived copy of `~/.ptah/user`. Committing

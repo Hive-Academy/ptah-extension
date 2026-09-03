@@ -1,24 +1,24 @@
 ﻿/**
- * session-history-reader.service â€” unit specs.
+ * session-history-reader.service — unit specs.
  *
  * Covers `SessionHistoryReaderService`, the public facade over the
  * JSONL reader + replay pipeline. The interesting behaviour here is NOT
  * the replay itself (exhaustively covered by `session-replay.service.spec.ts`
  * and `jsonl-reader.service.spec.ts`), but the facade's contract:
  *
- *   - `sessionId` must match `/^[a-zA-Z0-9_-]+$/` â€” anything else (including
+ *   - `sessionId` must match `/^[a-zA-Z0-9_-]+$/` — anything else (including
  *     path-traversal attempts like "../../etc/passwd") returns an empty
  *     payload rather than touching the filesystem.
- *   - Missing sessions directory â†’ empty events, null stats, warn log.
- *   - Missing session file â†’ empty events, null stats, warn log.
- *   - Happy path â†’ delegates to the injected children and returns the replay
+ *   - Missing sessions directory → empty events, null stats, warn log.
+ *   - Missing session file → empty events, null stats, warn log.
+ *   - Happy path → delegates to the injected children and returns the replay
  *     service's event stream alongside aggregated stats.
- *   - Aggregation honours the `compact_boundary` â€” usage in pre-compact
+ *   - Aggregation honours the `compact_boundary` — usage in pre-compact
  *     messages is NOT counted in `tokens.input/output`.
  *   - `readHistoryAsMessages` returns only user/assistant messages, skips
  *     task-notification content, and starts after the last compact_boundary.
  *
- * Every collaborator is a typed stub â€” no real fs access, no live replay.
+ * Every collaborator is a typed stub — no real fs access, no live replay.
  */
 
 import 'reflect-metadata';
@@ -95,7 +95,7 @@ function makeStubs(): Stubs {
 }
 
 function makeService(stubs: Stubs): SessionHistoryReaderService {
-  const factory = new HistoryEventFactory(); // real â€” no deps
+  const factory = new HistoryEventFactory(); // real — no deps
   return new SessionHistoryReaderService(
     asLogger(stubs.logger),
     stubs.jsonlReader as unknown as JsonlReaderService,
@@ -123,7 +123,7 @@ describe('SessionHistoryReaderService', () => {
       );
 
       expect(result).toEqual({ events: [], stats: null });
-      // Traversal rejected pre-filesystem â€” reader must never be called.
+      // Traversal rejected pre-filesystem — reader must never be called.
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       // The facade catches the SdkError internally and logs via `error`.
       expect(stubs.logger.error).toHaveBeenCalled();
@@ -185,7 +185,7 @@ describe('SessionHistoryReaderService', () => {
     });
 
     // -----------------------------------------------------------------------
-    // Happy path â€” delegation + stats aggregation
+    // Happy path — delegation + stats aggregation
     // -----------------------------------------------------------------------
 
     it('delegates to the replay service and aggregates usage stats', async () => {
@@ -262,7 +262,7 @@ describe('SessionHistoryReaderService', () => {
           model: 'claude-sonnet-4-20250514',
           uuid: 'init',
         } as SessionHistoryMessage,
-        // Pre-compact usage â€” MUST be excluded from aggregation.
+        // Pre-compact usage — MUST be excluded from aggregation.
         {
           type: 'assistant',
           uuid: 'old',
@@ -288,7 +288,7 @@ describe('SessionHistoryReaderService', () => {
           subtype: 'compact_boundary',
           uuid: 'boundary',
         } as SessionHistoryMessage,
-        // Post-compact usage â€” counted.
+        // Post-compact usage — counted.
         {
           type: 'assistant',
           uuid: 'new',
@@ -371,7 +371,7 @@ describe('SessionHistoryReaderService', () => {
             content: [{ type: 'text', text: 'real assistant reply' }],
           },
         } as SessionHistoryMessage,
-        // task-notification user message â€” must be skipped.
+        // task-notification user message — must be skipped.
         {
           type: 'user',
           uuid: 'u2',
@@ -464,7 +464,7 @@ describe('SessionHistoryReaderService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // resolveNativeMessageId â€” Fix NODE-NESTJS-3A/39
+  // resolveNativeMessageId — Fix NODE-NESTJS-3A/39
   // -------------------------------------------------------------------------
 
   describe('resolveNativeMessageId', () => {
@@ -484,7 +484,7 @@ describe('SessionHistoryReaderService', () => {
       );
 
       expect(result).toBe(LINE_UUID);
-      // Fast path â€” no I/O
+      // Fast path — no I/O
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       expect(stubs.jsonlReader.readJsonlMessages).not.toHaveBeenCalled();
     });

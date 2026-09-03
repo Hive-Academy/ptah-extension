@@ -34,7 +34,8 @@
  * a string and starts being an interpolation. Use `'a' + b` concatenation.
  *
  * Protocol (see `off-thread-process-spawner.ts` for the typed mirror):
- *   host -> worker: { type: 'spawn', command, args, cwd, env, wantStderr }
+ *   host -> worker: { type: 'spawn', command, args, cwd, env, stderrMode,
+ *                     detached, windowsHide, windowsVerbatimArguments }
  *                 | { type: 'stdin', chunk: Uint8Array }
  *                 | { type: 'stdin-end' }
  *                 | { type: 'kill', signal }
@@ -42,9 +43,25 @@
  *   worker -> host: { type: 'spawned', pid }
  *                 | { type: 'stdout', chunk: Uint8Array }
  *                 | { type: 'stderr', text }
- *                 | { type: 'stdout-end' }
+ *                 | { type: 'stderr-chunk', chunk: Uint8Array }
+ *                 | { type: 'stdout-end' } | { type: 'stderr-end' }
  *                 | { type: 'exit', code, signal }
  *                 | { type: 'error', message, code, errno, syscall, path }
+ *
+ * **`stderrMode` selects which of the two stderr shapes the host wants.**
+ * `'callback'` decodes each chunk here and posts `stderr` text — the SDK seam,
+ * whose whole use of stderr is one classifier callback. `'stream'` posts the
+ * raw bytes as `stderr-chunk` and ends with `stderr-end`, so the host can
+ * expose a real `Readable`: the rival-CLI adapters call `setEncoding('utf8')`
+ * on it, and decoding in the worker instead would split a multi-byte character
+ * across two chunks. `'ignore'` never pipes stderr at all.
+ *
+ * **The Windows command is already resolved when it arrives.** `cross-spawn`'s
+ * parser runs on the HOST and sends the resolved `command`, `args` and
+ * `windowsVerbatimArguments`, so a `.cmd` wrapper works here with a plain
+ * `child_process.spawn`. Do NOT add a `require('cross-spawn/...')` below: this
+ * body is created with `new Worker(source, { eval: true })` and has no reliable
+ * module resolution inside a bundled Electron app.
  *
  * **`error.code` must survive the trip.** The SDK's spawn-failure classifier
  * reads `error.code` (ENOENT / EACCES / EPERM / ENOTDIR / ELOOP / EROFS) to
@@ -70,6 +87,8 @@ if (!parentPort) {
 
 let child = null;
 let stdoutEnded = false;
+let stderrEnded = false;
+let streamStderr = false;
 let pendingStdin = [];
 let pendingEnd = false;
 let pendingKill = null;
@@ -91,6 +110,12 @@ function endStdoutOnce() {
   if (stdoutEnded) return;
   stdoutEnded = true;
   parentPort.postMessage({ type: 'stdout-end' });
+}
+
+function endStderrOnce() {
+  if (!streamStderr || stderrEnded) return;
+  stderrEnded = true;
+  parentPort.postMessage({ type: 'stderr-end' });
 }
 
 function writeStdin(chunk) {
@@ -122,16 +147,21 @@ function killChild(signal) {
 }
 
 function startChild(message) {
+  const stderrMode = message.stderrMode || 'ignore';
+  streamStderr = stderrMode === 'stream';
   try {
     child = spawn(message.command, message.args, {
       cwd: message.cwd,
       env: message.env,
-      stdio: ['pipe', 'pipe', message.wantStderr ? 'pipe' : 'ignore'],
-      windowsHide: true,
+      stdio: ['pipe', 'pipe', stderrMode === 'ignore' ? 'ignore' : 'pipe'],
+      windowsHide: message.windowsHide !== false,
+      detached: message.detached === true,
+      windowsVerbatimArguments: message.windowsVerbatimArguments === true,
     });
   } catch (err) {
     parentPort.postMessage(flattenError(err));
     endStdoutOnce();
+    endStderrOnce();
     return;
   }
 
@@ -143,6 +173,7 @@ function startChild(message) {
   child.on('error', function (err) {
     parentPort.postMessage(flattenError(err));
     endStdoutOnce();
+    endStderrOnce();
   });
 
   child.on('exit', function (code, signal) {
@@ -158,12 +189,27 @@ function startChild(message) {
   child.stdout.on('error', endStdoutOnce);
 
   if (child.stderr) {
-    child.stderr.on('data', function (chunk) {
-      parentPort.postMessage({ type: 'stderr', text: chunk.toString('utf8') });
-    });
-    child.stderr.on('error', function () {
-      // Nothing to report: stderr is advisory logging only.
-    });
+    if (streamStderr) {
+      child.stderr.on('data', function (chunk) {
+        const errView = new Uint8Array(chunk);
+        parentPort.postMessage({ type: 'stderr-chunk', chunk: errView }, [
+          errView.buffer,
+        ]);
+      });
+      child.stderr.on('end', endStderrOnce);
+      child.stderr.on('close', endStderrOnce);
+      child.stderr.on('error', endStderrOnce);
+    } else {
+      child.stderr.on('data', function (chunk) {
+        parentPort.postMessage({
+          type: 'stderr',
+          text: chunk.toString('utf8'),
+        });
+      });
+      child.stderr.on('error', function () {
+        // Nothing to report: stderr is advisory logging only.
+      });
+    }
   }
 
   if (child.stdin) {

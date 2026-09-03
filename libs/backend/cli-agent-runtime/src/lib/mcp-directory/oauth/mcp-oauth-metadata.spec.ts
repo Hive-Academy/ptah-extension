@@ -2,6 +2,8 @@ import {
   discoverAuthorizationServer,
   discoverAuthServerMetadata,
   registerClient,
+  OAuthDiscoveryError,
+  OAUTH_DISCOVERY_ERROR_NAME,
   type FetchLike,
 } from './mcp-oauth-metadata';
 
@@ -100,6 +102,26 @@ describe('discoverAuthServerMetadata', () => {
     await expect(
       discoverAuthServerMetadata('https://auth.example.com', fetchImpl),
     ).rejects.toThrow(/No OAuth authorization-server metadata/);
+  });
+
+  it('rejects a server with no metadata endpoints as OAuthDiscoveryError', async () => {
+    const fetchImpl: FetchLike = async () => notFound();
+    // `name` is the contract the RPC layer classifies on: `instanceof` first,
+    // `name` second, because a bundle boundary drops the prototype.
+    await expect(
+      discoverAuthServerMetadata('https://mcp.firecrawl.dev', fetchImpl),
+    ).rejects.toMatchObject({
+      name: OAUTH_DISCOVERY_ERROR_NAME,
+      serverUrl: 'https://mcp.firecrawl.dev',
+    });
+    expect(OAUTH_DISCOVERY_ERROR_NAME).toBe('OAuthDiscoveryError');
+  });
+
+  it('rejects with an OAuthDiscoveryError instance', async () => {
+    const fetchImpl: FetchLike = async () => notFound();
+    await expect(
+      discoverAuthServerMetadata('https://auth.example.com', fetchImpl),
+    ).rejects.toBeInstanceOf(OAuthDiscoveryError);
   });
 });
 

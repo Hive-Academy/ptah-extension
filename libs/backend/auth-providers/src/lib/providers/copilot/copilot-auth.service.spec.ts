@@ -1,14 +1,14 @@
 ﻿/**
- * CopilotAuthService â€” unit specs.
+ * CopilotAuthService — unit specs.
  *
  * Covers the platform-agnostic Copilot authentication service. Security &
  * correctness surface under test:
- *   - Auth resolution priority: file-based token â†’ device-code flow.
+ *   - Auth resolution priority: file-based token → device-code flow.
  *     The file path MUST be tried before prompting the user, and a
  *     successful device-code token MUST be persisted via writeCopilotToken
  *     so users don't re-auth on every restart.
- *   - Token exchange MUST send the GitHub token as `Authorization: token â€¦`
- *     (NOT `Bearer â€¦`) to the exchange endpoint â€” the Copilot internal
+ *   - Token exchange MUST send the GitHub token as `Authorization: token …`
+ *     (NOT `Bearer …`) to the exchange endpoint — the Copilot internal
  *     endpoint rejects Bearer auth silently.
  *   - Bearer refresh MUST fire within the 5-minute buffer window before the
  *     stored `expires_at` so API calls never race expiry.
@@ -30,7 +30,7 @@
 import 'reflect-metadata';
 
 // ---------------------------------------------------------------------------
-// Module mocks â€” MUST precede the source import so ts-jest hoists them above
+// Module mocks — MUST precede the source import so ts-jest hoists them above
 // the `import { CopilotAuthService }` statement below.
 // ---------------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ import {
 /**
  * The production `Logger` is a concrete class with private fields so a
  * structural duck-type match fails nominal typing. The service only ever
- * invokes `debug/info/warn/error` on it â€” the `MockLogger` surface covers
+ * invokes `debug/info/warn/error` on it — the `MockLogger` surface covers
  * that exactly. This cast bridges the gap without reaching for `any`.
  */
 function asLogger(mock: MockLogger): Logger {
@@ -83,7 +83,7 @@ import * as fileAuth from './copilot-file-auth';
 import * as deviceAuth from './copilot-device-code-auth';
 
 // ---------------------------------------------------------------------------
-// Typed mock handles â€” no `as any` casts.
+// Typed mock handles — no `as any` casts.
 // ---------------------------------------------------------------------------
 
 interface AxiosLikeResponse<T> {
@@ -251,7 +251,7 @@ function makeService(
   };
 }
 
-// Seconds â†’ the service stores / checks `expires_at` in Unix seconds, so we
+// Seconds → the service stores / checks `expires_at` in Unix seconds, so we
 // use a fixed frozen instant to derive expected deltas.
 const FROZEN_AT_ISO = '2026-01-01T00:00:00Z';
 const FROZEN_AT_SECONDS = Math.floor(new Date(FROZEN_AT_ISO).getTime() / 1000);
@@ -277,7 +277,7 @@ describe('CopilotAuthService', () => {
   beforeEach(() => {
     clock = freezeTime(FROZEN_AT_ISO);
     mockedAxios.get = jest.fn() as AxiosGetMock;
-    // Preserve `axios.isAxiosError` â€” it's a real function on the real
+    // Preserve `axios.isAxiosError` — it's a real function on the real
     // module but jest.mock('axios') replaces the entire module. Rebind it
     // to a type-guard that checks our fixture's `isAxiosError` flag.
     mockedAxios.isAxiosError = ((v: unknown): v is AxiosError => {
@@ -318,7 +318,7 @@ describe('CopilotAuthService', () => {
       expect(mockedWriteCopilotToken).not.toHaveBeenCalled();
     });
 
-    it('uses `Authorization: token â€¦` (NOT Bearer) for the exchange', async () => {
+    it('uses `Authorization: token …` (NOT Bearer) for the exchange', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
       mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
 
@@ -763,7 +763,7 @@ describe('CopilotAuthService', () => {
 
     it('auto-refreshes when expiry is inside the 5-minute buffer', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce('gho_file');
-      // expires_at in 4 minutes â†’ inside the 5-minute refresh buffer.
+      // expires_at in 4 minutes → inside the 5-minute refresh buffer.
       mockedAxios.get.mockResolvedValueOnce(
         makeTokenResponse({
           token: 'tid_stale',
@@ -849,7 +849,7 @@ describe('CopilotAuthService', () => {
 
       await expect(a).resolves.toBe(true);
       await expect(b).resolves.toMatchObject({ bearerToken: 'tid_fresh' });
-      // Still just one refresh â€” not duplicated.
+      // Still just one refresh — not duplicated.
       expect(mockedAxios.get).toHaveBeenCalledTimes(2);
     });
   });
@@ -1016,8 +1016,8 @@ describe('CopilotAuthService', () => {
         makeDeviceCodeFixture({ device_code: 'D-cancel' }),
       );
       // Implementation: capture the AbortSignal passed in and resolve `null`
-      // when the signal fires. This proves the wiring (cancelLogin â†’
-      // entry.abortController.abort() â†’ signal seen by pollForAccessToken).
+      // when the signal fires. This proves the wiring (cancelLogin →
+      // entry.abortController.abort() → signal seen by pollForAccessToken).
       let capturedSignal: AbortSignal | undefined;
       mockedPollForAccessToken.mockImplementationOnce(
         async (_dc, _cid, opts) => {
@@ -1102,7 +1102,7 @@ describe('CopilotAuthService', () => {
     });
 
     it('legacy login() preserves the webview UX: clipboard + info message + browser open', async () => {
-      // No file token â†’ device-code path drives the new begin/poll surface
+      // No file token → device-code path drives the new begin/poll surface
       // internally; the IUserInteraction wiring lives in login() itself.
       mockedReadCopilotToken.mockResolvedValueOnce(null);
       mockedRequestDeviceCode.mockResolvedValueOnce(

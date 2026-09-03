@@ -1,4 +1,9 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import {
+  ComponentFixture,
+  TestBed,
+  fakeAsync,
+  tick,
+} from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { OAuthSurfaceComponent } from './oauth-surface.component';
 
@@ -268,5 +273,175 @@ describe('OAuthSurfaceComponent', () => {
 
     expect(component.loadError()).toBe('upstream 500');
     expect(component.displayServers().length).toBe(0);
+  });
+
+  // ── Advisory OAuth-discovery probe (TASK_2026_367 C3) ──────────────────────
+
+  const API_KEY_NOTE =
+    'This server does not publish OAuth discovery metadata. ' +
+    'It probably needs an API key instead. ' +
+    "Check the server's documentation.";
+
+  /** Feed the URL field one character at a time, as a user would. */
+  const typeUrl = (url: string): void => {
+    for (let i = 1; i <= url.length; i++) {
+      component.onUrlInput({
+        target: { value: url.slice(0, i) },
+      } as unknown as Event);
+    }
+  };
+
+  const probeCallCount = (): number =>
+    calls.filter((c) => c.method === 'mcpDirectory:probeOAuthDiscovery').length;
+
+  it('debounces typing into exactly one probe call', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      ok({ supported: true }),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.firecrawl.dev');
+    // Still inside the quiet period: nothing has gone out yet.
+    tick(399);
+    expect(probeCallCount()).toBe(0);
+
+    tick(1);
+    expect(probeCallCount()).toBe(1);
+
+    const probeCall = calls.find(
+      (c) => c.method === 'mcpDirectory:probeOAuthDiscovery',
+    );
+    expect(probeCall?.params).toEqual({
+      serverUrl: 'https://mcp.firecrawl.dev',
+    });
+  }));
+
+  it('issues no probe for a string that is not an absolute https URL', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('firecrawl');
+    tick(1000);
+
+    expect(probeCallCount()).toBe(0);
+    expect(component.discoveryHint()).toBe('none');
+  }));
+
+  it('renders the API-key hint when the probe reports no-oauth-discovery', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      ok({ supported: false, reason: 'no-oauth-discovery' }),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.firecrawl.dev');
+    tick(400);
+    fixture.detectChanges();
+
+    expect(component.discoveryHint()).toBe('needs-api-key');
+    expect(hostElement.textContent).toContain(API_KEY_NOTE);
+    // Advisory only — Connect stays enabled.
+    const submit = hostElement.querySelector(
+      'button[type="submit"]',
+    ) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+  }));
+
+  it('stays silent when the probe fails or reports another reason', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      fail('probe transport failure'),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.firecrawl.dev');
+    tick(400);
+    fixture.detectChanges();
+
+    expect(component.discoveryHint()).toBe('none');
+    expect(component.connectError()).toBeNull();
+    expect(hostElement.textContent).not.toContain(API_KEY_NOTE);
+  }));
+
+  it('discards a probe result whose URL is no longer in the field', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    // A slow probe, so the URL can change while the call is in flight.
+    setResponder(
+      'mcpDirectory:probeOAuthDiscovery',
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(ok({ supported: false, reason: 'no-oauth-discovery' })),
+            100,
+          ),
+        ),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.firecrawl.dev');
+    tick(400);
+    expect(probeCallCount()).toBe(1);
+
+    // The user moved on before the answer arrived.
+    component.urlInput.set('https://mcp.notion.com/mcp');
+    tick(100);
+
+    expect(component.discoveryHint()).not.toBe('needs-api-key');
+  }));
+
+  it('shows the API-key hint instead of the raw error when connect fails with no-oauth-discovery', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:connectOAuth', () =>
+      ok({
+        success: false,
+        error:
+          'No OAuth authorization-server metadata found for https://mcp.firecrawl.dev.',
+        reason: 'no-oauth-discovery',
+      }),
+    );
+    await createComponent();
+
+    component.urlInput.set('https://mcp.firecrawl.dev');
+    await component.connect(new Event('submit'));
+    fixture.detectChanges();
+
+    expect(component.connectError()).toBe(API_KEY_NOTE);
+    expect(hostElement.textContent).not.toContain(
+      'No OAuth authorization-server metadata found',
+    );
+  });
+
+  it('still shows the raw error when connect fails for another reason', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:connectOAuth', () =>
+      ok({ success: false, error: 'authorization denied', reason: 'other' }),
+    );
+    await createComponent();
+
+    component.urlInput.set('https://mcp.notion.com/mcp');
+    await component.connect(new Event('submit'));
+    fixture.detectChanges();
+
+    expect(component.connectError()).toBe('authorization denied');
   });
 });

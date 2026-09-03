@@ -1,16 +1,16 @@
 /**
- * SdkQueryRunner â€” unified SDK query invocation primitive.
+ * SdkQueryRunner — unified SDK query invocation primitive.
  *
  * Reconciles the previously-forked one-shot (InternalQueryService) and
- * interactive (SessionLifecycleManager â†’ SessionQueryExecutor) paths under a
+ * interactive (SessionLifecycleManager → SessionQueryExecutor) paths under a
  * single `run({ mode })` discriminator.
  *
  * Modes:
- *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
+ *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool,
  *                   maxTurns explicit, persistSession=false, subagent +
  *                   compaction hooks wired, identity prompt + PTAH_CORE
  *                   appended. Used by `InternalQueryService`.
- *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
+ *   - `interactive` — caller pre-builds `Options` via `SdkQueryOptionsBuilder`
  *                   and hands them in along with the iterable/string prompt.
  *                   The runner only owns `moduleLoader.getQueryFunction()` +
  *                   `queryFn(...)`. Session-registry / streamInput /
@@ -18,7 +18,7 @@
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
  * is INPUT-ONLY on the interactive branch and IS NOT ACCEPTED on the oneShot
- * branch â€” the runner never imports `EnhancedPromptsService`.
+ * branch — the runner never imports `EnhancedPromptsService`.
  *
  * Compaction hook conditionality: oneShot wires compaction hooks (preserves the
  * pre-refactor InternalQueryService behaviour). Interactive option construction
@@ -264,7 +264,7 @@ export class SdkQueryRunner {
         ? options.systemPrompt
         : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built â€” launching query`, {
+    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: input.model,
       permissionMode: 'bypassPermissions',
       maxTurns: options.maxTurns,

@@ -32,10 +32,8 @@ import type {
   CuratorExtraction,
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
-import {
-  clampTranscript,
-  CURATOR_TRANSCRIPT_MAX_CHARS,
-} from './curator-llm/clamp-transcript';
+import { CuratorWindowRunner } from './curator-llm/curator-window-runner';
+import type { CuratorWindow } from './curator-llm/transcript-windows';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
@@ -87,6 +85,8 @@ export class MemoryCuratorService {
     string,
     { lastRebuildAt: number }
   >();
+  /** The window-and-extract collaborator. See its own file for why it is not injected. */
+  private readonly windowRunner: CuratorWindowRunner;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -106,7 +106,9 @@ export class MemoryCuratorService {
     private readonly workspace: IWorkspaceProvider | null = null,
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
-  ) {}
+  ) {
+    this.windowRunner = new CuratorWindowRunner(this.logger, this.llm);
+  }
 
   /** Begin listening for PreCompact events. Idempotent. */
   start(): void {
@@ -330,25 +332,17 @@ export class MemoryCuratorService {
    * scan, `memory:rebuildIndex`, `curateNow` — funnels through `doCurate`, so a
    * cap here cannot be bypassed by a caller that forgets a parameter.
    *
-   * The warn is not decoration: a clamp is a silent loss of input otherwise, and
-   * a session that is repeatedly clamped is the signal that the window upstream
-   * is mis-sized.
+   * What changed in TASK_2026_367 is the SHAPE of the bound, not its place: a
+   * transcript now becomes a bounded SET of windows rather than one clamped
+   * string, so the middle of a long session reaches the model instead of being
+   * elided. The cost stays bounded because the set is — see
+   * {@link CURATOR_MAX_WINDOWS}.
    */
-  private clampForModel(transcript: string, sessionId: string): string {
-    const clamped = clampTranscript(transcript, CURATOR_TRANSCRIPT_MAX_CHARS);
-    if (!clamped.clamped) return clamped.text;
-    this.logger.warn(
-      '[memory-curator] transcript exceeded the curator prompt cap; head and tail kept',
-      {
-        sessionId,
-        cap: CURATOR_TRANSCRIPT_MAX_CHARS,
-        originalChars: clamped.originalChars,
-        keptChars: clamped.keptChars,
-        droppedChars: clamped.droppedChars,
-        droppedRecords: clamped.droppedRecords,
-      },
-    );
-    return clamped.text;
+  private windowForModel(
+    transcript: string,
+    sessionId: string,
+  ): readonly CuratorWindow[] {
+    return this.windowRunner.planWindows(transcript, sessionId);
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */
@@ -360,10 +354,8 @@ export class MemoryCuratorService {
     salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
-    const transcript = this.clampForModel(
-      (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER,
-      input.sessionId,
-    );
+    const transcript =
+      (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
     const tier: MemoryTier = input.tier ?? 'recall';
 
     if (transcript === TRANSCRIPT_PLACEHOLDER) {
@@ -384,11 +376,26 @@ export class MemoryCuratorService {
       return emptyStats;
     }
 
-    let extraction: CuratorExtraction;
-    try {
-      extraction = await this.llm.extract(transcript, input.signal);
-    } catch (error: unknown) {
-      return this.recordCuratorError(input.sessionId, error, 'extract');
+    const windows = this.windowForModel(transcript, input.sessionId);
+    const extraction = await this.windowRunner.extractAcrossWindows(
+      windows,
+      input.signal,
+    );
+    if (extraction.status === 'failed') {
+      return this.recordCuratorError(
+        input.sessionId,
+        extraction.error,
+        'extract',
+      );
+    }
+    if (extraction.status === 'aborted') {
+      return this.recordCuratorError(
+        input.sessionId,
+        new Error(
+          `aborted after ${extraction.completedWindows} of ${windows.length} windows`,
+        ),
+        'extract',
+      );
     }
     if (extraction.status === 'stalled') {
       return this.recordCuratorStall(input.sessionId, extraction);

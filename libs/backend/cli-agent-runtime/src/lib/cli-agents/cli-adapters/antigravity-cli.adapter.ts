@@ -78,7 +78,9 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -149,13 +151,27 @@ export class AntigravityCliAdapter implements CliAdapter {
   /** MCP is configured via ~/.gemini/config/mcp_config.json before each spawn */
   readonly supportsMcp = true;
 
+  /**
+   * @param spawner - Off-thread process spawner. Supplied by
+   *   `CliDetectionService` from `SDK_TOKENS.SDK_PROCESS_SPAWNER`. Without it
+   *   every spawn below runs `cross-spawn` inline, which on Windows is a
+   *   synchronous `CreateProcessW` that cost 300-900 ms of event-loop lag per
+   *   rival-CLI launch (TASK_2026_367).
+   */
+  constructor(private readonly spawner?: IProcessSpawner) {}
+
   async detect(): Promise<CliDetectionResult> {
     try {
       const binaryPath = await resolveCliPath('agy');
       if (!binaryPath) {
         return { cli: 'antigravity', installed: false, supportsSteer: false };
       }
-      const version = await probeCliVersion(binaryPath);
+      const version = await probeCliVersion(
+        binaryPath,
+        undefined,
+        undefined,
+        this.spawner,
+      );
 
       return {
         cli: 'antigravity',
@@ -223,7 +239,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   ): Promise<string | undefined> {
     return new Promise((resolve) => {
       let stdout = '';
-      const child = spawnCli(binary, ['models'], {});
+      const child = spawnCli(binary, ['models'], { spawner: this.spawner });
       const timer = setTimeout(() => {
         child.kill();
         resolve(undefined);
@@ -468,6 +484,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
         needsConsole: true,
         detached: true,
+        spawner: this.spawner,
       },
     );
     child.stdout?.setEncoding('utf8');
@@ -476,11 +493,17 @@ export class AntigravityCliAdapter implements CliAdapter {
     child.stdin?.end();
 
     const onAbort = (): void => {
-      if (child.pid && !child.killed) {
-        // Tree-kill the whole process group — child.kill() alone orphans the
-        // real `agy` process (and any shell subprocesses) when child is a shim.
-        void killProcessTree(child.pid);
-      }
+      // `pid` is known synchronously for an inline spawn and NOT for an
+      // off-thread one, where the child is created on a worker. `whenSpawned`
+      // is the one read that works for both; it settles to null if the child
+      // never started, so this can never hang (TASK_2026_367).
+      void child.whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          // Tree-kill the whole process group — child.kill() alone orphans the
+          // real `agy` process (and any shell subprocesses) when child is a shim.
+          void killProcessTree(pid);
+        }
+      });
     };
     abortController.signal.addEventListener('abort', onAbort);
 
@@ -530,11 +553,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         return;
       }
       output.emit(`[stderr] ${cleaned}\n`);
-      const isError =
-        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned,
-        );
-      segment.emit({ type: isError ? 'error' : 'info', content: cleaned });
+      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
     });
 
     const done = new Promise<number>((resolve) => {

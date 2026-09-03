@@ -243,7 +243,7 @@ export interface AssembleSystemPromptInput {
 /**
  * Result of system prompt assembly.
  *
- * Always uses 'preset-append' mode â€” the SDK's claude_code preset is the base,
+ * Always uses 'preset-append' mode — the SDK's claude_code preset is the base,
  * and our content is appended on top. This preserves the SDK's critical MCP
  * handling, tool routing, and environment context instructions.
  */
@@ -255,7 +255,7 @@ export interface SystemPromptAssemblyResult {
 /**
  * Assemble the system prompt from its constituent parts.
  *
- * Always uses the SDK's `claude_code` preset as the base â€” this provides critical
+ * Always uses the SDK's `claude_code` preset as the base — this provides critical
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
@@ -263,7 +263,7 @@ export interface SystemPromptAssemblyResult {
  * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
  * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
  * (project-specific guidance from the setup wizard) are also appended when available.
- * Some behavioral sections overlap with the preset â€” this is intentional as it
+ * Some behavioral sections overlap with the preset — this is intentional as it
  * reinforces the instructions without contradicting them.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
@@ -426,7 +426,7 @@ export interface QueryOptionsInput {
   forkSession?: boolean;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -435,7 +435,7 @@ export interface QueryOptionsInput {
    * When true, the SDK emits `SDKPartialAssistantMessage` events
    * (`subtype: 'stream_event'`) for finer-grained streaming deltas. Mirrors
    * `Options.includePartialMessages` from the Claude Agent SDK. Defaults to
-   * ON when unspecified to preserve historical Ptah behavior â€” the existing
+   * ON when unspecified to preserve historical Ptah behavior — the existing
    * stream consumers (StreamTransformer, SdkMessageTransformer) already
    * handle these events. Pass `false` to opt out (reduces event volume on
    * bandwidth-sensitive paths).
@@ -453,7 +453,7 @@ export interface QueryOptionsInput {
    */
   forwardSubagentText?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
    * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
    * object, the builder's `mcpServers` output is byte-identical to the prior
@@ -510,7 +510,7 @@ export interface QueryOptionsInput {
 }
 
 /**
- * SDK query options structure â€” directly aliased from the SDK's canonical
+ * SDK query options structure — directly aliased from the SDK's canonical
  * `Options` type. Aliasing `Options` directly surfaces compile errors when we
  * attempt to set properties that do not exist in the SDK.
  *
@@ -644,7 +644,7 @@ export class SdkQueryOptionsBuilder {
     );
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
-        'projectPath is required â€” cannot start an SDK session without a workspace folder. ' +
+        'projectPath is required — cannot start an SDK session without a workspace folder. ' +
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
     }
@@ -695,13 +695,13 @@ export class SdkQueryOptionsBuilder {
       : null;
     if (routingId && routingSessionId === null) {
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Permission routing id is not a UUID â€” falling back to broadcast',
+        '[SdkQueryOptionsBuilder] Permission routing id is not a UUID — falling back to broadcast',
         { routingId },
       );
     }
     if (sessionConfig?.tabId && routingTabId === null) {
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Permission tabId is not a UUID â€” falling back to broadcast',
+        '[SdkQueryOptionsBuilder] Permission tabId is not a UUID — falling back to broadcast',
         { tabId: sessionConfig.tabId },
       );
     }
@@ -880,7 +880,7 @@ export class SdkQueryOptionsBuilder {
   /**
    * Emit a structured warning when forkSession is requested without a
    * resumeSessionId. Behavior is intentionally preserved (silent drop into
-   * `undefined`) â€” but observability is added so misconfigured callers
+   * `undefined`) — but observability is added so misconfigured callers
    * surface in logs instead of silently producing fresh sessions.
    *
    * Called inline below; extracted for readability and to keep the main
@@ -891,7 +891,7 @@ export class SdkQueryOptionsBuilder {
     if (resumeSessionId) return;
     if (forkSession === undefined) return;
     this.logger.warn(
-      '[SdkQueryOptionsBuilder] forkSession was set without a resumeSessionId â€” the option will be dropped because it only applies to resumed sessions.',
+      '[SdkQueryOptionsBuilder] forkSession was set without a resumeSessionId — the option will be dropped because it only applies to resumed sessions.',
       {
         sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
         hasForkSession: forkSession !== undefined,
@@ -907,8 +907,8 @@ export class SdkQueryOptionsBuilder {
    * Background: providers like Ollama, Copilot, Codex, and OpenRouter write a
    * known placeholder string into `ANTHROPIC_AUTH_TOKEN` (e.g. 'ollama',
    * 'copilot-proxy-managed') and point `ANTHROPIC_BASE_URL` at their local
-   * endpoint. If the strategy's `configure()` never ran â€” typically because the
-   * user hasn't selected the provider yet â€” `ANTHROPIC_BASE_URL` stays empty
+   * endpoint. If the strategy's `configure()` never ran — typically because the
+   * user hasn't selected the provider yet — `ANTHROPIC_BASE_URL` stays empty
    * while the placeholder token remains, and the SDK silently falls back to
    * api.anthropic.com. Anthropic rejects/drops the request and the UI hangs.
    *
@@ -935,7 +935,7 @@ export class SdkQueryOptionsBuilder {
 
     if (providerName) {
       const message =
-        `Provider '${providerName}' is not configured â€” ANTHROPIC_BASE_URL is missing. ` +
+        `Provider '${providerName}' is not configured — ANTHROPIC_BASE_URL is missing. ` +
         `Select the provider in settings to configure it, or switch to Anthropic direct.`;
       this.logger.error(`[SdkQueryOptionsBuilder] ${message}`, {
         providerName,
@@ -1012,7 +1012,7 @@ export class SdkQueryOptionsBuilder {
       supportedModels = await this.modelService.getSupportedModels();
     } catch {
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw â€” skipping check',
+        '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw — skipping check',
         { resolvedModel },
       );
       return;
@@ -1042,7 +1042,7 @@ export class SdkQueryOptionsBuilder {
    *
    * The Claude CLI automatically enables the `context-1m-2025-08-07` beta for
    * first-party (api.anthropic.com) connections, unlocking 1M token context for
-   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this â€” we
+   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
    * must pass it explicitly via the `betas` query option.
    *
    * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
@@ -1278,7 +1278,7 @@ export class SdkQueryOptionsBuilder {
    * Caller wins on key collision (matches the proxy tool-merger contract).
    *
    * Returns the original `base` reference unchanged when `override` is
-   * `undefined` or empty â€” preserves identity for the existing chat path so
+   * `undefined` or empty — preserves identity for the existing chat path so
    * the merge is a no-op on every non-proxy call site.
    */
   private mergeMcpOverride(
@@ -1295,12 +1295,12 @@ export class SdkQueryOptionsBuilder {
    * Calculate max turns from session config.
    *
    * Safety limit: returns a default cap when no explicit maxTokens is set.
-   * Without this, the SDK runs unlimited agentic turns â€” each turn is an
+   * Without this, the SDK runs unlimited agentic turns — each turn is an
    * API round-trip that consumes provider quota. On metered providers like
    * Copilot (premium requests) or pay-per-token APIs, runaway sessions can
    * exhaust budgets quickly.
    *
-   * Default: 200 turns â€” generous enough for complex multi-step tasks,
+   * Default: 200 turns — generous enough for complex multi-step tasks,
    * but prevents infinite loops from burning through quota.
    */
   private calculateMaxTurns(

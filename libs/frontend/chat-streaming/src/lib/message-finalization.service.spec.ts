@@ -1,5 +1,5 @@
 /**
- * MessageFinalizationService specs â€” turns StreamingState into finalized
+ * MessageFinalizationService specs — turns StreamingState into finalized
  * ExecutionChatMessage entries and applies post-finalization mutations
  * (mark-as-interrupted variants).
  *

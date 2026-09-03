@@ -101,7 +101,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
    * Copilot uses Chat Completions (/chat/completions) for all models.
    *
    * The Copilot API at api.githubcopilot.com does not reliably support the
-   * Responses API (/responses) for all GPT-5+ models â€” sending unsupported
+   * Responses API (/responses) for all GPT-5+ models — sending unsupported
    * models there results in "model_not_supported" errors. Chat Completions
    * is the known-working endpoint for all Copilot models.
    */
@@ -167,7 +167,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
     }));
   }
 
-  /** Convert model ID slug to display name: "gpt-5.3-codex" â†’ "GPT 5.3 Codex" */
+  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
   private formatModelName(id: string): string {
     return id
       .split('-')

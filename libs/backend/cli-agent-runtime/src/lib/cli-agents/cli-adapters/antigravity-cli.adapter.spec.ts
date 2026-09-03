@@ -34,6 +34,7 @@ interface FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
 }
 
@@ -53,11 +54,13 @@ function createFakeChild(): FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.stdin = { end: jest.fn(), write: jest.fn() };
   emitter.pid = FAKE_PID;
+  emitter.whenSpawned = Promise.resolve(FAKE_PID);
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -573,6 +576,32 @@ describe('AntigravityCliAdapter', () => {
 
       expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
       expect(code).toBe(1);
+    });
+
+    it('tree-kills with the pid whenSpawned reports, not the synchronous one', async () => {
+      // Off-thread the child is created on a worker, so `pid` is still
+      // undefined when abort fires. The tree kill has to read `whenSpawned`
+      // instead, or the whole subtree is orphaned (TASK_2026_367).
+      const OFF_THREAD_PID = 7777;
+      mockSpawnCli.mockImplementationOnce(() => {
+        currentChild = createFakeChild();
+        const child = currentChild.child as unknown as {
+          pid: number | undefined;
+          whenSpawned: Promise<number | null>;
+        };
+        child.pid = undefined;
+        child.whenSpawned = Promise.resolve(OFF_THREAD_PID);
+        return currentChild.child;
+      });
+
+      const handle = await adapter.runSdk(baseOptions);
+      collect(handle);
+
+      handle.abort.abort();
+      currentChild?.emitClose(null, 'SIGTERM');
+      await handle.done;
+
+      expect(mockKillProcessTree).toHaveBeenCalledWith(OFF_THREAD_PID);
     });
   });
 

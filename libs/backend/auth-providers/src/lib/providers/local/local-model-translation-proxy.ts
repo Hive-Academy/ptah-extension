@@ -11,7 +11,7 @@
  * - `LmStudioTranslationProxy` is the thin @injectable subclass.
  *
  * Note: Ollama no longer uses this proxy. Ollama v0.14.0+
- * speaks Anthropic Messages API natively â€” see OllamaModelDiscoveryService.
+ * speaks Anthropic Messages API natively — see OllamaModelDiscoveryService.
  *
  * All HTTP server logic, request/response translation, retry, and streaming
  * are handled by the base class in openai-translation/translation-proxy-base.ts.

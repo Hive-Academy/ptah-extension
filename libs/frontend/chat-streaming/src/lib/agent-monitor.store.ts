@@ -7,7 +7,7 @@
  * State shape:
  * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
  * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
- * which forced every writer to clone the Map â€” and silently broke `computed()`
+ * which forced every writer to clone the Map — and silently broke `computed()`
  * propagation when a writer forgot to clone, since reference equality held.
  * Array + computed byId is the idiomatic Angular pattern: writes are clearly
  * immutable (`[...list, x]` / `list.filter(...)`), reads stay O(1) via byId.
@@ -282,7 +282,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /**
    * Tracks agent descriptions (tasks) that have been resumed.
-   * Used by inline-agent-bubble to upgrade 'interrupted' â†’ 'resumed' visuals.
+   * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
    */
   private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
@@ -365,7 +365,7 @@ export class AgentMonitorStore implements OnDestroy {
   readonly agents = computed(() => [...this._agents()]);
 
   /**
-   * Public byId index â€” exposed alongside `agents` for callers that need O(1)
+   * Public byId index — exposed alongside `agents` for callers that need O(1)
    * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
    */
   readonly agentsById = computed(() => this._byId());
@@ -463,7 +463,7 @@ export class AgentMonitorStore implements OnDestroy {
     equal: (a, b) => a === b,
   });
 
-  /** Agents that currently have a pending permission request (global â€” all tabs).
+  /** Agents that currently have a pending permission request (global — all tabs).
    * Permissions are global because the user should always see them regardless of active tab. */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0),
@@ -896,7 +896,7 @@ export class AgentMonitorStore implements OnDestroy {
       }
       if (foundIndex === -1) {
         console.warn(
-          '[AgentMonitorStore] Permission buffered â€” agent not yet spawned:',
+          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
           request.agentId,
         );
         const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
@@ -975,7 +975,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Find an existing agent card that the new agent should replace.
    *
    * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
-   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume â€”
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
    *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
    *   ID is reused). Only matches non-running agents.
    *
@@ -1046,7 +1046,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Load CLI sessions from a saved session's metadata.
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
-   * Agents from other sessions are preserved â€” activeTabAgents handles display filtering.
+   * Agents from other sessions are preserved — activeTabAgents handles display filtering.
    * Auto-opens the panel if sessions are loaded.
    */
   loadCliSessions(

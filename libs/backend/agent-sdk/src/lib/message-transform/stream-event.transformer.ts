@@ -22,6 +22,18 @@ import type {
 } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 
+/** The `message` payload of a `message_start` stream event. */
+interface StreamStartMessage {
+  id?: string;
+  model?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+}
+
 export class StreamEventTransformer {
   transform(
     sdkMessage: SDKPartialAssistantMessage,
@@ -61,6 +73,7 @@ export class StreamEventTransformer {
       case 'content_block_start':
         return this.onContentBlockStart(
           event,
+          sdkMessage,
           context,
           blockIndex,
           parentToolUseId,
@@ -112,24 +125,9 @@ export class StreamEventTransformer {
     state: TransformerState,
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
+    synthesized = false,
   ): FlatStreamEventUnion[] {
-    const message = (
-      event as {
-        message?: {
-          id?: string;
-          model?: string;
-          usage?: {
-            input_tokens?: number;
-            output_tokens?: number;
-            cache_read_input_tokens?: number;
-            cache_creation_input_tokens?: number;
-          };
-        };
-      }
-    ).message;
-
-    const messageId =
-      message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
+    const message = (event as { message?: StreamStartMessage }).message;
 
     if (sessionId && message?.usage) {
       helpers.usageTracker.recordSessionUsage(sessionId, {
@@ -140,7 +138,31 @@ export class StreamEventTransformer {
       });
     }
 
+    const activeMessageId = state.getMessageId(context);
+    if (
+      !synthesized &&
+      activeMessageId &&
+      state.isMessageSynthesized(context)
+    ) {
+      return this.reconcileSynthesizedStart(
+        message,
+        activeMessageId,
+        context,
+        parentToolUseId,
+        state,
+        helpers,
+        sessionId,
+      );
+    }
+
+    const messageId =
+      message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
+
     state.setMessageId(context, messageId);
+
+    if (synthesized) {
+      state.markMessageSynthesized(context);
+    }
 
     if (message?.model) {
       state.setCurrentModel(context, message.model);
@@ -177,6 +199,60 @@ export class StreamEventTransformer {
     }
 
     return [messageStartEvent];
+  }
+
+  /**
+   * A real `message_start` for a context whose active message was synthesized
+   * (D-5c). It describes the message that is ALREADY open, so it must not open
+   * a second one.
+   *
+   * The synthesized id is kept rather than migrated to `message.id`. The id is
+   * only a correlation key, and it was already published on the emitted
+   * `message_start`, `tool_start` and `thinking_start`. Migrating it would mean
+   * re-keying every consumer-side correlation as well, for no gain. So: no
+   * second `message_start`, no `clearToolCallIdsForContext` (the early
+   * `tool_use` mapping must survive so its `input_json_delta` still resolves
+   * the real tool-call id), and no `clearActiveSkillToolUseIds` (a `Skill`
+   * block in that same message is still active). Only the model is folded in,
+   * because the synthesized start had none.
+   */
+  private reconcileSynthesizedStart(
+    message: StreamStartMessage | undefined,
+    activeMessageId: string,
+    context: string,
+    parentToolUseId: string | undefined,
+    state: TransformerState,
+    helpers: TransformerHelpers,
+    sessionId?: TransformerSessionId,
+  ): FlatStreamEventUnion[] {
+    helpers.logger.debug(
+      '[SdkMessageTransformer] real message_start for a synthesized message; ' +
+        'reconciling into the open message instead of starting a second one',
+      {
+        context: context || 'root',
+        messageId: activeMessageId,
+        realMessageId: message?.id,
+      },
+    );
+
+    if (message?.model) {
+      state.setCurrentModel(context, message.model);
+    }
+
+    state.clearMessageSynthesized(context);
+
+    // The synthesized start already flipped the root turn phase under the same
+    // condition, and `markGenerating` is once per turn. This call therefore
+    // returns null in the normal case; it only fires when the synthesis ran
+    // without a session id.
+    if (!parentToolUseId && sessionId) {
+      const turn = helpers.turnState.markGenerating(sessionId);
+      if (turn) {
+        return [toTurnStateEvent(sessionId, turn)];
+      }
+    }
+
+    return [];
   }
 
   private onMessageDelta(
@@ -260,6 +336,7 @@ export class StreamEventTransformer {
 
   private onContentBlockStart(
     event: unknown,
+    sdkMessage: SDKPartialAssistantMessage,
     context: string,
     blockIndex: number,
     parentToolUseId: string | undefined,
@@ -279,15 +356,32 @@ export class StreamEventTransformer {
     ).content_block;
 
     const blockType = contentBlock?.type || 'text';
-    const currentMessageId = state.getMessageId(context);
+    let currentMessageId = state.getMessageId(context);
+    const prelude: FlatStreamEventUnion[] = [];
 
     if (!currentMessageId) {
-      helpers.logger.warn(
-        `[SdkMessageTransformer] content_block_start but no active message for context: ${
-          context || 'root'
-        }`,
+      helpers.logger.debug(
+        '[SdkMessageTransformer] content_block_start arrived before message_start; ' +
+          'synthesizing one so the block is not dropped',
+        { context: context || 'root', blockType },
       );
-      return [];
+      prelude.push(
+        ...this.onMessageStart(
+          { type: 'message_start', message: {} },
+          sdkMessage,
+          context,
+          parentToolUseId,
+          state,
+          helpers,
+          sessionId,
+          true,
+        ),
+      );
+      currentMessageId = state.getMessageId(context);
+    }
+
+    if (!currentMessageId) {
+      return prelude;
     }
 
     if (blockType === 'thinking') {
@@ -302,7 +396,7 @@ export class StreamEventTransformer {
         parentToolUseId,
       };
 
-      return [thinkingStartEvent];
+      return [...prelude, thinkingStartEvent];
     }
 
     if (blockType === 'tool_use' && contentBlock?.id && contentBlock?.name) {
@@ -331,10 +425,10 @@ export class StreamEventTransformer {
         parentToolUseId,
       };
 
-      return [toolStartEvent];
+      return [...prelude, toolStartEvent];
     }
 
-    return [];
+    return [...prelude];
   }
 
   private onContentBlockDelta(

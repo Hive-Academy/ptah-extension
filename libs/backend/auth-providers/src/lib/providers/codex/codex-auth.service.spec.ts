@@ -22,7 +22,7 @@ import type { CodexAuthFile } from './codex-provider.types';
 import { SdkError, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 
 // -----------------------------------------------------------------------------
-// node:fs/promises mock â€” codex-auth reads ~/.codex/auth.json directly.
+// node:fs/promises mock — codex-auth reads ~/.codex/auth.json directly.
 // This is an APPROVED EXCEPTION per the service's own file header: no
 // platform abstraction is used for the auth file read.
 // -----------------------------------------------------------------------------
@@ -65,7 +65,7 @@ function enoent(path = '~/.codex/auth.json'): NodeJS.ErrnoException {
 }
 
 function seedAuthFile(auth: CodexAuthFile): void {
-  // Cast to `never` â€” readFile has overloads; the mock is used in string mode.
+  // Cast to `never` — readFile has overloads; the mock is used in string mode.
   mockedReadFile.mockResolvedValue(JSON.stringify(auth) as never);
 }
 
@@ -291,7 +291,7 @@ describe('CodexAuthService', () => {
     });
 
     it('defaults to OAuth endpoint when no auth file has been read yet', () => {
-      // No isAuthenticated() call â†’ cachedAuth is null
+      // No isAuthenticated() call → cachedAuth is null
       expect(service.getApiEndpoint()).toBe(
         'https://chatgpt.com/backend-api/codex',
       );
@@ -470,7 +470,7 @@ describe('CodexAuthService', () => {
       readError.code = 'EACCES';
       mockedReadFile.mockRejectedValue(readError);
       await expect(service.ensureTokensFresh()).resolves.toBe(false);
-      // Either the warn (from readAuthFile) or error path fires â€” both indicate the failure surfaced.
+      // Either the warn (from readAuthFile) or error path fires — both indicate the failure surfaced.
       const surfaced =
         (logger.warn as jest.Mock).mock.calls.length > 0 ||
         (logger.error as jest.Mock).mock.calls.length > 0;
@@ -708,7 +708,7 @@ describe('CodexAuthService', () => {
 
       await service.isAuthenticated(); // fills cache
       clock.advanceBy(5_001); // invalidate TTL
-      await service.isAuthenticated(); // ENOENT â†’ cache cleared
+      await service.isAuthenticated(); // ENOENT → cache cleared
       clock.advanceBy(100); // well inside any new TTL window
       const headers = await service.getHeaders(); // must re-read, can't serve ENOENT
       expect(headers['Authorization']).toBe('Bearer sk-second');

@@ -53,6 +53,7 @@ export { isResultMessage as isSDKResultMessage };
 @injectable()
 export class SdkMessageTransformer implements TransformerState {
   private readonly currentMessageIdByContext: Map<string, string> = new Map();
+  private readonly synthesizedMessageContexts: Set<string> = new Set();
   private readonly currentModelByContext: Map<string, string> = new Map();
   private readonly toolCallIdByContextAndBlock: Map<string, string> = new Map();
   private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
@@ -301,6 +302,7 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
+    this.synthesizedMessageContexts.clear();
     this.currentModelByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
@@ -317,6 +319,10 @@ export class SdkMessageTransformer implements TransformerState {
 
   getCurrentModel(contextKey: string): string | undefined {
     return this.currentModelByContext.get(contextKey);
+  }
+
+  isMessageSynthesized(contextKey: string): boolean {
+    return this.synthesizedMessageContexts.has(contextKey);
   }
 
   getToolCallId(contextKey: string, blockIndex: number): string | undefined {
@@ -361,6 +367,15 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearMessageId(contextKey: string): void {
     this.currentMessageIdByContext.delete(contextKey);
+    this.synthesizedMessageContexts.delete(contextKey);
+  }
+
+  markMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.add(contextKey);
+  }
+
+  clearMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.delete(contextKey);
   }
 
   setCurrentModel(contextKey: string, model: string): void {

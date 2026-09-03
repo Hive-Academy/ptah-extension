@@ -178,7 +178,6 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   McpRegistryProvider: class McpRegistryProviderStub {},
   McpInstallService: class McpInstallServiceStub {},
   SmitheryRegistrySource: class SmitheryRegistrySourceStub {},
-  PulseMcpRegistrySource: class PulseMcpRegistrySourceStub {},
   SkillsShApiClient: class SkillsShApiClientStub {},
 }));
 
