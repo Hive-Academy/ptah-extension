@@ -657,7 +657,7 @@ export class ChatInputComponent implements OnInit {
         const file = item.getAsFile();
         if (!file) continue;
         if (file.size > MAX_IMAGE_SIZE_BYTES) {
-          this.showImageAttachmentError('Image too large â€” 5MB max');
+          this.showImageAttachmentError('Image too large — 5MB max');
           continue;
         }
 
@@ -667,13 +667,13 @@ export class ChatInputComponent implements OnInit {
           const base64 = dataUrl.split(',')[1];
           const decodedSize = Math.floor(base64.length * 0.75);
           if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
-            this.showImageAttachmentError('Image too large â€” 5MB max');
+            this.showImageAttachmentError('Image too large — 5MB max');
             return;
           }
           const mediaType = resolveImageMediaType(item.type, base64);
           if (!mediaType) {
             this.showImageAttachmentError(
-              'Unsupported image format â€” use PNG, JPEG, GIF, or WebP',
+              'Unsupported image format — use PNG, JPEG, GIF, or WebP',
             );
             return;
           }
@@ -876,7 +876,7 @@ export class ChatInputComponent implements OnInit {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
-        this.showImageAttachmentError('Image too large â€” 5MB max');
+        this.showImageAttachmentError('Image too large — 5MB max');
         continue;
       }
 
@@ -887,7 +887,7 @@ export class ChatInputComponent implements OnInit {
         const mediaType = resolveImageMediaType(file.type, base64);
         if (!mediaType) {
           this.showImageAttachmentError(
-            'Unsupported image format â€” use PNG, JPEG, GIF, or WebP',
+            'Unsupported image format — use PNG, JPEG, GIF, or WebP',
           );
           return;
         }
@@ -924,7 +924,7 @@ export class ChatInputComponent implements OnInit {
   /**
    * Handle debounced @ trigger from AtTriggerDirective
    * Only updates trigger position (may shift if user edits before @).
-   * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
+   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
    */
   handleAtTriggered(event: AtTriggerEvent): void {
     this._triggerPosition.set(event.triggerPosition);
@@ -955,7 +955,7 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * Handle debounced / trigger from SlashTriggerDirective
-   * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
+   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
     console.log('ChatInputComponent.handleSlashTriggered called');

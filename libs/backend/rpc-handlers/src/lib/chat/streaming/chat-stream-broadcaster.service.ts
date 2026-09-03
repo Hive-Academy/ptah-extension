@@ -108,7 +108,7 @@ export class ChatStreamBroadcaster {
   private readonly streamingSessionIds = new Set<string>();
 
   /**
-   * True while a broadcast loop is attached to this id â€” the liveness signal
+   * True while a broadcast loop is attached to this id — the liveness signal
    * that registry presence (`isSessionActive`) is NOT. Callers deciding
    * "continue into the live session vs. resume it" must consult this, since a
    * registered session whose loop has exited can no longer deliver events.
@@ -123,7 +123,7 @@ export class ChatStreamBroadcaster {
 
   /**
    * Stream flat events to webview
-   * Handles SDK AsyncIterable<FlatStreamEventUnion> â†’ webview messages.
+   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
    *
    * The webview rebuilds ExecutionNode trees at render time from these flat events.
    * Events include tabId for routing and sessionId (real SDK UUID) for storage.
@@ -220,7 +220,7 @@ export class ChatStreamBroadcaster {
             }
           } catch (err: unknown) {
             this.logger.warn(
-              '[RPC] Failed to save child session metadata â€” session may appear in sidebar',
+              '[RPC] Failed to save child session metadata — session may appear in sidebar',
               { error: err instanceof Error ? err.message : String(err) },
             );
           }
@@ -363,8 +363,8 @@ export class ChatStreamBroadcaster {
       this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
-      // This loop is the session's ONLY consumer, so its exit â€” for any
-      // reason, not just the clean `for await` completion â€” leaves nothing
+      // This loop is the session's ONLY consumer, so its exit — for any
+      // reason, not just the clean `for await` completion — leaves nothing
       // reading the SDK query, and the record must be torn down.
       //
       // But it may tear down ONLY the record it actually streamed. Ids are

@@ -328,7 +328,7 @@ export class Logger {
    * The message is passed through {@link sanitizeConsoleText} here and NOT on
    * the output-channel path above. The channel is a UTF-8 file and should hold
    * the message as written; the console is the surface where a double-encoded
-   * em dash prints as `â€”` and where a legacy Windows codepage mangles even a
+   * em dash prints as `—` and where a legacy Windows codepage mangles even a
    * correct one (TASK_2026_354). This is the single console writer for every
    * host — Electron main included — so the repair lands once, without editing a
    * log string in any other lib.

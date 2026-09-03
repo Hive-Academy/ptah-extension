@@ -161,14 +161,14 @@ export class AppShellComponent {
   private readonly lazyViews = inject(LazyViewService);
 
   /**
-   * WizardViewComponent provided via DI token â€” breaks circular dependency between chat and setup-wizard.
+   * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
    * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
    */
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * OrchestraCanvasComponent provided via DI token â€” breaks circular dependency between chat and canvas.
+   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
    * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
    * Provided by the application bootstrapper (app.config.ts).
    *

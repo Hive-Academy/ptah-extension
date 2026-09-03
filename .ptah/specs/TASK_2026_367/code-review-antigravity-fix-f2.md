@@ -1,0 +1,44 @@
+# TASK_2026_367 — FIX-F2 code review
+
+## Verdict
+
+**APPROVE WITH FIXES**
+
+Wave-1 F2 and F4 are genuinely closed. Wave-2 F2 is only partially closed: all eight constructor harnesses now pass a shared fake without casting the constructor argument, and the new DI smoke is meaningful, but the fake itself uses `as never` / `as unknown as` and derives its complete signature from the interface it claims to guard. That does not provide the claimed independent signature-drift check.
+
+## Findings
+
+| Severity | File:line                                                                                                                                                        | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LOW      | `libs/backend/cli-agent-runtime/src/lib/ptah-cli/testing/fake-sdk-process-spawner.ts:3-20,26-51`; `.ptah/specs/TASK_2026_367/batch-report-FIX-F2.md:55-69,89-95` | `FakeSdkProcessSpawner` is nominally declared with `implements ISdkProcessSpawner`, and its `spawn` property is typed as `ISdkProcessSpawner['spawn']`, but every parameter and return alias is projected from that same member. The implementation then erases important constraints with `as never` and multiple `as unknown as` casts. A drift such as an added required `spawn` parameter can still be accepted because the fake ignores extra arguments, while stream and event-method shape changes are hidden by casts. The DI smoke proves current token resolution and runtime class identity, not static signature compatibility. The report's “signature drift ... will fail compilation” / “compile-time type safety” wording is therefore too broad and omits this limitation. | Give the fake an independently written concrete signature using the published SDK types and the local hook type, construct a genuinely typed process double (for example with real Node stream/EventEmitter primitives), and add an exact compile-time contract assertion or a legal composition-boundary bridge to the registered class. Remove `as never` / `as unknown as` from the fake. If the cross-library signature remains only manually/indirectly checked, state that explicitly in the report. |
+
+## Prior-finding closure
+
+- **Wave-1 F2 — closed: yes.** `ptah-cli-registry.ts:21` imports `stripAnsiCodes` from `cli-adapter.utils.ts:131-135`, the same exported helper used by Antigravity (`antigravity-cli.adapter.ts:72,541`), OpenCode (`opencode-cli.adapter.ts:54,507`), Pi (`pi-cli.adapter.ts:80,439`), and Copilot (`copilot-sdk.adapter.ts:52,388`). `handleChildStderr` classifies `stripAnsiCodes(data).trim()` at `ptah-cli-registry.ts:689-691`, while the log message interpolates the original `data` at line 692. The regression uses the real `\x1b[31mError\x1b[0m: ...` sequence and asserts `logger.warn` receives the original colored string and `logger.error` is never called (`ptah-cli-registry-off-thread-spawn.spec.ts:289-324`). Callback identity is explicitly pinned with `expect(capturedHooks.onStderr).toBe(options?.stderr)` at lines 210-213.
+
+- **Wave-1 F4 — closed: yes.** `cli-stderr-severity.spec.ts:39-46` now includes `abortive attempt`, which contains `abort` inside a larger word, and expects `info` at line 43.
+
+- **Wave-2 F2 — closed: no.** All eight direct-constructor harnesses were converted to `createFakeSdkProcessSpawner()` without a cast at the process-spawner argument: harness-preflight (`:25,117`), lmstudio-proxy (`:94,175`), output-style (`:35,130`), permission-routing (`:38,131`), sakana-proxy (`:93,173`), spawn-model (`:36,141`), tiers (`:28,72`), and proxy-lease (`:95,150`). The smoke registers the real auth-provider, agent-sdk, and cli-agent-runtime registration functions in order (`register.ptah-cli-registry.smoke.spec.ts:133-138`), resolves the registry token (`:150-156`), and checks the injected object's constructor name and `spawn` method (`:159-172`). It is not tautological with respect to the registry binding: removing `register.ts:30-34` leaves the symbol passed to `container.resolve` unregistered and resolution fails. It also exercises the real agent-sdk spawner registration at `agent-sdk/src/lib/di/register.ts:314-318`. However, the shared fake violates the requested no-cast condition at `fake-sdk-process-spawner.ts:15-20,28-40`, and its self-derived signature does not reliably fail typecheck on signature drift. The smoke does not close that static contract gap, and the report does not acknowledge it.
+
+## Scope and hygiene
+
+- The FIX-F2 implementation diff matches the supplied file list: one registry hunk, the stderr severity spec, the off-thread spawn spec, eight constructor harnesses, the new testing helper, and the new DI smoke. No additional implementation edit attributable to FIX-F2 was found.
+- No `@ts-ignore` occurs in the scoped FIX-F2 files.
+- `ptah-cli-registry.ts` contains pre-existing `catch (error)` forms at lines 524 and 1181, but neither line is part of the FIX-F2 diff; FIX-F2 introduced no catch clause.
+- `git diff --check` reported no whitespace errors in the tracked FIX-F2 files.
+
+## Verification
+
+- Ran exactly once: `npx nx run-many -t test -p @ptah-extension/cli-agent-runtime`.
+- Result reported by Nx/Jest: **45/45 test suites passed, 550/550 tests passed, 0 snapshots**.
+- Nx explicitly reported that existing outputs matched the cache and served the cached result. No suite failed, including the B9-adjacent adapter specs.
+
+## Unverified
+
+- A fresh, non-cached execution was not performed because the requested test command was to be run once; the sole invocation was satisfied from Nx cache.
+- The batch report's earlier **45 suites / 543 tests** total was not reproduced. The current mixed working tree reports 550 tests, so a FIX-F2-only historical count cannot be inferred from this run.
+- The report's targeted-test, typecheck, lint, and formatter command claims were not rerun in this review.
+- No live worker thread, external CLI binary, VS Code host, Electron host, or headless CLI host was exercised.
+- Git cannot independently establish authorship or timing for files inside the currently untracked `.ptah/specs/TASK_2026_367/` directory; the scoped implementation paths themselves match the supplied FIX-F2 list.
+
+REVIEW DONE — <0 high, 0 medium, 1 low>

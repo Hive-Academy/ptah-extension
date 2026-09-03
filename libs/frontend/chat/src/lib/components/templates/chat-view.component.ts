@@ -854,7 +854,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Edit queued message â€” pushes content back to the input and clears the queue.
+   * Edit queued message — pushes content back to the input and clears the queue.
    * Uses restoreContentToInput so the user can modify and re-send.
    */
   editQueue(): void {
@@ -897,7 +897,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Handle "Resume All" â€” builds a single combined prompt for all interrupted agents
+   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
    * and sends it as one message to the existing session.
    */
   handleResumeAllAgents(agents: SubagentRecord[]): void {

@@ -37,7 +37,7 @@ import type {
  * - Text: truncated latest assistant output
  * - Input: mini textarea for quick follow-ups
  *
- * Separate component tree from the full chat view â€” does NOT use
+ * Separate component tree from the full chat view — does NOT use
  * MessageBubble, ExecutionNode, or any chat-view internal components.
  *
  * Complexity Level: 3 (Organism-level composition with state coordination)

@@ -1,17 +1,17 @@
 ﻿/**
- * code-execution-mcp.service â€” unit specs.
+ * code-execution-mcp.service — unit specs.
  *
  * `CodeExecutionMCP` is a thin orchestrator that wires HTTP server lifecycle
  * + MCP JSON-RPC dispatch together, delegating the actual work to helpers in
  * `./mcp-handlers`. The behaviours this spec locks down are:
  *
- *   1. MCP tool registration â€” constructor wiring:
+ *   1. MCP tool registration — constructor wiring:
  *        - builds `PtahAPI` eagerly via the injected `PtahAPIBuilder`,
  *        - resolves `WebviewManager` lazily only when registered in the
  *          container (present in VS Code, absent in Electron),
  *        - detects `hasIDECapabilities` via `container.isRegistered`.
  *
- *   2. Request dispatch â€” `start()` / `stop()`:
+ *   2. Request dispatch — `start()` / `stop()`:
  *        - `start()` reads the configured port from `IWorkspaceProvider`,
  *          delegates to `startHttpServer`, stores the returned server + port
  *          for later shutdown, and wires `onMCPRequest` to `handleMCPRequest`
@@ -27,15 +27,15 @@
  *        - `setToolResultCallback` / `clearToolResultCallback` forward the
  *          callback to the dispatch context on the NEXT `start()`.
  *
- *   3. Error propagation â€” MCP request dispatch surfaces handler errors via
+ *   3. Error propagation — MCP request dispatch surfaces handler errors via
  *      the mocked `handleMCPRequest` without swallowing them, and `dispose()`
  *      surfaces `stop()` failures to the logger instead of silently eating
  *      them (the regression that motivated `disposeAsync`).
  *
  * External surfaces are mocked:
- *   - `./mcp-handlers` â€” HTTP + protocol helpers replaced with `jest.fn()`s.
- *   - `fs` â€” `.mcp.json` read/write isolated from disk.
- *   - `tsyringe.container` â€” registration checks controlled per-test via
+ *   - `./mcp-handlers` — HTTP + protocol helpers replaced with `jest.fn()`s.
+ *   - `fs` — `.mcp.json` read/write isolated from disk.
+ *   - `tsyringe.container` — registration checks controlled per-test via
  *     `registerInstance` / `clearInstances` so both VS Code and Electron
  *     wiring paths are exercised.
  */
@@ -58,7 +58,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   FileSystemManager: class {},
 }));
 
-// Replace ptah-api-builder.service at the module boundary â€” its real impl
+// Replace ptah-api-builder.service at the module boundary — its real impl
 // transitively loads workspace-intelligence + agent-sdk which in turn pull in
 // the `vscode` ambient module.  We only need the IDE_CAPABILITIES_TOKEN
 // Symbol (read by the SUT constructor) and the class as a type.
@@ -89,8 +89,8 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
 }));
 
-// `withMcpConfigLock` is the REAL thing in production â€” that is the whole of
-// TASK_2026_318 â€” but it is `harness-sync`'s concern and it needs a real `fs`,
+// `withMcpConfigLock` is the REAL thing in production — that is the whole of
+// TASK_2026_318 — but it is `harness-sync`'s concern and it needs a real `fs`,
 // which the mock above has replaced wholesale. So it is stubbed to run its task
 // straight through, and the fact that the write happens INSIDE it is asserted
 // separately via `mock.invocationCallOrder` (see "takes the harness-sync config
@@ -186,12 +186,12 @@ function buildWebviewManager(): jest.Mocked<WebviewManager> {
 }
 
 function makeFakeServer(): http.Server {
-  // Protocol handlers never call anything on this object â€” it's opaque to
+  // Protocol handlers never call anything on this object — it's opaque to
   // the SUT; stopHttpServer is mocked. A plain Record is enough.
   return {} as unknown as http.Server;
 }
 
-// Typed aliases for the mocked helpers â€” avoids `as any` at every callsite.
+// Typed aliases for the mocked helpers — avoids `as any` at every callsite.
 const startHttpServer = startHttpServerMock as jest.MockedFunction<
   typeof startHttpServerMock
 >;
@@ -283,7 +283,7 @@ function build(opts: BuildOptions = {}): Fixture {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Sensible defaults â€” individual tests override as needed.
+  // Sensible defaults — individual tests override as needed.
   getConfiguredPort.mockReturnValue(51820);
   startHttpServer.mockResolvedValue({
     server: makeFakeServer(),
@@ -313,10 +313,10 @@ afterEach(() => {
 });
 
 // ===========================================================================
-// 1. MCP tool registration â€” constructor wiring
+// 1. MCP tool registration — constructor wiring
 // ===========================================================================
 
-describe('CodeExecutionMCP â€” construction / tool registration', () => {
+describe('CodeExecutionMCP — construction / tool registration', () => {
   it('builds the ptah API eagerly via the injected PtahAPIBuilder', () => {
     const { apiBuilder } = build();
     expect(apiBuilder.build).toHaveBeenCalledTimes(1);
@@ -327,7 +327,7 @@ describe('CodeExecutionMCP â€” construction / tool registration', () => {
     const { service } = build({ registerWebview: webview });
     await service.start();
 
-    // Wire-through assertion â€” the dispatch closure receives the same webview.
+    // Wire-through assertion — the dispatch closure receives the same webview.
     const ctxProbe: MCPRequest = {
       jsonrpc: '2.0',
       id: 1,
@@ -398,10 +398,10 @@ describe('CodeExecutionMCP â€” construction / tool registration', () => {
 });
 
 // ===========================================================================
-// 2. Request dispatch â€” start/stop lifecycle and MCP routing
+// 2. Request dispatch — start/stop lifecycle and MCP routing
 // ===========================================================================
 
-describe('CodeExecutionMCP â€” start/stop lifecycle', () => {
+describe('CodeExecutionMCP — start/stop lifecycle', () => {
   it('reads configured port from workspaceProvider and returns the actual listening port', async () => {
     getConfiguredPort.mockReturnValue(60001);
     startHttpServer.mockResolvedValue({
@@ -506,7 +506,7 @@ describe('CodeExecutionMCP â€” start/stop lifecycle', () => {
   it('stop() is safe to call before start() (no server to tear down)', async () => {
     const { service } = build();
     await expect(service.stop()).resolves.toBeUndefined();
-    // stopHttpServer is still invoked with null â€” the helper guards internally.
+    // stopHttpServer is still invoked with null — the helper guards internally.
     expect(stopHttpServer).toHaveBeenCalledWith(
       null,
       expect.anything(),
@@ -547,7 +547,7 @@ describe('CodeExecutionMCP â€” start/stop lifecycle', () => {
   });
 });
 
-describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
+describe('CodeExecutionMCP — ensureRegisteredForSubagents', () => {
   it('no-ops when server has not been started', async () => {
     const { service } = build({ folders: ['/ws'] });
     await service.ensureRegisteredForSubagents();
@@ -575,7 +575,7 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
     });
   });
 
-  it('is idempotent â€” second call after registration writes nothing', async () => {
+  it('is idempotent — second call after registration writes nothing', async () => {
     const { service } = build({ folders: ['/ws'] });
     await service.start();
 
@@ -615,11 +615,11 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
 
   /**
    * TASK_2026_318. `harness-sync` documents the rule this used to break: "Never
-   * add a SECOND writer to an MCP config fileâ€¦ A module that hand-rolls its own
-   * read-modify-write on a file this lib also writes will lose an entry â€” not
+   * add a SECOND writer to an MCP config file… A module that hand-rolls its own
+   * read-modify-write on a file this lib also writes will lose an entry — not
    * corrupt it, lose it, silently." `.mcp.json` IS a file harness-sync writes
    * (it is the `claude` target's MCP facet), and this service performed a raw
-   * `readFileSync` â†’ mutate â†’ `writeFileSync` outside the lock.
+   * `readFileSync` → mutate → `writeFileSync` outside the lock.
    *
    * Atomicity would not have helped: a temp+rename stops a reader seeing half a
    * file and does nothing about two writers that each read, each edit their own
@@ -831,10 +831,10 @@ describe('CodeExecutionMCP â€” ensureRegisteredForSubagents', () => {
 });
 
 // ===========================================================================
-// 3. Error propagation â€” dispatch + dispose surfaces
+// 3. Error propagation — dispatch + dispose surfaces
 // ===========================================================================
 
-describe('CodeExecutionMCP â€” error propagation', () => {
+describe('CodeExecutionMCP — error propagation', () => {
   it('surfaces MCP handler errors up to the HTTP dispatch boundary (does not swallow)', async () => {
     const boom = new Error('handler exploded');
     handleMCPRequest.mockRejectedValue(boom);
@@ -888,7 +888,7 @@ describe('CodeExecutionMCP â€” error propagation', () => {
 
     const { service, logger } = build({ folders: ['/ws'] });
     await service.start();
-    // Must register first â€” unregisterFromMcpJson now early-returns when the
+    // Must register first — unregisterFromMcpJson now early-returns when the
     // service was never registered, guarding the on-shutdown disk read.
     await service.ensureRegisteredForSubagents();
 
@@ -906,13 +906,13 @@ describe('CodeExecutionMCP â€” error propagation', () => {
 });
 
 // ===========================================================================
-// 4. unregister idempotency â€” Bug #9 (Wave A.B1)
+// 4. unregister idempotency — Bug #9 (Wave A.B1)
 // ===========================================================================
 
-describe('CodeExecutionMCP â€” unregister idempotency', () => {
+describe('CodeExecutionMCP — unregister idempotency', () => {
   it('stop() without prior ensureRegisteredForSubagents() does not read .mcp.json', async () => {
     // Repro of Bug #9: stop() unconditionally invoked unregisterFromMcpJson(),
-    // which in turn fs.readFileSync'd .mcp.json on every shutdown â€” even when
+    // which in turn fs.readFileSync'd .mcp.json on every shutdown — even when
     // ensureRegisteredForSubagents() never ran (e.g., free-tier sessions).
     const { service } = build({ folders: ['/ws'] });
     await service.start();
@@ -1060,7 +1060,7 @@ function deferConfigLock(): () => void {
 }
 
 // ===========================================================================
-// 5. .mcp.json path symmetry across a workspace switch â€” TASK_2026_315 A3
+// 5. .mcp.json path symmetry across a workspace switch — TASK_2026_315 A3
 // ===========================================================================
 
 /**
@@ -1069,8 +1069,8 @@ function deferConfigLock(): () => void {
  *   1. `ensureRegisteredForSubagents` was one-shot behind a boolean, so the
  *      SECOND workspace of a session never got an entry at all and subagents
  *      spawned there could not discover the Ptah MCP server.
- *   2. `unregisterFromMcpJson` resolved its target through `getMcpJsonPath()` â€”
- *      the CURRENT workspace root â€” instead of the path it had actually
+ *   2. `unregisterFromMcpJson` resolved its target through `getMcpJsonPath()` —
+ *      the CURRENT workspace root — instead of the path it had actually
  *      written, so the first repository kept a `ptah` entry pointing at a dead
  *      port indefinitely.
  *
@@ -1078,7 +1078,7 @@ function deferConfigLock(): () => void {
  * its own assertions: a hand-authored server, and unrelated top-level keys,
  * must survive both register and unregister untouched.
  */
-describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace switch', () => {
+describe('CodeExecutionMCP — .mcp.json path symmetry across a workspace switch', () => {
   it("stop() after a workspace switch removes ptah from the ORIGINAL root's .mcp.json", async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
@@ -1131,7 +1131,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     expect(after['mcpServers']).toEqual({
       'my-own-server': { type: 'stdio', command: 'node', args: ['x.js'] },
     });
-    // Unrelated top-level keys are preserved too â€” this is a read-merge-write,
+    // Unrelated top-level keys are preserved too — this is a read-merge-write,
     // not a rewrite.
     expect(after['$schema']).toBe('https://example.invalid/mcp.schema.json');
   });
@@ -1172,7 +1172,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     await service.start();
     await service.ensureRegisteredForSubagents();
 
-    // Zero folders open â€” getMcpJsonPath() resolves to null.
+    // Zero folders open — getMcpJsonPath() resolves to null.
     workspaceProvider.__state.setFolders([]);
     await settleMcpJsonWrites();
     expect(serversIn(disk, ROOT_A)).toEqual({});
@@ -1187,7 +1187,7 @@ describe('CodeExecutionMCP â€” .mcp.json path symmetry across a workspace s
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
     await service.start();
 
-    // No ensureRegisteredForSubagents() â€” we own no entry, so the switch must
+    // No ensureRegisteredForSubagents() — we own no entry, so the switch must
     // not start writing into the user's repositories (the Bug #9 rule).
     workspaceProvider.__state.setFolders(['/wsB']);
 
@@ -1385,7 +1385,7 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
 });
 
 // ===========================================================================
-// 6. The re-pointing operation queue â€” TASK_2026_332 defect 1
+// 6. The re-pointing operation queue — TASK_2026_332 defect 1
 // ===========================================================================
 
 /**
@@ -1399,7 +1399,7 @@ describe('CodeExecutionMCP - one .mcp.json per open workspace folder', () => {
  * reachable, which is why the pre-existing switch specs above passed against
  * the defective code.
  */
-describe('CodeExecutionMCP â€” re-pointing queue', () => {
+describe('CodeExecutionMCP — re-pointing queue', () => {
   it('A -> B -> C leaves NO ptah entry in the intermediate workspace', async () => {
     const disk = useVirtualDisk();
     const { service, workspaceProvider } = build({ folders: ['/wsA'] });
@@ -1408,7 +1408,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
 
     // Both changes land while the first re-point is still stuck at the lock.
     // Unqueued, both operations read the registration record as {A} and then
-    // write B and C independently â€” B keeps a live entry for a server that no
+    // write B and C independently — B keeps a live entry for a server that no
     // longer serves it, and nothing ever removes it.
     const release = deferConfigLock();
     workspaceProvider.__state.setFolders(['/wsB']);
@@ -1417,7 +1417,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     await settleMcpJsonWrites();
 
     expect(serversIn(disk, ROOT_C)).toEqual(ptahEntryFor('/wsC'));
-    // B was never written at all â€” the superseded re-point is dropped before
+    // B was never written at all — the superseded re-point is dropped before
     // it touches disk, so there is no transient entry to strand.
     expect(serversIn(disk, ROOT_B)).toBeUndefined();
     expect(serversIn(disk, ROOT_A)).toEqual({});
@@ -1449,7 +1449,7 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
     await service.ensureRegisteredForSubagents();
 
     // Scenario (b): the stop finishes unregistering A while the outstanding
-    // event writes B back â€” with a port that is about to die.
+    // event writes B back — with a port that is about to die.
     const release = deferConfigLock();
     workspaceProvider.__state.setFolders(['/wsB']);
     const stopping = service.stop();
@@ -1469,8 +1469,8 @@ describe('CodeExecutionMCP â€” re-pointing queue', () => {
 
     const release = deferConfigLock();
     const stopping = service.stop();
-    // The generation bump cannot cover this one â€” it was requested after the
-    // stop â€” so the stopped flag has to.
+    // The generation bump cannot cover this one — it was requested after the
+    // stop — so the stopped flag has to.
     workspaceProvider.__state.setFolders(['/wsB']);
     release();
     await stopping;

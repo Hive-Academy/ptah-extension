@@ -130,7 +130,7 @@ export class CompactionLifecycleService {
       this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
       console.warn(
-        '[ChatStore] Compaction safety timeout reached â€” compaction_complete event may have been lost',
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     }, CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
   }

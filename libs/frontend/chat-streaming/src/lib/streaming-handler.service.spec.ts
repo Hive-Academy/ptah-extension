@@ -1,19 +1,19 @@
 /**
- * StreamingHandlerService specs â€” flat-event ingest hot-path coverage.
+ * StreamingHandlerService specs — flat-event ingest hot-path coverage.
  *
  * What is in scope:
- *   - `agent_start` â†’ SessionManager.registerAgent and event stored in state
+ *   - `agent_start` → SessionManager.registerAgent and event stored in state
  *   - `tool_start` followed by `tool_result` for the same toolCallId update
  *     the same tracked toolCallMap entry, not a duplicate one
  *   - `text_delta` chunks accumulate into the per-block accumulator key
- *   - `agent_started` â†’ `text_delta` â†’ `message_complete` survives the round
+ *   - `agent_started` → `text_delta` → `message_complete` survives the round
  *     trip and the tab's streamingState carries the accumulated text
- *   - The 5000-event FIFO cap (`STREAMING_EVENT_CAP`) â€” synthesise 5001
+ *   - The 5000-event FIFO cap (`STREAMING_EVENT_CAP`) — synthesise 5001
  *     unique-id text deltas, confirm `state.events.size === 5000` and the
  *     first event id is evicted
  *
  * What is intentionally OUT of scope:
- *   - Tree finalization (delegated to MessageFinalizationService â€” own spec)
+ *   - Tree finalization (delegated to MessageFinalizationService — own spec)
  *   - Compaction lifecycle (own spec exists)
  *   - Background-agent forwarding (covered by agent-monitor.store specs)
  *   - The full ChatStore integration (covered by integration tests)
@@ -371,7 +371,7 @@ describe('StreamingHandlerService', () => {
     TestBed.configureTestingModule({
       providers: [
         StreamingHandlerService,
-        // EventDeduplicationService is a pure utility â€” use the real one so
+        // EventDeduplicationService is a pure utility — use the real one so
         // the source-priority logic is exercised end-to-end through the
         // streaming handler.
         EventDeduplicationService,
@@ -433,7 +433,7 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('tool_start â†’ tool_result for the same toolCallId', () => {
+  describe('tool_start → tool_result for the same toolCallId', () => {
     it('does NOT create a duplicate toolCallMap entry on tool_result', () => {
       service.processStreamEvent(toolStart(), TAB_ID);
       expect(currentState().toolCallMap.size).toBe(1);
@@ -441,7 +441,7 @@ describe('StreamingHandlerService', () => {
 
       service.processStreamEvent(toolResult(), TAB_ID);
 
-      // Only the same toolCallId tracked â€” no second key created.
+      // Only the same toolCallId tracked — no second key created.
       expect(currentState().toolCallMap.size).toBe(1);
       expect(currentState().toolCallMap.has('tool-1')).toBe(true);
 
@@ -474,7 +474,7 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('end-to-end: message_start â†’ text_delta â†’ message_complete', () => {
+  describe('end-to-end: message_start → text_delta → message_complete', () => {
     it('persists the accumulated text and final token usage in streamingState', () => {
       service.processStreamEvent(msgStart(), TAB_ID);
       service.processStreamEvent(

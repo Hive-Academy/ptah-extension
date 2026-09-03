@@ -367,7 +367,7 @@ export class PtahCliRegistry {
    * Resolve a ProviderProfile for a Ptah CLI agent.
    *
    * Returns the value-type description of the agent's auth env, model, base
-   * URL, and cli.js path â€” consumed by `SdkAgentAdapter.startChatSession()`
+   * URL, and cli.js path — consumed by `SdkAgentAdapter.startChatSession()`
    * via the `providerProfile` parameter so third-party providers reuse the
    * unified interactive-chat code path instead of a parallel adapter.
    *
@@ -1339,7 +1339,7 @@ export class PtahCliRegistry {
 
     /**
      * Dispose all callback arrays and buffers.
-     * Idempotent â€” safe to call multiple times.
+     * Idempotent — safe to call multiple times.
      * Called after the stream loop exits to release references held by closures.
      */
     const dispose = (): void => {
@@ -1423,8 +1423,8 @@ export class PtahCliRegistry {
    * Build default tier mappings for a new agent.
    *
    * Returns undefined so the runtime cascade in resolveEffectiveTiers can
-   * resolve tiers in the right order: agentTiers â†’ mainTiers â†’ provider.defaultTiers
-   * â†’ staticModels[0]. Pre-filling a partial mapping here would shadow the
+   * resolve tiers in the right order: agentTiers → mainTiers → provider.defaultTiers
+   * → staticModels[0]. Pre-filling a partial mapping here would shadow the
    * user's globally-configured tier choices (e.g. Ollama defaults to
    * staticModels[0]='llama3.1:8b' even when the user has selected
    * 'qwen3:8b'/'devstral'/'qwen3:32b' via the model mapping modal).

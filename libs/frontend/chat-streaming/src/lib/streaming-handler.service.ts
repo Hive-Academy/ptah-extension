@@ -540,7 +540,7 @@ export class StreamingHandlerService {
    * agent node IDs as "resumed" in the AgentMonitorStore.
    *
    * Tracks by node ID (not agentType) to avoid false positives when multiple
-   * agents of the same type exist â€” only the specific interrupted agent(s)
+   * agents of the same type exist — only the specific interrupted agent(s)
    * that were superseded show "Resumed", not newly interrupted ones.
    */
   private detectAndMarkResumedAgent(agentType: string, tab: TabState): void {

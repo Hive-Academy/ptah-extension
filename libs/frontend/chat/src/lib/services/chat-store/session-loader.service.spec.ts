@@ -1,5 +1,5 @@
 /**
- * SessionLoaderService specs â€” focuses on the pieces that can be tested as a
+ * SessionLoaderService specs — focuses on the pieces that can be tested as a
  * unit without the full RPC/state orchestration:
  *
  *   - removeSessionFromList: drops a session by id and decrements the counter
@@ -287,7 +287,7 @@ describe('SessionLoaderService', () => {
     });
 
     it('removeResumableSubagent filters by toolCallId', async () => {
-      // Seed the signal indirectly â€” simulate backend providing resumable
+      // Seed the signal indirectly — simulate backend providing resumable
       // subagents through chat:resume.
       rpcCall.mockImplementation(
         (method: string): Promise<{ success: boolean; data?: unknown }> => {
@@ -353,7 +353,7 @@ describe('SessionLoaderService', () => {
     });
 
     it('restores from cache on a second visit without RPC', async () => {
-      // First visit â€” populates the cache via loadSessionsForWorkspace.
+      // First visit — populates the cache via loadSessionsForWorkspace.
       rpcCall.mockResolvedValue({
         success: true,
         data: {
@@ -405,7 +405,7 @@ describe('SessionLoaderService', () => {
 
       service.removeWorkspaceCache('D:/repo');
 
-      // Switch away and back â€” should trigger RPC again.
+      // Switch away and back — should trigger RPC again.
       service.switchWorkspace('D:/other');
       await Promise.resolve();
       rpcCall.mockClear();

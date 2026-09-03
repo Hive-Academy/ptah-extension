@@ -1,5 +1,5 @@
 /**
- * ConversationService specs â€” queue/abort for chat conversations.
+ * ConversationService specs — queue/abort for chat conversations.
  *
  * Full integration of abortCurrentMessage (preserving partial messages) and
  * abortWithConfirmation (agent-count dialog) is exercised by the chat flow
@@ -274,7 +274,7 @@ describe('ConversationService', () => {
         makeTab({ id: 'tab-1', claudeSessionId: null, status: 'streaming' }),
       ]);
 
-      // Invoke twice concurrently â€” second should early-return without calling RPC
+      // Invoke twice concurrently — second should early-return without calling RPC
       // again.
       const p1 = service.abortCurrentMessage();
       const p2 = service.abortCurrentMessage();

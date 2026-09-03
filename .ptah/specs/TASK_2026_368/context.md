@@ -106,3 +106,31 @@ are untouched. The `window-all-closed` quit is a first quit and is left alone.
 - The full e2e suite should be re-run. Every spec has been failing on
   teardown for the same reason, so the true pass/fail state of the suite is
   unknown since Aug 28.
+
+## Shipped in electron v0.1.69
+
+Verified on 2026-09-03 against the installed build, not inferred from git alone:
+
+- `61c54bb36` (the deferral, Aug 28) and `df2c0e127` (the gateway deferral,
+  Aug 29) are both ancestors of `c2225a6c1`, the v0.1.69 release commit
+  (Aug 30). Tag `electron-v0.1.69` and `origin/release/electron` contain both.
+- The installed `%LOCALAPPDATA%\Programs\Ptah\Ptah.exe` reports
+  `ProductVersion 0.1.69.0`, built 2026-08-30 18:39. Its `app.asar` contains
+  the string `deferQuit` twice and `Deferred disposal failed` once.
+- In that build `requiresDeferredDisposal` is `refs.messagingGateway !== null`
+  (`shutdown.ts:233-234` at `c2225a6c1`). The gateway is started after the
+  window on every launch, degraded or not, so every normal close on Windows
+  takes the deferred path and hits electron/electron#33643.
+
+The Sep 1 change that added `agentProcessManager` to the condition widened
+the path; it did not create it.
+
+What a Windows user of v0.1.69 sees: close Ptah, the window goes, `Ptah.exe`
+stays resident with no window. Click Ptah again: `requestSingleInstanceLock`
+fails, `main.ts:37` calls `app.quit()` silently, nothing opens. The zombie
+receives `second-instance` and tries to focus a window it no longer has.
+Recovery is ending `Ptah.exe` in Task Manager. Dev mode shares the code but
+is usually stopped with Ctrl+C in the terminal, which kills the tree and
+bypasses the quit path — which is why it was never noticed there.
+
+The fix in `6351b2694` is on `fix/log-defects-367` and is not released.
