@@ -13,6 +13,7 @@ import type { MemoryStore } from './memory.store';
 import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
+import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 
 interface RecordingTracer extends ITracer {
@@ -626,9 +627,11 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       concepts: ['x'] as const,
       files: [] as const,
     };
+    // Two DISTINCT drafts: the windowed extractor unions on
+    // `(subject, content)`, so two identical drafts would arrive as one.
     const extract = jest.fn().mockResolvedValue({
       status: 'extracted',
-      drafts: [draft, { ...draft }],
+      drafts: [draft, { ...draft, content: 'c2' }],
     });
     const resolve = jest.fn().mockRejectedValue(new Error('transport down'));
     const llm = { extract, resolve } as unknown as ICuratorLLM;
@@ -1048,47 +1051,39 @@ describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
  * (`tmp/logs/log.log:1017`). A cap on any one caller would have left the next
  * one free to repeat it, so these tests assert on what the LLM RECEIVES.
  */
-describe('MemoryCuratorService — the curator prompt cap', () => {
-  function makeLlmSpy(): {
+describe('MemoryCuratorService — the chunked curation budget (TASK_2026_367)', () => {
+  function makeLlmSpy(drafts: readonly unknown[] = []): {
     llm: ICuratorLLM;
     extract: jest.Mock;
+    resolve: jest.Mock;
   } {
     const extract = jest
       .fn()
-      .mockResolvedValue({ status: 'extracted', drafts: [] });
+      .mockResolvedValue({ status: 'extracted', drafts });
+    const resolve = jest.fn().mockResolvedValue([]);
     return {
       extract,
-      llm: {
-        extract,
-        resolve: jest.fn().mockResolvedValue([]),
-      } as unknown as ICuratorLLM,
+      resolve,
+      llm: { extract, resolve } as unknown as ICuratorLLM,
     };
   }
 
-  /** A transcript far past the cap, shaped like the real formatted output. */
-  function hugeTranscript(): string {
+  /** A transcript of `records` blocks of `size` characters each. */
+  function transcriptOf(records: number, size: number): string {
     return Array.from(
-      { length: 268 },
-      (_, i) => `USER: turn ${i} ${'x'.repeat(640)}`,
+      { length: records },
+      (_, i) => `USER: turn ${i} ${'x'.repeat(size)}`,
     ).join('\n\n');
   }
 
-  it('never hands extract() more than the cap, whatever the caller passes', async () => {
-    const spy = makeLlmSpy();
-    const svc = buildService({ llm: spy.llm });
-    const transcript = hugeTranscript();
-
-    expect(transcript.length).toBeGreaterThan(170_000);
-
-    await svc.curate({ sessionId: 's1', transcript });
-
-    const sent = spy.extract.mock.calls[0][0] as string;
-    expect(sent.length).toBeLessThanOrEqual(CURATOR_TRANSCRIPT_MAX_CHARS);
-    expect(sent).toContain('elided by the memory curator');
-  });
-
-  it('passes a transcript under the cap through byte for byte', async () => {
-    const spy = makeLlmSpy();
+  it('a transcript under the cap costs exactly one extract and one resolve', async () => {
+    const draft = {
+      kind: 'fact' as const,
+      subject: 's',
+      content: 'c',
+      salienceHint: 0.5,
+    };
+    const spy = makeLlmSpy([draft]);
     const svc = buildService({ llm: spy.llm });
 
     await svc.curate({
@@ -1096,30 +1091,167 @@ describe('MemoryCuratorService — the curator prompt cap', () => {
       transcript: 'USER: hello\n\nASSISTANT: hi',
     });
 
+    expect(spy.extract).toHaveBeenCalledTimes(1);
+    expect(spy.resolve).toHaveBeenCalledTimes(1);
     expect(spy.extract.mock.calls[0][0]).toBe('USER: hello\n\nASSISTANT: hi');
   });
 
-  it('logs what it dropped', async () => {
+  it('never hands extract() more than one window, on any call', async () => {
+    const spy = makeLlmSpy();
+    const svc = buildService({ llm: spy.llm });
+    const transcript = transcriptOf(268, 640);
+
+    expect(transcript.length).toBeGreaterThan(170_000);
+
+    await svc.curate({ sessionId: 's1', transcript });
+
+    expect(spy.extract.mock.calls.length).toBeGreaterThan(1);
+    for (const call of spy.extract.mock.calls) {
+      expect((call[0] as string).length).toBeLessThanOrEqual(
+        CURATOR_TRANSCRIPT_MAX_CHARS,
+      );
+    }
+  });
+
+  it('a 400 KB transcript costs at most 8 extracts and exactly one resolve, and the resolve receives every window union', async () => {
+    let window = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      window++;
+      return Promise.resolve({
+        status: 'extracted',
+        drafts: [
+          {
+            kind: 'fact',
+            subject: `s${window}`,
+            content: 'c',
+            salienceHint: 1,
+          },
+          // Repeated verbatim by every window — the union must keep one.
+          { kind: 'fact', subject: 'shared', content: 'same', salienceHint: 1 },
+        ],
+      });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-400k',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(extract.mock.calls.length).toBeGreaterThan(1);
+    expect(extract.mock.calls.length).toBeLessThanOrEqual(CURATOR_MAX_WINDOWS);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const sent = resolve.mock.calls[0][0] as { subject: string }[];
+    expect(sent).toHaveLength(extract.mock.calls.length + 1);
+    expect(sent.filter((d) => d.subject === 'shared')).toHaveLength(1);
+  });
+
+  it('an extract rejection on window 3 records a curator error and issues no resolve', async () => {
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 3) return Promise.reject(new Error('window 3 exploded'));
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    const stats = await svc.curate({
+      sessionId: 's-boom',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(extract).toHaveBeenCalledTimes(3);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(stats.extracted).toBe(0);
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toContain('memory extraction failed');
+    expect(evt?.error).toContain('window 3 exploded');
+  });
+
+  it('an abort signalled after window 2 stops the loop', async () => {
+    const controller = new AbortController();
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 2) controller.abort();
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-abort',
+      transcript: transcriptOf(400, 1_000),
+      signal: controller.signal,
+    });
+
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(resolve).not.toHaveBeenCalled();
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toContain('aborted after 2');
+  });
+
+  it('a stalled window stops the loop and takes the stall path', async () => {
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 2) {
+        return Promise.resolve({
+          status: 'stalled',
+          reason: 'provider-cooling-down',
+          providerId: 'p1',
+        });
+      }
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    const stats = await svc.curate({
+      sessionId: 's-stall',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('warns only when a transcript exceeds even the chunked budget', async () => {
     const spy = makeLlmSpy();
     const logger = makeLogger() as unknown as { warn: jest.Mock };
     const svc = buildService({ llm: spy.llm, logger: logger as never });
 
-    await svc.curate({ sessionId: 's-loud', transcript: hugeTranscript() });
+    await svc.curate({
+      sessionId: 's-loud',
+      transcript: transcriptOf(400, 1_000),
+    });
 
     const call = logger.warn.mock.calls.find((c) =>
-      String(c[0]).includes('exceeded the curator prompt cap'),
+      String(c[0]).includes('exceeded the chunked curation budget'),
     );
     expect(call).toBeDefined();
     expect(call?.[1]).toMatchObject({
       sessionId: 's-loud',
-      cap: CURATOR_TRANSCRIPT_MAX_CHARS,
+      cap: CURATOR_TRANSCRIPT_MAX_CHARS * CURATOR_MAX_WINDOWS,
     });
     expect(
       (call?.[1] as { droppedChars: number }).droppedChars,
     ).toBeGreaterThan(130_000);
   });
 
-  it('says nothing when it did not clamp', async () => {
+  it('says nothing when the whole transcript fit', async () => {
     const spy = makeLlmSpy();
     const logger = makeLogger() as unknown as { warn: jest.Mock };
     const svc = buildService({ llm: spy.llm, logger: logger as never });
@@ -1128,7 +1260,7 @@ describe('MemoryCuratorService — the curator prompt cap', () => {
 
     expect(
       logger.warn.mock.calls.filter((c) =>
-        String(c[0]).includes('exceeded the curator prompt cap'),
+        String(c[0]).includes('exceeded the chunked curation budget'),
       ),
     ).toHaveLength(0);
   });
