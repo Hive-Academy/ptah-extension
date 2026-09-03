@@ -671,10 +671,24 @@ export function formatAgentSteer(result: {
 export function formatWebSearch(result: {
   query: string;
   summary: string;
-  provider: string;
+  providers: string[];
+  status: string;
   durationMs: number;
-  results: Array<{ title: string; url: string; snippet: string }>;
+  results: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    sources: string[];
+  }>;
   resultCount: number;
+  outcomes: Array<{
+    provider: string;
+    status: string;
+    durationMs: number;
+    resultCount: number;
+    reason?: string;
+    message?: string;
+  }>;
 }): string {
   try {
     const blocks: any[] = [
@@ -682,12 +696,29 @@ export function formatWebSearch(result: {
       {
         p: [
           `**Query:** ${result.query}`,
-          `**Provider:** ${result.provider}`,
+          `**Providers:** ${(result.providers ?? []).join(', ')}`,
+          `**Status:** ${result.status}`,
           `**Results:** ${result.resultCount}`,
           `**Duration:** ${(result.durationMs / 1000).toFixed(1)}s`,
         ].join('  \n'),
       },
     ];
+    // Always rendered, success included: this section is how the agent learns
+    // which provider failed and whether a narrowed retry is worth making.
+    const outcomes = result.outcomes ?? [];
+    if (outcomes.length > 0) {
+      blocks.push({ h3: 'Provider status' });
+      blocks.push({
+        ul: outcomes.map((o) => {
+          const timing = `${(o.durationMs / 1000).toFixed(1)}s`;
+          return o.status === 'ok'
+            ? `**${o.provider}** — ok (${o.resultCount} results, ${timing})`
+            : `**${o.provider}** — failed (${o.reason ?? 'provider-error'}): ${
+                o.message ?? 'Unknown error'
+              }`;
+        }),
+      });
+    }
     if (result.summary) {
       blocks.push({ h3: 'Summary' });
       blocks.push({ p: result.summary });
@@ -695,7 +726,10 @@ export function formatWebSearch(result: {
     if (result.results && result.results.length > 0) {
       blocks.push({ h3: 'Results' });
       const items = result.results.map(
-        (r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.snippet}`,
+        (r, i) =>
+          `**${i + 1}. [${r.title}](${r.url})** — sources: ${(
+            r.sources ?? []
+          ).join(', ')}\n${r.snippet}`,
       );
       blocks.push({ ul: items });
     }

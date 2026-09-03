@@ -270,6 +270,8 @@ import type {
   McpDirectoryDisconnectOAuthResult,
   McpDirectoryListOAuthConnectedParams,
   McpDirectoryListOAuthConnectedResult,
+  McpDirectoryGetOAuthRedirectUriParams,
+  McpDirectoryGetOAuthRedirectUriResult,
 } from './mcp-directory.types';
 
 import type {
@@ -1257,6 +1259,10 @@ export interface RpcMethodRegistry {
     params: McpDirectoryListOAuthConnectedParams;
     result: McpDirectoryListOAuthConnectedResult;
   };
+  'mcpDirectory:getOAuthRedirectUri': {
+    params: McpDirectoryGetOAuthRedirectUriParams;
+    result: McpDirectoryGetOAuthRedirectUriResult;
+  };
   'workspace:getInfo': {
     params: Record<string, never>;
     result: {
@@ -1455,14 +1461,17 @@ export interface RpcMethodRegistry {
   };
   'webSearch:test': {
     params: Record<string, never>;
-    result: { success: boolean; provider: string; error?: string };
+    result: {
+      success: boolean;
+      results: Array<{ provider: string; success: boolean; error?: string }>;
+    };
   };
   'webSearch:getConfig': {
     params: Record<string, never>;
-    result: { provider: string; maxResults: number };
+    result: { providers: string[]; maxResults: number };
   };
   'webSearch:setConfig': {
-    params: { provider?: string; maxResults?: number };
+    params: { providers?: string[]; maxResults?: number };
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
@@ -3499,6 +3508,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:oauthStatus': true,
   'mcpDirectory:disconnectOAuth': true,
   'mcpDirectory:listOAuthConnected': true,
+  'mcpDirectory:getOAuthRedirectUri': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

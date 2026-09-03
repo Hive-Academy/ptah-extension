@@ -22,8 +22,18 @@ import type {
   WebSearchProviderType,
   IWebSearchProvider,
 } from '@ptah-extension/vscode-lm-tools';
-import { SECRET_KEY_PREFIX, VALID_PROVIDERS } from './web-search-rpc.schema';
+import {
+  SECRET_KEY_PREFIX,
+  VALID_PROVIDERS,
+  WebSearchProvidersSchema,
+} from './web-search-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+interface WebSearchTestProviderResult {
+  provider: string;
+  success: boolean;
+  error?: string;
+}
 
 /**
  * RPC handlers for web search settings management
@@ -170,61 +180,38 @@ export class WebSearchRpcHandlers {
     );
   }
 
-  /**
-   * webSearch:test - Test current provider with a simple query
-   */
+  /** webSearch:test - Test every configured provider with a simple query. */
   private registerTest(): void {
     this.rpcHandler.registerMethod<
       Record<string, never>,
-      { success: boolean; provider: string; error?: string }
+      { success: boolean; results: WebSearchTestProviderResult[] }
     >('webSearch:test', async () => {
-      const provider = this.readProviderConfig();
+      const providers = this.readProvidersConfig();
+      this.logger.debug('RPC: webSearch:test called', { providers });
 
-      try {
-        this.logger.debug('RPC: webSearch:test called', { provider });
-
-        const apiKey = await this.secretStorage.get(
-          `${SECRET_KEY_PREFIX}.${provider}`,
-        );
-        if (!apiKey) {
-          return {
-            success: false,
-            provider,
-            error: `No API key configured for ${provider}. Please add your API key first.`,
-          };
-        }
-
-        const adapter = this.createProviderAdapter(
-          provider as WebSearchProviderType,
-          apiKey,
-        );
-        const searchPromise = adapter.search('test', 1);
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error('Search test timed out after 10 seconds')),
-            10_000,
-          );
-        });
-
-        try {
-          await Promise.race([searchPromise, timeoutPromise]);
-        } finally {
-          if (timeoutId !== undefined) {
-            clearTimeout(timeoutId);
+      const settled = await Promise.allSettled(
+        providers.map((provider) => this.testProvider(provider)),
+      );
+      const results = settled.map<WebSearchTestProviderResult>(
+        (result, index) => {
+          if (result.status === 'fulfilled') {
+            return result.value;
           }
-        }
 
-        this.logger.info('Web search test succeeded', { provider });
-        return { success: true, provider };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn('Web search test failed', {
-          provider,
-          error: message,
-        });
-        return { success: false, provider, error: message };
-      }
+          const provider = providers[index];
+          const error =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason);
+          this.logger.warn('Web search test failed', { provider, error });
+          return { provider, success: false, error };
+        },
+      );
+
+      return {
+        success: results.some((result) => result.success),
+        results,
+      };
     });
   }
 
@@ -234,15 +221,15 @@ export class WebSearchRpcHandlers {
   private registerGetConfig(): void {
     this.rpcHandler.registerMethod<
       Record<string, never>,
-      { provider: string; maxResults: number }
+      { providers: string[]; maxResults: number }
     >('webSearch:getConfig', async () => {
       try {
         this.logger.debug('RPC: webSearch:getConfig called');
 
-        const provider = this.readProviderConfig();
+        const providers = this.readProvidersConfig();
         const maxResults = this.readMaxResultsConfig();
 
-        return { provider, maxResults };
+        return { providers, maxResults };
       } catch (error) {
         this.logger.error(
           'RPC: webSearch:getConfig failed',
@@ -265,15 +252,16 @@ export class WebSearchRpcHandlers {
    */
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
-      { provider?: string; maxResults?: number },
+      { providers?: string[]; maxResults?: number },
       { success: boolean }
     >('webSearch:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: webSearch:setConfig called', params);
 
-        if (params.provider !== undefined) {
-          this.validateProvider(params.provider);
-          await this.writeConfiguration('webSearch.provider', params.provider);
+        if (params.providers !== undefined) {
+          const providers = WebSearchProvidersSchema.parse(params.providers);
+          await this.writeConfiguration('webSearch.providers', providers);
+          await this.writeConfiguration('webSearch.provider', undefined);
         }
 
         if (params.maxResults !== undefined) {
@@ -308,17 +296,43 @@ export class WebSearchRpcHandlers {
     }
   }
 
-  /**
-   * Read the currently configured search provider
-   */
-  private readProviderConfig(): string {
-    return (
-      this.workspaceProvider.getConfiguration<string>(
-        'ptah',
-        'webSearch.provider',
-        'tavily',
-      ) ?? 'tavily'
+  /** Read configured providers, with the one legacy single-value fallback. */
+  private readProvidersConfig(): WebSearchProviderType[] {
+    const configured = this.workspaceProvider.getConfiguration<unknown>(
+      'ptah',
+      'webSearch.providers',
     );
+    const candidates =
+      Array.isArray(configured) && configured.length > 0
+        ? configured
+        : this.readLegacyProviderConfig();
+    const providers: WebSearchProviderType[] = [];
+
+    for (const provider of candidates) {
+      if (typeof provider === 'string' && VALID_PROVIDERS.has(provider)) {
+        providers.push(provider as WebSearchProviderType);
+        continue;
+      }
+
+      const invalidProvider = String(provider);
+      this.logger.warn(
+        `Ignoring invalid configured web search provider: ${invalidProvider}`,
+        { provider: invalidProvider },
+      );
+    }
+
+    return providers.length > 0 ? providers : ['tavily'];
+  }
+
+  /** Read the legacy single-provider key only when the list is absent/empty. */
+  private readLegacyProviderConfig(): unknown[] {
+    const legacyProvider = this.workspaceProvider.getConfiguration<unknown>(
+      'ptah',
+      'webSearch.provider',
+    );
+    return legacyProvider === undefined || legacyProvider === null
+      ? []
+      : [legacyProvider];
   }
 
   /**
@@ -361,6 +375,49 @@ export class WebSearchRpcHandlers {
         'writeConfiguration: setConfiguration not available on this platform, skipping backend write',
         { key },
       );
+    }
+  }
+
+  /** Run one isolated provider smoke test under its own 10-second timeout. */
+  private async testProvider(
+    provider: WebSearchProviderType,
+  ): Promise<WebSearchTestProviderResult> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const apiKey = await this.secretStorage.get(
+        `${SECRET_KEY_PREFIX}.${provider}`,
+      );
+      if (!apiKey) {
+        return {
+          provider,
+          success: false,
+          error: `No API key configured for ${provider}. Please add your API key first.`,
+        };
+      }
+
+      const adapter = this.createProviderAdapter(provider, apiKey);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Search test timed out after 10 seconds')),
+          10_000,
+        );
+      });
+
+      await Promise.race([adapter.search('test', 1), timeoutPromise]);
+      this.logger.info('Web search test succeeded', { provider });
+      return { provider, success: true };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn('Web search test failed', {
+        provider,
+        error: message,
+      });
+      return { provider, success: false, error: message };
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

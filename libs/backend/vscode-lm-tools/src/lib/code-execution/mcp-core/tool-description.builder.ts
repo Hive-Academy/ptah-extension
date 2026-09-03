@@ -724,15 +724,25 @@ export function buildWebSearchTool(): MCPToolDefinition {
   return {
     name: 'ptah_web_search',
     description:
-      'Search the web for current information using your configured search provider (Tavily, Serper, or Exa). ' +
-      'Returns structured results with titles, URLs, and snippets, plus a narrative summary. ' +
-      'Configure your provider and API key in Ptah Settings > Web Search.',
+      'Search the web for current information using your configured search providers (Tavily, Serper, Exa). ' +
+      'Every configured provider runs in parallel and the results are merged and de-duplicated. ' +
+      'Returns structured results with titles, URLs, snippets and the providers that returned each one, ' +
+      'plus a narrative summary and a Provider status section naming any provider that failed and why. ' +
+      'Configure your providers and API keys in Ptah Settings > Web Search.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'The search query. Be specific for better results.',
+        },
+        providers: {
+          type: 'array',
+          items: { type: 'string', enum: ['tavily', 'serper', 'exa'] },
+          description:
+            "Overrides the user's configured provider set for this one call. " +
+            'When a previous call reported a failed provider in its Provider status section, ' +
+            'retry with only the providers that reported ok.',
         },
         maxResults: {
           type: 'number',

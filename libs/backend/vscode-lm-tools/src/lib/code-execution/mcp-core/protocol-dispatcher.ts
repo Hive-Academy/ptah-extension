@@ -808,10 +808,11 @@ async function handleIndividualTool(
       }
 
       case 'ptah_web_search': {
-        const { query, maxResults, timeout } = args as {
+        const { query, maxResults, timeout, providers } = args as {
           query: string;
           maxResults?: number;
           timeout?: number;
+          providers?: string[];
         };
         if (!deps.ptahAPI.webSearch) {
           return {
@@ -831,6 +832,7 @@ async function handleIndividualTool(
         const result = await deps.ptahAPI.webSearch.search(query, {
           maxResults,
           timeout,
+          providers,
         });
         return createToolSuccessResponse(
           request,

@@ -137,33 +137,104 @@ describe('mcp-response-formatter › formatAgentSteer', () => {
 });
 
 describe('mcp-response-formatter › formatWebSearch', () => {
-  it('renders query, provider and results table', () => {
+  it('renders query, providers, per-result sources and the results list', () => {
     const out = formatWebSearch({
       query: 'how to mock',
       summary: 'short answer',
-      provider: 'tavily',
+      providers: ['tavily', 'serper'],
+      status: 'ok',
       durationMs: 1230,
       resultCount: 2,
       results: [
-        { title: 'A', url: 'https://a', snippet: 's1' },
-        { title: 'B', url: 'https://b', snippet: 's2' },
+        {
+          title: 'A',
+          url: 'https://a',
+          snippet: 's1',
+          sources: ['tavily', 'serper'],
+        },
+        { title: 'B', url: 'https://b', snippet: 's2', sources: ['serper'] },
+      ],
+      outcomes: [
+        {
+          provider: 'tavily',
+          status: 'ok',
+          durationMs: 900,
+          resultCount: 1,
+        },
+        {
+          provider: 'serper',
+          status: 'ok',
+          durationMs: 1100,
+          resultCount: 2,
+        },
       ],
     });
     expect(out).toMatch(/Web Search Results/);
-    expect(out).toMatch(/tavily/);
+    expect(out).toMatch(/\*\*Providers:\*\* tavily, serper/);
     expect(out).toMatch(/short answer/);
     expect(out).toMatch(/\[A\]\(https:\/\/a\)/);
+    expect(out).toMatch(/sources: tavily, serper/);
     expect(out).toMatch(/1\.2s/);
+  });
+
+  it('renders the Provider status section even when every provider succeeded', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily'],
+      status: 'ok',
+      durationMs: 500,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        { provider: 'tavily', status: 'ok', durationMs: 500, resultCount: 0 },
+      ],
+    });
+    expect(out).toMatch(/Provider status/);
+    expect(out).toMatch(/\*\*tavily\*\* — ok \(0 results, 0\.5s\)/);
+  });
+
+  it('names the reason and message of every failed provider', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily', 'serper'],
+      status: 'partial',
+      durationMs: 500,
+      resultCount: 1,
+      results: [
+        { title: 'A', url: 'https://a', snippet: 's1', sources: ['tavily'] },
+      ],
+      outcomes: [
+        { provider: 'tavily', status: 'ok', durationMs: 400, resultCount: 1 },
+        {
+          provider: 'serper',
+          status: 'failed',
+          durationMs: 10,
+          resultCount: 0,
+          reason: 'missing-api-key',
+          message: 'No API key configured for serper.',
+        },
+      ],
+    });
+    expect(out).toMatch(/\*\*Status:\*\* partial/);
+    expect(out).toMatch(
+      /\*\*serper\*\* — failed \(missing-api-key\): No API key configured for serper\./,
+    );
   });
 
   it('omits summary and results sections when missing', () => {
     const out = formatWebSearch({
       query: 'q',
       summary: '',
-      provider: 'serper',
+      providers: ['serper'],
+      status: 'ok',
       durationMs: 500,
       resultCount: 0,
       results: [],
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 500, resultCount: 0 },
+      ],
     });
     expect(out).toMatch(/Web Search Results/);
     expect(out).not.toMatch(/Summary/);

@@ -3,7 +3,6 @@ import {
   inject,
   ChangeDetectionStrategy,
   signal,
-  computed,
   OnInit,
 } from '@angular/core';
 import {
@@ -16,14 +15,22 @@ import {
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
+type ProviderId = 'tavily' | 'serper' | 'exa';
+
 /**
  * Provider metadata for the UI
  */
 interface ProviderOption {
-  value: 'tavily' | 'serper' | 'exa';
+  value: ProviderId;
   label: string;
   description: string;
   signupUrl: string;
+}
+
+interface ProviderTestResult {
+  provider: string;
+  success: boolean;
+  error?: string;
 }
 
 const PROVIDER_OPTIONS: readonly ProviderOption[] = [
@@ -53,9 +60,9 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
 /**
  * WebSearchConfigComponent - Web search provider configuration panel.
  *
- * Allows users to select a search provider (Tavily, Serper, Exa),
- * manage API keys via SecretStorage, test the connection, and
- * configure max results.
+ * Lets the user select one or more search providers (Tavily, Serper, Exa)
+ * to run in parallel, manage API keys per provider via SecretStorage, test
+ * every configured provider, and configure max results.
  *
  * Cross-platform: works identically on VS Code and Electron.
  * API keys are never displayed in the UI.
@@ -81,7 +88,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
           <code class="text-[10px] bg-base-300 px-1 rounded"
             >ptah_web_search</code
           >
-          MCP tool.
+          MCP tool. Select one or more providers to run in parallel.
         </p>
 
         <!-- Error display -->
@@ -91,106 +98,124 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
 
         <!-- Provider selection -->
         <div class="mb-3">
-          <label
-            for="web-search-provider"
-            class="text-xs font-medium text-base-content-muted mb-1 block"
-          >
-            Search Provider
-          </label>
-          <select
-            id="web-search-provider"
-            class="select select-bordered select-xs w-full"
-            [value]="selectedProvider()"
-            (change)="onProviderChange($event)"
-            data-testid="settings-toggle-web-search-provider"
-          >
+          <span class="text-xs font-medium text-base-content-muted mb-1 block">
+            Search Providers
+          </span>
+          <div class="flex flex-col gap-2">
             @for (opt of providerOptions; track opt.value) {
-              <option
-                [value]="opt.value"
-                [selected]="opt.value === selectedProvider()"
-              >
-                {{ opt.label }}
-              </option>
-            }
-          </select>
-          @if (activeProviderInfo()) {
-            <p class="text-[10px] text-base-content-muted mt-1">
-              {{ activeProviderInfo()!.description }}
-              <a
-                [href]="activeProviderInfo()!.signupUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="link link-hover link-secondary"
-              >
-                Get API key
-              </a>
-            </p>
-          }
-        </div>
+              <div class="border border-secondary/20 rounded p-2">
+                <div class="flex items-center justify-between">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs checkbox-secondary"
+                      [checked]="isSelected(opt.value)"
+                      (change)="toggleProvider(opt.value)"
+                      [attr.data-testid]="
+                        'settings-toggle-web-search-provider-' + opt.value
+                      "
+                    />
+                    <span class="text-xs font-medium">{{ opt.label }}</span>
+                  </label>
+                  @if (apiKeyConfigured()[opt.value]) {
+                    <span class="badge badge-success badge-xs gap-1">
+                      <lucide-angular
+                        [img]="CheckCircleIcon"
+                        class="w-2.5 h-2.5"
+                      />
+                      Key set
+                    </span>
+                  } @else {
+                    <span class="badge badge-ghost badge-xs gap-1">
+                      <lucide-angular [img]="XCircleIcon" class="w-2.5 h-2.5" />
+                      No key
+                    </span>
+                  }
+                </div>
 
-        <!-- API Key Management -->
-        <div class="mb-3">
-          <div class="flex items-center justify-between mb-1">
-            <label
-              for="web-search-api-key"
-              class="text-xs font-medium text-base-content-muted flex items-center gap-1"
-            >
-              <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-              API Key
-            </label>
-            <!-- Status badge -->
-            @if (apiKeyConfigured()) {
-              <span class="badge badge-success badge-xs gap-1">
-                <lucide-angular [img]="CheckCircleIcon" class="w-2.5 h-2.5" />
-                Configured
-              </span>
-            } @else {
-              <span class="badge badge-ghost badge-xs gap-1">
-                <lucide-angular [img]="XCircleIcon" class="w-2.5 h-2.5" />
-                Not configured
-              </span>
-            }
-          </div>
-          <div class="flex gap-1.5">
-            <input
-              id="web-search-api-key"
-              type="password"
-              class="input input-bordered input-xs flex-1"
-              placeholder="Enter API key..."
-              [value]="apiKeyInput()"
-              (input)="onApiKeyInput($event)"
-              autocomplete="off"
-            />
-            <button
-              class="btn btn-primary btn-xs"
-              [disabled]="!apiKeyInput() || isSavingKey()"
-              (click)="saveApiKey()"
-              aria-label="Save API key"
-            >
-              @if (isSavingKey()) {
-                <span class="loading loading-spinner loading-xs"></span>
-              } @else {
-                Save
-              }
-            </button>
-            @if (apiKeyConfigured()) {
-              <button
-                class="btn btn-ghost btn-xs text-error"
-                (click)="deleteApiKey()"
-                aria-label="Delete API key"
-              >
-                Clear
-              </button>
+                <p class="text-[10px] text-base-content-muted mt-1">
+                  {{ opt.description }}
+                  <a
+                    [href]="opt.signupUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="link link-hover link-secondary"
+                  >
+                    Get API key
+                  </a>
+                </p>
+
+                <div class="mt-1.5">
+                  @if (activeKeyProvider() === opt.value) {
+                    <div class="flex gap-1.5">
+                      <input
+                        [id]="'web-search-api-key-' + opt.value"
+                        type="password"
+                        class="input input-bordered input-xs flex-1"
+                        placeholder="Enter API key..."
+                        [value]="apiKeyInput()"
+                        (input)="onApiKeyInput($event)"
+                        autocomplete="off"
+                      />
+                      <button
+                        class="btn btn-primary btn-xs"
+                        [disabled]="!apiKeyInput() || isSavingKey()"
+                        (click)="saveApiKey()"
+                        [attr.aria-label]="'Save API key for ' + opt.label"
+                      >
+                        @if (isSavingKey()) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Save
+                        }
+                      </button>
+                      <button
+                        class="btn btn-ghost btn-xs"
+                        (click)="closeKeyEditor()"
+                        aria-label="Cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  } @else {
+                    <div class="flex gap-1.5">
+                      <button
+                        class="btn btn-outline btn-xs gap-1"
+                        (click)="openKeyEditor(opt.value)"
+                        [attr.aria-label]="'Manage API key for ' + opt.label"
+                      >
+                        <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+                        {{
+                          apiKeyConfigured()[opt.value]
+                            ? 'Update key'
+                            : 'Set key'
+                        }}
+                      </button>
+                      @if (apiKeyConfigured()[opt.value]) {
+                        <button
+                          class="btn btn-ghost btn-xs text-error"
+                          (click)="deleteApiKey(opt.value)"
+                          [attr.aria-label]="'Delete API key for ' + opt.label"
+                        >
+                          Clear
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
             }
           </div>
         </div>
 
         <!-- Test Connection -->
         <div class="mb-3">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 mb-1">
             <button
               class="btn btn-outline btn-xs gap-1"
-              [disabled]="isTesting() || !apiKeyConfigured()"
+              [disabled]="isTesting()"
               (click)="testSearch()"
               aria-label="Test web search connection"
             >
@@ -201,19 +226,24 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
               }
               <span>Test Connection</span>
             </button>
-            @if (testResult()) {
-              @if (testResult()!.success) {
-                <span class="text-xs text-success flex items-center gap-1">
-                  <lucide-angular [img]="CheckCircleIcon" class="w-3 h-3" />
-                  Search works!
-                </span>
-              } @else {
-                <span class="text-xs text-error">
-                  {{ testResult()!.error }}
+          </div>
+          @if (testResult()) {
+            <div class="flex flex-col gap-0.5">
+              @for (r of testResult()!.results; track r.provider) {
+                <span
+                  class="text-xs flex items-center gap-1"
+                  [class.text-success]="r.success"
+                  [class.text-error]="!r.success"
+                >
+                  <lucide-angular
+                    [img]="r.success ? CheckCircleIcon : XCircleIcon"
+                    class="w-3 h-3"
+                  />
+                  {{ r.provider }}: {{ r.success ? 'works' : r.error }}
                 </span>
               }
-            }
-          </div>
+            </div>
+          }
         </div>
 
         <!-- Max Results -->
@@ -260,25 +290,27 @@ export class WebSearchConfigComponent implements OnInit {
   readonly XCircleIcon = XCircle;
   readonly FlaskConicalIcon = FlaskConical;
   readonly providerOptions = PROVIDER_OPTIONS;
-  readonly selectedProvider = signal<'tavily' | 'serper' | 'exa'>('tavily');
-  readonly apiKeyConfigured = signal(false);
+
+  readonly selectedProviders = signal<ReadonlySet<ProviderId>>(new Set());
+  readonly apiKeyConfigured = signal<Record<ProviderId, boolean>>({
+    tavily: false,
+    serper: false,
+    exa: false,
+  });
+  readonly activeKeyProvider = signal<ProviderId | null>(null);
   readonly apiKeyInput = signal('');
   readonly maxResults = signal(5);
   readonly isTesting = signal(false);
   readonly isSavingKey = signal(false);
   readonly testResult = signal<{
     success: boolean;
-    error?: string;
+    results: ProviderTestResult[];
   } | null>(null);
   readonly errorMessage = signal<string | null>(null);
 
-  /**
-   * Computed provider info for the selected provider
-   */
-  readonly activeProviderInfo = computed(
-    () =>
-      PROVIDER_OPTIONS.find((p) => p.value === this.selectedProvider()) ?? null,
-  );
+  isSelected(provider: ProviderId): boolean {
+    return this.selectedProviders().has(provider);
+  }
 
   async ngOnInit(): Promise<void> {
     await this.loadConfig();
@@ -296,74 +328,98 @@ export class WebSearchConfigComponent implements OnInit {
         {} as Record<string, never>,
       );
       if (configResult.isSuccess()) {
-        const provider = configResult.data.provider as
-          | 'tavily'
-          | 'serper'
-          | 'exa';
-        this.selectedProvider.set(provider);
+        const providers = configResult.data.providers as ProviderId[];
+        this.selectedProviders.set(new Set(providers));
         this.maxResults.set(configResult.data.maxResults);
       }
     } catch {
       this.errorMessage.set('Failed to load web search configuration');
     }
 
-    await this.loadApiKeyStatus();
+    await this.loadApiKeyStatuses();
   }
 
   /**
-   * Check if the current provider has an API key configured
+   * Check API key status for every provider
    */
-  async loadApiKeyStatus(): Promise<void> {
-    const result = await this.rpcService.call('webSearch:getApiKeyStatus', {
-      provider: this.selectedProvider(),
-    });
-    if (result.isSuccess()) {
-      this.apiKeyConfigured.set(result.data.configured);
+  async loadApiKeyStatuses(): Promise<void> {
+    const entries = await Promise.all(
+      this.providerOptions.map(async (opt) => {
+        const result = await this.rpcService.call('webSearch:getApiKeyStatus', {
+          provider: opt.value,
+        });
+        return [
+          opt.value,
+          result.isSuccess() && result.data.configured,
+        ] as const;
+      }),
+    );
+    this.apiKeyConfigured.set(
+      Object.fromEntries(entries) as Record<ProviderId, boolean>,
+    );
+  }
+
+  /**
+   * Toggle a provider's selection. Refuses to leave zero providers selected.
+   */
+  async toggleProvider(provider: ProviderId): Promise<void> {
+    const current = new Set(this.selectedProviders());
+
+    if (current.has(provider)) {
+      if (current.size === 1) {
+        this.errorMessage.set('At least one provider must stay selected.');
+        return;
+      }
+      current.delete(provider);
+    } else {
+      current.add(provider);
     }
-  }
 
-  /**
-   * Handle provider selection change
-   */
-  async onProviderChange(event: Event): Promise<void> {
-    const value = (event.target as HTMLSelectElement).value as
-      | 'tavily'
-      | 'serper'
-      | 'exa';
-    this.selectedProvider.set(value);
+    this.errorMessage.set(null);
+    this.selectedProviders.set(current);
     this.testResult.set(null);
-    this.apiKeyInput.set('');
-    await this.saveConfig({ provider: value });
-    await this.loadApiKeyStatus();
+    await this.saveConfig({ providers: Array.from(current) });
   }
 
-  /**
-   * Handle API key input
-   */
+  openKeyEditor(provider: ProviderId): void {
+    this.activeKeyProvider.set(provider);
+    this.apiKeyInput.set('');
+    this.errorMessage.set(null);
+  }
+
+  closeKeyEditor(): void {
+    this.activeKeyProvider.set(null);
+    this.apiKeyInput.set('');
+  }
+
   onApiKeyInput(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     this.apiKeyInput.set(value);
   }
 
   /**
-   * Save the API key to SecretStorage
+   * Save the API key for the currently active provider row
    */
   async saveApiKey(): Promise<void> {
+    const provider = this.activeKeyProvider();
     const apiKey = this.apiKeyInput();
-    if (!apiKey) return;
+    if (!provider || !apiKey) return;
 
     this.isSavingKey.set(true);
     this.errorMessage.set(null);
 
     try {
       const result = await this.rpcService.call('webSearch:setApiKey', {
-        provider: this.selectedProvider(),
+        provider,
         apiKey,
       });
 
       if (result.isSuccess()) {
-        this.apiKeyConfigured.set(true);
-        this.apiKeyInput.set('');
+        this.apiKeyConfigured.update((prev) => ({
+          ...prev,
+          [provider]: true,
+        }));
+        this.closeKeyEditor();
         this.testResult.set(null);
       } else {
         this.errorMessage.set(result.error ?? 'Failed to save API key');
@@ -376,18 +432,21 @@ export class WebSearchConfigComponent implements OnInit {
   }
 
   /**
-   * Delete the API key from SecretStorage
+   * Delete the API key for a provider
    */
-  async deleteApiKey(): Promise<void> {
+  async deleteApiKey(provider: ProviderId): Promise<void> {
     this.errorMessage.set(null);
 
     try {
       const result = await this.rpcService.call('webSearch:deleteApiKey', {
-        provider: this.selectedProvider(),
+        provider,
       });
 
       if (result.isSuccess()) {
-        this.apiKeyConfigured.set(false);
+        this.apiKeyConfigured.update((prev) => ({
+          ...prev,
+          [provider]: false,
+        }));
         this.testResult.set(null);
       }
     } catch {
@@ -396,7 +455,7 @@ export class WebSearchConfigComponent implements OnInit {
   }
 
   /**
-   * Test the current provider with a simple search query
+   * Test every configured provider and show a per-provider pass/fail line
    */
   async testSearch(): Promise<void> {
     this.isTesting.set(true);
@@ -412,16 +471,13 @@ export class WebSearchConfigComponent implements OnInit {
       if (result.isSuccess()) {
         this.testResult.set({
           success: result.data.success,
-          error: result.data.error,
+          results: result.data.results,
         });
       } else {
-        this.testResult.set({
-          success: false,
-          error: result.error ?? 'Test failed',
-        });
+        this.errorMessage.set(result.error ?? 'Test failed');
       }
     } catch {
-      this.testResult.set({ success: false, error: 'Test request failed' });
+      this.errorMessage.set('Test request failed');
     } finally {
       this.isTesting.set(false);
     }
@@ -444,7 +500,7 @@ export class WebSearchConfigComponent implements OnInit {
    * both platforms via a single code path.
    */
   private async saveConfig(params: {
-    provider?: string;
+    providers?: string[];
     maxResults?: number;
   }): Promise<void> {
     this.errorMessage.set(null);

@@ -71,6 +71,9 @@ export {
 export type {
   WebSearchProviderType,
   IWebSearchProvider,
+  WebSearchFailureReason,
+  WebSearchProviderOutcome,
+  WebSearchAttributedResultItem,
 } from './lib/code-execution/services/web-search-provider.interface';
 export type {
   IBrowserCapabilities,

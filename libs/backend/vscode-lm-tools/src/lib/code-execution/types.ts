@@ -56,14 +56,36 @@ export interface PtahAPI {
   webSearch?: {
     search(
       query: string,
-      options?: { maxResults?: number; timeout?: number },
+      options?: {
+        maxResults?: number;
+        timeout?: number;
+        /** Overrides the configured provider set for this one call. */
+        providers?: string[];
+      },
     ): Promise<{
       query: string;
       summary: string;
-      provider: string;
+      /** The providers actually attempted, in selection order. */
+      providers: string[];
+      /** 'ok' = every provider succeeded, 'partial' = at least one failed. */
+      status: string;
       durationMs: number;
-      results: Array<{ title: string; url: string; snippet: string }>;
+      results: Array<{
+        title: string;
+        url: string;
+        snippet: string;
+        sources: string[];
+      }>;
       resultCount: number;
+      /** One entry per selected provider, ok and failed alike. */
+      outcomes: Array<{
+        provider: string;
+        status: string;
+        durationMs: number;
+        resultCount: number;
+        reason?: string;
+        message?: string;
+      }>;
     }>;
   };
   harness?: HarnessNamespace;
