@@ -218,13 +218,20 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       workspaceRoot: '/ws',
       transcript: 't',
     });
+    // One tick: a pass is admitted by `CuratorJobQueue` (TASK_2026_376 F4), so
+    // it starts on the next microtask rather than inside the `curate` call.
+    // What is pinned here is unchanged — two concurrent calls, ONE extract.
+    await Promise.resolve();
     expect(extract).toHaveBeenCalledTimes(1);
     resolvers[0]({ status: 'extracted', drafts: [] });
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
   });
 
-  it('different sessions run in parallel', async () => {
+  // Renamed for accuracy in TASK_2026_376 F4: two sessions are now QUEUED
+  // rather than run at once. The property this pins is the one it always
+  // pinned — distinct sessions are not coalesced into one extract.
+  it('different sessions each get their own extract', async () => {
     const extract = jest
       .fn()
       .mockResolvedValue({ status: 'extracted', drafts: [] });
@@ -1423,5 +1430,190 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
     });
 
     expect(extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+  });
+});
+
+/**
+ * TASK_2026_376 F4 — a curation window must not be lost to the internal-query
+ * concurrency gate.
+ *
+ * The fake gate below is the real one narrowed to what this test needs: one
+ * lane, a ceiling of one, FIFO admission, and a wait ceiling after which the
+ * waiter is rejected with the error `InternalQueryQueueTimeoutError` wrapped in
+ * the `CuratorLlmQueryError` the curator adapter throws. Every millisecond
+ * figure is scaled down from production (60 000 ms budget, 24-37 s windows) so
+ * the ratio that produces the defect is preserved and the test stays fast.
+ */
+class FakeLaneGate {
+  private busy = false;
+  private readonly waiters: Array<() => void> = [];
+  /** Waiters rejected for exceeding the wait ceiling. The number under test. */
+  timeouts = 0;
+
+  constructor(private readonly queueTimeoutMs: number) {}
+
+  acquire(): Promise<() => void> {
+    if (!this.busy) {
+      this.busy = true;
+      return Promise.resolve(() => this.release());
+    }
+    return new Promise<() => void>((resolve, reject) => {
+      let settled = false;
+      const admit = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.busy = true;
+        resolve(() => this.release());
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const index = this.waiters.indexOf(admit);
+        if (index >= 0) this.waiters.splice(index, 1);
+        this.timeouts++;
+        reject(queueSlotTimeoutError(this.queueTimeoutMs));
+      }, this.queueTimeoutMs);
+      this.waiters.push(admit);
+    });
+  }
+
+  private release(): void {
+    this.busy = false;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+}
+
+function queueSlotTimeoutError(ms: number): Error {
+  const inner = new Error(
+    `Internal query waited longer than ${ms}ms for a concurrency slot.`,
+  );
+  inner.name = 'InternalQueryQueueTimeoutError';
+  const wrapped = new Error(
+    'The memory curator could not complete its language-model query.',
+    { cause: inner },
+  );
+  wrapped.name = 'CuratorLlmQueryError';
+  return wrapped;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** An `ICuratorLLM` whose every call must win a slot in `gate` first. */
+function makeGatedLlm(
+  gate: FakeLaneGate,
+  queryMs: number,
+): { llm: ICuratorLLM; extractCalls: string[] } {
+  const extractCalls: string[] = [];
+  const llm: ICuratorLLM = {
+    extract: async (transcript: string) => {
+      const release = await gate.acquire();
+      try {
+        extractCalls.push(transcript.slice(0, 12));
+        await sleep(queryMs);
+        return {
+          status: 'extracted',
+          drafts: [
+            {
+              kind: 'fact',
+              subject: transcript.slice(0, 12),
+              content: 'durable fact',
+              salienceHint: 0.5,
+            },
+          ],
+        };
+      } finally {
+        release();
+      }
+    },
+    resolve: async (drafts) => {
+      const release = await gate.acquire();
+      try {
+        await sleep(queryMs);
+        return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+      } finally {
+        release();
+      }
+    },
+  };
+  return { llm, extractCalls };
+}
+
+/** Long enough to plan several windows (`CURATOR_WINDOW_MAX_CHARS` is 32 KB). */
+function multiWindowTranscript(marker: string): string {
+  return Array.from(
+    { length: 100 },
+    (_, i) => `${marker} USER: turn ${i} ${'x'.repeat(1_000)}`,
+  ).join('\n\n');
+}
+
+describe('MemoryCuratorService — concurrency-slot loss (TASK_2026_376 F4)', () => {
+  it('a sibling window is not lost when a predecessor outlives the wait ceiling', async () => {
+    // One query (40 ms) outlives the wait ceiling (15 ms), which is the
+    // production ratio that dropped two sessions.
+    const gate = new FakeLaneGate(15);
+    const { llm, extractCalls } = makeGatedLlm(gate, 40);
+    const svc = buildService({ llm });
+
+    const [multi, sibling] = await Promise.all([
+      svc.curate({
+        sessionId: 'multi-window',
+        transcript: multiWindowTranscript('A'),
+      }),
+      svc.curate({ sessionId: 'sibling', transcript: 'B USER: short session' }),
+    ]);
+
+    // The transcript really did cost more than one window — otherwise this
+    // test would pass for the wrong reason.
+    expect(
+      extractCalls.filter((t) => t.startsWith('A')).length,
+    ).toBeGreaterThan(1);
+    expect(gate.timeouts).toBe(0);
+    expect(multi).toMatchObject({ outcome: 'ran' });
+    expect(multi.extracted).toBeGreaterThan(0);
+    expect(sibling).toMatchObject({ outcome: 'ran' });
+    expect(sibling.extracted).toBeGreaterThan(0);
+  });
+
+  it('defers instead of reporting a run when the slot is never won', async () => {
+    const events: MemoryCuratorEvent[] = [];
+    const llm = {
+      extract: jest.fn().mockRejectedValue(queueSlotTimeoutError(60_000)),
+      resolve: jest.fn(),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    svc.onEvent((e) => events.push(e));
+
+    const stats = await svc.curate({
+      sessionId: 'congested',
+      transcript: 'USER: something worth curating',
+    });
+
+    // `'stalled'` is what makes `MemoryTriggerService` leave the observation
+    // rows unprocessed, so the next drain curates this session again.
+    expect(stats.outcome).toBe('stalled');
+    expect(stats.extracted).toBe(0);
+    expect(events.map((e) => e.kind)).toContain('rate-limited');
+    expect(events.map((e) => e.kind)).not.toContain('curator-run');
+    // A deferred pass is not a run, so it must not become "last run".
+    expect(svc.lastRunInfo().stats).toBeNull();
+  });
+
+  it('still reports a dispatched failure as a run', async () => {
+    const llm = {
+      extract: jest.fn().mockRejectedValue(new Error('provider returned 500')),
+      resolve: jest.fn(),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+
+    const stats = await svc.curate({
+      sessionId: 'broken',
+      transcript: 'USER: something worth curating',
+    });
+
+    expect(stats.outcome).toBe('ran');
   });
 });

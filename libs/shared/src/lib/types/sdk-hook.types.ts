@@ -137,6 +137,25 @@ export interface SdkSubagentEndedPayload {
   readonly cwd: string;
   readonly agentId: string;
   readonly agentType: string;
+  /**
+   * The Task tool_use id that spawned this subagent, as the SDK hands it to
+   * the `SubagentStop` hook.
+   *
+   * Optional because the SDK does not guarantee a `toolUseID` on every hook
+   * invocation, and a payload without it must behave exactly as it did before
+   * this field existed.
+   *
+   * It is here because `agentId` and `toolCallId` are two identity spaces, and
+   * a background agent can end up filed under the wrong one. The
+   * `background_agent_started` event reads `agentId` from the subagent
+   * registry, whose record only exists once the `SubagentStart` hook has
+   * fired — which can be after the placeholder tool_result. When it is absent,
+   * `BackgroundAgentStore` keys the entry by `toolCallId` instead, and a
+   * terminal signal carrying only `agentId` can never address it again.
+   * Carrying the pairing on the one event that ends the agent is what lets the
+   * store re-key the entry onto its real agent id.
+   */
+  readonly toolCallId?: string;
   readonly lastAssistantMessage: string | null;
   readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
   readonly timestamp: number;

@@ -129,12 +129,28 @@ export class TurnEndHandlerService {
    * `backgroundTasks` snapshot onto every bound tab. The
    * `awaiting-background → loaded` flip is the backend's call: it arrives as
    * an `idle` `turn_state` once the registry sees no remaining tasks.
+   *
+   * This is the ONLY terminal signal a background agent has —
+   * `background_agent_completed` has no producer anywhere in the repository —
+   * so an entry this method cannot address stays `running` forever. It could
+   * not address one whose `background_agent_started` event arrived without an
+   * `agentId`, because the store then keys that entry by its `toolCallId` and
+   * `findByAgentId` is a lookup on the other identity space. When the payload
+   * carries the `toolCallId` the two are reconciled first, through
+   * `adoptRealAgentId`, and the stop then proceeds unchanged.
    */
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
     const sessionId = SessionId.from(payload.sessionId);
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
     const agentKey = payload.agentId as BackgroundAgentId;
-    const knownEntry = this.backgroundAgents.findByAgentId(agentKey);
+    const knownEntry =
+      this.backgroundAgents.findByAgentId(agentKey) ??
+      (payload.toolCallId
+        ? this.backgroundAgents.adoptRealAgentId(
+            payload.toolCallId,
+            payload.agentId,
+          )
+        : null);
     if (knownEntry) {
       this.backgroundAgents.onStopped({
         id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,

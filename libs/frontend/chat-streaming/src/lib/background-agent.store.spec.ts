@@ -27,6 +27,8 @@
  *   - MAX_COMPLETED_AGENTS eviction: oldest completed evicted first
  *   - revision: bumps once per mutation that actually replaced the agent
  *     map, and stays put when a reducer declines the write
+ *   - adoptRealAgentId re-keys a toolCallId-keyed entry onto its real agentId,
+ *     keeps `toolCallId` addressable, and declines every unsafe write
  *   - ngOnDestroy stops the tick interval
  */
 
@@ -516,6 +518,95 @@ describe('BackgroundAgentStore', () => {
       expect(store.isBackgroundAgent('tc-old')).toBe(false);
       expect(store.isBackgroundAgent('tc-new')).toBe(true);
       expect(store.revision()).toBeGreaterThan(beforeSwap);
+    });
+  });
+
+  describe('adoptRealAgentId', () => {
+    it('re-keys a toolCallId-keyed entry onto the real agentId and keeps the toolCallId addressable', () => {
+      // The SubagentStart hook had not fired yet, so the started event carried
+      // no agentId and `resolveKey` filed the entry under its toolCallId.
+      store.onStarted(
+        startEvent({ agentId: undefined, toolCallId: 'toolu_1' }),
+      );
+      expect(store.findByAgentId('a-real' as BackgroundAgentId)).toBeNull();
+      expect(
+        store.findByAgentId('toolu_1' as BackgroundAgentId),
+      ).not.toBeNull();
+
+      const adopted = store.adoptRealAgentId('toolu_1', 'a-real');
+
+      expect(adopted).not.toBeNull();
+      expect(adopted?.agentId).toBe('a-real');
+      expect(adopted?.hasRealAgentId).toBe(true);
+      expect(adopted?.toolCallId).toBe('toolu_1');
+      expect(store.findByAgentId('a-real' as BackgroundAgentId)).toBe(adopted);
+      expect(store.findByAgentId('toolu_1' as BackgroundAgentId)).toBeNull();
+      // The tree builder's lookup is on the OTHER identity space and must not
+      // notice the re-key.
+      expect(store.isBackgroundAgent('toolu_1')).toBe(true);
+      expect(store.totalCount()).toBe(1);
+    });
+
+    it('bumps revision exactly once, because the map identity really changed', () => {
+      store.onStarted(
+        startEvent({ agentId: undefined, toolCallId: 'toolu_1' }),
+      );
+      const before = store.revision();
+
+      store.adoptRealAgentId('toolu_1', 'a-real');
+
+      expect(store.revision()).toBe(before + 1);
+    });
+
+    it('declines every write it cannot make safely, and leaves revision alone', () => {
+      store.onStarted(
+        startEvent({ agentId: undefined, toolCallId: 'toolu_1' }),
+      );
+      store.onStarted(
+        startEvent({ agentId: 'a-other', toolCallId: 'toolu_2' }),
+      );
+      const before = store.revision();
+
+      // No entry for that toolCallId.
+      expect(store.adoptRealAgentId('toolu_missing', 'a-real')).toBeNull();
+      // Empty agentId is not an identity.
+      expect(store.adoptRealAgentId('toolu_1', '')).toBeNull();
+      // The entry already carries a different REAL agent id.
+      expect(store.adoptRealAgentId('toolu_2', 'a-real')).toBeNull();
+      // The destination key is occupied by another agent.
+      expect(store.adoptRealAgentId('toolu_1', 'a-other')).toBeNull();
+
+      expect(store.revision()).toBe(before);
+      expect(
+        store.findByAgentId('toolu_1' as BackgroundAgentId),
+      ).not.toBeNull();
+      expect(
+        store.findByAgentId('a-other' as BackgroundAgentId)?.toolCallId,
+      ).toBe('toolu_2');
+    });
+
+    it('is idempotent for an entry already keyed by that real agentId', () => {
+      store.onStarted(startEvent({ agentId: 'a-real', toolCallId: 'toolu_1' }));
+      const before = store.revision();
+
+      const adopted = store.adoptRealAgentId('toolu_1', 'a-real');
+
+      expect(adopted?.agentId).toBe('a-real');
+      expect(store.revision()).toBe(before);
+    });
+  });
+
+  describe('findByToolCallId', () => {
+    it('finds an entry under either identity space and returns null otherwise', () => {
+      store.onStarted(
+        startEvent({ agentId: undefined, toolCallId: 'toolu_1' }),
+      );
+      expect(store.findByToolCallId('toolu_1')?.toolCallId).toBe('toolu_1');
+
+      store.adoptRealAgentId('toolu_1', 'a-real');
+      expect(store.findByToolCallId('toolu_1')?.agentId).toBe('a-real');
+
+      expect(store.findByToolCallId('toolu_absent')).toBeNull();
     });
   });
 

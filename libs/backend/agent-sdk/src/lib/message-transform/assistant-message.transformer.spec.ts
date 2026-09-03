@@ -195,6 +195,54 @@ describe('AssistantMessageTransformer', () => {
     });
   });
 
+  it('suppresses envelopes for an empty-string text block', () => {
+    const msg = {
+      uuid: 'u-empty-text',
+      message: {
+        id: 'm-empty-text',
+        model: 'claude-opus',
+        content: [{ type: 'text', text: '' }],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-empty-text' as never,
+    );
+
+    expect(events).toEqual([]);
+    expect(helpers.logger.debug).toHaveBeenCalledWith(
+      '[SdkMessageTransformer] Skipping assistant message without renderable events',
+      { messageId: 'm-empty-text' },
+    );
+  });
+
+  it('still emits text_delta with the correct blockIndex for a non-empty text block', () => {
+    const msg = {
+      uuid: 'u-nonempty-text',
+      message: {
+        id: 'm-nonempty-text',
+        model: 'claude-opus',
+        content: [
+          { type: 'thinking', thinking: '', signature: 'sig' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-nonempty-text' as never,
+    );
+
+    const textDelta = events.find((e) => e.eventType === 'text_delta');
+    expect(textDelta).toMatchObject({ delta: 'answer', blockIndex: 1 });
+  });
+
   it('emits envelopes for renderable thinking and text', () => {
     const msg = {
       uuid: 'u-thinking-text',
@@ -571,6 +619,44 @@ describe('AssistantMessageTransformer', () => {
     expect((bg as { outputFilePath?: string }).outputFilePath).toBe(
       '/tmp/bg.log',
     );
+  });
+
+  it('emits background_agent_started BEFORE the tool_result for the same toolCallId', () => {
+    state.hasBackgroundTaskToolUseId.mockReturnValue(true);
+    const msg = {
+      uuid: 'u-order',
+      message: {
+        id: 'm-order',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool-bg-order',
+            content: 'started\noutput_file: /tmp/bg.log\n',
+            is_error: false,
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-order' as never,
+    );
+
+    const bgIndex = events.findIndex(
+      (e) => e.eventType === 'background_agent_started',
+    );
+    const resultIndex = events.findIndex(
+      (e) =>
+        e.eventType === 'tool_result' &&
+        (e as { toolCallId?: string }).toolCallId === 'tool-bg-order',
+    );
+    expect(bgIndex).toBeGreaterThanOrEqual(0);
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(bgIndex).toBeLessThan(resultIndex);
   });
 
   // The tool_result that triggers background_agent_started carries neither the

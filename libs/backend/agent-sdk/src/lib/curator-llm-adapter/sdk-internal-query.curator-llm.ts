@@ -94,9 +94,25 @@ type CuratorAuthDecision =
  * distinction is unrecoverable. Carrying it here — the earliest point it
  * exists — is what lets `extract` publish `status: 'stalled'` without
  * reconstructing anything.
+ *
+ * The same collapse happened a second time, one layer down, and TASK_2026_376
+ * F8 is that repeat. With tools reachable (`resolveMcpSessionWiring` below) a
+ * run can spend every turn calling them and emit no assistant text at all. The
+ * old collector gathered text ONLY, so that run reached the caller as `''` —
+ * byte-identical to a model that answered nothing, and byte-identical to a run
+ * that never started. Three different events, one value. `tools-only` and
+ * `silent` are separate arms for the same reason `cooling-down` is: the caller
+ * acts differently on them, and a discriminator is the only thing a `''` cannot
+ * be mistaken for.
  */
 type CuratorQueryOutcome =
-  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'text'; readonly text: string; readonly toolUses: number }
+  | {
+      readonly kind: 'tools-only';
+      readonly toolUses: number;
+      readonly toolNames: readonly string[];
+    }
+  | { readonly kind: 'silent' }
   | { readonly kind: 'cooling-down'; readonly providerId: string };
 
 /**
@@ -118,6 +134,49 @@ type CuratorQueryOutcome =
  * Haiku is the right tier: curation is high-volume, low-reasoning summarisation.
  */
 export const CURATOR_DEFAULT_MODEL_TIER = 'haiku';
+
+/**
+ * The curator's bounded turn budget.
+ *
+ * ## What `maxTurns` means, verified rather than assumed
+ *
+ * Read out of the installed `@anthropic-ai/claude-agent-sdk@0.3.150`:
+ *
+ *  - `Options.maxTurns` (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1527-1530`):
+ *    "Maximum number of conversation turns before the query stops. A turn
+ *    consists of a user message and assistant response."
+ *  - `AgentDefinition.maxTurns` (same file, `:73-75`) states the unit outright:
+ *    "Maximum number of agentic turns (API round-trips) before stopping".
+ *  - Exceeding it is a RESULT, not a throw: `SDKResultError.subtype` includes
+ *    `'error_max_turns'` (`:3402`) and `TerminalReason` includes `'max_turns'`
+ *    (`:5687`).
+ *  - `SdkQueryRunner` forwards the number to the CLI as `--max-turns`, so the
+ *    ceiling is enforced by the `claude` binary, not by this process.
+ *
+ * One turn is therefore ONE API round-trip. `maxTurns: 1` — what this used to
+ * be — buys the model exactly one assistant response. It may emit `tool_use`
+ * blocks in it, and the SDK will even run the tools, but delivering the
+ * `tool_result` back needs a SECOND round-trip, and that one never happens.
+ * The model never observes what its own tool call returned and never writes the
+ * JSON that follows from it. The MCP wiring three lines above `maxTurns` was
+ * attached and unreachable (TASK_2026_376 F8).
+ *
+ * ## Why 6
+ *
+ * Two is the floor: call, observe, answer. Six is the floor plus room for a
+ * short chain — search memory, read a file the transcript named, then answer —
+ * which is the shape curation actually has.
+ *
+ * It stays a BOUND, and a small one. `DEFAULT_ONE_SHOT_MAX_TURNS` is 25
+ * (`helpers/sdk-query-runner.service.ts:66`); the curator asks for a quarter of
+ * that because it runs behind a 60-second per-lane queue budget
+ * (`DEFAULT_QUEUE_TIMEOUT_MS`, `internal-query/internal-query.service.ts`) on a
+ * lane whose `perLaneLimit` is 1. Every turn this run spends is a turn the next
+ * curation window waits, and a window that waits past the budget is DROPPED
+ * (TASK_2026_376 F4). A generous ceiling here is not free latency — it is the
+ * next window's data loss. Raise it only with that trade in hand.
+ */
+export const CURATOR_MAX_TURNS = 6;
 
 @injectable()
 export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
@@ -218,6 +277,26 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         providerId: outcome.providerId,
       };
     }
+    // `tools-only` and `silent` both yield no drafts, and the CONTRACT cannot
+    // tell them apart: `CuratorExtraction` has two arms, and adding a third
+    // means editing `memory-contracts` and `memory-curator`, neither of which
+    // this batch owns (reported in b5-report.md). What is inside reach is the
+    // record — an operator reading the log can now see that the pass ran, used
+    // tools, and chose not to write JSON, which is a different event from a
+    // pass that produced nothing at all.
+    if (outcome.kind === 'tools-only') {
+      this.logger.info(
+        '[memory-curator] curator extract pass did its work through tools and returned no JSON; nothing to persist from this pass',
+        { toolUses: outcome.toolUses, toolNames: outcome.toolNames },
+      );
+      return { status: 'extracted', drafts: [] };
+    }
+    if (outcome.kind === 'silent') {
+      this.logger.warn(
+        '[memory-curator] curator extract pass produced neither text nor tool calls',
+      );
+      return { status: 'extracted', drafts: [] };
+    }
     return { status: 'extracted', drafts: this.parseDrafts(outcome.text) };
   }
 
@@ -242,6 +321,19 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       signal,
     );
     if (outcome.kind === 'cooling-down') {
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    if (outcome.kind === 'tools-only') {
+      this.logger.info(
+        '[memory-curator] curator resolve pass used tools and returned no JSON; storing the drafts unmerged',
+        { toolUses: outcome.toolUses, toolNames: outcome.toolNames },
+      );
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    if (outcome.kind === 'silent') {
+      this.logger.warn(
+        '[memory-curator] curator resolve pass produced neither text nor tool calls; storing the drafts unmerged',
+      );
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
     return this.parseResolved(outcome.text, drafts);
@@ -283,7 +375,11 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // Was hard-coded false (defect 13). The curator reads and writes memory
         // through Ptah tools when they are reachable.
         ...resolveMcpSessionWiring(this.mcpServerStatus),
-        maxTurns: 1,
+        // Was 1, which made the MCP wiring on the line above unusable: one
+        // round-trip cannot carry a tool_result back to the model. See
+        // CURATOR_MAX_TURNS for the SDK semantics this number is derived from
+        // and for why it stays small.
+        maxTurns: CURATOR_MAX_TURNS,
         // The curator's own concurrency lane. Before TASK_2026_352 every
         // internal one-shot shared a single host-wide slot, so a curation pass
         // queued behind an unrelated skill-synthesis lane call and back again
@@ -293,22 +389,52 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         auth,
       });
       let collected = '';
+      let toolUses = 0;
+      const toolNames: string[] = [];
+      let hitTurnCeiling = false;
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
         if (msg.type === 'assistant') {
           const message = (
             msg as unknown as {
-              message?: { content?: Array<{ type: string; text?: string }> };
+              message?: {
+                content?: Array<{ type: string; text?: string; name?: string }>;
+              };
             }
           ).message;
           for (const block of message?.content ?? []) {
             if (block.type === 'text' && typeof block.text === 'string') {
               collected += block.text;
             }
+            // The half the old collector dropped. A turn spent on a tool call
+            // contributed NOTHING here, so a run that searched memory and read
+            // three files was reported exactly like a run that said nothing.
+            if (block.type === 'tool_use') {
+              toolUses++;
+              if (typeof block.name === 'string' && block.name.length > 0) {
+                if (!toolNames.includes(block.name)) toolNames.push(block.name);
+              }
+            }
           }
         }
-        if (msg.type === 'result') break;
+        if (msg.type === 'result') {
+          // `error_max_turns` is a RESULT in this SDK, never a throw, so an
+          // exhausted budget is silent unless it is read here. It is the one
+          // signal that says CURATOR_MAX_TURNS is set too low for the work.
+          const subtype = (msg as unknown as { subtype?: string }).subtype;
+          hitTurnCeiling = subtype === 'error_max_turns';
+          break;
+        }
       }
-      return { kind: 'text', text: collected };
+      if (hitTurnCeiling) {
+        this.logger.warn(
+          '[memory-curator] curator run stopped at its turn ceiling; the model had more tool work queued than the budget allows',
+          { maxTurns: CURATOR_MAX_TURNS, toolUses, toolNames },
+        );
+      }
+      if (collected.length > 0)
+        return { kind: 'text', text: collected, toolUses };
+      if (toolUses > 0) return { kind: 'tools-only', toolUses, toolNames };
+      return { kind: 'silent' };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[memory-curator] curator LLM query failed', {

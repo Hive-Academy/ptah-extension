@@ -74,6 +74,36 @@ describe('SubagentStopHookHandler', () => {
     );
   });
 
+  it('forwards the SDK toolUseID as toolCallId, and omits it when absent or blank', async () => {
+    const logger = makeLogger();
+    const events = new SdkAdapterEvents(logger);
+    const captured: Array<{ toolCallId?: string }> = [];
+    events.onSubagentEnded((event) => {
+      captured.push(event);
+    });
+    const handler = new SubagentStopHookHandler(logger, events);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    const input = {
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-abc',
+      agent_type: 'subagent',
+    } as unknown as HookInput;
+    const options = { signal: new AbortController().signal };
+
+    await fn(input, 'toolu_abc', options);
+    await fn(input, undefined, options);
+    await fn(input, '', options);
+
+    expect(captured).toHaveLength(3);
+    // This is the ONLY carrier of the agentId <-> toolCallId pairing at
+    // SubagentStop: the SubagentHookHandler twin on the same hook has already
+    // deleted the registry record by marking the agent completed.
+    expect(captured[0].toolCallId).toBe('toolu_abc');
+    expect('toolCallId' in captured[1]).toBe(false);
+    expect('toolCallId' in captured[2]).toBe(false);
+  });
+
   it('null fallback: lastAssistantMessage defaults to null when SDK omits', async () => {
     const logger = makeLogger();
     const events = new SdkAdapterEvents(logger);

@@ -348,6 +348,39 @@ describe('SessionLifecycleNotifier', () => {
       expect(payload).toEqual(event);
     });
 
+    it('forwards the optional toolCallId, which the Zod schema would strip', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded(
+        makeSubagentEndedEvent({ toolCallId: 'toolu_abc' }),
+      );
+
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload.toolCallId).toBe('toolu_abc');
+    });
+
+    it('omits a blank toolCallId instead of putting an unusable id on the wire', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded(makeSubagentEndedEvent({ toolCallId: '' }));
+
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload.toolCallId).toBeUndefined();
+      expect('toolCallId' in payload).toBe(false);
+    });
+
+    it('drops a malformed payload even when it carries a toolCallId', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded({
+        ...makeSubagentEndedEvent({ toolCallId: 'toolu_abc' }),
+        agentId: '',
+      });
+
+      expect(calls).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
     it('drops a malformed subagentEnded payload and logs a warning with structural context', () => {
       new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
       const bad = {

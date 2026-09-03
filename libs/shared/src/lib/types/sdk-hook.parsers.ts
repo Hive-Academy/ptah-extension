@@ -8,8 +8,9 @@
  * the schema's `safeParse(...).data` would return (unknown keys stripped,
  * arrays frozen, key order preserved).
  *
- * That equivalence is **proven, not asserted** — `sdk-hook.parsers.spec.ts`
- * runs both implementations over a shared corpus and fails on any divergence.
+ * That equivalence is **proven, not asserted** —
+ * `wire-parsers.equivalence.spec.ts` runs both implementations over a shared
+ * corpus and fails on any divergence.
  * The schemas remain the source of truth and are still used by the backend;
  * these exist so the frontend can enforce the same contract without pulling
  * the 304 kB Zod runtime into the initial bundle (TASK_2026_187 Unit 10).
@@ -193,7 +194,19 @@ export function parseSdkTurnFailedPayload(
   };
 }
 
-/** Mirrors `SdkSubagentEndedPayloadSchema`. */
+/**
+ * Mirrors `SdkSubagentEndedPayloadSchema`, with ONE deliberate difference:
+ * this parser keeps the optional `toolCallId`, and the Zod schema does not
+ * declare it, so `safeParse` strips it.
+ *
+ * The divergence is confined to that key. Acceptance is identical on every
+ * input, and `SessionLifecycleNotifier` puts the field back on the wire
+ * explicitly after its `safeParse` call rather than letting a stripped field
+ * travel silently. Add `toolCallId: z.string().min(1).optional()` to
+ * `SdkSubagentEndedPayloadSchema` and this note goes away — the equivalence
+ * corpus in `wire-parsers.equivalence.spec.ts` does not carry the key today,
+ * so it cannot catch the gap on its own.
+ */
 export function parseSdkSubagentEndedPayload(
   payload: unknown,
 ): SdkSubagentEndedPayload | null {
@@ -209,13 +222,21 @@ export function parseSdkSubagentEndedPayload(
   );
   if (backgroundTasks === null) return null;
   if (!isWireTimestamp(payload['timestamp'])) return null;
-  return {
+  const out: Record<string, unknown> = {
     sessionId: payload['sessionId'],
     cwd: payload['cwd'],
     agentId: payload['agentId'],
     agentType: payload['agentType'],
-    lastAssistantMessage: payload['lastAssistantMessage'],
-    backgroundTasks,
-    timestamp: payload['timestamp'],
   };
+  // Mirrors `z.string().min(1).optional()`: absent is accepted, present-and-
+  // blank is rejected. A blank toolCallId is not an identity — it would key a
+  // store entry that nothing can address.
+  const ok = readOptional(payload, 'toolCallId', isNonEmptyWireString, (v) => {
+    out['toolCallId'] = v;
+  });
+  if (!ok) return null;
+  out['lastAssistantMessage'] = payload['lastAssistantMessage'];
+  out['backgroundTasks'] = backgroundTasks;
+  out['timestamp'] = payload['timestamp'];
+  return out as unknown as SdkSubagentEndedPayload;
 }

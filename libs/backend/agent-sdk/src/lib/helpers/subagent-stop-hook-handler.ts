@@ -43,7 +43,7 @@ export class SubagentStopHookHandler {
           hooks: [
             async (
               input: HookInput,
-              _toolUseId: string | undefined,
+              toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               try {
@@ -84,11 +84,23 @@ export class SubagentStopHookHandler {
                   return { continue: true };
                 }
 
+                // The SDK's `toolUseID` is the ONLY place the `agentId` ↔
+                // `toolCallId` pairing is still available at this point. The
+                // registry is not a second source: the `SubagentHookHandler`
+                // twin runs on the same hook and deletes the record when it
+                // marks the agent completed, so a lookup here would find
+                // nothing.
+                const toolCallId =
+                  typeof toolUseId === 'string' && toolUseId.length > 0
+                    ? toolUseId
+                    : undefined;
+
                 sdkAdapterEvents.emitSubagentEnded({
                   sessionId: resolvedSessionId,
                   cwd: resolvedCwd,
                   agentId: input.agent_id,
                   agentType: input.agent_type,
+                  ...(toolCallId ? { toolCallId } : {}),
                   lastAssistantMessage: input.last_assistant_message ?? null,
                   backgroundTasks: input.background_tasks ?? [],
                   timestamp: Date.now(),

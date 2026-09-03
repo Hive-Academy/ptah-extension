@@ -21,20 +21,28 @@ import {
   CURATOR_WINDOW_MAX_CHARS,
   type CuratorWindow,
 } from './transcript-windows';
+import { isQueueSlotTimeout, QueueSlotRetryBudget } from './queue-slot-timeout';
 
 /**
  * The outcome of a whole window set.
  *
  * The two arms of {@link CuratorExtraction} are carried through unchanged, so
  * the service's existing handling of `extracted` and `stalled` is the same code
- * it always was. The two new arms are the failures a LOOP can have that a
- * single call cannot: a call that threw partway through, and an abort noticed
- * between windows.
+ * it always was. The three remaining arms are the failures a LOOP can have that
+ * a single call cannot: a call that threw partway through, an abort noticed
+ * between windows, and a window that never reached the model because the host
+ * was congested.
  */
 export type WindowedExtraction =
   | CuratorExtraction
   | { readonly status: 'failed'; readonly error: unknown }
-  | { readonly status: 'aborted'; readonly completedWindows: number };
+  | { readonly status: 'aborted'; readonly completedWindows: number }
+  | {
+      readonly status: 'deferred';
+      readonly reason: 'concurrency-slot-timeout';
+      readonly completedWindows: number;
+      readonly retriesSpent: number;
+    };
 
 /**
  * Force a requested window budget into `[1, CURATOR_MAX_WINDOWS]`.
@@ -143,6 +151,13 @@ export class CuratorWindowRunner {
    *  - `signal.aborted` is checked BETWEEN windows, not only inside the
    *    adapter, so an abort during a long chunked run stops promptly instead of
    *    after the current provider round trip times out.
+   *  - a QUEUE-SLOT TIMEOUT is retried on the same window, up to the pass's
+   *    shared {@link QueueSlotRetryBudget} (TASK_2026_376 F4). That failure
+   *    means the query never dispatched, so retrying costs no upstream request,
+   *    and treating it as a throw is what dropped two sessions' curation: the
+   *    caller recorded `extracted: 0` and marked the input consumed. When the
+   *    budget runs out the run returns `deferred` rather than `failed`, which
+   *    is how the caller learns to leave its input alone.
    *
    * Duplicate `(subject, content)` pairs are dropped. Adjacent windows describe
    * one session, so the same durable fact is expected to surface more than
@@ -152,6 +167,7 @@ export class CuratorWindowRunner {
   async extractAcrossWindows(
     windows: readonly CuratorWindow[],
     signal?: AbortSignal,
+    budget: QueueSlotRetryBudget = new QueueSlotRetryBudget(),
   ): Promise<WindowedExtraction> {
     const drafts: ExtractedMemoryDraft[] = [];
     const seen = new Set<string>();
@@ -161,8 +177,27 @@ export class CuratorWindowRunner {
       if (signal?.aborted) return { status: 'aborted', completedWindows };
       let extraction: CuratorExtraction;
       try {
-        extraction = await this.llm.extract(chunk.text, signal);
+        extraction = await this.extractOneWindow(chunk, budget, signal);
       } catch (error: unknown) {
+        // An aborted pass keeps its existing `failed` reporting. `deferred`
+        // promises the caller that the pass is worth retrying, and a caller
+        // that has withdrawn is not asking for that promise.
+        if (isQueueSlotTimeout(error) && !signal?.aborted) {
+          this.logger.info(
+            '[memory-curator] curation window kept losing its concurrency slot; deferring the pass',
+            {
+              completedWindows,
+              windows: windows.length,
+              retriesSpent: budget.spent,
+            },
+          );
+          return {
+            status: 'deferred',
+            reason: 'concurrency-slot-timeout',
+            completedWindows,
+            retriesSpent: budget.spent,
+          };
+        }
         return { status: 'failed', error };
       }
       if (extraction.status === 'stalled') return extraction;
@@ -176,5 +211,36 @@ export class CuratorWindowRunner {
     }
 
     return { status: 'extracted', drafts };
+  }
+
+  /**
+   * One window, re-submitted while the pass can still afford it.
+   *
+   * The retry has no delay on purpose. The gate is FIFO within a lane, so a
+   * re-submitted query joins the back of the queue and is woken by the release
+   * of whatever is ahead of it — the wait IS the backoff, and a timer here would
+   * only add latency to a pass that is already late.
+   *
+   * An aborted pass never retries: the caller has withdrawn, and re-queuing a
+   * query whose signal is already fired spends a slot to produce nothing.
+   */
+  private async extractOneWindow(
+    chunk: CuratorWindow,
+    budget: QueueSlotRetryBudget,
+    signal?: AbortSignal,
+  ): Promise<CuratorExtraction> {
+    for (;;) {
+      try {
+        return await this.llm.extract(chunk.text, signal);
+      } catch (error: unknown) {
+        if (!isQueueSlotTimeout(error)) throw error;
+        if (signal?.aborted) throw error;
+        if (!budget.tryConsume()) throw error;
+        this.logger.info(
+          '[memory-curator] curation window lost its concurrency slot; re-queuing it',
+          { retriesSpent: budget.spent },
+        );
+      }
+    }
   }
 }

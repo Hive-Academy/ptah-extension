@@ -133,18 +133,20 @@ export class AssistantMessageTransformer {
           events.push(thinkingDeltaEvent);
         }
       } else if (isTextBlock(block)) {
-        const textDeltaEvent: TextDeltaEvent = {
-          id: generateEventId(),
-          eventType: 'text_delta',
-          timestamp: Date.now(),
-          sessionId,
-          source: 'complete' as EventSource,
-          messageId,
-          delta: block.text,
-          blockIndex: contentIndex,
-          parentToolUseId: parent_tool_use_id ?? undefined,
-        };
-        events.push(textDeltaEvent);
+        if (block.text) {
+          const textDeltaEvent: TextDeltaEvent = {
+            id: generateEventId(),
+            eventType: 'text_delta',
+            timestamp: Date.now(),
+            sessionId,
+            source: 'complete' as EventSource,
+            messageId,
+            delta: block.text,
+            blockIndex: contentIndex,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(textDeltaEvent);
+        }
       } else if (isToolUseBlock(block)) {
         const isTaskTool = isAgentDispatchTool(block.name);
 
@@ -272,20 +274,6 @@ export class AssistantMessageTransformer {
 
         events.push(toolStartEvent);
       } else if (isToolResultBlock(block)) {
-        const toolResultEvent: ToolResultEvent = {
-          id: generateEventId(),
-          eventType: 'tool_result',
-          timestamp: Date.now(),
-          sessionId,
-          source: 'complete' as EventSource,
-          messageId,
-          toolCallId: block.tool_use_id,
-          output: block.content,
-          isError: block.is_error ?? false,
-          parentToolUseId: parent_tool_use_id ?? undefined,
-        };
-        events.push(toolResultEvent);
-
         if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
           const bgEvent = buildBackgroundAgentStartedEvent({
             toolCallId: block.tool_use_id,
@@ -309,6 +297,20 @@ export class AssistantMessageTransformer {
             },
           );
         }
+
+        const toolResultEvent: ToolResultEvent = {
+          id: generateEventId(),
+          eventType: 'tool_result',
+          timestamp: Date.now(),
+          sessionId,
+          source: 'complete' as EventSource,
+          messageId,
+          toolCallId: block.tool_use_id,
+          output: block.content,
+          isError: block.is_error ?? false,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+        };
+        events.push(toolResultEvent);
       } else {
         const unhandled: never = block;
         helpers.logger.warn(

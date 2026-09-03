@@ -11,7 +11,11 @@ import {
   clampWindowBudget,
   CuratorWindowRunner,
 } from './curator-window-runner';
-import { CURATOR_MAX_WINDOWS } from './transcript-windows';
+import { CURATOR_MAX_WINDOWS, type CuratorWindow } from './transcript-windows';
+import {
+  QueueSlotRetryBudget,
+  QUEUE_SLOT_TIMEOUT_ERROR_NAME,
+} from './queue-slot-timeout';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ICuratorLLM } from './curator-llm.interface';
 
@@ -86,5 +90,163 @@ describe('CuratorWindowRunner.planWindows', () => {
     expect(runner.planWindows(bigTranscript, 's', 99)).toHaveLength(
       CURATOR_MAX_WINDOWS,
     );
+  });
+});
+
+/**
+ * A window that loses its concurrency slot is congestion, not a failed
+ * curation — TASK_2026_376 F4.
+ */
+describe('CuratorWindowRunner.extractAcrossWindows — queue-slot timeouts', () => {
+  function queueTimeout(): Error {
+    const inner = new Error(
+      'Internal query waited longer than 60000ms for a concurrency slot.',
+    );
+    inner.name = QUEUE_SLOT_TIMEOUT_ERROR_NAME;
+    const wrapped = new Error(
+      'The memory curator could not complete its language-model query.',
+      { cause: inner },
+    );
+    wrapped.name = 'CuratorLlmQueryError';
+    return wrapped;
+  }
+
+  function windows(count: number): readonly CuratorWindow[] {
+    return Array.from({ length: count }, (_, i) => ({
+      text: `window ${i}`,
+      recordIndices: [i],
+      windowIndex: i,
+      windowCount: count,
+    }));
+  }
+
+  function makeRunner(extract: jest.Mock): CuratorWindowRunner {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+    return new CuratorWindowRunner(
+      logger as unknown as Logger,
+      {
+        extract,
+        resolve: jest.fn(),
+      } as unknown as ICuratorLLM,
+    );
+  }
+
+  it('re-queues the window that lost its slot and keeps its drafts', async () => {
+    const draft = {
+      kind: 'fact',
+      subject: 's',
+      content: 'c',
+      salienceHint: 0.5,
+    };
+    const extract = jest
+      .fn()
+      .mockRejectedValueOnce(queueTimeout())
+      .mockResolvedValue({ status: 'extracted', drafts: [draft] });
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(windows(1));
+
+    expect(result).toEqual({ status: 'extracted', drafts: [draft] });
+    expect(extract).toHaveBeenCalledTimes(2);
+  });
+
+  it('a sibling window still runs after the first one had to wait', async () => {
+    const extract = jest
+      .fn()
+      .mockResolvedValueOnce({ status: 'extracted', drafts: [] })
+      .mockRejectedValueOnce(queueTimeout())
+      .mockResolvedValueOnce({
+        status: 'extracted',
+        drafts: [
+          { kind: 'fact', subject: 'b', content: 'second', salienceHint: 0.5 },
+        ],
+      });
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(windows(2));
+
+    expect(result).toEqual({
+      status: 'extracted',
+      drafts: [
+        { kind: 'fact', subject: 'b', content: 'second', salienceHint: 0.5 },
+      ],
+    });
+  });
+
+  it('defers rather than failing once the allowance is spent', async () => {
+    const extract = jest.fn().mockRejectedValue(queueTimeout());
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(
+      windows(3),
+      undefined,
+      new QueueSlotRetryBudget(1),
+    );
+
+    expect(result).toEqual({
+      status: 'deferred',
+      reason: 'concurrency-slot-timeout',
+      completedWindows: 0,
+      retriesSpent: 1,
+    });
+    // One attempt plus one retry — the budget, and nothing more.
+    expect(extract).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares ONE allowance across the whole window set', async () => {
+    const extract = jest
+      .fn()
+      .mockRejectedValueOnce(queueTimeout())
+      .mockResolvedValueOnce({ status: 'extracted', drafts: [] })
+      .mockRejectedValue(queueTimeout());
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(
+      windows(2),
+      undefined,
+      new QueueSlotRetryBudget(1),
+    );
+
+    // Window 1 spent the allowance, so window 2's timeout defers immediately.
+    expect(result).toEqual({
+      status: 'deferred',
+      reason: 'concurrency-slot-timeout',
+      completedWindows: 1,
+      retriesSpent: 1,
+    });
+    expect(extract).toHaveBeenCalledTimes(3);
+  });
+
+  it('still reports a non-congestion failure as failed', async () => {
+    const boom = new Error('provider returned 500');
+    const extract = jest.fn().mockRejectedValue(boom);
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(windows(2));
+
+    expect(result).toEqual({ status: 'failed', error: boom });
+    expect(extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-queue a window whose pass was aborted', async () => {
+    const controller = new AbortController();
+    const extract = jest.fn().mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(queueTimeout());
+    });
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(
+      windows(2),
+      controller.signal,
+    );
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(extract).toHaveBeenCalledTimes(1);
   });
 });

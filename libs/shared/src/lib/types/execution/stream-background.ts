@@ -230,6 +230,28 @@ export type SessionTurnPhase =
   | 'idle'
   | 'failed';
 
+/** The phases that say the turn ENDED. Everything except 'generating'. */
+const TERMINAL_TURN_PHASES: ReadonlySet<SessionTurnPhase> = new Set([
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'failed',
+]);
+
+/**
+ * True when `phase` says the turn ended.
+ *
+ * One definition for two consumers that MUST agree, on opposite sides of the
+ * frontend (`chat-state` may not import `chat-streaming`):
+ * `TurnStateApplier.apply` finalizes the in-flight assistant message on a
+ * terminal phase, and `TabManagerService.acceptsTurnState` heals a stranded
+ * tab only on a terminal phase (TASK_2026_371). Two copies of this set would
+ * drift.
+ */
+export function isTerminalTurnPhase(phase: SessionTurnPhase): boolean {
+  return TERMINAL_TURN_PHASES.has(phase);
+}
+
 /**
  * Backend-owned per-session turn state — the single source of truth for
  * every "is the agent busy" signal. Also returned by `session:status`.

@@ -5,6 +5,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SdkInternalQueryCuratorLlm,
   CURATOR_DEFAULT_MODEL_TIER,
+  CURATOR_MAX_TURNS,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
@@ -93,15 +94,40 @@ async function* streamFrom(text: string): AsyncIterable<unknown> {
   yield { type: 'result' };
 }
 
+/** An assistant content block as the SDK streams it. */
+type AssistantBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; name: string };
+
+/**
+ * A stream built from arbitrary assistant blocks, so a run whose whole
+ * contribution was tool calls can be replayed. `streamFrom` cannot express
+ * that — it only ever yields one text block (TASK_2026_376 F8).
+ */
+function streamOfBlocks(
+  blocks: readonly AssistantBlock[],
+  resultSubtype?: string,
+): () => AsyncIterable<unknown> {
+  return async function* () {
+    yield { type: 'assistant', message: { content: blocks } };
+    yield resultSubtype
+      ? { type: 'result', subtype: resultSubtype }
+      : { type: 'result' };
+  };
+}
+
 interface ExecuteCapture {
   model?: string;
   cwd?: string;
   auth?: OneShotAuthOverride;
   authWasPresent?: boolean;
+  maxTurns?: number;
 }
 
 function makeInternalQuery(opts: {
   text?: string;
+  blocks?: readonly AssistantBlock[];
+  resultSubtype?: string;
   throwOnExecute?: Error;
   capture?: ExecuteCapture;
 }): InternalQueryService {
@@ -110,15 +136,22 @@ function makeInternalQuery(opts: {
       async (config: {
         model: string;
         cwd: string;
+        maxTurns?: number;
         auth?: OneShotAuthOverride;
       }) => {
         if (opts.capture) {
           opts.capture.model = config.model;
           opts.capture.cwd = config.cwd;
+          opts.capture.maxTurns = config.maxTurns;
           opts.capture.auth = config.auth;
           opts.capture.authWasPresent = 'auth' in config;
         }
         if (opts.throwOnExecute) throw opts.throwOnExecute;
+        if (opts.blocks) {
+          return {
+            stream: streamOfBlocks(opts.blocks, opts.resultSubtype)(),
+          };
+        }
         return { stream: streamFrom(opts.text ?? '') };
       },
     ),
@@ -639,5 +672,173 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
       status: 'extracted',
       drafts: [],
     });
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — the turn budget (TASK_2026_376 F8)', () => {
+  it('asks for more than one turn, so a tool_result can reach the model', () => {
+    // One turn is one API round-trip (`Options.maxTurns`,
+    // @anthropic-ai/claude-agent-sdk sdk.d.ts:1527-1530). A tool call needs a
+    // second round-trip to carry its result back, so 1 makes the MCP wiring
+    // this adapter attaches unreachable. Two is the floor.
+    expect(CURATOR_MAX_TURNS).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the budget BOUNDED and below the one-shot default of 25', () => {
+    // The bound is not decoration. `perLaneLimit` is 1 on the memory-curator
+    // lane and the queue budget is 60s, so turns spent here are turns the next
+    // curation window waits before it is dropped (TASK_2026_376 F4).
+    expect(Number.isInteger(CURATOR_MAX_TURNS)).toBe(true);
+    expect(CURATOR_MAX_TURNS).toBeLessThan(25);
+  });
+
+  it('sends CURATOR_MAX_TURNS into the internal query, not a hard-coded 1', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.maxTurns).toBe(CURATOR_MAX_TURNS);
+    expect(capture.maxTurns).not.toBe(1);
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — tool-only runs are not silent runs', () => {
+  const toolsOnly: readonly AssistantBlock[] = [
+    { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+  ];
+
+  it('records a tool-only extract pass DISTINCTLY from a pass that produced nothing', async () => {
+    // The defect: both reach the caller as `extracted: 0`. The contract cannot
+    // carry a third arm from inside this batch, so the log is the seam — and
+    // the two must not print the same line.
+    const toolLogger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      toolLogger,
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const silentLogger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      silentLogger,
+      makeInternalQuery({ blocks: [] }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const toolLines = [
+      ...(toolLogger.info as jest.Mock).mock.calls,
+      ...(toolLogger.warn as jest.Mock).mock.calls,
+    ];
+    const silentLines = [
+      ...(silentLogger.info as jest.Mock).mock.calls,
+      ...(silentLogger.warn as jest.Mock).mock.calls,
+    ];
+    expect(toolLines.length).toBeGreaterThan(0);
+    expect(silentLines.length).toBeGreaterThan(0);
+    expect(toolLines[0][0]).not.toEqual(silentLines[0][0]);
+  });
+
+  it('names the tools it used, so the pass can be told apart in a log', async () => {
+    const logger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      logger,
+      makeInternalQuery({
+        blocks: [
+          { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+          { type: 'tool_use', name: 'Read' },
+        ],
+      }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const call = (logger.info as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('through tools'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toEqual({
+      toolUses: 2,
+      toolNames: ['mcp__ptah__ptah_memory_search', 'Read'],
+    });
+  });
+
+  it('still resolves EXTRACTED (not stalled) after a tool-only pass', async () => {
+    // A tool-only pass DID the work. Stalling would tell the trigger service to
+    // keep the episodes, which is the opposite of what happened.
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+  });
+
+  it('parses the JSON normally when a run BOTH called tools and answered', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        blocks: [
+          { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+          {
+            type: 'text',
+            text: '{"memories":[{"kind":"fact","subject":"ptah","content":"lanes exist","salienceHint":0.5}]}',
+          },
+        ],
+      }),
+      makeWorkspace(''),
+    );
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status).toBe('extracted');
+    expect(result.status === 'extracted' && result.drafts).toHaveLength(1);
+  });
+
+  it('warns when the run stopped at the turn ceiling', async () => {
+    // `error_max_turns` is a RESULT in this SDK, never a throw
+    // (sdk.d.ts:3402), so an exhausted budget is invisible unless it is read.
+    const logger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      logger,
+      makeInternalQuery({
+        blocks: toolsOnly,
+        resultSubtype: 'error_max_turns',
+      }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const call = (logger.warn as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('turn ceiling'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toMatchObject({ maxTurns: CURATOR_MAX_TURNS });
+  });
+
+  it('stores drafts unmerged after a tool-only RESOLVE pass', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    );
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older note' },
+      ]),
+    ).resolves.toEqual([{ ...drafts[0], mergeTargetId: null }]);
   });
 });

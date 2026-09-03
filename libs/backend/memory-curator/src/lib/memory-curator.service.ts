@@ -30,9 +30,15 @@ import { SalienceScorer } from './salience-scorer';
 import type {
   ICuratorLLM,
   CuratorExtraction,
+  ExtractedMemoryDraft,
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { CuratorWindowRunner } from './curator-llm/curator-window-runner';
+import { CuratorJobQueue } from './curator-llm/curator-job-queue';
+import {
+  isQueueSlotTimeout,
+  QueueSlotRetryBudget,
+} from './curator-llm/queue-slot-timeout';
 import type { CuratorWindow } from './curator-llm/transcript-windows';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
@@ -71,9 +77,18 @@ const MANUAL_COMPACTION_MAX_WINDOWS = 1;
  *
  * `'ran'` covers every pass that dialled the curator LLM, including one that
  * found nothing and one whose call failed: in both cases the input was consumed
- * and the caller may advance its state. `'stalled'` means the provider quota
- * gate stopped the pass BEFORE dispatch, so the input is untouched and the
- * caller must leave it exactly where it found it.
+ * and the caller may advance its state. `'stalled'` means a gate stopped the
+ * pass before it could dispatch, so the input is untouched and the caller must
+ * leave it exactly where it found it.
+ *
+ * Two gates produce `'stalled'`, and the caller treats them identically because
+ * the fact it acts on is the same one: nothing was curated and nothing was
+ * consumed. The provider quota gate stops a pass that would dial a rate-limited
+ * provider (TASK_2026_306). The internal-query concurrency gate stops a pass
+ * that could not win a slot within `ptah.internalQuery.queueTimeoutMs`
+ * (TASK_2026_376 F4) — that one used to be reported as `'ran'` with
+ * `extracted: 0`, which is how two sessions had their observation rows marked
+ * processed for a curation that never happened.
  *
  * Required, not optional, so every construction site has to answer. The zero
  * counts on the two arms are identical, which is precisely why the counts
@@ -107,6 +122,13 @@ export class MemoryCuratorService {
   >();
   /** The window-and-extract collaborator. See its own file for why it is not injected. */
   private readonly windowRunner: CuratorWindowRunner;
+  /**
+   * One curation pass at a time (TASK_2026_376 F4). Constructed here rather
+   * than injected for the same reason as {@link windowRunner}: no lifecycle, no
+   * alternative implementation, no other consumer. Its being a field of this
+   * SINGLETON service is what makes "one pass at a time" a host-wide property.
+   */
+  private readonly jobQueue = new CuratorJobQueue();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -263,11 +285,19 @@ export class MemoryCuratorService {
     const key = this.coalesceKey(input);
     const existing = key === null ? undefined : this.inFlight.get(key);
     if (existing) return existing;
-    const work = this.tracer
-      .startSpan(
-        'memory.curate',
-        { op: 'ai.curate', trigger: input.tier ?? 'recall' },
-        () => this.doCurate(input),
+    // Queued, not spawned. Coalescing is checked FIRST, so a second trigger for
+    // a session already in the queue joins that entry instead of adding one —
+    // the queue holds distinct passes only. See `CuratorJobQueue` for why
+    // serialising here is free: the `memory-curator` internal-query lane admits
+    // one query at a time already, and this is where that wait becomes ordered
+    // instead of a 60 s ceiling each of a pass's windows must win separately.
+    const work = this.jobQueue
+      .run(() =>
+        this.tracer.startSpan(
+          'memory.curate',
+          { op: 'ai.curate', trigger: input.tier ?? 'recall' },
+          () => this.doCurate(input),
+        ),
       )
       .finally(() => {
         if (key !== null) this.inFlight.delete(key);
@@ -426,10 +456,22 @@ export class MemoryCuratorService {
       input.sessionId,
       input.maxWindows,
     );
+    // ONE allowance for the whole pass — every extract window and the resolve
+    // call spend the same budget. See `QueueSlotRetryBudget`.
+    const retryBudget = new QueueSlotRetryBudget();
     const extraction = await this.windowRunner.extractAcrossWindows(
       windows,
       input.signal,
+      retryBudget,
     );
+    if (extraction.status === 'deferred') {
+      return this.recordCuratorDeferral(input.sessionId, {
+        stage: 'extract',
+        completedWindows: extraction.completedWindows,
+        windows: windows.length,
+        retriesSpent: extraction.retriesSpent,
+      });
+    }
     if (extraction.status === 'failed') {
       return this.recordCuratorError(
         input.sessionId,
@@ -481,8 +523,26 @@ export class MemoryCuratorService {
 
     let resolved: readonly ResolvedMemoryDraft[];
     try {
-      resolved = await this.llm.resolve(drafts, related, input.signal);
+      resolved = await this.resolveWithinBudget(
+        drafts,
+        related,
+        retryBudget,
+        input.signal,
+      );
     } catch (error: unknown) {
+      // The resolve call queues for a slot exactly as the extract windows do,
+      // so the same congestion can strike it — after the extracts have already
+      // run. Deferring discards those drafts and re-curates the transcript next
+      // pass, which costs the extracts again but loses nothing. Recording a run
+      // here would mark the observation rows processed and lose the session.
+      if (isQueueSlotTimeout(error) && !input.signal?.aborted) {
+        return this.recordCuratorDeferral(input.sessionId, {
+          stage: 'resolve',
+          completedWindows: windows.length,
+          windows: windows.length,
+          retriesSpent: retryBudget.spent,
+        });
+      }
       return this.recordCuratorError(
         input.sessionId,
         error,
@@ -643,6 +703,87 @@ export class MemoryCuratorService {
     };
   }
 
+  /**
+   * Re-submit the resolve call while the pass can still afford it.
+   *
+   * The twin of `CuratorWindowRunner.extractOneWindow`, and deliberately not a
+   * shared generic helper: two call sites do not make a pattern, and the two
+   * differ in what they do when the budget runs out — the runner reports a
+   * `deferred` arm to its caller, this one throws to the caller's own catch.
+   */
+  private async resolveWithinBudget(
+    drafts: readonly ExtractedMemoryDraft[],
+    related: readonly { id: string; subject: string | null; content: string }[],
+    budget: QueueSlotRetryBudget,
+    signal?: AbortSignal,
+  ): Promise<readonly ResolvedMemoryDraft[]> {
+    for (;;) {
+      try {
+        return await this.llm.resolve(drafts, related, signal);
+      } catch (error: unknown) {
+        if (!isQueueSlotTimeout(error)) throw error;
+        if (signal?.aborted) throw error;
+        if (!budget.tryConsume()) throw error;
+        this.logger.info(
+          '[memory-curator] resolve lost its concurrency slot; re-queuing it',
+          { retriesSpent: budget.spent },
+        );
+      }
+    }
+  }
+
+  /**
+   * The internal-query concurrency gate stopped this pass before it could
+   * dispatch — TASK_2026_376 F4.
+   *
+   * Deliberately the same shape as {@link recordCuratorStall}, because the
+   * caller's decision is the same one: the input was not consumed, so leave it
+   * where it is and curate it on the next drain. It therefore touches neither
+   * `lastRunAtMs` nor `lastRunStatsCache`, pushes no `curator-run`, and
+   * persists nothing.
+   *
+   * The event is `rate-limited` rather than a new kind. `MemoryCuratorEventKind`
+   * is consumed by the Activity surface, which already renders that kind as a
+   * warning meaning "a gate stopped this"; the `reason` in `stats` is what tells
+   * the two gates apart, and `stats` is a free-form record. A new kind would be
+   * a frontend change for a distinction the frontend does not draw — and this
+   * batch may not touch the frontend.
+   */
+  private recordCuratorDeferral(
+    sessionId: string,
+    detail: {
+      readonly stage: 'extract' | 'resolve';
+      readonly completedWindows: number;
+      readonly windows: number;
+      readonly retriesSpent: number;
+    },
+  ): CuratorRunStats {
+    this.pushEvent({
+      kind: 'rate-limited',
+      timestamp: Date.now(),
+      sessionId,
+      stats: {
+        source: 'internal-query-gate',
+        reason: 'concurrency-slot-timeout',
+        stage: detail.stage,
+        completedWindows: detail.completedWindows,
+        windows: detail.windows,
+        retriesSpent: detail.retriesSpent,
+      },
+    });
+    this.logger.warn(
+      '[memory-curator] curation pass could not win a concurrency slot; input left untouched for the next pass',
+      { sessionId, ...detail },
+    );
+    return {
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+  }
+
   private recordCuratorError(
     sessionId: string,
     error: unknown,
@@ -657,7 +798,9 @@ export class MemoryCuratorService {
     // `'ran'`, not `'stalled'`: the call was dispatched and failed. Whether a
     // FAILED pass should also preserve its input is a separate question from
     // F1 (which is about a pass that never ran) and is deliberately left at its
-    // pre-existing behaviour here.
+    // pre-existing behaviour here. The one failure that no longer reaches this
+    // method is the concurrency-slot timeout — it never dispatched either, so
+    // it belongs with the stalls (`recordCuratorDeferral`, TASK_2026_376 F4).
     const zeroedStats: CuratorRunStats = {
       outcome: 'ran',
       extracted: 0,
