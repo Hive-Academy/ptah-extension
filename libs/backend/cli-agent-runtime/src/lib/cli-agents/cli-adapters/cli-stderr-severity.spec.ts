@@ -40,6 +40,7 @@ describe('classifyCliStderr', () => {
     // 'terminated' contains 'abort' neither as word nor substring, but ensure words like 'terminated' are info
     expect(classifyCliStderr('process terminated')).toBe('info');
     // Words containing fragments should not match if not on word boundaries
+    expect(classifyCliStderr('abortive attempt')).toBe('info');
     expect(classifyCliStderr('disinformative content')).toBe('info');
     expect(classifyCliStderr('refusedness is not a word')).toBe('info');
   });

@@ -92,6 +92,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 // Imported AFTER the mocks so the registry binds to the mocked modules.
 import { PtahCliRegistry } from './ptah-cli-registry';
+import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
 const SAKANA_CONFIG: PtahCliConfig = {
   id: 'pc-sakana-001',
@@ -146,7 +147,7 @@ function buildHarness(): LeaseHarness {
     null as never,
     null as never,
     { get: jest.fn(() => undefined) } as unknown as never,
-    { spawn: jest.fn() } as unknown as never,
+    createFakeSdkProcessSpawner(),
   );
 
   return {

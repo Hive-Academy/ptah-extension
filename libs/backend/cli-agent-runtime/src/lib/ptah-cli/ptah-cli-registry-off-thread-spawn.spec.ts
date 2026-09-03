@@ -206,6 +206,11 @@ describe('PtahCliRegistry — off-thread spawn seam (TASK_2026_367 B8)', () => {
       }),
     );
     expect(spawned).toBeDefined();
+
+    const capturedHooks = (spawner.spawn as jest.Mock).mock.calls[0][1] as {
+      onStderr?: (data: string) => void;
+    };
+    expect(capturedHooks.onStderr).toBe(options?.stderr);
   });
 
   it('passes onStderr hook that classifies benign stderr to logger.debug and never calls logger.error', async () => {
@@ -277,6 +282,44 @@ describe('PtahCliRegistry — off-thread spawn seam (TASK_2026_367 B8)', () => {
 
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('fatal: process failed with code 1'),
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('passes onStderr hook that classifies ANSI-coloured error stderr to logger.warn and never calls logger.error', async () => {
+    const { registry, logger, spawner, getCapturedOptions } =
+      buildHarness(BASE_CONFIG);
+    await registry.spawnAgent(BASE_CONFIG.id, 'test prompt');
+
+    const options = getCapturedOptions();
+    const spawnClaudeCodeProcess = options?.spawnClaudeCodeProcess;
+    expect(typeof spawnClaudeCodeProcess).toBe('function');
+    if (!spawnClaudeCodeProcess)
+      throw new Error('spawnClaudeCodeProcess is undefined');
+
+    const fakeSpawnOptions: SpawnOptions = {
+      command: 'node',
+      args: ['cli.js'],
+      cwd: '/test/dir',
+      env: {},
+      signal: new AbortController().signal,
+    };
+
+    spawnClaudeCodeProcess(fakeSpawnOptions);
+
+    const hooks = (spawner.spawn as jest.Mock).mock.calls[0][1] as {
+      onStderr?: (data: string) => void;
+    };
+    expect(hooks?.onStderr).toBeDefined();
+    if (!hooks.onStderr) throw new Error('onStderr hook is undefined');
+
+    // ANSI-colored error line where \x1b[31mError would fail without stripAnsiCodes
+    const coloredError =
+      '\x1b[31mError\x1b[0m: ENOENT: no such file or directory';
+    hooks.onStderr(coloredError);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(coloredError),
     );
     expect(logger.error).not.toHaveBeenCalled();
   });

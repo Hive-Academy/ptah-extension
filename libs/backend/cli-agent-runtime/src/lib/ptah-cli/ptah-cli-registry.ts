@@ -18,6 +18,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
+import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
 import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import {
   SDK_TOKENS,
@@ -686,7 +687,8 @@ export class PtahCliRegistry {
     });
 
     const handleChildStderr = (data: string) => {
-      const isError = classifyCliStderr(data) === 'error';
+      const isError =
+        classifyCliStderr(stripAnsiCodes(data).trim()) === 'error';
       const message = `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`;
       if (isError) {
         this.logger.warn(message);

@@ -91,6 +91,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 // Imported AFTER the mocks so the registry binds to the mocked module.
 import { PtahCliRegistry } from './ptah-cli-registry';
+import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
 async function* emptyStream(): AsyncGenerator<never, void, unknown> {
   // No messages — streamLoop.run resolves with exit code 0.
@@ -171,7 +172,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     spawnOptionsService,
     null as never,
     configManager,
-    { spawn: jest.fn() } as unknown as never,
+    createFakeSdkProcessSpawner(),
   );
 
   return { registry, getCapturedEnv: () => capturedEnv };
