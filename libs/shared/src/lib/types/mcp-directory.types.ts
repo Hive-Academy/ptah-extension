@@ -404,6 +404,15 @@ export interface McpDirectoryConnectOAuthParams {
   clientSecret?: string;
 }
 
+/**
+ * Why a connectOAuth attempt failed.
+ *
+ * `'no-oauth-discovery'` means the server published no authorization-server
+ * metadata — in practice it wants an API key, not OAuth, and the UI says so.
+ * Absent on success and on unclassified failures.
+ */
+export type McpOAuthFailureReason = 'no-oauth-discovery' | 'other';
+
 /** Result for mcpDirectory:connectOAuth. */
 export interface McpDirectoryConnectOAuthResult {
   success: boolean;
@@ -411,6 +420,27 @@ export interface McpDirectoryConnectOAuthResult {
   serverKey?: string;
   /** Sanitized error message on failure (never carries a token). */
   error?: string;
+  /** Present only when `success` is false. */
+  reason?: McpOAuthFailureReason;
+}
+
+/**
+ * Params for mcpDirectory:probeOAuthDiscovery — the advisory pre-submit probe.
+ *
+ * The probe runs the discovery fetches only. It never opens a browser and never
+ * registers a client, so it is safe to call while the user is still typing.
+ */
+export interface McpDirectoryProbeOAuthDiscoveryParams {
+  /** The remote MCP server URL to probe. */
+  serverUrl: string;
+}
+
+/** Result for mcpDirectory:probeOAuthDiscovery. */
+export interface McpDirectoryProbeOAuthDiscoveryResult {
+  /** True when authorization and token endpoints were discovered. */
+  supported: boolean;
+  /** Present only when `supported` is false. */
+  reason?: McpOAuthFailureReason;
 }
 
 /** Params for mcpDirectory:oauthStatus. */

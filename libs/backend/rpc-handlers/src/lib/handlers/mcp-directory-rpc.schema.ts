@@ -89,6 +89,20 @@ export const ConnectOAuthSchema = z.object({
 
 export type ConnectOAuthInput = z.infer<typeof ConnectOAuthSchema>;
 
+/**
+ * Validated shape for the `mcpDirectory:probeOAuthDiscovery` RPC method.
+ *
+ * Same `serverUrl` rule as {@link ConnectOAuthSchema} — the probe hits the same
+ * server, so a URL the probe accepts is a URL connect would accept.
+ */
+export const ProbeOAuthDiscoverySchema = ConnectOAuthSchema.pick({
+  serverUrl: true,
+});
+
+export type ProbeOAuthDiscoveryInput = z.infer<
+  typeof ProbeOAuthDiscoverySchema
+>;
+
 /** Validated shape for the `mcpDirectory:oauthStatus` RPC method. */
 export const OAuthStatusSchema = z.object({
   serverKey: z.string().min(1),

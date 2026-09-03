@@ -229,6 +229,24 @@ export class McpOAuthService {
     }
   }
 
+  /**
+   * Advisory pre-submit probe: does this server publish OAuth discovery
+   * metadata?
+   *
+   * Runs only the two discovery steps `connect()` performs first (RFC 9728 then
+   * RFC 8414). It never arms a callback listener, never opens a browser and
+   * never registers a client, so it is safe to call on every keystroke behind a
+   * debounce. Rejects with `OAuthDiscoveryError` when no metadata document is
+   * published; other failures propagate unchanged.
+   */
+  async probeDiscovery(serverUrl: string): Promise<void> {
+    const authServer = await discoverAuthorizationServer(
+      serverUrl,
+      this.fetchImpl,
+    );
+    await discoverAuthServerMetadata(authServer, this.fetchImpl);
+  }
+
   /** Report the connection state for a server (never returns a token). */
   async status(serverKey: string): Promise<McpOAuthConnectionState> {
     if (!this.manifest.has(serverKey)) return 'disconnected';

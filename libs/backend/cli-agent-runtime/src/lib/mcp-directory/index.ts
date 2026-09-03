@@ -77,6 +77,8 @@ export {
   discoverAuthorizationServer,
   discoverAuthServerMetadata,
   registerClient,
+  OAuthDiscoveryError,
+  OAUTH_DISCOVERY_ERROR_NAME,
 } from './oauth/mcp-oauth-metadata';
 export type {
   FetchLike,

@@ -262,6 +262,8 @@ import type {
   McpDirectoryListSmitheryInstalledResult,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
+  McpDirectoryProbeOAuthDiscoveryParams,
+  McpDirectoryProbeOAuthDiscoveryResult,
   McpDirectoryOAuthStatusParams,
   McpDirectoryOAuthStatusResult,
   McpDirectoryDisconnectOAuthParams,
@@ -1238,6 +1240,10 @@ export interface RpcMethodRegistry {
   'mcpDirectory:connectOAuth': {
     params: McpDirectoryConnectOAuthParams;
     result: McpDirectoryConnectOAuthResult;
+  };
+  'mcpDirectory:probeOAuthDiscovery': {
+    params: McpDirectoryProbeOAuthDiscoveryParams;
+    result: McpDirectoryProbeOAuthDiscoveryResult;
   };
   'mcpDirectory:oauthStatus': {
     params: McpDirectoryOAuthStatusParams;
@@ -3489,6 +3495,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:uninstallSmithery': true,
   'mcpDirectory:listSmitheryInstalled': true,
   'mcpDirectory:connectOAuth': true,
+  'mcpDirectory:probeOAuthDiscovery': true,
   'mcpDirectory:oauthStatus': true,
   'mcpDirectory:disconnectOAuth': true,
   'mcpDirectory:listOAuthConnected': true,

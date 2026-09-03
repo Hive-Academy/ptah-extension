@@ -39,6 +39,33 @@ export interface RegisteredClient {
   clientSecret?: string;
 }
 
+/**
+ * `name` of {@link OAuthDiscoveryError}. Callers classify by `instanceof`
+ * first and by this name second. The name check is not decoration: an error
+ * that crosses a bundle boundary or a `structuredClone` loses its prototype,
+ * and the repo already matches `PROVIDER_AUTH_ERROR_NAME` by name for the same
+ * reason. Never classify by message substring.
+ */
+export const OAUTH_DISCOVERY_ERROR_NAME = 'OAuthDiscoveryError';
+
+/**
+ * The server published no RFC 8414 (and no OIDC) authorization-server metadata.
+ *
+ * In practice this means the server does not use OAuth at all — it usually
+ * wants an API key. The UI turns this into that advice instead of the raw
+ * message.
+ */
+export class OAuthDiscoveryError extends Error {
+  override readonly name = OAUTH_DISCOVERY_ERROR_NAME;
+
+  constructor(readonly serverUrl: string) {
+    super(
+      `No OAuth authorization-server metadata found for ${serverUrl}. ` +
+        `The server may not support OAuth discovery.`,
+    );
+  }
+}
+
 function origin(url: string): string {
   return new URL(url).origin;
 }
@@ -125,9 +152,7 @@ export async function discoverAuthServerMetadata(
     }
   }
 
-  throw new Error(
-    `No OAuth authorization-server metadata found for ${base}. The server may not support OAuth discovery.`,
-  );
+  throw new OAuthDiscoveryError(base);
 }
 
 /**

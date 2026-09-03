@@ -238,6 +238,99 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     );
   });
 
+  // ── OAuth discovery classification (TASK_2026_367 C3) ──────────────────────
+
+  /** Every discovery document 404s — the firecrawl shape from the log. */
+  const mockFetchNoDiscovery = () => {
+    globalThis.fetch = jest.fn(async () => {
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response;
+    }) as unknown as typeof globalThis.fetch;
+  };
+
+  it('connectOAuth reports reason no-oauth-discovery when the server publishes no metadata', async () => {
+    mockFetchNoDiscovery();
+    build();
+
+    const res = await call('mcpDirectory:connectOAuth', {
+      serverUrl: 'https://mcp.firecrawl.dev',
+    });
+    expect(res.success).toBe(true);
+    const data = res.data as { success: boolean; reason?: string };
+    expect(data.success).toBe(false);
+    expect(data.reason).toBe('no-oauth-discovery');
+  });
+
+  it('connectOAuth reports reason other for an unrelated error', async () => {
+    build();
+
+    // A Zod rejection is an ordinary Error: it must NOT be classified as a
+    // discovery failure, or the UI would advise an API key for a typo.
+    const res = await call('mcpDirectory:connectOAuth', {
+      serverUrl: 'not-a-url',
+    });
+    expect(res.success).toBe(true);
+    const data = res.data as { success: boolean; reason?: string };
+    expect(data.success).toBe(false);
+    expect(data.reason).toBe('other');
+  });
+
+  it('probeOAuthDiscovery reports supported:false with reason no-oauth-discovery', async () => {
+    mockFetchNoDiscovery();
+    build();
+
+    const res = await call('mcpDirectory:probeOAuthDiscovery', {
+      serverUrl: 'https://mcp.firecrawl.dev',
+    });
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      supported: false,
+      reason: 'no-oauth-discovery',
+    });
+  });
+
+  it('probeOAuthDiscovery reports supported:true when metadata is published', async () => {
+    mockFetch((url) => {
+      if (url.endsWith('/.well-known/oauth-authorization-server')) {
+        return {
+          authorization_endpoint: 'https://auth.example.com/authorize',
+          token_endpoint: 'https://auth.example.com/token',
+        };
+      }
+      return {};
+    });
+    build();
+
+    const res = await call('mcpDirectory:probeOAuthDiscovery', {
+      serverUrl: 'https://auth.example.com/mcp',
+    });
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({ supported: true });
+  });
+
+  it('probeOAuthDiscovery rejects a non-URL param through Zod without calling the network', async () => {
+    globalThis.fetch = jest.fn() as unknown as typeof globalThis.fetch;
+    build();
+
+    const res = await call('mcpDirectory:probeOAuthDiscovery', {
+      serverUrl: 'firecrawl',
+    });
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({ supported: false, reason: 'other' });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('declares probeOAuthDiscovery in the METHODS tuple', () => {
+    expect(McpDirectoryRpcHandlers.METHODS).toContain(
+      'mcpDirectory:probeOAuthDiscovery',
+    );
+  });
+
   it('getPopular with an unknown source falls back to the official registry and never throws', async () => {
     mockFetch((url) => {
       expect(url).toContain('registry.modelcontextprotocol.io');

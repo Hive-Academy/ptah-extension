@@ -41,6 +41,33 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
   { label: 'Linear', url: 'https://mcp.linear.app/mcp' },
 ] as const;
 
+/** Quiet period after the last keystroke before the advisory probe runs. */
+const PROBE_DEBOUNCE_MS = 400;
+
+/**
+ * The one sentence shown for a `no-oauth-discovery` outcome, whether it came
+ * from the pre-submit probe or from a failed connect. A server that publishes
+ * no authorization-server metadata does not do OAuth at all, so the raw
+ * "metadata not found" message is noise; the actionable fact is that it wants
+ * an API key.
+ */
+const NEEDS_API_KEY_NOTE =
+  'This server does not publish OAuth discovery metadata. ' +
+  'It probably needs an API key instead. ' +
+  "Check the server's documentation.";
+
+/**
+ * Is this string worth probing? Only an absolute `https:` URL is — anything
+ * else would fail the handler's Zod rule and cost a round trip to learn it.
+ */
+function isProbableServerUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * OAuthSurfaceComponent — the "Connected Apps" provider surface mounted by the
  * Marketplace hub for the `oauth-mcp` descriptor.
@@ -118,6 +145,11 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
             (input)="onUrlInput($event)"
             aria-label="MCP server URL"
           />
+          @if (discoveryHint() === 'needs-api-key') {
+            <p class="text-[11px] text-warning" role="note">
+              {{ needsApiKeyNote }}
+            </p>
+          }
           <input
             type="text"
             autocomplete="off"
@@ -364,6 +396,8 @@ export class OAuthSurfaceComponent implements OnInit {
 
   /** Quick-connect chips exposed to the template. */
   protected readonly suggestions = OAUTH_SUGGESTIONS;
+  /** The `no-oauth-discovery` advice, exposed to the template. */
+  protected readonly needsApiKeyNote = NEEDS_API_KEY_NOTE;
 
   /** Connect form fields. */
   public readonly urlInput = signal('');
@@ -378,6 +412,18 @@ export class OAuthSurfaceComponent implements OnInit {
    */
   public readonly clientIdInput = signal('');
   public readonly clientSecretInput = signal('');
+
+  /**
+   * Advisory OAuth-discovery state for the URL currently in the field. It never
+   * disables Connect: a curated server whose probe is rate-limited must stay
+   * connectable, so a failed hint is silence, not an alarm.
+   */
+  public readonly discoveryHint = signal<'none' | 'probing' | 'needs-api-key'>(
+    'none',
+  );
+
+  /** Pending debounce for the advisory probe. Cancelled on input and destroy. */
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Connected servers (non-secret metadata only). */
   public readonly servers = signal<McpOAuthConnectedRecord[]>([]);
@@ -407,6 +453,7 @@ export class OAuthSurfaceComponent implements OnInit {
   public async ngOnInit(): Promise<void> {
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
+      this.cancelDiscoveryProbe();
     });
     await this.loadConnected();
   }
@@ -414,7 +461,9 @@ export class OAuthSurfaceComponent implements OnInit {
   // ── Connect form ─────────────────────────────────────────────────────────────
 
   public onUrlInput(event: Event): void {
-    this.urlInput.set((event.target as HTMLInputElement).value);
+    const value = (event.target as HTMLInputElement).value;
+    this.urlInput.set(value);
+    this.scheduleDiscoveryProbe(value);
   }
 
   public onNameInput(event: Event): void {
@@ -434,6 +483,7 @@ export class OAuthSurfaceComponent implements OnInit {
     if (!this.nameInput().trim()) {
       this.nameInput.set(suggestion.label);
     }
+    this.scheduleDiscoveryProbe(suggestion.url);
   }
 
   /**
@@ -470,9 +520,18 @@ export class OAuthSurfaceComponent implements OnInit {
         this.nameInput.set('');
         this.clientIdInput.set('');
         this.clientSecretInput.set('');
+        this.cancelDiscoveryProbe();
+        this.discoveryHint.set('none');
         await this.loadConnected();
         if (this.destroyed) return;
         if (serverKey) this.serverConnected.emit(serverKey);
+      } else if (
+        result.isSuccess() &&
+        result.data.reason === 'no-oauth-discovery'
+      ) {
+        // The server does not do OAuth. Say what to do about it instead of
+        // echoing the discovery failure.
+        this.connectError.set(NEEDS_API_KEY_NOTE);
       } else {
         this.connectError.set(
           (result.isSuccess() ? result.data.error : result.error) ??
@@ -617,6 +676,55 @@ export class OAuthSurfaceComponent implements OnInit {
     );
     if (this.destroyed) return;
     this.statuses.set(new Map(entries));
+  }
+
+  // ── Advisory discovery probe ──────────────────────────────────────────────
+
+  /**
+   * Debounce an advisory probe for `raw`. A string that is not an absolute
+   * `https:` URL clears the hint and costs no round trip.
+   */
+  private scheduleDiscoveryProbe(raw: string): void {
+    this.cancelDiscoveryProbe();
+    const serverUrl = raw.trim();
+    if (!isProbableServerUrl(serverUrl)) {
+      this.discoveryHint.set('none');
+      return;
+    }
+    this.discoveryHint.set('probing');
+    this.probeTimer = setTimeout(() => {
+      this.probeTimer = null;
+      void this.runDiscoveryProbe(serverUrl);
+    }, PROBE_DEBOUNCE_MS);
+  }
+
+  private cancelDiscoveryProbe(): void {
+    if (this.probeTimer !== null) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  /**
+   * Run the probe and apply its verdict, unless the URL moved on while the call
+   * was in flight. Only `no-oauth-discovery` produces a hint — every other
+   * outcome, transport failures included, resolves to silence.
+   */
+  private async runDiscoveryProbe(serverUrl: string): Promise<void> {
+    let needsApiKey = false;
+    try {
+      const result = await this.rpc.call('mcpDirectory:probeOAuthDiscovery', {
+        serverUrl,
+      });
+      needsApiKey =
+        result.isSuccess() &&
+        !result.data.supported &&
+        result.data.reason === 'no-oauth-discovery';
+    } catch {
+      needsApiKey = false;
+    }
+    if (this.destroyed || this.urlInput().trim() !== serverUrl) return;
+    this.discoveryHint.set(needsApiKey ? 'needs-api-key' : 'none');
   }
 
   // ── Internals ────────────────────────────────────────────────────────────────
