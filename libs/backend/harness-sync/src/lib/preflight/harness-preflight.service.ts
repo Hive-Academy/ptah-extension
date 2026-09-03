@@ -161,47 +161,58 @@ export class HarnessPreflightService {
     // not both decide the other has not run yet.
     this.lastPassAt.set(workspaceRoot, Date.now());
 
-    const passPromise = (async () => {
-      try {
-        const budgetMs = this.resolveTimeout(options.timeoutMs);
-        const startedAt = Date.now();
-
-        const health = await this.runBounded(
-          workspaceRoot,
-          budgetMs,
-          'preflight',
-        );
-        if (health === null) {
-          this.logger.info(
-            '[harness-sync] preflight: timed out, session continues',
-            {
-              workspaceRoot,
-              budgetMs,
-            },
-          );
-          return null;
-        }
-
-        if (health.sources !== 'pending-download') {
-          this.log(health, Date.now() - startedAt);
-          return health;
-        }
-
-        const remainingMs = budgetMs - (Date.now() - startedAt);
-        const retried = await this.retryAfterDownload(
-          workspaceRoot,
-          remainingMs,
-        );
-        const finalHealth = retried ?? health;
-        this.log(finalHealth, Date.now() - startedAt);
-        return finalHealth;
-      } finally {
+    // The shared promise is BUILT before any cleanup can run. `runPass` starts
+    // executing on this line, so a synchronous throw inside it would otherwise
+    // reach the `finally` before `inFlight.set` — deleting an entry that is not
+    // there yet and then caching a permanently rejected promise for this root
+    // (TASK_2026_367 / F3).
+    const pass = this.runPass(workspaceRoot, options);
+    const shared: Promise<HarnessHealth | null> = pass.finally(() => {
+      // Conditional: a later pass for this root must not have ITS entry
+      // removed by an earlier pass's cleanup.
+      if (this.inFlight.get(workspaceRoot) === shared) {
         this.inFlight.delete(workspaceRoot);
       }
-    })();
+    });
+    this.inFlight.set(workspaceRoot, shared);
+    return await shared;
+  }
 
-    this.inFlight.set(workspaceRoot, passPromise);
-    return await passPromise;
+  /**
+   * One bounded pass. Never throws: the reconcile rejection is swallowed by
+   * `runBounded`, and the timeout-config read degrades to the default budget.
+   * `HarnessPreflightDeps.readTimeoutMs` is host-supplied, so it is treated as
+   * untrusted here rather than assumed total.
+   */
+  private async runPass(
+    workspaceRoot: string,
+    options: HarnessPreflightOptions,
+  ): Promise<HarnessHealth | null> {
+    const budgetMs = this.resolveTimeout(options.timeoutMs);
+    const startedAt = Date.now();
+
+    const health = await this.runBounded(workspaceRoot, budgetMs, 'preflight');
+    if (health === null) {
+      this.logger.info(
+        '[harness-sync] preflight: timed out, session continues',
+        {
+          workspaceRoot,
+          budgetMs,
+        },
+      );
+      return null;
+    }
+
+    if (health.sources !== 'pending-download') {
+      this.log(health, Date.now() - startedAt);
+      return health;
+    }
+
+    const remainingMs = budgetMs - (Date.now() - startedAt);
+    const retried = await this.retryAfterDownload(workspaceRoot, remainingMs);
+    const finalHealth = retried ?? health;
+    this.log(finalHealth, Date.now() - startedAt);
+    return finalHealth;
   }
 
   /**
@@ -309,7 +320,7 @@ export class HarnessPreflightService {
   }
 
   private resolveTimeout(override: number | undefined): number {
-    const candidate = override ?? this.deps.readTimeoutMs?.();
+    const candidate = override ?? this.readConfiguredTimeout();
     if (
       typeof candidate === 'number' &&
       Number.isFinite(candidate) &&
@@ -318,6 +329,26 @@ export class HarnessPreflightService {
       return candidate;
     }
     return DEFAULT_PREFLIGHT_TIMEOUT_MS;
+  }
+
+  /**
+   * A host's settings read is not part of this service's contract, so a failing
+   * one degrades to the default budget instead of failing the session. Debug,
+   * not warn: a session that starts on 1500 ms is not a user-visible problem.
+   */
+  private readConfiguredTimeout(): number | undefined {
+    try {
+      return this.deps.readTimeoutMs?.();
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[harness-sync] Preflight timeout config read failed; using the default budget',
+        {
+          budgetMs: DEFAULT_PREFLIGHT_TIMEOUT_MS,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return undefined;
+    }
   }
 
   /**

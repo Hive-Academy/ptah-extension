@@ -8,6 +8,8 @@
  * 4. External passes emitted by the reconciler stamp `lastPassAt` and credit the throttle.
  * 5. After an in-flight pass settles, the map is cleaned up and subsequent passes can run.
  * 6. `dispose()` unsubscribes the health listener from the reconciler.
+ * 7. Cleanup cannot precede insertion, so a failure before the first `await` can
+ *    never cache a rejected promise for a root (TASK_2026_367 / F3).
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
@@ -15,7 +17,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { HarnessHealth } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { HarnessPreflightService } from './harness-preflight.service';
+import {
+  DEFAULT_PREFLIGHT_TIMEOUT_MS,
+  HarnessPreflightService,
+} from './harness-preflight.service';
 import type { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
 
 function makeLogger(): Logger {
@@ -236,6 +241,126 @@ describe('HarnessPreflightService — concurrency coalescing and credit (C6a)', 
     const r2 = await service.ensure(ws1.root, { force: true });
     expect(r2).toBe(health2);
     expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * F3 (TASK_2026_367). The pass used to run as an IIFE whose `finally` could
+   * fire BEFORE `inFlight.set`, so a synchronous throw ahead of the first
+   * `await` deleted an absent entry and then cached the rejected promise for
+   * the root forever. `readTimeoutMs` is the host-supplied read that could do
+   * it.
+   */
+  describe('a throwing timeout-config read (F3)', () => {
+    it('resolves instead of rejecting, runs the pass on the default budget, and cleans the map up', async () => {
+      const health1 = makeHealth({ workspaceRoot: ws1.root });
+      const health2 = makeHealth({
+        workspaceRoot: ws1.root,
+        generatedAt: '2026-01-01T00:01:00.000Z',
+      });
+      reconciler.reconcile
+        .mockResolvedValueOnce(health1)
+        .mockResolvedValueOnce(health2);
+      const readTimeoutMs = jest.fn(() => {
+        throw new Error('settings store unavailable');
+      });
+      const { service, logger } = build(reconciler, {
+        minIntervalMs: 60_000,
+        readTimeoutMs,
+      });
+
+      await expect(service.ensure(ws1.root)).resolves.toBe(health1);
+      expect(readTimeoutMs).toHaveBeenCalled();
+      expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('using the default budget'),
+        expect.objectContaining({ budgetMs: DEFAULT_PREFLIGHT_TIMEOUT_MS }),
+      );
+
+      // The map was cleaned, so the next forced call starts a NEW pass rather
+      // than joining a cached rejected promise.
+      await expect(service.ensure(ws1.root, { force: true })).resolves.toBe(
+        health2,
+      );
+      expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('cleans up inFlight after a timed-out pass, allowing a forced call to start a new one', async () => {
+    const health = makeHealth({ workspaceRoot: ws1.root });
+    reconciler.reconcile
+      .mockImplementationOnce(
+        () =>
+          // Never settles inside the budget; the race decides.
+          new Promise<HarnessHealth>(() => undefined),
+      )
+      .mockResolvedValueOnce(health);
+    const { service } = build(reconciler, { minIntervalMs: 60_000 });
+
+    await expect(
+      service.ensure(ws1.root, { timeoutMs: 5 }),
+    ).resolves.toBeNull();
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
+
+    await expect(service.ensure(ws1.root, { force: true })).resolves.toBe(
+      health,
+    );
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  it('cleans up inFlight after a rejected reconcile, allowing a forced call to start a new one', async () => {
+    const health = makeHealth({ workspaceRoot: ws1.root });
+    reconciler.reconcile
+      .mockRejectedValueOnce(new Error('EBUSY'))
+      .mockResolvedValueOnce(health);
+    const { service } = build(reconciler, { minIntervalMs: 60_000 });
+
+    await expect(service.ensure(ws1.root)).resolves.toBeNull();
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
+
+    await expect(service.ensure(ws1.root, { force: true })).resolves.toBe(
+      health,
+    );
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The delete is CONDITIONAL on the stored promise still being this pass's
+   * own. Through the public API an entry is only ever replaced after its own
+   * cleanup ran, so this reads the private map directly to model the one
+   * ordering the guard exists for: an earlier pass settling while a LATER
+   * pass for the same root is the stored one. An unconditional delete would
+   * evict the later pass and let a third caller start a duplicate walk.
+   */
+  it('does not delete a later pass entry when an earlier pass for the same root settles', async () => {
+    let finishPass!: (health: HarnessHealth) => void;
+    reconciler.reconcile.mockImplementation(
+      () =>
+        new Promise<HarnessHealth>((resolve) => {
+          finishPass = resolve;
+        }),
+    );
+    const { service } = build(reconciler, { minIntervalMs: 60_000 });
+
+    const first = service.ensure(ws1.root);
+    const inFlight = (
+      service as unknown as {
+        inFlight: Map<string, Promise<HarnessHealth | null>>;
+      }
+    ).inFlight;
+    expect(inFlight.size).toBe(1);
+
+    // A later pass for the same root becomes the stored entry.
+    const laterHealth = makeHealth({
+      workspaceRoot: ws1.root,
+      generatedAt: '2026-01-01T00:02:00.000Z',
+    });
+    const laterPass = Promise.resolve<HarnessHealth | null>(laterHealth);
+    inFlight.set(ws1.root, laterPass);
+
+    finishPass(makeHealth({ workspaceRoot: ws1.root }));
+    await first;
+
+    expect(inFlight.get(ws1.root)).toBe(laterPass);
   });
 
   it('unsubscribes from reconciler health events on dispose()', () => {
