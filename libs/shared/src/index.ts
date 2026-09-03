@@ -58,3 +58,4 @@ export * from './lib/constants/environment.constants';
 export * from './lib/constants/workspace-scan.constants';
 export * from './lib/constants/skill-drain.constants';
 export * from './lib/constants/stack-profiles';
+export * from './lib/connectors/ptah-connectors.catalog';
