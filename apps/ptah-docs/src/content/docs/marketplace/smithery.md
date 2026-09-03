@@ -19,6 +19,20 @@ The first time you open the Smithery provider, Ptah asks for a **Smithery API ke
 Your key is **stored encrypted by Ptah and never leaves your machine**. You can get a key from your Smithery account at [smithery.ai](https://smithery.ai).
 :::
 
+## Your Smithery account
+
+Once a key is saved, an **account row** shows the Smithery **namespace** every Ptah install lands in. If your key has more than one namespace, Ptah names it and installs into the first — the row says so. If the key has no namespace at all, the row shows the reason instead.
+
+Below the account row, a **Connections** list shows every connection in that namespace — the ones Ptah created and any you made in Smithery directly. Each row shows a status badge:
+
+| Badge                   | Meaning                                                 |
+| ----------------------- | ------------------------------------------------------- |
+| **Connected**           | The connection is authorized and ready to use           |
+| **Needs authorization** | Smithery still needs you to finish sign-in for this one |
+| **Error**               | Smithery reported a problem with this connection        |
+
+A connection Ptah installed also carries a **Managed by Ptah** badge, an **Authorize** button when it is not yet connected, and a **Remove** button. A connection you made outside Ptah shows neither button — Ptah will not disconnect or reauthorize a connection it did not create; manage those from Smithery itself.
+
 ## Browsing servers
 
 Once connected you'll see **Popular Servers**, and a search box for finding specific ones. Each result card shows the server name, a short description, and trust badges:
@@ -37,6 +51,10 @@ Click **Install** on a server to expand its setup panel:
 - **Guided configuration** — if the server requires settings (API keys, endpoints, options), Ptah renders a form generated from the server's configuration schema. Fill in the fields; the **Set up server** button stays disabled until the form is valid.
 
 Click **Set up server**. Ptah resolves the connection and marks the server **Ready** — _"Connection resolved — ready to use in a session."_ Its tools are now available to agents the same way `ptah_*` tools are.
+
+An installed server's badge can also read **Needs authorization** or **Error** instead of **Installed** — Ptah reads the badge from the connection's own status, not just from the install record, so a server that Smithery still needs you to authorize does not look ready when it is not. **Installed** on its own means an older install that predates the Connections list; reconnect it to get a live status.
+
+In a chat session, every server you installed through the Connections API arrives as tools on **one** MCP server named `smithery`, with each tool name prefixed by its connection ID (for example `hubspot.search_contacts`) — one namespace endpoint carries every connection. A server you installed before this change keeps working through its own old URL until you reconnect it; nothing migrates automatically.
 
 ## Permissions
 

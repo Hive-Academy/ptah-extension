@@ -26,6 +26,10 @@ Some servers let Ptah register itself automatically. Others need you to create a
 
 Without a client ID, a server that needs a pre-registered app refuses the connection and says so in the error banner.
 
+:::tip
+A Smithery-hosted server URL, such as `https://server.smithery.ai/<name>/mcp`, is an automatic-registration server too. Paste it here to connect straight to that one server through your browser — no Smithery API key, no vendor app. This is a different path from the [Smithery](/marketplace/smithery/) provider, which manages a whole catalog behind one key.
+:::
+
 ### Connecting a server that needs an app (HubSpot example)
 
 1. Open **Marketplace → Connected Apps**.
@@ -62,7 +66,7 @@ Rows that are not **Connected** get a **Reconnect** button, which re-runs the sa
 
 ## When a connection takes effect
 
-Connected servers are attached to chat sessions **at session start**. Connect an app and your next new chat gets its tools; a session already running does not pick it up. On each session start Ptah re-reads the connected list and refreshes any access token that is close to expiring.
+Connected servers are attached to chat sessions **at session start**, and this needs no restart of Ptah. Connect an app and your next new chat gets its tools right away; a session already running does not pick it up. Ptah reads the connected list fresh at the start of every session — not once at launch — and refreshes any access token that is close to expiring at the same time.
 
 A server whose token is missing or can no longer be refreshed simply contributes nothing to that session rather than failing the chat — if an app's tools are missing, check its badge here and hit **Reconnect**.
 
