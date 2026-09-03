@@ -87,6 +87,8 @@ import type {
   McpDirectoryDisconnectOAuthResult,
   McpDirectoryListOAuthConnectedParams,
   McpDirectoryListOAuthConnectedResult,
+  McpDirectoryGetOAuthRedirectUriParams,
+  McpDirectoryGetOAuthRedirectUriResult,
   McpRegistrySourceKind,
   RpcMethodName,
 } from '@ptah-extension/shared';
@@ -123,6 +125,7 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:oauthStatus',
     'mcpDirectory:disconnectOAuth',
     'mcpDirectory:listOAuthConnected',
+    'mcpDirectory:getOAuthRedirectUri',
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly registryProvider: McpRegistryProvider;
@@ -256,6 +259,7 @@ export class McpDirectoryRpcHandlers {
     this.registerOAuthStatus();
     this.registerDisconnectOAuth();
     this.registerListOAuthConnected();
+    this.registerGetOAuthRedirectUri();
 
     this.logger.debug('MCP Directory RPC handlers registered', {
       methods: [
@@ -276,6 +280,7 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:oauthStatus',
         'mcpDirectory:disconnectOAuth',
         'mcpDirectory:listOAuthConnected',
+        'mcpDirectory:getOAuthRedirectUri',
       ],
     });
   }
@@ -770,10 +775,11 @@ export class McpDirectoryRpcHandlers {
   /**
    * mcpDirectory:probeOAuthDiscovery — advisory pre-submit probe.
    *
-   * Answers one question: does this server publish OAuth discovery metadata? It
-   * runs the discovery fetches only — no browser, no client registration — so
-   * the UI may call it while the user is still typing. A transport failure is
-   * reported as `supported: false, reason: 'other'`; the UI treats anything but
+   * Answers two questions: does this server publish OAuth discovery metadata,
+   * and does it support dynamic client registration? It runs the discovery
+   * fetches only — no browser, no client registration — so the UI may call it
+   * while the user is still typing. A transport failure is reported as
+   * `supported: false, reason: 'other'`; the UI treats anything but
    * `'no-oauth-discovery'` as silence.
    */
   private registerProbeOAuthDiscovery(): void {
@@ -783,8 +789,9 @@ export class McpDirectoryRpcHandlers {
     >('mcpDirectory:probeOAuthDiscovery', async (params) => {
       try {
         const { serverUrl } = ProbeOAuthDiscoverySchema.parse(params);
-        await this.oauthService.probeDiscovery(serverUrl);
-        return { supported: true };
+        const { dynamicRegistration } =
+          await this.oauthService.probeDiscovery(serverUrl);
+        return { supported: true, dynamicRegistration };
       } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
         this.logger.debug('RPC: mcpDirectory:probeOAuthDiscovery negative', {
@@ -861,6 +868,36 @@ export class McpDirectoryRpcHandlers {
         });
         this.logger.error('RPC: mcpDirectory:listOAuthConnected failed', err);
         return { servers: [] };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:getOAuthRedirectUri — the redirect URL this host will hand to
+   * an authorization server on the next connect.
+   *
+   * The UI shows it so a user can register it with a provider that has no
+   * dynamic client registration. Host-dependent and computed without arming a
+   * listener or binding a port.
+   *
+   * A failure is NOT sent to Sentry: a headless host registers no callback
+   * listener and no HTTP provider, so "this host cannot run an interactive
+   * OAuth flow" is a legitimate answer rather than a defect.
+   */
+  private registerGetOAuthRedirectUri(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryGetOAuthRedirectUriParams,
+      McpDirectoryGetOAuthRedirectUriResult
+    >('mcpDirectory:getOAuthRedirectUri', async () => {
+      try {
+        const redirectUri = await this.oauthService.describeRedirectUri();
+        return { redirectUri };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn('RPC: mcpDirectory:getOAuthRedirectUri unavailable', {
+          error: err.message,
+        });
+        return { redirectUri: null, error: err.message };
       }
     });
   }

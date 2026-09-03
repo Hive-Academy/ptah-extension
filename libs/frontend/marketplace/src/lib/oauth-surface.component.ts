@@ -15,6 +15,7 @@ import {
   KeyRound,
   Plug,
   Check,
+  Copy,
   RefreshCw,
   Trash2,
 } from 'lucide-angular';
@@ -32,6 +33,13 @@ import type {
 interface OAuthSuggestion {
   readonly label: string;
   readonly url: string;
+  /**
+   * True when this provider does NOT register apps automatically (no RFC 7591
+   * `registration_endpoint`), so the user must create an app on the provider
+   * side and paste its client ID / secret. Picking such a chip opens Advanced
+   * immediately rather than waiting for the probe to say the same thing.
+   */
+  readonly requiresApp?: boolean;
 }
 
 /** Curated quick-connect chips for well-known OAuth MCP servers. */
@@ -39,6 +47,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
   { label: 'Sentry', url: 'https://mcp.sentry.dev/mcp' },
   { label: 'Notion', url: 'https://mcp.notion.com/mcp' },
   { label: 'Linear', url: 'https://mcp.linear.app/mcp' },
+  { label: 'HubSpot', url: 'https://mcp.hubspot.com', requiresApp: true },
 ] as const;
 
 /** Quiet period after the last keystroke before the advisory probe runs. */
@@ -55,6 +64,20 @@ const NEEDS_API_KEY_NOTE =
   'This server does not publish OAuth discovery metadata. ' +
   'It probably needs an API key instead. ' +
   "Check the server's documentation.";
+
+/**
+ * Shown when the server does OAuth but publishes no `registration_endpoint`
+ * (HubSpot is the canonical example). This is not a failure — it is a three-step
+ * provider-side setup, so it reads as information (`text-info`) and never
+ * disables Connect.
+ */
+const NEEDS_CLIENT_APP_NOTE =
+  'This server does not register apps automatically. ' +
+  'Create an app with the provider, register the redirect URL from Advanced, ' +
+  'then enter the client ID and secret below.';
+
+/** How long the Copy button shows its confirmation tick. */
+const COPIED_FEEDBACK_MS = 1500;
 
 /**
  * Is this string worth probing? Only an absolute `https:` URL is — anything
@@ -150,6 +173,11 @@ function isProbableServerUrl(value: string): boolean {
               {{ needsApiKeyNote }}
             </p>
           }
+          @if (discoveryHint() === 'needs-client-app') {
+            <p class="text-[11px] text-info" role="note">
+              {{ needsClientAppNote }}
+            </p>
+          }
           <input
             type="text"
             autocomplete="off"
@@ -161,13 +189,56 @@ function isProbableServerUrl(value: string): boolean {
           />
 
           <!-- Advanced: pre-registered client credentials (collapsed by default) -->
-          <details class="rounded-lg border border-base-300 bg-base-100/40">
+          <details
+            class="rounded-lg border border-base-300 bg-base-100/40"
+            [open]="advancedOpen()"
+            (toggle)="onAdvancedToggle($event)"
+          >
             <summary
               class="cursor-pointer select-none px-2 py-1.5 text-[11px] font-medium text-base-content-muted"
             >
               Advanced
             </summary>
             <div class="px-2 pb-2 pt-1 space-y-2">
+              @if (redirectUri(); as uri) {
+                <div class="space-y-1">
+                  <p class="text-[10px] text-base-content-muted">
+                    Redirect URL — register this with the provider
+                  </p>
+                  <div class="flex items-center gap-1">
+                    <input
+                      #redirectUriField
+                      type="text"
+                      readonly
+                      class="input input-bordered input-sm flex-1 min-w-0 text-xs font-mono"
+                      [value]="uri"
+                      aria-label="Redirect URL"
+                    />
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs shrink-0"
+                      aria-label="Copy redirect URL"
+                      (click)="copyRedirectUri(redirectUriField)"
+                    >
+                      @if (copied()) {
+                        <lucide-angular
+                          [img]="CheckIcon"
+                          class="w-3 h-3"
+                          aria-hidden="true"
+                        />
+                        Copied
+                      } @else {
+                        <lucide-angular
+                          [img]="CopyIcon"
+                          class="w-3 h-3"
+                          aria-hidden="true"
+                        />
+                        Copy
+                      }
+                    </button>
+                  </div>
+                </div>
+              }
               <input
                 type="text"
                 autocomplete="off"
@@ -187,8 +258,9 @@ function isProbableServerUrl(value: string): boolean {
                 aria-label="Client Secret"
               />
               <p class="text-[10px] text-base-content-muted">
-                Only needed for servers that don't support automatic app
-                registration.
+                Only needed for servers that do not register apps automatically.
+                Create an app with the provider, add the redirect URL above to
+                it, then paste the client ID and secret it gives you.
               </p>
             </div>
           </details>
@@ -391,6 +463,7 @@ export class OAuthSurfaceComponent implements OnInit {
   protected readonly KeyRoundIcon = KeyRound;
   protected readonly PlugIcon = Plug;
   protected readonly CheckIcon = Check;
+  protected readonly CopyIcon = Copy;
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly Trash2Icon = Trash2;
 
@@ -398,6 +471,8 @@ export class OAuthSurfaceComponent implements OnInit {
   protected readonly suggestions = OAUTH_SUGGESTIONS;
   /** The `no-oauth-discovery` advice, exposed to the template. */
   protected readonly needsApiKeyNote = NEEDS_API_KEY_NOTE;
+  /** The "provider needs a pre-registered app" advice, exposed to the template. */
+  protected readonly needsClientAppNote = NEEDS_CLIENT_APP_NOTE;
 
   /** Connect form fields. */
   public readonly urlInput = signal('');
@@ -414,16 +489,36 @@ export class OAuthSurfaceComponent implements OnInit {
   public readonly clientSecretInput = signal('');
 
   /**
+   * Whether the Advanced disclosure is expanded. Bound to `<details open>` so
+   * the component can open it when the provider is known to need a
+   * pre-registered app, while a user toggle still wins via `(toggle)`.
+   */
+  public readonly advancedOpen = signal(false);
+
+  /**
+   * The redirect URL the host will hand to the authorization server, loaded
+   * once on init. Null when the host cannot run an interactive flow or the
+   * lookup failed — in which case the Advanced section simply omits the row.
+   */
+  public readonly redirectUri = signal<string | null>(null);
+
+  /** True for a short window after a successful clipboard write. */
+  public readonly copied = signal(false);
+
+  /**
    * Advisory OAuth-discovery state for the URL currently in the field. It never
    * disables Connect: a curated server whose probe is rate-limited must stay
    * connectable, so a failed hint is silence, not an alarm.
    */
-  public readonly discoveryHint = signal<'none' | 'probing' | 'needs-api-key'>(
-    'none',
-  );
+  public readonly discoveryHint = signal<
+    'none' | 'probing' | 'needs-api-key' | 'needs-client-app'
+  >('none');
 
   /** Pending debounce for the advisory probe. Cancelled on input and destroy. */
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Pending reset of the Copy button's confirmation tick. */
+  private copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Connected servers (non-secret metadata only). */
   public readonly servers = signal<McpOAuthConnectedRecord[]>([]);
@@ -454,8 +549,30 @@ export class OAuthSurfaceComponent implements OnInit {
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.cancelDiscoveryProbe();
+      this.cancelCopiedFeedback();
     });
-    await this.loadConnected();
+    // Independent reads — the redirect URL is host metadata and must not wait
+    // on the connected list (nor fail it).
+    await Promise.all([this.loadConnected(), this.loadRedirectUri()]);
+  }
+
+  /**
+   * Read the host's redirect URL once. A failure is not surfaced: the Advanced
+   * section just omits the row, and the DCR path (the common one) is unaffected.
+   */
+  private async loadRedirectUri(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'mcpDirectory:getOAuthRedirectUri',
+        {},
+      );
+      if (this.destroyed) return;
+      if (result.isSuccess()) {
+        this.redirectUri.set(result.data.redirectUri);
+      }
+    } catch {
+      // Leave it null — the row is optional guidance, not a blocker.
+    }
   }
 
   // ── Connect form ─────────────────────────────────────────────────────────────
@@ -483,7 +600,47 @@ export class OAuthSurfaceComponent implements OnInit {
     if (!this.nameInput().trim()) {
       this.nameInput.set(suggestion.label);
     }
+    // Known pre-registered-app provider: reveal the credential fields now
+    // rather than after the probe round-trip confirms what the chip already says.
+    if (suggestion.requiresApp) {
+      this.advancedOpen.set(true);
+    }
     this.scheduleDiscoveryProbe(suggestion.url);
+  }
+
+  /** Keep `advancedOpen` in step with a user-driven expand / collapse. */
+  public onAdvancedToggle(event: Event): void {
+    this.advancedOpen.set((event.target as HTMLDetailsElement).open);
+  }
+
+  /**
+   * Copy the redirect URL. Falls back to selecting the field's text when the
+   * clipboard is unavailable (permission denied, or no `navigator.clipboard` in
+   * the host), so the user can still copy by hand. Never throws.
+   */
+  public async copyRedirectUri(field: HTMLInputElement): Promise<void> {
+    const uri = this.redirectUri();
+    if (!uri) return;
+    try {
+      await navigator.clipboard.writeText(uri);
+      if (this.destroyed) return;
+      this.cancelCopiedFeedback();
+      this.copied.set(true);
+      this.copiedTimer = setTimeout(() => {
+        this.copiedTimer = null;
+        if (!this.destroyed) this.copied.set(false);
+      }, COPIED_FEEDBACK_MS);
+    } catch {
+      if (this.destroyed) return;
+      field.select();
+    }
+  }
+
+  private cancelCopiedFeedback(): void {
+    if (this.copiedTimer !== null) {
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = null;
+    }
   }
 
   /**
@@ -520,6 +677,7 @@ export class OAuthSurfaceComponent implements OnInit {
         this.nameInput.set('');
         this.clientIdInput.set('');
         this.clientSecretInput.set('');
+        this.advancedOpen.set(false);
         this.cancelDiscoveryProbe();
         this.discoveryHint.set('none');
         await this.loadConnected();
@@ -707,24 +865,38 @@ export class OAuthSurfaceComponent implements OnInit {
 
   /**
    * Run the probe and apply its verdict, unless the URL moved on while the call
-   * was in flight. Only `no-oauth-discovery` produces a hint — every other
-   * outcome, transport failures included, resolves to silence.
+   * was in flight. Only two outcomes produce a hint — no discovery metadata at
+   * all, and OAuth without dynamic registration. Every other outcome, transport
+   * failures included, resolves to silence.
    */
   private async runDiscoveryProbe(serverUrl: string): Promise<void> {
-    let needsApiKey = false;
+    let verdict: 'none' | 'needs-api-key' | 'needs-client-app' = 'none';
     try {
       const result = await this.rpc.call('mcpDirectory:probeOAuthDiscovery', {
         serverUrl,
       });
-      needsApiKey =
-        result.isSuccess() &&
-        !result.data.supported &&
-        result.data.reason === 'no-oauth-discovery';
+      if (result.isSuccess()) {
+        if (
+          !result.data.supported &&
+          result.data.reason === 'no-oauth-discovery'
+        ) {
+          verdict = 'needs-api-key';
+        } else if (
+          result.data.supported &&
+          result.data.dynamicRegistration === false
+        ) {
+          verdict = 'needs-client-app';
+        }
+      }
     } catch {
-      needsApiKey = false;
+      verdict = 'none';
     }
     if (this.destroyed || this.urlInput().trim() !== serverUrl) return;
-    this.discoveryHint.set(needsApiKey ? 'needs-api-key' : 'none');
+    this.discoveryHint.set(verdict);
+    if (verdict === 'needs-client-app') {
+      // The user cannot act on the note without the credential fields visible.
+      this.advancedOpen.set(true);
+    }
   }
 
   // ── Internals ────────────────────────────────────────────────────────────────

@@ -81,10 +81,27 @@ describe('OAuthSurfaceComponent', () => {
     fixture.detectChanges();
   };
 
+  /** The loopback redirect URL the Electron/CLI host reports (TASK_2026_373). */
+  const REDIRECT_URI = 'http://127.0.0.1:41739/callback';
+
+  const redirectUriField = (): HTMLInputElement | null =>
+    hostElement.querySelector('input[aria-label="Redirect URL"]');
+
+  const copyButton = (): HTMLButtonElement | null =>
+    hostElement.querySelector('button[aria-label="Copy redirect URL"]');
+
+  const advancedDetails = (): HTMLDetailsElement =>
+    hostElement.querySelector('details') as HTMLDetailsElement;
+
   beforeEach(() => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
+
+    // Every mount reads the host redirect URL; individual tests override it.
+    setResponder('mcpDirectory:getOAuthRedirectUri', () =>
+      ok({ redirectUri: REDIRECT_URI }),
+    );
 
     TestBed.configureTestingModule({
       imports: [OAuthSurfaceComponent],
@@ -443,5 +460,212 @@ describe('OAuthSurfaceComponent', () => {
     fixture.detectChanges();
 
     expect(component.connectError()).toBe('authorization denied');
+  });
+
+  // ── Pre-registered OAuth clients (TASK_2026_373) ───────────────────────────
+
+  const CLIENT_APP_NOTE =
+    'This server does not register apps automatically. ' +
+    'Create an app with the provider, register the redirect URL from Advanced, ' +
+    'then enter the client ID and secret below.';
+
+  it('loads the host redirect URL on init and renders it read-only in Advanced', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    await createComponent();
+
+    const redirectCall = calls.find(
+      (c) => c.method === 'mcpDirectory:getOAuthRedirectUri',
+    );
+    expect(redirectCall?.params).toEqual({});
+    expect(component.redirectUri()).toBe(REDIRECT_URI);
+
+    const field = redirectUriField();
+    expect(field).not.toBeNull();
+    expect(field?.value).toBe(REDIRECT_URI);
+    expect(field?.readOnly).toBe(true);
+    expect(hostElement.textContent).toContain(
+      'Redirect URL — register this with the provider',
+    );
+    expect(copyButton()).not.toBeNull();
+  });
+
+  it('renders no redirect row when the host reports a null redirect URL', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:getOAuthRedirectUri', () =>
+      ok({ redirectUri: null, error: 'No interactive host' }),
+    );
+    await createComponent();
+
+    expect(component.redirectUri()).toBeNull();
+    expect(redirectUriField()).toBeNull();
+    expect(copyButton()).toBeNull();
+    // The failure is silent — it must not surface as a load or connect error.
+    expect(component.loadError()).toBeNull();
+    expect(component.connectError()).toBeNull();
+  });
+
+  it('copies the redirect URL to the clipboard and confirms for a moment', fakeAsync(() => {
+    const writeText = jest.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+    fixture.detectChanges();
+
+    copyButton()?.click();
+    tick();
+    fixture.detectChanges();
+
+    expect(writeText).toHaveBeenCalledWith(REDIRECT_URI);
+    expect(component.copied()).toBe(true);
+
+    // The tick reverts on its own.
+    tick(1500);
+    fixture.detectChanges();
+    expect(component.copied()).toBe(false);
+  }));
+
+  it('falls back to selecting the field when the clipboard write rejects', fakeAsync(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: jest.fn(() => Promise.reject(new Error('denied'))) },
+      configurable: true,
+    });
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+    fixture.detectChanges();
+
+    const field = redirectUriField() as HTMLInputElement;
+    const select = jest.spyOn(field, 'select');
+
+    copyButton()?.click();
+    tick();
+    fixture.detectChanges();
+
+    expect(select).toHaveBeenCalled();
+    expect(component.copied()).toBe(false);
+  }));
+
+  it('opens Advanced and explains the setup when the probe reports no dynamic registration', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      ok({ supported: true, dynamicRegistration: false }),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.hubspot.com');
+    tick(400);
+    fixture.detectChanges();
+
+    expect(component.discoveryHint()).toBe('needs-client-app');
+    expect(component.advancedOpen()).toBe(true);
+    expect(advancedDetails().open).toBe(true);
+    expect(hostElement.textContent).toContain(CLIENT_APP_NOTE);
+    // Advisory only — Connect stays enabled, as for the API-key hint.
+    const submit = hostElement.querySelector(
+      'button[type="submit"]',
+    ) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+  }));
+
+  it('leaves Advanced closed when the probe reports dynamic registration', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      ok({ supported: true, dynamicRegistration: true }),
+    );
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+
+    typeUrl('https://mcp.notion.com/mcp');
+    tick(400);
+    fixture.detectChanges();
+
+    expect(component.discoveryHint()).toBe('none');
+    expect(component.advancedOpen()).toBe(false);
+    expect(hostElement.textContent).not.toContain(CLIENT_APP_NOTE);
+  }));
+
+  it('opens Advanced immediately when the HubSpot chip is picked, before any probe', fakeAsync(() => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    fixture = TestBed.createComponent(OAuthSurfaceComponent);
+    component = fixture.componentInstance;
+    hostElement = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    tick();
+    fixture.detectChanges();
+
+    const chip = Array.from(
+      hostElement.querySelectorAll<HTMLButtonElement>('button[type="button"]'),
+    ).find((b) => b.textContent?.trim() === 'HubSpot');
+    expect(chip).toBeDefined();
+
+    chip?.click();
+    fixture.detectChanges();
+
+    expect(component.urlInput()).toBe('https://mcp.hubspot.com');
+    expect(component.advancedOpen()).toBe(true);
+    expect(advancedDetails().open).toBe(true);
+    // No round trip was needed to get here.
+    expect(probeCallCount()).toBe(0);
+
+    // Drain the debounced probe so fakeAsync has no pending timer.
+    setResponder('mcpDirectory:probeOAuthDiscovery', () =>
+      ok({ supported: true, dynamicRegistration: false }),
+    );
+    tick(400);
+  }));
+
+  it('closes Advanced again after a successful connect', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    setResponder('mcpDirectory:connectOAuth', () =>
+      ok({ success: true, serverKey: 'hubspot' }),
+    );
+    await createComponent();
+
+    component.advancedOpen.set(true);
+    component.urlInput.set('https://mcp.hubspot.com');
+    component.clientIdInput.set('app-123');
+    component.clientSecretInput.set('shh');
+    await component.connect(new Event('submit'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.advancedOpen()).toBe(false);
+    expect(component.clientIdInput()).toBe('');
+    expect(component.clientSecretInput()).toBe('');
+  });
+
+  it('mirrors a user toggle of the Advanced disclosure back into the signal', async () => {
+    setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
+    await createComponent();
+
+    const details = advancedDetails();
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBe(true);
+
+    details.open = false;
+    details.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    expect(component.advancedOpen()).toBe(false);
   });
 });

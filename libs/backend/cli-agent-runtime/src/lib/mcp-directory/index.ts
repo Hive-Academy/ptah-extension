@@ -51,7 +51,10 @@ export {
   McpOAuthService,
   deriveMcpOAuthServerKey,
 } from './oauth/mcp-oauth.service';
-export { LoopbackOAuthCallbackListener } from './oauth/loopback-oauth-callback-listener';
+export {
+  LoopbackOAuthCallbackListener,
+  MCP_OAUTH_LOOPBACK_PORT,
+} from './oauth/loopback-oauth-callback-listener';
 export type {
   McpOAuthServiceDeps,
   McpOAuthLogger,

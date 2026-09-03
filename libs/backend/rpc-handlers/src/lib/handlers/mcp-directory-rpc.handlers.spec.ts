@@ -63,6 +63,8 @@ import {
 } from '@ptah-extension/platform-core/testing';
 
 import type { DependencyContainer } from 'tsyringe';
+import type { IHttpServerProvider } from '@ptah-extension/platform-core';
+import { MCP_OAUTH_LOOPBACK_PORT } from '@ptah-extension/cli-agent-runtime';
 import { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
 
 /**
@@ -85,7 +87,9 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
   let authSecrets: MockAuthSecretsService;
   let originalFetch: typeof globalThis.fetch;
 
-  const build = () => {
+  const build = (
+    httpServerProvider: IHttpServerProvider | null = createMockHttpServerProvider(),
+  ) => {
     const handlers = new McpDirectoryRpcHandlers(
       logger as unknown as Logger,
       rpc as never,
@@ -93,7 +97,7 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       sentry as unknown as SentryService,
       authSecrets,
       createMockUserInteraction(),
-      createMockHttpServerProvider(),
+      httpServerProvider as IHttpServerProvider,
       makeContainerStub(),
     );
     handlers.register();
@@ -294,12 +298,13 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     });
   });
 
-  it('probeOAuthDiscovery reports supported:true when metadata is published', async () => {
+  it('probeOAuthDiscovery reports dynamicRegistration:false when no registration_endpoint is published', async () => {
     mockFetch((url) => {
       if (url.endsWith('/.well-known/oauth-authorization-server')) {
         return {
           authorization_endpoint: 'https://auth.example.com/authorize',
           token_endpoint: 'https://auth.example.com/token',
+          // No registration_endpoint — the HubSpot shape.
         };
       }
       return {};
@@ -310,7 +315,27 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       serverUrl: 'https://auth.example.com/mcp',
     });
     expect(res.success).toBe(true);
-    expect(res.data).toEqual({ supported: true });
+    expect(res.data).toEqual({ supported: true, dynamicRegistration: false });
+  });
+
+  it('probeOAuthDiscovery reports dynamicRegistration:true when the server advertises RFC 7591', async () => {
+    mockFetch((url) => {
+      if (url.endsWith('/.well-known/oauth-authorization-server')) {
+        return {
+          authorization_endpoint: 'https://auth.example.com/authorize',
+          token_endpoint: 'https://auth.example.com/token',
+          registration_endpoint: 'https://auth.example.com/register',
+        };
+      }
+      return {};
+    });
+    build();
+
+    const res = await call('mcpDirectory:probeOAuthDiscovery', {
+      serverUrl: 'https://auth.example.com/mcp',
+    });
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({ supported: true, dynamicRegistration: true });
   });
 
   it('probeOAuthDiscovery rejects a non-URL param through Zod without calling the network', async () => {
@@ -328,6 +353,39 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
   it('declares probeOAuthDiscovery in the METHODS tuple', () => {
     expect(McpDirectoryRpcHandlers.METHODS).toContain(
       'mcpDirectory:probeOAuthDiscovery',
+    );
+  });
+
+  // ── Redirect URL advertisement (TASK_2026_373) ────────────────────────────
+
+  it('getOAuthRedirectUri reports the fixed loopback URL on a non-VS-Code host', async () => {
+    build();
+
+    const res = await call('mcpDirectory:getOAuthRedirectUri', {});
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      redirectUri: `http://127.0.0.1:${MCP_OAUTH_LOOPBACK_PORT}/callback`,
+    });
+  });
+
+  it('getOAuthRedirectUri returns null plus an error when the host cannot run the flow', async () => {
+    // A host that registers neither a callback listener nor an HTTP server
+    // provider cannot answer. That is a legitimate headless answer, so it is
+    // logged at warn and never sent to Sentry.
+    build(null);
+
+    const res = await call('mcpDirectory:getOAuthRedirectUri', {});
+    expect(res.success).toBe(true);
+    const data = res.data as { redirectUri: string | null; error?: string };
+    expect(data.redirectUri).toBeNull();
+    expect(data.error).toMatch(/callbackListener or an httpServerProvider/i);
+    expect(sentry.captureException).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('declares getOAuthRedirectUri in the METHODS tuple', () => {
+    expect(McpDirectoryRpcHandlers.METHODS).toContain(
+      'mcpDirectory:getOAuthRedirectUri',
     );
   });
 

@@ -439,8 +439,34 @@ export interface McpDirectoryProbeOAuthDiscoveryParams {
 export interface McpDirectoryProbeOAuthDiscoveryResult {
   /** True when authorization and token endpoints were discovered. */
   supported: boolean;
+  /**
+   * Present only when `supported` is true. False means the authorization
+   * server publishes no `registration_endpoint` (RFC 7591), so the user must
+   * create an app with the provider, register Ptah's redirect URL there, and
+   * supply the client ID (HubSpot is the canonical example).
+   */
+  dynamicRegistration?: boolean;
   /** Present only when `supported` is false. */
   reason?: McpOAuthFailureReason;
+}
+
+/** Params for mcpDirectory:getOAuthRedirectUri (no params needed). */
+export type McpDirectoryGetOAuthRedirectUriParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:getOAuthRedirectUri.
+ *
+ * The redirect URL the host will hand to an authorization server on the next
+ * connect. Shown in the UI so the user can register it with a provider that
+ * does not support dynamic client registration. Host-dependent: the VS Code
+ * URI handler yields a `vscode://…/oauth-callback` deep link; Electron and CLI
+ * yield the fixed loopback `http://127.0.0.1:<port>/callback`.
+ */
+export interface McpDirectoryGetOAuthRedirectUriResult {
+  /** Null when the host cannot run an interactive OAuth flow. */
+  redirectUri: string | null;
+  /** Sanitized error message when `redirectUri` is null. */
+  error?: string;
 }
 
 /** Params for mcpDirectory:oauthStatus. */
