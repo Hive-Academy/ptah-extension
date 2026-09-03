@@ -86,6 +86,7 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
@@ -148,13 +149,27 @@ export class PiCliAdapter implements CliAdapter {
   /** Pi has no MCP support — its extensibility is code-based (registerTool). */
   readonly supportsMcp = false;
 
+  /**
+   * @param spawner - Off-thread process spawner. Supplied by
+   *   `CliDetectionService` from `SDK_TOKENS.SDK_PROCESS_SPAWNER`. Without it
+   *   every spawn below runs `cross-spawn` inline, which on Windows is a
+   *   synchronous `CreateProcessW` that cost 300-900 ms of event-loop lag per
+   *   rival-CLI launch (TASK_2026_367).
+   */
+  constructor(private readonly spawner?: IProcessSpawner) {}
+
   async detect(): Promise<CliDetectionResult> {
     try {
       const binaryPath = await resolveCliPath('pi');
       if (!binaryPath) {
         return { cli: 'pi', installed: false, supportsSteer: false };
       }
-      const version = await probeCliVersion(binaryPath);
+      const version = await probeCliVersion(
+        binaryPath,
+        undefined,
+        undefined,
+        this.spawner,
+      );
 
       return {
         cli: 'pi',
@@ -209,7 +224,9 @@ export class PiCliAdapter implements CliAdapter {
   ): Promise<string | undefined> {
     return new Promise((resolve) => {
       let stdout = '';
-      const child = spawnCli(binary, ['--list-models'], {});
+      const child = spawnCli(binary, ['--list-models'], {
+        spawner: this.spawner,
+      });
       const timer = setTimeout(() => {
         child.kill();
         resolve(undefined);
@@ -307,9 +324,15 @@ export class PiCliAdapter implements CliAdapter {
      *  (bash grandchildren, dev servers) instead of orphaning them. */
     const killChild = (child: ReturnType<typeof spawnCli>): void => {
       writeRequest(child, { type: 'abort' });
-      if (child.pid && !child.killed) {
-        void killProcessTree(child.pid);
-      }
+      // `pid` is known synchronously for an inline spawn and NOT for an
+      // off-thread one, where the child is created on a worker. `whenSpawned`
+      // is the one read that works for both; it settles to null if the child
+      // never started, so this can never hang (TASK_2026_367).
+      void child.whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          void killProcessTree(pid);
+        }
+      });
     };
 
     // Registered ONCE for the lifetime of the handle. `activeChild` is re-pointed
@@ -351,6 +374,7 @@ export class PiCliAdapter implements CliAdapter {
         {
           cwd: options.workingDirectory,
           detached: true,
+          spawner: this.spawner,
         },
       );
       activeChild = child;

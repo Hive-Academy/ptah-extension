@@ -58,6 +58,13 @@ export type {
 export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
 export type { ICallerWorkspaceResolver } from './interfaces/caller-workspace-resolver.interface';
 export type { ITracer } from './interfaces/tracer.interface';
+export type {
+  IProcessSpawner,
+  ProcessSpawnRequest,
+  SpawnedProcessHandle,
+  ProcessExitListener,
+  ProcessErrorListener,
+} from './interfaces/process-spawner.interface';
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type {
   IPtyHost,

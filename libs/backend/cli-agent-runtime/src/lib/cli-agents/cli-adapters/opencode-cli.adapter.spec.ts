@@ -27,6 +27,7 @@ interface FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
 }
 
@@ -46,11 +47,13 @@ function createFakeChild(): FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.stdin = { end: jest.fn(), write: jest.fn() };
   emitter.pid = FAKE_PID;
+  emitter.whenSpawned = Promise.resolve(FAKE_PID);
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;

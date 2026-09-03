@@ -60,6 +60,7 @@ interface FakeChild extends EventEmitter {
   kill: jest.Mock;
   killed: boolean;
   pid: number;
+  whenSpawned: Promise<number | null>;
 }
 
 function createFakeChild(): FakeChild {
@@ -72,6 +73,7 @@ function createFakeChild(): FakeChild {
   child.kill = jest.fn();
   child.killed = false;
   child.pid = 4242;
+  child.whenSpawned = Promise.resolve(4242);
   return child;
 }
 
