@@ -100,7 +100,10 @@ export interface HarnessPreflightDeps {
 export class HarnessPreflightService {
   /** Resolved workspace root → epoch ms of the last completed pass. */
   private readonly lastPassAt = new Map<string, number>();
+  /** In-flight preflight passes keyed by resolved workspace root (C6a). */
+  private readonly inFlight = new Map<string, Promise<HarnessHealth | null>>();
   private readonly minIntervalMs: number;
+  private unsubscribeHealth?: () => void;
 
   constructor(
     private readonly logger: Logger,
@@ -109,6 +112,19 @@ export class HarnessPreflightService {
   ) {
     this.minIntervalMs =
       deps.minIntervalMs ?? DEFAULT_PREFLIGHT_MIN_INTERVAL_MS;
+    if (typeof reconciler?.onHealth === 'function') {
+      this.unsubscribeHealth = reconciler.onHealth((health) => {
+        if (health?.workspaceRoot) {
+          this.lastPassAt.set(health.workspaceRoot, Date.now());
+        }
+      });
+    }
+  }
+
+  /** Unsubscribe from reconciler health events when torn down. */
+  dispose(): void {
+    this.unsubscribeHealth?.();
+    this.unsubscribeHealth = undefined;
   }
 
   /**
@@ -135,36 +151,57 @@ export class HarnessPreflightService {
       return null;
     }
 
+    const inFlight = this.inFlight.get(workspaceRoot);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+
     if (options.force !== true && this.throttled(workspaceRoot)) return null;
     // Stamped BEFORE the pass, not after: two sessions starting together must
     // not both decide the other has not run yet.
     this.lastPassAt.set(workspaceRoot, Date.now());
 
-    const budgetMs = this.resolveTimeout(options.timeoutMs);
-    const startedAt = Date.now();
+    const passPromise = (async () => {
+      try {
+        const budgetMs = this.resolveTimeout(options.timeoutMs);
+        const startedAt = Date.now();
 
-    const health = await this.runBounded(workspaceRoot, budgetMs, 'preflight');
-    if (health === null) {
-      this.logger.info(
-        '[harness-sync] preflight: timed out, session continues',
-        {
+        const health = await this.runBounded(
           workspaceRoot,
           budgetMs,
-        },
-      );
-      return null;
-    }
+          'preflight',
+        );
+        if (health === null) {
+          this.logger.info(
+            '[harness-sync] preflight: timed out, session continues',
+            {
+              workspaceRoot,
+              budgetMs,
+            },
+          );
+          return null;
+        }
 
-    if (health.sources !== 'pending-download') {
-      this.log(health, Date.now() - startedAt);
-      return health;
-    }
+        if (health.sources !== 'pending-download') {
+          this.log(health, Date.now() - startedAt);
+          return health;
+        }
 
-    const remainingMs = budgetMs - (Date.now() - startedAt);
-    const retried = await this.retryAfterDownload(workspaceRoot, remainingMs);
-    const finalHealth = retried ?? health;
-    this.log(finalHealth, Date.now() - startedAt);
-    return finalHealth;
+        const remainingMs = budgetMs - (Date.now() - startedAt);
+        const retried = await this.retryAfterDownload(
+          workspaceRoot,
+          remainingMs,
+        );
+        const finalHealth = retried ?? health;
+        this.log(finalHealth, Date.now() - startedAt);
+        return finalHealth;
+      } finally {
+        this.inFlight.delete(workspaceRoot);
+      }
+    })();
+
+    this.inFlight.set(workspaceRoot, passPromise);
+    return await passPromise;
   }
 
   /**
