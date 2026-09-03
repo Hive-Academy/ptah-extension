@@ -62,6 +62,7 @@ import {
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
  * Provider API-key env vars treated as a "credentials present" signal when no
@@ -484,11 +485,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
       output.emit(`[stderr] ${cleaned}\n`);
-      const isError =
-        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned,
-        );
-      segment.emit({ type: isError ? 'error' : 'info', content: cleaned });
+      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
     });
 
     const done = new Promise<number>((resolve) => {

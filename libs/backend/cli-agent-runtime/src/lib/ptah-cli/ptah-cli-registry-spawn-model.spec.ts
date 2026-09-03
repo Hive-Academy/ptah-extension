@@ -67,15 +67,17 @@ async function* emptyStream(): AsyncGenerator<never, void, unknown> {
 
 interface SpawnHarness {
   registry: PtahCliRegistry;
+  logger: ReturnType<typeof createMockLogger>;
   getCapturedModel: () => string | undefined;
+  getCapturedOptions: () => Options | undefined;
 }
 
 function buildHarness(config: PtahCliConfig): SpawnHarness {
   const logger = createMockLogger();
 
-  let capturedModel: string | undefined;
+  let capturedOptions: Options | undefined;
   const queryFn = jest.fn((args: { options?: Options }) => {
-    capturedModel = args.options?.model as string | undefined;
+    capturedOptions = args.options;
     return emptyStream();
   });
 
@@ -137,7 +139,12 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
   );
 
-  return { registry, getCapturedModel: () => capturedModel };
+  return {
+    registry,
+    logger,
+    getCapturedModel: () => capturedOptions?.model as string | undefined,
+    getCapturedOptions: () => capturedOptions,
+  };
 }
 
 const BASE_CONFIG: PtahCliConfig = {
@@ -214,5 +221,65 @@ describe('PtahCliRegistry.spawnAgent — model override resolution', () => {
     });
 
     expect(config.selectedModel).toBe('configured-selected-model');
+  });
+});
+
+describe('PtahCliRegistry.spawnAgent — stderr classification (C1)', () => {
+  it('routes benign lines to debug and error lines to warn, never calling logger.error', async () => {
+    const harness = buildHarness(BASE_CONFIG);
+    await harness.registry.spawnAgent(BASE_CONFIG.id, 'do work');
+
+    const stderrCallback = harness.getCapturedOptions()?.stderr;
+    expect(stderrCallback).toBeDefined();
+    if (!stderrCallback) {
+      throw new Error('stderr callback was not provided');
+    }
+
+    // Benign line -> debug
+    stderrCallback(
+      '[claude-code:unrecognized_model] {"model":"glm-5.2:cloud"}',
+    );
+    expect(harness.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('[claude-code:unrecognized_model]'),
+    );
+    expect(harness.logger.warn).not.toHaveBeenCalled();
+    expect(harness.logger.error).not.toHaveBeenCalled();
+
+    // Matching error line -> warn
+    stderrCallback('Error: ENOENT no such file or directory');
+    expect(harness.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Error: ENOENT'),
+    );
+    // Never calls logger.error even on matching error line
+    expect(harness.logger.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('PtahCliRegistry.spawnAgent — headless agent spawn logging (C2)', () => {
+  it('logs resolved tier and model instead of sonnet providerModel default', async () => {
+    const config: PtahCliConfig = {
+      ...BASE_CONFIG,
+      selectedModel: undefined,
+      tierMappings: {
+        sonnet: 'kimi-k2.7-code:cloud',
+        opus: 'glm-5.2:cloud',
+      },
+    };
+    const harness = buildHarness(config);
+
+    await harness.registry.spawnAgent(config.id, 'do work', {
+      modelTier: 'opus',
+    });
+
+    const infoCalls = harness.logger.info.mock.calls.map((call) => call[0]);
+    const spawnedMsg = infoCalls.find(
+      (msg) =>
+        typeof msg === 'string' && msg.includes('Spawned headless agent'),
+    );
+
+    expect(spawnedMsg).toBeDefined();
+    expect(spawnedMsg).toContain('glm-5.2:cloud');
+    expect(spawnedMsg).toContain('tier: opus');
+    expect(spawnedMsg).not.toContain('kimi-k2.7-code:cloud');
   });
 });

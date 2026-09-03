@@ -86,6 +86,7 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
  * Provider API-key env vars treated as a "credentials present" signal when no
@@ -418,12 +419,8 @@ export class PiCliAdapter implements CliAdapter {
             const cleaned = raw.trim();
             if (!cleaned) continue;
             output.emit(`[stderr] ${cleaned}\n`);
-            const isError =
-              /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-                cleaned,
-              );
             segment.emit({
-              type: isError ? 'error' : 'info',
+              type: classifyCliStderr(cleaned),
               content: cleaned,
             });
           }

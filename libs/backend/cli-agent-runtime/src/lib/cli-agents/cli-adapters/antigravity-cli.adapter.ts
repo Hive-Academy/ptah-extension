@@ -79,6 +79,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -530,11 +531,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         return;
       }
       output.emit(`[stderr] ${cleaned}\n`);
-      const isError =
-        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned,
-        );
-      segment.emit({ type: isError ? 'error' : 'info', content: cleaned });
+      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
     });
 
     const done = new Promise<number>((resolve) => {

@@ -18,6 +18,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
+import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import {
   SDK_TOKENS,
   HARNESS_PREFLIGHT_TOKEN,
@@ -681,6 +682,16 @@ export class PtahCliRegistry {
       mailbox.close();
     });
 
+    const handleChildStderr = (data: string) => {
+      const isError = classifyCliStderr(data) === 'error';
+      const message = `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`;
+      if (isError) {
+        this.logger.warn(message);
+      } else {
+        this.logger.debug(message);
+      }
+    };
+
     const sdkQuery = queryFn({
       prompt: mailbox.prompt,
       options: {
@@ -725,11 +736,7 @@ export class PtahCliRegistry {
         persistSession: true,
         ...(options?.resumeSessionId && { resume: options.resumeSessionId }),
         env: buildSafeEnv(authEnv),
-        stderr: (data: string) => {
-          this.logger.error(
-            `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`,
-          );
-        },
+        stderr: handleChildStderr,
         hooks: assembly.hooks,
         compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:
@@ -810,11 +817,9 @@ export class PtahCliRegistry {
       },
     };
 
-    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
-    const providerModel =
-      effectiveTiers?.sonnet ?? provider.staticModels?.[0]?.id ?? 'default';
     this.logger.info(
-      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`,
+      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) ` +
+        `with model ${model || '(unresolved)'} (tier: ${tier})`,
     );
 
     return {

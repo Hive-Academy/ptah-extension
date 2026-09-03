@@ -59,6 +59,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 /** Shell/command execution tool names across providers */
@@ -370,11 +371,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
             continue;
           }
-          const isError =
-            /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-              line,
-            );
-          segment.emit({ type: isError ? 'error' : 'info', content: line });
+          segment.emit({ type: classifyCliStderr(line), content: line });
         }
       });
 
