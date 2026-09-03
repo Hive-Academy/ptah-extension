@@ -62,13 +62,9 @@ export class AssistantMessageTransformer {
 
       const block = rawBlock;
       if (isTextBlock(block)) {
-        content.push({ type: 'text', text: block.text });
+        content.push(block);
       } else if (isThinkingBlock(block)) {
-        content.push({
-          type: 'thinking',
-          thinking: block.thinking,
-          signature: block.signature,
-        });
+        content.push(block);
       } else if (isToolUseBlock(block)) {
         if (!isRecord(block.input)) {
           helpers.logger.warn(
@@ -77,19 +73,9 @@ export class AssistantMessageTransformer {
           );
           continue;
         }
-        content.push({
-          type: 'tool_use',
-          id: block.id,
-          name: block.name,
-          input: block.input,
-        });
+        content.push(block);
       } else if (isToolResultBlock(block)) {
-        content.push({
-          type: 'tool_result',
-          tool_use_id: block.tool_use_id,
-          content: block.content,
-          is_error: block.is_error,
-        });
+        content.push(block);
       } else {
         helpers.logger.warn(
           '[SdkMessageTransformer] Skipping unsupported content block',
@@ -324,10 +310,13 @@ export class AssistantMessageTransformer {
           );
         }
       } else {
-        const unhandledBlock: never = block;
+        const unhandled: never = block;
         helpers.logger.warn(
-          '[SdkMessageTransformer] Skipping unsupported content block',
-          { block: unhandledBlock },
+          '[SdkMessageTransformer] Unhandled content block type',
+          {
+            type: (unhandled as { type?: string }).type,
+            messageId,
+          },
         );
       }
     }

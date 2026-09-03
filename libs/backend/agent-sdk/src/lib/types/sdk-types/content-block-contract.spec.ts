@@ -32,7 +32,7 @@ const CORPUS_ENABLED = process.env['PTAH_CORPUS_SPECS'] === '1';
 const corpusDescribe = CORPUS_ENABLED ? describe : describe.skip;
 
 const FIXTURES = [
-  { type: 'text', text: 'Hello from a completed assistant message.' },
+  { type: 'text', text: 'I will read the task files first.' },
   {
     type: 'thinking',
     thinking: '',
@@ -40,21 +40,27 @@ const FIXTURES = [
   },
   {
     type: 'tool_use',
-    id: 'toolu_01',
+    id: 'toolu_014d1mG4NpeaJN8FnL7VDVDC',
     name: 'Read',
-    input: { file_path: 'README.md' },
+    input: {
+      file_path:
+        'D:\\projects\\ptah-extension\\.ptah\\specs\\TASK_2026_362\\context.md',
+    },
+    caller: { type: 'direct' },
   },
   {
     type: 'tool_result',
-    tool_use_id: 'toolu_01',
-    content: 'File contents.',
+    tool_use_id: 'toolu_014KXbmqq8MAhAUirb3WbAsE',
+    content:
+      '   762 .claude/skills/scroll-world/SKILL.md\n   448 .claude/skills/scroll-world/references/scrub-engine.js\n   306 .claude/skills/scroll-world/references/pipeline.md\n   170 .claude/skills/scroll-world/references/prompts.md\n    73 .claude/skills/scroll-world/references/index-template.html\n  1759 total',
+    is_error: false,
   },
 ] satisfies ContentBlock[];
 
 const DECLARED_FIELDS: Record<ContentBlock['type'], ReadonlySet<string>> = {
   text: new Set(['type', 'text']),
   thinking: new Set(['type', 'thinking', 'signature']),
-  tool_use: new Set(['type', 'id', 'name', 'input']),
+  tool_use: new Set(['type', 'id', 'name', 'input', 'caller']),
   tool_result: new Set(['type', 'tool_use_id', 'content', 'is_error']),
 };
 
