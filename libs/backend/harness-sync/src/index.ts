@@ -267,8 +267,15 @@ export {
 
 // The per-workspace consent gate for the `agents` facet, and its migration.
 // Exported because the setup wizard GRANTS the consent from `rpc-handlers`.
+// `resolveAgentMirrorSource` is exported for the HOSTS: all three build a
+// user-layer mirror call, and both rules it applies — resolve the root the
+// reconciler keys on, and gate the mirror on consent — fail silently when one
+// host drifts (TASK_2026_365).
 export {
   AgentSyncGate,
+  resolveAgentMirrorSource,
+  type AgentConsentReader,
+  type AgentMirrorSource,
   type AgentSyncDecision,
 } from './lib/state/agent-sync-gate';
 

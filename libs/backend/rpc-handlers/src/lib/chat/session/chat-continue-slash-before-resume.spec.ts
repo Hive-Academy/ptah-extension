@@ -71,6 +71,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
 const OPEN_FOLDER = '/c/projects/qa3elhamor';
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c' as SessionId;
@@ -208,6 +209,11 @@ function makeHarness(opts: SessionState): Harness {
         .mockResolvedValue(undefined),
     } as never,
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
+    // SessionMcpStatusRegistry + its agent-sdk fan-out (TASK_2026_375 B4.3).
+    // The constructor subscribes to the fan-out, so `register` must exist; a
+    // real registry is cheap and keeps the stub honest.
+    new SessionMcpStatusRegistry(),
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 
   return {

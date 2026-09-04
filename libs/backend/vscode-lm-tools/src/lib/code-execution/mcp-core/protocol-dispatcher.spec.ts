@@ -28,6 +28,10 @@ import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
+import {
+  getCallerSessionId,
+  getCallerWorkspaceRoot,
+} from './mcp-request-context';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -1050,6 +1054,144 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// tools/call — ptah_web_search argument validation (F6 regression)
+//
+// The `providers` override is the re-assessment path. An invalid value must be
+// an MCP tool ERROR, never a silent fallback to a different provider set: a
+// discarded override is invisible to the agent, so the retry would run the very
+// provider that had just failed.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › ptah_web_search argument validation', () => {
+  function buildWebSearchDeps(): {
+    deps: ProtocolHandlerDependencies;
+    search: jest.Mock;
+  } {
+    const search = jest.fn().mockResolvedValue({
+      query: 'q',
+      summary: 's',
+      providers: ['serper'],
+      status: 'ok',
+      durationMs: 10,
+      results: [],
+      resultCount: 0,
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 10, resultCount: 0 },
+      ],
+    });
+    return {
+      search,
+      deps: buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          webSearch: { search } as unknown as PtahAPI['webSearch'],
+        }),
+      }),
+    };
+  }
+
+  function callWebSearch(
+    deps: ProtocolHandlerDependencies,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: 'ws-1',
+        method: 'tools/call',
+        params: { name: 'ptah_web_search', arguments: args },
+      }),
+      deps,
+    );
+  }
+
+  function asToolResult(res: MCPResponse): {
+    content: Array<{ text: string }>;
+    isError?: boolean;
+  } {
+    return res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+  }
+
+  it('forwards a valid providers override to webSearch.search', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, {
+      query: 'nx docs',
+      providers: ['serper', 'exa'],
+      maxResults: 3,
+    });
+
+    expect(asToolResult(res).isError).toBeUndefined();
+    expect(search).toHaveBeenCalledWith('nx docs', {
+      maxResults: 3,
+      timeout: undefined,
+      providers: ['serper', 'exa'],
+    });
+  });
+
+  it('rejects a string providers value instead of silently running tavily', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: 'serper' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/invalid ptah_web_search arguments/);
+    expect(result.content[0].text).toMatch(/providers/);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown provider name', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: ['bing'] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty providers array', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: [] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('reports the singular "provider" key rather than dropping it', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', provider: 'serper' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/provider/);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing query', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { providers: ['serper'] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('reports an absent web search service as a tool error', async () => {
+    const deps = buildDeps();
+
+    const res = await callWebSearch(deps, { query: 'q' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/Web search service not available/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tools/call — approval_prompt (Electron auto-allow branch)
 // ---------------------------------------------------------------------------
 
@@ -1153,5 +1295,70 @@ describe('protocol-handlers › malformed message rejection', () => {
     expect(res.result).toBeUndefined();
     expect(res.error?.code).toBe(-32602);
     expect(res.error?.message).toMatch(/[Ii]nvalid params/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call — request-scoped caller identity (TASK_2026_364, Batch A)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › tools/call caller identity context', () => {
+  it('runs the tool inside a context carrying BOTH identity fields', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-1',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+        _callerSessionId: 'sess-A',
+        _callerWorkspaceRoot: 'D:\\projects\\ptah-extension',
+      }),
+      deps,
+    );
+
+    expect(res.error).toBeUndefined();
+    expect(seenSession).toBe('sess-A');
+    expect(seenWorkspace).toBe('D:\\projects\\ptah-extension');
+  });
+
+  it('leaves both identity fields undefined for an anonymous call', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-2',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+      }),
+      deps,
+    );
+
+    expect(seenSession).toBeUndefined();
+    expect(seenWorkspace).toBeUndefined();
   });
 });

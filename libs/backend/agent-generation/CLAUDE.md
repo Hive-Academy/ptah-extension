@@ -8,7 +8,9 @@ Project-adaptive agent generation: analyzes a workspace, applies orchestration p
 
 **Per-CLI agent transformation is NOT here.** `MultiCliAgentWriterService` and the Codex/Copilot/Cursor transformers moved to `@ptah-extension/harness-sync` in TASK_2026_278 Batch 2. Generation writes ONE format; the reconciler fans it out to whichever CLIs are installed, so generation no longer has to detect them and a CLI installed afterwards is populated by the next reconcile instead of never.
 
-The boundary in one sentence: **agent-generation decides what a skill is and mirrors it; harness-sync copies it outward.** `UserLayerMirrorService` publishes plugin, synthesized and hand-authored sources into `~/.ptah/user/{skills,commands,agents}` — that IS the desired state `harness-sync` reconciles from into every CLI's harness dir. Nothing downstream of the mirror belongs in this lib.
+The boundary in one sentence: **agent-generation decides what a skill is and mirrors it; harness-sync copies it outward.** `UserLayerMirrorService` publishes plugin, synthesized and hand-authored sources into `~/.ptah/user/{skills,commands}` and `~/.ptah/user/agents/<workspace-key>` — that IS the desired state `harness-sync` reconciles from into every CLI's harness dir. Nothing downstream of the mirror belongs in this lib.
+
+**The agent root is per WORKSPACE, and the key comes from `libs/shared`** (`userLayerAgentDirName`, TASK_2026_365). Skills and commands are per-machine content; an agent is not, because the setup wizard tailors it to one project's stack and names it after the ROLE, so two projects write two different `backend-developer.md`. With a flat root they had one destination and `reconcileFileClone`'s fast-forward flipped it on every activation, with `harness-sync` rewriting each project's `.codex/agents` and `.github/agents` behind it. `getUserLayerRoots(workspaceRoot)` is the ONE place the scope is applied; every method reads its agent root from there, so a caller that forgets the argument lands in the unscoped base rather than in another project's directory. `seedLegacyAgents` carries the pre-key clones in once — agents are manifest-owned downstream, so introducing the key without a seed would have reaped every propagated copy on the first pass.
 
 ## Boundaries
 
@@ -225,6 +227,7 @@ or move it into an `LLM:` section — never to widen the list.
 - All analysis outputs validated via `ProjectAnalysisZodSchema` before downstream consumption.
 - File writes go through `IFileSystemProvider` (platform-core); never use `node:fs` directly.
 - A new rival CLI needs NOTHING here. Add a target in `harness-sync`'s `rival-targets.ts`.
+- Anything that touches the AGENT root goes through `getUserLayerRoots(workspaceRoot)`. Never join `~/.ptah/user/agents` by hand: the reader in `harness-sync` derives the same key from `resolveHarnessWorkspaceRoot`, and a second spelling is a directory the other side never reads.
 - `catch (error: unknown)`.
 
 ## Cross-Lib Rules

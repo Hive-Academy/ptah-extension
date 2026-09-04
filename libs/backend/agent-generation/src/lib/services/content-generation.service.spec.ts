@@ -29,7 +29,11 @@ jest.mock('fs', () => ({
   readFileSync: jest.fn().mockReturnValue('## Project Profile\n\nMock content'),
 }));
 
-import { ContentGenerationService } from './content-generation.service';
+import {
+  ContentGenerationService,
+  GenerationAbortedError,
+} from './content-generation.service';
+import type { GeneratedSectionValidator } from './generated-section-validator';
 import { AgentTemplate, AgentProjectContext } from '../types/core.types';
 import { Result } from '@ptah-extension/shared';
 import {
@@ -1896,5 +1900,207 @@ x
       expect(prompt).toContain('Project Type: Node');
       expect(prompt).toContain('Frameworks: Express');
     });
+  });
+});
+
+// =============================================================================
+// Abort signal and section counts (TASK_2026_361)
+// =============================================================================
+
+describe('ContentGenerationService — abort signal and section counts', () => {
+  const template: AgentTemplate = {
+    ...baseTemplate,
+    content: [
+      '<!-- LLM:SECTION_A -->',
+      'Fallback A',
+      '<!-- /LLM:SECTION_A -->',
+      '<!-- LLM:SECTION_B -->',
+      'Fallback B',
+      '<!-- /LLM:SECTION_B -->',
+      '<!-- VAR:SECTION_C -->',
+      'Fallback C',
+      '<!-- /VAR:SECTION_C -->',
+    ].join('\n'),
+  };
+
+  function build(validator?: { accept: (sectionId: string) => boolean }): {
+    service: ContentGenerationService;
+    execute: jest.Mock;
+  } {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const execute = jest.fn().mockResolvedValue({
+      stream: makeStream(null),
+      abort: jest.fn(),
+      close: jest.fn(),
+    });
+    const modelSettings = { selectedModel: { get: () => 'model' } };
+    const sectionValidator = {
+      buildPathIndex: jest.fn(() => ({})),
+      validate: jest.fn(async ({ sectionId }: { sectionId: string }) =>
+        (validator?.accept(sectionId) ?? true)
+          ? { accepted: true, violations: [] }
+          : { accepted: false, violations: ['states a version number'] },
+      ),
+    } as unknown as GeneratedSectionValidator;
+    const service = new ContentGenerationService(
+      logger as never,
+      { execute } as never,
+      modelSettings as never,
+      null,
+      sectionValidator,
+    );
+    return { service, execute };
+  }
+
+  it('links an external abort to the SDK controller and rethrows without fallback content', async () => {
+    const { service, execute } = build();
+    const controller = new AbortController();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn(async () => {
+            controller.abort('user_cancelled');
+            throw new Error('AbortError');
+          }),
+        }) as never,
+    );
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(GenerationAbortedError);
+
+    const passedController = execute.mock.calls[0][0]
+      .abortController as AbortController;
+    expect(passedController.signal.aborted).toBe(true);
+    expect(passedController.signal.reason).toBe('user_cancelled');
+  });
+
+  it('rethrows even when the stream ends quietly after an external abort', async () => {
+    const { service } = build();
+    const controller = new AbortController();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn(async () => {
+            controller.abort('generation_timeout');
+            return { structuredOutput: null };
+          }),
+        }) as never,
+    );
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow('generation_timeout');
+  });
+
+  it('throws immediately for an already-aborted signal without calling the SDK', async () => {
+    const { service, execute } = build();
+    const controller = new AbortController();
+    controller.abort('user_cancelled');
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(GenerationAbortedError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('removes its abort listener when the call settles', async () => {
+    const { service } = build();
+    const controller = new AbortController();
+    const removeSpy = jest.spyOn(controller.signal, 'removeEventListener');
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({ structuredOutput: null }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('counts validator rejections and accepted non-empty replacements', async () => {
+    const { service } = build({ accept: (id) => id !== 'SECTION_B' });
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({
+            structuredOutput: {
+              sections: {
+                SECTION_A: '## A\n- `src/a.ts` rule',
+                SECTION_B: '## B\n- something',
+                SECTION_C: 'npm',
+              },
+            },
+          }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.rejectedSections).toBe(1);
+    expect(result.value!.tailoredSections).toBe(2);
+    expect(result.value!.warnings).toHaveLength(1);
+    expect(result.value!.content).toContain('Fallback B');
+    expect(result.value!.content).toContain('`src/a.ts` rule');
+  });
+
+  it('reports zero tailored sections when the SDK returns no structured output', async () => {
+    const { service } = build();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({ structuredOutput: null }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.rejectedSections).toBe(0);
+    expect(result.value!.tailoredSections).toBe(0);
+    expect(result.value!.content).toContain('Fallback A');
+  });
+
+  it('still falls back to authored content for an internal (non-external) failure', async () => {
+    const { service } = build();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockRejectedValue(new Error('socket hang up')),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.content).toContain('Fallback A');
   });
 });

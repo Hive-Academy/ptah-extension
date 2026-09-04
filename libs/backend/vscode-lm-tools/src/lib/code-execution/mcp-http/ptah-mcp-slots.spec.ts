@@ -23,13 +23,21 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   FileSystemManager: class {},
 }));
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { HarnessTargetId } from '@ptah-extension/shared';
+import { createMcpFacet } from '@ptah-extension/harness-sync';
 import {
   planPtahMcpSlots,
   ptahMcpEntry,
+  ptahMcpUrl,
   CLAUDE_TARGET,
 } from './ptah-mcp-slots';
 
@@ -272,14 +280,99 @@ describe('planPtahMcpSlots', () => {
   });
 });
 
+describe('ptahMcpUrl', () => {
+  it('declares the workspace as /workspace/{encoded} (TASK_2026_364)', () => {
+    expect(ptahMcpUrl(51820, '/tmp/ws-a')).toBe(
+      'http://localhost:51820/workspace/%2Ftmp%2Fws-a',
+    );
+  });
+
+  it('percent-encodes a Windows root, colon and backslashes included', () => {
+    expect(ptahMcpUrl(51820, 'D:\\projects\\ptah-extension')).toBe(
+      'http://localhost:51820/workspace/D%3A%5Cprojects%5Cptah-extension',
+    );
+  });
+
+  it('stays bare for a home-scoped slot (empty root)', () => {
+    // One home file serves every open folder at once, so no single folder is
+    // the right one to declare.
+    expect(ptahMcpUrl(51820, '')).toBe('http://localhost:51820');
+  });
+
+  it('cannot leak a literal /sse out of a path segment', () => {
+    // Encoding turns every `/` in the folder into %2F, so a folder named
+    // `sse` cannot flip `inferTransportType` on read-back.
+    const url = ptahMcpUrl(51820, '/projects/sse/tools');
+
+    expect(url).toBe(
+      'http://localhost:51820/workspace/%2Fprojects%2Fsse%2Ftools',
+    );
+    expect(url).not.toContain('/sse');
+  });
+});
+
 describe('ptahMcpEntry', () => {
   it('is `http` for every target, so a read-back cannot disagree', () => {
     // `jsonToConfig` infers the transport from the URL (`sse` only when it
     // contains `/sse`), so an entry WRITTEN as `sse` reads back as `http` and
     // the service's read-compare would rewrite the file on every pass.
-    expect(ptahMcpEntry(51820)).toEqual({
+    expect(ptahMcpEntry(51820, '/tmp/ws-a')).toEqual({
+      type: 'http',
+      url: 'http://localhost:51820/workspace/%2Ftmp%2Fws-a',
+    });
+  });
+
+  it('keeps the bare URL for a home-scoped slot', () => {
+    expect(ptahMcpEntry(51820, '')).toEqual({
       type: 'http',
       url: 'http://localhost:51820',
     });
+  });
+});
+
+describe('the scoped entry round-trips through a real facet (TASK_2026_364)', () => {
+  // `ptah-mcp-slots.ts` feeds a read-COMPARE-write: `writeFacetEntry` reads
+  // the entry back through the facet and skips the write when it equals the
+  // desired one. An entry that reads back differently from what was written
+  // would therefore rewrite `.mcp.json`-family files on EVERY reconcile pass,
+  // in every user's repository. This pins the two halves of that stability:
+  // the read-back is deep-equal to the desired entry (still `http`), and a
+  // second write of the same entry leaves the same bytes on disk.
+  let tempHome: string;
+  let ws: string;
+
+  beforeEach(() => {
+    tempHome = mkdtempSync(join(tmpdir(), 'ptah-mcp-roundtrip-home-'));
+    ws = mkdtempSync(join(tmpdir(), 'ptah-mcp-roundtrip-ws-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempHome, { recursive: true, force: true });
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('reads back deep-equal and still as transport `http`', async () => {
+    const facet = createMcpFacet('cursor', { homeDir: tempHome });
+    const desired = ptahMcpEntry(51820, ws);
+
+    await facet.write(ws, 'ptah', desired);
+    const readBack = facet.readAll(ws).get('ptah');
+
+    expect(readBack).toEqual(desired);
+    expect(readBack?.type).toBe('http');
+  });
+
+  it('is byte-stable: a second write of the same entry changes nothing', async () => {
+    const facet = createMcpFacet('cursor', { homeDir: tempHome });
+    const configPath = facet.configPath(ws);
+    const desired = ptahMcpEntry(51820, ws);
+
+    await facet.write(ws, 'ptah', desired);
+    const firstBytes = readFileSync(configPath as string, 'utf-8');
+
+    await facet.write(ws, 'ptah', desired);
+    const secondBytes = readFileSync(configPath as string, 'utf-8');
+
+    expect(secondBytes).toBe(firstBytes);
   });
 });

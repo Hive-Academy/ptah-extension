@@ -1,5 +1,5 @@
 ﻿/**
- * SdkMessageTransformer specs â€” compact_boundary handling.
+ * SdkMessageTransformer specs — compact_boundary handling.
  *
  * Coverage:
  *   - A1: compact_boundary resolves sessionId via SessionLifecycleManager when
@@ -27,6 +27,7 @@ import type { SessionLifecycleManager } from './helpers/session-lifecycle-manage
 
 import { SdkMessageTransformer } from './sdk-message-transformer';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
+import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -109,7 +110,7 @@ function makeCompactBoundary(opts: {
 // Specs
 // ---------------------------------------------------------------------------
 
-describe('SdkMessageTransformer â€” compact_boundary (TASK_2026_109)', () => {
+describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
   let logger: jest.Mocked<Logger>;
   let registry: ReturnType<typeof makeSubagentRegistry>;
   let lifecycle: ReturnType<typeof makeSessionLifecycle>;
@@ -128,15 +129,16 @@ describe('SdkMessageTransformer â€” compact_boundary (TASK_2026_109)', () =
       modelResolver as unknown as IModelResolver,
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
-  it('A1 â€” resolves sessionId from active lifecycle ids when SDK omits session_id and no caller id is provided', () => {
+  it('A1 — resolves sessionId from active lifecycle ids when SDK omits session_id and no caller id is provided', () => {
     transformer = build(['active-sess-7']);
 
     const events = transformer.transform(
       makeCompactBoundary({ trigger: 'auto', preTokens: 50000 }) as never,
-      // No caller-provided sessionId â€” must fall back to lifecycle.
+      // No caller-provided sessionId — must fall back to lifecycle.
       undefined,
     );
 
@@ -147,7 +149,7 @@ describe('SdkMessageTransformer â€” compact_boundary (TASK_2026_109)', () =
     expect(lifecycle.getActiveSessionIds).toHaveBeenCalledTimes(1);
   });
 
-  it('A4 â€” calls SubagentRegistry.pruneSession with the resolved id and clears the live token snapshot', () => {
+  it('A4 — calls SubagentRegistry.pruneSession with the resolved id and clears the live token snapshot', () => {
     transformer = build(['active-sess-9']);
 
     // Seed the live token snapshot via getCumulativeTokens path: we cannot
@@ -182,11 +184,11 @@ describe('SdkMessageTransformer â€” compact_boundary (TASK_2026_109)', () =
     );
 
     expect(registry.pruneSession).toHaveBeenCalledWith('active-sess-9');
-    // Snapshot cleared â€” post-boundary cumulative reads zero.
+    // Snapshot cleared — post-boundary cumulative reads zero.
     expect(transformer.getCumulativeTokens('active-sess-9')).toBe(0);
   });
 
-  it('A1 guard â€” does NOT emit compaction_complete and warns when no sessionId can be resolved', () => {
+  it('A1 guard — does NOT emit compaction_complete and warns when no sessionId can be resolved', () => {
     transformer = build([]); // no active sessions
 
     const events = transformer.transform(
@@ -227,7 +229,7 @@ function makeTaskStarted(opts: {
   };
 }
 
-describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
+describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
   let logger: jest.Mocked<Logger>;
   let registry: ReturnType<typeof makeSubagentRegistry>;
   let lifecycle: ReturnType<typeof makeSessionLifecycle>;
@@ -246,10 +248,11 @@ describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
       modelResolver as unknown as IModelResolver,
       lifecycle as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
-  it('Fix 1 â€” calls setTaskId(toolUseId, taskId) when task_started carries a tool_use_id', () => {
+  it('Fix 1 — calls setTaskId(toolUseId, taskId) when task_started carries a tool_use_id', () => {
     transformer = build();
 
     transformer.transform(
@@ -264,7 +267,7 @@ describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
     expect(registry.setTaskId).toHaveBeenCalledWith('tool-use-xyz', 'task-abc');
   });
 
-  it('Fix 1 â€” does NOT call setTaskId when task_started has no tool_use_id', () => {
+  it('Fix 1 — does NOT call setTaskId when task_started has no tool_use_id', () => {
     transformer = build();
     const msg = {
       type: 'system',
@@ -280,7 +283,7 @@ describe('SdkMessageTransformer â€” task_started (Fix 1 + Fix 2)', () => {
     expect(registry.setTaskId).not.toHaveBeenCalled();
   });
 
-  it('Fix 2 â€” emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
+  it('Fix 2 — emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
     transformer = build();
 
     // SDK path fires first
@@ -419,6 +422,7 @@ describe('SdkMessageTransformer — workflow run correlation', () => {
       makeModelResolver() as unknown as IModelResolver,
       makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 
@@ -538,6 +542,7 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
       makeModelResolver() as unknown as IModelResolver,
       makeSessionLifecycle(activeIds) as unknown as SessionLifecycleManager,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     );
   }
 

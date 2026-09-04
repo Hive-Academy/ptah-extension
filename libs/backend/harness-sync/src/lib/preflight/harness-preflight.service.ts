@@ -100,7 +100,10 @@ export interface HarnessPreflightDeps {
 export class HarnessPreflightService {
   /** Resolved workspace root → epoch ms of the last completed pass. */
   private readonly lastPassAt = new Map<string, number>();
+  /** In-flight preflight passes keyed by resolved workspace root (C6a). */
+  private readonly inFlight = new Map<string, Promise<HarnessHealth | null>>();
   private readonly minIntervalMs: number;
+  private unsubscribeHealth?: () => void;
 
   constructor(
     private readonly logger: Logger,
@@ -109,6 +112,19 @@ export class HarnessPreflightService {
   ) {
     this.minIntervalMs =
       deps.minIntervalMs ?? DEFAULT_PREFLIGHT_MIN_INTERVAL_MS;
+    if (typeof reconciler?.onHealth === 'function') {
+      this.unsubscribeHealth = reconciler.onHealth((health) => {
+        if (health?.workspaceRoot) {
+          this.lastPassAt.set(health.workspaceRoot, Date.now());
+        }
+      });
+    }
+  }
+
+  /** Unsubscribe from reconciler health events when torn down. */
+  dispose(): void {
+    this.unsubscribeHealth?.();
+    this.unsubscribeHealth = undefined;
   }
 
   /**
@@ -135,11 +151,43 @@ export class HarnessPreflightService {
       return null;
     }
 
+    const inFlight = this.inFlight.get(workspaceRoot);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+
     if (options.force !== true && this.throttled(workspaceRoot)) return null;
     // Stamped BEFORE the pass, not after: two sessions starting together must
     // not both decide the other has not run yet.
     this.lastPassAt.set(workspaceRoot, Date.now());
 
+    // The shared promise is BUILT before any cleanup can run. `runPass` starts
+    // executing on this line, so a synchronous throw inside it would otherwise
+    // reach the `finally` before `inFlight.set` — deleting an entry that is not
+    // there yet and then caching a permanently rejected promise for this root
+    // (TASK_2026_367 / F3).
+    const pass = this.runPass(workspaceRoot, options);
+    const shared: Promise<HarnessHealth | null> = pass.finally(() => {
+      // Conditional: a later pass for this root must not have ITS entry
+      // removed by an earlier pass's cleanup.
+      if (this.inFlight.get(workspaceRoot) === shared) {
+        this.inFlight.delete(workspaceRoot);
+      }
+    });
+    this.inFlight.set(workspaceRoot, shared);
+    return await shared;
+  }
+
+  /**
+   * One bounded pass. Never throws: the reconcile rejection is swallowed by
+   * `runBounded`, and the timeout-config read degrades to the default budget.
+   * `HarnessPreflightDeps.readTimeoutMs` is host-supplied, so it is treated as
+   * untrusted here rather than assumed total.
+   */
+  private async runPass(
+    workspaceRoot: string,
+    options: HarnessPreflightOptions,
+  ): Promise<HarnessHealth | null> {
     const budgetMs = this.resolveTimeout(options.timeoutMs);
     const startedAt = Date.now();
 
@@ -272,7 +320,7 @@ export class HarnessPreflightService {
   }
 
   private resolveTimeout(override: number | undefined): number {
-    const candidate = override ?? this.deps.readTimeoutMs?.();
+    const candidate = override ?? this.readConfiguredTimeout();
     if (
       typeof candidate === 'number' &&
       Number.isFinite(candidate) &&
@@ -281,6 +329,26 @@ export class HarnessPreflightService {
       return candidate;
     }
     return DEFAULT_PREFLIGHT_TIMEOUT_MS;
+  }
+
+  /**
+   * A host's settings read is not part of this service's contract, so a failing
+   * one degrades to the default budget instead of failing the session. Debug,
+   * not warn: a session that starts on 1500 ms is not a user-visible problem.
+   */
+  private readConfiguredTimeout(): number | undefined {
+    try {
+      return this.deps.readTimeoutMs?.();
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[harness-sync] Preflight timeout config read failed; using the default budget',
+        {
+          budgetMs: DEFAULT_PREFLIGHT_TIMEOUT_MS,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return undefined;
+    }
   }
 
   /**

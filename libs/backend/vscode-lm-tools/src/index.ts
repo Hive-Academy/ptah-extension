@@ -13,6 +13,7 @@ export {
   type McpRegistrationFailure,
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';
+export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
 export {
   DiagnosticsCacheInvalidator,
   DIAGNOSTICS_CACHE_INVALIDATOR,
@@ -70,6 +71,9 @@ export {
 export type {
   WebSearchProviderType,
   IWebSearchProvider,
+  WebSearchFailureReason,
+  WebSearchProviderOutcome,
+  WebSearchAttributedResultItem,
 } from './lib/code-execution/services/web-search-provider.interface';
 export type {
   IBrowserCapabilities,

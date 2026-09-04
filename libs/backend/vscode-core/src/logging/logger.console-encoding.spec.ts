@@ -7,7 +7,7 @@
  *
  * The split matters. The output channel is a UTF-8 file and must receive the
  * message as written; the console is the surface where a double-encoded em dash
- * prints as `â€”` and where a legacy Windows codepage mangles even a correct
+ * prints as `—` and where a legacy Windows codepage mangles even a correct
  * one. Sanitising both would silently rewrite the durable log; sanitising
  * neither is the defect.
  */
@@ -18,7 +18,7 @@ import { Logger } from './logger';
 import type { OutputManager } from '../api-wrappers/output-manager';
 
 /** UTF-8 bytes of U+2014 EM DASH decoded as CP1252: `â` `€` `”`. */
-const MOJIBAKE_EM_DASH = 'â€”';
+const MOJIBAKE_EM_DASH = '—';
 
 interface Harness {
   logger: Logger;

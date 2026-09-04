@@ -8,6 +8,7 @@ import {
 import { Prisma, PrismaService } from '@ptah-api/core';
 import type {
   AdminCourse,
+  AdminCourseOutline,
   AdminCourseModule,
   AdminLesson,
   Visibility,
@@ -29,7 +30,7 @@ import {
   assertRestored,
   restorableWhere,
 } from '../common/soft-delete';
-import { appendSortOrder } from '../common/sort-order';
+import { DETERMINISTIC_ORDER_BY, appendSortOrder } from '../common/sort-order';
 
 /**
  * CoursesService — R2.1.1 – R2.1.3, R8.1, AD-10, AD-15, plan §3.4, PRE-6.
@@ -204,6 +205,74 @@ export class CoursesService {
     if (!course) throw new NotFoundException('Course not found');
 
     return this.hydrateCourse(course);
+  }
+
+  /**
+   * Every LIVE module and lesson in one live course, for the admin authoring
+   * surface. Draft courses are intentionally included; only tombstones are
+   * filtered. The existing write mappers keep both child projections identical
+   * to create/update responses.
+   *
+   * FOUR QUERIES, NO N+1: course existence, modules, lessons and live comment
+   * counts grouped by lesson. Comment rows themselves are never materialized.
+   */
+  async getOutlineForAdmin(id: string): Promise<AdminCourseOutline> {
+    const course = await this.prisma.course.findFirst({
+      where: { id, ...NOT_DELETED },
+      select: { id: true },
+    });
+    if (!course) throw new NotFoundException('Course not found');
+
+    const modules = await this.prisma.courseModule.findMany({
+      where: { courseId: course.id, ...NOT_DELETED },
+      orderBy: [...DETERMINISTIC_ORDER_BY],
+    });
+    if (modules.length === 0) return { modules: [] };
+
+    const lessons = await this.prisma.lesson.findMany({
+      where: {
+        moduleId: { in: modules.map((module) => module.id) },
+        ...NOT_DELETED,
+      },
+      orderBy: [...DETERMINISTIC_ORDER_BY],
+    });
+
+    const commentGroups =
+      lessons.length === 0
+        ? []
+        : await this.prisma.lessonComment.groupBy({
+            by: ['lessonId'],
+            where: {
+              lessonId: { in: lessons.map((lesson) => lesson.id) },
+              ...NOT_DELETED,
+            },
+            _count: { _all: true },
+          });
+
+    const commentCounts = new Map(
+      commentGroups.map((group) => [group.lessonId, group._count._all]),
+    );
+
+    const lessonsByModule = new Map<string, AdminLesson[]>();
+    for (const lesson of lessons) {
+      const projected = toAdminLesson(
+        lesson,
+        commentCounts.get(lesson.id) ?? 0,
+      );
+      const siblings = lessonsByModule.get(lesson.moduleId);
+      if (siblings) siblings.push(projected);
+      else lessonsByModule.set(lesson.moduleId, [projected]);
+    }
+
+    return {
+      modules: modules.map((module) => {
+        const moduleLessons = lessonsByModule.get(module.id) ?? [];
+        return {
+          ...toAdminCourseModule(module, moduleLessons.length),
+          lessons: moduleLessons,
+        };
+      }),
+    };
   }
 
   /* ---------------------------------------------------------------------- */

@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { performance } from 'node:perf_hooks';
+import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   CliType,
@@ -172,7 +173,10 @@ export async function handleMCPRequest(
 
       case 'tools/call':
         return await runWithMcpRequestContext(
-          { callerSessionId: request._callerSessionId },
+          {
+            callerSessionId: request._callerSessionId,
+            callerWorkspaceRoot: request._callerWorkspaceRoot,
+          },
           () => handleToolsCall(request, deps),
         );
 
@@ -372,6 +376,37 @@ const SQLITE_EAGER_TOOLS: readonly string[] = [
   'ptah_code_search_symbols',
   'ptah_memory_search',
 ];
+
+/**
+ * `ptah_web_search` arguments, validated at this boundary.
+ *
+ * The `providers` override is the re-assessment path: after a `Provider status`
+ * section names a provider that failed, the agent retries with the ones that
+ * worked. An unvalidated override was worse than no override — a bare string
+ * such as `providers: 'serper'` passed the old length test, was then iterated
+ * character by character, emptied, and fell back to `['tavily']`, so the retry
+ * ran the very provider that had just failed and the outcome list named Tavily
+ * as though the agent had asked for it. The schema is `strict()` so a near-miss
+ * key (the singular `provider`) is reported instead of being dropped.
+ */
+const WebSearchArgsSchema = z
+  .object({
+    query: z.string().min(1),
+    providers: z
+      .array(z.enum(['tavily', 'serper', 'exa']))
+      .min(1)
+      .optional(),
+    maxResults: z.number().int().positive().optional(),
+    timeout: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/** Render a Zod failure as one readable line naming each offending field. */
+function describeZodIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+}
 
 /**
  * Stamp `_meta['anthropic/alwaysLoad'] = true` onto the runtime-aware eager
@@ -805,29 +840,35 @@ async function handleIndividualTool(
       }
 
       case 'ptah_web_search': {
-        const { query, maxResults, timeout } = args as {
-          query: string;
-          maxResults?: number;
-          timeout?: number;
-        };
         if (!deps.ptahAPI.webSearch) {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Web search service not available.',
-                },
-              ],
-              isError: true,
-            },
-          };
+          return toolErrorResponse(
+            request,
+            'Web search service not available.',
+          );
         }
+        const parsed = WebSearchArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          // Never fall back to a different provider set than the one asked
+          // for: a discarded override is invisible to the agent, an error is
+          // not.
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_web_search arguments — ${describeZodIssues(
+              parsed.error,
+            )}. "providers" must be an array of ${JSON.stringify([
+              'tavily',
+              'serper',
+              'exa',
+            ])}.`,
+          );
+        }
+        const { query, maxResults, timeout, providers } = parsed.data;
         const result = await deps.ptahAPI.webSearch.search(query, {
           maxResults,
           timeout,
+          providers,
         });
         return createToolSuccessResponse(
           request,

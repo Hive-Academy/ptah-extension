@@ -13,14 +13,19 @@ import type {
   IHttpServerProvider,
   HttpServerRequestHandler,
 } from '@ptah-extension/platform-core';
-import { LoopbackOAuthCallbackListener } from './loopback-oauth-callback-listener';
+import {
+  LoopbackOAuthCallbackListener,
+  MCP_OAUTH_LOOPBACK_PORT,
+} from './loopback-oauth-callback-listener';
 
 /** Fake loopback provider: captures the handler and exposes an invoker. */
 function makeFakeHttpProvider(port = 51820) {
   let handler: HttpServerRequestHandler | undefined;
   let closed = false;
+  const listenCalls: number[] = [];
   const provider: IHttpServerProvider = {
-    async listen(_host, _port, h) {
+    async listen(_host, requestedPort, h) {
+      listenCalls.push(requestedPort);
       handler = h;
       return {
         port,
@@ -38,15 +43,60 @@ function makeFakeHttpProvider(port = 51820) {
     } as unknown as Parameters<HttpServerRequestHandler>[1];
     void handler?.({ url } as Parameters<HttpServerRequestHandler>[0], res);
   };
-  return { provider, invoke, isClosed: () => closed };
+  return { provider, invoke, isClosed: () => closed, listenCalls };
 }
 
 describe('LoopbackOAuthCallbackListener', () => {
-  it('start() binds 127.0.0.1 and reports the loopback redirect URI', async () => {
-    const { provider } = makeFakeHttpProvider(45123);
+  it('start() binds 127.0.0.1 on the fixed port and reports the loopback redirect URI', async () => {
+    const { provider, listenCalls } = makeFakeHttpProvider(45123);
     const listener = new LoopbackOAuthCallbackListener(provider);
     const handle = await listener.start('state-1');
+    expect(listenCalls).toEqual([MCP_OAUTH_LOOPBACK_PORT]);
     expect(handle.redirectUri).toBe('http://127.0.0.1:45123/callback');
+  });
+
+  it('start() falls back to port 0 when the fixed port is already taken', async () => {
+    const listenCalls: number[] = [];
+    const provider: IHttpServerProvider = {
+      async listen(_host, requestedPort) {
+        listenCalls.push(requestedPort);
+        if (requestedPort !== 0) {
+          throw Object.assign(new Error('listen EADDRINUSE'), {
+            code: 'EADDRINUSE',
+          });
+        }
+        return { port: 60001, host: '127.0.0.1', close: async () => undefined };
+      },
+    };
+
+    const listener = new LoopbackOAuthCallbackListener(provider);
+    const handle = await listener.start('state-busy');
+
+    expect(listenCalls).toEqual([MCP_OAUTH_LOOPBACK_PORT, 0]);
+    // The armed URI reports the port actually bound, which is what lets
+    // `McpOAuthService` notice it no longer matches `describeRedirectUri()`.
+    expect(handle.redirectUri).toBe('http://127.0.0.1:60001/callback');
+  });
+
+  it('describeRedirectUri() reports the fixed port without binding anything', async () => {
+    const { provider, listenCalls } = makeFakeHttpProvider();
+    const listener = new LoopbackOAuthCallbackListener(provider);
+
+    await expect(listener.describeRedirectUri()).resolves.toBe(
+      `http://127.0.0.1:${MCP_OAUTH_LOOPBACK_PORT}/callback`,
+    );
+    expect(listenCalls).toEqual([]);
+  });
+
+  it('honours an explicit port override in both start() and describeRedirectUri()', async () => {
+    const { provider, listenCalls } = makeFakeHttpProvider(7001);
+    const listener = new LoopbackOAuthCallbackListener(provider, 7001);
+
+    await expect(listener.describeRedirectUri()).resolves.toBe(
+      'http://127.0.0.1:7001/callback',
+    );
+    await listener.start('state-fixed');
+    expect(listenCalls).toEqual([7001]);
   });
 
   it('resolves waitForCode when a matching-state redirect arrives', async () => {

@@ -1,23 +1,23 @@
 ﻿/**
- * LocalNativeStrategy â€” unit specs.
+ * LocalNativeStrategy — unit specs.
  *
  * Configures Ollama providers ('ollama' or 'ollama-cloud') which speak the
  * Anthropic Messages API natively (no translation proxy). Key logic under
  * test:
  *   - Version guard: `OllamaModelDiscoveryService.checkVersion()` must return
  *     supported=true for the configure call to succeed. Unsupported version
- *     â†’ configured=false with an upgrade hint (the "auth-required" analogue
+ *     → configured=false with an upgrade hint (the "auth-required" analogue
  *     in the Ollama world).
- *   - Server unreachable: checkVersion throws â†’ configured=false with a
+ *   - Server unreachable: checkVersion throws → configured=false with a
  *     reachability hint.
  *   - Happy path: env vars set, active provider switched, dynamic model
  *     fetcher registered (local vs cloud variant selected by providerId).
  *   - Ollama Cloud API key branch:
- *       * key present â†’ DIRECT mode: base URL flips to ollama.com, key becomes
+ *       * key present → DIRECT mode: base URL flips to ollama.com, key becomes
  *         the auth token, daemon version check skipped, `cloudMetadata.refresh(key)`
  *         is invoked.
- *       * key present + custom baseUrl override â†’ daemon path (escape hatch).
- *       * key absent â†’ daemon path, `cloudMetadata.clearCache()` is invoked.
+ *       * key present + custom baseUrl override → daemon path (escape hatch).
+ *       * key absent → daemon path, `cloudMetadata.clearCache()` is invoked.
  *   - Cross-provider guard: copilot / codex / lm-studio proxies stopped
  *     before configuring.
  *   - teardown() clears both caches.
@@ -83,7 +83,7 @@ type DiscoverySurface = Pick<
 
 function createMockDiscovery(): jest.Mocked<DiscoverySurface> {
   return {
-    // Signature: (providerId?: string) â†’ default 'ollama'.
+    // Signature: (providerId?: string) → default 'ollama'.
     checkVersion: jest
       .fn<Promise<{ version: string; supported: boolean }>, [string?]>()
       .mockResolvedValue({ version: '0.14.0', supported: true }),
@@ -234,7 +234,7 @@ describe('LocalNativeStrategy', () => {
   // Happy path (local Ollama)
   // -------------------------------------------------------------------------
 
-  describe('configure() â€” happy path (Ollama)', () => {
+  describe('configure() — happy path (Ollama)', () => {
     it('sets native Anthropic env vars, switches provider, registers local fetcher', async () => {
       const harness = makeStrategy();
       harness.discovery.checkVersion.mockResolvedValueOnce({
@@ -305,8 +305,8 @@ describe('LocalNativeStrategy', () => {
   // Ollama Cloud branch
   // -------------------------------------------------------------------------
 
-  describe('configure() â€” Ollama Cloud branch', () => {
-    it('API key present â†’ DIRECT mode: ollama.com base URL, key as auth token, no daemon checks', async () => {
+  describe('configure() — Ollama Cloud branch', () => {
+    it('API key present → DIRECT mode: ollama.com base URL, key as auth token, no daemon checks', async () => {
       const harness = makeStrategy({
         providerKeys: { 'ollama-cloud': 'oc_key_abc' },
       });
@@ -333,7 +333,7 @@ describe('LocalNativeStrategy', () => {
         preFetchCallCount + 1,
       );
 
-      // Key-present branch â†’ metadata refresh fires.
+      // Key-present branch → metadata refresh fires.
       expect(harness.cloudMetadata.refresh).toHaveBeenCalledWith('oc_key_abc');
       expect(harness.cloudMetadata.clearCache).not.toHaveBeenCalled();
 
@@ -341,7 +341,7 @@ describe('LocalNativeStrategy', () => {
       expect(result.details[0]).toContain('direct at');
     });
 
-    it('API key present + custom baseUrl override â†’ daemon path (escape hatch)', async () => {
+    it('API key present + custom baseUrl override → daemon path (escape hatch)', async () => {
       const harness = makeStrategy({
         config: {
           'provider.ollama-cloud.baseUrl': 'http://127.0.0.1:11435',
@@ -392,8 +392,8 @@ describe('LocalNativeStrategy', () => {
   // Negative paths (auth-required analogues)
   // -------------------------------------------------------------------------
 
-  describe('configure() â€” version + reachability negative paths', () => {
-    it('unsupported Ollama version â†’ upgrade hint, no env vars set', async () => {
+  describe('configure() — version + reachability negative paths', () => {
+    it('unsupported Ollama version → upgrade hint, no env vars set', async () => {
       const harness = makeStrategy();
       harness.discovery.checkVersion.mockResolvedValueOnce({
         version: '0.13.0',
@@ -417,7 +417,7 @@ describe('LocalNativeStrategy', () => {
       expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
     });
 
-    it('checkVersion throws (server unreachable) â†’ reachability hint', async () => {
+    it('checkVersion throws (server unreachable) → reachability hint', async () => {
       const harness = makeStrategy();
       harness.discovery.checkVersion.mockRejectedValueOnce(
         new Error('ECONNREFUSED'),
@@ -429,7 +429,7 @@ describe('LocalNativeStrategy', () => {
       expect(result.errorMessage).toContain('is not reachable at');
     });
 
-    it('treats model listing errors as non-fatal â€” still reports configured=true', async () => {
+    it('treats model listing errors as non-fatal — still reports configured=true', async () => {
       const harness = makeStrategy();
       harness.discovery.listLocalModels.mockRejectedValueOnce(
         new Error('tags endpoint flaky'),

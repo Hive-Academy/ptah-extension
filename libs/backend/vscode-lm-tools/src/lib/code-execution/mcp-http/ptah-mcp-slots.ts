@@ -215,6 +215,36 @@ export interface PtahMcpSlotDeps {
 }
 
 /**
+ * The URL an external consumer calls Ptah's server on (TASK_2026_364).
+ *
+ * A workspace-scoped slot declares its folder in the URL, as
+ * `/workspace/{encodeURIComponent(folder)}` — the same mechanism as the
+ * `/session/{id}` segment Ptah's own SDK sessions already send
+ * (`sdk-query-options-builder.ts`), parsed beside it in
+ * `http-server.handler.ts`. A bare URL cannot say which workspace the caller
+ * belongs to, so with two folders open the server answered for whichever was
+ * most recently activated.
+ *
+ * A HOME-scoped slot (`workspaceRoot === ''`) keeps the bare URL: one home
+ * file serves every open folder at once, so no single folder is the right one
+ * to declare.
+ *
+ * `encodeURIComponent`, never hand-rolled escaping: a Windows root carries a
+ * colon and backslashes, and — load-bearing for the read-back rule below —
+ * the encoding turns every `/` in the folder into `%2F`, so the URL can never
+ * grow a literal `/sse` out of a path segment.
+ *
+ * The spawn-side twin is `ptahMcpServerUrl` in
+ * `cli-agent-runtime/cli-adapters/ptah-mcp-url.ts`. The two must produce the
+ * same grammar; each names the other so a change to one finds both.
+ */
+export function ptahMcpUrl(port: number, workspaceRoot: string): string {
+  const base = `http://localhost:${port}`;
+  if (workspaceRoot === '') return base;
+  return `${base}/workspace/${encodeURIComponent(workspaceRoot)}`;
+}
+
+/**
  * The entry to declare, identical for every target.
  *
  * `http` rather than `sse` even for Antigravity, and that is load-bearing
@@ -223,12 +253,17 @@ export interface PtahMcpSlotDeps {
  * `jsonToConfig` reads the transport back from the URL (`inferTransportType`:
  * `sse` only when the URL contains `/sse`), so an entry WRITTEN as `sse` reads
  * back as `http` and the read-compare-write below would find a difference and
- * rewrite the file on every single pass. `AntigravityCliAdapter` passes `sse`
- * at spawn time and produces the same `{ serverUrl }` bytes, so the two writers
- * still agree on disk.
+ * rewrite the file on every single pass. The `/workspace/...` segment keeps
+ * that property — see `ptahMcpUrl` — so a scoped entry still reads back as
+ * `http` and the round trip stays byte-stable. `AntigravityCliAdapter` passes
+ * `sse` at spawn time and produces the same `{ serverUrl }` shape, so the two
+ * writers still agree on disk.
  */
-export function ptahMcpEntry(port: number): McpServerConfig {
-  return { type: 'http', url: `http://localhost:${port}` };
+export function ptahMcpEntry(
+  port: number,
+  workspaceRoot: string,
+): McpServerConfig {
+  return { type: 'http', url: ptahMcpUrl(port, workspaceRoot) };
 }
 
 /**

@@ -84,10 +84,6 @@ interface SmitheryRegistryMock extends HarnessMcpRegistrySource {
   listServers: jest.Mock;
 }
 
-interface PulseMcpRegistryMock extends HarnessMcpRegistrySource {
-  listServers: jest.Mock;
-}
-
 interface McpInstallerMock extends HarnessMcpInstaller {
   install: jest.Mock;
 }
@@ -100,7 +96,6 @@ function makeDeps(
     workspaceRoot?: string;
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
-    pulseMcpRegistry?: PulseMcpRegistryMock;
     mcpInstaller?: McpInstallerMock;
   } = {},
 ): {
@@ -109,7 +104,6 @@ function makeDeps(
   mcpRegistry: McpRegistryMock;
   skillsDirectory?: SkillsDirectoryMock;
   smitheryRegistry?: SmitheryRegistryMock;
-  pulseMcpRegistry?: PulseMcpRegistryMock;
   mcpInstaller?: McpInstallerMock;
   broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
@@ -137,7 +131,6 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
-    pulseMcpRegistry: overrides.pulseMcpRegistry,
     mcpInstaller: overrides.mcpInstaller,
     getWorkspaceRoot: () =>
       overrides.workspaceRoot === undefined ? 'D:/ws' : overrides.workspaceRoot,
@@ -150,7 +143,6 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
-    pulseMcpRegistry: overrides.pulseMcpRegistry,
     mcpInstaller: overrides.mcpInstaller,
     broadcast,
     logger,
@@ -960,38 +952,40 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it('still returns the other sources when the official registry throws', async () => {
+  it('still returns Smithery when the official registry throws', async () => {
     // The official source used to be awaited unguarded, so a registry outage
-    // took PulseMCP and Smithery down with it.
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
+    // took Smithery down with it.
+    const smitheryRegistry: SmitheryRegistryMock = {
       listServers: jest
         .fn()
-        .mockResolvedValue({ servers: [{ name: 'pulse/srv' }] }),
+        .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
     };
-    const { deps, mcpRegistry } = makeDeps({ pulseMcpRegistry });
+    const { deps, mcpRegistry } = makeDeps({ smitheryRegistry });
     mcpRegistry.listServers.mockRejectedValue(new Error('registry 503'));
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
-    expect(out.servers.map((s) => s.name)).toEqual(['pulse/srv']);
+    expect(out.servers.map((s) => s.name)).toEqual(['smithery/srv']);
     expect(out.status).toBe('degraded');
   });
 
-  it('applies limit to the MERGED list and draws round-robin across sources', async () => {
+  it('applies limit to the MERGED list and draws round-robin across two sources', async () => {
     // Concatenating per-source windows meant a caller asking for 4 got 4
-    // official rows plus 4 PulseMCP rows — 8 for limit 4 — and at limit 20 the
-    // relevant PulseMCP entries vanished behind 20 official ones entirely.
+    // official rows plus 4 Smithery rows — 8 for limit 4 — and at limit 20 the
+    // relevant Smithery entries vanished behind 20 official ones entirely.
     const officialNames = Array.from({ length: 10 }, (_, i) => ({
       name: `official/${i}`,
     }));
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
+    const smitheryRegistry: SmitheryRegistryMock = {
       listServers: jest.fn().mockResolvedValue({
-        servers: Array.from({ length: 10 }, (_, i) => ({ name: `pulse/${i}` })),
+        servers: Array.from({ length: 10 }, (_, i) => ({
+          name: `smithery/${i}`,
+        })),
       }),
     };
     const { deps } = makeDeps({
       servers: { servers: officialNames },
-      pulseMcpRegistry,
+      smitheryRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db', 4);
@@ -1000,21 +994,21 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     expect(out.count).toBe(4);
     expect(out.servers.map((s) => s.name)).toEqual([
       'official/0',
-      'pulse/0',
+      'smithery/0',
       'official/1',
-      'pulse/1',
+      'smithery/1',
     ]);
   });
 
   it('drops a server name a higher-priority source already supplied', async () => {
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
+    const smitheryRegistry: SmitheryRegistryMock = {
       listServers: jest
         .fn()
         .mockResolvedValue({ servers: [{ name: 'shared/srv' }] }),
     };
     const { deps } = makeDeps({
       servers: { servers: [{ name: 'shared/srv' }] },
-      pulseMcpRegistry,
+      smitheryRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
@@ -1032,75 +1026,56 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     expect(out.sources.map((s) => `${s.source}:${s.status}`)).toEqual([
       'official:ok',
       'smithery:unavailable',
-      'pulsemcp:unavailable',
     ]);
   });
 
-  it('merges PulseMCP results tagged source="pulsemcp" when configured', async () => {
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest
-        .fn()
-        .mockResolvedValue({ servers: [{ name: 'autodesk-mcp' }] }),
-    };
-    const { deps } = makeDeps({
-      servers: { servers: [{ name: 'official/srv' }] },
-      pulseMcpRegistry,
-    });
-
-    const out = await buildHarnessNamespace(deps).searchMcpRegistry(
-      'autodesk',
-      5,
-    );
-
-    expect(pulseMcpRegistry.listServers).toHaveBeenCalledWith({
-      query: 'autodesk',
-      limit: 5,
-    });
-    expect(out.servers).toEqual([
-      { name: 'official/srv', description: undefined, source: 'official' },
-      { name: 'autodesk-mcp', description: undefined, source: 'pulsemcp' },
-    ]);
-  });
-
-  it('merges official + smithery + pulsemcp results in order', async () => {
+  it('merges official + smithery results in order', async () => {
     const smitheryRegistry: SmitheryRegistryMock = {
       listServers: jest
         .fn()
         .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
     };
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest
-        .fn()
-        .mockResolvedValue({ servers: [{ name: 'pulse/srv' }] }),
-    };
     const { deps } = makeDeps({
       servers: { servers: [{ name: 'official/srv' }] },
       smitheryRegistry,
-      pulseMcpRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
-    expect(out.servers.map((s) => s.source)).toEqual([
-      'official',
-      'smithery',
-      'pulsemcp',
-    ]);
+    expect(out.servers.map((s) => s.source)).toEqual(['official', 'smithery']);
   });
 
-  it('still returns official results when PulseMCP search fails', async () => {
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest.fn().mockRejectedValue(new Error('pulse down')),
+  it('still returns official results when Smithery search fails', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockRejectedValue(new Error('smithery down')),
     };
     const { deps, logger } = makeDeps({
       servers: { servers: [{ name: 'official/srv' }] },
-      pulseMcpRegistry,
+      smitheryRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
     expect(out.servers.map((s) => s.source)).toEqual(['official']);
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('fans out to exactly two sources and reports official + smithery', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockResolvedValue({ servers: [] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.sources).toHaveLength(2);
+    expect(out.sources.map((s) => s.source).sort()).toEqual([
+      'official',
+      'smithery',
+    ]);
   });
 });
 

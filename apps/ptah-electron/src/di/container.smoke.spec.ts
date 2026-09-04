@@ -123,6 +123,15 @@ function buildMinimalContainer(): DependencyContainer {
       getStatus: jest.fn(),
     },
   });
+  // `EnhancedPromptsRpcHandlers` injects this to canonicalize an inbound
+  // `analysisDir` before the enhanced-prompt trace writer can be reached
+  // (TASK_2026_361). The real container registers it in `phase-2-libraries`.
+  c.register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
+    useValue: {
+      resolveAuthorizedAnalysisDir: jest.fn(),
+      getAnalysisDir: jest.fn(),
+    },
+  });
 
   const fakeModelSettings = {
     selectedModel: { get: jest.fn(() => 'sonnet'), set: jest.fn() },

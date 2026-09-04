@@ -258,6 +258,79 @@ export class BackgroundAgentStore implements OnDestroy {
   }
 
   /**
+   * Find an entry by the Task `toolCallId` it was spawned from. O(n) over the
+   * bounded agent set, same cost and same reason as {@link isBackgroundAgent}.
+   *
+   * This is the SECOND identity space. An entry always carries its
+   * `toolCallId`, whether or not it is also keyed by one.
+   */
+  findByToolCallId(toolCallId: string): BackgroundAgentEntry | null {
+    for (const a of this._agents().values()) {
+      if (a.toolCallId === toolCallId) return a;
+    }
+    return null;
+  }
+
+  /**
+   * Move an entry that had to be filed under its `toolCallId` onto its real
+   * SDK `agentId`, and return it.
+   *
+   * WHY THIS EXISTS. `background_agent_started` reads `agentId` from the
+   * subagent registry, whose record only exists once the `SubagentStart` hook
+   * has fired — which can be after the placeholder tool_result. When the id is
+   * missing, `resolveKey` files the entry under `toolCallId` with
+   * `hasRealAgentId: false`. The only terminal signal a background agent has is
+   * `TurnEndHandlerService.handleSubagentEnded`, which looks the entry up by
+   * the REAL agent id, so a `toolCallId`-keyed entry could never be matched and
+   * stayed `running` forever. `SubagentStop` carries both ids, so this is where
+   * the two spaces are reconciled.
+   *
+   * The entry keeps its `toolCallId` field, so `isBackgroundAgent(toolCallId)`
+   * still answers true for the original id and the tree builder is unaffected.
+   * Only the map key, `agentId` and `hasRealAgentId` change.
+   *
+   * Declines the write — leaving the map identity and {@link revision} alone —
+   * when there is nothing to reconcile or reconciling would lose information:
+   * no entry for the toolCallId, an entry already keyed by this exact agentId,
+   * an entry that already carries a DIFFERENT real agent id (two agents cannot
+   * share one Task tool call), or a destination key already occupied.
+   *
+   * @returns The entry now stored under `agentId`, or null when the write was
+   *   declined.
+   */
+  adoptRealAgentId(
+    toolCallId: string,
+    agentId: string,
+  ): BackgroundAgentEntry | null {
+    if (!agentId) {
+      return null;
+    }
+    const key = agentId as BackgroundAgentId;
+    const current = this.findByToolCallId(toolCallId);
+    if (!current) {
+      return null;
+    }
+    if (current.agentId === key) {
+      return current.hasRealAgentId ? current : null;
+    }
+    if (current.hasRealAgentId) {
+      return null;
+    }
+    if (this._agents().has(key)) {
+      return null;
+    }
+
+    this.applyMutation((map) => {
+      const next = new Map(map);
+      next.delete(current.agentId);
+      next.set(key, { ...current, agentId: key, hasRealAgentId: true });
+      return next;
+    });
+
+    return this._agents().get(key) ?? null;
+  }
+
+  /**
    * Resolve the parent `ClaudeSessionId` that spawned a background agent.
    *
    * Explicit parent-session lookup. Replaces the pattern of

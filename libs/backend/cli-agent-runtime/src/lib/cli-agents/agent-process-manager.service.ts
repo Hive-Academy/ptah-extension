@@ -24,6 +24,7 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
+  ICallerWorkspaceResolver,
   IMcpServerStatus,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -39,9 +40,11 @@ import {
   AgentOutput,
   CliType,
   SYSTEM_CLI_TYPES,
+  normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import type {
   CliOutputSegment,
+  CliSessionReference,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
@@ -73,6 +76,10 @@ import {
   capStreamEvents,
   mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
+
+export const MIN_CONCURRENT_AGENTS = 1;
+export const MAX_CONCURRENT_AGENTS = 20;
+export const DEFAULT_CONCURRENT_AGENTS = 5;
 
 /**
  * Shell metacharacters — kept for reference only.
@@ -118,7 +125,8 @@ interface TrackedAgent {
   sdkAbortController?: AbortController;
   stdoutBuffer: string;
   stderrBuffer: string;
-  timeoutHandle: NodeJS.Timeout;
+  /** Absent for a restored record: it has no live run to time out. */
+  timeoutHandle?: NodeJS.Timeout;
   stdoutLineCount: number;
   stderrLineCount: number;
   truncated: boolean;
@@ -144,6 +152,12 @@ interface TrackedAgent {
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
   streamCapLogged: boolean;
+  /**
+   * Set only by {@link AgentProcessManager.restoreAgents}: this record was
+   * rebuilt from persisted session state, not from a run this host supervised.
+   * Its output is readable; nothing about it is live.
+   */
+  restored?: true;
 }
 
 @injectable()
@@ -293,6 +307,17 @@ export class AgentProcessManager {
      */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    /**
+     * The calling MCP request's workspace root (TASK_2026_364). Optional:
+     * only hosts that run the in-process HTTP MCP server (VS Code, Electron)
+     * register an implementation. Unregistered — the CLI host and unit
+     * tests — every resolution falls to the platform provider exactly as
+     * before the port existed. Never import `vscode-lm-tools` here instead:
+     * the dependency runs `vscode-lm-tools` → this lib, and inverting it is a
+     * module-boundary error.
+     */
+    @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
+    private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -640,13 +665,161 @@ export class AgentProcessManager {
   }
 
   /**
-   * Get status of a specific agent or all agents
+   * The message for an id this host holds no record of, live or restored.
+   *
+   * A bare `Agent not found: <id>` is read by a model as "the agent died", and
+   * the recovery it invites is to retry — which can never succeed, because the
+   * map is the only registry and nothing will put the id back into it. Say
+   * that the record is absent rather than the agent, and name the one recovery
+   * that works.
+   *
+   * The `Agent not found: <id>` PREFIX is load-bearing: callers and specs match
+   * on it. Extend this message, never re-word its opening.
+   */
+  private static noSuchAgentMessage(agentId: string): string {
+    return (
+      `Agent not found: ${agentId}. This host holds no record under that id — ` +
+      `neither a live agent nor one restored from persisted session state. ` +
+      `The id is from a run that was never persisted, or from one older than ` +
+      `the retention window. Retrying cannot recover it: spawn a new agent if ` +
+      `the work still needs doing.`
+    );
+  }
+
+  /**
+   * The message for an operation a restored record cannot serve.
+   *
+   * Restored records are readable and nothing else. The old wording for each
+   * refusal described a live agent in the wrong state ("is not running"), which
+   * says neither why nor what to do next.
+   */
+  private static restoredRecordMessage(
+    agentId: string,
+    cliSessionId: string | undefined,
+  ): string {
+    return (
+      `Agent ${agentId} was restored from a previous run of this host. Its ` +
+      `output is readable, but nothing about it is live — the process ended ` +
+      `when that run did. Resume the conversation instead: spawn with ` +
+      `resume_session_id: ${cliSessionId ?? '<unknown>'}.`
+    );
+  }
+
+  /**
+   * Rebuild read-only records from persisted CLI session references.
+   *
+   * The agent map is in-memory, so it is empty after a host restart and
+   * {@link COMPLETED_AGENT_TTL} empties it again thirty minutes after an agent
+   * finishes. The OUTPUT survives both: `persistCliSessionReference` writes it
+   * to the session metadata store on exit, and the restore paths
+   * (`chat:resume`, `session:cli-sessions`) already read it back for the UI.
+   * Nothing put it back HERE, so a resumed session replayed agent cards whose
+   * ids `ptah_agent_read` answered `Agent not found` for — and the model read
+   * that as "the agent died" rather than "ask the store".
+   *
+   * **A live agent is never clobbered by a stale persisted snapshot.** The
+   * reference is a point-in-time copy taken at exit; an id already in the map
+   * has a record that is at least as current, and may be a run in flight.
+   *
+   * `workingDirectory` comes from the caller because a `CliSessionReference`
+   * carries none, and {@link getStatus} scopes on it — a restored agent filed
+   * under the wrong root is either invisible or another workspace's.
+   *
+   * @returns how many records were added (ids already present are skipped).
+   */
+  restoreAgents(
+    refs: readonly CliSessionReference[],
+    workingDirectory: string,
+  ): number {
+    let restored = 0;
+
+    for (const ref of refs) {
+      const agentId = String(ref.agentId);
+      if (!agentId || this.agents.has(agentId)) continue;
+
+      const stdout = ref.stdout ?? '';
+      const info: AgentProcessInfo = {
+        agentId: ref.agentId,
+        cli: ref.cli,
+        task: ref.task,
+        workingDirectory,
+        // A reference persisted as `running` describes a process that died with
+        // the run that wrote it. Carrying it through would show a spinner that
+        // never resolves and would count against the concurrency cap.
+        status: ref.status === 'running' ? 'stopped' : ref.status,
+        startedAt: ref.startedAt,
+        ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
+        ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
+      };
+
+      this.agents.set(agentId, {
+        info,
+        process: null,
+        stdoutBuffer: stdout,
+        stderrBuffer: '',
+        stdoutLineCount: countNewlines(stdout),
+        stderrLineCount: 0,
+        truncated: false,
+        hasExited: true,
+        // There is no subprocess to reclaim, which is what makes `disposeAll`
+        // and the TTL backstop no-ops for these records rather than errors.
+        subprocessReleased: true,
+        accumulatedSegments: ref.segments ? [...ref.segments] : [],
+        accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
+        streamCapLogged: false,
+        restored: true,
+      });
+
+      // Same TTL as a completed agent. Without it, a long-lived Electron
+      // process accumulates one record per restored agent per session switch.
+      this.scheduleCleanup(agentId);
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.logger.info(
+        '[AgentProcessManager] Restored agents from persisted session state',
+        { restored, offered: refs.length, workingDirectory },
+      );
+    }
+
+    return restored;
+  }
+
+  /**
+   * Get the status of a specific agent, or of every agent in the caller's
+   * workspace.
+   *
+   * The list is scoped (TASK_2026_364): agents whose `workingDirectory` lies
+   * outside the caller's resolved workspace root are omitted, so a status
+   * call from workspace A never mixes in workspace B's agents. Hosts with no
+   * scope (no caller context AND no open folder) return everything, as
+   * before.
+   *
+   * The single-id path must never conflate "yours is gone" with "exists
+   * elsewhere": on 2026-08-31 two sessions read a bare `Agent not found` /
+   * empty registry as "the agent died" and both began overwriting files a
+   * live agent was still writing. An agent that EXISTS but belongs to another
+   * workspace therefore gets an error saying exactly that.
    */
   getStatus(agentId?: string): AgentProcessInfo | AgentProcessInfo[] {
+    const scopeRoot = this.resolveScopedWorkspaceRoot();
+    const scopeKey =
+      scopeRoot === undefined ? undefined : normalizeWorkspaceRoot(scopeRoot);
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
-        throw new Error(`Agent not found: ${agentId}`);
+        throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+      }
+      if (
+        !this.isWithinWorkspaceScope(tracked.info.workingDirectory, scopeKey)
+      ) {
+        throw new Error(
+          `Agent ${agentId} exists but belongs to another workspace: its working directory is ` +
+            `${tracked.info.workingDirectory}, and this call is scoped to ${scopeRoot}. ` +
+            `The agent is still tracked (status: ${tracked.info.status}) — it did not disappear. ` +
+            `Ask again from its own workspace to read or manage it.`,
+        );
       }
       return {
         ...tracked.info,
@@ -654,9 +827,13 @@ export class AgentProcessManager {
       };
     }
 
-    return Array.from(this.agents.values()).map((t) => ({
-      ...t.info,
-    }));
+    return Array.from(this.agents.values())
+      .filter((t) =>
+        this.isWithinWorkspaceScope(t.info.workingDirectory, scopeKey),
+      )
+      .map((t) => ({
+        ...t.info,
+      }));
   }
 
   /**
@@ -675,7 +852,7 @@ export class AgentProcessManager {
   readOutput(agentId: string, tail?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(`Agent not found: ${agentId}`);
+      throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
@@ -783,6 +960,15 @@ export class AgentProcessManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    if (tracked.restored) {
+      throw new Error(
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
+    }
+
     if (tracked.info.status !== 'running') {
       throw new Error(
         `Agent ${agentId} is not running (status: ${tracked.info.status})`,
@@ -822,6 +1008,22 @@ export class AgentProcessManager {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
+    }
+
+    // Before the `unsupported` check below: a restored record has no handle at
+    // all, so it would answer "does not support continuation" — true of the
+    // record, and wrong about the conversation, which IS resumable. `released`
+    // already means "record readable, process gone, use session resume", which
+    // is exactly this state, and the callers that recover from it are written
+    // against that code.
+    if (tracked.restored) {
+      throw new AgentContinueError(
+        'released',
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
     }
 
     const sdkHandle = tracked.sdkHandle;
@@ -926,6 +1128,17 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new Error(`Agent not found: ${agentId}`);
     }
+    // A restored record owns no process, so the release below would return
+    // early and report a successful stop for work this host never held.
+    if (tracked.restored) {
+      throw new Error(
+        AgentProcessManager.restoredRecordMessage(
+          agentId,
+          tracked.info.cliSessionId,
+        ),
+      );
+    }
+
     if (tracked.info.status !== 'running') {
       await this.releaseSubprocess(agentId, tracked, 'stopped');
       return tracked.info;
@@ -1642,18 +1855,30 @@ export class AgentProcessManager {
   /**
    * The concurrent-agent cap.
    *
+   * The extension manifest schema protects only the VS Code settings UI.
+   * Electron, CLI, and hand-edited settings reach this runtime unchecked, so
+   * the 1..20 bounds are enforced here and non-finite values fall back to 5.
+   *
    * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
    * declared in the extension's `package.json`. Prompt text and docs that say
    * "max 3 concurrent" are stale and describe a limit that has not existed for
    * some time; the number here is the one the runtime enforces.
    */
   private getMaxConcurrentAgents(): number {
-    return (
+    const configured =
       this.workspace.getConfiguration<number>(
         'ptah',
         'agentOrchestration.maxConcurrentAgents',
-        5,
-      ) ?? 5
+        DEFAULT_CONCURRENT_AGENTS,
+      ) ?? DEFAULT_CONCURRENT_AGENTS;
+
+    if (!Number.isFinite(configured)) {
+      return DEFAULT_CONCURRENT_AGENTS;
+    }
+
+    return Math.max(
+      MIN_CONCURRENT_AGENTS,
+      Math.min(MAX_CONCURRENT_AGENTS, configured),
     );
   }
 
@@ -1723,8 +1948,46 @@ export class AgentProcessManager {
     return enabled[0].cli;
   }
 
+  /**
+   * The workspace root this call is scoped to: the calling MCP request's
+   * workspace (declared in its URL, or inferred from its session) first, then
+   * the platform provider's active folder. `undefined` when neither resolves.
+   *
+   * A throw from the resolver — a caller that declared a workspace this host
+   * does not have open — propagates deliberately. Refusing by name is the
+   * point; degrading to the provider root would answer for an unrelated
+   * workspace, the exact defect TASK_2026_364 exists to close.
+   */
+  private resolveScopedWorkspaceRoot(): string | undefined {
+    return (
+      this.callerWorkspaceResolver?.resolveCallerWorkspaceRoot() ??
+      this.workspace.getWorkspaceRoot() ??
+      undefined
+    );
+  }
+
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? require('os').homedir();
+    return this.resolveScopedWorkspaceRoot() ?? require('os').homedir();
+  }
+
+  /**
+   * Whether an agent's working directory falls under the caller's workspace
+   * scope, compared with the shared normalized key (`normalizeWorkspaceRoot`),
+   * so separator and case spellings of one directory land on one answer.
+   *
+   * An `undefined` scope (no caller context and no open folder) keeps the
+   * pre-scoping behaviour: everything is visible. A record with no working
+   * directory is also visible — it cannot be attributed to any workspace, and
+   * hiding it recreates the invisible-live-agent hazard this scoping fixes.
+   */
+  private isWithinWorkspaceScope(
+    workingDirectory: string | undefined,
+    scopeKey: string | undefined,
+  ): boolean {
+    if (scopeKey === undefined) return true;
+    if (!workingDirectory) return true;
+    const dirKey = normalizeWorkspaceRoot(workingDirectory);
+    return dirKey === scopeKey || dirKey.startsWith(`${scopeKey}/`);
   }
 
   /**

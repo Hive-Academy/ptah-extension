@@ -60,6 +60,7 @@ interface FakeChild extends EventEmitter {
   kill: jest.Mock;
   killed: boolean;
   pid: number;
+  whenSpawned: Promise<number | null>;
 }
 
 function createFakeChild(): FakeChild {
@@ -72,6 +73,7 @@ function createFakeChild(): FakeChild {
   child.kill = jest.fn();
   child.killed = false;
   child.pid = 4242;
+  child.whenSpawned = Promise.resolve(4242);
   return child;
 }
 
@@ -108,6 +110,11 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(ws, { recursive: true, force: true });
   });
+
+  /** The URL this run's write must carry: scoped to the spawn's cwd. */
+  function scopedUrl(port: number): string {
+    return `http://localhost:${port}/workspace/${encodeURIComponent(ws)}`;
+  }
 
   function servers(): Record<string, unknown> {
     const parsed = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<
@@ -147,8 +154,11 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       mcpPort: 51234,
     });
 
+    // The URL carries the spawn's working directory (TASK_2026_364), and the
+    // encoding keeps it free of a literal `/sse`, so a read-back still infers
+    // transport `http` and the persistent writer's read-compare stays honest.
     expect(servers()['ptah']).toEqual({
-      serverUrl: 'http://localhost:51234',
+      serverUrl: scopedUrl(51234),
     });
 
     child.emit('close', 0, null);
@@ -210,7 +220,7 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       });
 
       expect(servers()['ptah']).toEqual({
-        serverUrl: 'http://localhost:51234',
+        serverUrl: scopedUrl(51234),
       });
 
       child.emit('close', 0, null);

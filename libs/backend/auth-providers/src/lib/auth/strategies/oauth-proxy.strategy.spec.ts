@@ -1,16 +1,16 @@
 ﻿/**
- * OAuthProxyStrategy â€” unit specs.
+ * OAuthProxyStrategy — unit specs.
  *
  * The OAuth proxy strategy multiplexes two sub-providers:
  *   - 'github-copilot' (default branch):
- *       * isAuthenticated() â†’ if false, tryRestoreAuth() must succeed or we
+ *       * isAuthenticated() → if false, tryRestoreAuth() must succeed or we
  *         return a "not authenticated" error.
  *       * Starts copilotProxy, points SDK at its URL, injects the proxy
  *         auth-token placeholder.
  *       * Stops codexProxy before configuring (cross-contamination guard).
  *   - 'openai-codex':
- *       * isAuthenticated() â†’ false returns a "run codex login" hint.
- *       * ensureTokensFresh() â†’ false returns an "expired, re-auth" hint.
+ *       * isAuthenticated() → false returns a "run codex login" hint.
+ *       * ensureTokensFresh() → false returns an "expired, re-auth" hint.
  *         This is the strategy's only real "expiry" branch; we cover both.
  *       * Starts codexProxy, stops copilotProxy first.
  *
@@ -182,7 +182,7 @@ describe('OAuthProxyStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('GitHub Copilot flow', () => {
-    it('happy path: already authed â†’ starts proxy, sets env, and reports success', async () => {
+    it('happy path: already authed → starts proxy, sets env, and reports success', async () => {
       const harness = makeStrategy();
       harness.copilotAuth.isAuthenticated.mockResolvedValueOnce(true);
       harness.copilotProxy.isRunning.mockReturnValueOnce(false); // not yet running
@@ -195,7 +195,7 @@ describe('OAuthProxyStrategy', () => {
       const result = await harness.strategy.configure(ctx);
 
       // Codex proxy stopped first to prevent cross-contamination.
-      // (Guarded by isRunning() â†’ default false, so stop() isn't invoked here.)
+      // (Guarded by isRunning() → default false, so stop() isn't invoked here.)
       expect(harness.codexProxy.stop).not.toHaveBeenCalled();
 
       expect(harness.copilotAuth.tryRestoreAuth).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe('OAuthProxyStrategy', () => {
       delete process.env['ANTHROPIC_AUTH_TOKEN'];
     });
 
-    it('auth-required: silent restore fails â†’ returns "Connect via Settings" error', async () => {
+    it('auth-required: silent restore fails → returns "Connect via Settings" error', async () => {
       const harness = makeStrategy();
       harness.copilotAuth.isAuthenticated.mockResolvedValueOnce(false);
       harness.copilotAuth.tryRestoreAuth.mockResolvedValueOnce(false);
@@ -329,7 +329,7 @@ describe('OAuthProxyStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('OpenAI Codex flow', () => {
-    it('happy path: authed + tokens fresh â†’ starts codex proxy and sets env', async () => {
+    it('happy path: authed + tokens fresh → starts codex proxy and sets env', async () => {
       const harness = makeStrategy();
       harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
       harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(true);
@@ -359,7 +359,7 @@ describe('OAuthProxyStrategy', () => {
       delete process.env['ANTHROPIC_AUTH_TOKEN'];
     });
 
-    it('auth-required: not authenticated â†’ returns `codex login` hint', async () => {
+    it('auth-required: not authenticated → returns `codex login` hint', async () => {
       const harness = makeStrategy();
       harness.codexAuth.isAuthenticated.mockResolvedValueOnce(false);
 
@@ -374,7 +374,7 @@ describe('OAuthProxyStrategy', () => {
       expect(harness.codexProxy.start).not.toHaveBeenCalled();
     });
 
-    it('expiry: authed but tokens stale â†’ returns re-auth hint', async () => {
+    it('expiry: authed but tokens stale → returns re-auth hint', async () => {
       const harness = makeStrategy();
       harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
       harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(false);

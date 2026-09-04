@@ -142,8 +142,8 @@ describe('runPhase — async-broadcast mode', () => {
       timeoutMs: 60_000,
       adapter,
       extractResult: (payload) => {
-        const p = payload as { generatedCount?: number };
-        return { generated: p.generatedCount ?? 0 };
+        const p = payload as { writtenCount?: number };
+        return { generated: p.writtenCount ?? 0 };
       },
       isFailure: () => null,
     };
@@ -152,7 +152,7 @@ describe('runPhase — async-broadcast mode', () => {
     // BEFORE we await the returned promise. We schedule it on the next tick.
     const promise = runPhase('generate', fn, { formatter });
     setImmediate(() => {
-      adapter.emit('setup-wizard:generation-complete', { generatedCount: 7 });
+      adapter.emit('setup-wizard:generation-complete', { writtenCount: 7 });
     });
     const result = await promise;
 

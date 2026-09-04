@@ -277,6 +277,22 @@
           "default": "",
           "description": "Directory to save browser recording GIFs. Defaults to the system temporary directory when empty."
         },
+        "ptah.webSearch.providers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tavily",
+              "serper",
+              "exa"
+            ]
+          },
+          "default": [
+            "tavily"
+          ],
+          "uniqueItems": true,
+          "description": "Web search providers for the ptah_web_search tool. Each provider requires its own API key."
+        },
         "ptah.webSearch.provider": {
           "type": "string",
           "enum": [
@@ -285,7 +301,7 @@
             "exa"
           ],
           "default": "tavily",
-          "description": "Web search provider for the ptah_web_search tool. Each provider requires its own API key."
+          "description": "Deprecated: use ptah.webSearch.providers instead. Retained for existing installations."
         },
         "ptah.webSearch.maxResults": {
           "type": "number",

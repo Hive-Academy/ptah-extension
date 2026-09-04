@@ -91,6 +91,7 @@ export type AdminAuditAction =
   | 'community.category.update'
   | 'community.category.delete'
   | 'community.category.reorder'
+  | 'community.topic.create'
   | 'community.topic.pin'
   | 'community.topic.lock'
   | 'community.topic.move'

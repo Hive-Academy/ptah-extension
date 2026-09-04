@@ -202,8 +202,8 @@ export interface BufferTrimResult {
  *
  * The cut point is `length - BUFFER_LOW_WATER_SIZE`, advanced forward to the
  * next `\n` so the surviving buffer starts at a whole line. A buffer with no
- * newline after the cut point is cut mid-line at the cut point exactly — the
- * same fallback the previous overflow-only trim used.
+ * newline after the cut point is cut mid-line, advancing past a low surrogate
+ * when necessary so the survivor never starts in the middle of a UTF-16 pair.
  *
  * Newlines in the dropped prefix are counted ONCE here, at trim time, rather
  * than being recomputed from the survivor.
@@ -215,7 +215,17 @@ export function trimBufferToLowWater(buffer: string): BufferTrimResult {
 
   const cutFrom = buffer.length - BUFFER_LOW_WATER_SIZE;
   const newlineIndex = buffer.indexOf('\n', cutFrom);
-  const dropEnd = newlineIndex === -1 ? cutFrom : newlineIndex + 1;
+  let dropEnd = newlineIndex === -1 ? cutFrom : newlineIndex + 1;
+
+  // A newline can never be part of a surrogate pair, so only the arbitrary
+  // mid-line fallback needs to avoid leaving an orphaned low surrogate.
+  if (
+    newlineIndex === -1 &&
+    buffer.charCodeAt(dropEnd) >= 0xdc00 &&
+    buffer.charCodeAt(dropEnd) <= 0xdfff
+  ) {
+    dropEnd++;
+  }
 
   return {
     buffer: buffer.substring(dropEnd),

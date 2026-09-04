@@ -1,15 +1,15 @@
 /**
- * SessionControl â€” owner of the lifecycle-control methods that act on a
+ * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model.
  *
  * Extracted from `SessionLifecycleManager` (originally lines
- * 395â€“451, 462â€“556, 563â€“610, 1110â€“1149, 1162â€“1207). The cleanup-call order
- * inside `endSession` is spec-asserted (cleanupPendingPermissions â†’
- * markAllInterrupted â†’ interrupt â†’ abort â†’ registry removal) and is
+ * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
+ * inside `endSession` is spec-asserted (cleanupPendingPermissions →
+ * markAllInterrupted → interrupt → abort → registry removal) and is
  * preserved byte-identically.
  *
- * Plain class â€” NOT @injectable, NOT registered with tsyringe. Constructed
+ * Plain class — NOT @injectable, NOT registered with tsyringe. Constructed
  * eagerly by the facade.
  */
 
@@ -34,6 +34,8 @@ import {
 } from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 
+export type EndSessionOutcome = 'ended' | 'already-ended';
+
 export class SessionControl {
   constructor(
     private readonly logger: Logger,
@@ -48,7 +50,7 @@ export class SessionControl {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use â€” the user's follow-up message
+   * The session remains active for continued use — the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -115,16 +117,17 @@ export class SessionControl {
    * This method is the ONLY reliable way to detect interrupted subagents. All running
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
-  async endSession(sessionId: SessionId): Promise<void> {
+  async endSession(sessionId: SessionId): Promise<EndSessionOutcome> {
     const rec = this.registry.find(sessionId as string);
     if (!rec) {
-      this.logger.warn(
-        `[SessionLifecycle] Cannot end session - not found: ${sessionId}`,
+      this.logger.info(
+        `[SessionLifecycle] Session already ended, nothing to interrupt`,
       );
-      return;
+      return 'already-ended';
     }
 
     await this.endRecord(rec, sessionId);
+    return 'ended';
   }
 
   /**
@@ -250,7 +253,7 @@ export class SessionControl {
       });
     } else {
       this.logger.debug(
-        `[SessionLifecycle] Skipping session-end notification â€” no workspaceRoot for session: ${sessionId}`,
+        `[SessionLifecycle] Skipping session-end notification — no workspaceRoot for session: ${sessionId}`,
       );
     }
   }
@@ -383,7 +386,7 @@ export class SessionControl {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set
@@ -400,7 +403,7 @@ export class SessionControl {
     const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
       this.logger.info(
-        `[SessionLifecycle] Model resolved: '${model}' â†’ '${resolvedModel}'`,
+        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
       );
     }
 

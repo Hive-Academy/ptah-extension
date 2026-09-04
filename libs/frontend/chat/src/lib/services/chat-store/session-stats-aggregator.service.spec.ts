@@ -1,5 +1,5 @@
 /**
- * SessionStatsAggregatorService specs â€” SESSION_STATS aggregation.
+ * SessionStatsAggregatorService specs — SESSION_STATS aggregation.
  *
  * Coverage:
  *   - findTabBySessionId resolves correct tab
@@ -363,7 +363,7 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
       const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
-      // 23456 / 100000 * 1000 = 234.56 â†’ round = 235 / 10 = 23.5
+      // 23456 / 100000 * 1000 = 234.56 → round = 235 / 10 = 23.5
       expect((liveStats as { contextPercent: number }).contextPercent).toBe(
         23.5,
       );

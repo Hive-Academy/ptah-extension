@@ -12,7 +12,7 @@ import { AdminLayout } from './admin-layout/admin-layout';
  *   /admin/groups           → GroupsList (member-cohort management —
  *                             dedicated view, NOT the generic model CRUD)
  *   /admin/builders/*       → Builders content (packs registry, calendar
- *                             sessions, read-only community triage)
+ *                             sessions, community moderation, course authoring)
  *   /admin/users            → UsersList (people directory + entitlement lenses)
  *   /admin/users/:id        → UserProfile (identity + merged billing surface)
  *   /admin/:model           → AdminList (table view for a single model)
@@ -189,6 +189,35 @@ export const ADMIN_ROUTES: Routes = [
         loadComponent: () =>
           import('./builders/community/community-moderation').then(
             (m) => m.CommunityModeration,
+          ),
+      },
+      {
+        /**
+         * The course authoring surface (TASK_2026_377 Batch 3, R2.1/R8.1/R8.8).
+         *
+         * ⚠️ A NEW SCREEN OVER AN API THAT SHIPPED WITHOUT ONE. The learning
+         * admin endpoints were complete and audited before any client existed.
+         * Nothing on the server changes for these two routes.
+         *
+         * ⚠️ BOTH ENTRIES SIT ABOVE `:model` AND `:model/:id`, AND FOR THE
+         * DETAIL ROUTE THE ORDER IS GENUINELY LOAD-BEARING.
+         * `builders/courses/:id` has two segments before the parameter, so it
+         * cannot collide with the single-segment `:model`; but
+         * `builders/courses` IS two segments and `:model/:id` is two segments,
+         * so declared after it, `/admin/builders/courses` would resolve to
+         * `AdminDetail` with `model='builders'` and the API would answer
+         * `400 Unknown admin model: builders`. `courses` is not an
+         * `AdminModelKey` and must never be added as one.
+         */
+        path: 'builders/courses',
+        loadComponent: () =>
+          import('./builders/courses/courses-list').then((m) => m.CoursesList),
+      },
+      {
+        path: 'builders/courses/:id',
+        loadComponent: () =>
+          import('./builders/courses/course-detail').then(
+            (m) => m.CourseDetail,
           ),
       },
       {

@@ -10,6 +10,10 @@
 
 import * as os from 'os';
 import { join } from 'path';
+import {
+  USER_LAYER_AGENTS_DIR_NAME,
+  userLayerAgentDirName,
+} from '@ptah-extension/shared';
 import type {
   HarnessSourceLayout,
   HarnessSourceState,
@@ -54,6 +58,10 @@ export interface HarnessPluginConfigReader {
  * from `overlayPluginPaths`), and `~/.ptah/skills` covers the synthesized-skill
  * root the earliest `SkillJunctionService` linked directly. Both are needed for
  * `ClaudeTarget` to recognise its own leftovers; see `HarnessSourceLayout`.
+ *
+ * `agentsRoot` here is the BASE — the directory that holds one subdirectory per
+ * workspace. {@link scopeAgentsRoot} turns it into the root a pass reads, and
+ * `PluginConfigSourceResolver.resolve` is the one caller that does so.
  */
 export function defaultHarnessSourceLayout(
   homeDir: string = os.homedir(),
@@ -63,8 +71,28 @@ export function defaultHarnessSourceLayout(
   return {
     skillsRoot: join(userRoot, 'skills'),
     commandsRoot: join(userRoot, 'commands'),
-    agentsRoot: join(userRoot, 'agents'),
+    agentsRoot: join(userRoot, USER_LAYER_AGENTS_DIR_NAME),
     legacyLinkRoots: [join(ptahRoot, 'plugins'), join(ptahRoot, 'skills')],
+  };
+}
+
+/**
+ * Point a layout's `agentsRoot` at ONE workspace's clones.
+ *
+ * With no root the base is returned unchanged. No path that builds a desired
+ * state reaches that case — `HarnessReconcilerService` resolves the root at its
+ * entry point and passes it from `reconcile` (both modes) and from `verify` —
+ * and the base holds only subdirectories, so a pass that somehow read it would
+ * see no agents rather than another workspace's.
+ */
+export function scopeAgentsRoot(
+  layout: HarnessSourceLayout,
+  workspaceRoot: string | undefined,
+): HarnessSourceLayout {
+  if (workspaceRoot === undefined) return layout;
+  return {
+    ...layout,
+    agentsRoot: join(layout.agentsRoot, userLayerAgentDirName(workspaceRoot)),
   };
 }
 
@@ -107,6 +135,10 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
    */
   resolve(workspaceRoot?: string): HarnessSourceState {
     const mcpIntents = this.readMcpIntents();
+    // Scoped once, here, so the read-failure path below and the success path
+    // cannot describe two different agent directories. The scope is a pure
+    // function of the root and reads nothing, so it cannot itself fail.
+    const layout = scopeAgentsRoot(this.layout, workspaceRoot);
     // Every `return empty` below is a READ FAILURE, not an observation that the
     // user has nothing enabled. It therefore deliberately omits
     // `overlayPluginPathsKnown`, which is what tells the manifest builder to
@@ -114,7 +146,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     // "every plugin is disabled here" and reap every skill copy in the
     // workspace. Adding the flag to this literal is the whole failure mode.
     const empty: HarnessSourceState = {
-      layout: this.layout,
+      layout,
       mcpIntents,
       overlayPluginPaths: [],
       disabledSkillIds: [],
@@ -136,7 +168,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       // from different snapshots of the same config.
       const config = reader.getWorkspacePluginConfig(workspaceRoot);
       return {
-        layout: this.layout,
+        layout,
         mcpIntents,
         overlayPluginPaths: reader.resolveCurrentPluginPaths(workspaceRoot),
         // The one path that actually asked the plugin loader and got an answer,

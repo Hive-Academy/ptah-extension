@@ -50,7 +50,8 @@ export type StreamEventType =
   | 'background_agent_stopped'
   | 'agent_progress'
   | 'agent_status'
-  | 'agent_completed';
+  | 'agent_completed'
+  | 'turn_state';
 
 /**
  * Base flat event with common fields

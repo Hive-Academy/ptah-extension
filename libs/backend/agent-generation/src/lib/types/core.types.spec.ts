@@ -219,12 +219,39 @@ describe('Core Types', () => {
         failed: 1,
         durationMs: 45000,
         warnings: ['LLM fallback used for section "examples"'],
-        agents: [],
+        outputDirectory: '/workspace/.claude/agents',
+        writtenCount: 3,
+        unchangedCount: 1,
+        failedCount: 1,
+        rejectedSections: 2,
+        tailoredSections: 7,
+        lifecycle: 'completed',
+        outcomes: [
+          {
+            agentId: 'backend-developer',
+            filePath: '/workspace/.claude/agents/backend-developer.md',
+            status: 'written',
+            rejectedSections: 0,
+            tailoredSections: 2,
+          },
+          {
+            agentId: 'reviewer',
+            filePath: '/workspace/.claude/agents/reviewer.md',
+            status: 'failed',
+            rejectedSections: 0,
+            tailoredSections: 0,
+            error: 'Disk full',
+          },
+        ],
       };
 
       expect(summary.successful).toBe(4);
       expect(summary.failed).toBe(1);
       expect(summary.warnings).toHaveLength(1);
+      expect(summary.writtenCount + summary.unchangedCount).toBe(
+        summary.successful,
+      );
+      expect(summary.outcomes[1].status).toBe('failed');
     });
   });
 

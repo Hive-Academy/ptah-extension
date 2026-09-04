@@ -848,6 +848,42 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
+  describe('getMaxConcurrentAgents()', () => {
+    const readConfiguredMax = (): number =>
+      (
+        manager as unknown as {
+          getMaxConcurrentAgents(): number;
+        }
+      ).getMaxConcurrentAgents();
+
+    it('clamps a configured value above the maximum down to 20', () => {
+      setupVscodeConfig({ maxConcurrentAgents: 200 });
+
+      expect(readConfiguredMax()).toBe(20);
+    });
+
+    it.each([0, -5])(
+      'clamps a configured %i up to the minimum of 1',
+      (configured) => {
+        setupVscodeConfig({ maxConcurrentAgents: configured });
+
+        expect(readConfiguredMax()).toBe(1);
+      },
+    );
+
+    it('preserves a configured value inside the supported range', () => {
+      setupVscodeConfig({ maxConcurrentAgents: 12 });
+
+      expect(readConfiguredMax()).toBe(12);
+    });
+
+    it('falls back to 5 for a non-finite configured value', () => {
+      setupVscodeConfig({ maxConcurrentAgents: Number.NaN });
+
+      expect(readConfiguredMax()).toBe(5);
+    });
+  });
+
   describe('getPreferredCli() auto-detect', () => {
     it('should auto-detect codex when no preference is set', async () => {
       setupVscodeConfig({ preferredAgentOrder: [] });

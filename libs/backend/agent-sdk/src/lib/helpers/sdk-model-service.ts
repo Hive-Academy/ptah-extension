@@ -3,9 +3,9 @@
  *
  * Extracted from SdkAgentAdapter to separate model management concerns.
  * Models are fetched using a multi-strategy approach (in priority order):
- * 1. SDK's supportedModels() API â€” authoritative, account-filtered
- * 2. Anthropic /v1/models API â€” fast HTTP fallback for all available models
- * 3. Hardcoded fallback â€” never cached, next call retries dynamic sources
+ * 1. SDK's supportedModels() API — authoritative, account-filtered
+ * 2. Anthropic /v1/models API — fast HTTP fallback for all available models
+ * 3. Hardcoded fallback — never cached, next call retries dynamic sources
  *
  * Single Responsibility: Fetch, cache, and provide model information
  *
@@ -26,7 +26,7 @@ import type { IModelResolver, IAuthEnvProvider } from '../auth-env.port';
 /**
  * Model entry from the Anthropic /v1/models API
  */
-/** Internal type for /v1/models API response entries. Not exported â€” consumers use ModelInfo[]. */
+/** Internal type for /v1/models API response entries. Not exported — consumers use ModelInfo[]. */
 interface ApiModelEntry {
   id: string;
   displayName: string;
@@ -77,13 +77,13 @@ export type EnvMappedTier = Exclude<ModelTier, 'default'>;
 
 /**
  * Canonical mapping from tier names to their ANTHROPIC_DEFAULT_*_MODEL env var keys.
- * Single source of truth â€” all consumers must import this rather than defining their own.
+ * Single source of truth — all consumers must import this rather than defining their own.
  *
  * Used by:
- * - SdkModelService.resolveModelId() â€” to check env var overrides
- * - ProviderModelsService.setModelTier() â€” to set env vars for proxy providers
- * - buildTierEnvDefaults() â€” to guarantee env vars for SDK subagent spawning
- * - clearAllTierEnvVars() / applyPersistedTiers() â€” to manage tier env lifecycle
+ * - SdkModelService.resolveModelId() — to check env var overrides
+ * - ProviderModelsService.setModelTier() — to set env vars for proxy providers
+ * - buildTierEnvDefaults() — to guarantee env vars for SDK subagent spawning
+ * - clearAllTierEnvVars() / applyPersistedTiers() — to manage tier env lifecycle
  */
 export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -143,7 +143,7 @@ export const ALL_TIER_ENV_KEYS: ReadonlyArray<keyof AuthEnv> = [
  * Moonshot, Z.AI) where bare tier names in subagent subprocesses need to be
  * remapped to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL.
  *
- * For direct Anthropic (CLI or API key â†’ api.anthropic.com), this returns an
+ * For direct Anthropic (CLI or API key → api.anthropic.com), this returns an
  * empty record. The CLI/SDK handles its own tier resolution natively, and
  * setting these env vars pins resolution to our hardcoded defaults, blocking
  * any updates the CLI account has to newer models.
@@ -306,9 +306,9 @@ export class SdkModelService {
    * third-party providers. For Claude-native auth (API key, CLI), models
    * are returned as-is from the source:
    *
-   * - claudeCli  â†’ query.supportedModels() directly (tier slots: opus/sonnet/haiku)
-   * - apiKey     â†’ /v1/models API directly (full versioned model IDs)
-   * - thirdParty â†’ query.supportedModels() + tier mapping to provider model IDs
+   * - claudeCli  → query.supportedModels() directly (tier slots: opus/sonnet/haiku)
+   * - apiKey     → /v1/models API directly (full versioned model IDs)
+   * - thirdParty → query.supportedModels() + tier mapping to provider model IDs
    */
   async getSupportedModels(): Promise<ModelInfo[]> {
     const key = this.authFingerprint();
@@ -460,7 +460,7 @@ export class SdkModelService {
 
   /**
    * API key auth: try /v1/models first (full versioned list), fall back to
-   * SDK tier slots. No tier mapping â€” Anthropic native auth, IDs are valid as-is.
+   * SDK tier slots. No tier mapping — Anthropic native auth, IDs are valid as-is.
    */
   private async fetchModelsForApiKey(): Promise<ModelInfo[]> {
     const apiModels = await this.fetchModelsViaApi();
@@ -530,7 +530,7 @@ export class SdkModelService {
     const collisions = servable - normalized.length;
     if (collisions > 0) {
       this.logger.debug(
-        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} â†’ ${normalized.length})`,
+        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} → ${normalized.length})`,
       );
     }
 
@@ -539,7 +539,7 @@ export class SdkModelService {
 
   /**
    * Get all available models from the Anthropic /v1/models API as ModelInfo[].
-   * Public counterpart of fetchModelsViaApi() â€” same shape as getSupportedModels()
+   * Public counterpart of fetchModelsViaApi() — same shape as getSupportedModels()
    * so callers can merge both lists uniformly using `.value` / `.displayName`.
    *
    * API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514').
@@ -579,7 +579,7 @@ export class SdkModelService {
     const cliJsPath = await this.moduleLoader.getCliJsPath();
     if (!cliJsPath) {
       this.logger.warn(
-        '[SdkModelService] No CLI js path available â€” SDK bridge cannot start',
+        '[SdkModelService] No CLI js path available — SDK bridge cannot start',
       );
       return [];
     }
@@ -595,7 +595,7 @@ export class SdkModelService {
         cliJsPath,
         note:
           !hasApiKey && !hasAuthToken
-            ? 'No env credentials â€” SDK will use CLI credential store'
+            ? 'No env credentials — SDK will use CLI credential store'
             : undefined,
       },
     );
@@ -740,7 +740,7 @@ export class SdkModelService {
    * supportedModels() doesn't expose.
    *
    * Skipped for:
-   * - Local proxy providers (127.0.0.1) â€” Copilot/Codex proxies may not implement /v1/models
+   * - Local proxy providers (127.0.0.1) — Copilot/Codex proxies may not implement /v1/models
    * - Missing auth credentials
    *
    * @returns Array of ApiModelEntry, or empty array on failure/skip
@@ -847,7 +847,7 @@ export class SdkModelService {
 
   /**
    * Resolve a model identifier to the actual model ID to use.
-   * Delegates to ModelResolver.resolve() â€” the single source of truth.
+   * Delegates to ModelResolver.resolve() — the single source of truth.
    *
    * `envOverride` scopes tier-alias resolution to a per-session provider's
    * AuthEnv (from a `ProviderProfile`) instead of the process-global AuthEnv.
@@ -859,7 +859,7 @@ export class SdkModelService {
     const resolved = this.modelResolver.resolve(model, envOverride);
     if (resolved !== model) {
       this.logger.debug(
-        `[SdkModelService] Resolved '${model}' â†’ '${resolved}' via ModelResolver`,
+        `[SdkModelService] Resolved '${model}' → '${resolved}' via ModelResolver`,
       );
     }
     return resolved;

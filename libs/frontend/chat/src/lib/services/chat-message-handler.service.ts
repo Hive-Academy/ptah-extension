@@ -25,17 +25,23 @@ import {
   GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
   SessionId,
+  isTurnStateEvent,
   parseAskUserQuestionRequest,
   parsePermissionRequest,
   parseSdkCompactionCompletePayload,
   parseSdkSubagentEndedPayload,
   parseSdkTurnEndedPayload,
   parseSdkTurnFailedPayload,
+  parseSessionMcpStatusPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
+  SessionMcpStatusRegistry,
   SurfaceId,
   TabId,
   TabManagerService,
@@ -53,6 +59,8 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly mcpStatus = inject(SessionMcpStatusRegistry);
+  private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   /**
@@ -99,6 +107,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
     MESSAGE_TYPES.SESSION_STATS,
+    MESSAGE_TYPES.SESSION_MCP_STATUS,
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
@@ -132,6 +141,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.SESSION_STATS:
         this.handleSessionStats(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_MCP_STATUS:
+        this.handleSessionMcpStatus(message.payload);
         break;
       case MESSAGE_TYPES.SESSION_ID_RESOLVED:
         this.handleSessionIdResolved(message.payload);
@@ -324,12 +336,9 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    if (parsed.backgroundTasks.length === 0) {
-      this.liveness.markIdle(
-        parsed.sessionId,
-        this.workspaceFor(parsed.sessionId),
-      );
-    }
+    // Liveness is driven by the in-stream `turn_state` event only
+    // (TASK_2026_360): a FOREGROUND subagent ending mid-turn used to flick the
+    // workspace dot off while the parent still streamed (Defect 5).
     this.chatStore.handleSubagentEndedNotification(parsed);
   }
 
@@ -347,12 +356,6 @@ export class ChatMessageHandler implements MessageHandler {
         ChatMessageHandler.describePayload(payload),
       );
       return;
-    }
-    const ws = this.workspaceFor(parsed.sessionId);
-    if (parsed.backgroundTasks.length > 0) {
-      this.liveness.markAwaitingBackground(parsed.sessionId, ws);
-    } else {
-      this.liveness.markIdle(parsed.sessionId, ws);
     }
     this.chatStore.handleTurnEndedNotification(parsed);
   }
@@ -372,10 +375,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.liveness.markFailed(
-      parsed.sessionId,
-      this.workspaceFor(parsed.sessionId),
-    );
     this.chatStore.handleTurnFailedNotification(parsed);
   }
 
@@ -438,11 +437,12 @@ export class ChatMessageHandler implements MessageHandler {
 
     const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
-      if (event?.sessionId) {
-        this.liveness.markStreaming(
-          event.sessionId,
-          this.workspaceFor(event.sessionId),
-        );
+      // A surface owns no tab, so the tab path never sees this session's
+      // turn state; apply it here so the sidebar dot follows the surface's
+      // session (TASK_2026_360). The surface transcript does not render it.
+      if (event && isTurnStateEvent(event)) {
+        this.turnStateApplier.apply(event);
+        return;
       }
       this.streamRouter.routeStreamEventForSurface(event, claimedSurface);
       return;
@@ -452,12 +452,8 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
 
-    if (event?.sessionId) {
-      this.liveness.markStreaming(
-        event.sessionId,
-        this.workspaceFor(event.sessionId),
-      );
-    }
+    // Liveness is no longer pinged per chunk: `StreamingHandlerService`
+    // intercepts the `turn_state` event and `TurnStateApplier` marks it.
     this.chatStore.processStreamEvent(event, tabId, sessionId);
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
     this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
@@ -532,6 +528,30 @@ export class ChatMessageHandler implements MessageHandler {
       payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0],
     );
   }
+  /**
+   * `session:mcpStatus` — what the CLI reported about this session's MCP
+   * servers, plus the one stderr notice Ptah surfaces (TASK_2026_375 B4).
+   *
+   * Pushed once per session at start, so a cold-loaded webview never sees it;
+   * the chip's own `session:status` read is the recovery path for that. Parsed
+   * with the hand-written parser rather than Zod — the 304 kB Zod runtime is
+   * deliberately kept out of the initial bundle (TASK_2026_187 Unit 10).
+   */
+  private handleSessionMcpStatus(payload: unknown): void {
+    const parsed = parseSessionMcpStatusPayload(payload);
+    if (!parsed) {
+      console.warn(
+        '[ChatMessageHandler] session:mcpStatus payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    this.mcpStatus.record(parsed.sessionId, {
+      servers: parsed.servers,
+      notices: parsed.notices,
+    });
+  }
+
   private handleSessionStats(payload: unknown): void {
     if (!payload) {
       console.warn(

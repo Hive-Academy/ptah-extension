@@ -14,6 +14,11 @@ import {
   MonorepoType,
   IndexedFile,
 } from '@ptah-extension/workspace-intelligence';
+import type {
+  GenerationAgentOutcome,
+  GenerationStreamPayload,
+  ProjectAnalysisResult,
+} from '@ptah-extension/shared';
 
 /**
  * Template definition for agent generation.
@@ -580,6 +585,29 @@ export interface GenerationOptions {
 }
 
 /**
+ * Options accepted by the generation orchestrator.
+ *
+ * The service implementation owns the execution flow; this type keeps its
+ * public contract independent of that implementation.
+ */
+export interface OrchestratorGenerationOptions {
+  workspacePath: string;
+  threshold?: number;
+  userOverrides?: string[];
+  variableOverrides?: Record<string, string>;
+  enhancedPromptContent?: string;
+  preComputedAnalysis?: ProjectAnalysisResult;
+  mcpServerRunning?: boolean;
+  mcpPort?: number;
+  model?: string;
+  onStreamEvent?: (event: GenerationStreamPayload) => void;
+  analysisDir?: string;
+  pluginPaths?: string[];
+  abortSignal?: AbortSignal;
+  onAgentOutcome?: (outcome: GenerationAgentOutcome) => void | Promise<void>;
+}
+
+/**
  * Summary of agent generation results.
  * Provides high-level statistics and detailed results for each agent.
  *
@@ -622,10 +650,29 @@ export interface GenerationSummary {
    */
   warnings: string[];
 
-  /**
-   * All successfully generated agents.
-   */
-  agents: GeneratedAgent[];
+  /** Absolute directory containing generated agent files. */
+  outputDirectory: string;
+
+  /** Number of files whose contents were newly written. */
+  writtenCount: number;
+
+  /** Number of files already matching the generated contents. */
+  unchangedCount: number;
+
+  /** Number of individual agent generations that failed. */
+  failedCount: number;
+
+  /** Aggregate count of LLM sections rejected by output validation. */
+  rejectedSections: number;
+
+  /** Aggregate count of accepted, non-empty LLM section replacements. */
+  tailoredSections: number;
+
+  /** Final generation lifecycle state. */
+  lifecycle: 'paused' | 'completed' | 'timed-out' | 'failed';
+
+  /** Terminal outcome for every selected agent. */
+  outcomes: GenerationAgentOutcome[];
 
   /**
    * Whether enhanced prompts were used during Phase 3 customization.

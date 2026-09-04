@@ -12,6 +12,13 @@ declare global {
         statusBarElement: HTMLElement,
       ) => { dispose: () => void };
     };
+
+    /**
+     * Monaco's AMD loader installs a global `define` carrying an `.amd`
+     * marker. Declared here so `suppressAmdDefine()` can read and swap it
+     * without a cast.
+     */
+    define?: ((...args: unknown[]) => unknown) & { amd?: unknown };
   }
 }
 
@@ -121,6 +128,11 @@ export class VimModeService {
   /**
    * Load the monaco-vim UMD script dynamically.
    * Returns true if loaded successfully, false otherwise.
+   *
+   * A load that resolves without producing `window.MonacoVim` is terminal:
+   * it marks `loadFailed` exactly as the `catch` does. Leaving that path
+   * unmarked is what made every later `attachToEditor` re-inject the script,
+   * turning one silent failure into a repeating loader error.
    */
   private async loadMonacoVimScript(): Promise<boolean> {
     if (this.isLoadingScript) {
@@ -136,19 +148,90 @@ export class VimModeService {
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
         script.src = './assets/monaco-vim/monaco-vim.umd.js';
+        // Deliberately async: a dynamically inserted script is fetched
+        // off the parser either way, and `async = false` would queue it
+        // behind any other in-order dynamic script — widening the window
+        // in which `define` is hidden. `true` executes it as soon as it
+        // is fetched, which is the narrowest window available here.
         script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load monaco-vim'));
-        document.head.appendChild(script);
+
+        const restoreAmdDefine = this.suppressAmdDefine();
+        script.onload = () => {
+          restoreAmdDefine();
+          resolve();
+        };
+        script.onerror = () => {
+          // Restore on failure too: a 404 must not leave Monaco's loader
+          // without its `define`.
+          restoreAmdDefine();
+          reject(new Error('Failed to load monaco-vim'));
+        };
+
+        try {
+          document.head.appendChild(script);
+        } catch (error: unknown) {
+          restoreAmdDefine();
+          reject(
+            error instanceof Error
+              ? error
+              : new Error('Failed to inject monaco-vim script'),
+          );
+        }
       });
-      return !!window.MonacoVim?.initVimMode;
+
+      if (!window.MonacoVim?.initVimMode) {
+        this.markLoadFailed();
+        return false;
+      }
+      return true;
     } catch {
-      this.loadFailed = true;
-      this._enabled.set(false);
+      this.markLoadFailed();
       return false;
     } finally {
       this.isLoadingScript = false;
     }
+  }
+
+  /**
+   * Hide Monaco's AMD `define` for the duration of the monaco-vim script,
+   * so its UMD wrapper takes the global branch and assigns `window.MonacoVim`.
+   *
+   * The wrapper (`node_modules/monaco-vim/dist/monaco-vim.umd.js:3-4`) is
+   * `typeof define === 'function' && define.amd ? define([...], factory) : (global.MonacoVim = {}, factory(...))`.
+   * With Monaco's loader present the AMD branch wins, so the global branch —
+   * the only one that assigns `window.MonacoVim` — never runs, and the queued
+   * anonymous module never resolves either: its dependency id
+   * `monaco-editor/esm/vs/editor/editor.api` does not exist under the loader's
+   * `assets/monaco/vs` base URL.
+   *
+   * Accepted risk: the swap window spans `appendChild` through
+   * `onload`/`onerror` — the script's fetch plus its synchronous execution. If
+   * Monaco's loader resolves a module inside that window, that module sees no
+   * `define` and takes its own non-AMD path. Accepted because the alternative,
+   * loading monaco-vim *through* the loader with `require([...])`, needs a
+   * `paths` mapping for `monaco-editor/esm/vs/editor/editor.api`, and no such
+   * module is shipped under `assets/monaco` — there is nothing to map it to.
+   *
+   * @returns A restore function. Call it exactly once, on success AND failure.
+   */
+  private suppressAmdDefine(): () => void {
+    const amdDefine = window.define;
+    if (typeof amdDefine !== 'function' || !amdDefine.amd) {
+      // No AMD loader in play — the UMD wrapper already takes the global
+      // branch, so leave the global alone.
+      return () => undefined;
+    }
+
+    window.define = undefined;
+    return () => {
+      window.define = amdDefine;
+    };
+  }
+
+  /** Mark monaco-vim as permanently unavailable and turn vim mode off. */
+  private markLoadFailed(): void {
+    this.loadFailed = true;
+    this._enabled.set(false);
   }
 
   /**

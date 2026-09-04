@@ -14,7 +14,10 @@ import {
   StreamRouter,
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
   SurfaceId,
@@ -78,6 +81,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     markTabAttached: jest.Mock;
     markTabDetached: jest.Mock;
   };
+  let turnStateApplier: { apply: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -116,6 +120,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       markTabAttached: jest.fn(),
       markTabDetached: jest.fn(),
     };
+    turnStateApplier = { apply: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -127,6 +132,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           useValue: { resolveParentSessionId: jest.fn() },
         },
         { provide: TabManagerService, useValue: tabManager },
+        { provide: TurnStateApplier, useValue: turnStateApplier },
       ],
     });
 
@@ -555,6 +561,59 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(streamRouter.onSurfaceCreated).not.toHaveBeenCalled();
     });
 
+    it('hands a claimed-surface turn_state chunk to TurnStateApplier instead of the surface router (TASK_2026_360)', () => {
+      const correlationId = VALID_UUID;
+      const surfaceId = SurfaceId.create();
+      claims.claim(correlationId, surfaceId);
+      registerSurfaceAdapter(surfaceId);
+      const event = {
+        id: 'ts-1',
+        eventType: 'turn_state',
+        timestamp: 1,
+        sessionId: CHUNK_SESSION,
+        messageId: `turn-state-${CHUNK_SESSION}`,
+        phase: 'idle',
+        revision: 3,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: 'completed',
+      };
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: { tabId: correlationId, sessionId: CHUNK_SESSION, event },
+      });
+
+      expect(turnStateApplier.apply).toHaveBeenCalledWith(event);
+      expect(streamRouter.routeStreamEventForSurface).not.toHaveBeenCalled();
+      expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
+    });
+
+    it('marks liveness neither from chunks nor from the turn-end push (TASK_2026_360)', () => {
+      const liveness = TestBed.inject(SessionLivenessRegistry);
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: makeChunkPayload('tab-1'),
+      });
+      expect(liveness.status(CHUNK_SESSION)()).toBeUndefined();
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: {
+          sessionId: CHUNK_SESSION,
+          cwd: '/ws',
+          lastAssistantMessage: null,
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: 'completed',
+          timestamp: 1,
+        },
+      });
+      expect(liveness.status(CHUNK_SESSION)()).toBeUndefined();
+      expect(chatStore.handleTurnEndedNotification).toHaveBeenCalledTimes(1);
+    });
+
     it('rekeys the liveness entry from the placeholder tab id to the real session id', () => {
       const liveness = TestBed.inject(SessionLivenessRegistry);
       const tabId = SessionId.create();
@@ -577,19 +636,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         payload: { tabId, realSessionId: CHUNK_SESSION },
       });
 
-      // Turn-end arrives under the REAL id and must clear the same entry.
-      handler.handleMessage({
-        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
-        payload: {
-          sessionId: CHUNK_SESSION,
-          cwd: 'D:\\projects\\property-hub',
-          lastAssistantMessage: null,
-          backgroundTasks: [],
-          sessionCrons: [],
-          terminalReason: 'completed',
-          timestamp: 1,
-        },
-      });
+      // The idle turn_state arrives under the REAL id (applied through
+      // TurnStateApplier, mocked here — this mark stands in for it) and must
+      // clear the same entry.
+      liveness.markIdle(CHUNK_SESSION);
       expect(liveness.status(tabId)()).toBe('idle');
       expect(liveness.liveWorkspaces().size).toBe(0);
     });

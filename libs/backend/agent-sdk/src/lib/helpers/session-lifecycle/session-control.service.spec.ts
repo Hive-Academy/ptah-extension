@@ -56,6 +56,7 @@ interface Harness {
   cleanupPendingPermissions: jest.Mock;
   markAllInterrupted: jest.Mock;
   notifyAll: jest.Mock;
+  logger: Logger;
 }
 
 function makeHarness(): Harness {
@@ -98,6 +99,7 @@ function makeHarness(): Harness {
     cleanupPendingPermissions,
     markAllInterrupted,
     notifyAll,
+    logger,
   };
 }
 
@@ -205,14 +207,19 @@ describe('SessionControl.endSession — unregistered id (TASK_2026_350)', () => 
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('resolves without waiting on any timer and runs no teardown', async () => {
+  it('resolves "already-ended" without waiting on any timer, runs no teardown, and does not warn', async () => {
     const h = makeHarness();
 
-    await expect(h.control.endSession(KEY_ID)).resolves.toBeUndefined();
+    const outcome = await h.control.endSession(KEY_ID);
+    expect(outcome).toBe('already-ended');
 
     expect(h.cleanupPendingPermissions).not.toHaveBeenCalled();
     expect(h.markAllInterrupted).not.toHaveBeenCalled();
     expect(h.notifyAll).not.toHaveBeenCalled();
+    expect(h.logger.warn).not.toHaveBeenCalled();
+    expect(h.logger.info).toHaveBeenCalledWith(
+      '[SessionLifecycle] Session already ended, nothing to interrupt',
+    );
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -297,7 +304,8 @@ describe('SessionControl.endSession — teardown failure still deregisters', () 
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
     const remove = jest.spyOn(h.registry, 'remove');
 
-    await h.control.endSession(KEY_ID);
+    const outcome = await h.control.endSession(KEY_ID);
+    expect(outcome).toBe('ended');
 
     // `registry.remove` deletes by `rec.tabId` with no identity check, so a
     // second call is only harmless while no NEW record holds that key. Calling

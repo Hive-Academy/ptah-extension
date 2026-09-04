@@ -8,4 +8,9 @@ export { ChatSdkContextService } from './chat-sdk-context.service';
 export { ChatSessionService } from './chat-session.service';
 export { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 export { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
+export {
+  SessionMcpStatusRegistry,
+  MCP_STATUS_MAP_LIMIT,
+  type SessionMcpStatusRecord,
+} from './session-mcp-status.registry';
 export { hasStopIntent } from './chat-stop-intent';

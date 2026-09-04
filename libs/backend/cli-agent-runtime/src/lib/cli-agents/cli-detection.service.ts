@@ -8,6 +8,8 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type {
   CliAdapter,
@@ -30,19 +32,32 @@ export class CliDetectionService {
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
+  /**
+   * @param spawner - The off-thread process spawner, reusing `agent-sdk`'s
+   *   existing `SDK_PROCESS_SPAWNER` binding. Every rival-CLI adapter that
+   *   launches a child gets it, because `child_process.spawn` is a synchronous
+   *   `CreateProcessW` on Windows and those launches measured 300-900 ms of
+   *   event-loop lag each (TASK_2026_367). Codex and Cursor are absent on
+   *   purpose: both run their vendor SDK in process and never call `spawnCli`.
+   */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly spawner: IProcessSpawner,
   ) {
     this.adapters.set('codex', new CodexCliAdapter());
     const permissionBridge = new CopilotPermissionBridge();
-    this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
+    this.adapters.set(
+      'copilot',
+      new CopilotSdkAdapter(permissionBridge, this.spawner),
+    );
 
     this.adapters.set('cursor', new CursorCliAdapter());
-    this.adapters.set('antigravity', new AntigravityCliAdapter());
-    this.adapters.set('opencode', new OpencodeCliAdapter());
-    this.adapters.set('pi', new PiCliAdapter());
+    this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
+    this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
+    this.adapters.set('pi', new PiCliAdapter(this.spawner));
 
     this.logger.info(
       '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi',

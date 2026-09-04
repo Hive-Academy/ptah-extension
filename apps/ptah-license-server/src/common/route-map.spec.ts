@@ -313,14 +313,23 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * does the router log. The prose figure is an off-by-one; the table and the
  * running server agree with each other and with this list.
  *
+ * **141** since TASK_2026_377 B1 added the admin-authored thread route
+ * `POST v1/admin/community/topics` (140 + 1). It lives on the existing topics
+ * controller at the same depth-4 prefix, so no controller or prefix census
+ * changed. Counting the array below gives 141 unique routes.
+ *
+ * **142** since TASK_2026_377 B5 added the admin course-outline read
+ * `GET v1/admin/courses/:id/modules` (141 + 1). It lives on the existing
+ * courses controller, so no controller or prefix census changed.
+ *
  * ⚠️ THIS IS A LIST, NOT A COUNT, ON PURPOSE. A count tells you the surface
  * changed; a list tells you WHICH route appeared, vanished or moved, in the
  * failure diff, in review, before it ships. Any change to the server's HTTP
  * surface must show up as a diff HERE.
  */
 const EXPECTED_ROUTES: readonly string[] = [
-  // ── TASK_2026_177 P2, the native community forum: 26 routes ──────────────
-  // 11 admin across THREE controllers at three disjoint literal depth-4
+  // ── Native community forum: 27 routes ────────────────────────────────────
+  // 12 admin across THREE controllers at three disjoint literal depth-4
   // prefixes, and 15 member across two disjoint literal depth-3 prefixes.
   //
   // ⚠️ THREE ADMIN CONTROLLERS, NOT TWO. Plan §2.5 proposed
@@ -346,6 +355,7 @@ const EXPECTED_ROUTES: readonly string[] = [
   'PATCH v1/admin/community/topics/:id',
   'POST v1/admin/community/categories',
   'POST v1/admin/community/posts/:id/restore',
+  'POST v1/admin/community/topics',
   'POST v1/admin/community/topics/:id/restore',
   'DELETE v1/members/community/posts/:id',
   'DELETE v1/members/community/topics/:id',
@@ -366,9 +376,9 @@ const EXPECTED_ROUTES: readonly string[] = [
   'PUT v1/members/community/posts/:id/reactions/:type',
   'PUT v1/members/community/topics/:id/accepted-answer',
   // ── TASK_2026_177 P3, the course curriculum: 27 routes, PLUS the 2 added
-  //    by TASK_2026_202 C4 below = 29 in this block ─────────────────────────
-  // 18 admin (20 with C4) across THREE controllers at three disjoint literal
-  // depth-3 prefixes, and 9 member across two disjoint literal depth-3
+  //    by TASK_2026_202 C4 and the B5 outline read = 30 in this block ───────
+  // 18 admin (21 with C4 + B5) across THREE controllers at three disjoint
+  // literal depth-3 prefixes, and 9 member across two disjoint literal depth-3
   // prefixes.
   //
   // 🔴 `v1/admin/course-modules` IS A SIBLING OF `v1/admin/courses`, NOT A CHILD
@@ -395,6 +405,7 @@ const EXPECTED_ROUTES: readonly string[] = [
   'DELETE v1/members/lesson-comments/:id',
   'GET v1/admin/courses',
   'GET v1/admin/courses/:id',
+  'GET v1/admin/courses/:id/modules',
   'GET v1/members/courses',
   'GET v1/members/courses/:slug',
   'GET v1/members/courses/:slug/lessons/:lessonSlug',

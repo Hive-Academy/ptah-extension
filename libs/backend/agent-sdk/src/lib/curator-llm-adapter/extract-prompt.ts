@@ -31,8 +31,23 @@ a JSON object of the form:
 - Any of request/investigated/learned/completed/nextSteps may be null when not
   applicable to the memory.
 Skip transient chit-chat, code that is already in the repo, and anything
-private to a single message.`;
+private to a single message.
+
+TOOLS
+You have full, pre-approved access to the host's tools. Nothing you call will
+prompt anyone — use them whenever they make the extraction more accurate.
+Useful ones, when the host lists them:
+- mcp__ptah__ptah_memory_search — what is already remembered, so you do not
+  re-extract it and so "subject" matches the key an existing memory used.
+- mcp__ptah__ptah_search_files, mcp__ptah__ptah_code_search_symbols, Read,
+  Grep — confirm a path or a symbol before you put it in "files".
+Rules for tool use:
+- Only what the host actually lists is available; do not assume a tool exists.
+- Keep it to a few calls. Your turn budget is small and another curation window
+  is queued behind you.
+- After the last tool result, your FINAL message must contain ONLY the JSON
+  object. A tool call is never the end of your work — the JSON is.`;
 
 export function buildExtractUserPrompt(transcript: string): string {
-  return `Transcript:\n"""\n${transcript}\n"""\n\nReturn ONLY the JSON object.`;
+  return `Transcript:\n"""\n${transcript}\n"""\n\nReturn ONLY the JSON object as your final message.`;
 }

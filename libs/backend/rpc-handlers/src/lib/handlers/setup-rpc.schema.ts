@@ -1,21 +1,39 @@
 /**
  * Zod schemas for {@link SetupRpcHandlers}.
  *
- * INTENTIONALLY EMPTY — the setup handler does run Zod validation against
- * `ProjectAnalysisZodSchema`, but that schema lives in
- * `@ptah-extension/agent-generation` (not inline in this file) and is
- * reused across the multi-phase analysis pipeline. The handler's other
- * params are validated via the static TypeScript types exported from
- * `@ptah-extension/shared` (e.g. `WizardListAgentPacksParams`,
- * `WizardNewProjectSelectTypeParams`) plus inline guards.
+ * The `wizard:` query and analysis-resume DTOs are parsed here at the RPC
+ * boundary. `wizard:recommend-agents` is the one method not covered: its input
+ * is the raw analysis object, validated by `ProjectAnalysisZodSchema` from
+ * `@ptah-extension/agent-generation` inside the handler.
  *
- * No inline `z.object({...})` literals existed in `setup-rpc.handlers.ts`
- * at the time of W0.B6 extraction.
- *
- * This empty export is kept so downstream batches can stub imports
- * consistently across every handler. If a future task adds setup-specific
- * Zod validation (e.g. a stricter source-URL schema for
- * `wizard:install-pack-agents`), those schemas belong here.
+ * `workspacePath` stays optional everywhere it appears: the backend's own
+ * active root is trusted, and a caller-supplied path is additionally checked
+ * with `isAuthorizedWorkspace` in the handler.
  */
 
-export {};
+import { z } from 'zod';
+
+const workspacePath = z.string().min(1).max(4096).optional();
+
+export const WizardDeepAnalyzeParamsSchema = z.object({
+  model: z.string().min(1).max(200).optional(),
+  /** Continue the unfinished version-3 analysis run instead of starting anew. */
+  resume: z.boolean().optional(),
+  workspacePath,
+});
+
+/** `wizard:get-resumable-run` takes no parameters; unknown keys are dropped. */
+export const WizardGetResumableRunParamsSchema = z.object({});
+
+export const WizardListAnalysesParamsSchema = z.object({ workspacePath });
+
+export const WizardLoadAnalysisParamsSchema = z.object({
+  filename: z.string().min(1).max(255),
+  workspacePath,
+});
+
+export const WizardInstallPackAgentsParamsSchema = z.object({
+  source: z.string().min(1).max(2048),
+  agentFiles: z.array(z.string().min(1).max(255)).min(1).max(200),
+  workspacePath,
+});

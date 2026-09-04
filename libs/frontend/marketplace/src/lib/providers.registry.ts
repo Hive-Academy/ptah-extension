@@ -5,6 +5,7 @@ import {
   Boxes,
   Puzzle,
   KeyRound,
+  Plug,
 } from 'lucide-angular';
 import {
   McpDirectoryBrowserComponent,
@@ -14,8 +15,21 @@ import { MarketplaceProviderSpec } from './provider-spec';
 import { SmitherySurfaceComponent } from './smithery-surface.component';
 import { PluginsSurfaceComponent } from './plugins-surface.component';
 import { OAuthSurfaceComponent } from './oauth-surface.component';
+import { ConnectorsSurfaceComponent } from './connectors-surface.component';
 
 export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
+  {
+    // First deliberately: the curated catalog is the shortest path from "I want
+    // my app connected" to a connected app. Connected Apps stays as its own
+    // descriptor for a custom URL, and is also embedded in this surface.
+    id: 'connectors',
+    name: 'Connectors',
+    icon: Plug,
+    status: 'live',
+    kind: 'mcp',
+    tagline: 'Connect the apps you already use, in one click',
+    surface: ConnectorsSurfaceComponent,
+  },
   {
     id: 'plugins',
     name: 'Plugins',

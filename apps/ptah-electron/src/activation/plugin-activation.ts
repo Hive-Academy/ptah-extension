@@ -12,6 +12,9 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
+  resolveAgentMirrorSource,
+  resolveHarnessWorkspaceRoot,
+  type AgentSyncGate,
   type HarnessPropagationService,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
@@ -36,7 +39,7 @@ import {
 } from '@ptah-extension/skill-synthesis';
 
 import { createCoalescedJob, type CoalescedJob } from './coalesced-job';
-import { normalizeWorkspaceRoot } from './workspace-root-key';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
 
@@ -178,10 +181,20 @@ function buildMirrorSources(
     harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
-    ...(workspaceRoot
-      ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-      : {}),
+    // The agent facet is scoped and gated in `harness-sync`, not here: all three
+    // hosts share that decision and the two rules behind it fail silently when
+    // one of them drifts (TASK_2026_365).
+    ...resolveAgentMirrorSource(workspaceRoot, resolveAgentSyncGate(container)),
   };
+}
+
+/** The consent gate, or `null` in a host that has not wired `harness-sync`. */
+function resolveAgentSyncGate(
+  container: DependencyContainer,
+): AgentSyncGate | null {
+  return container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    ? container.resolve<AgentSyncGate>(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    : null;
 }
 
 /**
@@ -208,9 +221,8 @@ export async function mirrorUserLayer(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
 
-    const result = await mirror.mirrorAll(
-      buildMirrorSources(container, workspaceRoot),
-    );
+    const sources = buildMirrorSources(container, workspaceRoot);
+    const result = await mirror.mirrorAll(sources);
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -221,7 +233,10 @@ export async function mirrorUserLayer(
       );
     }
 
-    return mirror.getUserLayerRoots();
+    // The SAME root the mirror just wrote under, taken from the sources rather
+    // than re-derived: the agent root is keyed by it, so a second derivation
+    // that disagreed would hand the caller a directory nothing was written to.
+    return mirror.getUserLayerRoots(sources.workspaceRoot);
   } catch (error) {
     console.warn(
       '[Ptah Electron] User-layer mirror failed (non-fatal):',
@@ -240,6 +255,7 @@ export async function mirrorUserLayer(
  */
 export async function syncSkillRegistryCatalog(
   container: DependencyContainer,
+  workspaceRoot?: string,
 ): Promise<void> {
   try {
     if (
@@ -252,7 +268,14 @@ export async function syncSkillRegistryCatalog(
     const catalog = container.resolve<SkillRegistryCatalogService>(
       SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
     );
-    const result = await catalog.sync();
+    // Resolved here, not passed raw: the agent clones the catalog lists live
+    // under a key derived from the harness root, so a sub-folder spelling would
+    // read an empty directory and drop every agent row.
+    const result = await catalog.sync(
+      workspaceRoot === undefined
+        ? undefined
+        : resolveHarnessWorkspaceRoot(workspaceRoot),
+    );
     console.log(
       `[Ptah Electron] Skill registry catalog synced (upserted: ${result.upserted}, linked: ${result.linked})`,
     );
@@ -358,7 +381,7 @@ async function runUserLayerPass(
   // strictly less work than before (one per pass instead of two), and a pass
   // that changed nothing costs one upsert sweep of already-current rows.
   if (sqliteOpen) {
-    await syncSkillRegistryCatalog(container);
+    await syncSkillRegistryCatalog(container, workspaceRoot);
   }
 }
 

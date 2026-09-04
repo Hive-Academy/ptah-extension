@@ -66,6 +66,8 @@ export const PERSISTED_TAB_STATE_VERSION = 2;
 const NON_PERSISTED_TAB_KEYS: ReadonlySet<string> = new Set([
   'streamingState',
   'attachedBinding',
+  'lastTurnStateRevision',
+  'lastTurnStateSessionId',
 ]);
 
 /**
@@ -89,7 +91,13 @@ export interface PersistedTabState {
 
 /** Strip the fields no reader restores. Shape is otherwise identical. */
 export function projectTabForPersist(tab: TabState): TabState {
-  return { ...tab, streamingState: null, attachedBinding: null };
+  return {
+    ...tab,
+    streamingState: null,
+    attachedBinding: null,
+    lastTurnStateRevision: undefined,
+    lastTurnStateSessionId: undefined,
+  };
 }
 
 /** Build the storage envelope for a tab set. */
@@ -109,16 +117,19 @@ export function buildPersistedTabState(
  *
  * Each one is a promise the process that made it can no longer keep:
  * `streaming` and `resuming` name an SDK query that died with the old page,
- * `switching` names a half-finished tab switch, and `awaiting-background` names
- * background tasks whose completion event will never arrive. A tab restored in
- * any of them shows a spinner and a stop button forever, and the composer stays
- * gated on a turn that already ended.
+ * `switching` names a half-finished tab switch, `awaiting-background` names
+ * background tasks whose completion event will never arrive, and `sleeping`
+ * names session crons the old process registered. A tab restored in any of
+ * them shows a spinner and a stop button forever, and the composer stays gated
+ * on a turn that already ended. A restored tab re-learns its real state from
+ * `session:status` (`SessionLivenessReconcilerService`).
  */
 const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
   'streaming',
   'resuming',
   'switching',
   'awaiting-background',
+  'sleeping',
 ]);
 
 /**
@@ -151,6 +162,10 @@ export function sanitizeRestoredTab(tab: TabState): TabState {
     // Messaging attachment is a live, push-driven flag — a restored tab is
     // never attached. Clear so a stale flag can't leave it read-only.
     attachedBinding: null,
+    // The backend revision counter belongs to the old process too; the
+    // reconciler's first `turn_state` must never be dropped as a replay.
+    lastTurnStateRevision: undefined,
+    lastTurnStateSessionId: undefined,
   };
 }
 
