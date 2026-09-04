@@ -14,6 +14,7 @@ import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
 import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
+import { CURATOR_QUEUE_WAIT_CEILING_MS } from './curator-llm/curator-job-queue';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 
 interface RecordingTracer extends ITracer {
@@ -1615,5 +1616,205 @@ describe('MemoryCuratorService — concurrency-slot loss (TASK_2026_376 F4)', ()
     });
 
     expect(stats.outcome).toBe('ran');
+  });
+});
+
+/**
+ * TASK_2026_376 R1 — the three ways a pass must now decline to consume its
+ * input, and the fan-out id it must refuse outright.
+ */
+describe('MemoryCuratorService — a pass that never read its input reports STALLED', () => {
+  type CompactionCallback = Parameters<
+    ICompactionCallbackRegistry['register']
+  >[0];
+
+  function buildParts(llm: ICuratorLLM): {
+    svc: MemoryCuratorService;
+    logger: Logger;
+    transcriptReader: ITranscriptReader;
+    store: MemoryStore;
+    callbacks: CompactionCallback[];
+  } {
+    const callbacks: CompactionCallback[] = [];
+    const registry = {
+      register: jest.fn((cb: CompactionCallback) => {
+        callbacks.push(cb);
+        return () => {
+          /* noop */
+        };
+      }),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue('a real transcript'),
+    } as unknown as ITranscriptReader;
+    const logger = makeLogger();
+    const svc = new MemoryCuratorService(
+      logger,
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+    );
+    return { svc, logger, transcriptReader, store, callbacks };
+  }
+
+  function llmReturning(extraction: unknown): ICuratorLLM {
+    return {
+      extract: jest.fn().mockResolvedValue(extraction),
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+  }
+
+  it('maps a NO-OUTPUT extraction to stalled, so the observations survive', async () => {
+    // The pass reached the model, spent its turns on tool calls and never wrote
+    // its JSON. Reporting `'ran'` here is what told `MemoryTriggerService` to
+    // mark the drained observation rows processed for a curation that produced
+    // nothing — the same data loss F4 had just closed, on a different path.
+    const { svc } = buildParts(
+      llmReturning({
+        status: 'no-output',
+        usedTools: true,
+        toolNames: ['mcp__ptah__ptah_memory_search'],
+      }),
+    );
+
+    const stats = await svc.curate({
+      sessionId: 'tool-only-session',
+      transcript: 'a real transcript worth curating',
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(stats.extracted).toBe(0);
+    // A stalled pass is not a run: it must not overwrite the last real one.
+    expect(svc.lastRunInfo().at).toBeNull();
+    const kinds = svc.recentEvents(20).map((e) => e.kind);
+    expect(kinds).toContain('rate-limited');
+    expect(kinds).not.toContain('curator-run');
+  });
+
+  it('records WHY it deferred, so a quiet curator can be diagnosed', async () => {
+    const { svc } = buildParts(
+      llmReturning({ status: 'no-output', usedTools: false, toolNames: [] }),
+    );
+    await svc.curate({ sessionId: 's1', transcript: 'a real transcript' });
+    const event = svc.recentEvents(20).find((e) => e.kind === 'rate-limited');
+    expect(event?.stats).toMatchObject({
+      source: 'curator-llm',
+      reason: 'no-output',
+      usedTools: false,
+    });
+  });
+
+  it('does not run the pipeline at all for a caller that already aborted', async () => {
+    const llm = llmReturning({ status: 'extracted', drafts: [] });
+    const { svc } = buildParts(llm);
+    const controller = new AbortController();
+    controller.abort();
+
+    const stats = await svc.curate({
+      sessionId: 'withdrawn',
+      transcript: 'a real transcript',
+      signal: controller.signal,
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(llm.extract).not.toHaveBeenCalled();
+  });
+
+  it('refuses a PreCompact fan-out for an internal one-shot query id', async () => {
+    // `internal-query-<epoch>` names no session and has no transcript on disk.
+    // With `maxTurns: 6` the curator's OWN query can now cross a compaction
+    // boundary, so this id can be fanned back into the service that produced it
+    // (TASK_2026_376 R1, logic finding 4).
+    const { svc, transcriptReader, callbacks } = buildParts(
+      llmReturning({ status: 'extracted', drafts: [] }),
+    );
+    svc.start();
+    expect(callbacks).toHaveLength(1);
+
+    callbacks[0]({
+      sessionId: 'internal-query-1757000000000',
+      trigger: 'auto',
+      timestamp: Date.now(),
+      preTokens: 100_000,
+      cwd: 'D:/ws',
+    });
+    await Promise.resolve();
+
+    expect(transcriptReader.read).not.toHaveBeenCalled();
+    expect(svc.recentEvents(20)).toHaveLength(0);
+  });
+
+  it('still curates a real session id through the same fan-out', async () => {
+    const { svc, transcriptReader, callbacks } = buildParts(
+      llmReturning({ status: 'extracted', drafts: [] }),
+    );
+    svc.start();
+
+    callbacks[0]({
+      sessionId: '50653b50-a03b-45a5-937b-b4944ab2e9f1',
+      trigger: 'auto',
+      timestamp: Date.now(),
+      preTokens: 100_000,
+      cwd: 'D:/ws',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(transcriptReader.read).toHaveBeenCalled();
+  });
+
+  it('defers a pass that waits past the job-queue ceiling instead of hanging', async () => {
+    // The `memory:runNow` RPC calls `curate()` with no signal, so before the
+    // ceiling a user-triggered pass could sit behind background passes with no
+    // bound and nothing to cancel it (TASK_2026_376 R1, logic finding 3).
+    jest.useFakeTimers();
+    try {
+      let releaseFirst!: () => void;
+      const firstPass = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const llm = {
+        extract: jest.fn(async () => {
+          await firstPass;
+          return { status: 'extracted', drafts: [] };
+        }),
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM;
+      const { svc } = buildParts(llm);
+
+      const blocking = svc.curate({
+        sessionId: 'background-pass',
+        transcript: 'a real transcript',
+      });
+      const queued = svc.curate({
+        sessionId: 'user-triggered-pass',
+        transcript: 'a real transcript',
+      });
+
+      await Promise.resolve();
+      jest.advanceTimersByTime(CURATOR_QUEUE_WAIT_CEILING_MS + 1);
+
+      const queuedStats = await queued;
+      expect(queuedStats.outcome).toBe('stalled');
+      // The chain is intact: the blocking pass still owns its slot and still
+      // finishes normally.
+      expect(llm.extract).toHaveBeenCalledTimes(1);
+      releaseFirst();
+      await expect(blocking).resolves.toMatchObject({ outcome: 'ran' });
+      // The abandoned pass is never dispatched, even once its turn arrives.
+      await Promise.resolve();
+      expect(llm.extract).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

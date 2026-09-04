@@ -61,6 +61,26 @@ export type CuratorStallReason = 'provider-cooling-down';
  *
  * **A stalled pass still extracts nothing.** There is no `drafts` on that arm:
  * the fix carries a signal, it does not invent a result.
+ *
+ * ## The third arm, and why the same argument produced it twice
+ *
+ * `no-output` is the run that reached the model and came back without JSON —
+ * the model spent its turns on tool calls, or answered nothing at all. Before
+ * TASK_2026_376 R1 that run resolved `{ status: 'extracted', drafts: [] }`,
+ * which is byte-identical to a pass that read the transcript and honestly found
+ * nothing durable in it. The caller acts on that difference exactly as it does
+ * on `stalled`: `MemoryTriggerService.invokeCurate` marks the drained
+ * `observation_queue` rows processed for a run, so a tool-only pass consumed the
+ * observations it never extracted from, and that session could never be curated
+ * again.
+ *
+ * The curator's turn budget went from 1 to 6 in the same task (F8), which is
+ * what turned a theoretical arm into the ordinary shape of a tool-using run.
+ *
+ * It is a separate arm rather than a second `CuratorStallReason` because the two
+ * differ in what they cost: a stall spent no upstream request, while a
+ * `no-output` run spent its whole turn budget. The caller's decision — keep the
+ * input — is the same, and the diagnostics are not.
  */
 export type CuratorExtraction =
   | {
@@ -72,6 +92,13 @@ export type CuratorExtraction =
       readonly reason: CuratorStallReason;
       /** Resolved provider id, or `''` when the curator inherits the active one. */
       readonly providerId: string;
+    }
+  | {
+      readonly status: 'no-output';
+      /** `true` when the run spent turns on tool calls, `false` when it said nothing at all. */
+      readonly usedTools: boolean;
+      /** Distinct tool names the run called, in first-use order. Empty when `usedTools` is false. */
+      readonly toolNames: readonly string[];
     };
 
 export interface ICuratorLLM {

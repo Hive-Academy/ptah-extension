@@ -250,3 +250,64 @@ describe('CuratorWindowRunner.extractAcrossWindows — queue-slot timeouts', () 
     expect(extract).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * A window whose model returned no JSON abandons the pass — TASK_2026_376 R1.
+ */
+describe('CuratorWindowRunner.extractAcrossWindows — a window that produced no output', () => {
+  function windows(count: number): readonly CuratorWindow[] {
+    return Array.from({ length: count }, (_, i) => ({
+      text: `window ${i}`,
+      recordIndices: [i],
+      windowIndex: i,
+      windowCount: count,
+    }));
+  }
+
+  function makeRunner(extract: jest.Mock): CuratorWindowRunner {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+    return new CuratorWindowRunner(
+      logger as unknown as Logger,
+      {
+        extract,
+        resolve: jest.fn(),
+      } as unknown as ICuratorLLM,
+    );
+  }
+
+  it('carries the arm to the caller and stops spending windows', async () => {
+    const extract = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'extracted',
+        drafts: [
+          { kind: 'fact', subject: 'a', content: 'first', salienceHint: 0.5 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        status: 'no-output',
+        usedTools: true,
+        toolNames: ['Read'],
+      })
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    const runner = makeRunner(extract);
+
+    const result = await runner.extractAcrossWindows(windows(3));
+
+    // NOT `{ status: 'extracted', drafts: [first] }`. Window 2's content was
+    // never extracted, so a union of the others is a partial extraction wearing
+    // a complete one — and the caller consumes the whole session's observations
+    // on a complete one.
+    expect(result).toEqual({
+      status: 'no-output',
+      usedTools: true,
+      toolNames: ['Read'],
+    });
+    expect(extract).toHaveBeenCalledTimes(2);
+  });
+});

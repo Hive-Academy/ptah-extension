@@ -17,7 +17,14 @@ import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
-import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
+import {
+  isAssistantMessage,
+  isErrorResult,
+  isResultMessage,
+  isTextBlock,
+  isToolUseBlock,
+  type SDKMessage,
+} from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
   buildExtractUserPrompt,
@@ -277,25 +284,33 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         providerId: outcome.providerId,
       };
     }
-    // `tools-only` and `silent` both yield no drafts, and the CONTRACT cannot
-    // tell them apart: `CuratorExtraction` has two arms, and adding a third
-    // means editing `memory-contracts` and `memory-curator`, neither of which
-    // this batch owns (reported in b5-report.md). What is inside reach is the
-    // record — an operator reading the log can now see that the pass ran, used
-    // tools, and chose not to write JSON, which is a different event from a
-    // pass that produced nothing at all.
+    // `tools-only` and `silent` both produced no JSON, and neither is an empty
+    // extraction. `{ status: 'extracted', drafts: [] }` is what the caller reads
+    // as "this pass ran and honestly found nothing", and it consumes the
+    // session's queued observations on that reading. A run that spent six turns
+    // in tool calls and never wrote its answer has not earned that. The
+    // `no-output` arm is the difference, and the caller maps it to the same
+    // input-preserving outcome a stall gets (TASK_2026_376 R1).
+    //
+    // The two arms stay distinct HERE — the log line for each is different —
+    // because they diagnose different things: one is a model that worked and
+    // did not answer, the other is a model that did nothing at all.
     if (outcome.kind === 'tools-only') {
       this.logger.info(
-        '[memory-curator] curator extract pass did its work through tools and returned no JSON; nothing to persist from this pass',
+        '[memory-curator] curator extract pass did its work through tools and returned no JSON; leaving this session for the next pass',
         { toolUses: outcome.toolUses, toolNames: outcome.toolNames },
       );
-      return { status: 'extracted', drafts: [] };
+      return {
+        status: 'no-output',
+        usedTools: true,
+        toolNames: outcome.toolNames,
+      };
     }
     if (outcome.kind === 'silent') {
       this.logger.warn(
         '[memory-curator] curator extract pass produced neither text nor tool calls',
       );
-      return { status: 'extracted', drafts: [] };
+      return { status: 'no-output', usedTools: false, toolNames: [] };
     }
     return { status: 'extracted', drafts: this.parseDrafts(outcome.text) };
   }
@@ -388,40 +403,52 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         abortController,
         auth,
       });
-      let collected = '';
+      // The text of the LAST assistant message, not the concatenation of every
+      // one of them (TASK_2026_376 R1, logic finding 1).
+      //
+      // Both prompts tell the model that its FINAL message must contain only
+      // the JSON object, and `extractJsonObject` scans from index 0 and returns
+      // the FIRST balanced `{...}` it finds. While `maxTurns` was 1 those two
+      // rules could not disagree: one turn is one assistant message. At six
+      // turns a concatenation puts the model's THINKING-OUT-LOUD in front of
+      // its answer, so a first turn reading `draft so far: {"memories": []}`
+      // parses cleanly and returns zero drafts, and a first turn reading
+      // `I will search for {subject: X}` fails to parse at all. Either way
+      // `parseDrafts` answers `[]`, the pass reports a successful empty run,
+      // and `MemoryTriggerService` marks the observations processed — the
+      // session's real drafts are gone and it can never be curated again.
+      //
+      // Assigning rather than appending is the whole fix: the parser now reads
+      // the message the prompt promised. A final message that carries no text
+      // leaves this `''`, which is the `tools-only` / `silent` path below, and
+      // that path no longer consumes its input either.
+      let lastAssistantText = '';
       let toolUses = 0;
       const toolNames: string[] = [];
       let hitTurnCeiling = false;
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
-        if (msg.type === 'assistant') {
-          const message = (
-            msg as unknown as {
-              message?: {
-                content?: Array<{ type: string; text?: string; name?: string }>;
-              };
-            }
-          ).message;
-          for (const block of message?.content ?? []) {
-            if (block.type === 'text' && typeof block.text === 'string') {
-              collected += block.text;
-            }
+        if (isAssistantMessage(msg)) {
+          let messageText = '';
+          for (const block of msg.message.content) {
+            if (isTextBlock(block)) messageText += block.text;
             // The half the old collector dropped. A turn spent on a tool call
             // contributed NOTHING here, so a run that searched memory and read
             // three files was reported exactly like a run that said nothing.
-            if (block.type === 'tool_use') {
+            if (isToolUseBlock(block)) {
               toolUses++;
-              if (typeof block.name === 'string' && block.name.length > 0) {
-                if (!toolNames.includes(block.name)) toolNames.push(block.name);
+              if (block.name.length > 0 && !toolNames.includes(block.name)) {
+                toolNames.push(block.name);
               }
             }
           }
+          lastAssistantText = messageText;
         }
-        if (msg.type === 'result') {
+        if (isResultMessage(msg)) {
           // `error_max_turns` is a RESULT in this SDK, never a throw, so an
           // exhausted budget is silent unless it is read here. It is the one
           // signal that says CURATOR_MAX_TURNS is set too low for the work.
-          const subtype = (msg as unknown as { subtype?: string }).subtype;
-          hitTurnCeiling = subtype === 'error_max_turns';
+          hitTurnCeiling =
+            isErrorResult(msg) && msg.subtype === 'error_max_turns';
           break;
         }
       }
@@ -431,8 +458,8 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
           { maxTurns: CURATOR_MAX_TURNS, toolUses, toolNames },
         );
       }
-      if (collected.length > 0)
-        return { kind: 'text', text: collected, toolUses };
+      if (lastAssistantText.length > 0)
+        return { kind: 'text', text: lastAssistantText, toolUses };
       if (toolUses > 0) return { kind: 'tools-only', toolUses, toolNames };
       return { kind: 'silent' };
     } catch (error: unknown) {

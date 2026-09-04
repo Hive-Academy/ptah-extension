@@ -302,6 +302,72 @@ NX   Successfully ran target typecheck for 6 projects
 
 The header reported 6 projects in both runs, which is the number requested.
 
+## Review round — after commit `eca2c155b`
+
+Two reviewers read the commit. Both returned APPROVE WITH FIXES.
+
+| Review | Score    | File                                |
+| ------ | -------- | ----------------------------------- |
+| Logic  | 6.5 / 10 | `code-logic-review.md` — 6 findings |
+| Style  | 7.5 / 10 | `code-style-review.md` — 4 findings |
+
+**The review earned its keep.** The F8 fix — raising the curator from
+`maxTurns: 1` to 6 — was correct in isolation and shipped a regression. The
+response collector was never adapted to a multi-turn run: `collected +=
+block.text` concatenated every assistant message while `extractJsonObject`
+returned the FIRST balanced object, although both prompts tell the model its
+FINAL message carries the JSON. The reviewer reproduced a wrong-but-valid parse
+and a parse failure against the real function body. Either one ends with
+`markProcessed` consuming the observations, so the session could never be
+curated again — the same silent data-loss class F4 had just closed, on a new
+path. Shipping F8 without this review would have traded one data-loss path for
+another.
+
+A second finding is a genuine cross-batch interaction. B6 guarded the
+compaction hooks on `maxTurns > 1`, and B5 raised the curator to 6 in the same
+task, so the curator moved from inside that guard to outside it — onto the
+pipeline B6's own comment names as the hazard. Neither agent could see the
+other's work.
+
+### Fix batches
+
+- **R1 — landed.** Logic 1, 2, 3, 4 (consumer half), style 2 and 4.
+  `runQuery` now ASSIGNS `lastAssistantText` per message instead of
+  concatenating (`sdk-internal-query.curator-llm.ts:444`), a `no-output` arm was
+  added to `CuratorExtraction` and mapped to the input-preserving outcome, the
+  job queue gained a wait ceiling and an abort check, and the hand-rolled
+  `as unknown as` narrowing was replaced with the library's own
+  `isAssistantMessage` / `isResultMessage` / `isTextBlock` guards. R1 recorded
+  one deliberate trade-off: it takes the last assistant message rather than the
+  last message CONTAINING text, so a run that answers and then emits a
+  tool-only message defers instead of parsing. Deferring costs one re-curation;
+  parsing the wrong object costs the session's memories permanently.
+- **R3 — landed.** Logic 4, producer half. It found that `maxTurns` was the
+  wrong axis entirely: `buildOneShotHooks` mints the synthetic
+  `internal-query-<epoch>` id for EVERY one-shot query, and the only subscriber
+  to `CompactionCallbackRegistry` resolves a real session's JSONL transcript, so
+  a `PreCompact` on any one-shot query is spurious at every turn budget. It
+  verified the hook is a notification path and not a participation API — the SDK
+  decides to compact through `autoCompactEnabled` and its threshold, which are
+  separate from `Options.hooks` — then removed the compaction hooks from the
+  one-shot path entirely, along with B6's now-dead `maxTurns` parameter and the
+  unused `CompactionHookHandler` injection.
+- **R2 — landed.** Style 1, logic 5 and 6. The first agent assigned to it
+  returned nothing at all — no report and no edits — so it was reassigned.
+  R2 found that findings 1 and 5 pull in opposite directions and named the
+  conflict rather than picking a side: finding 1 wants the Zod schema to define
+  `toolCallId`, finding 5 wants an invalid value not to reject the payload, and
+  a plain `z.string().min(1).optional()` satisfies the first while violating the
+  second. It resolved with `.catch(undefined)`, verified the combinator against
+  the installed zod 4.3.6 rather than assuming it, and also verified that Zod
+  emits output keys in SHAPE order — which is why the field sits between
+  `agentType` and `lastAssistantMessage`, so the equivalence proof's key-order
+  assertion still holds. Logic 6 was deliberately NOT implemented, with evidence
+  recorded in `r2-report.md`.
+- **Style 3 — closed by the orchestrator.** A WHY comment now sits beside the
+  `background_agent_started` push in `assistant-message.transformer.ts`,
+  recording that the order is load-bearing and why reversing it recreates F2.
+
 ### F7 is closed as NOT A DEFECT
 
 B4's read-only trace overturned the finding, and the correction was verified

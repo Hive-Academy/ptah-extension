@@ -195,18 +195,31 @@ export function parseSdkTurnFailedPayload(
 }
 
 /**
- * Mirrors `SdkSubagentEndedPayloadSchema`, with ONE deliberate difference:
- * this parser keeps the optional `toolCallId`, and the Zod schema does not
- * declare it, so `safeParse` strips it.
+ * Mirrors `<schema>.optional().catch(undefined)` on an object property.
  *
- * The divergence is confined to that key. Acceptance is identical on every
- * input, and `SessionLifecycleNotifier` puts the field back on the wire
- * explicitly after its `safeParse` call rather than letting a stripped field
- * travel silently. Add `toolCallId: z.string().min(1).optional()` to
- * `SdkSubagentEndedPayloadSchema` and this note goes away — the equivalence
- * corpus in `wire-parsers.equivalence.spec.ts` does not carry the key today,
- * so it cannot catch the gap on its own.
+ * The difference from {@link readOptional} is the failure posture, and it is
+ * the whole point: an invalid value on a present key is NOT fatal to the
+ * payload. Zod's contract, verified against zod 4.3.6:
+ * - key absent from input → key absent from output
+ * - key present, value valid → key present with that value
+ * - key present, value `undefined` or invalid → key present with `undefined`
+ *
+ * There is no counterpart in `wire-guards.internal.ts` because
+ * `SdkSubagentEndedPayloadSchema` is the only schema using the combinator.
+ * Promote it there when a second schema needs it.
  */
+function readOptionalCaught<T>(
+  source: Record<string, unknown>,
+  key: string,
+  check: (value: unknown) => value is T,
+  assign: (value: T | undefined) => void,
+): void {
+  if (!(key in source)) return;
+  const raw = source[key];
+  assign(check(raw) ? raw : undefined);
+}
+
+/** Mirrors `SdkSubagentEndedPayloadSchema`. */
 export function parseSdkSubagentEndedPayload(
   payload: unknown,
 ): SdkSubagentEndedPayload | null {
@@ -228,13 +241,9 @@ export function parseSdkSubagentEndedPayload(
     agentId: payload['agentId'],
     agentType: payload['agentType'],
   };
-  // Mirrors `z.string().min(1).optional()`: absent is accepted, present-and-
-  // blank is rejected. A blank toolCallId is not an identity — it would key a
-  // store entry that nothing can address.
-  const ok = readOptional(payload, 'toolCallId', isNonEmptyWireString, (v) => {
+  readOptionalCaught(payload, 'toolCallId', isNonEmptyWireString, (v) => {
     out['toolCallId'] = v;
   });
-  if (!ok) return null;
   out['lastAssistantMessage'] = payload['lastAssistantMessage'];
   out['backgroundTasks'] = backgroundTasks;
   out['timestamp'] = payload['timestamp'];

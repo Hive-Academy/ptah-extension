@@ -177,16 +177,7 @@ export class SessionLifecycleNotifier {
       );
       return;
     }
-    // `SdkSubagentEndedPayloadSchema` does not declare `toolCallId`, so
-    // `safeParse` strips it. The field is re-attached here, from the same bus
-    // event Zod just accepted and under the same non-empty-string rule
-    // `parseSdkSubagentEndedPayload` applies on the webview side. Validation of
-    // every required field — and the drop above — is unchanged.
-    const toolCallId = event.toolCallId;
-    const payload: SdkSubagentEndedPayload =
-      typeof toolCallId === 'string' && toolCallId.length > 0
-        ? { ...parsed.data, toolCallId }
-        : parsed.data;
+    const payload: SdkSubagentEndedPayload = parsed.data;
     this.webviewManager
       .broadcastMessage(MESSAGE_TYPES.SESSION_SUBAGENT_ENDED, payload)
       .catch((err: unknown) => {

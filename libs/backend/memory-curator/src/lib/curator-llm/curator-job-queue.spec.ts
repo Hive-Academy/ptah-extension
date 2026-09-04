@@ -1,7 +1,11 @@
 /**
  * `CuratorJobQueue` — one curation pass at a time (TASK_2026_376 F4).
  */
-import { CuratorJobQueue } from './curator-job-queue';
+import {
+  CURATOR_QUEUE_WAIT_CEILING_MS,
+  CuratorJobQueue,
+  CuratorQueueWaitTimeoutError,
+} from './curator-job-queue';
 
 function deferred(): {
   promise: Promise<void>;
@@ -61,6 +65,93 @@ describe('CuratorJobQueue', () => {
 
     await expect(failing).rejects.toThrow('curate blew up');
     await expect(following).resolves.toBe('still ran');
+  });
+
+  it('rejects a waiter that never gets its turn within the ceiling', async () => {
+    // TASK_2026_376 R1, logic finding 3. `memory:runNow` calls `curate()` with
+    // no signal, so an unbounded wait is a spinner the code cannot end.
+    jest.useFakeTimers();
+    try {
+      const queue = new CuratorJobQueue(1000);
+      const blocker = deferred();
+      const ran: string[] = [];
+
+      const first = queue.run(async () => {
+        ran.push('first');
+        await blocker.promise;
+        return 'first';
+      });
+      const second = queue.run(async () => {
+        ran.push('second');
+        return 'second';
+      });
+      const rejection = second.catch((error: unknown) => error);
+
+      await Promise.resolve();
+      jest.advanceTimersByTime(1001);
+      const error = await rejection;
+      expect(error).toBeInstanceOf(CuratorQueueWaitTimeoutError);
+
+      // The chain is NOT broken and the running pass is untouched.
+      blocker.resolve();
+      await expect(first).resolves.toBe('first');
+      // The abandoned job is never invoked, even once its turn comes.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(ran).toEqual(['first']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('lets a later pass run normally after an abandoned one', async () => {
+    // The ceiling is per waiter, so a pass submitted after the congestion
+    // cleared gets its own full allowance and must not inherit the loser's.
+    jest.useFakeTimers();
+    try {
+      const queue = new CuratorJobQueue(1000);
+      const blocker = deferred();
+
+      const first = queue.run(() => blocker.promise);
+      const abandoned = queue.run(() => Promise.resolve('never'));
+      const rejection = abandoned.catch(() => 'rejected');
+
+      await Promise.resolve();
+      jest.advanceTimersByTime(1001);
+      await expect(rejection).resolves.toBe('rejected');
+
+      blocker.resolve();
+      await first;
+      const third = queue.run(() => Promise.resolve('third'));
+      await expect(third).resolves.toBe('third');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('never rejects a pass that gets its turn inside the ceiling', async () => {
+    jest.useFakeTimers();
+    try {
+      const queue = new CuratorJobQueue(1000);
+      const blocker = deferred();
+      const first = queue.run(() => blocker.promise);
+      const second = queue.run(() => Promise.resolve('second'));
+
+      jest.advanceTimersByTime(500);
+      blocker.resolve();
+      await first;
+      await expect(second).resolves.toBe('second');
+      // The cancelled ceiling must not fire after the job started.
+      jest.advanceTimersByTime(5000);
+      await expect(second).resolves.toBe('second');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ships a bounded default ceiling', () => {
+    expect(CURATOR_QUEUE_WAIT_CEILING_MS).toBeGreaterThan(0);
+    expect(Number.isFinite(CURATOR_QUEUE_WAIT_CEILING_MS)).toBe(true);
   });
 
   it('reports the passes it is holding', async () => {

@@ -26,12 +26,12 @@ import { isQueueSlotTimeout, QueueSlotRetryBudget } from './queue-slot-timeout';
 /**
  * The outcome of a whole window set.
  *
- * The two arms of {@link CuratorExtraction} are carried through unchanged, so
- * the service's existing handling of `extracted` and `stalled` is the same code
- * it always was. The three remaining arms are the failures a LOOP can have that
- * a single call cannot: a call that threw partway through, an abort noticed
- * between windows, and a window that never reached the model because the host
- * was congested.
+ * The arms of {@link CuratorExtraction} are carried through unchanged, so the
+ * service's existing handling of `extracted`, `stalled` and `no-output` is the
+ * same code it always was. The three remaining arms are the failures a LOOP can
+ * have that a single call cannot: a call that threw partway through, an abort
+ * noticed between windows, and a window that never reached the model because
+ * the host was congested.
  */
 export type WindowedExtraction =
   | CuratorExtraction
@@ -148,6 +148,14 @@ export class CuratorWindowRunner {
    *    it and the transcript is never curated again.
    *  - a `stalled` window stops the loop. A stall is a cooldown, so every
    *    remaining window would stall too.
+   *  - a `no-output` window ABANDONS the pass, for the same reason a throw
+   *    does (TASK_2026_376 R1). The arm means the model reached the end of its
+   *    turn budget without writing its answer, so that window's content was
+   *    never extracted. Continuing would union the OTHER windows' drafts into a
+   *    result the caller reads as complete, and the caller consumes the whole
+   *    session's observations on it — a partial extraction wearing a full one.
+   *    Returning the arm makes the caller keep the input and curate the whole
+   *    transcript again next drain.
    *  - `signal.aborted` is checked BETWEEN windows, not only inside the
    *    adapter, so an abort during a long chunked run stops promptly instead of
    *    after the current provider round trip times out.
@@ -201,6 +209,18 @@ export class CuratorWindowRunner {
         return { status: 'failed', error };
       }
       if (extraction.status === 'stalled') return extraction;
+      if (extraction.status === 'no-output') {
+        this.logger.info(
+          '[memory-curator] a curation window returned no JSON; abandoning the pass so its input survives',
+          {
+            completedWindows,
+            windows: windows.length,
+            usedTools: extraction.usedTools,
+            toolNames: extraction.toolNames.join(','),
+          },
+        );
+        return extraction;
+      }
       completedWindows++;
       for (const draft of extraction.drafts) {
         const key = `${draft.subject ?? ''}\u0000${draft.content}`;

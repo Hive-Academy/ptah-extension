@@ -34,7 +34,10 @@ import type {
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { CuratorWindowRunner } from './curator-llm/curator-window-runner';
-import { CuratorJobQueue } from './curator-llm/curator-job-queue';
+import {
+  CuratorJobQueue,
+  CuratorQueueWaitTimeoutError,
+} from './curator-llm/curator-job-queue';
 import {
   isQueueSlotTimeout,
   QueueSlotRetryBudget,
@@ -73,6 +76,40 @@ const TRANSCRIPT_PLACEHOLDER =
 const MANUAL_COMPACTION_MAX_WINDOWS = 1;
 
 /**
+ * The synthetic session id `SdkQueryRunner` gives an internal one-shot query.
+ *
+ * A one-shot query has no Ptah session, so the runner mints
+ * `internal-query-${Date.now()}` and passes it down so the subagents that query
+ * spawns are registered against something (TASK_2026_295). The id names no
+ * session, and there is no transcript on disk under it.
+ *
+ * It reaches this service through the PreCompact fan-out. That was unreachable
+ * while `maxTurns` was 1 — a single round trip cannot cross a 100 000-token
+ * compaction threshold — and TASK_2026_376 F8 raised the curator's own budget
+ * to 6, which puts the curator's query on exactly that path. A PreCompact
+ * inside a curator run would hand this service the synthetic id, the transcript
+ * read would fail on it, and the fallback would `curate()` a placeholder: a
+ * curation job queued behind the real pass, a false curation event in the log,
+ * and the curator triggering itself. The producer side is guarded too; this is
+ * the consumer-side guard, and both are wanted (TASK_2026_376 R1).
+ */
+const INTERNAL_QUERY_SESSION_PREFIX = 'internal-query-';
+
+/**
+ * Which mechanism deferred a pass, as the diagnostics event reports it.
+ *
+ * The `reason` already names the event; `source` names the thing that produced
+ * it, which is what an operator needs to know where to look. The three are
+ * different subsystems: the internal-query concurrency gate, this service's own
+ * pass queue, and the caller itself.
+ */
+const DEFERRAL_SOURCES = {
+  'concurrency-slot-timeout': 'internal-query-gate',
+  'curator-queue-wait-timeout': 'curator-job-queue',
+  'caller-aborted': 'caller',
+} as const;
+
+/**
  * Whether the pass reached the model at all — TASK_2026_306 Batch 10 (F1).
  *
  * `'ran'` covers every pass that dialled the curator LLM, including one that
@@ -81,14 +118,22 @@ const MANUAL_COMPACTION_MAX_WINDOWS = 1;
  * pass before it could dispatch, so the input is untouched and the caller must
  * leave it exactly where it found it.
  *
- * Two gates produce `'stalled'`, and the caller treats them identically because
- * the fact it acts on is the same one: nothing was curated and nothing was
- * consumed. The provider quota gate stops a pass that would dial a rate-limited
- * provider (TASK_2026_306). The internal-query concurrency gate stops a pass
- * that could not win a slot within `ptah.internalQuery.queueTimeoutMs`
- * (TASK_2026_376 F4) — that one used to be reported as `'ran'` with
- * `extracted: 0`, which is how two sessions had their observation rows marked
- * processed for a curation that never happened.
+ * Several gates produce `'stalled'`, and the caller treats them identically
+ * because the fact it acts on is the same one: nothing was curated and nothing
+ * was consumed. The provider quota gate stops a pass that would dial a
+ * rate-limited provider (TASK_2026_306). The internal-query concurrency gate
+ * stops a pass that could not win a slot within
+ * `ptah.internalQuery.queueTimeoutMs` (TASK_2026_376 F4) — that one used to be
+ * reported as `'ran'` with `extracted: 0`, which is how two sessions had their
+ * observation rows marked processed for a curation that never happened. R1 adds
+ * three more with the same property: a pass that waited past
+ * `CURATOR_QUEUE_WAIT_CEILING_MS` for its turn in `CuratorJobQueue`, a pass
+ * whose caller had already aborted, and a pass whose model spent its turns and
+ * returned no JSON (`recordCuratorNoOutput`).
+ *
+ * Note what is NOT on this list: a pass that dispatched and whose call FAILED
+ * still reports `'ran'` (`recordCuratorError`). Every `'stalled'` member is a
+ * pass whose input was demonstrably never read.
  *
  * Required, not optional, so every construction site has to answer. The zero
  * counts on the two arms are identical, which is precisely why the counts
@@ -156,6 +201,13 @@ export class MemoryCuratorService {
   start(): void {
     if (this.disposer) return;
     this.disposer = this.registry.register((data) => {
+      if (data.sessionId.startsWith(INTERNAL_QUERY_SESSION_PREFIX)) {
+        this.logger.debug(
+          '[memory-curator] ignoring a PreCompact fan-out for an internal one-shot query; it names no session',
+          { sessionId: data.sessionId, trigger: data.trigger },
+        );
+        return;
+      }
       this.running = (async () => {
         const cwd =
           typeof data.cwd === 'string' && data.cwd.length > 0 ? data.cwd : null;
@@ -299,6 +351,23 @@ export class MemoryCuratorService {
           () => this.doCurate(input),
         ),
       )
+      .catch((error: unknown) => {
+        // A pass that never got its turn is a deferral, not a failure: no
+        // prompt was sent and the input is exactly where it was. Reporting it
+        // as a rejection would surface a stack trace on the `memory:runNow`
+        // RPC and, worse, let the trigger service's error path decide what to
+        // do with observations that were never read (TASK_2026_376 R1).
+        if (error instanceof CuratorQueueWaitTimeoutError) {
+          return this.recordCuratorDeferral(input.sessionId, {
+            reason: 'curator-queue-wait-timeout',
+            stage: 'extract',
+            completedWindows: 0,
+            windows: 0,
+            retriesSpent: 0,
+          });
+        }
+        throw error;
+      })
       .finally(() => {
         if (key !== null) this.inFlight.delete(key);
       });
@@ -429,6 +498,21 @@ export class MemoryCuratorService {
     signal?: AbortSignal;
     maxWindows?: number;
   }): Promise<CuratorRunStats> {
+    // A pass can sit in the job queue for minutes, and the caller that queued it
+    // may have withdrawn in that time. Running the pipeline for it would spend a
+    // provider call and a lane slot on a result nobody reads, and would consume
+    // the session's observations to produce it (TASK_2026_376 R1). The abort is
+    // checked again between windows by `CuratorWindowRunner`; this is the one
+    // check that happens before any work at all.
+    if (input.signal?.aborted) {
+      return this.recordCuratorDeferral(input.sessionId, {
+        reason: 'caller-aborted',
+        stage: 'extract',
+        completedWindows: 0,
+        windows: 0,
+        retriesSpent: 0,
+      });
+    }
     const transcript =
       (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
     const tier: MemoryTier = input.tier ?? 'recall';
@@ -466,6 +550,7 @@ export class MemoryCuratorService {
     );
     if (extraction.status === 'deferred') {
       return this.recordCuratorDeferral(input.sessionId, {
+        reason: 'concurrency-slot-timeout',
         stage: 'extract',
         completedWindows: extraction.completedWindows,
         windows: windows.length,
@@ -490,6 +575,9 @@ export class MemoryCuratorService {
     }
     if (extraction.status === 'stalled') {
       return this.recordCuratorStall(input.sessionId, extraction);
+    }
+    if (extraction.status === 'no-output') {
+      return this.recordCuratorNoOutput(input.sessionId, extraction);
     }
     const drafts = extraction.drafts;
     if (drafts.length === 0) {
@@ -537,6 +625,7 @@ export class MemoryCuratorService {
       // here would mark the observation rows processed and lose the session.
       if (isQueueSlotTimeout(error) && !input.signal?.aborted) {
         return this.recordCuratorDeferral(input.sessionId, {
+          reason: 'concurrency-slot-timeout',
           stage: 'resolve',
           completedWindows: windows.length,
           windows: windows.length,
@@ -704,6 +793,61 @@ export class MemoryCuratorService {
   }
 
   /**
+   * The curator ran and never wrote its answer — TASK_2026_376 R1.
+   *
+   * The curator reached the model, spent turns, and got no JSON back: it filled
+   * its budget with tool calls, or it said nothing at all. The pass therefore
+   * extracted nothing from a transcript it never reported on, which is NOT the
+   * same event as a pass that read the transcript and honestly found nothing
+   * durable in it — and the caller acts on the difference.
+   * `MemoryTriggerService.invokeCurate` marks the drained `observation_queue`
+   * rows processed for a run, so reporting `'ran'` here consumed the very
+   * observations that were never curated, and the session could never be
+   * curated again. Six turns (F8) made this the ordinary shape of a tool-using
+   * run rather than a theoretical one.
+   *
+   * `'stalled'` is therefore the honest outcome, for the same reason it is the
+   * honest outcome of a quota stop: nothing usable came back, so leave the input
+   * where it is. Same shape as {@link recordCuratorStall} — no `lastRunAtMs`, no
+   * `curator-run`, nothing persisted.
+   *
+   * The cost of being wrong is bounded and asymmetric. A model that answers this
+   * way on every pass re-curates the same session each drain, which spends
+   * prompts; consuming the input instead loses the session's memories for good.
+   */
+  private recordCuratorNoOutput(
+    sessionId: string,
+    extraction: Extract<CuratorExtraction, { status: 'no-output' }>,
+  ): CuratorRunStats {
+    this.pushEvent({
+      kind: 'rate-limited',
+      timestamp: Date.now(),
+      sessionId,
+      stats: {
+        source: 'curator-llm',
+        reason: 'no-output',
+        usedTools: extraction.usedTools,
+        toolNames: extraction.toolNames.join(','),
+      },
+    });
+    this.logger.warn(
+      '[memory-curator] curation pass returned no JSON; input left untouched for the next pass',
+      {
+        sessionId,
+        usedTools: extraction.usedTools,
+        toolNames: extraction.toolNames,
+      },
+    );
+    return {
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+  }
+
+  /**
    * Re-submit the resolve call while the pass can still afford it.
    *
    * The twin of `CuratorWindowRunner.extractOneWindow`, and deliberately not a
@@ -733,8 +877,8 @@ export class MemoryCuratorService {
   }
 
   /**
-   * The internal-query concurrency gate stopped this pass before it could
-   * dispatch — TASK_2026_376 F4.
+   * A gate stopped this pass before it could dispatch — TASK_2026_376 F4, and
+   * two more gates in R1.
    *
    * Deliberately the same shape as {@link recordCuratorStall}, because the
    * caller's decision is the same one: the input was not consumed, so leave it
@@ -745,13 +889,23 @@ export class MemoryCuratorService {
    * The event is `rate-limited` rather than a new kind. `MemoryCuratorEventKind`
    * is consumed by the Activity surface, which already renders that kind as a
    * warning meaning "a gate stopped this"; the `reason` in `stats` is what tells
-   * the two gates apart, and `stats` is a free-form record. A new kind would be
-   * a frontend change for a distinction the frontend does not draw — and this
-   * batch may not touch the frontend.
+   * the gates apart, and `stats` is a free-form record. A new kind would be a
+   * frontend change for a distinction the frontend does not draw.
    */
   private recordCuratorDeferral(
     sessionId: string,
     detail: {
+      /**
+       * Which gate stopped the pass. All three share this method because the
+       * caller's decision is identical — the input was never read — and they
+       * are named apart because an operator diagnosing a quiet curator needs
+       * to know whether the host is congested, the queue is backed up, or the
+       * caller simply withdrew.
+       */
+      readonly reason:
+        | 'concurrency-slot-timeout'
+        | 'curator-queue-wait-timeout'
+        | 'caller-aborted';
       readonly stage: 'extract' | 'resolve';
       readonly completedWindows: number;
       readonly windows: number;
@@ -763,8 +917,8 @@ export class MemoryCuratorService {
       timestamp: Date.now(),
       sessionId,
       stats: {
-        source: 'internal-query-gate',
-        reason: 'concurrency-slot-timeout',
+        source: DEFERRAL_SOURCES[detail.reason],
+        reason: detail.reason,
         stage: detail.stage,
         completedWindows: detail.completedWindows,
         windows: detail.windows,
@@ -772,7 +926,7 @@ export class MemoryCuratorService {
       },
     });
     this.logger.warn(
-      '[memory-curator] curation pass could not win a concurrency slot; input left untouched for the next pass',
+      '[memory-curator] curation pass never dispatched; input left untouched for the next pass',
       { sessionId, ...detail },
     );
     return {

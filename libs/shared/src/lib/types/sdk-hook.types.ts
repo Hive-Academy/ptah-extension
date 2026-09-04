@@ -143,7 +143,10 @@ export interface SdkSubagentEndedPayload {
    *
    * Optional because the SDK does not guarantee a `toolUseID` on every hook
    * invocation, and a payload without it must behave exactly as it did before
-   * this field existed.
+   * this field existed. It is a correlation id, not part of the terminal
+   * signal, so `SdkSubagentEndedPayloadSchema` and
+   * `parseSdkSubagentEndedPayload` both treat an INVALID value on a present
+   * key as absent rather than dropping the payload. `''` is still never an id.
    *
    * It is here because `agentId` and `toolCallId` are two identity spaces, and
    * a background agent can end up filed under the wrong one. The

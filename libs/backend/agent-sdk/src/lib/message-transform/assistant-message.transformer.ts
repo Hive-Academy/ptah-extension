@@ -274,6 +274,17 @@ export class AssistantMessageTransformer {
 
         events.push(toolStartEvent);
       } else if (isToolResultBlock(block)) {
+        // `background_agent_started` is pushed BEFORE the `tool_result` for the
+        // same tool_use id, and the order is load-bearing rather than
+        // incidental (TASK_2026_376 F2). The webview consumes this array in
+        // order, and `StreamingAccumulatorCore`'s `tool_result` branch guards
+        // against terminalising a still-running background agent with
+        // `isBackgroundAgent(toolCallId)` — which reads `BackgroundAgentStore`,
+        // which only this event populates. Emit the tool_result first and that
+        // guard is false BY CONSTRUCTION, leaving the check resting on a
+        // substring match against the SDK's placeholder wording; when that
+        // missed, the agent card showed `completed` while the agent kept
+        // working. Do not reorder these two pushes.
         if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
           const bgEvent = buildBackgroundAgentStartedEvent({
             toolCallId: block.tool_use_id,
