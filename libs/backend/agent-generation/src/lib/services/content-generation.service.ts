@@ -81,6 +81,39 @@ interface DynamicSection {
 }
 
 /**
+ * What a section-fill pass produced: the content plus the honest counts.
+ */
+interface SectionFillResult {
+  content: string;
+  warnings: string[];
+  /** LLM sections whose generated text the validator rejected. */
+  rejectedSections: number;
+  /** Sections that shipped a non-empty, accepted LLM replacement. */
+  tailoredSections: number;
+}
+
+/**
+ * Thrown when the caller's `abortSignal` fires during content generation.
+ * Deliberately NOT a `ContentGenerationError`: it must escape `generateContent`
+ * so the orchestrator records the agent as not generated instead of writing
+ * fallback content after a cancel.
+ */
+export class GenerationAbortedError extends Error {
+  constructor(reason: unknown) {
+    super(`Content generation aborted: ${describeAbortReason(reason)}`);
+    this.name = 'GenerationAbortedError';
+  }
+}
+
+/** Render an `AbortSignal.reason` (string, Error, DOMException, ...) as text. */
+export function describeAbortReason(reason: unknown): string {
+  if (reason === undefined || reason === null) return 'aborted';
+  if (typeof reason === 'string') return reason;
+  if (reason instanceof Error) return reason.message || reason.name;
+  return String(reason);
+}
+
+/**
  * LLM-driven content generation service.
  *
  * Philosophy: Templates are blueprints, not mechanical templates.
@@ -133,7 +166,7 @@ export class ContentGenerationService implements IContentGenerationService {
     template: AgentTemplate,
     context: AgentProjectContext,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<Result<{ content: string; warnings: string[] }, Error>> {
+  ): Promise<Result<SectionFillResult, Error>> {
     try {
       this.logger.info('Starting LLM-driven content generation', {
         templateId: template.id,
@@ -142,6 +175,8 @@ export class ContentGenerationService implements IContentGenerationService {
 
       let content = template.content;
       let warnings: string[] = [];
+      let rejectedSections = 0;
+      let tailoredSections = 0;
       const dynamicSections = this.extractDynamicSections(content);
 
       this.logger.debug('Dynamic sections identified', {
@@ -159,6 +194,8 @@ export class ContentGenerationService implements IContentGenerationService {
         );
         content = fillResult.content;
         warnings = fillResult.warnings;
+        rejectedSections = fillResult.rejectedSections;
+        tailoredSections = fillResult.tailoredSections;
       }
       content = this.substituteRemainingVars(content, context);
 
@@ -166,11 +203,23 @@ export class ContentGenerationService implements IContentGenerationService {
         templateId: template.id,
         contentLength: content.length,
         dynamicSectionsProcessed: dynamicSections.length,
-        rejectedSections: warnings.length,
+        rejectedSections,
+        tailoredSections,
       });
 
-      return Result.ok({ content, warnings });
-    } catch (error) {
+      return Result.ok({
+        content,
+        warnings,
+        rejectedSections,
+        tailoredSections,
+      });
+    } catch (error: unknown) {
+      // An EXTERNAL abort (user cancel, watchdog timeout) is not a generation
+      // failure to paper over with fallback content — it propagates so the
+      // orchestrator can stop and record the agent as not generated.
+      if (sdkConfig?.abortSignal?.aborted) {
+        throw error;
+      }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error('Content generation failed', {
@@ -223,10 +272,21 @@ export class ContentGenerationService implements IContentGenerationService {
     context: AgentProjectContext,
     templateName: string,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<{ content: string; warnings: string[] }> {
+  ): Promise<SectionFillResult> {
     const abortController = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const warnings: string[] = [];
+    let tailoredSections = 0;
+    // Link the caller's signal to the per-call controller so a user cancel or
+    // watchdog timeout reaches the SDK stream. The listener is removed in
+    // `finally`; the caller's signal outlives this call.
+    const externalSignal = sdkConfig?.abortSignal;
+    const onExternalAbort = () =>
+      abortController.abort(externalSignal?.reason ?? 'external_abort');
+    if (externalSignal?.aborted) {
+      throw new GenerationAbortedError(externalSignal.reason);
+    }
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
     // The SAME text the prompt shows the model is what the validator mines for
     // citable paths. Anything else would reject a path the model was handed.
     const analysisData = this.resolveAnalysisData(context, templateName);
@@ -334,6 +394,9 @@ OUTPUT FORMAT
       } finally {
         handle.close();
       }
+      if (externalSignal?.aborted) {
+        throw new GenerationAbortedError(externalSignal.reason);
+      }
 
       if (
         structuredOutput &&
@@ -392,16 +455,30 @@ OUTPUT FORMAT
               );
             }
           }
+          if (replacement !== section.content) {
+            tailoredSections++;
+          }
 
           processed = processed.replace(section.fullMatch, () => replacement);
         }
 
-        return { content: processed, warnings };
+        return {
+          content: processed,
+          warnings,
+          rejectedSections: warnings.length,
+          tailoredSections,
+        };
       }
       this.logger.warn(
         'SDK did not return structured output, using template fallback for all sections',
       );
-    } catch (error) {
+    } catch (error: unknown) {
+      if (externalSignal?.aborted) {
+        // No fallback content after a cancel or watchdog timeout.
+        throw error instanceof GenerationAbortedError
+          ? error
+          : new GenerationAbortedError(externalSignal.reason);
+      }
       this.logger.warn(
         'SDK content generation failed, using template fallback for all sections',
         {
@@ -409,13 +486,19 @@ OUTPUT FORMAT
         },
       );
     } finally {
+      externalSignal?.removeEventListener('abort', onExternalAbort);
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
     let processed = content;
     for (const section of sections) {
       processed = processed.replace(section.fullMatch, section.content);
     }
-    return { content: processed, warnings };
+    return {
+      content: processed,
+      warnings,
+      rejectedSections: warnings.length,
+      tailoredSections: 0,
+    };
   }
 
   /**

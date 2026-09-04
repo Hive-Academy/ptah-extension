@@ -32,6 +32,7 @@ import {
   IDE_CAPABILITIES_TOKEN,
   BROWSER_CAPABILITIES_TOKEN,
   ChromeLauncherBrowserCapabilities,
+  McpCallerWorkspaceResolver,
 } from '@ptah-extension/vscode-lm-tools';
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
@@ -111,6 +112,15 @@ export function registerPhase2Libraries(
   // from plugin activation, next to `pluginLoader.initialize()`.
   registerPluginMarketplaceServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
+  // The caller-workspace port (TASK_2026_364): lets AgentProcessManager scope
+  // spawns and status reads to the calling MCP request's workspace without
+  // importing vscode-lm-tools. Registered only by hosts that run the
+  // in-process HTTP MCP server — the CLI host stays unregistered and falls
+  // back to the platform provider.
+  container.registerSingleton(
+    PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER,
+    McpCallerWorkspaceResolver,
+  );
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),
   });

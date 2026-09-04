@@ -15,12 +15,12 @@ import {
  * `POST /v1/admin/course-modules/schedule`          → {@link ApplyModuleScheduleDto}
  *
  * ── 🔴 THE FAILURE MODE THESE ARE SHAPED AGAINST ──────────────────────────
- * *A mis-typed start date silently shifting ten member-visible dates.* There is
- * no admin UI for courses in `libs/web/admin`, so this action is driven by
- * `curl` — which means a machine-checkable echo is the only guard that actually
- * fires. `ApplyModuleScheduleDto` therefore carries two extra REQUIRED fields
- * the preview does not, and the service compares both against the freshly
- * computed schedule INSIDE the transaction before any write.
+ * *A mis-typed start date silently shifting ten member-visible dates.* The
+ * admin portal at `/admin/builders/courses/:id` first renders the preview, then
+ * submits its `confirmModuleCount` and `confirmLastReleaseDate` echoes when the
+ * admin confirms. `ApplyModuleScheduleDto` therefore carries two extra REQUIRED
+ * fields the preview does not, and the service compares both against the
+ * freshly computed schedule INSIDE the transaction before any write.
  *
  * A `confirm: true` boolean was rejected: a boolean is satisfied by copy-paste.
  * `confirmLastReleaseDate` cannot be supplied correctly without having read a

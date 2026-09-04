@@ -22,15 +22,21 @@ import {
   AdminThrottlerGuard,
   JwtAuthGuard,
 } from '@ptah-api/identity';
-import type { AdminTopicSummary, Paged } from '@ptah-contracts/community';
+import type {
+  AdminCreatedTopic,
+  AdminTopicSummary,
+  Paged,
+} from '@ptah-contracts/community';
 
 import {
   adminActor,
+  auditHook,
   moderationAuditHook,
   requireAdminUserId,
 } from '../common/admin-audit';
 
 import { AdminTopicsReadService } from './admin-topics-read.service';
+import { CreateAdminTopicDto } from './dto/create-admin-topic.dto';
 import { ListAdminTopicsQueryDto } from './dto/list-admin-topics.query.dto';
 import { ModerateTopicDto } from './dto/moderate-topic.dto';
 import { TopicsService } from './topics.service';
@@ -98,6 +104,38 @@ export class AdminCommunityTopicsController {
     @Query(dtoPipe(ListAdminTopicsQueryDto)) query: ListAdminTopicsQueryDto,
   ): Promise<Paged<AdminTopicSummary>> {
     return this.adminTopics.list(query);
+  }
+
+  /** `POST` — create an admin-authored topic and opening post. */
+  @Post()
+  @HttpCode(201)
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle(ADMIN_WRITES)
+  async create(
+    @Req() req: Request,
+    @Body(dtoPipe(CreateAdminTopicDto)) dto: CreateAdminTopicDto,
+  ): Promise<AdminCreatedTopic> {
+    const actor = adminActor(req);
+    const actorId = requireAdminUserId(
+      req,
+      AdminCommunityTopicsController.name,
+      this.logger,
+    );
+    const created = await this.topics.createAsAdmin(
+      actorId,
+      dto,
+      new Date(),
+      auditHook(this.audit, actor, 'community.topic.create', 'Topic', {
+        categoryId: dto.categoryId,
+        pinned: dto.pinned ?? false,
+        locked: dto.locked ?? false,
+      }),
+    );
+
+    this.logger.log(
+      `Admin created community topic: actor=${actor.email ?? 'unknown'} id=${created.id} slug=${created.slug}`,
+    );
+    return created;
   }
 
   /** `PATCH :id` — pin / lock / move / edit (R1.2.5, R1.2.6, R8.2). */

@@ -17,6 +17,20 @@ import type { HarnessMcpIntent } from './mcp-intent-store';
 export interface HarnessSourceLayout {
   skillsRoot: string;
   commandsRoot: string;
+  /**
+   * The agent clones for ONE workspace — `~/.ptah/user/agents/<workspace-key>`,
+   * not the `agents` directory itself.
+   *
+   * Skills and commands are per-MACHINE content and their roots are flat. An
+   * agent is not: the wizard tailors it to a project and names it after the
+   * ROLE, so two projects write two different `backend-developer.md`. A flat
+   * root gave them one destination, and the mirror's fast-forward then flipped
+   * it on every activation, rewriting every rival CLI's agent copy in whichever
+   * workspace ran last (TASK_2026_365).
+   *
+   * `PluginConfigSourceResolver.resolve(workspaceRoot)` is what appends the key,
+   * so a layout built by hand still carries whatever root its author chose.
+   */
   agentsRoot: string;
   /**
    * Extra absolute directories a LEGACY junction was allowed to point into,

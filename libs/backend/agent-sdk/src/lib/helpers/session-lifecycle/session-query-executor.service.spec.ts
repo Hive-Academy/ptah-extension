@@ -168,6 +168,19 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
   };
 }
 
+/**
+ * Mirror the streaming pump's first yield: `markTurnStarted` releases the idle
+ * hold the executor took at registration (TASK_2026_363), so the watchdog can
+ * arm on `start()`.
+ */
+function startFirstTurn(registry: SessionRegistry, tabId: string): void {
+  const rec = registry.find(tabId);
+  expect(rec).toBeDefined();
+  if (rec) {
+    registry.markTurnStarted(rec);
+  }
+}
+
 function makeConfig(
   sessionId: string,
   overrides: Partial<ExecuteQueryConfig> = {},
@@ -266,9 +279,10 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
 
 describe('SessionQueryExecutor — no-activity watchdog policy (TASK_2026_190)', () => {
   it('returns a watchdog that, on timeout, cleans up pending permissions then aborts with a surfaced error', async () => {
-    const { executor, cleanupSpy } = makeHarness('ask');
+    const { executor, registry, cleanupSpy } = makeHarness('ask');
 
     const result = await executor.executeQuery(makeConfig('tab-timeout'));
+    startFirstTurn(registry, 'tab-timeout');
 
     // Not aborted before the window elapses.
     expect(result.abortController.signal.aborted).toBe(false);
@@ -298,9 +312,10 @@ describe('SessionQueryExecutor — no-activity watchdog policy (TASK_2026_190)',
   });
 
   it('does not fire the watchdog (no cleanup, no abort) when it is kicked within the window', async () => {
-    const { executor, cleanupSpy } = makeHarness('ask');
+    const { executor, registry, cleanupSpy } = makeHarness('ask');
 
     const result = await executor.executeQuery(makeConfig('tab-active'));
+    startFirstTurn(registry, 'tab-active');
 
     jest.useFakeTimers();
     try {
@@ -318,5 +333,60 @@ describe('SessionQueryExecutor — no-activity watchdog policy (TASK_2026_190)',
 
     expect(cleanupSpy).not.toHaveBeenCalled();
     expect(result.abortController.signal.aborted).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Idle watchdog hold (TASK_2026_363)
+// ---------------------------------------------------------------------------
+//
+// The watchdog fired exactly 180 s after every `result` because idle between
+// turns is silent on the parent stream. The executor now hands the watchdog to
+// the record and takes the initial idle hold for a non-slash prompt; the
+// pump's first yield (`markTurnStarted`) releases it and `markTurnEnded`
+// re-takes it. A slash-command string prompt never goes through the pump, so
+// it takes no idle hold.
+
+describe('SessionQueryExecutor — idle watchdog hold (TASK_2026_363)', () => {
+  it('a non-slash prompt: the record owns the watchdog and it is held until the first turn starts', async () => {
+    const { executor, registry } = makeHarness('ask');
+
+    const result = await executor.executeQuery(
+      makeConfig('tab-idle', { initialPrompt: { content: 'hello' } }),
+    );
+
+    const rec = registry.find('tab-idle');
+    expect(rec?.activityHold).toBe(result.activityWatchdog);
+    expect(result.activityWatchdog.isHeld).toBe(true);
+
+    // Turn cycle: the pump releases on yield, the result branch re-holds.
+    startFirstTurn(registry, 'tab-idle');
+    expect(result.activityWatchdog.isHeld).toBe(false);
+    registry.markTurnEnded('tab-idle');
+    expect(result.activityWatchdog.isHeld).toBe(true);
+  });
+
+  it('an empty initial prompt (resume path) is not a slash command and takes the idle hold', async () => {
+    const { executor, registry } = makeHarness('ask');
+
+    const result = await executor.executeQuery(makeConfig('tab-idle-empty'));
+
+    expect(registry.find('tab-idle-empty')?.activityHold).toBe(
+      result.activityWatchdog,
+    );
+    expect(result.activityWatchdog.isHeld).toBe(true);
+  });
+
+  it('a slash-command prompt hands the watchdog to the record but takes no idle hold', async () => {
+    const { executor, registry } = makeHarness('ask');
+
+    const result = await executor.executeQuery(
+      makeConfig('tab-slash', { initialPrompt: { content: '/compact' } }),
+    );
+
+    expect(registry.find('tab-slash')?.activityHold).toBe(
+      result.activityWatchdog,
+    );
+    expect(result.activityWatchdog.isHeld).toBe(false);
   });
 });

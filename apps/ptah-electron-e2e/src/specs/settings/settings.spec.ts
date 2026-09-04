@@ -22,7 +22,7 @@ test.describe('Settings', () => {
 
   test('toggle persists (round-trip)', async ({ ui }) => {
     await ui.mockRpc({
-      'webSearch:getConfig': { provider: 'tavily', maxResults: 5 },
+      'webSearch:getConfig': { providers: ['tavily'], maxResults: 5 },
       'webSearch:getApiKeyStatus': { configured: false },
       'webSearch:setConfig': { success: true },
     });
@@ -30,22 +30,62 @@ test.describe('Settings', () => {
     await ui.goto('settings');
     await openWebSearchSection(ui);
 
-    const select = ui.page.locator(
-      '[data-testid="settings-toggle-web-search-provider"]',
+    const tavilyCheckbox = ui.page.locator(
+      '[data-testid="settings-toggle-web-search-provider-tavily"]',
     );
-    await expect(select).toBeVisible();
-    await expect(select).toHaveValue('tavily');
+    const serperCheckbox = ui.page.locator(
+      '[data-testid="settings-toggle-web-search-provider-serper"]',
+    );
+    await expect(tavilyCheckbox).toBeVisible();
+    await expect(tavilyCheckbox).toBeChecked();
+    await expect(serperCheckbox).toBeVisible();
+    await expect(serperCheckbox).not.toBeChecked();
 
-    await select.selectOption('serper');
+    await serperCheckbox.check();
 
     const observed = await ui.waitForObservedCall('webSearch:setConfig');
-    const params = observed.params as { provider?: string };
-    expect(params.provider).toBe('serper');
+    const params = observed.params as { providers?: string[] };
+    expect(params.providers).toEqual(['tavily', 'serper']);
 
     await ui.mockRpc({
-      'webSearch:getConfig': { provider: 'serper', maxResults: 5 },
+      'webSearch:getConfig': {
+        providers: ['tavily', 'serper'],
+        maxResults: 5,
+      },
     });
 
-    await expect(select).toHaveValue('serper');
+    await expect(serperCheckbox).toBeChecked();
+    await expect(tavilyCheckbox).toBeChecked();
+  });
+
+  test('two providers can be selected at once', async ({ ui }) => {
+    await ui.mockRpc({
+      'webSearch:getConfig': {
+        providers: ['tavily', 'serper'],
+        maxResults: 5,
+      },
+      'webSearch:getApiKeyStatus': { configured: false },
+      'webSearch:setConfig': { success: true },
+    });
+
+    await ui.goto('settings');
+    await openWebSearchSection(ui);
+
+    const tavilyCheckbox = ui.page.locator(
+      '[data-testid="settings-toggle-web-search-provider-tavily"]',
+    );
+    const serperCheckbox = ui.page.locator(
+      '[data-testid="settings-toggle-web-search-provider-serper"]',
+    );
+    const exaCheckbox = ui.page.locator(
+      '[data-testid="settings-toggle-web-search-provider-exa"]',
+    );
+
+    await expect(tavilyCheckbox).toBeVisible();
+    await expect(tavilyCheckbox).toBeChecked();
+    await expect(serperCheckbox).toBeVisible();
+    await expect(serperCheckbox).toBeChecked();
+    await expect(exaCheckbox).toBeVisible();
+    await expect(exaCheckbox).not.toBeChecked();
   });
 });

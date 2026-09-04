@@ -15,18 +15,6 @@ export type {
   SmitheryLogger,
   SmitheryRegistrySourceOptions,
 } from './smithery-registry.source';
-export { PulseMcpRegistrySource } from './pulsemcp-registry.source';
-export type {
-  PulseMcpLogger,
-  PulseMcpRegistrySourceOptions,
-} from './pulsemcp-registry.source';
-export {
-  PULSEMCP_DEFAULT_REGISTRY_BASE,
-  PULSEMCP_DEFAULT_PAGE_SIZE,
-  PULSEMCP_CACHE_TTL_MS,
-  PULSEMCP_REQUEST_TIMEOUT_MS,
-  PULSEMCP_FIRST_OFFSET,
-} from './pulsemcp-wire.constants';
 export { SmitheryConnectionResolver } from './smithery-connection-resolver';
 export type {
   SmitheryResolveInput,
@@ -35,11 +23,29 @@ export type {
 export {
   SmitheryKeyMissingError,
   SmitheryConfigInvalidError,
+  SmitheryApiError,
 } from './smithery-errors';
 export {
+  SmitheryConnectionsClient,
+  toSmitheryConnectionStatus,
+  isPtahManagedConnection,
+  buildPtahConnectionMetadata,
+  SMITHERY_PTAH_METADATA_MARKER,
+} from './smithery-connections.client';
+export type {
+  SmitheryConnection,
+  SmitheryConnectionsClientOptions,
+  SmitheryConnectionsLogger,
+  SmitheryFetchLike,
+  SmitheryUpsertConnectionInput,
+} from './smithery-connections.client';
+export {
   buildSmitheryUrl,
+  buildSmitheryNamespaceUrl,
   SMITHERY_DEFAULT_REGISTRY_BASE,
   SMITHERY_DEFAULT_CONNECTION_HOST,
+  SMITHERY_API_BASE,
+  SMITHERY_NAMESPACE_MCP_HOST,
 } from './smithery-wire.constants';
 export type {
   BuildSmitheryUrlInput,
@@ -54,7 +60,10 @@ export type {
   SmitheryConfigSecretStore,
   SmitheryInstallInput,
 } from './smithery-installed-manifest';
-export { SmitheryOverrideResolver } from './smithery-override-resolver';
+export {
+  SmitheryOverrideResolver,
+  SMITHERY_NAMESPACE_OVERRIDE_KEY,
+} from './smithery-override-resolver';
 export type {
   SmitheryOverrideLogger,
   SmitheryOverrideResolverDeps,
@@ -63,7 +72,10 @@ export {
   McpOAuthService,
   deriveMcpOAuthServerKey,
 } from './oauth/mcp-oauth.service';
-export { LoopbackOAuthCallbackListener } from './oauth/loopback-oauth-callback-listener';
+export {
+  LoopbackOAuthCallbackListener,
+  MCP_OAUTH_LOOPBACK_PORT,
+} from './oauth/loopback-oauth-callback-listener';
 export type {
   McpOAuthServiceDeps,
   McpOAuthLogger,
@@ -89,6 +101,8 @@ export {
   discoverAuthorizationServer,
   discoverAuthServerMetadata,
   registerClient,
+  OAuthDiscoveryError,
+  OAUTH_DISCOVERY_ERROR_NAME,
 } from './oauth/mcp-oauth-metadata';
 export type {
   FetchLike,

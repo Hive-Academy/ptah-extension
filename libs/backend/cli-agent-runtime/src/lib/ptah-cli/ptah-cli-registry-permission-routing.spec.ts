@@ -35,6 +35,7 @@ import type {
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
 import type { PtahCliConfig } from '@ptah-extension/shared';
 import { PtahCliRegistry } from './ptah-cli-registry';
+import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
 jest.mock('@ptah-extension/agent-sdk', () => {
   const actual = jest.requireActual('@ptah-extension/agent-sdk');
@@ -127,6 +128,7 @@ function buildHarness(): {
     } as unknown as never,
     null as never, // modelResolver
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
+    createFakeSdkProcessSpawner(), // processSpawner
   );
 
   return { registry, createCallback, logger };

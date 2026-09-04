@@ -4,12 +4,12 @@
  * Thin injectable service that reads the OpenRouter API key from SecretStorage
  * via IAuthSecretsService.getProviderKey('openrouter').
  *
- * Much simpler than CopilotAuthService â€” no OAuth, no device code flow, no
+ * Much simpler than CopilotAuthService — no OAuth, no device code flow, no
  * token refresh, no caching beyond what SecretStorage provides. OpenRouter
  * uses a single user-provided API key (sk-or-v1-...) which is passed directly
  * in the Authorization header.
  *
- * Security: NEVER logs the key itself â€” only length and presence.
+ * Security: NEVER logs the key itself — only length and presence.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,7 +30,7 @@ const OPENROUTER_PROVIDER_ID = 'openrouter';
 /**
  * OpenRouter-recommended ranking headers.
  * When present, OpenRouter attributes API usage to this app, which lets Ptah
- * appear in the OpenRouter app leaderboard. Safe to hardcode â€” these are
+ * appear in the OpenRouter app leaderboard. Safe to hardcode — these are
  * public attribution headers, not secrets.
  *
  * @see https://openrouter.ai/docs/api-reference/overview#headers

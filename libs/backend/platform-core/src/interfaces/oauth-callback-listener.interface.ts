@@ -4,8 +4,11 @@
  * The interactive MCP OAuth flow needs to catch the authorization server's
  * `?code=&state=` redirect. Two mechanisms satisfy this contract:
  *
- *   1. A loopback HTTP listener on `127.0.0.1:0` (the default, works on every
- *      host — `LoopbackOAuthCallbackListener` in `cli-agent-runtime`).
+ *   1. A loopback HTTP listener on a FIXED `127.0.0.1` port (the default, works
+ *      on every host — `LoopbackOAuthCallbackListener` in `cli-agent-runtime`).
+ *      The port is fixed rather than ephemeral because an authorization server
+ *      without dynamic client registration only accepts a redirect URL the user
+ *      registered ahead of time, which a random port can never match.
  *   2. A VS Code native URI handler (`vscode://publisher.name/oauth-callback`)
  *      registered only in the extension host and resolvable through
  *      `asExternalUri` for Remote-SSH / Codespaces
@@ -52,4 +55,11 @@ export interface IOAuthCallbackListener {
    * `redirectUri` to send to the authorization server.
    */
   start(expectedState: string): Promise<OAuthCallbackHandle>;
+  /**
+   * The redirect URI the next `start()` will hand to the authorization server,
+   * computed WITHOUT arming a listener or binding a port. Shown to the user so
+   * they can pre-register it with a provider that lacks dynamic client
+   * registration.
+   */
+  describeRedirectUri(): Promise<string>;
 }

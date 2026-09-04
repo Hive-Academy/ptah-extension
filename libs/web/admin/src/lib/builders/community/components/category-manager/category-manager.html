@@ -1,0 +1,407 @@
+<!--
+  ⚠️ THIS SECTION IS THE FIX FOR "0 THREADS". `Topic.categoryId` is a required
+  foreign key, so a forum with no category cannot hold a thread. Until this
+  existed the portal could read categories and never write one.
+-->
+<section class="rounded-xl border border-hairline bg-base-200">
+  <button
+    type="button"
+    class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+    [attr.aria-expanded]="open()"
+    aria-controls="community-categories"
+    [disabled]="forcedOpen()"
+    (click)="toggleOpen()"
+  >
+    <span class="text-sm font-semibold text-base-content">
+      @if (loadError() !== null) {
+        Categories (unavailable)
+      } @else {
+        Categories ({{ categories().length }})
+      }
+    </span>
+    @if (!forcedOpen()) {
+      <span aria-hidden="true" class="text-xs text-base-content-muted">
+        {{ open() ? 'Hide' : 'Show' }}
+      </span>
+    }
+  </button>
+
+  @if (open()) {
+    <div id="community-categories" class="flex flex-col gap-4 px-4 pb-4">
+      <!--
+        ⚠️ A FAILED READ AND AN EMPTY FORUM ARE DIFFERENT STATES. This banner is
+        the failed one: the list below is not "no categories", it is unknown, so
+        the copy says so and offers the read again rather than inviting a create
+        whose slug can collide with a category that already exists.
+      -->
+      @if (loadError(); as message) {
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-base-100 p-3 text-sm text-error"
+          role="alert"
+        >
+          <span>{{ message }}</span>
+          <button
+            type="button"
+            class="btn btn-sm normal-case"
+            [disabled]="busy()"
+            (click)="retryLoad()"
+          >
+            Retry the categories
+          </button>
+        </div>
+      }
+
+      @if (error(); as message) {
+        <!--
+          A 400 or a 409 from the writes below lands here carrying the SERVER'S
+          OWN sentence, which names the remedy. See `describeFailure()`.
+        -->
+        <div
+          class="rounded-lg border border-hairline bg-base-100 p-3 text-sm text-error"
+          role="alert"
+        >
+          {{ message }}
+        </div>
+      }
+
+      @if (hasCategories()) {
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Slug</th>
+                <th scope="col">Visibility</th>
+                <th scope="col">Cohorts</th>
+                <th scope="col">Topics</th>
+                <th scope="col">Order</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (
+                category of categories();
+                track category.id;
+                let first = $first, last = $last
+              ) {
+                <tr>
+                  @if (editingId() === category.id) {
+                    <td colspan="7">
+                      <div class="flex flex-col gap-2 py-2">
+                        <div class="flex flex-wrap items-end gap-2">
+                          <div class="flex flex-col gap-1">
+                            <label
+                              class="text-xs font-medium text-base-content-muted"
+                              [attr.for]="'edit-name-' + category.id"
+                            >
+                              Name
+                            </label>
+                            <input
+                              [id]="'edit-name-' + category.id"
+                              type="text"
+                              class="input input-bordered input-sm bg-base-100 text-sm"
+                              [value]="editName()"
+                              (input)="onEditName($event)"
+                            />
+                          </div>
+
+                          <div class="flex flex-col gap-1">
+                            <label
+                              class="text-xs font-medium text-base-content-muted"
+                              [attr.for]="'edit-visibility-' + category.id"
+                            >
+                              Visibility
+                            </label>
+                            <select
+                              [id]="'edit-visibility-' + category.id"
+                              class="select select-bordered select-sm bg-base-100 text-sm"
+                              (change)="onEditVisibility($event)"
+                            >
+                              @for (option of visibilities; track option) {
+                                <option
+                                  [value]="option"
+                                  [selected]="option === editVisibility()"
+                                >
+                                  {{ option }}
+                                </option>
+                              }
+                            </select>
+                          </div>
+
+                          <div class="flex flex-col gap-1">
+                            <label
+                              class="text-xs font-medium text-base-content-muted"
+                              [attr.for]="'edit-cohorts-' + category.id"
+                            >
+                              Cohort keys
+                            </label>
+                            <input
+                              [id]="'edit-cohorts-' + category.id"
+                              type="text"
+                              class="input input-bordered input-sm bg-base-100 text-sm"
+                              placeholder="cohort-1, cohort-2"
+                              [value]="editCohortKeys()"
+                              (input)="onEditCohortKeys($event)"
+                            />
+                          </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                          <label
+                            class="text-xs font-medium text-base-content-muted"
+                            [attr.for]="'edit-description-' + category.id"
+                          >
+                            Description
+                          </label>
+                          <textarea
+                            [id]="'edit-description-' + category.id"
+                            rows="2"
+                            class="textarea textarea-bordered bg-base-100 text-sm"
+                            [value]="editDescription()"
+                            (input)="onEditDescription($event)"
+                          ></textarea>
+                        </div>
+
+                        <!--
+                          ⚠️ NO SLUG FIELD. `UpdateCategoryDto` has none: the
+                          slug is the category's public URL and is written
+                          into stored notification routes.
+                        -->
+                        <div class="flex items-center gap-2">
+                          <button
+                            type="button"
+                            class="btn btn-sm btn-primary normal-case"
+                            [disabled]="busyId() === category.id || busy()"
+                            (click)="saveEdit(category.id)"
+                          >
+                            Save category
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-sm normal-case"
+                            (click)="cancelEdit()"
+                          >
+                            Cancel edit
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  } @else {
+                    <td class="font-medium text-base-content">
+                      {{ category.name }}
+                    </td>
+                    <td class="font-mono text-xs text-base-content-muted">
+                      {{ category.slug }}
+                    </td>
+                    <td>
+                      <ptah-tag-chip [label]="category.visibility" size="sm" />
+                    </td>
+                    <td class="text-xs text-base-content-muted">
+                      {{
+                        category.cohortNames.length > 0
+                          ? category.cohortNames.join(', ')
+                          : '—'
+                      }}
+                    </td>
+                    <!--
+                      ⚠️ LIVE TOPICS ONLY. `CategoriesService.listForAdmin`
+                      counts with `NOT_DELETED`, so this is NOT the number the
+                      `onDelete: Restrict` constraint enforces on — a category
+                      showing 0 can still refuse a delete.
+                    -->
+                    <td class="font-mono text-xs">{{ category.topicCount }}</td>
+                    <td class="whitespace-nowrap">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [attr.aria-label]="'Move ' + category.name + ' up'"
+                        [disabled]="first || busyId() !== null || busy()"
+                        (click)="moveCategory(category.id, -1)"
+                      >
+                        <span aria-hidden="true">↑</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [attr.aria-label]="'Move ' + category.name + ' down'"
+                        [disabled]="last || busyId() !== null || busy()"
+                        (click)="moveCategory(category.id, 1)"
+                      >
+                        <span aria-hidden="true">↓</span>
+                      </button>
+                    </td>
+                    <td class="whitespace-nowrap text-right">
+                      @if (pendingDeleteId() === category.id) {
+                        <span class="mr-2 text-xs text-base-content-muted">
+                          Delete “{{ category.name }}” permanently?
+                        </span>
+                        <!--
+                          ⚠️ THE COUNT ABOVE CANNOT PROMISE THIS WILL WORK. It
+                          counts live topics; the constraint counts every row,
+                          tombstones included.
+                        -->
+                        <span class="mr-2 text-xs text-base-content-muted">
+                          The delete can still be refused because of deleted
+                          topics the “Topics” count does not show.
+                        </span>
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-error normal-case"
+                          [disabled]="busyId() === category.id || busy()"
+                          (click)="confirmDelete(category.id)"
+                        >
+                          Yes, delete category
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs normal-case"
+                          (click)="cancelDelete()"
+                        >
+                          Keep category
+                        </button>
+                      } @else {
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs normal-case"
+                          [disabled]="busyId() === category.id || busy()"
+                          (click)="startEdit(category)"
+                        >
+                          Edit category
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs text-error normal-case"
+                          [disabled]="busyId() === category.id || busy()"
+                          (click)="askDelete(category.id)"
+                        >
+                          Delete category
+                        </button>
+                      }
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <!-- Create ------------------------------------------------------- -->
+      <form
+        class="flex flex-col gap-3 rounded-lg border border-hairline bg-base-100 p-4"
+        (submit)="createCategory($event)"
+      >
+        <h2 class="text-sm font-semibold text-base-content">New category</h2>
+
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label
+              class="text-xs font-medium text-base-content-muted"
+              for="category-name"
+            >
+              Name
+            </label>
+            <input
+              id="category-name"
+              type="text"
+              class="input input-bordered input-sm bg-base-200 text-sm"
+              placeholder="Announcements"
+              [value]="draftName()"
+              (input)="onDraftName($event)"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label
+              class="text-xs font-medium text-base-content-muted"
+              for="category-slug"
+            >
+              Slug
+            </label>
+            <!--
+              Suggested from the name and EDITABLE. The suggestion stops once
+              the admin types here: the slug is a permanent public URL.
+            -->
+            <input
+              id="category-slug"
+              type="text"
+              class="input input-bordered input-sm bg-base-200 font-mono text-sm"
+              placeholder="announcements"
+              [value]="draftSlug()"
+              (input)="onDraftSlug($event)"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label
+              class="text-xs font-medium text-base-content-muted"
+              for="category-visibility"
+            >
+              Visibility
+            </label>
+            <select
+              id="category-visibility"
+              class="select select-bordered select-sm bg-base-200 text-sm"
+              (change)="onDraftVisibility($event)"
+            >
+              @for (option of visibilities; track option) {
+                <option
+                  [value]="option"
+                  [selected]="option === draftVisibility()"
+                >
+                  {{ option }}
+                </option>
+              }
+            </select>
+          </div>
+
+          @if (draftVisibility() === 'cohort') {
+            <div class="flex flex-col gap-1">
+              <label
+                class="text-xs font-medium text-base-content-muted"
+                for="category-cohorts"
+              >
+                Cohort keys
+              </label>
+              <input
+                id="category-cohorts"
+                type="text"
+                class="input input-bordered input-sm bg-base-200 text-sm"
+                placeholder="cohort-1, cohort-2"
+                [value]="draftCohortKeys()"
+                (input)="onDraftCohortKeys($event)"
+              />
+            </div>
+          }
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label
+            class="text-xs font-medium text-base-content-muted"
+            for="category-description"
+          >
+            Description
+          </label>
+          <textarea
+            id="category-description"
+            rows="2"
+            class="textarea textarea-bordered bg-base-200 text-sm"
+            placeholder="What belongs in this category."
+            [value]="draftDescription()"
+            (input)="onDraftDescription($event)"
+          ></textarea>
+        </div>
+
+        <div>
+          <button
+            type="submit"
+            class="btn btn-sm btn-primary normal-case"
+            [disabled]="creating() || busy()"
+          >
+            Create category
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+</section>

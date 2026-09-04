@@ -77,7 +77,7 @@ export interface CopilotAuthState {
  * the webview UX wires them to its own clipboard + browser-open flow.
  */
 export interface CopilotDeviceLoginInfo {
-  /** Opaque GitHub device code â€” the key for {@link ICopilotAuthService.pollLogin}. */
+  /** Opaque GitHub device code — the key for {@link ICopilotAuthService.pollLogin}. */
   deviceCode: string;
   /** Short human-friendly code the user types into the verification page. */
   userCode: string;
@@ -155,7 +155,7 @@ export interface ICopilotAuthService {
    * to poll for the access token. The returned `deviceCode` is the key that
    * must be passed to {@link pollLogin} and {@link cancelLogin}.
    *
-   * Multiple concurrent flows are supported â€” each call produces a distinct
+   * Multiple concurrent flows are supported — each call produces a distinct
    * `deviceCode` and is tracked independently. Pending entries are auto-pruned
    * 10 minutes after creation to bound memory usage if a caller never polls.
    */
@@ -165,7 +165,7 @@ export interface ICopilotAuthService {
    * Step 2: poll GitHub for the access token associated with a `deviceCode`
    * previously returned by {@link beginLogin}. On success, the token is
    * exchanged for a Copilot bearer token, persisted to disk via
-   * `writeCopilotToken`, and the in-memory auth state is populated â€” exactly
+   * `writeCopilotToken`, and the in-memory auth state is populated — exactly
    * mirroring the legacy `login()` post-exchange behavior.
    *
    * @returns `true` when a token was obtained AND exchanged successfully.

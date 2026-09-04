@@ -447,4 +447,93 @@ describe('HTTP request handling', () => {
     const call = onMCPRequest.mock.calls[0][0];
     expect(call._callerSessionId).toBeUndefined();
   });
+
+  // -------------------------------------------------------------------------
+  // Caller-workspace URL grammar (TASK_2026_364, Batch A).
+  //
+  // The accepted grammar is CLOSED. Exactly four shapes parse:
+  //   /                               → anonymous (neither field stamped)
+  //   /session/{id}                   → session only
+  //   /workspace/{root}               → workspace only
+  //   /session/{id}/workspace/{root}  → both — the ONLY combined order
+  // The workspace segment must be terminal; every other shape is anonymous.
+  // -------------------------------------------------------------------------
+
+  const toolsCallBody = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+  });
+
+  it('stamps _callerWorkspaceRoot from /workspace/{root} and leaves the session unset', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-plain', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe('ws-plain');
+    expect(call._callerSessionId).toBeUndefined();
+  });
+
+  it('round-trips an encodeURIComponent-encoded Windows workspace root exactly', async () => {
+    const windowsRoot = 'D:\\projects\\ptah-extension';
+    await fetchPath(
+      port,
+      'POST',
+      `/workspace/${encodeURIComponent(windowsRoot)}`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe(windowsRoot);
+  });
+
+  it('stamps both fields from /session/{id}/workspace/{root} — the only combined order', async () => {
+    const windowsRoot = 'D:\\projects\\ptah-extension';
+    await fetchPath(
+      port,
+      'POST',
+      `/session/tab-abc/workspace/${encodeURIComponent(windowsRoot)}`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBe('tab-abc');
+    expect(call._callerWorkspaceRoot).toBe(windowsRoot);
+  });
+
+  it('does not stamp _callerWorkspaceRoot from a session-only URL', async () => {
+    await fetchPath(port, 'POST', '/session/tab-abc', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBe('tab-abc');
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS the reversed order /workspace/{root}/session/{id} entirely', async () => {
+    // Neither field parses: the session segment is not leading and the
+    // workspace segment is not terminal. Half-parsing this shape would
+    // attribute the call to a workspace while dropping the session silently.
+    await fetchPath(
+      port,
+      'POST',
+      '/workspace/ws-x/session/tab-abc',
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBeUndefined();
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS a workspace segment behind an unknown prefix', async () => {
+    await fetchPath(port, 'POST', '/other/workspace/ws-x', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS trailing path segments after the workspace root', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-x/extra', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('accepts a trailing slash and a query string after the workspace root', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-x/?probe=1', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe('ws-x');
+  });
 });

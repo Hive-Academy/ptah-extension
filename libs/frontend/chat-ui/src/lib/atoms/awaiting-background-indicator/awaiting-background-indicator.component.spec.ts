@@ -124,4 +124,68 @@ describe('AwaitingBackgroundIndicatorComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.expanded()).toBe(false);
   });
+
+  describe('sleeping — session crons and no background tasks (TASK_2026_360)', () => {
+    const cron = (id: string, schedule: string) => ({
+      id,
+      schedule,
+      recurring: true,
+      prompt: 'wake',
+    });
+
+    it('renders the sleeping label with the cron count', () => {
+      fixture.componentRef.setInput('crons', [
+        cron('c1', '*/5 * * * *'),
+        cron('c2', '0 9 * * *'),
+      ]);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'Sleeping — 2 scheduled wakeup(s)',
+      );
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-test="awaiting-background-indicator"]')
+          .getAttribute('data-mode'),
+      ).toBe('sleeping');
+    });
+
+    it('puts each raw schedule in the title attribute — no cron parsing', () => {
+      fixture.componentRef.setInput('crons', [
+        cron('c1', '*/5 * * * *'),
+        cron('c2', '0 9 * * *'),
+      ]);
+      fixture.detectChanges();
+
+      const button = fixture.nativeElement.querySelector(
+        'button',
+      ) as HTMLButtonElement;
+      expect(button.getAttribute('title')).toBe('*/5 * * * *\n0 9 * * *');
+    });
+
+    it('is not expandable while sleeping — there is nothing to list', () => {
+      fixture.componentRef.setInput('crons', [cron('c1', '*/5 * * * *')]);
+      fixture.detectChanges();
+
+      const button = fixture.nativeElement.querySelector(
+        'button',
+      ) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+    });
+
+    it('keeps the working label when background tasks run alongside crons', () => {
+      fixture.componentRef.setInput('taskCount', 1);
+      fixture.componentRef.setInput('tasks', [makeTask()]);
+      fixture.componentRef.setInput('crons', [cron('c1', '*/5 * * * *')]);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'Working in background — 1 task(s)',
+      );
+      const button = fixture.nativeElement.querySelector(
+        'button',
+      ) as HTMLButtonElement;
+      expect(button.getAttribute('title')).toBeNull();
+    });
+  });
 });

@@ -21,6 +21,7 @@
 import {
   AlertTriangle,
   CalendarDays,
+  GraduationCap,
   Hammer,
   LayoutDashboard,
   Megaphone,
@@ -147,6 +148,19 @@ export const ADMIN_NAV_GROUPS: readonly PanelNavGroup[] = [
         route: '/admin/builders/community',
         primary: true,
         icon: MessagesSquare,
+      },
+      {
+        // TASK_2026_377 Batch 3 — the course authoring surface.
+        //
+        // ⚠️ IT BELONGS HERE FOR THE SAME REASON `Community` DOES: this group
+        // is where member-facing CONTENT admin lives, and a course is content.
+        // The learning API shipped complete and audited with no client at all;
+        // an authoring API an operator cannot reach from the sidebar is not a
+        // delivered feature.
+        label: 'Courses',
+        route: '/admin/builders/courses',
+        primary: true,
+        icon: GraduationCap,
       },
     ],
   },

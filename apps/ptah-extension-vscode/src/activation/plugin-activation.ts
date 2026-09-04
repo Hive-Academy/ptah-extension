@@ -1,9 +1,10 @@
-import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
+  resolveAgentMirrorSource,
+  type AgentSyncGate,
   type HarnessPropagationService,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
@@ -86,10 +87,20 @@ function buildMirrorSources(workspaceRoot: string | undefined): MirrorSources {
     harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
-    ...(workspaceRoot
-      ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-      : {}),
+    // The agent facet is scoped and gated in `harness-sync`, not here: all three
+    // hosts share that decision and the two rules behind it fail silently when
+    // one of them drifts (TASK_2026_365).
+    ...resolveAgentMirrorSource(workspaceRoot, resolveAgentSyncGate()),
   };
+}
+
+/** The consent gate, or `null` in a host that has not wired `harness-sync`. */
+function resolveAgentSyncGate(): AgentSyncGate | null {
+  return DIContainer.getContainer().isRegistered(
+    HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
+  )
+    ? DIContainer.resolve<AgentSyncGate>(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    : null;
 }
 
 /**
@@ -113,7 +124,8 @@ export async function mirrorUserLayer(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
 
-    const result = await mirror.mirrorAll(buildMirrorSources(workspaceRoot));
+    const sources = buildMirrorSources(workspaceRoot);
+    const result = await mirror.mirrorAll(sources);
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -126,7 +138,10 @@ export async function mirrorUserLayer(
       });
     }
 
-    return mirror.getUserLayerRoots();
+    // The SAME root the mirror just wrote under, taken from the sources rather
+    // than re-derived: the agent root is keyed by it, so a second derivation
+    // that disagreed would hand the caller a directory nothing was written to.
+    return mirror.getUserLayerRoots(sources.workspaceRoot);
   } catch (mirrorError) {
     logger.warn('User-layer mirror failed (non-fatal)', {
       error:

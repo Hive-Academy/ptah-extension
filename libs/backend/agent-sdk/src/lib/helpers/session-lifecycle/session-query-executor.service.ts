@@ -202,6 +202,19 @@ export class SessionQueryExecutor {
         }
       },
     );
+    // The turn state owns one hold on this watchdog: taken while no turn is in
+    // flight, released by `markTurnStarted`, re-taken by `markTurnEnded`. A
+    // fresh record has `turnInFlight === false`, so the initial idle hold is
+    // taken here and the pump's first yield releases it. Without it the
+    // watchdog fired exactly 180 s after every `result` and marked every
+    // running subagent interrupted (2026-08-31 log, session 314c9c90: result
+    // 00:37:02Z → kill 00:40:02Z; TASK_2026_363). A slash-command string
+    // prompt never goes through the pump, so no idle hold is taken and the
+    // watchdog arms on `start()` as before.
+    rec.activityHold = activityWatchdog;
+    if (!isSlashCommand) {
+      activityWatchdog.hold();
+    }
     try {
       // Before the SDK is even loaded: this is the one funnel every
       // interactive, gateway and resumed session passes through, and it is the

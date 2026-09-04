@@ -11,16 +11,21 @@ In the Ptah desktop app, click the **Marketplace** entry in the navigation rail.
 
 ## Providers
 
-| Provider           | Adds                                                          | Status      |
-| ------------------ | ------------------------------------------------------------- | ----------- |
-| **Plugins**        | Bundled skill packs for orchestration, frontend & backend     | Live        |
-| **MCP Registry**   | Servers from the official Model Context Protocol registry     | Live        |
-| **Skills**         | Community skills you can discover and install                 | Live        |
-| **Smithery**       | Hosted MCP servers with one-click setup                       | Live        |
-| **Connected Apps** | OAuth-secured remote MCP servers you authorize in the browser | Live        |
-| **Composio**       | Managed-auth MCP toolkits                                     | Coming soon |
+| Provider           | Adds                                                                                            | Status      |
+| ------------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| **Connectors**     | A curated, verified catalog merging Connected Apps and Smithery behind one status badge per app | Live        |
+| **Plugins**        | Bundled skill packs for orchestration, frontend & backend                                       | Live        |
+| **MCP Registry**   | Servers from the official Model Context Protocol registry                                       | Live        |
+| **Skills**         | Community skills you can discover and install                                                   | Live        |
+| **Smithery**       | Hosted MCP servers with one-click setup                                                         | Live        |
+| **Connected Apps** | OAuth-secured remote MCP servers you authorize in the browser                                   | Live        |
+| **Composio**       | Managed-auth MCP toolkits                                                                       | Coming soon |
 
-Only the provider you select loads — unselected and coming-soon providers fire no network calls.
+**Connectors** is the first tab — open the Marketplace and it is what you see. Only the provider you select loads — unselected and coming-soon providers fire no network calls.
+
+### Connectors
+
+A curated catalog of popular apps, each probe-verified, with a search box and category chips. It merges the state of your Connected Apps and Smithery connections into one status badge per app, so you do not have to check two tabs to see what is actually usable. See [Connectors](/marketplace/connectors/).
 
 ### Plugins
 
@@ -52,6 +57,7 @@ After you install a skill or resolve an MCP server, Ptah refreshes its autocompl
 
 ## Next steps
 
+- [Connectors](/marketplace/connectors/) — the curated catalog with one status badge per app
 - [Smithery setup](/marketplace/smithery/)
 - [MCP Registry](/marketplace/mcp-registry/)
 - [Connected Apps](/marketplace/connected-apps/) — OAuth-secured MCP servers

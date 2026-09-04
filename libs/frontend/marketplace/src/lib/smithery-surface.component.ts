@@ -18,12 +18,15 @@ import {
   BadgeCheck,
   KeyRound,
   Sparkles,
+  Trash2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { JsonSchemaFormComponent, JsonSchemaObject } from '@ptah-extension/ui';
 import type {
   McpRegistryEntry,
   McpRegistryConnection,
+  SmitheryConnectionStatus,
+  SmitheryConnectionSummary,
 } from '@ptah-extension/shared';
 
 /**
@@ -110,12 +113,74 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
         <div class="flex items-center justify-center py-8">
           <span class="loading loading-spinner loading-md"></span>
         </div>
-      } @else if (keyStatus() === 'not-configured') {
-        <!-- Connect prompt: enter an API key before any browse RPC fires. -->
-        <div
-          class="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-3"
-        >
-          <div class="flex items-center gap-2">
+      } @else {
+        @if (keyStatus() === 'not-configured' || showKeyForm()) {
+          <!-- Connect prompt: enter an API key before any browse RPC fires. -->
+          <div
+            class="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-3"
+          >
+            <div class="flex items-center gap-2">
+              <div
+                class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0"
+              >
+                <lucide-angular
+                  [img]="KeyRoundIcon"
+                  class="w-4 h-4 text-primary"
+                  aria-hidden="true"
+                />
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-base-content">
+                  Connect Smithery
+                </h3>
+                <p class="text-[11px] text-base-content-muted">
+                  Enter a Smithery API key to browse and install hosted MCP
+                  servers.
+                </p>
+              </div>
+            </div>
+
+            @if (keyError()) {
+              <div class="alert alert-error alert-sm py-1 px-2">
+                <span class="text-xs">{{ keyError() }}</span>
+              </div>
+            }
+
+            <form class="space-y-2" (submit)="saveKey($event)">
+              <input
+                type="password"
+                autocomplete="off"
+                class="input input-bordered input-sm w-full text-xs"
+                placeholder="Smithery API key"
+                [value]="keyInput()"
+                (input)="onKeyInput($event)"
+                aria-label="Smithery API key"
+              />
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm w-full"
+                [disabled]="isSavingKey() || keyInput().trim().length === 0"
+              >
+                @if (isSavingKey()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Connecting...
+                } @else {
+                  Connect
+                }
+              </button>
+            </form>
+            <p class="text-[10px] text-base-content-muted text-center">
+              Your key is stored encrypted by Ptah and never leaves your
+              machine.
+            </p>
+          </div>
+        }
+
+        @if (keyStatus() === 'configured') {
+          <!-- Account: the namespace every Ptah install lands in. -->
+          <div
+            class="rounded-lg border border-base-300 bg-base-200/40 p-3 flex items-center gap-2"
+          >
             <div
               class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0"
             >
@@ -125,411 +190,548 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                 aria-hidden="true"
               />
             </div>
-            <div>
-              <h3 class="text-sm font-semibold text-base-content">
-                Connect Smithery
-              </h3>
-              <p class="text-[11px] text-base-content-muted">
-                Enter a Smithery API key to browse and install hosted MCP
-                servers.
-              </p>
-            </div>
-          </div>
-
-          @if (keyError()) {
-            <div class="alert alert-error alert-sm py-1 px-2">
-              <span class="text-xs">{{ keyError() }}</span>
-            </div>
-          }
-
-          <form class="space-y-2" (submit)="saveKey($event)">
-            <input
-              type="password"
-              autocomplete="off"
-              class="input input-bordered input-sm w-full text-xs"
-              placeholder="Smithery API key"
-              [value]="keyInput()"
-              (input)="onKeyInput($event)"
-              aria-label="Smithery API key"
-            />
-            <button
-              type="submit"
-              class="btn btn-primary btn-sm w-full"
-              [disabled]="isSavingKey() || keyInput().trim().length === 0"
-            >
-              @if (isSavingKey()) {
-                <span class="loading loading-spinner loading-xs"></span>
-                Connecting...
-              } @else {
-                Connect
-              }
-            </button>
-          </form>
-          <p class="text-[10px] text-base-content-muted text-center">
-            Your key is stored encrypted by Ptah and never leaves your machine.
-          </p>
-        </div>
-      } @else {
-        <!-- Configured: browse Smithery servers. -->
-        <div class="relative">
-          <lucide-angular
-            [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
-            aria-hidden="true"
-          />
-          <input
-            type="text"
-            class="input input-bordered input-sm w-full pl-8 text-xs"
-            placeholder="Search Smithery servers..."
-            [value]="searchQuery()"
-            (input)="onSearchInput($event)"
-            aria-label="Search Smithery servers"
-          />
-          @if (isSearching()) {
-            <span
-              class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
-            ></span>
-          }
-        </div>
-
-        <!-- Category chips: curated search queries (Smithery has no category field). -->
-        <div class="flex gap-1 flex-wrap">
-          @for (cat of categories; track cat.label) {
-            <button
-              type="button"
-              class="btn btn-xs rounded-full normal-case font-medium"
-              [class.btn-primary]="isCategoryActive(cat)"
-              [class.btn-ghost]="!isCategoryActive(cat)"
-              [class.border-base-300]="!isCategoryActive(cat)"
-              [attr.aria-pressed]="isCategoryActive(cat)"
-              (click)="selectCategory(cat)"
-            >
-              {{ cat.label }}
-            </button>
-          }
-        </div>
-
-        @if (browseError()) {
-          <div class="alert alert-error alert-sm py-1 px-2">
-            <span class="text-xs">{{ browseError() }}</span>
-            <button
-              class="btn btn-ghost btn-xs"
-              (click)="browseError.set(null)"
-              type="button"
-            >
-              Dismiss
-            </button>
-          </div>
-        }
-
-        <div>
-          @if (isLoadingInitial()) {
-            @for (i of [1, 2, 3, 4, 5]; track i) {
-              <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
-            }
-          } @else {
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              {{ listHeading() }}
-            </div>
-            @if (servers().length === 0) {
-              <div class="text-xs text-base-content-muted text-center py-4">
-                {{ emptyMessage() }}
+            <div class="flex-1 min-w-0">
+              <div
+                class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
+              >
+                Smithery account
               </div>
-            }
-            <div class="space-y-1.5">
-              @for (server of servers(); track server.name) {
-                <div
-                  class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
-                >
-                  <div class="flex items-start gap-2 p-2">
-                    <!-- Logo / lettered fallback avatar -->
-                    @if (iconSrc(server); as src) {
-                      <!-- eslint-disable @angular-eslint/template/prefer-ngsrc -- remote logos have unknown dimensions and need an (error) fallback; NgOptimizedImage is unsuitable -->
-                      <img
-                        [attr.src]="src"
-                        [attr.alt]="cardTitle(server) + ' logo'"
-                        class="w-8 h-8 rounded-lg object-cover bg-base-300 shrink-0"
-                        loading="lazy"
-                        (error)="onIconError(src)"
-                      />
-                      <!-- eslint-enable @angular-eslint/template/prefer-ngsrc -->
-                    } @else {
-                      <div
-                        class="w-8 h-8 rounded-lg bg-base-300 border border-base-300 flex items-center justify-center shrink-0"
-                        aria-hidden="true"
-                      >
-                        <span
-                          class="text-sm font-semibold text-base-content-muted"
-                        >
-                          {{ avatarLetter(server) }}
-                        </span>
-                      </div>
-                    }
+              @if (activeNamespace(); as namespace) {
+                <div class="text-xs font-medium text-base-content truncate">
+                  {{ namespace }}
+                </div>
+                @if (namespaces().length > 1) {
+                  <div class="text-[10px] text-base-content-muted">
+                    {{ namespaces().length }} namespaces — Ptah installs into
+                    the first.
+                  </div>
+                }
+              } @else {
+                <div class="text-xs text-warning">
+                  {{ accountError() ?? 'No namespace found for this API key.' }}
+                </div>
+              }
+            </div>
+            <button
+              class="btn btn-ghost btn-xs border border-base-300 shrink-0"
+              type="button"
+              (click)="toggleKeyForm()"
+            >
+              {{ showKeyForm() ? 'Cancel' : 'Change key' }}
+            </button>
+          </div>
 
+          <!-- Connections in the active namespace. -->
+          @if (connections().length > 0) {
+            <div>
+              <div
+                class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
+              >
+                Connections
+              </div>
+              <div class="space-y-1.5">
+                @for (
+                  connection of connections();
+                  track connection.connectionId
+                ) {
+                  <div
+                    class="rounded-lg border border-base-300 bg-base-200/30 flex items-start gap-2 p-2"
+                  >
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <span
                           class="text-xs font-medium text-base-content truncate"
-                          >{{ cardTitle(server) }}</span
+                          >{{ connection.name }}</span
                         >
-                        @if (server.verified) {
-                          <span
-                            class="badge badge-xs badge-info text-[10px] gap-0.5"
-                          >
-                            <lucide-angular
-                              [img]="BadgeCheckIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Verified
-                          </span>
+                        @switch (connection.status) {
+                          @case ('connected') {
+                            <span
+                              class="badge badge-xs badge-success text-[10px] gap-0.5"
+                            >
+                              <lucide-angular
+                                [img]="CheckIcon"
+                                class="w-2 h-2"
+                                aria-hidden="true"
+                              />
+                              Connected
+                            </span>
+                          }
+                          @case ('error') {
+                            <span
+                              class="badge badge-xs badge-error text-[10px]"
+                            >
+                              Error
+                            </span>
+                          }
+                          @default {
+                            <span
+                              class="badge badge-xs badge-warning text-[10px]"
+                            >
+                              Needs authorization
+                            </span>
+                          }
                         }
-                        @if (server.scanPassed) {
+                        @if (connection.managedByPtah) {
                           <span
-                            class="badge badge-xs badge-success text-[10px] gap-0.5"
+                            class="badge badge-xs badge-neutral text-[10px]"
                           >
-                            <lucide-angular
-                              [img]="ShieldCheckIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Scan passed
-                          </span>
-                        }
-                        @if (server.bySmithery) {
-                          <span
-                            class="badge badge-xs badge-neutral text-[10px] gap-0.5"
-                          >
-                            <lucide-angular
-                              [img]="SparklesIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Managed
-                          </span>
-                        }
-                        @if (isInstalled(server.name)) {
-                          <span
-                            class="badge badge-xs badge-primary text-[10px] gap-0.5"
-                          >
-                            <lucide-angular
-                              [img]="CheckIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Installed
+                            Managed by Ptah
                           </span>
                         }
                       </div>
                       <div
-                        class="flex items-center gap-1 text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
+                        class="text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
                       >
-                        <span class="truncate">{{ server.name }}</span>
-                        @if (hasUseCount(server)) {
-                          <span aria-hidden="true">·</span>
-                          <span class="whitespace-nowrap"
-                            >{{
-                              formatUseCount(server.useCount ?? 0)
-                            }}
-                            uses</span
-                          >
-                        }
+                        {{ connection.server || connection.connectionId }}
                       </div>
-                      <p
-                        class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
-                      >
-                        {{ server.description || 'No description available' }}
-                      </p>
                     </div>
                     <div class="shrink-0 flex items-center gap-1">
-                      @if (isInstalled(server.name)) {
+                      @if (
+                        connection.managedByPtah &&
+                        connection.serverKey &&
+                        connection.status !== 'connected'
+                      ) {
                         <button
                           class="btn btn-ghost btn-xs border border-base-300"
-                          [disabled]="isUninstalling(server.name)"
-                          (click)="uninstall(server)"
                           type="button"
-                          [attr.aria-label]="'Remove ' + cardTitle(server)"
+                          [disabled]="isConnectionBusy(connection)"
+                          (click)="authorizeConnection(connection)"
+                          [attr.aria-label]="'Authorize ' + connection.name"
                         >
-                          @if (isUninstalling(server.name)) {
+                          @if (isConnectionBusy(connection)) {
                             <span
                               class="loading loading-spinner loading-xs"
                             ></span>
-                            Removing...
                           } @else {
-                            Remove
+                            Authorize
                           }
                         </button>
                       }
-                      <button
-                        class="btn btn-xs"
-                        [class.btn-primary]="!isInstalled(server.name)"
-                        [class.btn-ghost]="isInstalled(server.name)"
-                        [class.border-base-300]="isInstalled(server.name)"
-                        [disabled]="isBusy(server.name)"
-                        (click)="toggleInstallPanel(server)"
-                        type="button"
-                        [attr.aria-label]="
-                          (isInstalled(server.name)
-                            ? 'Reconfigure '
-                            : 'Install ') + cardTitle(server)
-                        "
-                      >
-                        @if (isBusy(server.name)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else if (expandedName() === server.name) {
-                          Cancel
-                        } @else if (isInstalled(server.name)) {
-                          Reconfigure
-                        } @else {
-                          Install
-                        }
-                      </button>
+                      @if (connection.managedByPtah && connection.serverKey) {
+                        <button
+                          class="btn btn-ghost btn-xs text-error"
+                          type="button"
+                          [disabled]="isConnectionBusy(connection)"
+                          (click)="removeConnection(connection)"
+                          [attr.aria-label]="'Remove ' + connection.name"
+                        >
+                          <lucide-angular
+                            [img]="Trash2Icon"
+                            class="w-3 h-3"
+                            aria-hidden="true"
+                          />
+                          Remove
+                        </button>
+                      }
                     </div>
                   </div>
+                }
+              </div>
+              @if (connectionsError(); as error) {
+                <p class="text-[10px] text-warning mt-1">{{ error }}</p>
+              }
+            </div>
+          } @else if (connectionsError(); as error) {
+            <div class="alert alert-warning alert-sm py-1 px-2">
+              <span class="text-xs">{{ error }}</span>
+            </div>
+          }
 
-                  @if (expandedName() === server.name) {
-                    <div class="px-2 pb-2">
-                      <div
-                        class="p-2 rounded-lg bg-base-300/50 border border-base-300 space-y-2"
-                      >
-                        @if (isLoadingDetails()) {
-                          <div class="skeleton h-8 w-full rounded"></div>
-                          <div class="skeleton h-6 w-3/4 rounded"></div>
-                        } @else {
-                          @if (detailError()) {
-                            <div class="text-xs text-error">
-                              {{ detailError() }}
-                            </div>
-                          } @else {
-                            @if (activeConfigSchema(); as schema) {
-                              <div
-                                class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
-                              >
-                                Configuration
-                              </div>
-                              <ptah-json-schema-form
-                                [schema]="schema"
-                                [value]="configValue()"
-                                (valueChange)="configValue.set($event)"
-                                (validChange)="configValid.set($event)"
+          <!-- Configured: browse Smithery servers. -->
+          <div class="relative">
+            <lucide-angular
+              [img]="SearchIcon"
+              class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              class="input input-bordered input-sm w-full pl-8 text-xs"
+              placeholder="Search Smithery servers..."
+              [value]="searchQuery()"
+              (input)="onSearchInput($event)"
+              aria-label="Search Smithery servers"
+            />
+            @if (isSearching()) {
+              <span
+                class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
+              ></span>
+            }
+          </div>
+
+          <!-- Category chips: curated search queries (Smithery has no category field). -->
+          <div class="flex gap-1 flex-wrap">
+            @for (cat of categories; track cat.label) {
+              <button
+                type="button"
+                class="btn btn-xs rounded-full normal-case font-medium"
+                [class.btn-primary]="isCategoryActive(cat)"
+                [class.btn-ghost]="!isCategoryActive(cat)"
+                [class.border-base-300]="!isCategoryActive(cat)"
+                [attr.aria-pressed]="isCategoryActive(cat)"
+                (click)="selectCategory(cat)"
+              >
+                {{ cat.label }}
+              </button>
+            }
+          </div>
+
+          @if (browseError()) {
+            <div class="alert alert-error alert-sm py-1 px-2">
+              <span class="text-xs">{{ browseError() }}</span>
+              <button
+                class="btn btn-ghost btn-xs"
+                (click)="browseError.set(null)"
+                type="button"
+              >
+                Dismiss
+              </button>
+            </div>
+          }
+
+          <div>
+            @if (isLoadingInitial()) {
+              @for (i of [1, 2, 3, 4, 5]; track i) {
+                <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
+              }
+            } @else {
+              <div
+                class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
+              >
+                {{ listHeading() }}
+              </div>
+              @if (servers().length === 0) {
+                <div class="text-xs text-base-content-muted text-center py-4">
+                  {{ emptyMessage() }}
+                </div>
+              }
+              <div class="space-y-1.5">
+                @for (server of servers(); track server.name) {
+                  <div
+                    class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
+                  >
+                    <div class="flex items-start gap-2 p-2">
+                      <!-- Logo / lettered fallback avatar -->
+                      @if (iconSrc(server); as src) {
+                        <!-- eslint-disable @angular-eslint/template/prefer-ngsrc -- remote logos have unknown dimensions and need an (error) fallback; NgOptimizedImage is unsuitable -->
+                        <img
+                          [attr.src]="src"
+                          [attr.alt]="cardTitle(server) + ' logo'"
+                          class="w-8 h-8 rounded-lg object-cover bg-base-300 shrink-0"
+                          loading="lazy"
+                          (error)="onIconError(src)"
+                        />
+                        <!-- eslint-enable @angular-eslint/template/prefer-ngsrc -->
+                      } @else {
+                        <div
+                          class="w-8 h-8 rounded-lg bg-base-300 border border-base-300 flex items-center justify-center shrink-0"
+                          aria-hidden="true"
+                        >
+                          <span
+                            class="text-sm font-semibold text-base-content-muted"
+                          >
+                            {{ avatarLetter(server) }}
+                          </span>
+                        </div>
+                      }
+
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            class="text-xs font-medium text-base-content truncate"
+                            >{{ cardTitle(server) }}</span
+                          >
+                          @if (server.verified) {
+                            <span
+                              class="badge badge-xs badge-info text-[10px] gap-0.5"
+                            >
+                              <lucide-angular
+                                [img]="BadgeCheckIcon"
+                                class="w-2 h-2"
+                                aria-hidden="true"
                               />
-                            } @else {
-                              <div
-                                class="text-[11px] text-base-content-muted py-1"
-                              >
-                                No configuration required — one-click setup.
-                              </div>
-                            }
-
-                            @if (setupError()) {
-                              <div class="text-xs text-error" role="alert">
-                                {{ setupError() }}
-                              </div>
-                            }
-                            @switch (setupPhase()) {
-                              @case ('validating') {
-                                <div
-                                  class="text-[11px] text-base-content-muted flex items-center gap-1.5"
-                                  aria-live="polite"
+                              Verified
+                            </span>
+                          }
+                          @if (server.scanPassed) {
+                            <span
+                              class="badge badge-xs badge-success text-[10px] gap-0.5"
+                            >
+                              <lucide-angular
+                                [img]="ShieldCheckIcon"
+                                class="w-2 h-2"
+                                aria-hidden="true"
+                              />
+                              Scan passed
+                            </span>
+                          }
+                          @if (server.bySmithery) {
+                            <span
+                              class="badge badge-xs badge-neutral text-[10px] gap-0.5"
+                            >
+                              <lucide-angular
+                                [img]="SparklesIcon"
+                                class="w-2 h-2"
+                                aria-hidden="true"
+                              />
+                              Managed
+                            </span>
+                          }
+                          @if (isInstalled(server.name)) {
+                            <!-- The badge reports the CONNECTION, not the
+                               manifest: an installed server whose upstream
+                               authorization never completed is not usable. -->
+                            @switch (installedBadge(server.name)) {
+                              @case ('connected') {
+                                <span
+                                  class="badge badge-xs badge-success text-[10px] gap-0.5"
                                 >
-                                  <span
-                                    class="loading loading-spinner loading-xs"
-                                  ></span>
-                                  Validating configuration with Smithery...
-                                </div>
+                                  <lucide-angular
+                                    [img]="CheckIcon"
+                                    class="w-2 h-2"
+                                    aria-hidden="true"
+                                  />
+                                  Connected
+                                </span>
                               }
-                              @case ('installing') {
-                                <div
-                                  class="text-[11px] text-base-content-muted flex items-center gap-1.5"
-                                  aria-live="polite"
+                              @case ('needs-auth') {
+                                <span
+                                  class="badge badge-xs badge-warning text-[10px]"
                                 >
-                                  <span
-                                    class="loading loading-spinner loading-xs"
-                                  ></span>
-                                  Installing server...
-                                </div>
+                                  Needs authorization
+                                </span>
+                              }
+                              @case ('error') {
+                                <span
+                                  class="badge badge-xs badge-error text-[10px]"
+                                >
+                                  Error
+                                </span>
                               }
                               @default {
-                                @if (
-                                  isInstalled(server.name) && !setupError()
-                                ) {
-                                  <div class="text-xs text-success">
-                                    Installed — available in new chat sessions.
-                                  </div>
-                                }
+                                <span
+                                  class="badge badge-xs badge-primary text-[10px] gap-0.5"
+                                >
+                                  <lucide-angular
+                                    [img]="CheckIcon"
+                                    class="w-2 h-2"
+                                    aria-hidden="true"
+                                  />
+                                  Installed
+                                </span>
                               }
                             }
-
-                            <button
-                              class="btn btn-primary btn-xs w-full"
-                              [disabled]="!canSetup() || isBusy(server.name)"
-                              (click)="setupServer(server)"
-                              type="button"
+                          }
+                        </div>
+                        <div
+                          class="flex items-center gap-1 text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
+                        >
+                          <span class="truncate">{{ server.name }}</span>
+                          @if (hasUseCount(server)) {
+                            <span aria-hidden="true">·</span>
+                            <span class="whitespace-nowrap"
+                              >{{
+                                formatUseCount(server.useCount ?? 0)
+                              }}
+                              uses</span
                             >
+                          }
+                        </div>
+                        <p
+                          class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
+                        >
+                          {{ server.description || 'No description available' }}
+                        </p>
+                      </div>
+                      <div class="shrink-0 flex items-center gap-1">
+                        @if (isInstalled(server.name)) {
+                          <button
+                            class="btn btn-ghost btn-xs border border-base-300"
+                            [disabled]="isUninstalling(server.name)"
+                            (click)="uninstall(server)"
+                            type="button"
+                            [attr.aria-label]="'Remove ' + cardTitle(server)"
+                          >
+                            @if (isUninstalling(server.name)) {
+                              <span
+                                class="loading loading-spinner loading-xs"
+                              ></span>
+                              Removing...
+                            } @else {
+                              Remove
+                            }
+                          </button>
+                        }
+                        <button
+                          class="btn btn-xs"
+                          [class.btn-primary]="!isInstalled(server.name)"
+                          [class.btn-ghost]="isInstalled(server.name)"
+                          [class.border-base-300]="isInstalled(server.name)"
+                          [disabled]="isBusy(server.name)"
+                          (click)="toggleInstallPanel(server)"
+                          type="button"
+                          [attr.aria-label]="
+                            (isInstalled(server.name)
+                              ? 'Reconfigure '
+                              : 'Install ') + cardTitle(server)
+                          "
+                        >
+                          @if (isBusy(server.name)) {
+                            <span
+                              class="loading loading-spinner loading-xs"
+                            ></span>
+                          } @else if (expandedName() === server.name) {
+                            Cancel
+                          } @else if (isInstalled(server.name)) {
+                            Reconfigure
+                          } @else {
+                            Install
+                          }
+                        </button>
+                      </div>
+                    </div>
+
+                    @if (expandedName() === server.name) {
+                      <div class="px-2 pb-2">
+                        <div
+                          class="p-2 rounded-lg bg-base-300/50 border border-base-300 space-y-2"
+                        >
+                          @if (isLoadingDetails()) {
+                            <div class="skeleton h-8 w-full rounded"></div>
+                            <div class="skeleton h-6 w-3/4 rounded"></div>
+                          } @else {
+                            @if (detailError()) {
+                              <div class="text-xs text-error">
+                                {{ detailError() }}
+                              </div>
+                            } @else {
+                              @if (activeConfigSchema(); as schema) {
+                                <div
+                                  class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
+                                >
+                                  Configuration
+                                </div>
+                                <ptah-json-schema-form
+                                  [schema]="schema"
+                                  [value]="configValue()"
+                                  (valueChange)="configValue.set($event)"
+                                  (validChange)="configValid.set($event)"
+                                />
+                              } @else {
+                                <div
+                                  class="text-[11px] text-base-content-muted py-1"
+                                >
+                                  No configuration required — one-click setup.
+                                </div>
+                              }
+
+                              @if (setupError()) {
+                                <div class="text-xs text-error" role="alert">
+                                  {{ setupError() }}
+                                </div>
+                              }
                               @switch (setupPhase()) {
                                 @case ('validating') {
-                                  <span
-                                    class="loading loading-spinner loading-xs"
-                                  ></span>
-                                  Validating...
+                                  <div
+                                    class="text-[11px] text-base-content-muted flex items-center gap-1.5"
+                                    aria-live="polite"
+                                  >
+                                    <span
+                                      class="loading loading-spinner loading-xs"
+                                    ></span>
+                                    Validating configuration with Smithery...
+                                  </div>
                                 }
                                 @case ('installing') {
-                                  <span
-                                    class="loading loading-spinner loading-xs"
-                                  ></span>
-                                  Installing...
+                                  <div
+                                    class="text-[11px] text-base-content-muted flex items-center gap-1.5"
+                                    aria-live="polite"
+                                  >
+                                    <span
+                                      class="loading loading-spinner loading-xs"
+                                    ></span>
+                                    Installing server...
+                                  </div>
                                 }
                                 @default {
-                                  @if (isInstalled(server.name)) {
-                                    Update configuration
-                                  } @else {
-                                    Install server
+                                  @if (
+                                    isInstalled(server.name) && !setupError()
+                                  ) {
+                                    <div class="text-xs text-success">
+                                      Installed — available in new chat
+                                      sessions.
+                                    </div>
                                   }
                                 }
                               }
-                            </button>
+
+                              <button
+                                class="btn btn-primary btn-xs w-full"
+                                [disabled]="!canSetup() || isBusy(server.name)"
+                                (click)="setupServer(server)"
+                                type="button"
+                              >
+                                @switch (setupPhase()) {
+                                  @case ('validating') {
+                                    <span
+                                      class="loading loading-spinner loading-xs"
+                                    ></span>
+                                    Validating...
+                                  }
+                                  @case ('installing') {
+                                    <span
+                                      class="loading loading-spinner loading-xs"
+                                    ></span>
+                                    Installing...
+                                  }
+                                  @default {
+                                    @if (isInstalled(server.name)) {
+                                      Update configuration
+                                    } @else {
+                                      Install server
+                                    }
+                                  }
+                                }
+                              </button>
+                            }
                           }
-                        }
+                        </div>
                       </div>
-                    </div>
-                  }
-                </div>
-              }
-            </div>
-
-            <!-- Load more: appends the next cursor page. -->
-            @if (nextCursor()) {
-              <button
-                class="btn btn-ghost btn-sm w-full mt-1.5 border border-base-300"
-                type="button"
-                [disabled]="isLoadingMore()"
-                (click)="loadMore()"
-              >
-                @if (isLoadingMore()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                  Loading...
-                } @else {
-                  Load more
+                    }
+                  </div>
                 }
-              </button>
-            }
-          }
-        </div>
+              </div>
 
-        <div class="text-[10px] text-base-content-muted text-center pt-1">
-          Powered by
-          <a
-            href="https://smithery.ai"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="link link-hover"
-            >Smithery</a
-          >
-        </div>
+              <!-- Load more: appends the next cursor page. -->
+              @if (nextCursor()) {
+                <button
+                  class="btn btn-ghost btn-sm w-full mt-1.5 border border-base-300"
+                  type="button"
+                  [disabled]="isLoadingMore()"
+                  (click)="loadMore()"
+                >
+                  @if (isLoadingMore()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                    Loading...
+                  } @else {
+                    Load more
+                  }
+                </button>
+              }
+            }
+          </div>
+
+          <div class="text-[10px] text-base-content-muted text-center pt-1">
+            Powered by
+            <a
+              href="https://smithery.ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link link-hover"
+              >Smithery</a
+            >
+          </div>
+        }
       }
     </div>
   `,
@@ -560,6 +762,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   protected readonly BadgeCheckIcon = BadgeCheck;
   protected readonly KeyRoundIcon = KeyRound;
   protected readonly SparklesIcon = Sparkles;
+  protected readonly Trash2Icon = Trash2;
 
   /** Curated category chips exposed to the template. */
   protected readonly categories = SMITHERY_CATEGORIES;
@@ -572,6 +775,28 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   public readonly keyInput = signal('');
   public readonly isSavingKey = signal(false);
   public readonly keyError = signal<string | null>(null);
+  /**
+   * Whether the API-key form is shown while a key IS configured. The
+   * not-configured branch shows it unconditionally; this only drives the
+   * "Change key" affordance on the Account row, so one form serves both.
+   */
+  public readonly showKeyForm = signal(false);
+
+  // ── Account + connections (Smithery Connections API) ──────────────────────
+
+  /** Namespace names the stored key can reach, in the order Smithery gave. */
+  public readonly namespaces = signal<string[]>([]);
+  /** The namespace Ptah installs into — the first one, or null. */
+  public readonly activeNamespace = signal<string | null>(null);
+  /** Why the account could not be read (revoked key, API unreachable). */
+  public readonly accountError = signal<string | null>(null);
+
+  /** Connections in {@link activeNamespace}, Ptah's and the user's alike. */
+  public readonly connections = signal<SmitheryConnectionSummary[]>([]);
+  /** Why the connection list could not be read. Rendered, never fatal. */
+  public readonly connectionsError = signal<string | null>(null);
+  /** Connection ids with an Authorize / Remove action in flight. */
+  public readonly connectionBusyIds = signal<Set<string>>(new Set());
 
   /** Free-text search box content. */
   public readonly searchQuery = signal('');
@@ -683,6 +908,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       if (this.destroyed) return;
       if (result.isSuccess() && result.data.success) {
         this.keyInput.set('');
+        this.showKeyForm.set(false);
         await this.checkKeyStatus();
       } else {
         this.keyError.set(
@@ -696,6 +922,163 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     } finally {
       if (!this.destroyed) this.isSavingKey.set(false);
     }
+  }
+
+  /** Show or hide the API-key form while a key is already configured. */
+  public toggleKeyForm(): void {
+    this.showKeyForm.update((open) => !open);
+    if (!this.showKeyForm()) {
+      this.keyInput.set('');
+      this.keyError.set(null);
+    }
+  }
+
+  // ── Account + connections ─────────────────────────────────────────────────
+
+  /**
+   * Read the Smithery account. A failure here is a state to render — a revoked
+   * key or an unreachable API — so it sets {@link accountError} and never
+   * blanks the browse list.
+   */
+  private async loadAccount(): Promise<void> {
+    try {
+      const result = await this.rpc.call('mcpDirectory:smitheryAccount', {});
+      if (this.destroyed) return;
+      if (!result.isSuccess()) {
+        this.accountError.set(
+          result.error ?? 'Failed to read Smithery account',
+        );
+        return;
+      }
+      this.namespaces.set(result.data.namespaces);
+      this.activeNamespace.set(result.data.activeNamespace);
+      this.accountError.set(result.data.error ?? null);
+    } catch {
+      if (this.destroyed) return;
+      this.accountError.set('Failed to read Smithery account');
+    }
+  }
+
+  /** Read the connections in the active namespace. Same failure rule as above. */
+  private async loadConnections(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'mcpDirectory:listSmitheryConnections',
+        {},
+      );
+      if (this.destroyed) return;
+      if (!result.isSuccess()) {
+        this.connectionsError.set(
+          result.error ?? 'Failed to load Smithery connections',
+        );
+        return;
+      }
+      this.connections.set(result.data.connections);
+      this.connectionsError.set(result.data.error ?? null);
+    } catch {
+      if (this.destroyed) return;
+      this.connectionsError.set('Failed to load Smithery connections');
+    }
+  }
+
+  /** True while an Authorize / Remove for this connection is in flight. */
+  public isConnectionBusy(connection: SmitheryConnectionSummary): boolean {
+    return this.connectionBusyIds().has(connection.connectionId);
+  }
+
+  /**
+   * Open the Smithery setup page for a connection that is not connected. The
+   * handler mints a FRESH setup URL — the one the install returned is single
+   * use — and opens it in the browser.
+   */
+  public async authorizeConnection(
+    connection: SmitheryConnectionSummary,
+  ): Promise<void> {
+    const serverKey = connection.serverKey;
+    if (!serverKey || this.isConnectionBusy(connection)) return;
+    this.addToSet(this.connectionBusyIds, connection.connectionId);
+    this.connectionsError.set(null);
+    try {
+      const result = await this.rpc.call('mcpDirectory:openSmitherySetup', {
+        serverKey,
+      });
+      if (this.destroyed) return;
+      if (!result.isSuccess() || !result.data.opened) {
+        // Nothing changed upstream, so do NOT re-read the list: a successful
+        // read would clear the message the user has to act on.
+        this.connectionsError.set(
+          (result.isSuccess() ? result.data.error : result.error) ??
+            `Could not open the setup page for ${connection.name}`,
+        );
+        return;
+      }
+      await this.loadConnections();
+    } catch {
+      if (this.destroyed) return;
+      this.connectionsError.set(
+        `Could not open the setup page for ${connection.name}`,
+      );
+    } finally {
+      if (!this.destroyed) {
+        this.removeFromSet(this.connectionBusyIds, connection.connectionId);
+      }
+    }
+  }
+
+  /** Remove a Ptah-managed connection: drops the record AND the connection. */
+  public async removeConnection(
+    connection: SmitheryConnectionSummary,
+  ): Promise<void> {
+    const serverKey = connection.serverKey;
+    if (!serverKey || this.isConnectionBusy(connection)) return;
+    this.addToSet(this.connectionBusyIds, connection.connectionId);
+    this.connectionsError.set(null);
+    try {
+      const result = await this.rpc.call('mcpDirectory:uninstallSmithery', {
+        serverKey,
+      });
+      if (this.destroyed) return;
+      if (!result.isSuccess() || !result.data.success) {
+        this.connectionsError.set(
+          (result.isSuccess() ? result.data.error : result.error) ??
+            `Failed to remove ${connection.name}`,
+        );
+        return;
+      }
+      this.serverUninstalled.emit(serverKey);
+      await Promise.all([this.loadConnections(), this.loadInstalled()]);
+    } catch {
+      if (this.destroyed) return;
+      this.connectionsError.set(`Failed to remove ${connection.name}`);
+    } finally {
+      if (!this.destroyed) {
+        this.removeFromSet(this.connectionBusyIds, connection.connectionId);
+      }
+    }
+  }
+
+  /**
+   * The badge an installed card shows. Reads the CONNECTION status, so a server
+   * whose upstream authorization never completed says so instead of claiming to
+   * be installed and working. Falls back to `'installed'` for a legacy record
+   * that has no connection behind it.
+   */
+  public installedBadge(
+    qualifiedName: string,
+  ): 'installed' | 'connected' | 'needs-auth' | 'error' {
+    const status = this.connectionStatusOf(qualifiedName);
+    if (status === null) return 'installed';
+    if (status === 'connected') return 'connected';
+    if (status === 'error') return 'error';
+    return 'needs-auth';
+  }
+
+  /** Connection status for a qualified name, or null when there is none. */
+  public connectionStatusOf(
+    qualifiedName: string,
+  ): SmitheryConnectionStatus | null {
+    const match = this.connections().find((c) => c.server === qualifiedName);
+    return match?.status ?? null;
   }
 
   // ── Category chips ──────────────────────────────────────────────────────────
@@ -903,8 +1286,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
         this.serverInstalled.emit(serverKey);
       }
       // Reconcile against the manifest — authoritative, and covers the case
-      // where the backend derived a serverKey it did not echo back.
-      await this.loadInstalled();
+      // where the backend derived a serverKey it did not echo back. The
+      // connection list refreshes with it so the card's badge reports the real
+      // connection state rather than "Installed" for a server still awaiting
+      // its upstream authorization.
+      await Promise.all([this.loadInstalled(), this.loadConnections()]);
     } catch (error: unknown) {
       if (this.destroyed) return;
       this.setupError.set(this.messageOf(error, 'Failed to install server'));
@@ -992,8 +1378,14 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       const configured = result.isSuccess() && result.data.configured === true;
       this.keyStatus.set(configured ? 'configured' : 'not-configured');
       if (configured) {
-        // Installed state is independent of the browse list — load both.
-        await Promise.all([this.runBrowse(), this.loadInstalled()]);
+        // Four independent reads: the browse list, the manifest, the account
+        // and the connections. None of them gates another.
+        await Promise.all([
+          this.runBrowse(),
+          this.loadInstalled(),
+          this.loadAccount(),
+          this.loadConnections(),
+        ]);
       }
     } catch {
       if (this.destroyed) return;

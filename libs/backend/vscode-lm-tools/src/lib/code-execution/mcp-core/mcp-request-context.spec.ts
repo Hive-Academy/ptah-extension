@@ -10,6 +10,8 @@
 import {
   runWithMcpRequestContext,
   getCallerSessionId,
+  getCallerWorkspaceRoot,
+  isMcpRequestInFlight,
 } from './mcp-request-context';
 
 describe('mcp-request-context', () => {
@@ -61,5 +63,72 @@ describe('mcp-request-context', () => {
       await Promise.resolve();
     });
     expect(getCallerSessionId()).toBeUndefined();
+  });
+
+  it('exposes the caller workspace root inside the context', () => {
+    const seen = runWithMcpRequestContext(
+      { callerWorkspaceRoot: 'D:\\projects\\ptah-extension' },
+      () => getCallerWorkspaceRoot(),
+    );
+    expect(seen).toBe('D:\\projects\\ptah-extension');
+  });
+
+  it('returns undefined workspace root outside any context', () => {
+    expect(getCallerWorkspaceRoot()).toBeUndefined();
+  });
+
+  it('carries session id and workspace root in the same context independently', () => {
+    const seen = runWithMcpRequestContext(
+      { callerSessionId: 'sess-A', callerWorkspaceRoot: 'D:\\ws-A' },
+      () => ({
+        session: getCallerSessionId(),
+        workspace: getCallerWorkspaceRoot(),
+      }),
+    );
+    expect(seen).toEqual({ session: 'sess-A', workspace: 'D:\\ws-A' });
+  });
+
+  it('isolates concurrent workspace roots from different callers', async () => {
+    const observe = (
+      root: string,
+      delayMs: number,
+    ): Promise<string | undefined> =>
+      runWithMcpRequestContext({ callerWorkspaceRoot: root }, async () => {
+        await new Promise((r) => setTimeout(r, delayMs));
+        return getCallerWorkspaceRoot();
+      });
+
+    const [a, b] = await Promise.all([
+      observe('D:\\ws-A', 5),
+      observe('D:\\ws-B', 1),
+    ]);
+
+    expect(a).toBe('D:\\ws-A');
+    expect(b).toBe('D:\\ws-B');
+  });
+
+  describe('isMcpRequestInFlight', () => {
+    it('is false outside any context — a watcher, webview RPC or internal call', () => {
+      expect(isMcpRequestInFlight()).toBe(false);
+    });
+
+    it('is true for an ANONYMOUS tool call — the empty context still binds a store', () => {
+      expect(runWithMcpRequestContext({}, () => isMcpRequestInFlight())).toBe(
+        true,
+      );
+    });
+
+    it('is true for an identified tool call', () => {
+      expect(
+        runWithMcpRequestContext({ callerSessionId: 'sess-A' }, () =>
+          isMcpRequestInFlight(),
+        ),
+      ).toBe(true);
+    });
+
+    it('is false again after the call settles', () => {
+      runWithMcpRequestContext({}, () => isMcpRequestInFlight());
+      expect(isMcpRequestInFlight()).toBe(false);
+    });
   });
 });

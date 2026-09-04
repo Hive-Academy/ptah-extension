@@ -16,6 +16,24 @@ import { OutputManager } from '../api-wrappers/output-manager';
 import { sanitizeConsoleText } from './console-text';
 import type { LogLevel, LogContext, LogEntry } from './types';
 
+function formatLogArg(arg: unknown): string {
+  if (arg instanceof Error) {
+    return JSON.stringify({
+      name: arg.name,
+      message: arg.message,
+      stack: arg.stack,
+    });
+  }
+  if (typeof arg === 'object' && arg !== null) {
+    try {
+      return JSON.stringify(arg);
+    } catch {
+      return '[Unserializable]';
+    }
+  }
+  return String(arg);
+}
+
 /**
  * Logger service for centralized logging
  * Uses OutputManager for VS Code integration
@@ -204,18 +222,7 @@ export class Logger {
     if (!this.shouldLog(level)) return;
     let inlinedMessage = message;
     if (args.length > 0) {
-      const inlinedArgs = args
-        .map((arg) => {
-          try {
-            if (typeof arg === 'object' && arg !== null) {
-              return JSON.stringify(arg);
-            }
-            return String(arg);
-          } catch {
-            return '[Unserializable]';
-          }
-        })
-        .join(' ');
+      const inlinedArgs = args.map((arg) => formatLogArg(arg)).join(' ');
       inlinedMessage = `${message}: ${inlinedArgs}`;
     }
     this.logWithContext(level, inlinedMessage, {});
@@ -321,7 +328,7 @@ export class Logger {
    * The message is passed through {@link sanitizeConsoleText} here and NOT on
    * the output-channel path above. The channel is a UTF-8 file and should hold
    * the message as written; the console is the surface where a double-encoded
-   * em dash prints as `â€”` and where a legacy Windows codepage mangles even a
+   * em dash prints as `—` and where a legacy Windows codepage mangles even a
    * correct one (TASK_2026_354). This is the single console writer for every
    * host — Electron main included — so the repair lands once, without editing a
    * log string in any other lib.
@@ -352,36 +359,5 @@ export class Logger {
         );
         break;
     }
-  }
-
-  /**
-   * Serialize arguments for logging
-   * Handles various types safely
-   *
-   * @param args - Arguments to serialize
-   * @returns Serialized arguments object
-   */
-  private serializeArgs(args: unknown[]): Record<string, unknown> {
-    const serialized: Record<string, unknown> = {};
-
-    args.forEach((arg, index) => {
-      try {
-        if (arg instanceof Error) {
-          serialized[`arg${index}`] = {
-            message: arg.message,
-            stack: arg.stack,
-            name: arg.name,
-          };
-        } else if (typeof arg === 'object' && arg !== null) {
-          serialized[`arg${index}`] = arg;
-        } else {
-          serialized[`arg${index}`] = String(arg);
-        }
-      } catch {
-        serialized[`arg${index}`] = '[Failed to serialize]';
-      }
-    });
-
-    return serialized;
   }
 }

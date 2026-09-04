@@ -14,11 +14,13 @@ import {
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
+import type { SessionTurnStateRegistry } from './session-turn-state.registry';
 
 /**
  * StopFailureHookHandler — wires the SDK `StopFailure` hook into the
- * SdkAdapterEvents bus as `turnFailed`. Producer-side empty-payload guard
- * skips emit when resolved sessionId or cwd is empty.
+ * SdkAdapterEvents bus as `turnFailed` and records the failure snapshot on
+ * `SessionTurnStateRegistry` (TASK_2026_360). Producer-side empty-payload
+ * guard skips both when resolved sessionId or cwd is empty.
  */
 @injectable()
 export class StopFailureHookHandler {
@@ -26,6 +28,8 @@ export class StopFailureHookHandler {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState?: SessionTurnStateRegistry,
   ) {}
 
   createHooks(
@@ -33,6 +37,7 @@ export class StopFailureHookHandler {
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const sdkAdapterEvents = this.sdkAdapterEvents;
+    const turnState = this.turnState;
     return {
       StopFailure: [
         {
@@ -46,7 +51,7 @@ export class StopFailureHookHandler {
                 if (!isStopFailureHook(input)) {
                   return { continue: true };
                 }
-                if (!sdkAdapterEvents) {
+                if (!sdkAdapterEvents && !turnState) {
                   return { continue: true };
                 }
                 const resolvedSessionId = resolveHookSessionId(
@@ -65,6 +70,17 @@ export class StopFailureHookHandler {
                       errorCode: input.error ?? 'unknown',
                     },
                   );
+                  return { continue: true };
+                }
+
+                // Snapshot only — the phase flips to 'failed' at the stream's
+                // `result` (TASK_2026_360 §2.1).
+                turnState?.recordFailure(resolvedSessionId, {
+                  error: input.error,
+                  terminalReason,
+                });
+
+                if (!sdkAdapterEvents) {
                   return { continue: true };
                 }
 

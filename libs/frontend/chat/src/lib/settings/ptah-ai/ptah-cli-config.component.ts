@@ -639,7 +639,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         <div class="modal-box bg-base-100 max-w-lg">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-medium">
-              Model Mapping â€” {{ modelMappingAgent()?.name }}
+              Model Mapping — {{ modelMappingAgent()?.name }}
             </h3>
             <button
               class="btn btn-ghost btn-xs btn-square"

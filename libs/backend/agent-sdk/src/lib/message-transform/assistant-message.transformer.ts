@@ -15,6 +15,7 @@ import {
 
 import {
   SDKAssistantMessage,
+  ContentBlock,
   isTextBlock,
   isThinkingBlock,
   isToolUseBlock,
@@ -22,12 +23,21 @@ import {
   isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import { buildBackgroundAgentStartedEvent } from './background-started-event';
 import type {
   TransformerState,
   TransformerSessionId,
 } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasContentBlockType(value: unknown): value is { type: string } {
+  return isRecord(value) && typeof value['type'] === 'string';
+}
 
 export class AssistantMessageTransformer {
   transform(
@@ -39,10 +49,40 @@ export class AssistantMessageTransformer {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
     const events: FlatStreamEventUnion[] = [];
 
-    const content = (message.content || []) as unknown as Array<{
-      type: string;
-      [key: string]: unknown;
-    }>;
+    const content: ContentBlock[] = [];
+    const rawContent: unknown[] = message.content || [];
+    for (const rawBlock of rawContent) {
+      if (!hasContentBlockType(rawBlock)) {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Skipping malformed content block',
+          { block: rawBlock },
+        );
+        continue;
+      }
+
+      const block = rawBlock;
+      if (isTextBlock(block)) {
+        content.push(block);
+      } else if (isThinkingBlock(block)) {
+        content.push(block);
+      } else if (isToolUseBlock(block)) {
+        if (!isRecord(block.input)) {
+          helpers.logger.warn(
+            '[SdkMessageTransformer] Skipping tool_use content block with non-object input',
+            { block },
+          );
+          continue;
+        }
+        content.push(block);
+      } else if (isToolResultBlock(block)) {
+        content.push(block);
+      } else {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Skipping unsupported content block',
+          { block },
+        );
+      }
+    }
 
     const messageId = message?.id || uuid;
 
@@ -66,18 +106,6 @@ export class AssistantMessageTransformer {
       );
       state.clearActiveSkillToolUseIds();
     }
-
-    const messageStartEvent: MessageStartEvent = {
-      id: generateEventId(),
-      eventType: 'message_start',
-      timestamp: Date.now(),
-      sessionId,
-      source: 'complete' as EventSource,
-      messageId,
-      role: 'assistant',
-      parentToolUseId: parent_tool_use_id ?? undefined,
-    };
-    events.push(messageStartEvent);
 
     // If this assistant turn is itself running inside a workflow run (its
     // parent tool_use is a known run member), any subagent it dispatches
@@ -105,18 +133,20 @@ export class AssistantMessageTransformer {
           events.push(thinkingDeltaEvent);
         }
       } else if (isTextBlock(block)) {
-        const textDeltaEvent: TextDeltaEvent = {
-          id: generateEventId(),
-          eventType: 'text_delta',
-          timestamp: Date.now(),
-          sessionId,
-          source: 'complete' as EventSource,
-          messageId,
-          delta: block.text,
-          blockIndex: contentIndex,
-          parentToolUseId: parent_tool_use_id ?? undefined,
-        };
-        events.push(textDeltaEvent);
+        if (block.text) {
+          const textDeltaEvent: TextDeltaEvent = {
+            id: generateEventId(),
+            eventType: 'text_delta',
+            timestamp: Date.now(),
+            sessionId,
+            source: 'complete' as EventSource,
+            messageId,
+            delta: block.text,
+            blockIndex: contentIndex,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(textDeltaEvent);
+        }
       } else if (isToolUseBlock(block)) {
         const isTaskTool = isAgentDispatchTool(block.name);
 
@@ -244,20 +274,17 @@ export class AssistantMessageTransformer {
 
         events.push(toolStartEvent);
       } else if (isToolResultBlock(block)) {
-        const toolResultEvent: ToolResultEvent = {
-          id: generateEventId(),
-          eventType: 'tool_result',
-          timestamp: Date.now(),
-          sessionId,
-          source: 'complete' as EventSource,
-          messageId,
-          toolCallId: block.tool_use_id,
-          output: block.content,
-          isError: block.is_error ?? false,
-          parentToolUseId: parent_tool_use_id ?? undefined,
-        };
-        events.push(toolResultEvent);
-
+        // `background_agent_started` is pushed BEFORE the `tool_result` for the
+        // same tool_use id, and the order is load-bearing rather than
+        // incidental (TASK_2026_376 F2). The webview consumes this array in
+        // order, and `StreamingAccumulatorCore`'s `tool_result` branch guards
+        // against terminalising a still-running background agent with
+        // `isBackgroundAgent(toolCallId)` — which reads `BackgroundAgentStore`,
+        // which only this event populates. Emit the tool_result first and that
+        // guard is false BY CONSTRUCTION, leaving the check resting on a
+        // substring match against the SDK's placeholder wording; when that
+        // missed, the agent card showed `completed` while the agent kept
+        // working. Do not reorder these two pushes.
         if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
           const bgEvent = buildBackgroundAgentStartedEvent({
             toolCallId: block.tool_use_id,
@@ -281,8 +308,57 @@ export class AssistantMessageTransformer {
             },
           );
         }
+
+        const toolResultEvent: ToolResultEvent = {
+          id: generateEventId(),
+          eventType: 'tool_result',
+          timestamp: Date.now(),
+          sessionId,
+          source: 'complete' as EventSource,
+          messageId,
+          toolCallId: block.tool_use_id,
+          output: block.content,
+          isError: block.is_error ?? false,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+        };
+        events.push(toolResultEvent);
+      } else {
+        const unhandled: never = block;
+        helpers.logger.warn(
+          '[SdkMessageTransformer] Unhandled content block type',
+          {
+            type: (unhandled as { type?: string }).type,
+            messageId,
+          },
+        );
       }
     }
+
+    const turn =
+      !parent_tool_use_id && sessionId
+        ? helpers.turnState.markGenerating(sessionId)
+        : undefined;
+    const turnStateEvent =
+      turn && sessionId ? toTurnStateEvent(sessionId, turn) : undefined;
+
+    if (events.length === 0) {
+      helpers.logger.debug(
+        '[SdkMessageTransformer] Skipping assistant message without renderable events',
+        { messageId },
+      );
+      return turnStateEvent ? [turnStateEvent] : [];
+    }
+
+    const messageStartEvent: MessageStartEvent = {
+      id: generateEventId(),
+      eventType: 'message_start',
+      timestamp: Date.now(),
+      sessionId,
+      source: 'complete' as EventSource,
+      messageId,
+      role: 'assistant',
+      parentToolUseId: parent_tool_use_id ?? undefined,
+    };
 
     const tokenUsage =
       message.usage &&
@@ -316,8 +392,11 @@ export class AssistantMessageTransformer {
       model: message.model,
       parentToolUseId: parent_tool_use_id ?? undefined,
     };
-    events.push(messageCompleteEvent);
-
-    return events;
+    return [
+      ...(turnStateEvent ? [turnStateEvent] : []),
+      messageStartEvent,
+      ...events,
+      messageCompleteEvent,
+    ];
   }
 }

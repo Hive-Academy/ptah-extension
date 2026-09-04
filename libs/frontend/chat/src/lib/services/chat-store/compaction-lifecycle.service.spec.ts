@@ -1,5 +1,5 @@
 /**
- * CompactionLifecycleService specs â€” SDK session-compaction state machine.
+ * CompactionLifecycleService specs — SDK session-compaction state machine.
  *
  * Coverage:
  *   - handleCompactionStart writes inFlight=true on the conversation registry
@@ -11,10 +11,18 @@
  *   - clearCompactionStateForTab clears registry inFlight via tab→conv lookup
  *   - clearCompactionState(tabId) clears specified conversation + timeout
  *   - clearCompactionState(undefined) sweeps all in-flight conversations
+ *   - The safety net sits above a real large-session compaction (~2 min)
+ *   - Both compaction entry points BIND an unbound tab instead of skipping it
  *
  * `ConversationRegistry` is the single source of truth for compaction state.
  * Per-tab `isCompacting` writes are gone; this spec asserts registry writes
  * via `setCompactionState` instead.
+ *
+ * Two suites, deliberately: the first mocks the registries so individual calls
+ * are observable, the second (bottom of file) wires the REAL
+ * `ConversationRegistry` + `TabSessionBinding` — both are dependency-free
+ * signal stores — so the binding-recovery behaviour is genuinely exercised
+ * rather than asserted against a mock that was told to agree.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -51,6 +59,21 @@ const SESS_X = SessionId.create();
 // the canvas tile still points at it after an SDK session-id rotation.
 const SESS_ROTATED = SessionId.create();
 const NONEXISTENT_TAB_ID = SharedTabId.create();
+/**
+ * A tab that reaches compaction with NO conversation binding — deliberately
+ * absent from `tabToConv`. Branded rather than a bare string so the override
+ * typechecks against `Partial<TabState>`.
+ */
+const ORPHAN_TAB_ID = SharedTabId.create();
+
+/**
+ * Mirror of `CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS` (private).
+ * The net was raised from 120 000 because a manual `/compact` on a resumed
+ * 372-event / 333k-token session measured ~2 minutes and tripped the old
+ * ceiling, producing a false "event may have been lost" warning plus a
+ * duplicate reload when the genuine `compaction_complete` arrived.
+ */
+const SAFETY_TIMEOUT_MS = 600000;
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -88,23 +111,28 @@ describe('CompactionLifecycleService', () => {
   let setCompactionMarkerSummaryMock: jest.Mock;
   let conversationsMock: jest.Mock;
   let conversationForMock: jest.Mock;
+  let bindMock: jest.Mock;
   let tabsForMock: jest.Mock;
   let findContainingSessionMock: jest.Mock;
+  let createMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   // Each tab maps to a synthetic conversation id so registry writes are
-  // observable without standing up the real binding service.
-  const tabToConv: Record<string, ConversationId> = {
-    'tab-1': 'conv-1' as unknown as ConversationId,
-    'tab-2': 'conv-2' as unknown as ConversationId,
-    'tab-3': 'conv-3' as unknown as ConversationId,
-    // A canvas tile bound to the SAME conversation as `tab-1` (`conv-1`).
-    // Used by the fan-out widening regression tests below.
-    'tile-1': 'conv-1' as unknown as ConversationId,
-  };
+  // observable without standing up the real binding service. Rebuilt per test
+  // because the `bind` mock writes into it (the compaction path now
+  // establishes a binding for a tab that arrives unbound).
+  let tabToConv: Record<string, ConversationId>;
 
   beforeEach(() => {
     jest.useFakeTimers();
+    tabToConv = {
+      'tab-1': 'conv-1' as unknown as ConversationId,
+      'tab-2': 'conv-2' as unknown as ConversationId,
+      'tab-3': 'conv-3' as unknown as ConversationId,
+      // A canvas tile bound to the SAME conversation as `tab-1` (`conv-1`).
+      // Used by the fan-out widening regression tests below.
+      'tile-1': 'conv-1' as unknown as ConversationId,
+    };
     tabs = [makeTab()];
     applyCompactionTimeoutResetMock = jest.fn();
     applyCompactionCompleteMock = jest.fn();
@@ -136,6 +164,13 @@ describe('CompactionLifecycleService', () => {
     // Defaults to "no containing conversation"; individual tests override to
     // exercise the SDK session-id-rotation branch.
     findContainingSessionMock = jest.fn(() => null);
+    // The compaction path CREATES a conversation for a tab that reaches
+    // compaction still unbound (StreamRouter binds on the first routed chunk,
+    // which lands after both compaction notifications).
+    createMock = jest.fn(() => 'conv-created' as unknown as ConversationId);
+    bindMock = jest.fn((tabId: TabId, convId: ConversationId) => {
+      tabToConv[tabId as unknown as string] = convId;
+    });
 
     const tabManagerMock = {
       applyCompactionTimeoutReset: applyCompactionTimeoutResetMock,
@@ -164,11 +199,13 @@ describe('CompactionLifecycleService', () => {
       setCompactionMarkerSummary: setCompactionMarkerSummaryMock,
       conversations: conversationsMock,
       findContainingSession: findContainingSessionMock,
+      create: createMock,
     } as unknown as ConversationRegistry;
 
     const tabSessionBindingMock = {
       conversationFor: conversationForMock,
       tabsFor: tabsForMock,
+      bind: bindMock,
     } as unknown as TabSessionBinding;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
@@ -215,18 +252,28 @@ describe('CompactionLifecycleService', () => {
       service.handleCompactionStart(SESS_1);
       service.handleCompactionStart(SESS_1);
       // Advance time to verify only ONE timeout fires (the second one)
-      jest.advanceTimersByTime(120000);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fire the safety net at the old 120s ceiling — a real large-session compaction takes ~2 minutes', () => {
+      service.handleCompactionStart(SESS_1);
+      jest.advanceTimersByTime(120000);
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
+      expect(setStatusMock).not.toHaveBeenCalled();
+      // The net still exists — it just sits far above any legitimate run.
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS - 120000);
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
     });
 
     it('safety timeout resets tab fields, marks idle, sets sessionManager loaded', () => {
       service.handleCompactionStart(SESS_1);
-      jest.advanceTimersByTime(120000);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
       expect(warn).toHaveBeenCalledWith(
-        '[ChatStore] Compaction safety timeout reached â€” compaction_complete event may have been lost',
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     });
   });
@@ -811,15 +858,37 @@ describe('CompactionLifecycleService', () => {
       );
     });
 
-    it('warns and no-ops when tabs exist but none resolves to a conversation id', () => {
-      tabs = [makeTab({ id: 'tab-orphan', claudeSessionId: SESS_1 })];
+    it('creates and binds a conversation when tabs exist but none is bound, instead of dropping the stamp', () => {
+      // The PostCompact push lands before StreamRouter binds the tab, so the
+      // tab is legitimately unbound at this point. The old early return meant
+      // the compaction marker never received its summary.
+      tabs = [makeTab({ id: ORPHAN_TAB_ID, claudeSessionId: SESS_1 })];
 
       service.handleCompactionCompleteNotification(makePayload());
 
-      expect(markCompactionCompleteMock).not.toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledWith(
+      expect(createMock).toHaveBeenCalledWith(SESS_1);
+      expect(bindMock).toHaveBeenCalledWith(ORPHAN_TAB_ID, 'conv-created');
+      expect(markCompactionCompleteMock).toHaveBeenCalledWith(
+        'conv-created',
+        1_700_000_000_123,
+      );
+      expect(warn).not.toHaveBeenCalledWith(
         '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
-        { sessionId: SESS_1 },
+        expect.anything(),
+      );
+    });
+
+    it('reuses the conversation already containing the session rather than minting a second one', () => {
+      tabs = [makeTab({ id: ORPHAN_TAB_ID, claudeSessionId: SESS_1 })];
+      findContainingSessionMock.mockReturnValue({ id: tabToConv['tab-2'] });
+
+      service.handleCompactionCompleteNotification(makePayload());
+
+      expect(createMock).not.toHaveBeenCalled();
+      expect(bindMock).toHaveBeenCalledWith(ORPHAN_TAB_ID, tabToConv['tab-2']);
+      expect(markCompactionCompleteMock).toHaveBeenCalledWith(
+        tabToConv['tab-2'],
+        1_700_000_000_123,
       );
     });
 
@@ -860,7 +929,7 @@ describe('CompactionLifecycleService', () => {
       expect(setCompactionStateMock).toHaveBeenCalledWith(tabToConv['tab-1'], {
         inFlight: false,
       });
-      jest.advanceTimersByTime(120000);
+      jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
       // No safety-timeout reset call should appear
       expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
     });
@@ -885,5 +954,177 @@ describe('CompactionLifecycleService', () => {
         inFlight: false,
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unbound-tab binding recovery, exercised against the REAL `TabSessionBinding`
+// and `ConversationRegistry`.
+//
+// `TabSessionBinding.bind` is called only by `StreamRouter`, and only once a
+// routed stream event carries an `originTabId`. Both compaction notifications
+// arrive BEFORE the first routed chunk of the turn, so on a resumed session
+// every tab is still unbound at compaction time and the old read-only
+// resolution produced an empty conversation set: no `inFlight` write (the
+// banner had no registry source, only the safety timer) and no marker summary
+// stamp (the compaction marker rendered without its recap text).
+//
+// Both services are pure signal stores with no dependencies, so using the real
+// ones — rather than mocks agreeing with the assertion — is what makes these
+// tests evidence that the binding is genuinely established.
+// ---------------------------------------------------------------------------
+describe('CompactionLifecycleService — unbound-tab binding recovery (real registries)', () => {
+  const TAB_ID = SharedTabId.create();
+  const SESS = SessionId.create();
+
+  let service: CompactionLifecycleService;
+  let registry: ConversationRegistry;
+  let binding: TabSessionBinding;
+  let tabs: TabState[];
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    jest.useFakeTimers();
+    tabs = [makeTab({ id: TAB_ID, claudeSessionId: SESS })];
+    warn = jest.spyOn(console, 'warn').mockImplementation();
+
+    const tabManagerMock = {
+      applyCompactionTimeoutReset: jest.fn(),
+      applyCompactionComplete: jest.fn(),
+      findTabsBySessionId: jest.fn((sessionId: string) =>
+        tabs.filter((t) => t.claudeSessionId === sessionId),
+      ),
+      markTabIdle: jest.fn(),
+      tabs: () => tabs,
+    } as unknown as TabManagerService;
+
+    TestBed.configureTestingModule({
+      providers: [
+        CompactionLifecycleService,
+        ConversationRegistry,
+        TabSessionBinding,
+        { provide: TabManagerService, useValue: tabManagerMock },
+        {
+          provide: SessionManager,
+          useValue: { setStatus: jest.fn() } as unknown as SessionManager,
+        },
+        {
+          provide: ExecutionTreeBuilderService,
+          useValue: {
+            clearCache: jest.fn(),
+          } as unknown as ExecutionTreeBuilderService,
+        },
+        {
+          provide: SessionLoaderService,
+          useValue: {
+            switchSession: jest.fn().mockResolvedValue(undefined),
+          } as unknown as SessionLoaderService,
+        },
+      ],
+    });
+    service = TestBed.inject(CompactionLifecycleService);
+    registry = TestBed.inject(ConversationRegistry);
+    binding = TestBed.inject(TabSessionBinding);
+  });
+
+  afterEach(() => {
+    // Cancel the pending safety timer so it cannot leak into the next test.
+    service.clearCompactionState();
+    warn.mockRestore();
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  it('(a) handleCompactionStart records inFlight on a conversation it creates for an unbound tab', () => {
+    expect(binding.conversationFor(TAB_ID)).toBeNull();
+    expect(registry.conversations()).toHaveLength(0);
+
+    service.handleCompactionStart(SESS);
+
+    const convId = binding.conversationFor(TAB_ID);
+    expect(convId).not.toBeNull();
+    // The conversation is seeded with the compacting session, so a later
+    // `findContainingSession` resolves the same thread.
+    expect(registry.getRecord(convId as ConversationId)?.sessions).toEqual([
+      SESS,
+    ]);
+    expect(registry.compactionStateFor(convId as ConversationId)).toEqual(
+      expect.objectContaining({ inFlight: true }),
+    );
+  });
+
+  it('(a) handleCompactionStart reuses an existing conversation that already contains the session', () => {
+    const existing = registry.create(SESS);
+
+    service.handleCompactionStart(SESS);
+
+    expect(registry.conversations()).toHaveLength(1);
+    expect(binding.conversationFor(TAB_ID)).toBe(existing);
+    expect(registry.compactionStateFor(existing)).toEqual(
+      expect.objectContaining({ inFlight: true }),
+    );
+  });
+
+  it('(b) handleCompactionCompleteNotification stamps the marker summary for an unbound tab', () => {
+    service.handleCompactionCompleteNotification({
+      sessionId: SESS,
+      cwd: '/workspace',
+      trigger: 'manual',
+      compactSummary: 'the recap text',
+      timestamp: 1_700_000_000_123,
+    });
+
+    const convId = binding.conversationFor(TAB_ID);
+    expect(convId).not.toBeNull();
+    expect(registry.compactionMarkerFor(convId as ConversationId)).toEqual(
+      expect.objectContaining({
+        summary: 'the recap text',
+        completedAt: 1_700_000_000_123,
+      }),
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
+      expect.anything(),
+    );
+  });
+
+  it('start then complete-notification resolve to the SAME conversation and clear inFlight', () => {
+    service.handleCompactionStart(SESS);
+    const convId = binding.conversationFor(TAB_ID) as ConversationId;
+
+    service.handleCompactionCompleteNotification({
+      sessionId: SESS,
+      cwd: '/workspace',
+      trigger: 'manual',
+      compactSummary: 'recap',
+      timestamp: 1_700_000_000_456,
+    });
+
+    // No second conversation minted — the tab was bound by the start handler.
+    expect(registry.conversations()).toHaveLength(1);
+    expect(binding.conversationFor(TAB_ID)).toBe(convId);
+    expect(registry.compactionStateFor(convId)).toEqual(
+      expect.objectContaining({ inFlight: false }),
+    );
+    expect(registry.compactionMarkerFor(convId)?.summary).toBe('recap');
+  });
+
+  it('still no-ops when the session has no tab at all — that case is unchanged', () => {
+    const orphanSession = SessionId.create();
+
+    service.handleCompactionCompleteNotification({
+      sessionId: orphanSession,
+      cwd: '/workspace',
+      trigger: 'auto',
+      compactSummary: 'recap',
+      timestamp: 1_700_000_000_789,
+    });
+
+    expect(registry.conversations()).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith(
+      '[ChatStore] handleCompactionCompleteNotification: no tab bound to sessionId',
+      { sessionId: orphanSession },
+    );
   });
 });

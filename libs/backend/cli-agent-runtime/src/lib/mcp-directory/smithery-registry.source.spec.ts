@@ -150,6 +150,38 @@ describe('SmitheryRegistrySource', () => {
     expect(detail).toBeNull();
   });
 
+  it('keeps a detail entry whose security is null (TASK_2026_379)', async () => {
+    // The registry sends `security: null` for a server it has not scanned —
+    // measured 2026-09-04 on hubspot, exa and gmail. The schema used
+    // `.optional()`, which accepts only `undefined`, so the parse failed and
+    // `mapDetailEntry` dropped the WHOLE entry. The user saw an install that
+    // could not resolve its connection, and the only trace was one warning
+    // line: "dropping malformed detail entry".
+    mockFetchOnce({
+      qualifiedName: 'hubspot',
+      displayName: 'HubSpot',
+      description: 'Access your HubSpot CRM.',
+      security: null,
+      connections: [
+        {
+          type: 'http',
+          deploymentUrl: 'https://hubspot.run.tools',
+          configSchema: {},
+        },
+      ],
+    });
+
+    const detail = await makeSource('k').getServerDetails('hubspot');
+
+    expect(detail).not.toBeNull();
+    expect(detail?.name).toBe('hubspot');
+    expect(detail?.scanPassed).toBeUndefined();
+    // The connection is what the install path needs; losing it was the defect.
+    expect(detail?.connections?.[0]?.deploymentUrl).toBe(
+      'https://hubspot.run.tools',
+    );
+  });
+
   it('maps detail connections/configSchema and security.scanPassed', async () => {
     const fetchMock = mockFetchOnce({
       qualifiedName: '@owner/detailed',

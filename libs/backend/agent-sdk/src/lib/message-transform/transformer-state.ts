@@ -38,6 +38,16 @@ export interface TransformerState {
   getMessageId(contextKey: string): string | undefined;
   getCurrentModel(contextKey: string): string | undefined;
   getToolCallId(contextKey: string, blockIndex: number): string | undefined;
+  /**
+   * True when the context's active message was SYNTHESIZED by the transformer
+   * because a `content_block_start` arrived before any `message_start` (D-5c).
+   *
+   * A real `message_start` that follows describes the SAME message. Without
+   * this flag it would open a second envelope under a new id and clear the
+   * block-index → tool-call-id map, orphaning every later `input_json_delta`
+   * from the `tool_start` already emitted. Cleared with the message id.
+   */
+  isMessageSynthesized(contextKey: string): boolean;
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
   /** What the spawning tool_use block knew; undefined when not a tracked spawn. */
   getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined;
@@ -56,7 +66,10 @@ export interface TransformerState {
   getWorkflowRun(toolUseId: string): WorkflowRunInfo | undefined;
 
   setMessageId(contextKey: string, messageId: string): void;
+  /** Clears the message id AND the synthesized mark for `contextKey`. */
   clearMessageId(contextKey: string): void;
+  markMessageSynthesized(contextKey: string): void;
+  clearMessageSynthesized(contextKey: string): void;
   setCurrentModel(contextKey: string, model: string): void;
   clearCurrentModel(contextKey: string): void;
   setToolCallId(

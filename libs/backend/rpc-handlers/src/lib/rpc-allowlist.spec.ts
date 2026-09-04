@@ -108,3 +108,24 @@ describe('RPC allowlist dual-registration guard', () => {
     }
   });
 });
+
+describe('wizard:get-resumable-run registration (TASK_2026_361)', () => {
+  // Dual-registration, spelled out for the one method this task added:
+  // compile-time registry (shared), handler manifest ownership (setup), and
+  // the runtime prefix guard — which `wizard:` already satisfied and which
+  // this task deliberately did NOT touch.
+  it('is in the shared RPC registry', () => {
+    expect(RPC_METHOD_NAMES).toContain('wizard:get-resumable-run');
+  });
+
+  it('is owned by the setup handler manifest entry and no other', () => {
+    const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+      (entry.methods as readonly string[]).includes('wizard:get-resumable-run'),
+    ).map((entry) => entry.key);
+    expect(owners).toEqual(['setup']);
+  });
+
+  it('is accepted by the existing `wizard:` runtime prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('wizard:');
+  });
+});

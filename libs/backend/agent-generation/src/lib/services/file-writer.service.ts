@@ -1,23 +1,35 @@
 /**
  * Agent File Writer Service
  *
- * Service for writing generated agents to the filesystem with atomic operations
- * and directory creation support.
+ * Service for writing generated agents to the filesystem through the
+ * platform file-system port, with directory creation and path-traversal
+ * protection.
  *
- * Implements the IAgentFileWriterService interface with robust error handling
- * and security features including path traversal protection.
+ * A write is idempotent: when the target already holds exactly the generated
+ * bytes the file is left alone and the result says `unchanged`; otherwise it
+ * is overwritten and the result says `written`.
  *
  * @module @ptah-extension/agent-generation/services
  */
 
 import { injectable, inject } from 'tsyringe';
-import { mkdir, writeFile, unlink } from 'fs/promises';
+import { homedir } from 'os';
 import { dirname, join, normalize } from 'path';
+import {
+  PLATFORM_TOKENS,
+  type IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
 import { GeneratedAgent } from '../types/core.types';
 import { FileWriteError } from '../errors/file-write.error';
+
+/** Outcome of one agent write. */
+export type AgentWriteResult = {
+  filePath: string;
+  status: 'written' | 'unchanged';
+};
 
 /**
  * Service for writing generated agents to the filesystem.
@@ -25,16 +37,9 @@ import { FileWriteError } from '../errors/file-write.error';
  * Responsibilities:
  * - Write agent files to .claude/agents/ or .claude/commands/ directory
  * - Overwrite existing files in place (no backup — avoids duplicate agent .md files)
- * - Directory creation if missing
+ * - Skip the write when the existing bytes already match (`unchanged`)
+ * - Directory creation if missing (explicit, through the port)
  * - Path traversal protection (reject attempts to write outside .claude/)
- *
- * @example
- * ```typescript
- * const result = await fileWriter.writeAgent(generatedAgent);
- * if (result.isOk()) {
- *   console.log(`Agent written to: ${result.value}`);
- * }
- * ```
  */
 @injectable()
 export class AgentFileWriterService implements IAgentFileWriterService {
@@ -43,80 +48,51 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    */
   private readonly MAX_PATH_LENGTH = 260;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fs: IFileSystemProvider,
+  ) {
     this.logger.debug('AgentFileWriterService initialized');
   }
 
   /**
    * Write a generated agent to its target path.
    *
-   * Performs the following operations atomically:
-   * 1. Validate file path (security check for path traversal)
-   * 2. Validate content is non-empty
+   * 1. Validate content is non-empty
+   * 2. Validate file path (security check for path traversal)
    * 3. Create target directory if it doesn't exist
-   * 4. Write new content to target path (overwrites existing)
+   * 4. Read the existing target; equal bytes -> `unchanged`, no write
+   * 5. Otherwise write the new content -> `written`
    *
    * @param agent - Generated agent with content and target file path
-   * @returns Result containing absolute file path where agent was written, or Error
-   *
-   * @example
-   * ```typescript
-   * const result = await service.writeAgent(generatedAgent);
-   * if (result.isErr()) {
-   *   console.error('Failed to write agent:', result.error);
-   *   return;
-   * }
-   *
-   * const filePath = result.value;
-   * console.log(`Agent successfully written to: ${filePath}`);
-   * ```
+   * @returns Result with the absolute file path and its write status, or Error
    */
-  async writeAgent(agent: GeneratedAgent): Promise<Result<string, Error>> {
+  async writeAgent(
+    agent: GeneratedAgent,
+  ): Promise<Result<AgentWriteResult, Error>> {
     try {
       this.logger.debug('Writing agent to filesystem', {
         filePath: agent.filePath,
         templateId: agent.sourceTemplateId,
         contentLength: agent.content.length,
       });
-      if (!agent.content || agent.content.trim().length === 0) {
-        return Result.err(
-          new FileWriteError(
-            'Agent content cannot be empty',
-            agent.filePath,
-            'write',
-            { templateId: agent.sourceTemplateId },
-          ),
-        );
+      const prepared = this.prepare(agent);
+      if (prepared.isErr()) {
+        return Result.err(prepared.error!);
       }
-      const pathValidation = this.validateFilePath(agent.filePath);
-      if (pathValidation.isErr()) {
-        return Result.err(pathValidation.error!);
-      }
-      const absolutePath = this.resolveAbsolutePath(agent.filePath);
+      const absolutePath = prepared.value!;
       const dirResult = await this.ensureDirectoryExists(absolutePath);
       if (dirResult.isErr()) {
         return Result.err(dirResult.error!);
       }
-      try {
-        await writeFile(absolutePath, agent.content, 'utf-8');
-        this.logger.info('Agent written successfully', {
-          filePath: absolutePath,
-        });
-      } catch (error) {
-        return this.handleFileSystemError(
-          error,
-          agent.filePath,
-          'write',
-          'Failed to write agent file',
-        );
-      }
-
-      return Result.ok(absolutePath);
-    } catch (error) {
-      this.logger.error('Unexpected error writing agent', error as Error);
+      return await this.writeIfChanged(agent, absolutePath);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Unexpected error writing agent', err);
       return Result.err(
         new FileWriteError(
-          `Unexpected error writing agent: ${(error as Error).message}`,
+          `Unexpected error writing agent: ${err.message}`,
           agent.filePath,
           'write',
         ),
@@ -125,35 +101,18 @@ export class AgentFileWriterService implements IAgentFileWriterService {
   }
 
   /**
-   * Write multiple agents atomically.
+   * Write multiple agents sequentially.
    *
-   * Writes all agents sequentially. If any write fails, previously written
-   * files in this batch are cleaned up. Existing files are overwritten in place.
-   *
-   * Write order:
-   * 1. Validate all agents (paths, content)
-   * 2. Create all necessary directories
-   * 3. Write all new files (overwrite existing)
-   * 4. On failure: delete partial writes
+   * All agents are validated and their directories created before any write.
+   * If a write fails, files this batch newly WROTE are removed again; files
+   * that were `unchanged` already existed and are left alone.
    *
    * @param agents - Array of generated agents to write
-   * @returns Result containing array of absolute file paths written, or Error
-   *
-   * @example
-   * ```typescript
-   * const result = await service.writeAgentsBatch(generatedAgents);
-   * if (result.isErr()) {
-   *   console.error('Batch write failed (rolled back):', result.error);
-   *   return;
-   * }
-   *
-   * const filePaths = result.value;
-   * console.log(`Successfully wrote ${filePaths.length} agents`);
-   * ```
+   * @returns Result containing one write result per agent, or Error
    */
   async writeAgentsBatch(
     agents: GeneratedAgent[],
-  ): Promise<Result<string[], Error>> {
+  ): Promise<Result<AgentWriteResult[], Error>> {
     if (agents.length === 0) {
       this.logger.debug('Empty agents array provided, returning empty result');
       return Result.ok([]);
@@ -161,29 +120,17 @@ export class AgentFileWriterService implements IAgentFileWriterService {
 
     this.logger.debug('Writing agents batch', { count: agents.length });
 
-    const writtenPaths: string[] = [];
+    const results: AgentWriteResult[] = [];
 
     try {
+      const absolutePaths: string[] = [];
       for (const agent of agents) {
-        if (!agent.content || agent.content.trim().length === 0) {
-          return Result.err(
-            new FileWriteError(
-              `Agent content cannot be empty: ${agent.filePath}`,
-              agent.filePath,
-              'write',
-              { templateId: agent.sourceTemplateId },
-            ),
-          );
+        const prepared = this.prepare(agent);
+        if (prepared.isErr()) {
+          return Result.err(prepared.error!);
         }
-
-        const pathValidation = this.validateFilePath(agent.filePath);
-        if (pathValidation.isErr()) {
-          return Result.err(pathValidation.error!);
-        }
+        absolutePaths.push(prepared.value!);
       }
-      const absolutePaths = agents.map((agent) =>
-        this.resolveAbsolutePath(agent.filePath),
-      );
 
       for (const absolutePath of absolutePaths) {
         const dirResult = await this.ensureDirectoryExists(absolutePath);
@@ -194,50 +141,115 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i];
         const absolutePath = absolutePaths[i];
-
-        try {
-          await writeFile(absolutePath, agent.content, 'utf-8');
-          writtenPaths.push(absolutePath);
-          this.logger.debug('Agent written in batch', {
-            filePath: absolutePath,
-            index: i + 1,
-            total: agents.length,
-          });
-        } catch (error) {
-          for (const written of writtenPaths) {
-            try {
-              await unlink(written);
-            } catch {
-              this.logger.error('Failed to clean up partial write', {
-                path: written,
-              });
-            }
-          }
-
-          return this.handleFileSystemError(
-            error,
-            agent.filePath,
-            'write',
-            `Failed to write agent file in batch (index ${i})`,
+        const writeResult = await this.writeIfChanged(agent, absolutePath);
+        if (writeResult.isErr()) {
+          await this.rollback(results);
+          return Result.err(
+            new FileWriteError(
+              `Failed to write agent file in batch (index ${i}): ${writeResult.error!.message}`,
+              agent.filePath,
+              'write',
+            ),
           );
         }
+        results.push(writeResult.value!);
+        this.logger.debug('Agent written in batch', {
+          filePath: absolutePath,
+          status: writeResult.value!.status,
+          index: i + 1,
+          total: agents.length,
+        });
       }
 
       this.logger.info('Agents batch written successfully', {
-        count: writtenPaths.length,
+        count: results.length,
+        written: results.filter((r) => r.status === 'written').length,
+        unchanged: results.filter((r) => r.status === 'unchanged').length,
       });
 
-      return Result.ok(writtenPaths);
-    } catch (error) {
-      this.logger.error('Unexpected error in batch write', error as Error);
+      return Result.ok(results);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Unexpected error in batch write', err);
 
       return Result.err(
         new FileWriteError(
-          `Unexpected error writing agents batch: ${(error as Error).message}`,
+          `Unexpected error writing agents batch: ${err.message}`,
           agents[0]?.filePath || 'unknown',
           'write',
         ),
       );
+    }
+  }
+
+  /**
+   * Validate content and path, and resolve the absolute target path.
+   */
+  private prepare(agent: GeneratedAgent): Result<string, Error> {
+    if (!agent.content || agent.content.trim().length === 0) {
+      return Result.err(
+        new FileWriteError(
+          `Agent content cannot be empty: ${agent.filePath}`,
+          agent.filePath,
+          'write',
+          { templateId: agent.sourceTemplateId },
+        ),
+      );
+    }
+    const pathValidation = this.validateFilePath(agent.filePath);
+    if (pathValidation.isErr()) {
+      return Result.err(pathValidation.error!);
+    }
+    return Result.ok(this.resolveAbsolutePath(agent.filePath));
+  }
+
+  /**
+   * Compare the existing target with the generated content and write only
+   * when they differ.
+   */
+  private async writeIfChanged(
+    agent: GeneratedAgent,
+    absolutePath: string,
+  ): Promise<Result<AgentWriteResult, Error>> {
+    let existing: string | null = null;
+    try {
+      existing = await this.fs.readFile(absolutePath);
+    } catch {
+      existing = null;
+    }
+    if (existing !== null && existing === agent.content) {
+      this.logger.info('Agent already current, skipping write', {
+        filePath: absolutePath,
+      });
+      return Result.ok({ filePath: absolutePath, status: 'unchanged' });
+    }
+    try {
+      await this.fs.writeFile(absolutePath, agent.content);
+      this.logger.info('Agent written successfully', {
+        filePath: absolutePath,
+      });
+      return Result.ok({ filePath: absolutePath, status: 'written' });
+    } catch (error: unknown) {
+      return this.handleFileSystemError(
+        error,
+        agent.filePath,
+        'write',
+        'Failed to write agent file',
+      );
+    }
+  }
+
+  /** Remove files this batch newly wrote after a later write failed. */
+  private async rollback(results: AgentWriteResult[]): Promise<void> {
+    for (const result of results) {
+      if (result.status !== 'written') continue;
+      try {
+        await this.fs.delete(result.filePath);
+      } catch {
+        this.logger.error('Failed to clean up partial write', {
+          path: result.filePath,
+        });
+      }
     }
   }
 
@@ -248,9 +260,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * - Path must be within .claude/ directory
    * - No path traversal attempts (../)
    * - Path length within OS limits
-   *
-   * @param filePath - File path to validate (relative or absolute)
-   * @returns Result.ok() if valid, Result.err() if invalid
    */
   private validateFilePath(filePath: string): Result<void, Error> {
     try {
@@ -291,10 +300,10 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       }
 
       return Result.ok(undefined);
-    } catch (error) {
+    } catch (error: unknown) {
       return Result.err(
         new FileWriteError(
-          `Failed to validate file path: ${(error as Error).message}`,
+          `Failed to validate file path: ${error instanceof Error ? error.message : String(error)}`,
           filePath,
           'write',
         ),
@@ -304,10 +313,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
 
   /**
    * Resolve file path to absolute path.
-   * If path is relative, assumes it's relative to workspace root.
-   *
-   * @param filePath - Relative or absolute file path
-   * @returns Absolute file path
+   * If path is relative, assumes it's relative to the home directory.
    */
   private resolveAbsolutePath(filePath: string): string {
     if (filePath.startsWith('/') || /^[A-Za-z]:/.test(filePath)) {
@@ -316,24 +322,22 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     this.logger.warn(
       `[FileWriter] Relative path "${filePath}" — resolving against homedir. Caller should provide absolute path.`,
     );
-    return normalize(join(require('os').homedir(), filePath));
+    return normalize(join(homedir(), filePath));
   }
 
   /**
-   * Ensure directory exists, creating it recursively if needed.
-   *
-   * @param filePath - File path (directory will be extracted)
-   * @returns Result.ok() if directory exists or created, Result.err() on failure
+   * Ensure the parent directory exists through the port. Explicit because
+   * the VS Code adapter's `writeFile()` does not create parents.
    */
   private async ensureDirectoryExists(
     filePath: string,
   ): Promise<Result<void, Error>> {
     try {
       const dir = dirname(filePath);
-      await mkdir(dir, { recursive: true });
+      await this.fs.createDirectory(dir);
       this.logger.debug('Directory ensured', { directory: dir });
       return Result.ok(undefined);
-    } catch (error) {
+    } catch (error: unknown) {
       return this.handleFileSystemError(
         error,
         filePath,
@@ -345,12 +349,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
 
   /**
    * Handle file system errors and convert to FileWriteError with appropriate context.
-   *
-   * @param error - Caught error
-   * @param filePath - File path involved
-   * @param operation - Operation being performed
-   * @param message - Human-readable error message
-   * @returns Result.err with FileWriteError
    */
   private handleFileSystemError(
     error: unknown,
@@ -358,7 +356,10 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     operation: 'write' | 'mkdir',
     message: string,
   ): Result<never, Error> {
-    const nodeError = error as NodeJS.ErrnoException;
+    const nodeError =
+      error instanceof Error
+        ? (error as NodeJS.ErrnoException)
+        : (new Error(String(error)) as NodeJS.ErrnoException);
     let errorMessage = message;
     const context: Record<string, unknown> = { code: nodeError.code };
 

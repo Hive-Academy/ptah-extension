@@ -8,16 +8,49 @@ description: Connect OAuth-secured remote MCP servers — authorize in your brow
 ## Connecting an app
 
 1. Open **Marketplace → Connected Apps**.
-2. Paste the server URL into the **Connect an OAuth MCP server** field (for example `https://mcp.notion.com/mcp`). Quick-connect chips for **Sentry**, **Notion** and **Linear** fill the field for you — the URL box is always the source of truth, so you can edit or replace whatever a chip inserts.
+2. Paste the server URL into the **Connect an OAuth MCP server** field (for example `https://mcp.notion.com/mcp`). Quick-connect chips for **Sentry**, **Notion**, **Linear** and **HubSpot** fill the field for you — the URL box is always the source of truth, so you can edit or replace whatever a chip inserts. Choosing **HubSpot** — or pasting any server URL that needs its own app — opens **Advanced** automatically.
 3. Optionally give the connection a **friendly name**. Without one, Ptah uses the server's hostname.
 4. Click **Connect**. Your system browser opens on the provider's authorization page.
 5. Approve the request. The browser hands the result back to Ptah, which finishes the exchange and adds the server to the **Connected apps** list.
 
 The button shows **Connecting…** for the whole round-trip — it stays pending until authorization completes or fails, so there is nothing to poll or re-click. You have **five minutes** to finish in the browser before the attempt times out.
 
-### Advanced: pre-registered client credentials
+## Two kinds of OAuth servers
 
-Most authorization servers let Ptah register itself automatically, so the **Advanced** section stays collapsed and empty. Open it only when a server does **not** support automatic app registration — then paste the **Client ID** (and **Client Secret**, if the server issued one) you were given. Without a Client ID, a server that lacks automatic registration refuses the connection and says so in the error banner.
+Some servers let Ptah register itself automatically. Others need you to create an app with the provider first and hand Ptah its credentials.
+
+| Kind                       | Examples               | What you do                                                                                                                |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Automatic registration** | Sentry, Notion, Linear | Paste the server URL and click **Connect**. **Advanced** stays collapsed and empty.                                        |
+| **Pre-registered app**     | HubSpot                | Create an app with the provider, register Ptah's redirect URL in it, and paste the client ID and secret into **Advanced**. |
+
+Without a client ID, a server that needs a pre-registered app refuses the connection and says so in the error banner.
+
+:::tip
+A Smithery-hosted server URL, such as `https://server.smithery.ai/<name>/mcp`, is an automatic-registration server too. Paste it here to connect straight to that one server through your browser — no Smithery API key, no vendor app. This is a different path from the [Smithery](/marketplace/smithery/) provider, which manages a whole catalog behind one key.
+:::
+
+### Connecting a server that needs an app (HubSpot example)
+
+1. Open **Marketplace → Connected Apps**.
+2. Click the **HubSpot** chip, or paste `https://mcp.hubspot.com`. Either opens **Advanced** for you.
+3. Copy the **Redirect URL** shown in **Advanced**.
+4. In HubSpot, go to **Development → MCP Auth Apps → Create MCP auth app**, and register that redirect URL. Scopes are chosen later, during install — not on this app.
+5. Copy the **client ID** and **client secret** from the app's details page into Ptah's **Advanced** fields.
+6. Click **Connect** and approve the request in your browser.
+
+### Redirect URL by host
+
+| Host                           | Redirect URL                                                    |
+| ------------------------------ | --------------------------------------------------------------- |
+| Desktop app (Electron) and CLI | `http://127.0.0.1:41739/callback`                               |
+| VS Code                        | `vscode://ptah-extensions.ptah-coding-orchestra/oauth-callback` |
+
+The desktop app and CLI use a fixed port so it can be registered ahead of time. If another process holds that port, connecting to a pre-registered server fails with an error naming the port; servers with automatic registration are unaffected. In Cursor or another VS Code fork, the scheme differs — copy the value **Advanced** shows rather than typing it by hand.
+
+:::note
+The redirect URL is the one thing the provider needs to know about Ptah. The client secret you paste into **Advanced** is stored the same way as connection tokens — in Ptah's encrypted secret store, never in a plaintext file.
+:::
 
 ## The connected list
 
@@ -33,7 +66,7 @@ Rows that are not **Connected** get a **Reconnect** button, which re-runs the sa
 
 ## When a connection takes effect
 
-Connected servers are attached to chat sessions **at session start**. Connect an app and your next new chat gets its tools; a session already running does not pick it up. On each session start Ptah re-reads the connected list and refreshes any access token that is close to expiring.
+Connected servers are attached to chat sessions **at session start**, and this needs no restart of Ptah. Connect an app and your next new chat gets its tools right away; a session already running does not pick it up. Ptah reads the connected list fresh at the start of every session — not once at launch — and refreshes any access token that is close to expiring at the same time.
 
 A server whose token is missing or can no longer be refreshed simply contributes nothing to that session rather than failing the chat — if an app's tools are missing, check its badge here and hit **Reconnect**.
 

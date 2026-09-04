@@ -15,7 +15,7 @@ import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
  *   based on streaming state of the target tab; auto-denies in-flight permissions with the
  *   user's content as `deny_with_message` reason
  * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
- *   non-Anthropic providers â€” those commands require Claude-specific model behaviour
+ *   non-Anthropic providers — those commands require Claude-specific model behaviour
  * - sendQueuedMessage: post-streaming queue flush via
  *   MessageSenderService.continueExistingSessionForQueueFlush, forwarding the
  *   stored queuedOptions (files + images + effort) so queued attachments reach

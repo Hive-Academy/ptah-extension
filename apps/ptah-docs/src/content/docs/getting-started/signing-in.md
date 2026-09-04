@@ -27,15 +27,17 @@ Community is fully free and open source, with **no gating** on any local feature
 
 ## Entering a license key
 
-If you're a Ptah Builders member (or hold a legacy key), you can attach it to the desktop app:
+There is no license prompt anywhere in the first-run flow. If you're a Ptah Builders member (or hold a legacy key), attach it from Settings whenever you like:
 
-1. Open **Settings → License** (or click **Enter license key** on the welcome screen).
-2. Paste the key you received by email.
-3. Click **Activate**.
+1. Open **Settings**. The **Membership** card sits at the top of the page — it reads **Community** until a key or sign-in is attached.
+2. Click **Enter Membership Key**.
+3. Paste the key you received by email, then click **Activate**.
 
 Ptah validates the key against the license server, then stores it in your operating system's secure credential store using Electron's `safeStorage` API. The key is never written to a plain-text settings file.
 
-![License activation panel](/screenshots/license-activate.png)
+:::note[The window reloads]
+Activating or clearing a key reloads the Ptah window a moment later, so the whole app picks up the new membership state. Any unsent chat input is lost, so finish your turn first.
+:::
 
 ## Configuring providers
 

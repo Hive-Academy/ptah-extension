@@ -272,7 +272,13 @@ describe('ptah wizard submit-selection', () => {
     setImmediate(() => {
       engine.pushAdapter.emit('setup-wizard:generation-complete', {
         success: true,
-        generatedCount: 2,
+        outputDirectory: '/ws/.claude/agents',
+        writtenCount: 2,
+        unchangedCount: 0,
+        failedCount: 0,
+        rejectedSections: 0,
+        tailoredSections: 0,
+        agents: [],
       });
     });
 
@@ -325,7 +331,13 @@ describe('ptah wizard submit-selection', () => {
     setImmediate(() => {
       engine.pushAdapter.emit('setup-wizard:generation-complete', {
         success: false,
-        generatedCount: 0,
+        outputDirectory: '/ws/.claude/agents',
+        writtenCount: 0,
+        unchangedCount: 0,
+        failedCount: 1,
+        rejectedSections: 0,
+        tailoredSections: 0,
+        agents: [],
         errors: ['template missing'],
       });
     });

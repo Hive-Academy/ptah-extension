@@ -279,7 +279,13 @@ describe('ptah setup — happy path', () => {
       setImmediate(() => {
         engine.pushAdapter.emit('setup-wizard:generation-complete', {
           success: true,
-          generatedCount: 2,
+          outputDirectory: '/ws/.claude/agents',
+          writtenCount: 2,
+          unchangedCount: 0,
+          failedCount: 0,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          agents: [],
         });
       });
     });
@@ -365,7 +371,13 @@ describe('ptah setup — happy path', () => {
       setImmediate(() =>
         engine.pushAdapter.emit('setup-wizard:generation-complete', {
           success: true,
-          generatedCount: 2,
+          outputDirectory: '/ws/.claude/agents',
+          writtenCount: 2,
+          unchangedCount: 0,
+          failedCount: 0,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          agents: [],
         }),
       );
     });
@@ -385,7 +397,9 @@ describe('ptah setup — happy path', () => {
       (installCall?.params as { agentFiles: string[] }).agentFiles,
     ).not.toContain('creative.md');
 
-    // submit-selection forwards selectedAgentIds + analysisData + analysisDir.
+    // submit-selection forwards selectedAgentIds + analysisDir. `analysisData`
+    // is deliberately not sent — this phase holds a multi-phase response, not
+    // a `ProjectAnalysisResult` (TASK_2026_361).
     const submitCall = engine.rpcCalls.find(
       (c) => c.method === 'wizard:submit-selection',
     );
@@ -550,7 +564,22 @@ describe('ptah setup — phase 4 (generate) broadcast failure', () => {
       setImmediate(() =>
         engine.pushAdapter.emit('setup-wizard:generation-complete', {
           success: false,
-          generatedCount: 0,
+          outputDirectory: '/ws/.claude/agents',
+          writtenCount: 0,
+          unchangedCount: 0,
+          failedCount: 1,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          agents: [
+            {
+              agentId: 'architect',
+              filePath: '/ws/.claude/agents/architect.md',
+              status: 'failed',
+              rejectedSections: 0,
+              tailoredSections: 0,
+              error: 'template missing',
+            },
+          ],
           errors: ['template missing'],
         }),
       );
@@ -668,7 +697,13 @@ describe('ptah setup — phase 4 progress forwarding', () => {
         });
         engine.pushAdapter.emit('setup-wizard:generation-complete', {
           success: true,
-          generatedCount: 2,
+          outputDirectory: '/ws/.claude/agents',
+          writtenCount: 2,
+          unchangedCount: 0,
+          failedCount: 0,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          agents: [],
         });
       });
     });

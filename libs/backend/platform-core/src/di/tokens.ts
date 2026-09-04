@@ -102,4 +102,13 @@ export const PLATFORM_TOKENS = {
    * Registered only by hosts whose profile sets `appUpdater: true`.
    */
   APP_UPDATER: Symbol.for('PlatformAppUpdater'),
+
+  /**
+   * ICallerWorkspaceResolver — workspace root of the in-flight MCP tool call.
+   * Implementation: `McpCallerWorkspaceResolver` (vscode-lm-tools), registered
+   * only by hosts that run the in-process HTTP MCP server (VS Code, Electron).
+   * Unregistered (CLI host, unit tests), consumers fall back to
+   * WORKSPACE_PROVIDER unchanged.
+   */
+  CALLER_WORKSPACE_RESOLVER: Symbol.for('PlatformCallerWorkspaceResolver'),
 } as const;

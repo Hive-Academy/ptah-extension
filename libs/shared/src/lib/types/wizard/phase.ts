@@ -182,6 +182,16 @@ export interface GenerationProgressPayload {
   };
 }
 
+/** Terminal outcome for one generated agent file. */
+export interface GenerationAgentOutcome {
+  agentId: string;
+  filePath: string;
+  status: 'written' | 'unchanged' | 'failed';
+  rejectedSections: number;
+  tailoredSections: number;
+  error?: string;
+}
+
 /**
  * Payload for generation completion.
  * Sent when agent generation is finished.
@@ -189,8 +199,20 @@ export interface GenerationProgressPayload {
 export interface GenerationCompletePayload {
   /** Whether generation was successful */
   success: boolean;
-  /** Number of agents generated */
-  generatedCount: number;
+  /** Absolute directory containing generated agent files. */
+  outputDirectory: string;
+  /** Number of files newly written during this run. */
+  writtenCount: number;
+  /** Number of files already matching the generated content. */
+  unchangedCount: number;
+  /** Number of agents whose generation failed. */
+  failedCount: number;
+  /** Aggregate count of LLM sections rejected by output validation. */
+  rejectedSections: number;
+  /** Aggregate count of accepted, non-empty LLM section replacements. */
+  tailoredSections: number;
+  /** Terminal outcome for every selected agent. */
+  agents: GenerationAgentOutcome[];
   /** Generation duration in milliseconds */
   duration?: number;
   /** Error messages if any */

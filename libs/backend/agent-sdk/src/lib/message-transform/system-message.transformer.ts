@@ -21,6 +21,7 @@ import type {
   SDKTaskNotificationMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -394,6 +395,31 @@ export class SystemMessageTransformer {
   }
 
   transformTaskNotification(
+    msg: SDKTaskNotificationMessage,
+    state: TransformerState,
+    helpers: TransformerHelpers,
+    sessionId?: TransformerSessionId,
+  ): FlatStreamEventUnion[] {
+    const events = this.buildAgentCompleted(msg, state, helpers, sessionId);
+
+    // A settled background task changes the turn state whatever kind of task
+    // it was (`local_bash` included), so this runs past every early return
+    // above. The SubagentStop hook normally wrote the authoritative list
+    // moments earlier; this emits it IN the stream, where order is guaranteed.
+    // `applySnapshot` never touches 'generating'. No session → not routable.
+    if (sessionId) {
+      const current = helpers.turnState.get(sessionId)?.backgroundTasks ?? [];
+      const remaining = current.filter((task) => task.id !== msg.task_id);
+      const next = helpers.turnState.applySnapshot(sessionId, remaining);
+      if (next) {
+        events.push(toTurnStateEvent(sessionId, next));
+      }
+    }
+
+    return events;
+  }
+
+  private buildAgentCompleted(
     msg: SDKTaskNotificationMessage,
     state: TransformerState,
     helpers: TransformerHelpers,

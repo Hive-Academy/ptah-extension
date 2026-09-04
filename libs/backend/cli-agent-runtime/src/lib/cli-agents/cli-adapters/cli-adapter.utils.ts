@@ -12,6 +12,12 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ChildProcess } from 'child_process';
+import type {
+  IProcessSpawner,
+  ProcessErrorListener,
+  ProcessExitListener,
+  SpawnedProcessHandle,
+} from '@ptah-extension/platform-core';
 import type { CliCommandOptions } from './cli-adapter.interface';
 import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
 
@@ -142,6 +148,80 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
   }
 }
 
+/** `ChildProcess.on` accepts this; the port's typed listeners cast into it. */
+type RawListener = (...args: unknown[]) => void;
+
+/**
+ * A `SpawnedProcessHandle` over a real `ChildProcess`.
+ *
+ * This is what `spawnCli` returns when no spawner is injected, so the
+ * no-spawner path is the `cross-spawn` call it always was and only the wrapper
+ * around it is new. `whenSpawned` is already settled here: an inline spawn
+ * knows its pid by the time it returns.
+ */
+class ChildProcessHandle implements SpawnedProcessHandle {
+  readonly whenSpawned: Promise<number | null>;
+
+  constructor(private readonly child: ChildProcess) {
+    this.whenSpawned = Promise.resolve(child.pid ?? null);
+  }
+
+  get stdin(): NodeJS.WritableStream | null {
+    return this.child.stdin;
+  }
+
+  get stdout(): NodeJS.ReadableStream | null {
+    return this.child.stdout;
+  }
+
+  get stderr(): NodeJS.ReadableStream | null {
+    return this.child.stderr;
+  }
+
+  get pid(): number | undefined {
+    return this.child.pid;
+  }
+
+  get killed(): boolean {
+    return this.child.killed;
+  }
+
+  get exitCode(): number | null {
+    return this.child.exitCode;
+  }
+
+  kill(signal?: NodeJS.Signals): boolean {
+    return this.child.kill(signal);
+  }
+
+  on(event: 'exit' | 'close', listener: ProcessExitListener): void;
+  on(event: 'error', listener: ProcessErrorListener): void;
+  on(
+    event: 'exit' | 'close' | 'error',
+    listener: ProcessExitListener | ProcessErrorListener,
+  ): void {
+    this.child.on(event as string, listener as unknown as RawListener);
+  }
+
+  once(event: 'exit' | 'close', listener: ProcessExitListener): void;
+  once(event: 'error', listener: ProcessErrorListener): void;
+  once(
+    event: 'exit' | 'close' | 'error',
+    listener: ProcessExitListener | ProcessErrorListener,
+  ): void {
+    this.child.once(event as string, listener as unknown as RawListener);
+  }
+
+  off(event: 'exit' | 'close', listener: ProcessExitListener): void;
+  off(event: 'error', listener: ProcessErrorListener): void;
+  off(
+    event: 'exit' | 'close' | 'error',
+    listener: ProcessExitListener | ProcessErrorListener,
+  ): void {
+    this.child.off(event as string, listener as unknown as RawListener);
+  }
+}
+
 /**
  * Cross-platform spawn. Uses `cross-spawn` — transparent .cmd handling on Windows.
  * No shell: true needed, no argument mangling.
@@ -150,6 +230,13 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
  *   console window (hidden). Required for CLIs that use node-pty/ConPTY internally
  *   for shell command execution. Without a console, ConPTY's
  *   AttachConsole() fails on Windows, breaking shell command execution.
+ * @param options.spawner - When supplied, the child is created on a worker
+ *   thread instead of this one. `child_process.spawn` is a synchronous
+ *   `CreateProcessW` on Windows whose cost tracks the binary's size, and the
+ *   rival-CLI spawns measured 300-900 ms of event-loop lag each
+ *   (TASK_2026_367). The spawner resolves the Windows `.cmd` wrapper itself,
+ *   so the same `binary` is passed either way. Omitting it keeps today's
+ *   inline `cross-spawn` behaviour exactly.
  */
 export function spawnCli(
   binary: string,
@@ -159,22 +246,39 @@ export function spawnCli(
     env?: NodeJS.ProcessEnv;
     needsConsole?: boolean;
     detached?: boolean;
+    spawner?: IProcessSpawner;
   },
-): ChildProcess {
-  return crossSpawn(binary, args, {
-    cwd: options.cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
-    // POSIX: make the child a process-group leader so killProcessTree() can
-    // group-kill (process.kill(-pid)) its whole subtree. Opt-in — only the
-    // long-lived main-run spawns request it; short-lived probes omit it to
-    // avoid gaining orphan risk for no tree-kill benefit. No-op on Windows,
-    // where taskkill /T walks real Win32 PID ancestry instead.
-    detached: process.platform !== 'win32' && options.detached === true,
-    ...(options.needsConsole && process.platform === 'win32'
-      ? { windowsHide: false }
-      : {}),
-  });
+): SpawnedProcessHandle {
+  const env = { ...process.env, ...CLI_CLEAN_ENV, ...options.env };
+  // POSIX: make the child a process-group leader so killProcessTree() can
+  // group-kill (process.kill(-pid)) its whole subtree. Opt-in — only the
+  // long-lived main-run spawns request it; short-lived probes omit it to
+  // avoid gaining orphan risk for no tree-kill benefit. No-op on Windows,
+  // where taskkill /T walks real Win32 PID ancestry instead.
+  const detached = process.platform !== 'win32' && options.detached === true;
+
+  if (options.spawner) {
+    return options.spawner.spawnProcess({
+      command: binary,
+      args,
+      cwd: options.cwd,
+      env,
+      detached,
+      needsConsole: options.needsConsole === true,
+    });
+  }
+
+  return new ChildProcessHandle(
+    crossSpawn(binary, args, {
+      cwd: options.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env,
+      detached,
+      ...(options.needsConsole && process.platform === 'win32'
+        ? { windowsHide: false }
+        : {}),
+    }),
+  );
 }
 
 /**
@@ -203,10 +307,11 @@ export function probeCliVersion(
   binary: string,
   args: string[] = ['--version'],
   timeoutMs = 5000,
+  spawner?: IProcessSpawner,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
     let stdout = '';
-    const child = spawnCli(binary, args, {});
+    const child = spawnCli(binary, args, { spawner });
 
     const timer = setTimeout(() => {
       child.kill();

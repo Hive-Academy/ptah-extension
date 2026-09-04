@@ -18,6 +18,12 @@ import type {
   ToolResultEvent,
   ToolStartEvent,
 } from './stream';
+import type {
+  SdkAssistantMessageError,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
+} from '../sdk-hook.types';
 
 /**
  * Background agent started event
@@ -209,6 +215,74 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
 }
 
 /**
+ * Lifecycle phase of a session turn, derived once by the backend.
+ *
+ * - 'generating': root assistant turn in flight
+ * - 'awaiting-background': turn ended; SDK reports in-flight background tasks
+ * - 'sleeping': turn ended; SDK reports session crons (ScheduleWakeup / loop)
+ * - 'idle': turn ended; nothing pending
+ * - 'failed': StopFailure observed for this turn
+ */
+export type SessionTurnPhase =
+  | 'generating'
+  | 'awaiting-background'
+  | 'sleeping'
+  | 'idle'
+  | 'failed';
+
+/** The phases that say the turn ENDED. Everything except 'generating'. */
+const TERMINAL_TURN_PHASES: ReadonlySet<SessionTurnPhase> = new Set([
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'failed',
+]);
+
+/**
+ * True when `phase` says the turn ended.
+ *
+ * One definition for two consumers that MUST agree, on opposite sides of the
+ * frontend (`chat-state` may not import `chat-streaming`):
+ * `TurnStateApplier.apply` finalizes the in-flight assistant message on a
+ * terminal phase, and `TabManagerService.acceptsTurnState` heals a stranded
+ * tab only on a terminal phase (TASK_2026_371). Two copies of this set would
+ * drift.
+ */
+export function isTerminalTurnPhase(phase: SessionTurnPhase): boolean {
+  return TERMINAL_TURN_PHASES.has(phase);
+}
+
+/**
+ * Backend-owned per-session turn state — the single source of truth for
+ * every "is the agent busy" signal. Also returned by `session:status`.
+ */
+export interface SessionTurnState {
+  /** Current lifecycle phase of the turn */
+  readonly phase: SessionTurnPhase;
+  /** Monotonic per session. Consumers ignore an event whose revision is <= the last applied. */
+  readonly revision: number;
+  /** Background tasks the SDK reported as in flight at the last snapshot */
+  readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
+  /** Session crons (ScheduleWakeup / loop) the SDK reported at the last snapshot */
+  readonly sessionCrons: readonly SdkSessionCronSummary[];
+  /** Why the turn ended; null while generating or when the SDK gave no reason */
+  readonly terminalReason: SdkTerminalReason | null;
+  /** Set only for phase 'failed'. */
+  readonly error?: SdkAssistantMessageError;
+  /** When this state was derived (Unix epoch ms) */
+  readonly timestamp: number;
+}
+
+/**
+ * Turn state event — delivered IN the chunk stream so it can neither overtake
+ * nor trail the text deltas it describes. Not a separate push message.
+ * `messageId` is `turn-state-${sessionId}` and is never rendered.
+ */
+export interface TurnStateEvent extends FlatStreamEvent, SessionTurnState {
+  readonly eventType: 'turn_state';
+}
+
+/**
  * Union type for all flat events - enables discriminated unions
  */
 export type FlatStreamEventUnion =
@@ -230,4 +304,5 @@ export type FlatStreamEventUnion =
   | BackgroundAgentStoppedEvent
   | AgentProgressEvent
   | AgentStatusEvent
-  | AgentCompletedEvent;
+  | AgentCompletedEvent
+  | TurnStateEvent;

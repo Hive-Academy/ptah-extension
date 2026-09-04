@@ -9,14 +9,14 @@
  * 2. OAuth tokens.access_token (read-only; when expired, user must run `codex login`)
  *
  * API endpoint depends on auth mode:
- * - ApiKey â†’ https://api.openai.com/v1
- * - OAuth â†’ user-configured endpoint from settings, or https://chatgpt.com/backend-api/codex
+ * - ApiKey → https://api.openai.com/v1
+ * - OAuth → user-configured endpoint from settings, or https://chatgpt.com/backend-api/codex
  *
  * When an OAuth token expires, the user is directed to run `codex login`.
  *
  * Security: NEVER logs full tokens -- only length and first 4 characters.
  *
- * APPROVED EXCEPTION: This file does NOT import vscode â€” it reads credentials from
+ * APPROVED EXCEPTION: This file does NOT import vscode — it reads credentials from
  * ~/.codex/auth.json using Node.js fs APIs. No platform abstraction needed.
  */
 
@@ -72,7 +72,7 @@ const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
 
 /**
  * Default Codex API endpoint for OAuth (ChatGPT subscription) auth mode.
- * OAuth tokens from `codex login` are ChatGPT subscription tokens â€” they
+ * OAuth tokens from `codex login` are ChatGPT subscription tokens — they
  * authenticate against the ChatGPT backend API, NOT the public api.openai.com.
  * Using api.openai.com with OAuth tokens fails with 401 "Missing scopes: api.responses.write".
  */
@@ -244,8 +244,8 @@ export class CodexAuthService implements ICodexAuthService {
    *
    * Resolution order:
    * 1. api_base_url from auth file (explicit override)
-   * 2. API key mode â†’ https://api.openai.com/v1
-   * 3. OAuth mode â†’ user-configured endpoint from settings, or ChatGPT backend default
+   * 2. API key mode → https://api.openai.com/v1
+   * 3. OAuth mode → user-configured endpoint from settings, or ChatGPT backend default
    */
   getApiEndpoint(): string {
     if (this.cachedAuth?.api_base_url) {

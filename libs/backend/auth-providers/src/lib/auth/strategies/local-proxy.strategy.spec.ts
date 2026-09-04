@@ -1,14 +1,14 @@
 ﻿/**
- * LocalProxyStrategy â€” unit specs.
+ * LocalProxyStrategy — unit specs.
  *
  * Handles LM Studio, which speaks OpenAI protocol and requires a translation
  * proxy. Tests cover:
- *   - Happy path: proxy not running â†’ start, set env vars, register dynamic
+ *   - Happy path: proxy not running → start, set env vars, register dynamic
  *     model fetcher, switch active provider.
  *   - Already-running proxy: reuse existing URL (no second start).
- *   - Missing URL from a running proxy â†’ restart hint.
- *   - Start failure â†’ "LM Studio is not running" hint (the only auth-required
- *     style negative path the source emits â€” LM Studio itself has no creds).
+ *   - Missing URL from a running proxy → restart hint.
+ *   - Start failure → "LM Studio is not running" hint (the only auth-required
+ *     style negative path the source emits — LM Studio itself has no creds).
  *   - Cross-contamination guard: copilot + codex proxies stopped before start.
  *   - teardown() stops the LM Studio proxy if running.
  *
@@ -51,7 +51,7 @@ function asLogger(mock: MockLogger): Logger {
 /**
  * The strategy only uses `isRunning`, `getUrl`, `start`, `stop`, `listModels`
  * on the LM Studio proxy. `LocalModelTranslationProxy` is a class extending
- * `TranslationProxyBase` â€” matching the full class surface would require a
+ * `TranslationProxyBase` — matching the full class surface would require a
  * large duck-type. Keep the mock scoped to what the strategy actually calls.
  */
 interface LmStudioProxySurface {
@@ -163,7 +163,7 @@ describe('LocalProxyStrategy', () => {
     expect(strategy.name).toBe('LocalProxyStrategy');
   });
 
-  describe('configure() â€” happy path', () => {
+  describe('configure() — happy path', () => {
     it('starts the proxy, sets env vars, registers fetcher, and reports success', async () => {
       const harness = makeStrategy();
       harness.lmStudioProxy.isRunning.mockReturnValue(false);
@@ -230,8 +230,8 @@ describe('LocalProxyStrategy', () => {
     });
   });
 
-  describe('configure() â€” negative paths', () => {
-    it('running proxy with no URL â†’ restart hint', async () => {
+  describe('configure() — negative paths', () => {
+    it('running proxy with no URL → restart hint', async () => {
       const harness = makeStrategy();
       harness.lmStudioProxy.isRunning.mockReturnValue(true);
       harness.lmStudioProxy.getUrl.mockReturnValue(undefined);
@@ -244,7 +244,7 @@ describe('LocalProxyStrategy', () => {
       );
     });
 
-    it('start() throws â†’ "LM Studio is not running" hint', async () => {
+    it('start() throws → "LM Studio is not running" hint', async () => {
       const harness = makeStrategy();
       harness.lmStudioProxy.isRunning.mockReturnValue(false);
       harness.lmStudioProxy.start.mockRejectedValueOnce(

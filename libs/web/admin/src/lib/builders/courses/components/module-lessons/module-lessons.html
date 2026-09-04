@@ -1,0 +1,140 @@
+<div class="flex flex-col gap-2">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h4 class="text-sm font-medium opacity-80">Lessons</h4>
+    <button
+      type="button"
+      class="btn btn-outline btn-xs"
+      [disabled]="locked()"
+      (click)="openCreate()"
+    >
+      Add Lesson
+    </button>
+  </div>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error py-2 text-sm" role="alert">
+      <span>{{ errMsg }}</span>
+    </div>
+  }
+
+  @if (refreshNotice(); as notice) {
+    <div class="alert alert-info py-2 text-sm" role="status">
+      <span>{{ notice }}</span>
+    </div>
+  }
+
+  @if (!hasLessons()) {
+    <p class="text-xs opacity-60">
+      No lessons in this module yet. Add the first one.
+    </p>
+  } @else {
+    <ul class="flex flex-col gap-1">
+      @for (l of order(); track l.id; let i = $index) {
+        <li
+          class="flex flex-wrap items-center gap-2 rounded-lg border border-hairline px-3 py-2"
+        >
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              [attr.aria-label]="'Move ' + l.title + ' up'"
+              [disabled]="!canMoveUp(i)"
+              (click)="moveUp(i)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              [attr.aria-label]="'Move ' + l.title + ' down'"
+              [disabled]="!canMoveDown(i)"
+              (click)="moveDown(i)"
+            >
+              ↓
+            </button>
+          </div>
+
+          <div class="min-w-48 flex-1">
+            <div class="text-sm font-medium">{{ l.title }}</div>
+            <div class="font-mono text-xs opacity-60">{{ l.slug }}</div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-1">
+            @if (l.youtubeVideoId) {
+              <span class="badge badge-outline badge-sm">
+                {{ l.youtubeVideoId }}
+              </span>
+              @if (l.videoDurationSeconds === null) {
+                <!--
+                  A video with no duration is manual-completion-only for every
+                  member. It looks like a working video lesson and is not one,
+                  so it is badged rather than left to a member report.
+                -->
+                <span class="badge badge-warning badge-sm">No duration</span>
+              }
+              @if (l.videoMetadataSource === 'manual') {
+                <span class="badge badge-ghost badge-sm">Typed by hand</span>
+              }
+            } @else {
+              <span class="badge badge-ghost badge-sm">Text only</span>
+            }
+          </div>
+
+          <div class="flex gap-1">
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              [disabled]="locked() || !l.youtubeVideoId"
+              (click)="refreshMetadata(l)"
+            >
+              @if (busyId() === l.id) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Refresh
+              }
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              [disabled]="locked()"
+              (click)="openEdit(l)"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-error"
+              [disabled]="locked()"
+              (click)="openDelete(l)"
+            >
+              Delete
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+</div>
+
+<ptah-admin-lesson-form-modal
+  [open]="formOpen()"
+  [moduleId]="moduleId()"
+  [lesson]="formTarget()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>
+
+@if (deleteTarget(); as target) {
+  <ptah-admin-confirm-delete-modal
+    [open]="deleteOpen()"
+    title="Delete Lesson"
+    [subject]="target.title"
+    [detail]="moduleTitle()"
+    consequence="This hides the lesson from every member. It is a soft delete, and the lesson leaves the sequential unlock chain so it can never block the next module."
+    confirmLabel="Delete Lesson"
+    [deleting]="deleting()"
+    [errorMessage]="deleteError()"
+    (closeModal)="onDeleteClose()"
+    (confirmed)="onDeleteConfirmed()"
+  />
+}

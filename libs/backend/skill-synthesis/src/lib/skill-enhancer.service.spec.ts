@@ -644,6 +644,7 @@ describe('SkillEnhancerService', () => {
       kind: 'skill',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledTimes(1);
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
@@ -670,6 +671,7 @@ describe('SkillEnhancerService', () => {
       kind: 'agent',
       slug: 'deep-research',
       newBody: expect.stringContaining('Improved agent body'),
+      workspaceRoot: '/home/u/project',
     });
     expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
@@ -722,6 +724,7 @@ describe('SkillEnhancerService', () => {
       kind: 'command',
       slug: 'deep-research',
       newBody: 'Improved command prompt without any frontmatter',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
       'command',
@@ -784,6 +787,7 @@ describe('SkillEnhancerService', () => {
       kind: 'agent',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
       'agent',
@@ -1006,6 +1010,7 @@ describe('SkillEnhancerService', () => {
       kind: 'command',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
   });
 });
@@ -1142,6 +1147,7 @@ describe('SkillEnhancerService — preview-before-apply', () => {
       kind: 'agent',
       slug: 'deep-research',
       newBody: IMPROVED,
+      workspaceRoot: '/home/u/project',
     });
     expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
   });

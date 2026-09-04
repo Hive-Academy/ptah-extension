@@ -61,9 +61,10 @@ DISCOVERY:
     the skills.sh source entry sets limitedByUpstream when the marketplace's own
     200-row-per-query ceiling is reached, at which point narrow the query rather
     than paging further.
-- searchMcpRegistry(query, limit?) - Official registry + PulseMCP + Smithery.
-    Returns { servers, count, status, sources, next_cursor? }. 'limit' bounds the
-    MERGED list, drawn round-robin so no source starves the others.
+- searchMcpRegistry(query, limit?) - Official registry + Smithery (when a
+    Smithery API key is configured). Returns { servers, count, status, sources,
+    next_cursor? }. 'limit' bounds the MERGED list, drawn round-robin so neither
+    source starves the other.
 - listInstalledMcpServers() - Servers already in .vscode/mcp.json and .mcp.json.
 
 READING A SEARCH RESULT — three states, not two:

@@ -25,6 +25,7 @@ import {
   SECRET_KEY_PREFIX,
   VALID_PROVIDERS,
   WebSearchProviderSchema,
+  WebSearchProvidersSchema,
 } from './web-search-rpc.schema';
 
 describe('web-search-rpc.schema', () => {
@@ -103,5 +104,21 @@ describe('web-search-rpc.schema', () => {
         });
       }
     });
+  });
+
+  describe('WebSearchProvidersSchema', () => {
+    it('parses a non-empty ordered provider list', () => {
+      expect(WebSearchProvidersSchema.parse(['serper', 'tavily'])).toEqual([
+        'serper',
+        'tavily',
+      ]);
+    });
+
+    it.each([[], ['google'], ['tavily', 'google'], 'tavily', null])(
+      'rejects invalid provider selection %p',
+      (value) => {
+        expect(WebSearchProvidersSchema.safeParse(value).success).toBe(false);
+      },
+    );
   });
 });

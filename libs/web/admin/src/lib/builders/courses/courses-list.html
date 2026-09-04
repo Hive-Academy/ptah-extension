@@ -1,0 +1,219 @@
+<section class="flex flex-col gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">Courses</h2>
+        <span class="text-sm opacity-60">
+          ({{ courses().length }} total, {{ publishedCount() }} published)
+        </span>
+      </div>
+      <!--
+        Load-bearing copy. Publication and visibility are two different gates
+        and an operator who conflates them will publish a cohort course
+        expecting it to stay private, or set visibility and wonder why nobody
+        can see a draft.
+      -->
+      <p class="max-w-2xl text-sm opacity-70">
+        A course is a draft until you publish it. A draft is invisible to every
+        member whatever its visibility says. Open a course to author its modules
+        and lessons.
+      </p>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" (click)="openCreate()">
+      New Course
+    </button>
+  </header>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-ghost btn-sm" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && courses().length === 0) {
+    <div class="flex flex-col gap-2">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (courses().length === 0) {
+    <ptah-empty-state
+      [icon]="GraduationCapIcon"
+      message="No courses yet."
+      hint="Create a draft, add its modules and lessons, then publish it."
+    >
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        (click)="openCreate()"
+      >
+        New Course
+      </button>
+    </ptah-empty-state>
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-hairline">
+      <table class="table">
+        <thead>
+          <tr>
+            <th class="w-24">Order</th>
+            <th>Course</th>
+            <th>Visibility</th>
+            <th>Published</th>
+            <th class="text-right">Modules</th>
+            <th class="text-right">Lessons</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (c of courses(); track c.id; let i = $index) {
+            <tr>
+              <td>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [attr.aria-label]="'Move ' + c.title + ' up'"
+                    [disabled]="!canMoveUp(i)"
+                    (click)="moveUp(i)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [attr.aria-label]="'Move ' + c.title + ' down'"
+                    [disabled]="!canMoveDown(i)"
+                    (click)="moveDown(i)"
+                  >
+                    ↓
+                  </button>
+                </div>
+              </td>
+              <td>
+                <a
+                  class="link link-primary font-medium"
+                  [routerLink]="['/admin/builders/courses', c.id]"
+                >
+                  {{ c.title }}
+                </a>
+                <div class="font-mono text-xs opacity-60">{{ c.slug }}</div>
+                @if (c.description) {
+                  <div class="mt-1 max-w-md text-xs opacity-70">
+                    {{ c.description }}
+                  </div>
+                }
+              </td>
+              <td>
+                <ptah-status-badge
+                  [variant]="'info'"
+                  [label]="c.visibility"
+                  [showIcon]="false"
+                />
+                @if (c.visibility === 'cohort') {
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    @for (name of c.cohortNames; track name) {
+                      <span class="badge badge-outline badge-sm">{{ name }}</span>
+                    }
+                    @if (c.cohortNames.length === 0) {
+                      <!--
+                        A cohort course with no cohort is visible to nobody. It
+                        is a real state the API allows, so it is stated rather
+                        than left as an empty cell an operator reads as "all".
+                      -->
+                      <span class="text-xs text-warning">No cohort — nobody sees it</span>
+                    }
+                  </div>
+                }
+              </td>
+              <td>
+                <div class="flex items-center gap-2">
+                  @if (c.published) {
+                    <ptah-status-badge
+                      [variant]="'success'"
+                      label="Published"
+                      [showIcon]="false"
+                    />
+                  } @else {
+                    <ptah-status-badge
+                      [variant]="'ghost'"
+                      label="Draft"
+                      [showIcon]="false"
+                    />
+                  }
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [attr.aria-label]="
+                      (c.published ? 'Unpublish ' : 'Publish ') + c.title
+                    "
+                    [disabled]="busyId() !== null || reordering()"
+                    (click)="togglePublished(c)"
+                  >
+                    @if (busyId() === c.id) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      {{ c.published ? 'Unpublish' : 'Publish' }}
+                    }
+                  </button>
+                </div>
+              </td>
+              <td class="text-right tabular-nums">{{ c.moduleCount }}</td>
+              <td class="text-right tabular-nums">{{ c.lessonCount }}</td>
+              <td class="text-right">
+                <div class="flex justify-end gap-2">
+                  <a
+                    class="btn btn-ghost btn-xs"
+                    [routerLink]="['/admin/builders/courses', c.id]"
+                  >
+                    Author
+                  </a>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [disabled]="busyId() !== null"
+                    (click)="openEdit(c)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    [disabled]="busyId() !== null"
+                    (click)="openDelete(c)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+<ptah-admin-course-form-modal
+  [open]="formOpen()"
+  [course]="formTarget()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>
+
+@if (deleteTarget(); as target) {
+  <ptah-admin-confirm-delete-modal
+    [open]="deleteOpen()"
+    title="Delete Course"
+    [subject]="target.title"
+    [detail]="target.slug"
+    [consequence]="deleteConsequence(target)"
+    confirmLabel="Delete Course"
+    [deleting]="deleting()"
+    [errorMessage]="deleteError()"
+    (closeModal)="onDeleteClose()"
+    (confirmed)="onDeleteConfirmed()"
+  />
+}

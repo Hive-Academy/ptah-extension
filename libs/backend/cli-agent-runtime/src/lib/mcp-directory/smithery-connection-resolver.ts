@@ -14,6 +14,8 @@ import {
 } from './smithery-errors';
 import {
   SMITHERY_DEFAULT_CONNECTION_HOST,
+  SMITHERY_NAMESPACE_MCP_HOST,
+  buildSmitheryNamespaceUrl,
   buildSmitheryUrl,
 } from './smithery-wire.constants';
 
@@ -24,8 +26,10 @@ export interface SmitheryResolveInput {
 }
 
 export interface SmitheryConnectionResolverOptions {
-  /** Override the connection host (for the Batch 0 spike / tests). */
+  /** Override the legacy per-server connection host (tests). */
   connectionHost?: string;
+  /** Override the namespace MCP host (tests). */
+  namespaceHost?: string;
 }
 
 interface JsonSchemaLike {
@@ -36,6 +40,7 @@ interface JsonSchemaLike {
 
 export class SmitheryConnectionResolver {
   private readonly connectionHost: string;
+  private readonly namespaceHost: string;
 
   constructor(
     private readonly getApiKey: () => Promise<string | null>,
@@ -44,6 +49,24 @@ export class SmitheryConnectionResolver {
   ) {
     this.connectionHost =
       options?.connectionHost ?? SMITHERY_DEFAULT_CONNECTION_HOST;
+    this.namespaceHost = options?.namespaceHost ?? SMITHERY_NAMESPACE_MCP_HOST;
+  }
+
+  /**
+   * Resolve the ONE endpoint that serves every Connections-API record in a
+   * namespace. The key travels in an `Authorization` header rather than the
+   * query string, so the URL itself carries no secret — but the returned
+   * `headers` do, and callers MUST NOT log them.
+   */
+  async resolveNamespace(namespace: string): Promise<McpHttpConfig> {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) throw new SmitheryKeyMissingError();
+
+    return {
+      type: 'http',
+      url: buildSmitheryNamespaceUrl(namespace, this.namespaceHost),
+      headers: { Authorization: `Bearer ${apiKey}` },
+    };
   }
 
   async resolve(input: SmitheryResolveInput): Promise<McpHttpConfig> {

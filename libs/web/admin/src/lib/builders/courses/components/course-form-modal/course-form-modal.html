@@ -1,0 +1,213 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="course-form-title">
+    <div class="modal-box max-w-2xl">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="course-form-title" class="text-lg font-semibold">
+            {{ isEdit() ? 'Edit Course' : 'New Course' }}
+          </h3>
+          <!--
+            Load-bearing copy. A new course is a DRAFT and stays one until an
+            admin publishes it from the list. Saying so here stops an operator
+            from hunting for a publish toggle that deliberately is not on this
+            form.
+          -->
+          <p class="text-sm opacity-70">
+            @if (isEdit()) {
+              The slug is the course's public URL and cannot be changed.
+            } @else {
+              A new course is saved as a draft. Publish it from the list when
+              the modules are ready.
+            }
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="saving()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm" role="alert">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        @if (course(); as existing) {
+          <div class="rounded-lg border border-hairline p-3 text-sm">
+            <span class="opacity-70">Slug</span>
+            <span class="ml-2 font-mono text-xs">{{ existing.slug }}</span>
+          </div>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Title</span>
+            <span class="label-text-alt opacity-60">3–200 characters</span>
+          </div>
+          <input
+            id="course-title"
+            type="text"
+            class="input input-bordered input-sm"
+            [value]="title()"
+            (input)="onTitleInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. Ship Your First SaaS"
+            maxlength="200"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Description</span>
+          </div>
+          <textarea
+            id="course-description"
+            class="textarea textarea-bordered textarea-sm"
+            rows="3"
+            [value]="description()"
+            (input)="onDescriptionInput($event)"
+            [disabled]="saving()"
+            placeholder="What a member takes away from this course."
+            maxlength="5000"
+          ></textarea>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Cover image URL</span>
+            <span class="label-text-alt opacity-60">optional</span>
+          </div>
+          <input
+            id="course-cover"
+            type="url"
+            class="input input-bordered input-sm"
+            [value]="coverImageUrl()"
+            (input)="onCoverImageUrlInput($event)"
+            [disabled]="saving()"
+            placeholder="https://…"
+            maxlength="2048"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Visibility</span>
+          </div>
+          <select
+            id="course-visibility"
+            class="select select-bordered select-sm"
+            aria-label="Course visibility"
+            [value]="visibility()"
+            (change)="onVisibilityChange($event)"
+            [disabled]="saving()"
+          >
+            @for (v of visibilities; track v) {
+              <option [value]="v" [selected]="v === visibility()">
+                {{ v }}
+              </option>
+            }
+          </select>
+          <div class="label">
+            <span class="label-text-alt opacity-60">
+              Visibility is not publication. A draft course is hidden from every
+              member whatever this says.
+            </span>
+          </div>
+        </label>
+
+        @if (cohortScoped()) {
+          <fieldset class="rounded-lg border border-hairline p-3">
+            <legend class="px-1 text-sm font-medium">Cohorts</legend>
+            @if (groupsError(); as gErr) {
+              <div class="alert alert-warning text-sm" role="alert">
+                <span>{{ gErr }}</span>
+              </div>
+            } @else if (groupsLoading()) {
+              <div class="h-8 animate-pulse rounded bg-base-200"></div>
+            } @else if (groups().length === 0) {
+              <p class="text-sm opacity-70">
+                No cohorts exist yet. Create one under Member Groups first.
+              </p>
+            } @else {
+              <p class="mb-2 text-xs opacity-70">
+                A member in any one of these cohorts can see the course.
+              </p>
+              <div class="flex flex-wrap gap-3">
+                @for (g of groups(); track g.id) {
+                  <label class="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm"
+                      [attr.aria-label]="g.name"
+                      [checked]="isCohortSelected(g.key)"
+                      [disabled]="saving()"
+                      (change)="onCohortToggle(g.key, $event)"
+                    />
+                    <span>{{ g.name }}</span>
+                    <span class="font-mono text-xs opacity-60">{{ g.key }}</span>
+                  </label>
+                }
+              </div>
+            }
+          </fieldset>
+        }
+
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm mt-1"
+            aria-label="Sequential modules"
+            [checked]="sequential()"
+            [disabled]="saving()"
+            (change)="onSequentialChange($event)"
+          />
+          <span class="text-sm">
+            <span class="font-medium">Sequential modules</span>
+            <span class="block opacity-70">
+              A member must finish one module before the next opens.
+            </span>
+          </span>
+        </label>
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="saving()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Saving…
+            } @else {
+              {{ isEdit() ? 'Save Changes' : 'Create Draft' }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="saving()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

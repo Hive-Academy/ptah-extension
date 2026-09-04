@@ -125,10 +125,12 @@ describe('PtahCliSpawnOptions — output style', () => {
     const assembly = await service.assembleSpawnOptions(AUTH_ENV, '/repo');
 
     expect(getMcpPort).toHaveBeenCalledTimes(1);
+    // The URL carries the spawn's cwd so the server can attribute this
+    // agent's calls to the right workspace (TASK_2026_364).
     expect(assembly.mcpServers).toEqual({
       ptah: {
         type: 'http',
-        url: 'http://localhost:51821',
+        url: 'http://localhost:51821/workspace/%2Frepo',
       },
     });
   });

@@ -1,10 +1,10 @@
 /**
- * Provider DI Registrations â€” consolidated.
+ * Provider DI Registrations — consolidated.
  *
  * Previously: 4 copy-pasted blocks at di/register.ts:407-487.
  * Now: one function called once from registerSdkServices.
  *
- * Order of registrations is preserved from the prior inlined state â€” all
+ * Order of registrations is preserved from the prior inlined state — all
  * provider services MUST be registered before AuthManager resolves, because
  * AuthManager's strategies (ApiKeyStrategy, OAuthProxyStrategy,
  * LocalNativeStrategy, LocalProxyStrategy) depend on these tokens.

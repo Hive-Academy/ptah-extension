@@ -306,11 +306,19 @@ const TURN_FAILED = {
   timestamp: 2,
 };
 
+/**
+ * Carries `toolCallId` so `buildCorpus` crosses that key with every hostile
+ * value and also deletes it. That is what pins the ONE field whose schema and
+ * parser were allowed to disagree before TASK_2026_376 R2: it is
+ * `.optional().catch(undefined)`, so an invalid value must be treated as
+ * absent on BOTH sides rather than rejecting the payload.
+ */
 const SUBAGENT_ENDED = {
   sessionId: UUID_V4,
   cwd: 'D:/repo',
   agentId: 'agent-1',
   agentType: 'Explore',
+  toolCallId: 'toolu_01XJafA4f3zy645GaBXbwZ7F',
   lastAssistantMessage: null,
   backgroundTasks: [],
   timestamp: 3,
@@ -437,6 +445,12 @@ describe('wire parser ≡ Zod schema equivalence', () => {
       [
         { ...SUBAGENT_ENDED, backgroundTasks: [BACKGROUND_TASK] },
         { ...SUBAGENT_ENDED, lastAssistantMessage: 'done' },
+        // `.catch(undefined)` accepts these three and publishes no id; the
+        // required fields below still reject.
+        { ...SUBAGENT_ENDED, toolCallId: '' },
+        { ...SUBAGENT_ENDED, toolCallId: undefined },
+        { ...SUBAGENT_ENDED, toolCallId: 42 },
+        { ...SUBAGENT_ENDED, toolCallId: '', agentId: '' },
       ],
     );
   });

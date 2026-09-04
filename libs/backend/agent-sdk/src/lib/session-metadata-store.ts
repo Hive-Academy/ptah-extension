@@ -797,6 +797,19 @@ export class SessionMetadataStore {
 
     if (filtered.length !== all.length) {
       this.stage(filtered);
+
+      // Make the session list removal DURABLE before dropping output keys.
+      // `stage` only mutates `pendingAll` in memory. If we deleted output keys
+      // before flushing and the subsequent flush failed, the session record
+      // would survive in storage with dead references pointing to destroyed
+      // output keys that no longer exist.
+      //
+      // Forcing `flush()` here costs one extra `storage.update` instead of
+      // riding the write queue's coalesced write, which is the right trade
+      // for a rare, destructive operation. If the flush rejects, the rejection
+      // propagates to the caller and no output keys are destroyed.
+      await this.flush();
+
       // The per-agent output keys are only reachable through this session's
       // references, so dropping the session without them would leak a key per
       // agent forever.

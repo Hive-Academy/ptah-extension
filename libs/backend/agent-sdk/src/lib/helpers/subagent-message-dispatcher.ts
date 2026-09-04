@@ -72,6 +72,23 @@ interface RawSubagentSessionMessage {
 const sessionPushLocks = new Map<string, Promise<void>>();
 
 /**
+ * Upper bound on a single `streamInput` push toward a running session.
+ *
+ * `streamInput` resolves only when the CLI reads the message off its input
+ * channel. A session whose transport is stalled never reads, so the push simply
+ * never settles: on 2026-08-31 the `subagent:send-message` RPC handler blocked
+ * for 180 018 ms and settled only when a session abort closed the transport.
+ * The renderer had already surfaced `RPC timeout: subagent:send-message` to the
+ * user.
+ *
+ * The push is bounded here because the RPC caller cannot wait for the session
+ * watchdog — that watchdog measures stream silence in minutes, while the RPC
+ * boundary must answer in seconds. A bounded push turns a hung handler into a
+ * typed `SEND_TIMEOUT` the UI can render.
+ */
+export const SUBAGENT_SEND_TIMEOUT_MS = 10_000;
+
+/**
  * Acquire a serialised push slot for the session and run `fn` inside it.
  * Releases the slot when `fn` completes (resolves or rejects).
  */
@@ -194,14 +211,37 @@ export class SubagentMessageDispatcher {
       async function* single(): AsyncGenerator<SDKUserMessage> {
         yield msg;
       }
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        await query.streamInput(single());
+        await Promise.race([
+          query.streamInput(single()),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(
+                new RpcUserError(
+                  'Message not accepted within 10s — the session did not read its input channel',
+                  'SEND_TIMEOUT',
+                ),
+              );
+            }, SUBAGENT_SEND_TIMEOUT_MS);
+          }),
+        ]);
       } catch (error: unknown) {
+        // The timeout above is already a typed RpcUserError — re-wrapping it as
+        // SESSION_ENDED would report the wrong cause (the session is alive, it
+        // just never read its input).
+        if (error instanceof RpcUserError) {
+          throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         throw new RpcUserError(
           `Session ended before message could be delivered: ${message}`,
           'SESSION_ENDED',
         );
+      } finally {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+        }
       }
     });
   }

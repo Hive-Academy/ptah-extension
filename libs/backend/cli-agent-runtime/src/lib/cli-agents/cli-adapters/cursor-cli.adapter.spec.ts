@@ -333,7 +333,10 @@ describe('CursorCliAdapter', () => {
       const createArg = mockCreate.mock.calls[0][0] as {
         mcpServers?: Record<string, { url?: string }>;
       };
-      expect(createArg.mcpServers?.['ptah']?.url).toBe('http://localhost:4321');
+      // Scoped to the spawn's working directory (TASK_2026_364).
+      expect(createArg.mcpServers?.['ptah']?.url).toBe(
+        'http://localhost:4321/workspace/%2Fproj',
+      );
     });
 
     it('cancels the run on abort and resolves done with 1', async () => {

@@ -1,0 +1,273 @@
+<div class="space-y-3">
+  <!-- Intro -->
+  <div class="rounded-lg border border-base-300 bg-base-200/40 p-4">
+    <div class="flex items-center gap-2">
+      <div
+        class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0"
+      >
+        <lucide-angular
+          [img]="PlugIcon"
+          class="w-4 h-4 text-primary"
+          aria-hidden="true"
+        />
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold text-base-content">Connectors</h3>
+        <p class="text-[11px] text-base-content-muted">
+          Connect the apps you already use. Tools appear in new chat sessions.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  @if (actionError()) {
+    <div class="alert alert-error alert-sm py-1 px-2">
+      <span class="text-xs">{{ actionError() }}</span>
+      <button class="btn btn-ghost btn-xs" (click)="actionError.set(null)" type="button">
+        Dismiss
+      </button>
+    </div>
+  }
+
+  @if (loadError()) {
+    <div class="alert alert-warning alert-sm py-1 px-2">
+      <span class="text-xs">{{ loadError() }}</span>
+      <button class="btn btn-ghost btn-xs" (click)="reload()" type="button">
+        Retry
+      </button>
+    </div>
+  }
+
+  <!-- Search -->
+  <div class="relative">
+    <lucide-angular
+      [img]="SearchIcon"
+      class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
+      aria-hidden="true"
+    />
+    <input
+      type="text"
+      class="input input-bordered input-sm w-full pl-8 text-xs"
+      placeholder="Search connectors..."
+      [value]="searchQuery()"
+      (input)="onSearchInput($event)"
+      aria-label="Search connectors"
+    />
+  </div>
+
+  <!-- Category chips -->
+  <div class="flex gap-1 flex-wrap">
+    <button
+      type="button"
+      class="btn btn-xs rounded-full normal-case font-medium"
+      [class.btn-primary]="isCategoryActive(null)"
+      [class.btn-ghost]="!isCategoryActive(null)"
+      [class.border-base-300]="!isCategoryActive(null)"
+      [attr.aria-pressed]="isCategoryActive(null)"
+      (click)="selectCategory(null)"
+    >
+      All
+    </button>
+    @for (category of categories(); track category) {
+      <button
+        type="button"
+        class="btn btn-xs rounded-full normal-case font-medium"
+        [class.btn-primary]="isCategoryActive(category)"
+        [class.btn-ghost]="!isCategoryActive(category)"
+        [class.border-base-300]="!isCategoryActive(category)"
+        [attr.aria-pressed]="isCategoryActive(category)"
+        (click)="selectCategory(category)"
+      >
+        {{ categoryLabel(category) }}
+      </button>
+    }
+  </div>
+
+  <!-- Card grid -->
+  @if (visibleConnectors().length === 0) {
+    <div
+      class="text-xs text-base-content-muted text-center py-6 rounded-lg border border-dashed border-base-300"
+    >
+      No connectors match your search.
+    </div>
+  } @else {
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+      @for (connector of visibleConnectors(); track connector.id) {
+        <div
+          class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors p-3 flex flex-col gap-2"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-xs font-medium text-base-content truncate">
+                  {{ connector.label }}
+                </span>
+                @switch (statusOf(connector)) {
+                  @case ('connected') {
+                    <span class="badge badge-xs badge-success text-[10px] gap-0.5">
+                      <lucide-angular
+                        [img]="CheckIcon"
+                        class="w-2 h-2"
+                        aria-hidden="true"
+                      />
+                      Connected
+                    </span>
+                  }
+                  @case ('needs-auth') {
+                    <span class="badge badge-xs badge-warning text-[10px]">
+                      Needs authorization
+                    </span>
+                  }
+                  @case ('error') {
+                    <span class="badge badge-xs badge-error text-[10px] gap-0.5">
+                      <lucide-angular
+                        [img]="TriangleAlertIcon"
+                        class="w-2 h-2"
+                        aria-hidden="true"
+                      />
+                      Error
+                    </span>
+                  }
+                  @default {
+                    <span class="badge badge-xs badge-ghost text-[10px]">
+                      Not connected
+                    </span>
+                  }
+                }
+              </div>
+              <p
+                class="text-[11px] text-base-content-muted leading-relaxed mt-0.5"
+              >
+                {{ connector.description }}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1 text-[10px] text-base-content-muted">
+            @if (connector.kind === 'smithery') {
+              <lucide-angular
+                [img]="SparklesIcon"
+                class="w-2.5 h-2.5"
+                aria-hidden="true"
+              />
+            } @else {
+              <lucide-angular
+                [img]="KeyRoundIcon"
+                class="w-2.5 h-2.5"
+                aria-hidden="true"
+              />
+            }
+            <span>{{ kindHint(connector) }}</span>
+          </div>
+
+          @if (linkOf(connector).detail; as detail) {
+            <p class="text-[10px] text-error">{{ detail }}</p>
+          }
+
+          @if (isManagedElsewhere(connector)) {
+            <p class="text-[10px] text-base-content-muted">
+              This connection was created outside Ptah. Manage it in Smithery.
+            </p>
+          }
+
+          <div class="flex items-center gap-1">
+            @switch (statusOf(connector)) {
+              @case ('connected') {
+                <button
+                  class="btn btn-ghost btn-xs border border-base-300"
+                  type="button"
+                  [disabled]="isBusy(connector) || isManagedElsewhere(connector)"
+                  (click)="disconnect(connector)"
+                  [attr.aria-label]="'Disconnect ' + connector.label"
+                >
+                  @if (isBusy(connector)) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  } @else {
+                    Disconnect
+                  }
+                </button>
+              }
+              @default {
+                @if (statusOf(connector) === 'not-connected') {
+                  <button
+                    class="btn btn-primary btn-xs"
+                    type="button"
+                    [disabled]="isBusy(connector)"
+                    (click)="connect(connector)"
+                    [attr.aria-label]="'Connect ' + connector.label"
+                  >
+                    @if (isBusy(connector)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      Connect
+                    }
+                  </button>
+                } @else {
+                  <button
+                    class="btn btn-warning btn-xs"
+                    type="button"
+                    [disabled]="isBusy(connector)"
+                    (click)="authorize(connector)"
+                    [attr.aria-label]="'Authorize ' + connector.label"
+                  >
+                    @if (isBusy(connector)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      Authorize
+                    }
+                  </button>
+                }
+              }
+            }
+            @if (isPolling(connector)) {
+              <span class="text-[10px] text-base-content-muted" aria-live="polite">
+                Waiting for authorization in your browser...
+              </span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Custom server: the real Connected Apps form, embedded. -->
+  <details
+    class="rounded-lg border border-base-300 bg-base-100/40"
+    [open]="customFormOpen()"
+    (toggle)="onCustomFormToggle($event)"
+  >
+    <summary
+      class="cursor-pointer select-none px-3 py-2 text-xs font-medium text-base-content-muted"
+    >
+      Connect a custom server
+    </summary>
+    <div class="px-3 pb-3 pt-1 space-y-3">
+      @if (setupSteps().length > 0) {
+        <div
+          class="rounded-lg border border-info/30 bg-info/10 px-3 py-2 space-y-1.5"
+          role="note"
+        >
+          <p
+            id="connector-setup-heading"
+            class="text-[11px] font-medium text-base-content"
+          >
+            Set up {{ setupConnector()?.label }} before connecting
+          </p>
+          <ol
+            class="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-base-content-muted"
+            aria-labelledby="connector-setup-heading"
+            data-testid="connector-setup-steps"
+          >
+            @for (step of setupSteps(); track $index) {
+              <li>{{ step }}</li>
+            }
+          </ol>
+        </div>
+      }
+      <ptah-oauth-surface
+        (serverConnected)="onCustomFormChanged()"
+        (serverDisconnected)="onCustomFormChanged()"
+      />
+    </div>
+  </details>
+</div>

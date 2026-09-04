@@ -6,17 +6,20 @@
  *
  * Architecture:
  * - Delegates SDK query execution to InternalQueryService (agent-sdk)
- * - Uses SdkStreamProcessor for stream event processing and progress UX
- * - Writes markdown outputs to .ptah/analysis/{slug}/ via AnalysisStorageService
+ * - Uses SdkStreamProcessor for UI-only stream events (throttled to 100 ms)
+ * - Captures phase text from COMPLETE SDK assistant/result messages, never
+ *   from the throttled UI emitter
+ * - Checkpoints a version-3 manifest through AnalysisRunCheckpoint on every
+ *   lifecycle transition, so a run survives a host restart and can resume
  * - Broadcasts progress via WebviewManager for real-time frontend updates
- * - Each phase is independent: failures are logged and the pipeline continues
+ * - Each phase is independent: a failed phase is recorded as `failed` with a
+ *   non-empty error and the pipeline continues
  *
  * @module @ptah-extension/agent-generation
  */
 
 import { injectable, inject } from 'tsyringe';
-import { access } from 'fs/promises';
-import { join, relative } from 'path';
+import { relative } from 'path';
 import {
   Logger,
   TOKENS,
@@ -44,7 +47,6 @@ import type {
   SDKMessage,
   StreamEventEmitter,
   StreamEvent,
-  StreamProcessorResult,
 } from '@ptah-extension/agent-sdk';
 import type { AnalysisStorageService } from '../analysis-storage.service';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
@@ -52,9 +54,12 @@ import type {
   MultiPhaseManifest,
   MultiPhaseAnalysisOptions,
   MultiPhaseId,
-  PhaseResult,
 } from '../../types/multi-phase.types';
 import { PHASE_CONFIGS } from '../../types/multi-phase.types';
+import {
+  AnalysisRunCheckpoint,
+  type PhaseStatusSnapshot,
+} from './analysis-run-checkpoint';
 import {
   buildPhase1Prompts,
   buildPhase2Prompts,
@@ -67,8 +72,8 @@ import {
 } from '@ptah-extension/agent-sdk';
 
 const SERVICE_TAG = '[MultiPhaseAnalysis]';
-const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour total pipeline
-const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
+/** Per-phase ceiling, covering the queue wait AND the stream. */
+export const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
 const MAX_AGENT_TURNS = 50;
 const DEFAULT_MODEL = 'default';
 const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
@@ -86,6 +91,28 @@ const PROMPT_BUILDERS = [
   (slugDir: string, pluginSkillsContext?: string) =>
     buildPhase4Prompts(slugDir, pluginSkillsContext),
 ] as const;
+
+/**
+ * What one phase execution produced, independent of any file on disk.
+ */
+export interface PhaseExecutionOutcome {
+  /** A `result` message with subtype `success` arrived. */
+  resultReceived: boolean;
+  /** The per-phase timeout fired before a result arrived. */
+  timedOut: boolean;
+  /** Complete assistant text captured from SDK messages, or null. */
+  assistantText: string | null;
+  /** Non-empty when the phase cannot be `completed`. */
+  error?: string;
+}
+
+/** Mutable capture filled by the text-capturing stream wrapper. */
+interface PhaseTextCapture {
+  assistantTexts: string[];
+  resultText: string | null;
+  resultReceived: boolean;
+  resultError?: string;
+}
 
 /**
  * MultiPhaseAnalysisService
@@ -115,9 +142,15 @@ export class MultiPhaseAnalysisService {
   /**
    * Execute the full multi-phase analysis pipeline.
    *
+   * With `options.resume === true` the existing version-3 manifest for the
+   * workspace slug is continued: completed phases are skipped, a stale
+   * `running` phase restarts, and nothing under the slug is deleted. Without
+   * a resumable manifest the call falls back to a fresh run.
+   *
    * @param workspacePath - Workspace root path to analyze
    * @param options - Pipeline configuration
-   * @returns Result containing the manifest on success, or an Error
+   * @returns Result containing the manifest (lifecycle `completed`, `failed`
+   *   or `paused`) on success, or an Error when persistence or setup failed
    */
   async analyzeWorkspace(
     workspacePath: string,
@@ -126,6 +159,7 @@ export class MultiPhaseAnalysisService {
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
     const pluginPaths = options?.pluginPaths;
+    const resume = options?.resume === true;
     const model =
       options?.model || this.modelSettings.selectedModel.get() || DEFAULT_MODEL;
 
@@ -133,6 +167,7 @@ export class MultiPhaseAnalysisService {
       workspace: workspacePath,
       model,
       mcpServerRunning,
+      resume,
     });
     if (!mcpServerRunning) {
       return Result.err(
@@ -147,158 +182,101 @@ export class MultiPhaseAnalysisService {
     }
     const masterAbortController = new AbortController();
     this.activeAbortController = masterAbortController;
-    const pipelineStart = Date.now();
-    const phaseStatuses: Array<{
-      id: string;
-      status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    }> = PHASE_CONFIGS.map((pc) => ({ id: pc.id, status: 'pending' as const }));
 
     try {
       const folderName = workspacePath.split(/[\\/]/).pop() || 'project';
-      const { slugDir, slug } = await this.storageService.createSlugDir(
+      const checkpoint = await AnalysisRunCheckpoint.open(
+        this.storageService,
         workspacePath,
         folderName,
-      );
-
-      this.logger.info(`${SERVICE_TAG} Created slug directory`, {
-        slug,
-        slugDir,
-      });
-      const manifest: MultiPhaseManifest = {
-        version: 2,
-        slug,
-        analyzedAt: new Date().toISOString(),
         model,
-        totalDurationMs: 0,
-        phases: {} as Record<MultiPhaseId, PhaseResult>,
-      };
+        resume,
+      );
+      const { slugDir, manifest } = checkpoint;
+
+      this.logger.info(`${SERVICE_TAG} Analysis run opened`, {
+        runId: manifest.runId,
+        slug: manifest.slug,
+        slugDir,
+        resumed: checkpoint.resumed,
+      });
+
+      let paused = false;
       for (let i = 0; i < LLM_PHASE_COUNT; i++) {
         const phaseConfig = PHASE_CONFIGS[i];
-        if (masterAbortController.signal.aborted) {
+        const phaseId = phaseConfig.id as MultiPhaseId;
+
+        if (checkpoint.isCompleted(phaseId)) {
           this.logger.info(
-            `${SERVICE_TAG} Master abort detected, skipping remaining phases`,
+            `${SERVICE_TAG} Phase ${phaseId} already completed, skipping`,
           );
-          for (let j = i; j < PHASE_CONFIGS.length; j++) {
-            manifest.phases[PHASE_CONFIGS[j].id as MultiPhaseId] = {
-              status: 'skipped',
-              file: PHASE_CONFIGS[j].file,
-              durationMs: 0,
-            };
-            phaseStatuses[j].status = 'skipped';
-          }
+          continue;
+        }
+        if (masterAbortController.signal.aborted) {
+          await checkpoint.pause(null);
+          paused = true;
           break;
         }
-        phaseStatuses[i].status = 'running';
+
+        await checkpoint.markRunning(phaseId);
         this.broadcastPhaseProgress(
-          phaseConfig.id as AnalysisPhase,
+          phaseId as AnalysisPhase,
           i,
           LLM_PHASE_COUNT,
-          phaseStatuses,
+          checkpoint.statuses(),
           phaseConfig.label,
         );
 
         const phaseStart = Date.now();
-
+        let outcome: PhaseExecutionOutcome;
         try {
-          const text = await this.executePhase(
+          outcome = await this.executePhase(
             i,
             slugDir,
             workspacePath,
-            model,
+            manifest.model,
             mcpServerRunning,
             mcpPort,
             masterAbortController,
-            phaseStatuses,
             pluginPaths,
           );
-          const expectedFile = join(slugDir, phaseConfig.file);
-          const fileExists = await access(expectedFile)
-            .then(() => true)
-            .catch(() => false);
-
-          if (fileExists) {
-            manifest.phases[phaseConfig.id as MultiPhaseId] = {
-              status: 'completed',
-              file: phaseConfig.file,
-              durationMs: Date.now() - phaseStart,
-            };
-            phaseStatuses[i].status = 'completed';
-          } else if (text) {
-            this.logger.warn(
-              `${SERVICE_TAG} Phase ${phaseConfig.id}: agent did not write file, using captured text fallback`,
-            );
-            await this.storageService.writePhaseFile(
-              slugDir,
-              phaseConfig.file,
-              text,
-            );
-            manifest.phases[phaseConfig.id as MultiPhaseId] = {
-              status: 'completed',
-              file: phaseConfig.file,
-              durationMs: Date.now() - phaseStart,
-            };
-            phaseStatuses[i].status = 'completed';
-          } else {
-            manifest.phases[phaseConfig.id as MultiPhaseId] = {
-              status: 'failed',
-              file: phaseConfig.file,
-              durationMs: Date.now() - phaseStart,
-              error:
-                'Agent did not write the phase file and no text was captured',
-            };
-            phaseStatuses[i].status = 'failed';
-            this.logger.warn(
-              `${SERVICE_TAG} Phase ${phaseConfig.id}: no file written and no text captured`,
-            );
-          }
-        } catch (error) {
+        } catch (error: unknown) {
           if (masterAbortController.signal.aborted) {
-            manifest.phases[phaseConfig.id as MultiPhaseId] = {
-              status: 'skipped',
-              file: phaseConfig.file,
-              durationMs: Date.now() - phaseStart,
-            };
-            phaseStatuses[i].status = 'skipped';
-            for (let j = i + 1; j < PHASE_CONFIGS.length; j++) {
-              manifest.phases[PHASE_CONFIGS[j].id as MultiPhaseId] = {
-                status: 'skipped',
-                file: PHASE_CONFIGS[j].file,
-                durationMs: 0,
-              };
-              phaseStatuses[j].status = 'skipped';
-            }
+            await checkpoint.pause(phaseId);
+            paused = true;
             break;
           }
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          const phaseDurationMs = Date.now() - phaseStart;
-          this.logger.error(
-            `${SERVICE_TAG} Phase ${phaseConfig.id} failed after ${phaseDurationMs}ms: ${errorMessage}`,
-            {
-              phaseId: phaseConfig.id,
-              phaseIndex: i,
-              durationMs: phaseDurationMs,
-              errorName: error instanceof Error ? error.name : 'NonErrorThrown',
-              errorStack:
-                error instanceof Error
-                  ? error.stack?.split('\n').slice(0, 5).join('\n')
-                  : undefined,
-            },
-          );
-          manifest.phases[phaseConfig.id as MultiPhaseId] = {
-            status: 'failed',
-            file: phaseConfig.file,
-            durationMs: phaseDurationMs,
-            error: errorMessage,
+          outcome = {
+            resultReceived: false,
+            timedOut: false,
+            assistantText: null,
+            error: error instanceof Error ? error.message : String(error),
           };
-          phaseStatuses[i].status = 'failed';
         }
+        if (!outcome.resultReceived && masterAbortController.signal.aborted) {
+          this.logger.info(
+            `${SERVICE_TAG} Phase ${phaseId} paused by user; partial file kept`,
+          );
+          await checkpoint.pause(phaseId);
+          paused = true;
+          break;
+        }
+
+        await this.recordPhaseOutcome(
+          checkpoint,
+          phaseId,
+          phaseConfig.file,
+          outcome,
+          Date.now() - phaseStart,
+        );
+
+        const statuses = checkpoint.statuses();
         this.broadcastPhaseProgress(
-          phaseConfig.id as AnalysisPhase,
+          phaseId as AnalysisPhase,
           i,
           LLM_PHASE_COUNT,
-          phaseStatuses,
-          phaseStatuses[i].status === 'completed'
+          statuses,
+          statuses[i].status === 'completed'
             ? `${phaseConfig.label.replace('...', '')} complete`
             : phaseConfig.label,
         );
@@ -315,27 +293,34 @@ export class MultiPhaseAnalysisService {
           });
         }
       }
-      manifest.totalDurationMs = Date.now() - pipelineStart;
-      await this.storageService.writeManifest(slugDir, manifest);
 
-      this.logger.info(`${SERVICE_TAG} Multi-phase analysis complete`, {
-        totalDurationMs: manifest.totalDurationMs,
-        phases: Object.entries(manifest.phases).map(([id, r]) => ({
-          id,
-          status: r.status,
-          durationMs: r.durationMs,
-        })),
-      });
+      if (!paused) {
+        await checkpoint.finish();
+      }
+
+      this.logger.info(
+        `${SERVICE_TAG} Multi-phase analysis ${paused ? 'paused' : 'finished'}`,
+        {
+          runId: manifest.runId,
+          lifecycle: manifest.lifecycle,
+          totalDurationMs: manifest.totalDurationMs,
+          phases: Object.entries(manifest.phases).map(([id, r]) => ({
+            id,
+            status: r.status,
+            durationMs: r.durationMs,
+          })),
+        },
+      );
       this.broadcastPhaseProgress(
         'elevation-plan' as AnalysisPhase,
         PHASE_CONFIGS.length - 1,
         PHASE_CONFIGS.length,
-        phaseStatuses,
-        'Analysis complete',
+        checkpoint.statuses(),
+        paused ? 'Analysis paused' : 'Analysis complete',
       );
 
       return Result.ok(manifest);
-    } catch (error) {
+    } catch (error: unknown) {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`${SERVICE_TAG} Multi-phase analysis failed`, errorObj);
@@ -348,11 +333,12 @@ export class MultiPhaseAnalysisService {
   }
 
   /**
-   * Cancel a running multi-phase analysis.
+   * Pause a running multi-phase analysis. The active phase returns to
+   * `pending` (its partial file is kept) and the manifest is left resumable.
    */
   cancelAnalysis(): void {
     if (this.activeAbortController) {
-      this.logger.info(`${SERVICE_TAG} Cancelling active multi-phase analysis`);
+      this.logger.info(`${SERVICE_TAG} Pausing active multi-phase analysis`);
       this.activeAbortController.abort('user_cancelled');
       this.activeAbortController = null;
     } else {
@@ -363,10 +349,82 @@ export class MultiPhaseAnalysisService {
   }
 
   /**
+   * Turn an execution outcome into the phase's terminal manifest state.
+   *
+   * `completed` requires a successful result AND a phase file — either one the
+   * agent wrote or one created from the complete captured text. Everything
+   * else is `failed` with a non-empty error; captured text is still written
+   * to the phase file for diagnosis, but the manifest says failed.
+   */
+  private async recordPhaseOutcome(
+    checkpoint: AnalysisRunCheckpoint,
+    phaseId: MultiPhaseId,
+    filename: string,
+    outcome: PhaseExecutionOutcome,
+    durationMs: number,
+  ): Promise<void> {
+    const fileExists = await this.storageService.phaseFileExists(
+      checkpoint.slugDir,
+      filename,
+    );
+    const succeeded =
+      outcome.resultReceived && !outcome.timedOut && !outcome.error;
+
+    if (succeeded) {
+      if (!fileExists) {
+        if (!outcome.assistantText) {
+          this.logger.warn(
+            `${SERVICE_TAG} Phase ${phaseId}: no file written and no text captured`,
+          );
+          await checkpoint.markFailed(
+            phaseId,
+            durationMs,
+            'Agent did not write the phase file and no text was captured',
+          );
+          return;
+        }
+        this.logger.warn(
+          `${SERVICE_TAG} Phase ${phaseId}: agent did not write file, creating it from the complete captured text`,
+        );
+        await this.storageService.writePhaseFile(
+          checkpoint.slugDir,
+          filename,
+          outcome.assistantText,
+        );
+      }
+      await checkpoint.markCompleted(phaseId, durationMs);
+      return;
+    }
+
+    const error =
+      outcome.error ??
+      (outcome.timedOut
+        ? `analysis_timeout: phase exceeded ${PER_PHASE_TIMEOUT_MS} ms`
+        : 'Stream ended without a result');
+    if (!fileExists && outcome.assistantText) {
+      this.logger.warn(
+        `${SERVICE_TAG} Phase ${phaseId}: keeping captured text as a diagnostic file (phase still failed)`,
+      );
+      await this.storageService.writePhaseFile(
+        checkpoint.slugDir,
+        filename,
+        outcome.assistantText,
+      );
+    }
+    this.logger.error(
+      `${SERVICE_TAG} Phase ${phaseId} failed after ${durationMs}ms: ${error}`,
+      { phaseId, durationMs, timedOut: outcome.timedOut },
+    );
+    await checkpoint.markFailed(phaseId, durationMs, error);
+  }
+
+  /**
    * Execute a single LLM phase (1-4).
    *
    * Creates a per-phase AbortController linked to the master, builds prompts,
-   * calls InternalQueryService, processes the stream, and returns captured text.
+   * calls InternalQueryService, processes the stream, and returns what the
+   * stream produced. Throws only when the master controller aborted (a user
+   * pause); every other failure is reported inside the outcome.
    */
   private async executePhase(
     phaseIndex: number,
@@ -376,12 +434,8 @@ export class MultiPhaseAnalysisService {
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     masterAbortController: AbortController,
-    phaseStatuses: Array<{
-      id: string;
-      status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    }>,
     pluginPaths?: string[],
-  ): Promise<string | null> {
+  ): Promise<PhaseExecutionOutcome> {
     const phaseConfig = PHASE_CONFIGS[phaseIndex];
     const promptBuilder = PROMPT_BUILDERS[phaseIndex];
     let pluginSkillsContext: string | undefined;
@@ -424,13 +478,16 @@ export class MultiPhaseAnalysisService {
       once: true,
     });
     // Arm the timeout BEFORE execute() so the budget covers the queue wait for
-    // a concurrency slot, not just the stream after the handle resolves. The
-    // 'analysis_timeout' reason matches the SdkStreamProcessor's old hardcoded
-    // string, preserving the phase 'failed' outcome on timeout.
+    // a concurrency slot, not just the stream after the handle resolves.
     const phaseTimeoutHandle = setTimeout(
       () => phaseAbortController.abort('analysis_timeout'),
       PER_PHASE_TIMEOUT_MS,
     );
+    const capture: PhaseTextCapture = {
+      assistantTexts: [],
+      resultText: null,
+      resultReceived: false,
+    };
 
     try {
       const executeStartMs = Date.now();
@@ -450,56 +507,62 @@ export class MultiPhaseAnalysisService {
       );
 
       try {
-        const { text, resultMeta } = await this.processPhaseStream(
-          handle.stream,
+        await this.processPhaseStream(
+          this.createTextCapturingStream(handle.stream, capture),
           phaseConfig.id as MultiPhaseId,
-          phaseIndex,
-          phaseStatuses,
+          capture,
         );
-
-        if (resultMeta) {
-          this.logger.info(`${SERVICE_TAG} Phase ${phaseConfig.id} completed`, {
-            turns: resultMeta.turns,
-            cost: resultMeta.cost,
-            inputTokens: resultMeta.inputTokens,
-            outputTokens: resultMeta.outputTokens,
-            textLength: text?.length ?? 0,
-          });
-        }
-
-        return text;
       } finally {
         handle.close();
+      }
+    } catch (error: unknown) {
+      if (masterAbortController.signal.aborted) {
+        throw error;
+      }
+      if (!phaseAbortController.signal.aborted) {
+        capture.resultError =
+          error instanceof Error ? error.message : String(error);
       }
     } finally {
       masterAbortController.signal.removeEventListener('abort', onMasterAbort);
       clearTimeout(phaseTimeoutHandle);
     }
+
+    const timedOut =
+      phaseAbortController.signal.aborted &&
+      phaseAbortController.signal.reason === 'analysis_timeout';
+    const assistantText =
+      capture.assistantTexts.length > 0
+        ? capture.assistantTexts.join('\n\n')
+        : null;
+    const error = timedOut
+      ? `analysis_timeout: phase exceeded ${PER_PHASE_TIMEOUT_MS} ms`
+      : capture.resultError;
+
+    if (capture.resultReceived && !error) {
+      this.logger.info(`${SERVICE_TAG} Phase ${phaseConfig.id} completed`, {
+        textLength: assistantText?.length ?? 0,
+      });
+    }
+
+    return {
+      resultReceived: capture.resultReceived && !timedOut,
+      timedOut,
+      assistantText,
+      ...(error ? { error } : {}),
+    };
   }
 
   /**
-   * Process the SDK message stream for a single phase.
-   *
-   * Intercepts the stream to capture the result text (since we don't use
-   * outputFormat, there's no structured_output -- the agent's free-form
-   * markdown response is in message.result on the result message).
-   *
-   * Also forwards events to the SdkStreamProcessor for live UI updates.
+   * Feed the SDK message stream to the SdkStreamProcessor for live UI
+   * updates. Persistence never reads from this path: the processor throttles
+   * text deltas to 100 ms and is UI-only.
    */
   private async processPhaseStream(
     stream: AsyncIterable<SDKMessage>,
     phaseId: MultiPhaseId,
-    phaseIndex: number,
-    phaseStatuses: Array<{
-      id: string;
-      status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    }>,
-  ): Promise<{
-    text: string | null;
-    resultMeta?: StreamProcessorResult['resultMeta'];
-  }> {
-    let capturedResultText: string | null = null;
-    const textChunks: string[] = [];
+    capture: PhaseTextCapture,
+  ): Promise<void> {
     const convCtx = {
       messageId: `wizard-phase-${phaseId}`,
       sessionId: WizardPhaseId.fromPhase(phaseId),
@@ -514,9 +577,6 @@ export class MultiPhaseAnalysisService {
 
     const emitter: StreamEventEmitter = {
       emit: (event: StreamEvent) => {
-        if (event.kind === 'text' && event.content) {
-          textChunks.push(event.content);
-        }
         const flatEvent = this.convertStreamEventToFlatEvent(
           event,
           phaseId,
@@ -541,12 +601,6 @@ export class MultiPhaseAnalysisService {
         role: 'assistant',
       } as MessageStartEvent,
     });
-    const wrappedStream = this.createTextCapturingStream(
-      stream,
-      (resultText: string) => {
-        capturedResultText = resultText;
-      },
-    );
 
     const processor = new SdkStreamProcessor({
       emitter,
@@ -555,7 +609,7 @@ export class MultiPhaseAnalysisService {
       skipStructuredOutput: true, // Multi-phase produces markdown, not JSON
     });
 
-    const result = await processor.process(wrappedStream);
+    await processor.process(stream);
     if (convCtx.activeToolCallId) {
       const syntheticToolResult: FlatStreamEventUnion = {
         id: `${phaseId}-tool-result-${convCtx.counter++}`,
@@ -564,13 +618,13 @@ export class MultiPhaseAnalysisService {
         sessionId: convCtx.sessionId,
         messageId: convCtx.messageId,
         toolCallId: convCtx.activeToolCallId,
-        output: capturedResultText ?? '(completed)',
+        output: capture.resultText ?? '(completed)',
         isError: false,
       } as ToolResultEvent;
 
       this.broadcastStreamMessage({
         kind: 'tool_result',
-        content: capturedResultText ?? '(completed)',
+        content: capture.resultText ?? '(completed)',
         toolCallId: convCtx.activeToolCallId,
         timestamp: Date.now(),
         flatEvent: syntheticToolResult,
@@ -590,32 +644,47 @@ export class MultiPhaseAnalysisService {
         messageId: convCtx.messageId,
       } as MessageCompleteEvent,
     });
-    const finalText =
-      capturedResultText ||
-      (textChunks.length > 0 ? textChunks.join('') : null);
-
-    return { text: finalText, resultMeta: result.resultMeta };
   }
 
   /**
-   * Wrap an SDK message stream to intercept result messages and capture the text.
+   * Wrap an SDK message stream to capture complete text for persistence.
    *
-   * The `onResultText` callback is called with the `result` field from
-   * successful result messages (which contains the agent's full text response
-   * when no outputFormat is used).
+   * - Every `assistant` message contributes the concatenation of its `text`
+   *   content blocks.
+   * - A successful `result` message marks the phase as having a result and
+   *   contributes its `result` text when it is not already the last
+   *   assistant text.
+   * - A non-success `result` message records its subtype as the error.
    */
   private async *createTextCapturingStream(
     stream: AsyncIterable<SDKMessage>,
-    onResultText: (text: string) => void,
+    capture: PhaseTextCapture,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
-      if (
-        message.type === 'result' &&
-        message.subtype === 'success' &&
-        'result' in message &&
-        typeof (message as { result?: string }).result === 'string'
-      ) {
-        onResultText((message as { result: string }).result);
+      if (message.type === 'assistant') {
+        const text = extractAssistantText(message);
+        if (text) capture.assistantTexts.push(text);
+      } else if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          capture.resultReceived = true;
+          const resultText = (message as { result?: unknown }).result;
+          if (typeof resultText === 'string' && resultText.trim().length > 0) {
+            capture.resultText = resultText;
+            const last = capture.assistantTexts.at(-1);
+            if (last === undefined || last.trim() !== resultText.trim()) {
+              capture.assistantTexts.push(resultText);
+            }
+          }
+        } else {
+          const errorResult = message as {
+            subtype: string;
+            errors?: unknown;
+          };
+          const details = Array.isArray(errorResult.errors)
+            ? `: ${errorResult.errors.map(String).join('; ')}`
+            : '';
+          capture.resultError = `SDK result ${errorResult.subtype}${details}`;
+        }
       }
       yield message;
     }
@@ -628,10 +697,7 @@ export class MultiPhaseAnalysisService {
     currentPhase: AnalysisPhase,
     phaseIndex: number,
     totalPhases: number,
-    phaseStatuses: Array<{
-      id: string;
-      status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    }>,
+    phaseStatuses: PhaseStatusSnapshot,
     phaseLabel?: string,
   ): void {
     try {
@@ -656,7 +722,7 @@ export class MultiPhaseAnalysisService {
         MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
         payload,
       );
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast phase progress`, {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -780,10 +846,32 @@ export class MultiPhaseAnalysisService {
         MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
         payload,
       );
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast stream message`, {
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
+}
+
+/**
+ * Concatenate the `text` content blocks of a complete assistant message.
+ */
+function extractAssistantText(message: SDKMessage): string | null {
+  const content = (message as { message?: { content?: unknown } }).message
+    ?.content;
+  if (!Array.isArray(content)) return null;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === 'object' &&
+      (block as { type?: unknown }).type === 'text' &&
+      typeof (block as { text?: unknown }).text === 'string'
+    ) {
+      parts.push((block as { text: string }).text);
+    }
+  }
+  const text = parts.join('');
+  return text.trim().length > 0 ? text : null;
 }
