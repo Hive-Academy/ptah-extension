@@ -1,5 +1,6 @@
 /**
- * LIVE probe for the Ptah connectors catalog (TASK_2026_375 B3.1).
+ * LIVE probe for the Ptah connectors catalog (TASK_2026_375 B3.1, grown by
+ * TASK_2026_379 C1.5).
  *
  * This suite makes REAL network calls, so it is `describe.skip` unless
  * `PTAH_LIVE_PROBES=1` is set. It exists to answer one question per candidate
@@ -29,7 +30,7 @@ import {
   type FetchLike,
 } from './mcp-oauth-metadata';
 
-/** One catalog candidate, as listed in `batches.md` B3.1. */
+/** One catalog candidate, as listed in `batches.md` B3.1 and C1. */
 interface CandidateServer {
   readonly id: string;
   readonly label: string;
@@ -47,6 +48,7 @@ interface ProbeOutcome {
 }
 
 const CANDIDATES: readonly CandidateServer[] = [
+  // ── Already in the catalog (TASK_2026_375 B3.1) ────────────────────────────
   { id: 'sentry', label: 'Sentry', url: 'https://mcp.sentry.dev/mcp' },
   { id: 'notion', label: 'Notion', url: 'https://mcp.notion.com/mcp' },
   { id: 'linear', label: 'Linear', url: 'https://mcp.linear.app/mcp' },
@@ -75,12 +77,134 @@ const CANDIDATES: readonly CandidateServer[] = [
     url: 'https://docs.mcp.cloudflare.com/mcp',
   },
   { id: 'github', label: 'GitHub', url: 'https://api.githubcopilot.com/mcp/' },
+
+  // ── C1.1 — browser sign-in candidates (research report section 4) ──────────
+  { id: 'ahrefs', label: 'Ahrefs', url: 'https://api.ahrefs.com/mcp/mcp' },
+  { id: 'airtable', label: 'Airtable', url: 'https://mcp.airtable.com/mcp' },
+  {
+    id: 'amplitude',
+    label: 'Amplitude',
+    url: 'https://mcp.amplitude.com/mcp',
+  },
+  { id: 'apollo', label: 'Apollo.io', url: 'https://mcp.apollo.io/mcp' },
+  {
+    id: 'atlassian-v2',
+    label: 'Atlassian Rovo v2',
+    url: 'https://mcp.atlassian.com/v2/mcp',
+  },
+  { id: 'attio', label: 'Attio', url: 'https://mcp.attio.com/mcp' },
+  { id: 'clickup', label: 'ClickUp', url: 'https://mcp.clickup.com/mcp' },
+  {
+    id: 'cloudflare',
+    label: 'Cloudflare',
+    url: 'https://mcp.cloudflare.com/mcp',
+  },
+  {
+    id: 'cloudflare-bindings',
+    label: 'Cloudflare Bindings',
+    url: 'https://bindings.mcp.cloudflare.com/mcp',
+  },
+  { id: 'context7', label: 'Context7', url: 'https://mcp.context7.com/mcp' },
+  {
+    id: 'datadog',
+    label: 'Datadog',
+    url: 'https://mcp.datadoghq.com/api/unstable/mcp-server/mcp',
+  },
+  { id: 'dropbox', label: 'Dropbox', url: 'https://mcp.dropbox.com/mcp' },
+  { id: 'exa', label: 'Exa', url: 'https://mcp.exa.ai/mcp' },
+  { id: 'gitlab', label: 'GitLab', url: 'https://gitlab.com/api/v4/mcp' },
+  {
+    id: 'huggingface',
+    label: 'Hugging Face',
+    url: 'https://huggingface.co/mcp',
+  },
+  { id: 'klaviyo', label: 'Klaviyo', url: 'https://mcp.klaviyo.com/mcp' },
+  { id: 'mixpanel', label: 'Mixpanel', url: 'https://mcp.mixpanel.com/mcp' },
+  { id: 'pipedrive', label: 'Pipedrive', url: 'https://mcp.pipedrive.ai/mcp' },
+  {
+    id: 'planetscale',
+    label: 'PlanetScale',
+    url: 'https://mcp.pscale.dev/mcp/planetscale',
+  },
+  { id: 'semrush', label: 'Semrush', url: 'https://mcp.semrush.com/v2/mcp' },
+  { id: 'tavily', label: 'Tavily', url: 'https://mcp.tavily.com/mcp' },
+  { id: 'todoist', label: 'Todoist', url: 'https://ai.todoist.net/mcp' },
+  { id: 'trello', label: 'Trello', url: 'https://mcp.trello.com/v1' },
+  { id: 'zernio', label: 'Zernio', url: 'https://mcp.zernio.com/mcp' },
+
+  // ── C1.2 — app-required candidates (research report section 4b) ────────────
+  {
+    id: 'google-gmail',
+    label: 'Gmail',
+    url: 'https://gmailmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-calendar',
+    label: 'Google Calendar',
+    url: 'https://calendarmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-drive',
+    label: 'Google Drive',
+    url: 'https://drivemcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-docs',
+    label: 'Google Docs',
+    url: 'https://docsmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-bigquery',
+    label: 'BigQuery',
+    url: 'https://bigquery.googleapis.com/mcp',
+  },
+  { id: 'slack', label: 'Slack', url: 'https://mcp.slack.com/mcp' },
+  { id: 'box', label: 'Box', url: 'https://mcp.box.com' },
+  {
+    id: 'mongodb-atlas',
+    label: 'MongoDB Atlas',
+    url: 'https://mcp.mongodb.com',
+  },
+  { id: 'pagerduty', label: 'PagerDuty', url: 'https://mcp.pagerduty.com/mcp' },
+  { id: 'shopify', label: 'Shopify', url: 'https://setup.shopify.com/mcp' },
+
+  // ── C1.3 — Smithery-hosted Google servers ─────────────────────────────────
+  {
+    id: 'gmail-smithery',
+    label: 'Gmail via Smithery',
+    url: 'https://server.smithery.ai/gmail/mcp',
+  },
+  {
+    id: 'googlecalendar-smithery',
+    label: 'Google Calendar via Smithery',
+    url: 'https://server.smithery.ai/googlecalendar/mcp',
+  },
+  {
+    id: 'googledrive-smithery',
+    label: 'Google Drive via Smithery',
+    url: 'https://server.smithery.ai/googledrive/mcp',
+  },
+  {
+    id: 'googledocs-smithery',
+    label: 'Google Docs via Smithery',
+    url: 'https://server.smithery.ai/googledocs/mcp',
+  },
+  {
+    id: 'googlesheets-smithery',
+    label: 'Google Sheets via Smithery',
+    url: 'https://server.smithery.ai/googlesheets/mcp',
+  },
+
+  // ── C1.4 — dynamic-registration aggregators ───────────────────────────────
+  { id: 'pipedream', label: 'Pipedream', url: 'https://mcp.pipedream.net/v2' },
 ];
 
 /** Per-request ceiling, so one hanging host cannot stall the whole run. */
 const REQUEST_TIMEOUT_MS = 15_000;
-/** Whole-suite ceiling: 20 candidates x two discovery chains. */
-const SUITE_TIMEOUT_MS = 600_000;
+/** Whole-suite ceiling: 60 candidates x two discovery chains, 8 in flight. */
+const SUITE_TIMEOUT_MS = 900_000;
+/** Probes in flight at once. Keeps the run inside the suite ceiling. */
+const PROBE_CONCURRENCY = 8;
 
 const LIVE = process.env['PTAH_LIVE_PROBES'] === '1';
 
@@ -148,6 +272,28 @@ async function probe(candidate: CandidateServer): Promise<ProbeOutcome> {
   }
 }
 
+/**
+ * Probe every candidate with a bounded number of requests in flight, and keep
+ * the outcomes in candidate order so the printed table is stable between runs.
+ */
+async function probeAll(
+  candidates: readonly CandidateServer[],
+): Promise<readonly ProbeOutcome[]> {
+  const outcomes = new Array<ProbeOutcome>(candidates.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let index = next++; index < candidates.length; index = next++) {
+      outcomes[index] = await probe(candidates[index]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, candidates.length) }, () =>
+      worker(),
+    ),
+  );
+  return outcomes;
+}
+
 function renderTable(outcomes: readonly ProbeOutcome[]): string {
   const rows = outcomes.map((o) => {
     const kind = !o.passed
@@ -180,9 +326,7 @@ describeLive('ptah connectors catalog — LIVE OAuth discovery probe', () => {
   it(
     'probes every catalog candidate and records its discovery outcome',
     async () => {
-      for (const candidate of CANDIDATES) {
-        outcomes.push(await probe(candidate));
-      }
+      outcomes.push(...(await probeAll(CANDIDATES)));
       expect(outcomes).toHaveLength(CANDIDATES.length);
     },
     SUITE_TIMEOUT_MS,
@@ -193,5 +337,12 @@ describe('ptah connectors catalog live probe (offline guard)', () => {
   it('is skipped unless PTAH_LIVE_PROBES=1', () => {
     // Pins the gate itself: an ordinary CI run must make no network call.
     expect(LIVE || process.env['PTAH_LIVE_PROBES'] === undefined).toBe(true);
+  });
+
+  it('lists a unique id and url for every candidate', () => {
+    const ids = CANDIDATES.map((c) => c.id);
+    const urls = CANDIDATES.map((c) => c.url);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(urls).size).toBe(urls.length);
   });
 });

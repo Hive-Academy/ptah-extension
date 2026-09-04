@@ -131,6 +131,88 @@ describe('PTAH_CONNECTORS', () => {
     const urls = PTAH_CONNECTORS.map((c) => c.url ?? '');
     expect(urls).not.toContain('https://docs.mcp.cloudflare.com/mcp');
   });
+
+  // ── setupSteps and scopes (TASK_2026_379 C1.5) ────────────────────────────
+
+  it('gives every oauth-app entry a non-empty setupSteps list', () => {
+    const apps = PTAH_CONNECTORS.filter((c) => c.kind === 'oauth-app');
+    expect(apps.length).toBeGreaterThan(0);
+    for (const connector of apps) {
+      expect(Array.isArray(connector.setupSteps)).toBe(true);
+      expect(connector.setupSteps?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it('writes every setup step as a non-empty imperative sentence', () => {
+    for (const connector of PTAH_CONNECTORS) {
+      for (const step of connector.setupSteps ?? []) {
+        expect(step.trim().length).toBeGreaterThan(0);
+        expect(step.trim().endsWith('.')).toBe(true);
+      }
+    }
+  });
+
+  it('names {redirectUrl} in at least one step of every setupSteps list', () => {
+    for (const connector of PTAH_CONNECTORS) {
+      if (connector.setupSteps === undefined) {
+        continue;
+      }
+      const named = connector.setupSteps.filter((step) =>
+        step.includes('{redirectUrl}'),
+      );
+      expect(named.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('never gives an oauth-dcr or smithery entry setupSteps', () => {
+    for (const connector of PTAH_CONNECTORS) {
+      if (connector.kind !== 'oauth-app') {
+        expect(connector.setupSteps).toBeUndefined();
+      }
+    }
+  });
+
+  it('gives scopes, when present, non-empty strings in a non-empty array', () => {
+    const scoped = PTAH_CONNECTORS.filter((c) => c.scopes !== undefined);
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const connector of scoped) {
+      expect(Array.isArray(connector.scopes)).toBe(true);
+      expect(connector.scopes?.length ?? 0).toBeGreaterThan(0);
+      for (const scope of connector.scopes ?? []) {
+        expect(typeof scope).toBe('string');
+        expect(scope.trim().length).toBeGreaterThan(0);
+        expect(scope).toBe(scope.trim());
+      }
+    }
+  });
+
+  it('never repeats a scope inside one entry', () => {
+    for (const connector of PTAH_CONNECTORS) {
+      const scopes = connector.scopes ?? [];
+      expect(new Set(scopes).size).toBe(scopes.length);
+    }
+  });
+
+  it('holds back the three services whose docs restrict custom clients', () => {
+    // Square, Ahrefs and Semrush answer the metadata probe, but their
+    // documentation restricts custom OAuth clients (TASK_2026_378 section 4).
+    // They ship only after somebody connects each one once by hand.
+    const heldBackIds = ['square', 'ahrefs', 'semrush'];
+    const ids = PTAH_CONNECTORS.map((c) => c.id);
+    for (const heldBack of heldBackIds) {
+      expect(ids).not.toContain(heldBack);
+    }
+    const heldBackUrls = [
+      'https://mcp.squareup.com/sse',
+      'https://mcp.squareup.com/mcp',
+      'https://api.ahrefs.com/mcp/mcp',
+      'https://mcp.semrush.com/v2/mcp',
+    ];
+    const urls = PTAH_CONNECTORS.map((c) => c.url ?? '');
+    for (const heldBackUrl of heldBackUrls) {
+      expect(urls).not.toContain(heldBackUrl);
+    }
+  });
 });
 
 describe('ptahConnectorCategoryLabel', () => {

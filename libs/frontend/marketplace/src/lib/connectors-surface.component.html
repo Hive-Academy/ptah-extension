@@ -241,7 +241,29 @@
     >
       Connect a custom server
     </summary>
-    <div class="px-3 pb-3 pt-1">
+    <div class="px-3 pb-3 pt-1 space-y-3">
+      @if (setupSteps().length > 0) {
+        <div
+          class="rounded-lg border border-info/30 bg-info/10 px-3 py-2 space-y-1.5"
+          role="note"
+        >
+          <p
+            id="connector-setup-heading"
+            class="text-[11px] font-medium text-base-content"
+          >
+            Set up {{ setupConnector()?.label }} before connecting
+          </p>
+          <ol
+            class="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-base-content-muted"
+            aria-labelledby="connector-setup-heading"
+            data-testid="connector-setup-steps"
+          >
+            @for (step of setupSteps(); track $index) {
+              <li>{{ step }}</li>
+            }
+          </ol>
+        </div>
+      }
       <ptah-oauth-surface
         (serverConnected)="onCustomFormChanged()"
         (serverDisconnected)="onCustomFormChanged()"

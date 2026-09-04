@@ -19,6 +19,17 @@ Each card shows how that app signs in:
 | App       | **Needs an app you create with the provider** | Opens the [Connected Apps](/marketplace/connected-apps/) form, pre-filled and with **Advanced** already open, so you can paste the client ID and secret you create with the provider. |
 | Smithery  | **Managed by Smithery**                       | Installs through your Smithery account. If the upstream app still needs authorization, Ptah opens that step for you and waits for it to finish.                                       |
 
+## When you need to create an app
+
+Some providers require you to register your own app before they can authorize a connector. Ptah shows the work up front on the card, then guides you through it:
+
+1. Click **Connect** to open the pre-filled Connected Apps form with **Advanced** expanded.
+2. Follow the provider-specific numbered steps shown above the form.
+3. Copy the redirect URL shown in **Advanced** and register it with the provider.
+4. Paste the client ID and client secret the provider gives you, then connect.
+
+The redirect URL comes from the Ptah host currently running the authorization flow. It can differ between the desktop, editor, and command-line hosts, so always copy the value shown in the form instead of reusing one from another installation.
+
 ## Status badges
 
 | Badge                   | Meaning                                                        | Action offered                             |

@@ -14,6 +14,7 @@ import { ConnectorsSurfaceComponent } from './connectors-surface.component';
  *  - Connect routing per `kind`, which is the one branch a regression would
  *    silently break: an `oauth-app` connector must NOT call `connectOAuth`,
  *    because there is no client id yet for it to use.
+ *  - Per-provider setup instructions, redirect URL substitution, and cleanup.
  *  - Authorize on a connector that is listed but not usable.
  *  - The Smithery setup poll: it stops on `connected`, on `error`, at the
  *    5-minute deadline, and on destroy.
@@ -60,6 +61,30 @@ function connectorById(id: string): PtahConnector {
 const SENTRY = connectorById('sentry'); // oauth-dcr
 const GITHUB = connectorById('github'); // oauth-app
 const HUBSPOT_SMITHERY = connectorById('hubspot-smithery'); // smithery
+
+const APP_WITH_SETUP: PtahConnector = {
+  id: 'calendar-with-setup',
+  label: 'Calendar with setup',
+  description: 'A test-only connector with provider setup instructions.',
+  category: 'productivity',
+  kind: 'oauth-app',
+  url: 'https://calendar.example/mcp',
+  setupSteps: [
+    'Create an app in the provider console.',
+    'Add {redirectUrl} to the authorized redirect URLs.',
+    'Copy the client ID and client secret into the fields below.',
+  ],
+  scopes: ['calendar.read', 'calendar.write'],
+  verifiedAt: '2026-09-04',
+};
+
+const SECOND_APP_WITH_SETUP: PtahConnector = {
+  ...APP_WITH_SETUP,
+  id: 'drive-with-setup',
+  label: 'Drive with setup',
+  url: 'https://drive.example/mcp',
+  setupSteps: ['Register {redirectUrl} for the second app.'],
+};
 
 describe('ConnectorsSurfaceComponent', () => {
   let fixture: ComponentFixture<ConnectorsSurfaceComponent>;
@@ -202,6 +227,128 @@ describe('ConnectorsSurfaceComponent', () => {
   });
 
   // ── Status merge ───────────────────────────────────────────────────────────
+
+  describe('app-required setup guidance', () => {
+    it('renders an oauth-app connector setup steps in order', async () => {
+      await createComponent();
+
+      await component.connect(APP_WITH_SETUP);
+      fixture.detectChanges();
+
+      const steps = Array.from(
+        hostElement.querySelectorAll<HTMLLIElement>(
+          '[data-testid="connector-setup-steps"] li',
+        ),
+      ).map((item) => item.textContent?.trim());
+      expect(steps).toEqual([
+        'Create an app in the provider console.',
+        'Add http://127.0.0.1:41234/callback to the authorized redirect URLs.',
+        'Copy the client ID and client secret into the fields below.',
+      ]);
+    });
+
+    it('substitutes the redirect URL loaded by the embedded form', async () => {
+      await createComponent();
+
+      await component.connect(APP_WITH_SETUP);
+      fixture.detectChanges();
+
+      const setupText = hostElement.querySelector(
+        '[data-testid="connector-setup-steps"]',
+      )?.textContent;
+      expect(setupText).toContain('http://127.0.0.1:41234/callback');
+      expect(setupText).not.toContain('{redirectUrl}');
+    });
+
+    it('uses fallback wording when the redirect URL is unavailable', async () => {
+      setResponder('mcpDirectory:getOAuthRedirectUri', () =>
+        ok({ redirectUri: null }),
+      );
+      await createComponent();
+
+      await component.connect(APP_WITH_SETUP);
+      fixture.detectChanges();
+
+      const setupText = hostElement.querySelector(
+        '[data-testid="connector-setup-steps"]',
+      )?.textContent;
+      expect(setupText).toContain('the redirect URL shown above');
+      expect(setupText).not.toContain('{redirectUrl}');
+    });
+
+    it('replaces the steps when another app connector is clicked', async () => {
+      await createComponent();
+
+      await component.connect(APP_WITH_SETUP);
+      await component.connect(SECOND_APP_WITH_SETUP);
+      fixture.detectChanges();
+
+      const setupText = hostElement.querySelector(
+        '[data-testid="connector-setup-steps"]',
+      )?.textContent;
+      expect(setupText).toContain('Register http://127.0.0.1:41234/callback');
+      expect(setupText).not.toContain('Create an app in the provider console.');
+    });
+
+    it('clears setup steps when the custom form closes', async () => {
+      await createComponent();
+      await component.connect(APP_WITH_SETUP);
+      fixture.detectChanges();
+      expect(component.setupSteps()).toHaveLength(3);
+
+      const details = hostElement.querySelector('details');
+      if (!details) throw new Error('Custom server disclosure is missing');
+      details.open = false;
+      details.dispatchEvent(new Event('toggle'));
+      fixture.detectChanges();
+
+      expect(component.setupConnector()).toBeNull();
+      expect(component.setupSteps()).toHaveLength(0);
+      expect(
+        hostElement.querySelector('[data-testid="connector-setup-steps"]'),
+      ).toBeNull();
+    });
+
+    it('passes connector scopes to connectOAuth as one space-joined scope', async () => {
+      setResponder('mcpDirectory:connectOAuth', () =>
+        ok({ success: true, serverKey: 'oauth-mcp.calendar' }),
+      );
+      await createComponent();
+
+      await component.authorize(APP_WITH_SETUP);
+
+      expect(callsTo('mcpDirectory:connectOAuth')[0].params).toEqual({
+        serverUrl: APP_WITH_SETUP.url,
+        name: APP_WITH_SETUP.label,
+        scope: 'calendar.read calendar.write',
+      });
+    });
+
+    it('renders no setup steps for an oauth-dcr connector', async () => {
+      setResponder('mcpDirectory:connectOAuth', () =>
+        ok({ success: true, serverKey: 'oauth-mcp.sentry' }),
+      );
+      await createComponent();
+
+      await component.connect(APP_WITH_SETUP);
+      fixture.detectChanges();
+      expect(component.setupSteps()).toHaveLength(3);
+
+      await component.connect(SENTRY);
+      fixture.detectChanges();
+
+      expect(component.setupSteps()).toHaveLength(0);
+      expect(
+        hostElement.querySelector('[data-testid="connector-setup-steps"]'),
+      ).toBeNull();
+    });
+
+    it('includes the provider setup effort in the oauth-app card hint', async () => {
+      await createComponent();
+
+      expect(component.kindHint(APP_WITH_SETUP)).toContain('3 steps');
+    });
+  });
 
   describe('status merge', () => {
     it('reports not-connected when neither source knows the connector', async () => {

@@ -69,6 +69,9 @@ const POLL_INTERVAL_MS = 3_000;
 /** How long the Smithery setup poll runs before it gives up. */
 const POLL_TIMEOUT_MS = 5 * 60 * 1_000;
 
+/** Copy used when the host cannot supply an interactive OAuth redirect URL. */
+const REDIRECT_URL_FALLBACK = 'the redirect URL shown above';
+
 /**
  * Compare two MCP server URLs the way the manifest and the catalog disagree
  * about them: a trailing slash and host case are not a difference.
@@ -155,6 +158,24 @@ export class ConnectorsSurfaceComponent implements OnInit {
 
   /** Whether the "Connect a custom server" disclosure is expanded. */
   public readonly customFormOpen = signal(false);
+
+  /** The app-required connector whose provider setup is currently displayed. */
+  public readonly setupConnector = signal<PtahConnector | null>(null);
+
+  /**
+   * Provider steps with the embedded form's host-specific redirect URL filled
+   * in. The form already loads that value once, so this surface reuses it
+   * rather than issuing a second RPC call.
+   */
+  public readonly setupSteps = computed<readonly string[]>(() => {
+    const connector = this.setupConnector();
+    if (connector?.kind !== 'oauth-app') return [];
+    const redirectUrl = this.customForm()?.redirectUri();
+    const replacement = redirectUrl ?? REDIRECT_URL_FALLBACK;
+    return (connector.setupSteps ?? []).map((step) =>
+      step.replaceAll('{redirectUrl}', replacement),
+    );
+  });
 
   public readonly oauthRecords = signal<McpOAuthConnectedRecord[]>([]);
   /** Per-serverKey OAuth state, from `mcpDirectory:oauthStatus`. */
@@ -300,7 +321,10 @@ export class ConnectorsSurfaceComponent implements OnInit {
   }
 
   public kindHint(connector: PtahConnector): string {
-    return ptahConnectorKindHint(connector.kind);
+    const hint = ptahConnectorKindHint(connector.kind);
+    const stepCount = connector.setupSteps?.length ?? 0;
+    if (connector.kind !== 'oauth-app' || stepCount === 0) return hint;
+    return `${hint} · ${stepCount} ${stepCount === 1 ? 'step' : 'steps'}`;
   }
 
   public categoryLabel(category: PtahConnectorCategory): string {
@@ -336,7 +360,9 @@ export class ConnectorsSurfaceComponent implements OnInit {
 
   /** Keep `customFormOpen` in step with a user-driven expand / collapse. */
   public onCustomFormToggle(event: Event): void {
-    this.customFormOpen.set((event.target as HTMLDetailsElement).open);
+    const open = (event.target as HTMLDetailsElement).open;
+    this.customFormOpen.set(open);
+    if (!open) this.setupConnector.set(null);
   }
 
   /** The embedded form connected or disconnected something — re-merge. */
@@ -356,6 +382,7 @@ export class ConnectorsSurfaceComponent implements OnInit {
    */
   public async connect(connector: PtahConnector): Promise<void> {
     if (this.isBusy(connector)) return;
+    this.setupConnector.set(connector.kind === 'oauth-app' ? connector : null);
     if (connector.kind === 'oauth-app') {
       this.prefillCustomForm(connector);
       return;
@@ -443,11 +470,18 @@ export class ConnectorsSurfaceComponent implements OnInit {
     this.addToSet(this.busyIds, connector.id);
     this.actionError.set(null);
     try {
-      const params: { serverUrl: string; name: string; serverKey?: string } = {
+      const params: {
+        serverUrl: string;
+        name: string;
+        serverKey?: string;
+        scope?: string;
+      } = {
         serverUrl,
         name: connector.label,
       };
       if (serverKey !== undefined) params.serverKey = serverKey;
+      const scope = connector.scopes?.join(' ');
+      if (scope) params.scope = scope;
       const result = await this.rpc.call('mcpDirectory:connectOAuth', params);
       if (this.destroyed) return;
       if (result.isSuccess() && result.data.success) {
