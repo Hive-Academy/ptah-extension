@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_379
-status: in_progress
+status: in_review
 type: FEATURE
 title: Grow the connectors catalog to the probe-verified set and guide every app-required connect
 depends_on:
