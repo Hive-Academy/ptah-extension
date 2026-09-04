@@ -80,7 +80,7 @@ interface ModelMetadataCache {
   supportsThinking: boolean;
   supportsVision: boolean;
   timestamp: number;
-  /** True if this was a fallback/error response â€” uses shorter TTL */
+  /** True if this was a fallback/error response — uses shorter TTL */
   isFallback?: boolean;
 }
 
@@ -112,7 +112,7 @@ interface CloudModelMeta {
  * Comprehensive catalog of known Ollama Cloud models.
  * Source: https://ollama.com/search?c=cloud (last updated 2026-04-14)
  *
- * Ollama has NO API to list available cloud models â€” /api/tags only returns
+ * Ollama has NO API to list available cloud models — /api/tags only returns
  * locally pulled models. This static catalog is the primary source for the
  * model selector. It's merged with /api/tags results to pick up any models
  * the user has run that aren't in this list.
@@ -357,7 +357,7 @@ export class OllamaModelDiscoveryService {
   /**
    * Fetch models for the 'ollama-cloud' provider.
    *
-   * Ollama has no API to list available cloud models â€” /api/tags only returns
+   * Ollama has no API to list available cloud models — /api/tags only returns
    * locally pulled/used models. We use the static KNOWN_CLOUD_MODELS catalog
    * as the primary source, then merge any additional :cloud models from /api/tags
    * that aren't in our catalog (e.g., newly released models the user has tried).
@@ -450,7 +450,7 @@ export class OllamaModelDiscoveryService {
         },
       );
       this.logger.debug(
-        `[OllamaModelDiscovery] listCloudModels: local /api/tags unavailable â€” returning ${staticModels.length} bundled cloud models only`,
+        `[OllamaModelDiscovery] listCloudModels: local /api/tags unavailable — returning ${staticModels.length} bundled cloud models only`,
       );
       return staticModels;
     }
@@ -458,9 +458,9 @@ export class OllamaModelDiscoveryService {
 
   /**
    * Read the optional ollama.com API key from SecretStorage via
-   * IAuthSecretsService â€” same slot the auth UI writes to via
-   * `auth:saveSettings` â†’ `setProviderKey('ollama-cloud', ...)`. Returns null
-   * when unset (the common case â€” inference still works via `ollama signin`).
+   * IAuthSecretsService — same slot the auth UI writes to via
+   * `auth:saveSettings` → `setProviderKey('ollama-cloud', ...)`. Returns null
+   * when unset (the common case — inference still works via `ollama signin`).
    */
   private async getOllamaCloudApiKey(): Promise<string | null> {
     const raw = await this.authSecrets.getProviderKey('ollama-cloud');

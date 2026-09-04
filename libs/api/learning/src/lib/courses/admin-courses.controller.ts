@@ -22,7 +22,10 @@ import {
   AdminThrottlerGuard,
   JwtAuthGuard,
 } from '@ptah-api/identity';
-import type { AdminCourse } from '@ptah-contracts/community';
+import type {
+  AdminCourse,
+  AdminCourseOutline,
+} from '@ptah-contracts/community';
 
 import {
   adminActor,
@@ -215,6 +218,12 @@ export class AdminCoursesController {
   @Get(':id')
   async get(@Param('id') id: string): Promise<AdminCourse> {
     return this.courses.getForAdmin(id);
+  }
+
+  // Two path segments after the prefix: cannot unify with GET root or PATCH :id.
+  @Get(':id/modules')
+  async getModules(@Param('id') id: string): Promise<AdminCourseOutline> {
+    return this.courses.getOutlineForAdmin(id);
   }
 
   /**

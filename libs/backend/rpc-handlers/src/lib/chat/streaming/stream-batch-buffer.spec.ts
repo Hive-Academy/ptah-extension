@@ -16,11 +16,48 @@ import {
   type BatchMessagePayload,
 } from '@ptah-extension/shared';
 
-import { StreamBatchBuffer } from './stream-batch-buffer';
+import {
+  STREAM_BATCH_MAX_IN_FLIGHT,
+  StreamBatchBuffer,
+} from './stream-batch-buffer';
 
 interface Sent {
   readonly type: string;
   readonly payload: unknown;
+}
+
+class ControlledSink {
+  readonly calls: Sent[] = [];
+  readonly resolutionOrder: number[] = [];
+  private readonly pending: Array<{
+    readonly resolve: () => void;
+    settled: boolean;
+  }> = [];
+  private released = false;
+
+  readonly sink = (type: string, payload: unknown): Promise<void> => {
+    this.calls.push({ type, payload });
+    if (this.released) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      this.pending.push({ resolve, settled: false });
+    });
+  };
+
+  release(index: number): void {
+    const send = this.pending[index];
+    if (send === undefined || send.settled) return;
+    send.settled = true;
+    this.resolutionOrder.push(index);
+    send.resolve();
+  }
+
+  releaseAll(): void {
+    this.released = true;
+    for (let index = 0; index < this.pending.length; index++) {
+      this.release(index);
+    }
+  }
 }
 
 function makeBuffer(overrides?: { maxEvents?: number; intervalMs?: number }) {
@@ -219,5 +256,168 @@ describe('StreamBatchBuffer — failure posture', () => {
     release?.();
     await buffer.settle();
     expect(completed).toBe(true);
+  });
+});
+
+describe('StreamBatchBuffer — transport back-pressure', () => {
+  it('caps unresolved transport sends at STREAM_BATCH_MAX_IN_FLIGHT', async () => {
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+      maxEvents: 1,
+    });
+
+    for (let i = 0; i < STREAM_BATCH_MAX_IN_FLIGHT * 10; i++) {
+      buffer.push({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i } });
+    }
+
+    expect(buffer.inFlightCount).toBe(STREAM_BATCH_MAX_IN_FLIGHT);
+    expect(controlled.calls).toHaveLength(STREAM_BATCH_MAX_IN_FLIGHT);
+
+    controlled.releaseAll();
+    await buffer.flush();
+    await buffer.settle();
+  });
+
+  it('releases producer back-pressure when a transport send settles', async () => {
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+      maxEvents: 1,
+    });
+    const total = STREAM_BATCH_MAX_IN_FLIGHT + 3;
+    let produced = 0;
+
+    const producer = (async () => {
+      for (let i = 0; i < total; i++) {
+        const backPressure = buffer.push({
+          type: MESSAGE_TYPES.CHAT_CHUNK,
+          payload: { i },
+        });
+        produced++;
+        if (backPressure !== undefined) {
+          await backPressure;
+        }
+      }
+    })();
+
+    expect(produced).toBe(STREAM_BATCH_MAX_IN_FLIGHT);
+    controlled.releaseAll();
+    await producer;
+    await buffer.settle();
+    expect(produced).toBe(total);
+  });
+
+  it('returns undefined below the cap without blocking the fast path', () => {
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+    });
+
+    const backPressure = buffer.push({
+      type: MESSAGE_TYPES.CHAT_CHUNK,
+      payload: {},
+    });
+
+    expect(backPressure).toBeUndefined();
+    expect(buffer.pendingCount).toBe(1);
+    expect(buffer.inFlightCount).toBe(0);
+    buffer.dispose();
+  });
+
+  it('settle() waits for every send already handed to the transport', async () => {
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+      maxEvents: 1,
+    });
+    for (let i = 0; i < STREAM_BATCH_MAX_IN_FLIGHT - 1; i++) {
+      buffer.push({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i } });
+    }
+    let settled = false;
+    const settling = buffer.settle().then(() => {
+      settled = true;
+    });
+
+    controlled.release(0);
+    controlled.release(1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    controlled.releaseAll();
+    await settling;
+    expect(settled).toBe(true);
+  });
+
+  it('settle() also waits for a flush DEFERRED at the cap', async () => {
+    // The teardown case. A batch deferred for capacity is not in `inFlight`,
+    // so settling on that set alone returns while its events are still in
+    // `pending` — and the caller ends the session on the next line. Deferral
+    // happens exactly when the transport is slow, which is when this runs.
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+      maxEvents: 1,
+    });
+
+    // Fill the window, then push one more so its flush has to defer.
+    for (let i = 0; i < STREAM_BATCH_MAX_IN_FLIGHT + 1; i++) {
+      void buffer.push({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i } });
+    }
+    expect(buffer.inFlightCount).toBe(STREAM_BATCH_MAX_IN_FLIGHT);
+    expect(buffer.pendingCount).toBeGreaterThan(0);
+
+    buffer.dispose();
+    let settled = false;
+    const settling = buffer.settle().then(() => {
+      settled = true;
+    });
+
+    // Release ONLY the in-flight window, one by one. `releaseAll` would also
+    // unblock the deferred batch's own send, and then both answers look the
+    // same — which is what makes this the discriminating step.
+    for (let i = 0; i < STREAM_BATCH_MAX_IN_FLIGHT; i++) {
+      controlled.release(i);
+    }
+    for (let turn = 0; turn < 12; turn++) await Promise.resolve();
+
+    // The deferred batch has now been handed to the sink but has NOT resolved.
+    // Settling on `inFlight` alone would have returned here, with the caller
+    // free to tear the session down under an undelivered batch.
+    expect(controlled.calls).toHaveLength(STREAM_BATCH_MAX_IN_FLIGHT + 1);
+    expect(settled).toBe(false);
+
+    controlled.releaseAll();
+    await settling;
+
+    // Every event reached the sink — none was abandoned in `pending`.
+    expect(settled).toBe(true);
+    expect(buffer.pendingCount).toBe(0);
+  });
+
+  it('calls the sink in order when the first send settles after the second', async () => {
+    const controlled = new ControlledSink();
+    const buffer = new StreamBatchBuffer({
+      sink: controlled.sink,
+      onError: () => undefined,
+      maxEvents: 1,
+    });
+
+    buffer.push({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i: 0 } });
+    buffer.push({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i: 1 } });
+
+    expect(controlled.calls.map(({ payload }) => payload)).toEqual([
+      { i: 0 },
+      { i: 1 },
+    ]);
+    controlled.release(1);
+    controlled.release(0);
+    await buffer.settle();
+    expect(controlled.resolutionOrder).toEqual([1, 0]);
   });
 });

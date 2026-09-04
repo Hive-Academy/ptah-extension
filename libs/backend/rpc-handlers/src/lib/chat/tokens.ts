@@ -14,4 +14,10 @@ export const CHAT_TOKENS = {
   STREAM_BROADCASTER: Symbol.for('ChatStreamBroadcaster'),
   SUBAGENT_CONTEXT_INJECTOR: Symbol.for('ChatSubagentContextInjectorService'),
   SLASH_COMMAND_ROUTER: Symbol.for('ChatSlashCommandRouterService'),
+  /**
+   * Per-session MCP picture reported by the CLI (TASK_2026_375 B4). Written by
+   * `ChatSessionService` from the `agent-sdk` fan-out, read by
+   * `SessionRpcHandlers` for `session:status`.
+   */
+  MCP_STATUS: Symbol.for('SessionMcpStatusRegistry'),
 } as const;

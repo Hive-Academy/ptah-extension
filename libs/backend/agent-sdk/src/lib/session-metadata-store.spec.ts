@@ -761,6 +761,64 @@ describe('SessionMetadataStore', () => {
         false,
       );
     });
+
+    it('keeps the per-agent output keys when the session list deletion flush fails', async () => {
+      await seedFatReference();
+      await store.saveAgentOutput(FAT_AGENT, {
+        streamEvents: streamEvents(10),
+      });
+
+      // Fail the metadata blob flush so the session record survives in storage.
+      // Deleting output keys before this flush would strand the surviving
+      // session with references pointing to output keys that no longer exist.
+      storage.update.mockImplementation(async (key: string, value: unknown) => {
+        if (key === METADATA_KEY) throw new Error('storage busy');
+        if (value === undefined) storage.__state.entries.delete(key);
+        else storage.__state.entries.set(key, value);
+      });
+
+      await expect(store.delete('sess-1')).rejects.toThrow('storage busy');
+
+      // The per-agent output key survives in storage and was never written to undefined
+      expect(storage.__state.entries.has(`ptah.agentOutput:${FAT_AGENT}`)).toBe(
+        true,
+      );
+      const undefinedOutputCalls = storage.update.mock.calls.filter(
+        ([key, value]) =>
+          key === `ptah.agentOutput:${FAT_AGENT}` && value === undefined,
+      );
+      expect(undefinedOutputCalls).toHaveLength(0);
+    });
+
+    it('makes session list durable before deleting per-agent output keys', async () => {
+      await seedFatReference();
+      await store.saveAgentOutput(FAT_AGENT, {
+        streamEvents: streamEvents(10),
+      });
+
+      const updateOrder: string[] = [];
+      storage.update.mockImplementation(async (key: string, value: unknown) => {
+        updateOrder.push(key);
+        if (value === undefined) storage.__state.entries.delete(key);
+        else storage.__state.entries.set(key, value);
+      });
+
+      await store.delete('sess-1');
+
+      const metadataIdx = updateOrder.indexOf(METADATA_KEY);
+      const agentOutputIdx = updateOrder.indexOf(
+        `ptah.agentOutput:${FAT_AGENT}`,
+      );
+
+      expect(metadataIdx).toBeGreaterThanOrEqual(0);
+      expect(agentOutputIdx).toBeGreaterThanOrEqual(0);
+      expect(metadataIdx).toBeLessThan(agentOutputIdx);
+
+      expect(storage.__state.entries.has(`ptah.agentOutput:${FAT_AGENT}`)).toBe(
+        false,
+      );
+      expect(await store.get('sess-1')).toBeNull();
+    });
   });
 
   // -------------------------------------------------------------------------

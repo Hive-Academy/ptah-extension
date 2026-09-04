@@ -1,16 +1,62 @@
 /**
  * Zod schemas for {@link EnhancedPromptsRpcHandlers}.
  *
- * INTENTIONALLY EMPTY — the enhanced-prompts handler validates its params via
- * the static TypeScript types exported from `@ptah-extension/shared` (e.g.
- * `EnhancedPromptsRunWizardParams`) plus inline guards like
- * `!params?.workspacePath`. No `z.object({...})` literals existed in
- * `enhanced-prompts-rpc.handlers.ts` at the time of W0.B6 extraction.
+ * Every `enhancedPrompts:*` request is parsed here before the handler reaches
+ * `EnhancedPromptsService`. The handler keeps its established contract of
+ * answering with a structured `{ success: false, error }` (it never throws to
+ * the RPC boundary), so a schema failure is turned into that shape by
+ * `describeEnhancedPromptsParamsIssue`.
  *
- * This empty export exists so W2.B1 / later batches can stub imports
- * consistently across every handler without branching on "does this file exist
- * yet?". If a future task adds Zod validation to the enhanced-prompts handler,
- * those schemas belong here.
+ * `analysisDir` is only SHAPE-checked here. Canonicalizing it and confirming
+ * it stays under the authorized workspace's `.ptah/analysis` root is done in
+ * the handler through `AnalysisStorageService.resolveAuthorizedAnalysisDir`,
+ * before it can reach the enhanced-prompt trace writer.
  */
 
-export {};
+import { z } from 'zod';
+import { ProjectAnalysisResultSchema } from '@ptah-extension/agent-generation';
+
+const workspacePath = z.string().min(1).max(4096);
+
+const EnhancedPromptsConfigOptionsSchema = z.object({
+  includeStyleGuidelines: z.boolean().optional(),
+  includeTerminology: z.boolean().optional(),
+  includeArchitecturePatterns: z.boolean().optional(),
+  includeTestingGuidelines: z.boolean().optional(),
+  maxTokens: z.number().int().positive().optional(),
+});
+
+export const EnhancedPromptsWorkspaceParamsSchema = z.object({ workspacePath });
+
+export const EnhancedPromptsRunWizardParamsSchema = z.object({
+  workspacePath,
+  config: EnhancedPromptsConfigOptionsSchema.optional(),
+  analysisData: ProjectAnalysisResultSchema.optional(),
+  analysisDir: z.string().min(1).max(4096).optional(),
+  model: z.string().min(1).max(200).optional(),
+});
+
+export const EnhancedPromptsSetEnabledParamsSchema = z.object({
+  workspacePath,
+  enabled: z.boolean(),
+});
+
+export const EnhancedPromptsRegenerateParamsSchema = z.object({
+  workspacePath,
+  force: z.boolean().optional(),
+  config: EnhancedPromptsConfigOptionsSchema.optional(),
+});
+
+/**
+ * Turn a schema failure into the user-facing message this handler has always
+ * answered with. Field names are named only for the two fields callers have
+ * historically got wrong; everything else is a generic rejection so no raw
+ * Zod issue text crosses the boundary.
+ */
+export function describeEnhancedPromptsParamsIssue(error: z.ZodError): string {
+  const firstPath = String(error.issues[0]?.path[0] ?? '');
+  if (firstPath === 'workspacePath') return 'Workspace path is required';
+  if (firstPath === 'enabled') return 'Enabled flag is required';
+  if (firstPath === 'analysisData') return 'Invalid analysis data';
+  return 'Invalid request parameters';
+}

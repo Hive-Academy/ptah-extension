@@ -1,5 +1,5 @@
 /**
- * BatchedUpdateService specs â€” RAF-batched streaming state updates.
+ * BatchedUpdateService specs — RAF-batched streaming state updates.
  *
  * The service coalesces rapid `setStreamingState(state)` calls into one
  * `requestAnimationFrame` flush so TabManager signals tick once per frame,

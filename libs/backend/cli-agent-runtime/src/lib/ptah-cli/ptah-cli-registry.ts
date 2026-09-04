@@ -18,6 +18,8 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
+import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
+import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import {
   SDK_TOKENS,
   HARNESS_PREFLIGHT_TOKEN,
@@ -52,6 +54,7 @@ import {
 } from '@ptah-extension/auth-providers';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
+import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
 import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
@@ -117,6 +120,8 @@ export class PtahCliRegistry {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly processSpawner: ISdkProcessSpawner,
     /**
      * A raw Ptah CLI reads its harness from disk at process startup. Keep this
      * optional so hosts that have not bound harness-sync keep their existing
@@ -362,7 +367,7 @@ export class PtahCliRegistry {
    * Resolve a ProviderProfile for a Ptah CLI agent.
    *
    * Returns the value-type description of the agent's auth env, model, base
-   * URL, and cli.js path â€” consumed by `SdkAgentAdapter.startChatSession()`
+   * URL, and cli.js path — consumed by `SdkAgentAdapter.startChatSession()`
    * via the `providerProfile` parameter so third-party providers reuse the
    * unified interactive-chat code path instead of a parallel adapter.
    *
@@ -681,6 +686,17 @@ export class PtahCliRegistry {
       mailbox.close();
     });
 
+    const handleChildStderr = (data: string) => {
+      const isError =
+        classifyCliStderr(stripAnsiCodes(data).trim()) === 'error';
+      const message = `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`;
+      if (isError) {
+        this.logger.warn(message);
+      } else {
+        this.logger.debug(message);
+      }
+    };
+
     const sdkQuery = queryFn({
       prompt: mailbox.prompt,
       options: {
@@ -725,11 +741,11 @@ export class PtahCliRegistry {
         persistSession: true,
         ...(options?.resumeSessionId && { resume: options.resumeSessionId }),
         env: buildSafeEnv(authEnv),
-        stderr: (data: string) => {
-          this.logger.error(
-            `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`,
-          );
-        },
+        stderr: handleChildStderr,
+        spawnClaudeCodeProcess: (spawnOptions) =>
+          this.processSpawner.spawn(spawnOptions, {
+            onStderr: handleChildStderr,
+          }),
         hooks: assembly.hooks,
         compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:
@@ -810,11 +826,9 @@ export class PtahCliRegistry {
       },
     };
 
-    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
-    const providerModel =
-      effectiveTiers?.sonnet ?? provider.staticModels?.[0]?.id ?? 'default';
     this.logger.info(
-      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`,
+      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) ` +
+        `with model ${model || '(unresolved)'} (tier: ${tier})`,
     );
 
     return {
@@ -1325,7 +1339,7 @@ export class PtahCliRegistry {
 
     /**
      * Dispose all callback arrays and buffers.
-     * Idempotent â€” safe to call multiple times.
+     * Idempotent — safe to call multiple times.
      * Called after the stream loop exits to release references held by closures.
      */
     const dispose = (): void => {
@@ -1409,8 +1423,8 @@ export class PtahCliRegistry {
    * Build default tier mappings for a new agent.
    *
    * Returns undefined so the runtime cascade in resolveEffectiveTiers can
-   * resolve tiers in the right order: agentTiers â†’ mainTiers â†’ provider.defaultTiers
-   * â†’ staticModels[0]. Pre-filling a partial mapping here would shadow the
+   * resolve tiers in the right order: agentTiers → mainTiers → provider.defaultTiers
+   * → staticModels[0]. Pre-filling a partial mapping here would shadow the
    * user's globally-configured tier choices (e.g. Ollama defaults to
    * staticModels[0]='llama3.1:8b' even when the user has selected
    * 'qwen3:8b'/'devstral'/'qwen3:32b' via the model mapping modal).

@@ -59,6 +59,16 @@ export interface DetectedStack {
   configFiles: string[];
 }
 
+/** Metadata persisted with an enhanced-prompt artifact. */
+export interface EnhancedPromptTraceMetadata {
+  generatedAt: string;
+  configHash: string;
+  detectedStack: DetectedStack;
+  analysisDirectory: string | null;
+  analysisPhaseIds: string[];
+  promptLength: number;
+}
+
 /**
  * Persistent state for Enhanced Prompts feature.
  * Stored in VS Code globalState for cross-session persistence.

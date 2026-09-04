@@ -46,7 +46,7 @@ Languages: ${workspaceContext.languages.join(', ') || '(none detected)'}`;
     const toolsBlock = `## Tools
 Use the ptah.harness MCP tools to ground your recommendations:
 - searchSkills(query?, limit?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. Do NOT shell out to install a skills.sh skill — record it on the config instead (see What Apply Writes) and Apply installs it for you.
-- searchMcpRegistry(query, limit?) — search the official MCP Registry, PulseMCP and Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'pulsemcp' | 'smithery'. \`limit\` bounds the merged list, drawn round-robin so no source starves the others.
+- searchMcpRegistry(query, limit?) — search the official MCP Registry and Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'smithery'. \`limit\` bounds the merged list, drawn round-robin so no source starves the others.
 
 READ THE STATUS FIELD. Both searches return \`status\` ('ok' | 'degraded') and a per-source \`sources\` array. An empty result is a real "nothing exists" answer ONLY when status is 'ok'; 'degraded' means a source failed and the answer is incomplete. Never tell the user a skill or server does not exist, and never author a replacement for one, on the strength of a degraded search — retry it or say the catalogue was unreachable.
 - listInstalledMcpServers() — check what MCP servers are already installed in the workspace.

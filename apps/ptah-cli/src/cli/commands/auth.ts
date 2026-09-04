@@ -1,31 +1,31 @@
 /**
- * `ptah auth` command â€” sub-dispatcher for status / login / logout / test.
+ * `ptah auth` command — sub-dispatcher for status / login / logout / test.
  *
  * Sub-commands (per task-description.md Â§3.1):
  *
- *   status                â€” Read-only. Calls `auth:getAuthStatus` +
+ *   status                — Read-only. Calls `auth:getAuthStatus` +
  *                           `auth:getHealth` + `auth:getApiKeyStatus`.
  *                           Redacts API keys unless `--reveal`.
- *   login copilot         â€” Headless device-code OAuth via `headless-flow.ts`.
+ *   login copilot         — Headless device-code OAuth via `headless-flow.ts`.
  *                           Composes JsonRpc opener if a peer is attached,
  *                           stderr opener otherwise.
- *   login codex           â€” Spawns `codex login --device-auth` via cross-spawn,
+ *   login codex           — Spawns `codex login --device-auth` via cross-spawn,
  *                           surfaces the device-code URL via auth.login.url,
  *                           propagates SIGINT, emits auth.login.complete on
  *                           exit code 0.
- *   login claude-cli      â€” Verifies Claude CLI on PATH via ClaudeCliDetector
+ *   login claude-cli      — Verifies Claude CLI on PATH via ClaudeCliDetector
  *                           (alias: `claude`). On success, persists
  *                           `authMethod=claudeCli` to ~/.ptah/settings.json.
  *                           On failure emits task.error{ ptah_code:
  *                           'claude_cli_not_found' } + ExitCode.UsageError.
- *   login anthropic       â€” Settings-based: prints "use provider set-key".
- *   logout copilot        â€” Calls `auth:copilotLogout` over RPC.
- *   logout codex --force  â€” CLI-local `fs.unlink('~/.codex/auth.json')`.
+ *   login anthropic       — Settings-based: prints "use provider set-key".
+ *   logout copilot        — Calls `auth:copilotLogout` over RPC.
+ *   logout codex --force  — CLI-local `fs.unlink('~/.codex/auth.json')`.
  *                           No RPC method (per B8b drop decision).
- *   test <provider>       â€” Calls `auth:testConnection` and emits
+ *   test <provider>       — Calls `auth:testConnection` and emits
  *                           `auth.test.result`.
  *
- * No DI mocking in production code â€” all collaborators are obtained via
+ * No DI mocking in production code — all collaborators are obtained via
  * `withEngine` (which bootstraps tsyringe) or via direct container resolution.
  * Mocking is permitted ONLY in the spec file.
  */
@@ -117,25 +117,25 @@ export interface AuthOptions {
   force?: boolean;
   /**
    * For `auth use <providerId>`. Accepts:
-   *   - `claude-cli`              â†’ authMethod=claude-cli
-   *   - `github-copilot`/`copilot`â†’ authMethod=oauth, anthropicProviderId=...
-   *   - `openai-codex`/`codex`    â†’ authMethod=oauth, anthropicProviderId=...
-   *   - `openrouter`              â†’ authMethod=apiKey, defaultProvider=openrouter
-   *   - `moonshot`                â†’ authMethod=apiKey, defaultProvider=moonshot
-   *   - `z-ai`                    â†’ authMethod=apiKey, defaultProvider=z-ai
+   *   - `claude-cli`              → authMethod=claude-cli
+   *   - `github-copilot`/`copilot`→ authMethod=oauth, anthropicProviderId=...
+   *   - `openai-codex`/`codex`    → authMethod=oauth, anthropicProviderId=...
+   *   - `openrouter`              → authMethod=apiKey, defaultProvider=openrouter
+   *   - `moonshot`                → authMethod=apiKey, defaultProvider=moonshot
+   *   - `z-ai`                    → authMethod=apiKey, defaultProvider=z-ai
    */
   providerId?: string;
 }
 
 /**
- * Stderr stream contract â€” narrowed for testability. Production uses
+ * Stderr stream contract — narrowed for testability. Production uses
  * `process.stderr`; tests inject a buffer-backed sink.
  */
 export interface AuthStderrLike {
   write(chunk: string): boolean;
 }
 
-/** Optional collaborators â€” tests inject; production omits. */
+/** Optional collaborators — tests inject; production omits. */
 export interface AuthExecuteHooks {
   /** Override the stderr sink. Defaults to `process.stderr`. */
   stderr?: AuthStderrLike;
@@ -170,14 +170,14 @@ export interface AuthExecuteHooks {
     container: import('tsyringe').DependencyContainer,
   ) => Promise<ICopilotAuthService> | ICopilotAuthService;
   /**
-   * Override the ClaudeCliDetector resolver. Production omits â€” we resolve
+   * Override the ClaudeCliDetector resolver. Production omits — we resolve
    * `SDK_TOKENS.SDK_CLI_DETECTOR` from the container. Tests pass a stub.
    */
   resolveClaudeCliDetector?: (
     container: import('tsyringe').DependencyContainer,
   ) => Promise<ClaudeCliDetector> | ClaudeCliDetector;
   /**
-   * Override the workspace provider resolver. Production omits â€” we resolve
+   * Override the workspace provider resolver. Production omits — we resolve
    * `PLATFORM_TOKENS.WORKSPACE_PROVIDER` from the container. Tests pass a stub
    * so the spec doesn't need a real DI graph.
    */
@@ -204,7 +204,7 @@ export interface AuthExecuteHooks {
 /**
  * Execute the `ptah auth` command. Returns the process exit code.
  *
- * The dispatch is a flat switch â€” each sub-command resolves its own engine
+ * The dispatch is a flat switch — each sub-command resolves its own engine
  * mode and invokes the appropriate collaborator. We avoid building a single
  * giant DI bootstrap because `auth login codex` and `auth logout codex` need
  * no DI at all (they are pure file/stderr ops).
@@ -360,7 +360,7 @@ async function runLogin(
  *
  * On failure (CLI not found / health check returns `available: false`) we
  * emit `task.error{ ptah_code: 'claude_cli_not_found' }` and exit with
- * `ExitCode.UsageError` â€” operator action is required (install the CLI or
+ * `ExitCode.UsageError` — operator action is required (install the CLI or
  * fix PATH), so `UsageError` is the right semantic, not `InternalFailure`.
  */
 async function runClaudeCliLogin(
@@ -450,7 +450,7 @@ async function runClaudeCliLogin(
 }
 
 /**
- * `auth login codex` â€” drives `codex login --device-auth` via cross-spawn.
+ * `auth login codex` — drives `codex login --device-auth` via cross-spawn.
  *
  * The Codex CLI prints a `https://...` device-code URL to its own stdout.
  * We surface that URL via `auth.login.url` so JSON-RPC peers (and humans
@@ -574,7 +574,7 @@ async function runCodexLogin(
  * JsonRpc opener if a peer is attached on stdio, otherwise a stderr opener.
  *
  * For the one-shot CLI command (no `interact` mode), we always fall back to
- * the stderr opener â€” `interact` is the only context where a JSON-RPC peer
+ * the stderr opener — `interact` is the only context where a JSON-RPC peer
  * round-trips on stdio, and `auth login copilot` is invoked as a one-shot.
  */
 async function runCopilotLogin(
@@ -688,23 +688,23 @@ async function runTest(
 }
 
 /**
- * Provider-id â†’ settings-shape resolution table for `ptah auth use`.
+ * Provider-id → settings-shape resolution table for `ptah auth use`.
  *
  * The CLI writes three coordinated keys under the `ptah` config namespace:
  *
- *   - `authMethod`            â€” strategy selector consumed by `resolveStrategy`.
+ *   - `authMethod`            — strategy selector consumed by `resolveStrategy`.
  *                               One of `'claude-cli' | 'oauth' | 'apiKey'`.
- *   - `defaultProvider`       â€” the provider id consumed by the SDK adapter
+ *   - `defaultProvider`       — the provider id consumed by the SDK adapter
  *                               when `authMethod !== 'oauth'`. For oauth flows
  *                               this is the anthropic-compatible upstream
  *                               (`'anthropic'`) so the proxy still routes
  *                               messages.create requests correctly.
- *   - `anthropicProviderId`   â€” the bridge provider id used by the oauth
+ *   - `anthropicProviderId`   — the bridge provider id used by the oauth
  *                               proxy to forge upstream calls. Only relevant
  *                               for `authMethod=oauth`. Cleared (set to
  *                               `null`) for non-oauth strategies.
  *
- * The mapping below is intentionally narrow â€” only the providers the doctor
+ * The mapping below is intentionally narrow — only the providers the doctor
  * surface and the marketplace agree on are accepted. Extending it requires a
  * new `auth.use.applied` payload field, so it must stay in lockstep with the
  * `task-description.md` Â§3.1 `auth use` table.
@@ -764,7 +764,7 @@ function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
 }
 
 /**
- * `auth use <providerId>` â€” switch the active auth strategy without going
+ * `auth use <providerId>` — switch the active auth strategy without going
  * through a full login flow. This is the headless equivalent of the
  * "Switch Provider" UX in the VS Code/Electron settings panel.
  *
@@ -776,7 +776,7 @@ function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
  * Each key is part of `FILE_BASED_SETTINGS_KEYS` so writes are routed to
  * `~/.ptah/settings.json` automatically (transparent to the caller).
  *
- * Does NOT remove or invalidate existing OAuth tokens or API keys â€” it only
+ * Does NOT remove or invalidate existing OAuth tokens or API keys — it only
  * mutates which strategy the SDK selects on next bootstrap. Use
  * `ptah auth logout <provider>` to revoke credentials.
  */
@@ -847,7 +847,7 @@ async function runUse(
 /**
  * `ptah auth set-anthropic-route <providerId>`.
  *
- * Headless-friendly setter for the `anthropicProviderId` config key â€” i.e.
+ * Headless-friendly setter for the `anthropicProviderId` config key — i.e.
  * which Anthropic-compatible bridge the SDK should route `messages.create`
  * traffic through when the agent talks to Claude. Mirrors the "Anthropic
  * route" picker in the Settings webview.
@@ -858,7 +858,7 @@ async function runUse(
  * `getAllAnthropicProviders()`); unknown ids are rejected with a
  * `did-you-mean?` suggestion via Levenshtein distance.
  *
- * Writes only `anthropicProviderId` â€” `authMethod` and `defaultProvider`
+ * Writes only `anthropicProviderId` — `authMethod` and `defaultProvider`
  * are left untouched so existing OAuth/CLI strategies keep working. Use
  * `ptah auth use` if you need to flip the strategy as well.
  */

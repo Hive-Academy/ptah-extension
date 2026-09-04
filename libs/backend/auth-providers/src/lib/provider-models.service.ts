@@ -129,7 +129,7 @@ export class ProviderModelsService {
    *
    * The legacy (pre-scope) key `provider.<providerId>.modelTier.<tier>` is
    * still honoured on read for the `mainAgent` scope via
-   * `getPersistedTierValue` â€” no migration writes are needed.
+   * `getPersistedTierValue` — no migration writes are needed.
    */
   private getTierConfigKey(
     providerId: string,
@@ -515,7 +515,7 @@ export class ProviderModelsService {
       tier,
       modelId,
       scope,
-      envVar: scope === 'mainAgent' ? envVar : '(not set â€” cliAgent scope)',
+      envVar: scope === 'mainAgent' ? envVar : '(not set — cliAgent scope)',
     });
   }
 
@@ -629,7 +629,7 @@ export class ProviderModelsService {
    * Apply persisted tier mappings to environment for a specific provider.
    * Call this during authentication setup when a provider is active.
    *
-   * Always reads from the `mainAgent` scope â€” this method's job is to
+   * Always reads from the `mainAgent` scope — this method's job is to
    * populate the main agent's runtime env vars, not CLI sub-agent configs.
    *
    * ## Precedence: user tier → registry `defaultTiers` → live catalogue
@@ -928,13 +928,13 @@ export class ProviderModelsService {
   /**
    * Resolve the active provider ID based on the current auth method.
    *
-   * Single source of truth for auth-method â†’ provider-ID mapping.
+   * Single source of truth for auth-method → provider-ID mapping.
    * Used by config:models-list (tier overrides) and anywhere else
    * that needs to know which provider's tier config is active.
    *
    * Mapping:
-   *  - apiKey / claudeCli     â†’ ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
-   *  - thirdParty             â†’ saved anthropicProviderId (OpenRouter, Moonshot, etc.)
+   *  - apiKey / claudeCli     → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
+   *  - thirdParty             → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
    */
   resolveActiveProviderId(): string {
     return this.activeProviderResolver.resolveActiveAuth().providerId;
@@ -1139,7 +1139,7 @@ export class ProviderModelsService {
    * Read order:
    * 1. Scoped key: `provider.<id>.<scope>.modelTier.<tier>`
    * 2. (mainAgent only) Legacy key: `provider.<id>.modelTier.<tier>`
-   *    â€” transparent fallback for existing user config written before this
+   *    — transparent fallback for existing user config written before this
    *    scope field was introduced. No migration writes are performed.
    *
    * The legacy fallback is intentionally limited to `mainAgent` scope so

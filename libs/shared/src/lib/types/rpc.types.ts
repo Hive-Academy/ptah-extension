@@ -185,6 +185,8 @@ import type {
   SetupWizardLaunchResponse,
   WizardDeepAnalyzeParams,
   WizardDeepAnalyzeResponse,
+  WizardGetResumableRunParams,
+  WizardGetResumableRunResponse,
   WizardRecommendAgentsParams,
   WizardRecommendAgentsResponse,
   WizardCancelAnalysisParams,
@@ -258,14 +260,26 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectorySmitheryAccountParams,
+  McpDirectorySmitheryAccountResult,
+  McpDirectoryListSmitheryConnectionsParams,
+  McpDirectoryListSmitheryConnectionsResult,
+  McpDirectorySmitheryConnectionStatusParams,
+  McpDirectorySmitheryConnectionStatusResult,
+  McpDirectoryOpenSmitherySetupParams,
+  McpDirectoryOpenSmitherySetupResult,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
+  McpDirectoryProbeOAuthDiscoveryParams,
+  McpDirectoryProbeOAuthDiscoveryResult,
   McpDirectoryOAuthStatusParams,
   McpDirectoryOAuthStatusResult,
   McpDirectoryDisconnectOAuthParams,
   McpDirectoryDisconnectOAuthResult,
   McpDirectoryListOAuthConnectedParams,
   McpDirectoryListOAuthConnectedResult,
+  McpDirectoryGetOAuthRedirectUriParams,
+  McpDirectoryGetOAuthRedirectUriResult,
 } from './mcp-directory.types';
 
 import type {
@@ -771,6 +785,10 @@ export interface RpcMethodRegistry {
     params: WizardDeepAnalyzeParams;
     result: WizardDeepAnalyzeResponse;
   };
+  'wizard:get-resumable-run': {
+    params: WizardGetResumableRunParams;
+    result: WizardGetResumableRunResponse;
+  };
   'wizard:recommend-agents': {
     params: WizardRecommendAgentsParams;
     result: WizardRecommendAgentsResponse;
@@ -1229,9 +1247,29 @@ export interface RpcMethodRegistry {
     params: McpDirectoryListSmitheryInstalledParams;
     result: McpDirectoryListSmitheryInstalledResult;
   };
+  'mcpDirectory:smitheryAccount': {
+    params: McpDirectorySmitheryAccountParams;
+    result: McpDirectorySmitheryAccountResult;
+  };
+  'mcpDirectory:listSmitheryConnections': {
+    params: McpDirectoryListSmitheryConnectionsParams;
+    result: McpDirectoryListSmitheryConnectionsResult;
+  };
+  'mcpDirectory:smitheryConnectionStatus': {
+    params: McpDirectorySmitheryConnectionStatusParams;
+    result: McpDirectorySmitheryConnectionStatusResult;
+  };
+  'mcpDirectory:openSmitherySetup': {
+    params: McpDirectoryOpenSmitherySetupParams;
+    result: McpDirectoryOpenSmitherySetupResult;
+  };
   'mcpDirectory:connectOAuth': {
     params: McpDirectoryConnectOAuthParams;
     result: McpDirectoryConnectOAuthResult;
+  };
+  'mcpDirectory:probeOAuthDiscovery': {
+    params: McpDirectoryProbeOAuthDiscoveryParams;
+    result: McpDirectoryProbeOAuthDiscoveryResult;
   };
   'mcpDirectory:oauthStatus': {
     params: McpDirectoryOAuthStatusParams;
@@ -1244,6 +1282,10 @@ export interface RpcMethodRegistry {
   'mcpDirectory:listOAuthConnected': {
     params: McpDirectoryListOAuthConnectedParams;
     result: McpDirectoryListOAuthConnectedResult;
+  };
+  'mcpDirectory:getOAuthRedirectUri': {
+    params: McpDirectoryGetOAuthRedirectUriParams;
+    result: McpDirectoryGetOAuthRedirectUriResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1443,14 +1485,17 @@ export interface RpcMethodRegistry {
   };
   'webSearch:test': {
     params: Record<string, never>;
-    result: { success: boolean; provider: string; error?: string };
+    result: {
+      success: boolean;
+      results: Array<{ provider: string; success: boolean; error?: string }>;
+    };
   };
   'webSearch:getConfig': {
     params: Record<string, never>;
-    result: { provider: string; maxResults: number };
+    result: { providers: string[]; maxResults: number };
   };
   'webSearch:setConfig': {
-    params: { provider?: string; maxResults?: number };
+    params: { providers?: string[]; maxResults?: number };
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
@@ -3388,6 +3433,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
+  'wizard:get-resumable-run': true,
   'wizard:recommend-agents': true,
   'wizard:cancel-analysis': true,
   'wizard:submit-selection': true,
@@ -3481,10 +3527,16 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:installSmithery': true,
   'mcpDirectory:uninstallSmithery': true,
   'mcpDirectory:listSmitheryInstalled': true,
+  'mcpDirectory:smitheryAccount': true,
+  'mcpDirectory:listSmitheryConnections': true,
+  'mcpDirectory:smitheryConnectionStatus': true,
+  'mcpDirectory:openSmitherySetup': true,
   'mcpDirectory:connectOAuth': true,
+  'mcpDirectory:probeOAuthDiscovery': true,
   'mcpDirectory:oauthStatus': true,
   'mcpDirectory:disconnectOAuth': true,
   'mcpDirectory:listOAuthConnected': true,
+  'mcpDirectory:getOAuthRedirectUri': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

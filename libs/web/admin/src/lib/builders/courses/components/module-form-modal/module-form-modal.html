@@ -1,0 +1,134 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="module-form-title">
+    <div class="modal-box max-w-xl">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="module-form-title" class="text-lg font-semibold">
+            {{ isEdit() ? 'Edit Module' : 'New Module' }}
+          </h3>
+          <p class="text-sm opacity-70">
+            The slug comes from the title and cannot be changed afterwards.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="saving()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm" role="alert">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Title</span>
+            <span class="label-text-alt opacity-60">3–200 characters</span>
+          </div>
+          <input
+            id="module-title"
+            type="text"
+            class="input input-bordered input-sm"
+            [value]="title()"
+            (input)="onTitleInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. Week 1 — Foundations"
+            maxlength="200"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Description</span>
+            <span class="label-text-alt opacity-60">optional</span>
+          </div>
+          <textarea
+            id="module-description"
+            class="textarea textarea-bordered textarea-sm"
+            rows="2"
+            [value]="description()"
+            (input)="onDescriptionInput($event)"
+            [disabled]="saving()"
+            maxlength="2000"
+          ></textarea>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Release date</span>
+            <span class="label-text-alt opacity-60">your local time</span>
+          </div>
+          <div class="join">
+            <input
+              id="module-release-at"
+              type="datetime-local"
+              class="input input-bordered input-sm join-item"
+              [value]="releaseAtLocal()"
+              (input)="onReleaseAtInput($event)"
+              [disabled]="saving()"
+            />
+            <button
+              type="button"
+              class="btn btn-sm join-item"
+              [disabled]="saving() || releaseAtLocal().length === 0"
+              (click)="clearReleaseAt()"
+            >
+              Clear
+            </button>
+          </div>
+          <div class="label">
+            <span class="label-text-alt opacity-60">
+              @if (willBeLocked()) {
+                Locked until this date. Its lessons stay unreadable until then.
+              } @else if (releaseAtLocal().length > 0) {
+                This date has passed, so the module is open.
+              } @else {
+                Empty means the module opens immediately.
+              }
+            </span>
+          </div>
+        </label>
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="saving()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Saving…
+            } @else {
+              {{ isEdit() ? 'Save Changes' : 'Create Module' }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="saving()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

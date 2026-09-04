@@ -147,8 +147,8 @@ export class ProviderRpcHandlers {
    * Register a dynamic fetcher for GitHub Copilot models.
    *
    * Uses a unified cascade that matches what the user actually has access to:
-   * 1. VS Code LM API (selectChatModels) â€” subscription-filtered, most reliable
-   * 2. Copilot CLI SDK (client.listModels) â€” also subscription-filtered
+   * 1. VS Code LM API (selectChatModels) — subscription-filtered, most reliable
+   * 2. Copilot CLI SDK (client.listModels) — also subscription-filtered
    * 3. Static fallback list from COPILOT_PROVIDER_ENTRY
    *
    * This ensures the model selector only shows models the user can actually use,
@@ -233,7 +233,7 @@ export class ProviderRpcHandlers {
    * Register a dynamic fetcher for OpenAI Codex models.
    *
    * Cascade:
-   * 1. VS Code LM API (selectChatModels) â€” Codex models may not appear here,
+   * 1. VS Code LM API (selectChatModels) — Codex models may not appear here,
    *    but we check for consistency with the Copilot fetcher pattern.
    * 2. Static fallback list from CODEX_PROVIDER_ENTRY (primary source).
    */
@@ -294,10 +294,10 @@ export class ProviderRpcHandlers {
    * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey/claudeCli).
    *
    * 'anthropic' is a virtual provider ID for direct Claude auth
-   * users â€” it is NOT in the ANTHROPIC_PROVIDERS registry.
+   * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
    *
    * Cascade:
-   * 1. API key present â†’ /v1/models API (returns specific model versions)
+   * 1. API key present → /v1/models API (returns specific model versions)
    * 2. SDK supportedModels() (works for all auth methods including CLI/OAuth)
    *
    * Both paths populate contextLength dynamically from the pricing map.
@@ -394,7 +394,7 @@ export class ProviderRpcHandlers {
    * Register dynamic model fetchers for Ollama (local) and Ollama Cloud eagerly.
    *
    * Previously, these fetchers were only registered inside
-   * `LocalNativeStrategy.configure()` â€” which runs AFTER the user selects Ollama
+   * `LocalNativeStrategy.configure()` — which runs AFTER the user selects Ollama
    * as the active provider. But the model dropdown is what the user uses to
    * make that selection, creating a chicken-and-egg where the dropdown was
    * always empty until the user had already configured Ollama.
@@ -402,7 +402,7 @@ export class ProviderRpcHandlers {
    * Registering at startup (same pattern as Copilot, Codex, Anthropic direct)
    * makes the dropdown populate as soon as the UI queries it, independent of
    * which provider is currently active. The discovery service tolerates Ollama
-   * being offline â€” it simply returns an empty array and ProviderModelsService
+   * being offline — it simply returns an empty array and ProviderModelsService
    * falls back to `staticModels` on OLLAMA_PROVIDER_ENTRY.
    */
   private registerOllamaDynamicFetchers(): void {
@@ -415,7 +415,7 @@ export class ProviderRpcHandlers {
     this.logger.debug('[ProviderRpc] Registered eager Ollama dynamic fetchers');
   }
 
-  /** Convert model ID slug to display name: "gpt-5.3-codex" â†’ "GPT 5.3 Codex" */
+  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
   private formatCopilotModelName(id: string): string {
     return id
       .split('-')
@@ -439,10 +439,10 @@ export class ProviderRpcHandlers {
    *
    * Provider ID routing:
    * - Registry providers (openrouter, moonshot, z-ai, github-copilot, openai-codex, etc.):
-   *   Resolved via ANTHROPIC_PROVIDERS registry â†’ fetchModels() handles static/dynamic paths.
+   *   Resolved via ANTHROPIC_PROVIDERS registry → fetchModels() handles static/dynamic paths.
    * - 'anthropic' (virtual provider for direct OAuth/API key auth):
    *   NOT in the registry. Handled via dynamic fetcher registered by
-   *   registerAnthropicDirectFetcher() â€” ProviderModelsService.fetchModels() checks
+   *   registerAnthropicDirectFetcher() — ProviderModelsService.fetchModels() checks
    *   dynamic fetchers before the registry lookup, so this works without a registry entry.
    */
   private registerListModels(): void {

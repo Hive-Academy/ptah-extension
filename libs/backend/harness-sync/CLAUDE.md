@@ -7,9 +7,12 @@
 One concern: **reconcile the user layer into the harness directories AI tools
 actually read**, as idempotent, manifest-owned copies.
 
-`~/.ptah/user/{skills,commands,agents}` is the single editable source, plus
-`~/.ptah/mcp-installed.json` for MCP servers. Everything downstream is a
-derived, hash-gated copy that a manifest proves Ptah owns.
+`~/.ptah/user/{skills,commands}` and `~/.ptah/user/agents/<workspace-key>` are
+the single editable source, plus `~/.ptah/mcp-installed.json` for MCP servers.
+Skills and commands are per-machine; agents are per-workspace, because the setup
+wizard tailors them per project (see "The agent clone is keyed by WORKSPACE").
+Everything downstream is a derived, hash-gated copy that a manifest proves Ptah
+owns.
 `HarnessReconciler.reconcile(ws)` is the ONE entry point — every host, RPC
 handler and trigger calls it, and calling it twice costs a directory walk.
 
@@ -298,6 +301,93 @@ like every other source fact — `HarnessPluginConfigReader` gained one optional
 field and `PluginLoaderService` still satisfies it STRUCTURALLY, with no import
 either way.
 
+## The agent clone is keyed by WORKSPACE (TASK_2026_365)
+
+`~/.ptah/user/{skills,commands}` are per-MACHINE stores of per-machine content:
+a skill a user installed once is the same skill in every project. **Agents are
+not.** The setup wizard tailors each one to a project's stack and architecture,
+and names the result after the ROLE — `backend-developer`,
+`frontend-developer` — so two projects produce two different files under one
+name. `~/.ptah/user/agents` was flat, so they had one destination.
+
+`mirrorAgents` is create-if-absent and could not overwrite. `reconcileFileClone`
+could: when the source hash differs from the sidecar and the clone is
+unmodified, it fast-forwards. So every activation, folder change, plugin toggle
+and content download in workspace B rewrote the clone to B's agents, and the
+next pass in A copied them into A's `.codex/agents` and `.github/agents`.
+
+The measured signature, from `~/.ptah/user/agents/.history/frontend-developer/`:
+two snapshots six seconds apart, one 15784 bytes (an Angular project) and one
+17432 (a React one), plus a `figma-designer` history directory for an agent the
+first project has never had. **The cost is not only churn.** The shared clone
+held the React agent for those six seconds; a reconcile inside that window would
+have written another project's agents into this repository's rival-CLI
+directories.
+
+`agentsRoot` is therefore `~/.ptah/user/agents/<workspace-key>`, and the key is
+`userLayerAgentDirName(root)` in **`@ptah-extension/shared`** — `agent-generation`
+writes the directory and this lib reads it, neither may import the other, and
+`shared` is the one bridge (the same reason the origin-sidecar schema is there).
+Four properties worth not re-deriving:
+
+- **The hash is hand-rolled FNV-1a, not `node:crypto`.** `libs/shared` is
+  imported by `libs/frontend/**`, so a `crypto` import in that barrel reaches the
+  webview bundle.
+- **Case folds on `win32` only**, exactly as `codexProjectTrusted` does and for
+  its reason: separator collapses cannot invent a match between two real
+  directories, and case folding can — on ext4 `/a/App` and `/a/app` are two
+  workspaces.
+- **`PluginConfigSourceResolver.resolve(ws)` applies the scope**, on the
+  read-failure path as well as the success path, so a transient plugin-loader
+  failure cannot hand the builder the unscoped base.
+- **The reader and the writer must derive the key from the SAME root.**
+  `resolveAgentMirrorSource` returns `resolveHarnessWorkspaceRoot(ws)` for
+  exactly this. A host passing its raw folder would mirror into a directory the
+  reconciler never reads, and agents are manifest-owned, so the reconciler would
+  then reap every copy it has.
+
+**The migration seeds; it never reaps.** On the first pass for a workspace, when
+the scoped directory does not exist and the flat base holds clones,
+`UserLayerMirrorService.seedLegacyAgents` copies them in. The mirror and
+reconcile that follow converge that seed onto `{ws}/.claude/agents`, which is
+the truth for that project; a workspace with no `.claude/agents` keeps exactly
+what it had, now private to it. It copies `.md` clones and their sidecars and
+NOT `.history` — that history is the interleaved record of every workspace on
+the machine, so copying it into one project would assert an edit trail that
+project never had. The flat originals are never deleted, on the quarantine
+precedent.
+
+### Consent gates the MIRROR now, not only the propagation
+
+`buildAgents()` has been gated since TASK_2026_286, but every host passed
+`agentSourceDir: {ws}/.claude/agents` unconditionally — a fact
+`TASK_2026_286/context.md:18` recorded and did not fix. So any repository that
+ships `.claude/agents` populated the machine-wide user layer on its first
+activation, whoever wrote those files, and whether or not the setup wizard had
+ever run. Each clone was written with `pluginId: null`, which the plugin-origin
+gate never filters.
+
+`resolveAgentMirrorSource(root, gate)` is the ONE implementation of that
+decision, because there are THREE hosts and both of its rules fail silently when
+one drifts. Two rules about the gate itself:
+
+- **It reads `AgentSyncGate.resolve`, never `state.agentSyncEnabled` directly.**
+  An absent flag is answered from manifest evidence, and the mirror runs BEFORE
+  the reconcile that persists that answer — so reading the raw flag would skip
+  the mirror on the first pass after an upgrade and hand the reconciler an empty
+  desired state, which is a reap.
+- **A `null` gate reads as CONSENTED.** An unresolvable token is a wiring gap,
+  not a consent answer, and mirroring only ever creates clones. The reconciler
+  resolves the gate itself before it can delete anything, so the unknown answer
+  falls to the non-destructive side.
+
+The gate is taken as `AgentConsentReader`, a one-method structural interface, so
+a host or a spec does not construct a manifest store to answer it.
+
+Pinned by `state/agent-workspace-scope.spec.ts` (both halves) and
+`agent-generation`'s `user-layer/user-layer-agent-scope.spec.ts` (two workspaces
+stay apart, and the seed).
+
 ## The skills selection gate and its migration (TASK_2026_316)
 
 The `agents` gate above closes one hole; skills had a bigger one, because
@@ -471,7 +561,9 @@ the two are not interchangeable.
 `HarnessReconcilerService` (`reconcile`, `verify`, `remove`), `HarnessPropagationService`
 (`propagate`), `HarnessPreflightService` (`ensure`), `HarnessManifestBuilder`,
 `ManagedManifestStore`, `ClaudeTarget`, `WorkspaceHarnessTarget`,
-`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`, `AgentSyncGate`.
+`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`, `AgentSyncGate`,
+`resolveAgentMirrorSource` (the ONE agent-mirror decision all three hosts make —
+scope the root, gate on consent; see TASK_2026_365 below).
 Ports: `IHarnessTarget`, `IHarnessSourceResolver` (`resolve(workspaceRoot?)` —
 see "The desired state is a function of the root" below), `IHarnessCliDetector`,
 `IHarnessMcpFacet`, `IHarnessAgentTransformer`, `IUserLayerRefresher`,
@@ -560,7 +652,8 @@ permanently amber badge nobody can clear.
   per-workspace memory of decisions the USER made (as opposed to the manifests
   next to it, which record what PTAH wrote)
 - `state/agent-sync-gate.ts` — the `agents` consent gate over that same file,
-  plus the absent-flag migration that reads the manifests for evidence
+  the absent-flag migration that reads the manifests for evidence, and
+  `resolveAgentMirrorSource` (the host-facing agent-mirror decision)
 - `reconciler/harness-reconciler.service.ts` — the facade
 - `propagation/harness-propagation.service.ts` — refresh + reconcile; the ONE
   call an emit site makes
@@ -692,6 +785,22 @@ keys are fragments inside a shared config file with no path to stat, so they are
 hash-compared only. `.gitignore` maintenance is likewise `full`-only: preflight
 is deliberately blind to whether a target is DETECTED, so it could not name the
 right directories even if it wanted to.
+
+#### Concurrent coalescing and external-pass credit (TASK_2026_367 / C6a)
+
+Concurrent calls to `HarnessPreflightService.ensure()` for the same workspace
+root coalesce into a single in-flight promise (`inFlight` map), sharing one
+`AbortController`, one budget timer, and one hash walk. Callers passing `force: true`
+bypass the 60 s throttle interval but join any already in-flight pass for that
+root, preventing duplicate concurrent passes over the same directories. The
+promise is cleaned up in a `finally` block on settlement.
+
+Additionally, `HarnessPreflightService` subscribes to the reconciler's `health`
+events via `reconciler.onHealth()`, updating `lastPassAt` whenever any reconcile
+pass completes (preflight, full, or `propagate()`). A session starting shortly
+after an external pass skips its own preflight under the throttle interval rather
+than paying budget to re-derive the identical state. `dispose()` unsubscribes
+the health listener when the service is torn down.
 
 ## The `.gitignore` managed block (E23)
 
@@ -1302,7 +1411,7 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E10        | Hand-edited managed copy                        | Closed — overwritten + `overwrittenLocalEdit`                                                                                                                                                                                  |
 | E11        | Two hosts reconcile concurrently                | Closed — file lock + in-process queue                                                                                                                                                                                          |
 | E12        | Workspace folder change                         | Closed — new ws gets a full `propagate` (mirror THEN reconcile, because `{ws}/.claude/agents` is a per-workspace source), old ws untouched. **No teardown on folder REMOVAL, deliberately** — see "Never remove on deactivate" |
-| E13        | Two workspaces open                             | Closed — per-workspace manifest AND per-workspace SOURCES: `resolve(workspaceRoot)`, not the host's active scope (TASK_2026_346, below)                                                                                        |
+| E13        | Two workspaces open                             | Closed — per-workspace manifest, per-workspace SOURCES (`resolve(workspaceRoot)`, TASK_2026_346) and a per-workspace AGENT CLONE (`agents/<workspace-key>`, TASK_2026_365)                                                     |
 | E20        | Reserved names / case collisions                | Closed — reported, skipped                                                                                                                                                                                                     |
 | E21        | Antivirus/locked file on Windows                | Closed — 3× retry, then `write-failed`; manifest records only applied entries                                                                                                                                                  |
 | E5         | Disable / demote → reaped everywhere            | Closed — manifest-owned only, all six targets                                                                                                                                                                                  |
@@ -1320,6 +1429,7 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E25        | Shipped content path literals                   | Closed in Batch 0                                                                                                                                                                                                              |
 | E26        | Agents propagated with no user consent          | Closed (TASK_2026_286) — `agentSyncEnabled` + `disabledAgentIds`; an ABSENT flag resolves from manifest evidence, never to a bare `false`                                                                                      |
 | E27        | Skills propagated with no per-workspace consent | Closed (TASK_2026_316) — `skillSyncMode` + `enabledSkillSlugs` + the plugin-origin gate over the user-layer base; an ABSENT mode resolves from manifest evidence, never to a bare `'selected'`                                 |
+| E28        | Two workspaces' agents collide on one slug      | Closed (TASK_2026_365) — `agents/<workspace-key>`, seeded from the flat base and never reaped; the mirror is gated on the same consent as the propagation                                                                      |
 
 ### Where each edge case is pinned
 
@@ -1342,6 +1452,7 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E24          | `preflight/harness-preflight.service.spec.ts`                                                                                                                                                                                                 |
 | E26          | `reconciler/harness-reconciler.agent-consent.spec.ts` (the gate, the wizard grant, and THE MIGRATION), `manifest/harness-manifest.builder.spec.ts` (the two filters)                                                                          |
 | E27          | `reconciler/harness-reconciler.plugin-gate.spec.ts` (the plugin-origin gate over the user-layer base), `reconciler/harness-reconciler.skill-consent.spec.ts` (the selection gate and its migration)                                           |
+| E28          | `state/agent-workspace-scope.spec.ts` (the reader scope and the writer decision), `shared/.../user-layer-agents.spec.ts` (the key), `agent-generation/.../user-layer-agent-scope.spec.ts` (two workspaces stay apart, and the seed)           |
 | —            | Codex/Antigravity shared dir: `targets/rival-targets.shared-dir.spec.ts`                                                                                                                                                                      |
 | —            | **Antigravity MCP schema + the `ptah`/manifest/user key partition: `targets/mcp/antigravity-mcp-facet.spec.ts`**                                                                                                                              |
 | —            | **Install → spawn → cleanup → uninstall, and a concurrent reconcile + spawn: `reconciler/harness-reconciler.antigravity-mcp.spec.ts`**                                                                                                        |
@@ -1417,6 +1528,12 @@ a patch at the site where it was found.
   target open — that combination is what made a lost manifest freeze a whole
   target. The rule covers the manifests, `state.json`, the MCP intent store,
   both MCP facets and `.gitignore`.
+- **Never scope one side of an artifact root without the other.** The agent
+  clone lives under `userLayerAgentDirName(root)`; the mirror WRITES it and this
+  lib READS it, and a reader keyed on a different spelling of the root sees an
+  empty directory. Agents are manifest-owned, so an empty desired state is a
+  DELETION of every propagated copy, reported as an ordinary clean pass. Both
+  sides resolve through `resolveHarnessWorkspaceRoot` for exactly this reason.
 - **Never let a new gate default to OFF for an artifact kind that is already on
   disk.** Everything this lib writes is manifest-owned, so "not in the desired
   state" means DELETED. An absent flag must resolve from evidence of what Ptah

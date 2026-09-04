@@ -54,6 +54,14 @@ export const STREAM_BATCH_INTERVAL_MS = 16;
  */
 export const STREAM_BATCH_MAX_EVENTS = 64;
 
+/**
+ * Maximum batches handed to the transport concurrently.
+ *
+ * Four allows a few frame-length sends to overlap without letting a stalled
+ * view retain an unbounded tail of 64-event payloads.
+ */
+export const STREAM_BATCH_MAX_IN_FLIGHT = 4;
+
 /** Sends one already-built message. Resolves when the transport has taken it. */
 export type BatchSink = (type: string, payload: unknown) => Promise<void>;
 
@@ -73,6 +81,7 @@ export class StreamBatchBuffer {
   private readonly pending: BatchedMessage[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly inFlight = new Set<Promise<void>>();
+  private blockedFlush: Promise<void> | null = null;
 
   constructor(options: StreamBatchBufferOptions) {
     this.sink = options.sink;
@@ -84,16 +93,20 @@ export class StreamBatchBuffer {
   /**
    * Buffer a message for the next flush.
    *
-   * Never awaited by design — this is called from inside the `for await` loop
-   * over the SDK stream, and awaiting here is the defect being fixed.
+   * The normal path returns `undefined`: coalescing must not allocate a promise
+   * or wait on the transport for every SDK event. Only a full transport window
+   * returns a promise, giving the producer one bounded back-pressure point.
    */
-  push(message: BatchedMessage): void {
+  push(message: BatchedMessage): void | Promise<void> {
     this.pending.push(message);
     if (this.pending.length >= this.maxEvents) {
-      this.flush();
-      return;
+      void this.flush();
+    } else {
+      this.arm();
     }
-    this.arm();
+
+    if (this.inFlight.size < STREAM_BATCH_MAX_IN_FLIGHT) return;
+    return Promise.race(this.inFlight);
   }
 
   /**
@@ -106,6 +119,9 @@ export class StreamBatchBuffer {
   flush(): Promise<void> {
     this.disarm();
     if (this.pending.length === 0) return Promise.resolve();
+    if (this.inFlight.size >= STREAM_BATCH_MAX_IN_FLIGHT) {
+      return this.deferFlushUntilCapacity();
+    }
     const events = this.pending.splice(0, this.pending.length);
     return this.send(events);
   }
@@ -113,9 +129,22 @@ export class StreamBatchBuffer {
   /**
    * Await every flush already handed to the transport, including un-awaited
    * size-triggered ones. Used on stream exit so teardown cannot race delivery.
+   *
+   * A flush DEFERRED at the in-flight cap is awaited too, and it has to be. Its
+   * events are still in `pending`, so they are in no promise this set holds —
+   * settling on `inFlight` alone would return while a whole batch was still
+   * waiting for capacity, and the caller tears the session down immediately
+   * afterwards. That batch is deferred precisely when the transport is slow,
+   * which is the case this cap exists to handle.
+   *
+   * `blockedFlush` resolves to the flush it eventually performs, so awaiting it
+   * awaits the real send. It cannot stall: it waits on `Promise.race(inFlight)`
+   * and is only ever created while that set is non-empty.
    */
   settle(): Promise<void> {
-    return Promise.all([...this.inFlight]).then(() => undefined);
+    const landed: Promise<void>[] = [...this.inFlight];
+    if (this.blockedFlush !== null) landed.push(this.blockedFlush);
+    return Promise.all(landed).then(() => undefined);
   }
 
   /**
@@ -129,6 +158,27 @@ export class StreamBatchBuffer {
   /** Buffered-but-unsent count. Test seam; not part of the streaming contract. */
   get pendingCount(): number {
     return this.pending.length;
+  }
+
+  /** Transport sends currently retaining their payload. Test seam only. */
+  get inFlightCount(): number {
+    return this.inFlight.size;
+  }
+
+  private deferFlushUntilCapacity(): Promise<void> {
+    if (this.blockedFlush !== null) return this.blockedFlush;
+
+    // Wait before splicing. Once capacity opens, `flush()` still removes the
+    // events and invokes the sink in one synchronous step, preserving call
+    // order even though earlier transport promises may settle later.
+    const blockedFlush = Promise.race(this.inFlight).then(() => {
+      if (this.blockedFlush === blockedFlush) {
+        this.blockedFlush = null;
+      }
+      return this.flush();
+    });
+    this.blockedFlush = blockedFlush;
+    return blockedFlush;
   }
 
   private send(events: BatchedMessage[]): Promise<void> {

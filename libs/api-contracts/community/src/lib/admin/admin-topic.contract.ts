@@ -41,6 +41,22 @@ import type { Visibility } from '../shared/visibility';
  * unparsed schemas here would be decoration that drifts.
  */
 
+/** Request body for `POST /v1/admin/community/topics`. */
+export interface AdminCreateTopicRequest {
+  categoryId: string;
+  title: string;
+  /** Raw markdown stored as post #1. */
+  body: string;
+  pinned?: boolean;
+  locked?: boolean;
+}
+
+/** Response from `POST /v1/admin/community/topics`. */
+export interface AdminCreatedTopic {
+  id: string;
+  slug: string;
+}
+
 /**
  * A category as an admin sees it — `GET/POST /v1/admin/community/categories`,
  * `PATCH/DELETE .../categories/:id`, `PATCH .../categories/reorder`.

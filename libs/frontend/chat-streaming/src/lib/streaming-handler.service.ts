@@ -19,7 +19,7 @@ import {
   ExecutionChatMessage,
   MessageStartEvent,
   SessionId,
-  UNKNOWN_AGENT_TOOL_CALL_ID,
+  isTurnStateEvent,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
@@ -31,27 +31,13 @@ import {
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
-import { PermissionHandlerService } from './permission-handler.service';
 import { BackgroundAgentStore } from './background-agent.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 import {
   StreamingAccumulatorCore,
   type AccumulatorContext,
 } from './accumulator-core.service';
-
-/**
- * Terminal reasons that mark a turn as user/SDK-aborted rather than cleanly
- * completed. After one of these, the SDK still emits a trailing
- * "[Request interrupted by user]" assistant message — that content must NOT
- * resurrect the visual streaming flag via the resume self-heal, or the stop
- * button reappears and the user has to click it twice to clear the spinner.
- * A clean turn-end (`completed`) or a background-task pause is unaffected, so
- * legitimate background resume still self-heals.
- */
-const ABORTED_TERMINAL_REASONS: ReadonlySet<string> = new Set([
-  'aborted_streaming',
-  'aborted_tools',
-]);
+import { TurnStateApplier } from './turn-state-applier.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -71,10 +57,10 @@ export class StreamingHandlerService {
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
-  private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
+  private readonly turnStateApplier = inject(TurnStateApplier);
 
   /**
    * Clean up deduplication state for a session.
@@ -113,6 +99,13 @@ export class StreamingHandlerService {
   } | null {
     const isReplay = options?.isReplay ?? false;
     try {
+      // The backend turn state is intercepted BEFORE dedup and before the
+      // accumulator: it drives status / spinner / liveness and is never stored
+      // in `StreamingState` (TASK_2026_360).
+      if (isTurnStateEvent(event)) {
+        this.turnStateApplier.apply(event, tabId);
+        return null;
+      }
       // `SessionId.from` THROWS on a non-UUID, and an event can arrive with no
       // session at all while the SDK session is still resolving. The fan-out
       // lookup below runs unconditionally — AFTER `processEventForTab` has
@@ -160,11 +153,10 @@ export class StreamingHandlerService {
             activeTab.status === 'streaming' ||
             activeTab.status === 'draft')
         ) {
+          // Bind the session only. `status` is written by `applyTurnState`
+          // from the backend `generating` event (TASK_2026_360).
           this.tabManager.attachSession(activeTab.id, realSessionId);
-          this.tabManager.markStreaming(activeTab.id);
-
           this.sessionManager.setSessionId(realSessionId);
-          this.sessionManager.setStatus('streaming');
 
           primaryTab = this.tabManager.activeTab() ?? undefined;
         }
@@ -251,7 +243,6 @@ export class StreamingHandlerService {
     let targetTab = initialTab;
     if (sessionId && !targetTab.claudeSessionId) {
       this.tabManager.attachSession(targetTab.id, sessionId);
-      this.tabManager.markStreaming(targetTab.id);
     }
     if (!targetTab.streamingState) {
       this.tabManager.setStreamingState(
@@ -325,33 +316,11 @@ export class StreamingHandlerService {
       }
     }
     if (result.stateMutated) {
+      // Content only. The spinner / `status` are NOT re-asserted from content
+      // any more: a post-turn `agent_progress` used to re-light the stop
+      // button with nothing left to clear it (TASK_2026_360, Defect 1). The
+      // backend `generating` event is the one signal that a turn is running.
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
-      // Content is flowing, so the SDK is actively generating for this tab.
-      // Re-assert the visual streaming flag if a turn-end (Stop hook, result,
-      // or a background-task pause that flipped the tab to 'awaiting-background'
-      // /'loaded') cleared it and the agent then resumed on its own. The next
-      // real turn-end clears it again; the membership guard keeps steady-state
-      // per-delta streaming a no-op.
-      //
-      // Exception: a user/SDK abort ends the turn and the SDK then emits a
-      // trailing "[Request interrupted by user]" message. That content must
-      // not self-heal the spinner back on, so skip the re-mark when the tab's
-      // last turn ended in an aborted terminal reason.
-      //
-      // Exception: a historical replay (session opened from the sidebar)
-      // pushes finalized events through this same path. Those mutate state but
-      // must NOT light up the spinner — the replay has no live turn and no
-      // terminal event to clear the flag again, so it would stick on `loaded`.
-      const lastReason = targetTab.lastTerminalReason;
-      const wasAborted =
-        lastReason != null && ABORTED_TERMINAL_REASONS.has(lastReason);
-      if (
-        !isReplay &&
-        !wasAborted &&
-        !this.tabManager.isTabStreaming(targetTab.id)
-      ) {
-        this.tabManager.markTabStreaming(targetTab.id);
-      }
     }
     if (result.agentStartFlushNeeded) {
       // Origin-scoped: `agent_start` fires on every agent spawn, and the
@@ -392,21 +361,12 @@ export class StreamingHandlerService {
       state = result.replacementState;
     }
 
-    // A turn that STARTS while its tab is already backgrounded (e.g. a cron- or
-    // gateway-triggered turn landing on a non-active workspace) never went
-    // through the active `markStreaming`/`markTabStreaming` path, so the tab-bar
-    // spinner would never light for it. Light it on the first content-bearing
-    // background event so the tab shows as streaming when the user switches to
-    // its workspace. Guarded on spinner-set membership so it fires once per turn
-    // (not per delta) and does not disturb a turn that started active; the
-    // turn-end background branch's `markTabIdle` clears it.
-    if (result.stateMutated && !this.tabManager.isTabStreaming(tab.id)) {
-      this.tabManager.markTabStreaming(tab.id);
-    }
-
+    // Streaming state only. A cron- or gateway-triggered turn that starts on a
+    // backgrounded tab gets its spinner and `status` from the backend
+    // `generating` event through `applyTurnState`, which is workspace-aware
+    // (TASK_2026_360).
     return this.tabManager.updateBackgroundTab(tab.id, {
       streamingState: state,
-      status: 'streaming',
     });
   }
 
@@ -435,10 +395,13 @@ export class StreamingHandlerService {
   /**
    * Handle session stats update from backend.
    *
-   * Primary turn-end pivot moved to TurnEndHandlerService via Stop /
-   * StopFailure hooks. This method now serves as:
-   *   1. Safety-net finalization when Stop did not fire.
-   *   2. Post-finalize stats merge when Stop has already finalized.
+   * Stats are NOT a turn boundary (TASK_2026_360): the backend `turn_state`
+   * event finalizes the turn through `TurnStateApplier`. This method only
+   * decides where the numbers go:
+   *   - the tab is still streaming (`streamingState` present) → stash them as
+   *     `pendingStats`; finalization consumes them onto the final message;
+   *   - the tab is already finalized → merge them onto the last assistant
+   *     message and report the queued content for dispatch.
    */
   handleSessionStats(stats: {
     sessionId: string;
@@ -457,25 +420,13 @@ export class StreamingHandlerService {
     if (!primaryTab) {
       // Before falling back to the active tab, resolve the owner across all
       // workspaces. A session that belongs to a BACKGROUND workspace must NOT
-      // finalize its stats onto the active tab — that renders another
-      // workspace's turn onto the wrong session.
-      //
-      // The primary turn-end pivot (`TurnEndHandlerService`) now finalizes
-      // background turns (it promotes the reply into `messages` and stamps
-      // `lastTerminalReason`). So in the common case this branch only stashes
-      // the stats onto the background tab's streaming state for a post-finalize
-      // merge. If Stop NEVER fired for this background session, however, this
-      // stats event is the sole terminal — so it acts as a safety-net finalizer
-      // (guarded on `lastTerminalReason === undefined`, exactly like the active
-      // path below), promoting the reply and clearing the spinner. Exactly one
-      // finalization per terminal: turn-end sets `lastTerminalReason`, so a
-      // later stats event sees `stopAlreadyObserved` and skips.
+      // merge its stats onto the active tab — that renders another workspace's
+      // turn onto the wrong session.
       const bgLookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
         stats.sessionId,
       );
       if (bgLookup) {
         const bgTab = bgLookup.tab;
-        const stopAlreadyObserved = bgTab.lastTerminalReason !== undefined;
         const bgState = bgTab.streamingState;
         if (bgState) {
           bgState.pendingStats = {
@@ -486,11 +437,9 @@ export class StreamingHandlerService {
           this.tabManager.updateBackgroundTab(bgTab.id, {
             streamingState: { ...bgState },
           });
+          return null;
         }
-        if (!stopAlreadyObserved && bgState) {
-          this.finalization.finalizeCurrentMessage(bgTab.id);
-          this.tabManager.markTabIdle(bgTab.id);
-        }
+        this.mergeStatsOntoLastAssistant(bgTab, stats);
         return null;
       }
 
@@ -523,25 +472,15 @@ export class StreamingHandlerService {
     }
 
     const targetTabId = primaryTab.id;
-    const stopAlreadyObserved = primaryTab.lastTerminalReason !== undefined;
-    if (
-      !stopAlreadyObserved &&
-      primaryTab.streamingState &&
-      (primaryTab.status === 'streaming' || primaryTab.status === 'loaded')
-    ) {
-      const hardDenyToolUseIds =
-        this.permissionHandler.consumeHardDenyToolUseIds();
-      const queuedContent = primaryTab.queuedContent;
-      const finalizableTabs =
+    if (primaryTab.streamingState) {
+      // Still streaming (the `turn_state` that ends the turn is ordered after
+      // the last chunk and usually lands after this push): stash for every
+      // bound tab so finalization writes the numbers onto the final message.
+      const streamingTabs =
         boundTabs.length > 0
-          ? boundTabs.filter(
-              (t) =>
-                t.streamingState &&
-                (t.status === 'streaming' || t.status === 'loaded'),
-            )
+          ? boundTabs.filter((t) => t.streamingState)
           : [primaryTab];
-
-      for (const t of finalizableTabs) {
+      for (const t of streamingTabs) {
         const state = t.streamingState;
         if (!state) continue;
         state.pendingStats = {
@@ -549,46 +488,33 @@ export class StreamingHandlerService {
           tokens: stats.tokens,
           duration: stats.duration,
         };
-
-        this.finalization.finalizeCurrentMessage(t.id);
-        if (hardDenyToolUseIds.size > 0) {
-          if (hardDenyToolUseIds.has(UNKNOWN_AGENT_TOOL_CALL_ID)) {
-            this.finalization.markLastAgentAsInterrupted(t.id);
-          }
-          const specificIds = new Set(
-            [...hardDenyToolUseIds].filter(
-              (id) => id !== UNKNOWN_AGENT_TOOL_CALL_ID,
-            ),
-          );
-          if (specificIds.size > 0) {
-            this.finalization.markAgentsAsInterruptedByToolCallIds(
-              t.id,
-              specificIds,
-            );
-          }
-        }
-
-        this.tabManager.markTabIdle(t.id);
+        this.batchedUpdate.scheduleUpdate(t.id, state);
       }
-
-      return { tabId: targetTabId, queuedContent: queuedContent ?? null };
-    }
-    const messages = primaryTab.messages;
-
-    if (messages.length === 0 && primaryTab.streamingState) {
-      const state = primaryTab.streamingState;
-      state.pendingStats = {
-        cost: stats.cost,
-        tokens: stats.tokens,
-        duration: stats.duration,
-      };
-      this.batchedUpdate.scheduleUpdate(primaryTab.id, state);
       return null;
     }
 
-    if (messages.length === 0) {
-      return null;
-    }
+    // Already finalized: patch the last assistant message and hand the queued
+    // follow-up to the dispatcher (the turn is over, so it can go now).
+    this.mergeStatsOntoLastAssistant(primaryTab, stats);
+    return {
+      tabId: targetTabId,
+      queuedContent: primaryTab.queuedContent ?? null,
+    };
+  }
+
+  /**
+   * Write a turn's stats onto the tab's last assistant message. Workspace-aware
+   * through `setMessages` (routes to the partition for a background tab).
+   */
+  private mergeStatsOntoLastAssistant(
+    tab: TabState,
+    stats: {
+      cost: number;
+      tokens: { input: number; output: number };
+      duration: number;
+    },
+  ): void {
+    const messages = tab.messages;
     let lastAssistantIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') {
@@ -596,10 +522,8 @@ export class StreamingHandlerService {
         break;
       }
     }
+    if (lastAssistantIndex === -1) return;
 
-    if (lastAssistantIndex === -1) {
-      return null;
-    }
     const updatedMessages = [...messages];
     updatedMessages[lastAssistantIndex] = {
       ...messages[lastAssistantIndex],
@@ -607,10 +531,7 @@ export class StreamingHandlerService {
       cost: stats.cost,
       duration: stats.duration,
     };
-
-    this.tabManager.setMessages(targetTabId, updatedMessages);
-
-    return null;
+    this.tabManager.setMessages(tab.id, updatedMessages);
   }
 
   /**
@@ -619,7 +540,7 @@ export class StreamingHandlerService {
    * agent node IDs as "resumed" in the AgentMonitorStore.
    *
    * Tracks by node ID (not agentType) to avoid false positives when multiple
-   * agents of the same type exist â€” only the specific interrupted agent(s)
+   * agents of the same type exist — only the specific interrupted agent(s)
    * that were superseded show "Resumed", not newly interrupted ones.
    */
   private detectAndMarkResumedAgent(agentType: string, tab: TabState): void {

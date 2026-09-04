@@ -4,19 +4,30 @@
  * A tool call must resolve a relative path against the workspace of the session
  * that issued it. Precedence, most specific first:
  *
- *   1. Caller session — the exact session that made THIS MCP call, identified by
+ *   1. Declared workspace — the workspace root the caller STATED in its MCP
+ *      URL (`/workspace/{root}`). A caller that states its workspace outranks
+ *      one we infer from a session: this is the only identity an external
+ *      caller (Claude Code, Codex, Cursor reading `{ws}/.mcp.json`) has, since
+ *      it never carries a Ptah session id.
+ *   2. Caller session — the exact session that made THIS MCP call, identified by
  *      the request-scoped caller id. Concurrency-safe: two sessions calling
  *      tools at the same time each resolve against their own workspace.
- *   2. Active session — the most-recently-active session's workspace. Used off
+ *   3. Active session — the most-recently-active session's workspace. Used off
  *      the MCP request path (stdio/CLI, internal calls) where there is no caller
  *      id, and as a fallback when the caller session carries no projectPath.
- *   3. Platform provider — the global active workspace folder.
+ *   4. Platform provider — the global active workspace folder.
  *
  * Returns `undefined` when none resolve, so callers surface a clear "no
  * workspace" error rather than silently resolving under an unintended root.
  */
 
 export interface WorkspaceRootResolverDeps {
+  /**
+   * Workspace root the caller declared in its MCP URL, or undefined when the
+   * caller declared none. Optional: callers wired before this channel existed
+   * keep the session → active → provider precedence unchanged.
+   */
+  getCallerWorkspaceRoot?: () => string | undefined;
   /** Request-scoped caller session id, or undefined off the MCP call path. */
   getCallerSessionId: () => string | undefined;
   /** Workspace root for a specific session id, or undefined if unknown. */
@@ -28,14 +39,18 @@ export interface WorkspaceRootResolverDeps {
 }
 
 /**
- * Resolve the workspace root using caller → active → provider precedence.
- * Any throw from a dependency degrades to the provider root rather than
- * propagating — resolution must never crash a tool call.
+ * Resolve the workspace root using declared → caller → active → provider
+ * precedence. Any throw from a dependency degrades to the provider root rather
+ * than propagating — resolution must never crash a tool call.
  */
 export function resolveSessionWorkspaceRoot(
   deps: WorkspaceRootResolverDeps,
 ): string | undefined {
   try {
+    const declaredWorkspace = deps.getCallerWorkspaceRoot?.();
+    if (declaredWorkspace) {
+      return declaredWorkspace;
+    }
     const callerSessionId = deps.getCallerSessionId();
     if (callerSessionId) {
       const callerWorkspace = deps.getSessionWorkspace(callerSessionId);

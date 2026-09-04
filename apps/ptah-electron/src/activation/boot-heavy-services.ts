@@ -17,7 +17,7 @@ import {
   refreshUserLayer,
 } from './plugin-activation';
 import type { BootCoordinator } from './boot-coordinator';
-import { normalizeWorkspaceRoot } from './workspace-root-key';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
 /**
  * The heavy half of Electron activation, extracted from `wire-runtime.ts`
@@ -50,15 +50,6 @@ import { normalizeWorkspaceRoot } from './workspace-root-key';
  *    `await` between the two — while the work itself still happens after the
  *    window is on screen.
  */
-
-/**
- * Re-exported so the boot latch and every existing importer keep one name for
- * one concept. The definition moved to `workspace-root-key.ts` in
- * TASK_2026_345 because the user-layer coalescer in `plugin-activation.ts`
- * needs the SAME key — and this module imports that one, so the function could
- * not live here without making the pair a cycle.
- */
-export { normalizeWorkspaceRoot } from './workspace-root-key';
 
 export interface HeavyServicesBooter {
   /**

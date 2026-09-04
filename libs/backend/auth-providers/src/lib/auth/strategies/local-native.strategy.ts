@@ -185,7 +185,7 @@ export class LocalNativeStrategy implements IAuthStrategy {
       } else {
         this.cloudMetadata.clearCache();
         this.logger.debug(
-          `[${this.name}] No Ollama Cloud API key configured â€” skipping live metadata fetch (using static catalog + zero-cost pricing fallback)`,
+          `[${this.name}] No Ollama Cloud API key configured — skipping live metadata fetch (using static catalog + zero-cost pricing fallback)`,
         );
       }
     }

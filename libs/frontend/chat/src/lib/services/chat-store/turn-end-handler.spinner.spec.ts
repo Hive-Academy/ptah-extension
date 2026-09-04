@@ -1,19 +1,18 @@
 /**
- * TurnEndHandlerService — background turn-end clears the spinner (TASK_2026_154
- * Bug 2), asserted against the REAL TabManagerService + partition + registries.
+ * Background tab spinner + status — who owns them (TASK_2026_360), asserted
+ * against the REAL TabManagerService + partition + registries.
  *
- * Reproduces the reported failure: a tab starts streaming while active (its id
- * enters the global `_streamingTabIds` spinner set), the user switches to
- * another workspace (the tab moves to a background partition, the id stays in
- * the global set), and the session then finishes in the background. Before the
- * fix the background terminal branches called `updateBackgroundTab` WITHOUT
- * `markTabIdle`, so `isTabStreaming` stayed true forever. This asserts the real
- * signal is cleared and the status reaches 'loaded'.
+ * Scenario: a tab starts streaming while active (its id enters the global
+ * `_streamingTabIds` spinner set), the user switches to another workspace (the
+ * tab moves to a background partition, the id stays in the global set), and
+ * the session then finishes in the background.
  *
- * The background branch is reached only when `findTabsBySessionId` returns [],
- * which requires the conversation to be registered (StreamRouter's job) but the
- * owning tab to be off the active workspace — seeded here via ConversationRegistry
- * + TabSessionBinding.
+ * Before TASK_2026_360 the hook pushes (`session:turnEnded` /
+ * `session:turnFailed`) cleared the spinner and flipped `status`. They arrive
+ * on a channel with no ordering guarantee against the chunks, so they now
+ * stamp their snapshot ONLY. The in-stream `turn_state` event, applied by
+ * `TurnStateApplier`, is what clears the spinner and writes the status — and it
+ * is workspace-aware, so the backgrounded tab is handled the same way.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -23,17 +22,21 @@ import {
   ConversationRegistry,
   TabSessionBinding,
   ConfirmationDialogService,
+  SessionLivenessRegistry,
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,
 } from '@ptah-extension/chat-state';
 import {
   BackgroundAgentStore,
   MessageFinalizationService,
+  PermissionHandlerService,
+  TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
   SessionId,
   type SdkTurnEndedPayload,
   type SdkTurnFailedPayload,
+  type TurnStateEvent,
 } from '@ptah-extension/shared';
 import type { TabId } from '@ptah-extension/chat-state';
 import { ChatLifecycleService } from './chat-lifecycle.service';
@@ -42,11 +45,14 @@ import { TurnEndHandlerService } from './turn-end-handler.service';
 const WS_A = '/ws/a';
 const WS_B = '/ws/b';
 
-describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)', () => {
+describe('background tab spinner + status ownership (TASK_2026_360)', () => {
   let handler: TurnEndHandlerService;
+  let applier: TurnStateApplier;
   let tabManager: TabManagerService;
   let registry: ConversationRegistry;
   let binding: TabSessionBinding;
+  let liveness: SessionLivenessRegistry;
+  let finalizeCurrentMessage: jest.Mock;
 
   /** Create a streaming tab in WS_A, then switch to WS_B so it is backgrounded. */
   function streamingTabInBackground(sessionId: string): string {
@@ -57,7 +63,7 @@ describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)',
     tabManager.markTabStreaming(tabId);
     // Register + bind the conversation so findTabsBySessionId resolves the
     // conversation but returns [] (its tab is not on the active workspace),
-    // driving the background terminal branch.
+    // driving the background branch.
     const convId = registry.create(sessionId as unknown as never);
     binding.bind(tabId as TabId, convId);
 
@@ -67,6 +73,7 @@ describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)',
 
   beforeEach(() => {
     localStorage.clear();
+    finalizeCurrentMessage = jest.fn();
 
     const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
       refreshModels: jest.fn().mockResolvedValue(undefined),
@@ -75,15 +82,21 @@ describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)',
     TestBed.configureTestingModule({
       providers: [
         TurnEndHandlerService,
+        TurnStateApplier,
         TabManagerService,
         TabWorkspacePartitionService,
         ConversationRegistry,
         TabSessionBinding,
         ConfirmationDialogService,
+        SessionLivenessRegistry,
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
         {
           provide: MessageFinalizationService,
-          useValue: { finalizeCurrentMessage: jest.fn() },
+          useValue: { finalizeCurrentMessage },
+        },
+        {
+          provide: PermissionHandlerService,
+          useValue: { consumeHardDenyToolUseIds: () => new Set<string>() },
         },
         {
           provide: ChatLifecycleService,
@@ -97,9 +110,11 @@ describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)',
     });
 
     handler = TestBed.inject(TurnEndHandlerService);
+    applier = TestBed.inject(TurnStateApplier);
     tabManager = TestBed.inject(TabManagerService);
     registry = TestBed.inject(ConversationRegistry);
     binding = TestBed.inject(TabSessionBinding);
+    liveness = TestBed.inject(SessionLivenessRegistry);
   });
 
   afterEach(() => {
@@ -131,30 +146,120 @@ describe('TurnEndHandlerService — background turn-end clears spinner (Bug 2)',
     };
   }
 
-  it('handleTurnEnded removes the backgrounded tab from _streamingTabIds and marks it loaded', () => {
+  function turnState(
+    sessionId: string,
+    overrides: Partial<TurnStateEvent> = {},
+  ): TurnStateEvent {
+    return {
+      id: `ts-${overrides.revision ?? 1}`,
+      eventType: 'turn_state',
+      timestamp: 1,
+      sessionId,
+      messageId: `turn-state-${sessionId}`,
+      phase: 'idle',
+      revision: 1,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'completed',
+      source: 'stream',
+      ...overrides,
+    };
+  }
+
+  function bgTab(tabId: string) {
+    return tabManager.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+  }
+
+  it('handleTurnEnded leaves the spinner and status alone and stamps the snapshot', () => {
     const sessA = SessionId.create();
     const tabId = streamingTabInBackground(sessA);
-
-    // Precondition: spinner is lit even though the tab is now backgrounded.
     expect(tabManager.isTabStreaming(tabId)).toBe(true);
 
     handler.handleTurnEnded(turnEnded(sessA));
 
-    expect(tabManager.isTabStreaming(tabId)).toBe(false);
-    const bgTab = tabManager.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
-    expect(bgTab?.status).toBe('loaded');
+    expect(tabManager.isTabStreaming(tabId)).toBe(true);
+    expect(bgTab(tabId)?.status).toBe('streaming');
+    expect(bgTab(tabId)?.lastTerminalReason).toBe('completed');
   });
 
-  it('handleTurnFailed removes the backgrounded tab from _streamingTabIds and marks it loaded', () => {
+  it('handleTurnFailed leaves the spinner and status alone and stamps the reason', () => {
     const sessA = SessionId.create();
     const tabId = streamingTabInBackground(sessA);
 
-    expect(tabManager.isTabStreaming(tabId)).toBe(true);
-
     handler.handleTurnFailed(turnFailed(sessA));
 
+    expect(tabManager.isTabStreaming(tabId)).toBe(true);
+    expect(bgTab(tabId)?.status).toBe('streaming');
+    expect(bgTab(tabId)?.lastTerminalReason).toBe('blocking_limit');
+  });
+
+  it('an idle turn_state clears the spinner, marks loaded and finalizes the backgrounded tab', () => {
+    const sessA = SessionId.create();
+    const tabId = streamingTabInBackground(sessA);
+
+    applier.apply(turnState(sessA));
+
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith(tabId, false);
     expect(tabManager.isTabStreaming(tabId)).toBe(false);
-    const bgTab = tabManager.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
-    expect(bgTab?.status).toBe('loaded');
+    expect(bgTab(tabId)?.status).toBe('loaded');
+    expect(liveness.status(sessA)()).toBe('idle');
+    expect(liveness.liveWorkspaces().has(WS_A)).toBe(false);
+  });
+
+  it('a failed turn_state finalizes as aborted and marks liveness failed with the owning workspace', () => {
+    const sessA = SessionId.create();
+    const tabId = streamingTabInBackground(sessA);
+
+    applier.apply(
+      turnState(sessA, {
+        phase: 'failed',
+        terminalReason: 'blocking_limit',
+        error: 'rate_limit',
+      }),
+    );
+
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith(tabId, true);
+    expect(tabManager.isTabStreaming(tabId)).toBe(false);
+    expect(bgTab(tabId)?.status).toBe('loaded');
+    expect(liveness.status(sessA)()).toBe('failed');
+  });
+
+  it('a sleeping turn_state marks the backgrounded tab sleeping and its workspace live', () => {
+    const sessA = SessionId.create();
+    const tabId = streamingTabInBackground(sessA);
+
+    applier.apply(
+      turnState(sessA, {
+        phase: 'sleeping',
+        sessionCrons: [
+          { id: 'c1', schedule: '*/10 * * * *', recurring: true, prompt: 'x' },
+        ],
+      }),
+    );
+
+    expect(tabManager.isTabStreaming(tabId)).toBe(false);
+    expect(bgTab(tabId)?.status).toBe('sleeping');
+    expect(bgTab(tabId)?.pendingSessionCrons).toHaveLength(1);
+    expect(liveness.liveWorkspaces().has(WS_A)).toBe(true);
+  });
+
+  it('a generating turn_state re-lights a backgrounded tab (cron-woken turn)', () => {
+    const sessA = SessionId.create();
+    const tabId = streamingTabInBackground(sessA);
+    applier.apply(turnState(sessA, { phase: 'sleeping', revision: 1 }));
+    expect(bgTab(tabId)?.status).toBe('sleeping');
+
+    applier.apply(
+      turnState(sessA, {
+        phase: 'generating',
+        revision: 2,
+        terminalReason: null,
+      }),
+    );
+
+    expect(tabManager.isTabStreaming(tabId)).toBe(true);
+    expect(bgTab(tabId)?.status).toBe('streaming');
+    expect(liveness.status(sessA)()).toBe('streaming');
+    expect(liveness.liveWorkspaces().has(WS_A)).toBe(true);
   });
 });

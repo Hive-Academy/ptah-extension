@@ -1,6 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type GenerationAgentOutcome,
+} from '@ptah-extension/shared';
 import { CompletionComponent } from './completion.component';
 import {
   SetupWizardStateService,
@@ -9,6 +12,31 @@ import {
   SkillGenerationProgressItem,
 } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
+
+const outcome = (
+  overrides: Partial<GenerationAgentOutcome> = {},
+): GenerationAgentOutcome => ({
+  agentId: 'frontend-developer',
+  filePath: '/ws/.claude/agents/frontend-developer.md',
+  status: 'written',
+  rejectedSections: 0,
+  tailoredSections: 0,
+  ...overrides,
+});
+
+const completion = (
+  overrides: Partial<CompletionData> = {},
+): CompletionData => ({
+  success: true,
+  outputDirectory: '/ws/.claude/agents',
+  writtenCount: 1,
+  unchangedCount: 0,
+  failedCount: 0,
+  rejectedSections: 0,
+  tailoredSections: 0,
+  agents: [outcome()],
+  ...overrides,
+});
 
 describe('CompletionComponent', () => {
   let component: CompletionComponent;
@@ -206,11 +234,9 @@ describe('CompletionComponent', () => {
       expect(component['warnings']()).toEqual([]);
       expect(component['hasWarnings']()).toBe(false);
 
-      completionData.set({
-        success: true,
-        generatedCount: 1,
-        warnings: ['Customization failed for section X'],
-      });
+      completionData.set(
+        completion({ warnings: ['Customization failed for section X'] }),
+      );
 
       expect(component['warnings']()).toEqual([
         'Customization failed for section X',
@@ -220,12 +246,160 @@ describe('CompletionComponent', () => {
 
     it('should derive enhancedPromptsUsed from completion data', () => {
       expect(component['enhancedPromptsUsed']()).toBe(false);
-      completionData.set({
-        success: true,
-        generatedCount: 1,
-        enhancedPromptsUsed: true,
-      });
+      completionData.set(completion({ enhancedPromptsUsed: true }));
       expect(component['enhancedPromptsUsed']()).toBe(true);
+    });
+  });
+
+  describe('Explicit outcome presentation', () => {
+    const mixed = completion({
+      success: false,
+      writtenCount: 1,
+      unchangedCount: 1,
+      failedCount: 1,
+      agents: [
+        outcome(),
+        outcome({
+          agentId: 'backend-developer',
+          filePath: '/ws/.claude/agents/backend-developer.md',
+          status: 'unchanged',
+        }),
+        outcome({
+          agentId: 'senior-tester',
+          filePath: '/ws/.claude/agents/senior-tester.md',
+          status: 'failed',
+          error: 'SDK timeout',
+        }),
+      ],
+      errors: ['Generation timed out'],
+    });
+
+    it('derives one tile per explicit outcome, not from streamed items', () => {
+      // A stray streamed item must not add a tile once outcomes exist.
+      skillGenerationProgress.set([
+        { id: 'ghost', name: 'ghost.md', type: 'agent', status: 'complete' },
+      ]);
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const tiles = fixture.nativeElement.querySelectorAll('[data-status]');
+      expect(tiles.length).toBe(3);
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('(3)');
+      expect(text).not.toContain('Ghost');
+    });
+
+    it('labels an unchanged outcome as already current', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const unchangedTile = fixture.nativeElement.querySelector(
+        '[data-status="unchanged"]',
+      );
+      expect(unchangedTile).toBeTruthy();
+      expect(unchangedTile.textContent).toContain('Already current');
+    });
+
+    it('shows a failed outcome with its error message', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const failedTile = fixture.nativeElement.querySelector(
+        '[data-status="failed"]',
+      );
+      expect(failedTile).toBeTruthy();
+      expect(failedTile.textContent).toContain('SDK timeout');
+    });
+
+    it('shows written/unchanged/failed counts from the payload', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const written = fixture.nativeElement.querySelector(
+        '[data-testid="written-count"]',
+      );
+      const unchanged = fixture.nativeElement.querySelector(
+        '[data-testid="unchanged-count"]',
+      );
+      const failed = fixture.nativeElement.querySelector(
+        '[data-testid="failed-count"]',
+      );
+      expect(written.textContent).toContain('1 written');
+      expect(unchanged.textContent).toContain('1 already current');
+      expect(failed.textContent).toContain('1 failed');
+    });
+
+    it('shows the output directory from the payload', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const directory = fixture.nativeElement.querySelector(
+        '[data-testid="output-directory"]',
+      );
+      expect(directory.textContent).toContain('/ws/.claude/agents');
+    });
+
+    it('switches the header to an error state when any agent failed', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const heading = fixture.nativeElement.querySelector('h1');
+      expect(heading.textContent).toContain('Setup Finished With Errors');
+    });
+
+    it('lists payload errors and keeps earlier writes visible', () => {
+      completionData.set(mixed);
+      fixture.detectChanges();
+
+      const errorsAlert = fixture.nativeElement.querySelector(
+        '[data-testid="completion-errors"]',
+      );
+      expect(errorsAlert.textContent).toContain('Generation timed out');
+      // The written agent from before the failure still renders.
+      const writtenTile = fixture.nativeElement.querySelector(
+        '[data-status="written"]',
+      );
+      expect(writtenTile.textContent).toContain('Frontend Developer');
+    });
+
+    it('keeps the success header when every outcome is written or unchanged', () => {
+      completionData.set(
+        completion({
+          writtenCount: 1,
+          unchangedCount: 1,
+          agents: [
+            outcome(),
+            outcome({
+              agentId: 'backend-developer',
+              filePath: '/ws/.claude/agents/backend-developer.md',
+              status: 'unchanged',
+            }),
+          ],
+        }),
+      );
+      fixture.detectChanges();
+
+      const heading = fixture.nativeElement.querySelector('h1');
+      expect(heading.textContent).toContain('Setup Complete!');
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="failed-count"]'),
+      ).toBeFalsy();
+    });
+
+    it('falls back to completed streamed items when no payload arrived', () => {
+      skillGenerationProgress.set([
+        {
+          id: 'frontend-developer',
+          name: 'frontend-developer.md',
+          type: 'agent',
+          status: 'complete',
+        },
+      ]);
+      fixture.detectChanges();
+
+      const tiles = fixture.nativeElement.querySelectorAll('[data-status]');
+      expect(tiles.length).toBe(1);
+      expect(tiles[0].getAttribute('data-status')).toBe('written');
     });
   });
 

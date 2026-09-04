@@ -8,6 +8,9 @@ function makeState(): jest.Mocked<TransformerState> {
     getMessageId: jest.fn().mockReturnValue(undefined),
     getCurrentModel: jest.fn().mockReturnValue(undefined),
     getToolCallId: jest.fn().mockReturnValue(undefined),
+    isMessageSynthesized: jest.fn().mockReturnValue(false),
+    markMessageSynthesized: jest.fn(),
+    clearMessageSynthesized: jest.fn(),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
     getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
@@ -57,6 +60,12 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       recordSessionUsage: jest.fn(),
       getCumulativeTokens: jest.fn().mockReturnValue(0),
       clearSessionTokenSnapshot: jest.fn(),
+    },
+    turnState: {
+      markGenerating: jest.fn().mockReturnValue(null),
+      settleTurn: jest.fn(),
+      applySnapshot: jest.fn().mockReturnValue(null),
+      get: jest.fn().mockReturnValue(undefined),
     },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }

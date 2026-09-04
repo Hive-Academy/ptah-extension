@@ -8,8 +8,9 @@
  * the schema's `safeParse(...).data` would return (unknown keys stripped,
  * arrays frozen, key order preserved).
  *
- * That equivalence is **proven, not asserted** — `sdk-hook.parsers.spec.ts`
- * runs both implementations over a shared corpus and fails on any divergence.
+ * That equivalence is **proven, not asserted** —
+ * `wire-parsers.equivalence.spec.ts` runs both implementations over a shared
+ * corpus and fails on any divergence.
  * The schemas remain the source of truth and are still used by the backend;
  * these exist so the frontend can enforce the same contract without pulling
  * the 304 kB Zod runtime into the initial bundle (TASK_2026_187 Unit 10).
@@ -193,6 +194,31 @@ export function parseSdkTurnFailedPayload(
   };
 }
 
+/**
+ * Mirrors `<schema>.optional().catch(undefined)` on an object property.
+ *
+ * The difference from {@link readOptional} is the failure posture, and it is
+ * the whole point: an invalid value on a present key is NOT fatal to the
+ * payload. Zod's contract, verified against zod 4.3.6:
+ * - key absent from input → key absent from output
+ * - key present, value valid → key present with that value
+ * - key present, value `undefined` or invalid → key present with `undefined`
+ *
+ * There is no counterpart in `wire-guards.internal.ts` because
+ * `SdkSubagentEndedPayloadSchema` is the only schema using the combinator.
+ * Promote it there when a second schema needs it.
+ */
+function readOptionalCaught<T>(
+  source: Record<string, unknown>,
+  key: string,
+  check: (value: unknown) => value is T,
+  assign: (value: T | undefined) => void,
+): void {
+  if (!(key in source)) return;
+  const raw = source[key];
+  assign(check(raw) ? raw : undefined);
+}
+
 /** Mirrors `SdkSubagentEndedPayloadSchema`. */
 export function parseSdkSubagentEndedPayload(
   payload: unknown,
@@ -209,13 +235,17 @@ export function parseSdkSubagentEndedPayload(
   );
   if (backgroundTasks === null) return null;
   if (!isWireTimestamp(payload['timestamp'])) return null;
-  return {
+  const out: Record<string, unknown> = {
     sessionId: payload['sessionId'],
     cwd: payload['cwd'],
     agentId: payload['agentId'],
     agentType: payload['agentType'],
-    lastAssistantMessage: payload['lastAssistantMessage'],
-    backgroundTasks,
-    timestamp: payload['timestamp'],
   };
+  readOptionalCaught(payload, 'toolCallId', isNonEmptyWireString, (v) => {
+    out['toolCallId'] = v;
+  });
+  out['lastAssistantMessage'] = payload['lastAssistantMessage'];
+  out['backgroundTasks'] = backgroundTasks;
+  out['timestamp'] = payload['timestamp'];
+  return out as unknown as SdkSubagentEndedPayload;
 }

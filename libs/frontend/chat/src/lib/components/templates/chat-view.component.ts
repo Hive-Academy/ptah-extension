@@ -37,6 +37,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
+import { McpStatusChipComponent } from '../molecules/mcp-status-chip.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
@@ -115,6 +116,7 @@ import type {
     CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
+    McpStatusChipComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -854,7 +856,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Edit queued message â€” pushes content back to the input and clears the queue.
+   * Edit queued message — pushes content back to the input and clears the queue.
    * Uses restoreContentToInput so the user can modify and re-send.
    */
   editQueue(): void {
@@ -897,7 +899,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Handle "Resume All" â€” builds a single combined prompt for all interrupted agents
+   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
    * and sends it as one message to the existing session.
    */
   handleResumeAllAgents(agents: SubagentRecord[]): void {

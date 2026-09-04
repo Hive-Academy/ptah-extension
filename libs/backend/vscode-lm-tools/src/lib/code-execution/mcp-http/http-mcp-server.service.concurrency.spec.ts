@@ -229,7 +229,7 @@ describe('CodeExecutionMCP × harness-sync — one .mcp.json, two writers', () =
     });
     expect(servers['ptah']).toEqual({
       type: 'http',
-      url: `http://localhost:${PORT}`,
+      url: `http://localhost:${PORT}/workspace/${encodeURIComponent(workspaceRoot)}`,
     });
     // ...and the user's own server survived both of them.
     expect(servers['my-own-server']).toEqual({
@@ -258,7 +258,7 @@ describe('CodeExecutionMCP × harness-sync — one .mcp.json, two writers', () =
     expect(Object.keys(servers).sort()).toEqual(['github', 'ptah']);
     expect(servers['ptah']).toEqual({
       type: 'http',
-      url: `http://localhost:${PORT}`,
+      url: `http://localhost:${PORT}/workspace/${encodeURIComponent(workspaceRoot)}`,
     });
   });
 

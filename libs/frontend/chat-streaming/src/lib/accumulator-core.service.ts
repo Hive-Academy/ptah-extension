@@ -584,6 +584,13 @@ export class StreamingAccumulatorCore {
         agentMonitorStore.onAgentCompleted(event);
         return this.mutated(event.eventType);
 
+      case 'turn_state':
+        // Backend turn state is intercepted by `StreamingHandlerService` /
+        // `TurnStateApplier` before it reaches the accumulator and is never
+        // stored in `StreamingState`. A surface path that forwards it here
+        // (StreamRouter) gets a no-op (TASK_2026_360).
+        return skip(event.eventType);
+
       default:
         assertNever(
           event,

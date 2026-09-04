@@ -6,6 +6,9 @@
  *   - sendToSubagent wraps streamInput failures in RpcUserError('SESSION_ENDED')
  *     and shapes the coordinator-nudge payload (SendMessage instruction when
  *     the registry record has an agentId, generic nudge otherwise)
+ *   - sendToSubagent bounds a never-settling streamInput with
+ *     SUBAGENT_SEND_TIMEOUT_MS and reports RpcUserError('SEND_TIMEOUT')
+ *     without wedging the per-session push chain
  *   - interruptSession wraps Query.interrupt failures in RpcUserError('SESSION_ENDED')
  *   - backgroundTask delegates to Query.backgroundTasks and surfaces
  *     SESSION_NOT_FOUND / SESSION_ENDED
@@ -29,7 +32,10 @@ const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
 };
 
 import { RpcUserError } from '@ptah-extension/vscode-core';
-import { SubagentMessageDispatcher } from './subagent-message-dispatcher';
+import {
+  SubagentMessageDispatcher,
+  SUBAGENT_SEND_TIMEOUT_MS,
+} from './subagent-message-dispatcher';
 import type { SessionLifecycleManager } from './session-lifecycle-manager';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
@@ -131,6 +137,86 @@ describe('SubagentMessageDispatcher.sendToSubagent — Fix 3', () => {
     expect(err).toBeInstanceOf(RpcUserError);
     expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
     expect((err as RpcUserError).message).toContain('stream closed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendToSubagent — SEND_TIMEOUT bound on a push that never settles
+//
+// `streamInput` resolves only when the CLI reads the message off its input
+// channel. A stalled transport never reads, so the push never settles and the
+// RPC handler blocks (measured 180 018 ms on 2026-08-31). The push is bounded
+// by SUBAGENT_SEND_TIMEOUT_MS and reports a typed SEND_TIMEOUT instead.
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.sendToSubagent — send timeout', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('throws RpcUserError(SEND_TIMEOUT) when streamInput never settles', async () => {
+    const streamInput = jest.fn(() => new Promise<void>(() => undefined));
+    const dispatcher = buildDispatcher(makeLifecycleWithQuery({ streamInput }));
+
+    const pending = dispatcher
+      .sendToSubagent('sess-timeout', 'toolu_stall', 'are you there?')
+      .catch((e: unknown) => e);
+
+    await jest.advanceTimersByTimeAsync(SUBAGENT_SEND_TIMEOUT_MS);
+    const err = await pending;
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SEND_TIMEOUT');
+    expect((err as RpcUserError).message).toContain('Message not accepted');
+    expect(streamInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves no pending timer when streamInput resolves promptly', async () => {
+    const streamInput = jest.fn(async () => undefined);
+    const dispatcher = buildDispatcher(makeLifecycleWithQuery({ streamInput }));
+
+    await dispatcher.sendToSubagent('sess-fast', 'toolu_ok', 'hello');
+
+    expect(streamInput).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('still reports SESSION_ENDED when streamInput rejects', async () => {
+    const streamInput = jest.fn().mockRejectedValue(new Error('stream closed'));
+    const dispatcher = buildDispatcher(makeLifecycleWithQuery({ streamInput }));
+
+    const err = await dispatcher
+      .sendToSubagent('sess-closed', 'toolu_dead', 'hello')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not wedge the per-session push chain after a timed-out push', async () => {
+    const streamInput = jest
+      .fn()
+      // First push stalls forever and times out.
+      .mockImplementationOnce(() => new Promise<void>(() => undefined))
+      // Second push on the SAME session must still reach streamInput.
+      .mockImplementationOnce(async () => undefined);
+    const dispatcher = buildDispatcher(makeLifecycleWithQuery({ streamInput }));
+
+    const first = dispatcher
+      .sendToSubagent('sess-wedge', 'toolu_stall', 'first')
+      .catch((e: unknown) => e);
+    await jest.advanceTimersByTimeAsync(SUBAGENT_SEND_TIMEOUT_MS);
+    expect((await first) as RpcUserError).toBeInstanceOf(RpcUserError);
+
+    await dispatcher.sendToSubagent('sess-wedge', 'toolu_stall', 'second');
+
+    expect(streamInput).toHaveBeenCalledTimes(2);
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
 

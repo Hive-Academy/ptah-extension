@@ -28,6 +28,7 @@ export {
   type SetupStatus,
 } from './lib/services/setup-status.service';
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
+export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 export {
   WizardWebviewLifecycleService,

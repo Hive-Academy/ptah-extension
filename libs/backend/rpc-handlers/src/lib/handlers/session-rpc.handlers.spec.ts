@@ -90,13 +90,18 @@ import type {
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import { SdkError } from '@ptah-extension/agent-sdk';
-import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
+import type {
+  CliSessionReference,
+  SessionId,
+  SessionTurnState,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
+import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.registry';
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
@@ -155,13 +160,41 @@ function createMockChatSession(): MockChatSession {
   };
 }
 
-type MockStreamBroadcaster = {
-  isStreaming: jest.Mock<boolean, [string]>;
+type MockTurnState = {
+  get: jest.Mock<SessionTurnState | undefined, [string]>;
 };
 
-function createMockStreamBroadcaster(): MockStreamBroadcaster {
+function createMockTurnState(): MockTurnState {
   return {
-    isStreaming: jest.fn<boolean, [string]>().mockReturnValue(false),
+    get: jest
+      .fn<SessionTurnState | undefined, [string]>()
+      .mockReturnValue(undefined),
+  };
+}
+
+type MockMcpStatus = {
+  get: jest.Mock<SessionMcpStatusRecord | null, [string]>;
+};
+
+function createMockMcpStatus(): MockMcpStatus {
+  return {
+    get: jest
+      .fn<SessionMcpStatusRecord | null, [string]>()
+      .mockReturnValue(null),
+  };
+}
+
+function makeTurnState(
+  overrides: Partial<SessionTurnState> = {},
+): SessionTurnState {
+  return {
+    phase: 'idle',
+    revision: 3,
+    backgroundTasks: [],
+    sessionCrons: [],
+    terminalReason: 'completed',
+    timestamp: 1_700_000_000_000,
+    ...overrides,
   };
 }
 
@@ -224,7 +257,8 @@ interface Harness {
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
-  streamBroadcaster: MockStreamBroadcaster;
+  turnState: MockTurnState;
+  mcpStatus: MockMcpStatus;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -238,7 +272,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
-  const streamBroadcaster = createMockStreamBroadcaster();
+  const turnState = createMockTurnState();
+  const mcpStatus = createMockMcpStatus();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -249,7 +284,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
-    streamBroadcaster as never,
+    turnState as never,
+    mcpStatus as never,
   );
 
   return {
@@ -262,7 +298,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sentry,
     sdkAdapter,
     chatSession,
-    streamBroadcaster,
+    turnState,
+    mcpStatus,
   };
 }
 
@@ -1886,44 +1923,138 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:status', () => {
-    it('reports active + streaming when both sources are true', async () => {
+    it('reports active + streaming with the turnState when the registry says generating', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(true);
-      h.streamBroadcaster.isStreaming.mockReturnValue(true);
+      const state = makeTurnState({
+        phase: 'generating',
+        terminalReason: null,
+      });
+      h.turnState.get.mockReturnValue(state);
       h.handlers.register();
 
-      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
-        h,
-        'session:status',
-        { sessionId: VALID_SESSION_ID },
-      );
+      const result = await call<{
+        isActive: boolean;
+        isStreaming: boolean;
+        turnState?: SessionTurnState;
+      }>(h, 'session:status', { sessionId: VALID_SESSION_ID });
 
-      expect(result).toEqual({ isActive: true, isStreaming: true });
+      expect(result).toEqual({
+        isActive: true,
+        isStreaming: true,
+        turnState: state,
+      });
       expect(h.sdkAdapter.isSessionActive).toHaveBeenCalled();
-      expect(h.streamBroadcaster.isStreaming).toHaveBeenCalledWith(
-        VALID_SESSION_ID,
-      );
+      expect(h.turnState.get).toHaveBeenCalledWith(VALID_SESSION_ID);
     });
 
-    it('reports active + idle when the session is alive but not streaming', async () => {
+    it.each(['idle', 'awaiting-background', 'sleeping', 'failed'] as const)(
+      'reports active + not streaming with the turnState for phase %s',
+      async (phase) => {
+        const h = makeHarness();
+        h.sdkAdapter.isSessionActive.mockReturnValue(true);
+        const state = makeTurnState({ phase });
+        h.turnState.get.mockReturnValue(state);
+        h.handlers.register();
+
+        const result = await call<{
+          isActive: boolean;
+          isStreaming: boolean;
+          turnState?: SessionTurnState;
+        }>(h, 'session:status', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toEqual({
+          isActive: true,
+          isStreaming: false,
+          turnState: state,
+        });
+      },
+    );
+
+    it('omits turnState when the registry does not know the session', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(true);
-      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.turnState.get.mockReturnValue(undefined);
       h.handlers.register();
 
-      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
-        h,
-        'session:status',
-        { sessionId: VALID_SESSION_ID },
-      );
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
 
       expect(result).toEqual({ isActive: true, isStreaming: false });
+      expect('turnState' in result).toBe(false);
+    });
+
+    // TASK_2026_375 B4.3 — a cold-loaded webview missed the
+    // `session:mcpStatus` push, so this read is how a restored tab recovers
+    // the chip.
+    it('returns the recorded MCP servers and notices', async () => {
+      const h = makeHarness();
+      const record: SessionMcpStatusRecord = {
+        servers: [{ name: 'smithery', status: 'needs-auth' }],
+        notices: [
+          {
+            code: 'claude-ai-connectors-disabled',
+            message: 'claude.ai connectors are disabled …',
+          },
+        ],
+        updatedAt: 1,
+      };
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(record);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toEqual({
+        isActive: true,
+        isStreaming: false,
+        mcpServers: record.servers,
+        notices: record.notices,
+      });
+      expect(h.mcpStatus.get).toHaveBeenCalledWith(VALID_SESSION_ID);
+    });
+
+    it('OMITS both MCP fields when nothing was recorded — absent is not empty', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(null);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect('mcpServers' in result).toBe(false);
+      expect('notices' in result).toBe(false);
+    });
+
+    it('returns an EMPTY server list verbatim — that is a real answer', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue({
+        servers: [],
+        notices: [],
+        updatedAt: 1,
+      });
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toMatchObject({ mcpServers: [], notices: [] });
     });
 
     it('reports inactive when the session is not in the lifecycle registry', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(false);
-      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.turnState.get.mockReturnValue(undefined);
       h.handlers.register();
 
       const result = await call<{ isActive: boolean; isStreaming: boolean }>(

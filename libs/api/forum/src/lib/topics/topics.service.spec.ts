@@ -18,6 +18,7 @@ import {
 import { CategoriesService } from '../categories/categories.service';
 import { EDIT_WINDOW_HOURS } from '../common/edit-window';
 
+import { CreateAdminTopicDto } from './dto/create-admin-topic.dto';
 import { CreateTopicDto } from './dto/create-topic.dto';
 import { UpdateTopicDto } from './dto/update-topic.dto';
 import {
@@ -557,6 +558,122 @@ describe('TopicsService', () => {
     });
   });
 
+  describe('createAsAdmin', () => {
+    const input = (
+      over: Partial<CreateAdminTopicDto> = {},
+    ): CreateAdminTopicDto =>
+      Object.assign(new CreateAdminTopicDto(), {
+        categoryId: 'staff-only',
+        title: 'Admin announcement',
+        body: 'Welcome, builders.',
+        pinned: true,
+        locked: false,
+        ...over,
+      });
+
+    beforeEach(() => {
+      prisma.category.findUnique.mockResolvedValue({
+        id: 'staff-only',
+        visibility: 'staff',
+      });
+    });
+
+    it('finds a staff-only category without a member visibility filter', async () => {
+      await service.createAsAdmin('admin-1', input(), CREATED_AT);
+
+      expect(prisma.category.findUnique).toHaveBeenCalledWith({
+        where: { id: 'staff-only' },
+        select: { id: true },
+      });
+      expect(prisma.category.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('writes topic, post #1 and flags for the acting admin in one transaction', async () => {
+      const created = await service.createAsAdmin(
+        'admin-1',
+        input(),
+        CREATED_AT,
+      );
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.topic.create.mock.calls[0]?.[0]?.data).toMatchObject({
+        categoryId: 'staff-only',
+        slug: 'admin-announcement',
+        title: 'Admin announcement',
+        authorId: 'admin-1',
+        pinned: true,
+        locked: false,
+        lastPostedAt: CREATED_AT,
+      });
+      expect(prisma.topic.create.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+        'postCount',
+      );
+      expect(prisma.post.create.mock.calls[0]?.[0]?.data).toEqual({
+        topicId: 'topic-1',
+        parentId: null,
+        postNumber: 1,
+        bodyMarkdown: 'Welcome, builders.',
+        authorId: 'admin-1',
+      });
+      expect(created).toEqual({
+        id: 'topic-1',
+        slug: 'admin-announcement',
+      });
+    });
+
+    it('enlists the audit hook in the same transaction after both writes', async () => {
+      const audit = jest.fn().mockResolvedValue(undefined);
+
+      await service.createAsAdmin('admin-1', input(), CREATED_AT, audit);
+
+      expect(audit).toHaveBeenCalledWith(prisma, 'topic-1');
+      expect(prisma.post.create.mock.invocationCallOrder[0]).toBeLessThan(
+        audit.mock.invocationCallOrder[0] as number,
+      );
+    });
+
+    it('returns 404 when the unfiltered category lookup finds no row', async () => {
+      prisma.category.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createAsAdmin('admin-1', input(), CREATED_AT),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('returns Category not found when the category is deleted between lookup and insert', async () => {
+      prisma.topic.create.mockRejectedValueOnce(knownRequestError('P2003'));
+
+      const error = await service
+        .createAsAdmin('admin-1', input(), CREATED_AT)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect((error as Error).message).toBe('Category not found');
+      expect(prisma.topic.create).toHaveBeenCalledTimes(1);
+      expect(prisma.post.create).not.toHaveBeenCalled();
+    });
+
+    it('reuses the slug collision retry behavior', async () => {
+      prisma.topic.create
+        .mockRejectedValueOnce(knownRequestError('P2002', ['slug']))
+        .mockImplementationOnce(
+          async ({ data }: { data: Record<string, unknown> }) => ({
+            id: 'topic-1',
+            slug: data['slug'],
+          }),
+        );
+
+      const created = await service.createAsAdmin(
+        'admin-1',
+        input(),
+        CREATED_AT,
+      );
+
+      expect(created.slug).toBe('admin-announcement-2');
+    });
+  });
+
   describe('softDeleteAsAdmin (R8.2)', () => {
     it('records the acting ADMIN in deletedBy, with no author check', async () => {
       prisma.topic.findFirst.mockResolvedValue({ id: 'topic-1' });
@@ -621,6 +738,43 @@ describe('TopicsService', () => {
       // controller; the DTO simply does not declare them.
       expect(Object.keys(new CreateTopicDto())).not.toContain('slug');
       expect(dto).not.toHaveProperty('locked');
+    });
+  });
+
+  describe('CreateAdminTopicDto', () => {
+    const invalidProps = async (payload: Record<string, unknown>) => {
+      const dto = plainToInstance(CreateAdminTopicDto, payload);
+      return (await validate(dto)).map((error) => error.property);
+    };
+    const base = {
+      categoryId: 'cat-1',
+      title: 'An admin topic',
+      body: 'Body',
+    };
+
+    it('accepts optional pinned and locked flags', async () => {
+      expect(
+        await invalidProps({ ...base, pinned: true, locked: false }),
+      ).toEqual([]);
+    });
+
+    it('reuses the member topic length limits', async () => {
+      expect(await invalidProps({ ...base, title: 'ab' })).toContain('title');
+      expect(await invalidProps({ ...base, title: 'x'.repeat(201) })).toContain(
+        'title',
+      );
+      expect(await invalidProps({ ...base, body: '' })).toContain('body');
+      expect(
+        await invalidProps({ ...base, body: 'x'.repeat(50_001) }),
+      ).toContain('body');
+      expect(
+        await invalidProps({ ...base, categoryId: 'x'.repeat(65) }),
+      ).toContain('categoryId');
+    });
+
+    it('rejects null optional flags', async () => {
+      expect(await invalidProps({ ...base, pinned: null })).toContain('pinned');
+      expect(await invalidProps({ ...base, locked: null })).toContain('locked');
     });
   });
 

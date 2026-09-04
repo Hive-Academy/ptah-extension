@@ -8,6 +8,9 @@ function makeState(): jest.Mocked<TransformerState> {
     getMessageId: jest.fn().mockReturnValue(undefined),
     getCurrentModel: jest.fn().mockReturnValue(undefined),
     getToolCallId: jest.fn().mockReturnValue(undefined),
+    isMessageSynthesized: jest.fn().mockReturnValue(false),
+    markMessageSynthesized: jest.fn(),
+    clearMessageSynthesized: jest.fn(),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
     getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
@@ -56,6 +59,12 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       recordSessionUsage: jest.fn(),
       getCumulativeTokens: jest.fn().mockReturnValue(0),
       clearSessionTokenSnapshot: jest.fn(),
+    },
+    turnState: {
+      markGenerating: jest.fn().mockReturnValue(null),
+      settleTurn: jest.fn(),
+      applySnapshot: jest.fn().mockReturnValue(null),
+      get: jest.fn().mockReturnValue(undefined),
     },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }
@@ -203,5 +212,109 @@ describe('StreamEventTransformer', () => {
     } as never;
     transformer.transform(sdk, state, helpers);
     expect(state.clearActiveSkillToolUseIds).toHaveBeenCalled();
+  });
+});
+
+describe('StreamEventTransformer - turn_state (TASK_2026_360)', () => {
+  const GENERATING = {
+    phase: 'generating',
+    revision: 1,
+    backgroundTasks: [],
+    sessionCrons: [],
+    terminalReason: null,
+    timestamp: 1,
+  };
+
+  function rootMessageStart(parentToolUseId?: string): never {
+    return {
+      uuid: 'stream-u-1',
+      parent_tool_use_id: parentToolUseId ?? null,
+      event: {
+        type: 'message_start',
+        message: { id: 'gen-1', model: 'claude-opus' },
+      },
+    } as never;
+  }
+
+  it('PREPENDS a turn_state to the root message_start when the registry reports a new turn', () => {
+    const transformer = new StreamEventTransformer();
+    const helpers = makeHelpers();
+    (helpers.turnState.markGenerating as jest.Mock).mockReturnValue(GENERATING);
+
+    const events = transformer.transform(
+      rootMessageStart(),
+      makeState(),
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual([
+      'turn_state',
+      'message_start',
+    ]);
+    expect(events[0]).toMatchObject({
+      phase: 'generating',
+      revision: 1,
+      sessionId: 'sess-1',
+      messageId: 'turn-state-sess-1',
+    });
+    expect(helpers.turnState.markGenerating).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('emits generating once per turn - a second root message_start carries no turn_state', () => {
+    const transformer = new StreamEventTransformer();
+    const state = makeState();
+    const helpers = makeHelpers();
+    (helpers.turnState.markGenerating as jest.Mock)
+      .mockReturnValueOnce(GENERATING)
+      .mockReturnValue(null);
+
+    const first = transformer.transform(
+      rootMessageStart(),
+      state,
+      helpers,
+      'sess-1' as never,
+    );
+    const second = transformer.transform(
+      rootMessageStart(),
+      state,
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(first.map((e) => e.eventType)).toEqual([
+      'turn_state',
+      'message_start',
+    ]);
+    expect(second.map((e) => e.eventType)).toEqual(['message_start']);
+  });
+
+  it('does not consult the registry for a subagent message_start', () => {
+    const transformer = new StreamEventTransformer();
+    const helpers = makeHelpers();
+
+    const events = transformer.transform(
+      rootMessageStart('toolu_parent'),
+      makeState(),
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual(['message_start']);
+    expect(helpers.turnState.markGenerating).not.toHaveBeenCalled();
+  });
+
+  it('does not consult the registry when the session id is unknown', () => {
+    const transformer = new StreamEventTransformer();
+    const helpers = makeHelpers();
+
+    const events = transformer.transform(
+      rootMessageStart(),
+      makeState(),
+      helpers,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual(['message_start']);
+    expect(helpers.turnState.markGenerating).not.toHaveBeenCalled();
   });
 });

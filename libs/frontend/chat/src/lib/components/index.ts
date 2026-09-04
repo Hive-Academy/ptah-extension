@@ -132,6 +132,7 @@ export {
   McpDirectoryBrowserComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/compact-session/compact-session-card.component';
+export * from './molecules/mcp-status-chip.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

@@ -22,18 +22,24 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import { SessionTurnStateRegistry } from '@ptah-extension/agent-sdk';
 import {
   MESSAGE_TYPES,
   type IAgentAdapter,
   type SessionId,
   type FlatStreamEventUnion,
   type BatchMessagePayload,
+  type TurnStateEvent,
 } from '@ptah-extension/shared';
 
 import {
   ChatStreamBroadcaster,
   type WebviewManager,
 } from './chat-stream-broadcaster.service';
+import {
+  STREAM_BATCH_MAX_EVENTS,
+  STREAM_BATCH_MAX_IN_FLIGHT,
+} from './stream-batch-buffer';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 
 const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' as SessionId;
@@ -69,6 +75,7 @@ interface Harness {
       'hasSession' | 'deleteSession' | 'getAgentId' | 'setSdkSessionId'
     >
   >;
+  turnState: SessionTurnStateRegistry;
 }
 
 function makeHarness(): Harness {
@@ -118,6 +125,10 @@ function makeHarness(): Harness {
     >
   >;
 
+  // The real registry: a pure in-memory reducer, so the turn-state tests
+  // observe the same transitions production does.
+  const turnState = new SessionTurnStateRegistry();
+
   const broadcaster = new ChatStreamBroadcaster(
     logger as unknown as Logger,
     webviewManager,
@@ -127,9 +138,17 @@ function makeHarness(): Harness {
     sessionMetadataStore,
     workspaceProvider,
     ptahCli as unknown as ChatPtahCliService,
+    turnState,
   );
 
-  return { broadcaster, webviewManager, sdkAdapter, ptahCli, logger };
+  return {
+    broadcaster,
+    webviewManager,
+    sdkAdapter,
+    ptahCli,
+    logger,
+    turnState,
+  };
 }
 
 function makeEvent(eventType: string): FlatStreamEventUnion {
@@ -512,7 +531,13 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — chunk coalescing (B7)'
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
     const types = deliveredTypes(h);
-    expect(broadcastsFor(h, 'chat:chunk')).toHaveLength(2);
+    // Both buffered chunks, then the forced-idle turn_state (TASK_2026_360),
+    // all ahead of chat:error.
+    expect(
+      broadcastsFor(h, 'chat:chunk').map(
+        (p) => (p['event'] as FlatStreamEventUnion).eventType,
+      ),
+    ).toEqual(['text_delta', 'text_delta', 'turn_state']);
     expect(types.lastIndexOf('chat:chunk')).toBeLessThan(
       types.indexOf('chat:error'),
     );
@@ -532,7 +557,7 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — chunk coalescing (B7)'
     expect(calls.some(([type]) => type === 'chat:chunk')).toBe(true);
   });
 
-  it('does not await each chunk, so a slow transport cannot stall the drain', async () => {
+  it('does not await transport below the cap, so ordinary bursts drain without stalling', async () => {
     const h = makeHarness();
     let resolveTransport: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -563,5 +588,284 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — chunk coalescing (B7)'
 
     resolveTransport?.();
     await running;
+  });
+
+  it('pauses the SDK drain at the transport cap and resumes when sends settle', async () => {
+    const h = makeHarness();
+    let releaseTransport: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    h.webviewManager.broadcastMessage.mockImplementation(() => gate);
+
+    const total = STREAM_BATCH_MAX_EVENTS * STREAM_BATCH_MAX_IN_FLIGHT + 1;
+    let drained = 0;
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      for (let i = 0; i < total; i++) {
+        drained++;
+        yield makeIndexedEvent(i);
+      }
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(drained).toBe(STREAM_BATCH_MAX_EVENTS * STREAM_BATCH_MAX_IN_FLIGHT);
+
+    releaseTransport?.();
+    await running;
+    expect(drained).toBe(total);
+  });
+
+  it('calls transport in event order even when its second batch settles first', async () => {
+    const h = makeHarness();
+    const batchResolvers: Array<() => void> = [];
+    const resolutionOrder: number[] = [];
+    h.webviewManager.broadcastMessage.mockImplementation((type) => {
+      if (type !== MESSAGE_TYPES.BATCH) return Promise.resolve();
+      const index = batchResolvers.length;
+      return new Promise<void>((resolve) => {
+        batchResolvers.push(() => {
+          resolutionOrder.push(index);
+          resolve();
+        });
+      });
+    });
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      for (let i = 0; i < STREAM_BATCH_MAX_EVENTS * 2; i++) {
+        yield makeIndexedEvent(i);
+      }
+    }
+
+    const running = h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const batches = (
+      h.webviewManager.broadcastMessage as jest.Mock
+    ).mock.calls.filter(([type]) => type === MESSAGE_TYPES.BATCH);
+    expect(batches).toHaveLength(2);
+    expect(
+      (batches[0][1] as BatchMessagePayload).events.map(
+        ({ payload }) =>
+          (payload as { event: FlatStreamEventUnion }).event.messageId,
+      ),
+    ).toEqual(
+      Array.from({ length: STREAM_BATCH_MAX_EVENTS }, (_, i) => `msg-${i}`),
+    );
+    expect(
+      (batches[1][1] as BatchMessagePayload).events.map(
+        ({ payload }) =>
+          (payload as { event: FlatStreamEventUnion }).event.messageId,
+      ),
+    ).toEqual(
+      Array.from(
+        { length: STREAM_BATCH_MAX_EVENTS },
+        (_, i) => `msg-${i + STREAM_BATCH_MAX_EVENTS}`,
+      ),
+    );
+
+    // The buffer owns call order only. A transport may acknowledge those calls
+    // in another order without making later batches wait on earlier promises.
+    batchResolvers[1]();
+    await Promise.resolve();
+    expect(resolutionOrder).toEqual([1]);
+    batchResolvers[0]();
+    await running;
+    expect(resolutionOrder).toEqual([1, 0]);
+  });
+});
+
+/** The `turn_state` chunk payloads the transport saw, in delivery order. */
+function turnStateChunks(h: Harness): TurnStateEvent[] {
+  return broadcastsFor(h, 'chat:chunk')
+    .map((p) => p['event'] as FlatStreamEventUnion)
+    .filter((e): e is TurnStateEvent => e.eventType === 'turn_state');
+}
+
+describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_360)', () => {
+  it('pushes an idle turn_state AFTER the chunks and BEFORE chat:error when the stream throws', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('text_delta');
+      throw new Error('stream exploded');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const chunks = broadcastsFor(h, 'chat:chunk');
+    expect(chunks).toHaveLength(3);
+    const last = chunks[2]['event'] as TurnStateEvent;
+    expect(last.eventType).toBe('turn_state');
+    expect(last).toMatchObject({
+      phase: 'idle',
+      terminalReason: null,
+      sessionId: SESSION_ID,
+    });
+    expect(chunks[2]['tabId']).toBe(TAB_ID);
+    expect(chunks[2]['sessionId']).toBe(SESSION_ID);
+
+    const types = deliveredTypes(h);
+    expect(types.lastIndexOf('chat:chunk')).toBeLessThan(
+      types.indexOf('chat:error'),
+    );
+  });
+
+  it('tags the forced idle with aborted_streaming on a USER ABORT and sends no chat:error', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('Request aborted by user');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const states = turnStateChunks(h);
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({
+      phase: 'idle',
+      terminalReason: 'aborted_streaming',
+    });
+    expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+  });
+
+  it('forces idle in finally when the loop exits normally mid-turn', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const states = turnStateChunks(h);
+    expect(states).toHaveLength(1);
+    expect(states[0].phase).toBe('idle');
+    const types = deliveredTypes(h);
+    expect(types.lastIndexOf('chat:chunk')).toBeGreaterThan(
+      types.indexOf('chat:complete'),
+    );
+  });
+
+  it('adds no turn_state of its own when the turn already settled, and passes the stream one through in order', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+    const settled = h.turnState.settleTurn(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('message_complete');
+      yield {
+        ...makeEvent('turn_state'),
+        ...settled,
+      } as unknown as FlatStreamEventUnion;
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const events = broadcastsFor(h, 'chat:chunk').map(
+      (p) => (p['event'] as FlatStreamEventUnion).eventType,
+    );
+    expect(events).toEqual(['message_start', 'message_complete', 'turn_state']);
+  });
+
+  it('clears the registry entry when the loop exits', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+    h.turnState.settleTurn(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.turnState.get(SESSION_ID)).toBeUndefined();
+  });
+
+  it('keeps the registry entry when a newer record owns the id (slash follow-up race)', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.getSessionToken.mockReturnValue({} as never);
+    h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
+    h.turnState.markGenerating(SESSION_ID);
+    h.turnState.settleTurn(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.turnState.get(SESSION_ID)?.phase).toBe('idle');
+  });
+
+  // TASK_2026_371 D1. The clean loop exit above CLEARS the registry record,
+  // and `chat:continue` → `autoResumeIfInactive` starts the next query under
+  // the SAME session id. The webview compares revisions per session and only
+  // tolerates a restarted counter when the session id CHANGED, so a second
+  // loop that began at 1 had both its `generating` and its terminal `idle`
+  // dropped before any side effect: the tab kept its spinner and Stop button
+  // while the backend was idle.
+  it('starts the next loop for the same session above the revision the previous one ended on', async () => {
+    const h = makeHarness();
+
+    h.turnState.markGenerating(SESSION_ID);
+    async function* firstLoop(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, firstLoop(), TAB_ID);
+
+    const firstStates = turnStateChunks(h);
+    expect(firstStates).toHaveLength(1);
+    const lastOfFirstLoop = firstStates[0].revision;
+    // Non-vacuity: the record really is gone, so the next query re-creates it.
+    expect(h.turnState.get(SESSION_ID)).toBeUndefined();
+
+    (h.webviewManager.broadcastMessage as jest.Mock).mockClear();
+
+    // The resumed query: same session id, fresh SDK query.
+    const resumed = h.turnState.markGenerating(SESSION_ID);
+    expect(resumed?.revision).toBeGreaterThan(lastOfFirstLoop);
+
+    async function* secondLoop(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, secondLoop(), TAB_ID);
+
+    const secondStates = turnStateChunks(h);
+    expect(secondStates).toHaveLength(1);
+    expect(secondStates[0].revision).toBeGreaterThan(resumed?.revision ?? 0);
+  });
+
+  it('keys the turn state under the event session id, not the tabId it was started with', async () => {
+    const h = makeHarness();
+    const tabId = 'tab-as-session' as SessionId;
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start'); // carries SESSION_ID
+      throw new Error('stream exploded');
+    }
+
+    await h.broadcaster.streamEventsToWebview(tabId, stream(), TAB_ID);
+
+    const states = turnStateChunks(h);
+    expect(states).toHaveLength(1);
+    expect(states[0].sessionId).toBe(SESSION_ID);
+    expect(states[0].phase).toBe('idle');
   });
 });

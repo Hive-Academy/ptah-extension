@@ -4,7 +4,9 @@
  * When no active-workspace tab is found for an event, processStreamEvent must
  * fall through to routeBackgroundEvent BEFORE the "No target tab" warn:
  *   (a) cross-workspace hit  → accumulatorCore.process + updateBackgroundTab
- *       with status 'streaming'; warn NOT emitted; no batched signal scheduled.
+ *       with the streaming state ONLY (status belongs to the backend
+ *       `turn_state`, TASK_2026_360); warn NOT emitted; no batched signal
+ *       scheduled.
  *   (b) cross-workspace miss → updateBackgroundTab NOT called; warn fires.
  *   (c) an active-tab hit never triggers the background route.
  */
@@ -16,7 +18,7 @@ import {
   type StreamingState,
   type TabState,
 } from '@ptah-extension/chat-types';
-import type { TextDeltaEvent } from '@ptah-extension/shared';
+import type { TextDeltaEvent, TurnStateEvent } from '@ptah-extension/shared';
 import { SessionId } from '@ptah-extension/shared';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -31,6 +33,7 @@ import {
   StreamingAccumulatorCore,
   type AccumulatorResult,
 } from './accumulator-core.service';
+import { TurnStateApplier } from './turn-state-applier.service';
 
 const BG_TAB_ID = 'bg-tab';
 const SESSION_ID = SessionId.create();
@@ -74,6 +77,7 @@ describe('StreamingHandlerService — background routing', () => {
   let flushSync: jest.Mock;
   let markTabStreaming: jest.Mock;
   let isTabStreaming: jest.Mock<boolean, [string]>;
+  let turnStateApply: jest.Mock;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
 
@@ -87,6 +91,7 @@ describe('StreamingHandlerService — background routing', () => {
     flushSync = jest.fn();
     markTabStreaming = jest.fn();
     isTabStreaming = jest.fn<boolean, [string]>().mockReturnValue(false);
+    turnStateApply = jest.fn();
 
     const tabManager = {
       tabs: computed(() => tabsSignal()),
@@ -146,6 +151,7 @@ describe('StreamingHandlerService — background routing', () => {
         { provide: BackgroundAgentStore, useValue: {} },
         { provide: AgentMonitorStore, useValue: {} },
         { provide: StreamingAccumulatorCore, useValue: accumulatorCore },
+        { provide: TurnStateApplier, useValue: { apply: turnStateApply } },
       ],
     });
     service = TestBed.inject(StreamingHandlerService);
@@ -158,7 +164,7 @@ describe('StreamingHandlerService — background routing', () => {
   });
 
   describe('cross-workspace hit (background tab present)', () => {
-    it('runs accumulatorCore.process and persists via updateBackgroundTab with status streaming', () => {
+    it('runs accumulatorCore.process and persists the streaming state via updateBackgroundTab — no status write', () => {
       const bgTab = makeTab();
       findTabBySessionIdAcrossWorkspaces.mockReturnValue({
         tab: bgTab,
@@ -172,8 +178,8 @@ describe('StreamingHandlerService — background routing', () => {
       expect(updateBackgroundTab).toHaveBeenCalledTimes(1);
       const [tabId, updates] = updateBackgroundTab.mock.calls[0];
       expect(tabId).toBe(BG_TAB_ID);
-      expect(updates.status).toBe('streaming');
       expect(updates.streamingState).toBeDefined();
+      expect('status' in updates).toBe(false);
     });
 
     it('creates an empty streaming state when the background tab has none', () => {
@@ -262,11 +268,12 @@ describe('StreamingHandlerService — background routing', () => {
     });
   });
 
-  // TASK_2026_154 Wave 2 revision (Failure Mode 3): a turn that STARTS while its
-  // tab is already backgrounded (cron/gateway-triggered) must light the tab-bar
-  // spinner via markTabStreaming — otherwise the tab never shows as streaming
-  // when the user switches to its workspace.
-  describe('background-started turn lights the spinner', () => {
+  // TASK_2026_360: a turn that STARTS while its tab is backgrounded (cron- or
+  // gateway-triggered) gets its spinner and status from the backend
+  // `generating` turn_state through TurnStateApplier, which is workspace-aware.
+  // Content never lights the spinner — that was Defect 1 on the background
+  // path.
+  describe('background content never writes status or the spinner', () => {
     beforeEach(() => {
       findTabBySessionIdAcrossWorkspaces.mockReturnValue({
         tab: makeTab(),
@@ -274,7 +281,7 @@ describe('StreamingHandlerService — background routing', () => {
       });
     });
 
-    it('calls markTabStreaming on the first content-bearing background event', () => {
+    it('does NOT call markTabStreaming on a content-bearing background event', () => {
       process.mockReturnValue({
         stateMutated: true,
         eventType: 'text_delta',
@@ -283,28 +290,32 @@ describe('StreamingHandlerService — background routing', () => {
 
       service.processStreamEvent(textDelta());
 
-      expect(markTabStreaming).toHaveBeenCalledWith(BG_TAB_ID);
+      expect(markTabStreaming).not.toHaveBeenCalled();
+      expect('status' in updateBackgroundTab.mock.calls[0][1]).toBe(false);
     });
 
-    it('does NOT re-light the spinner when the tab is already streaming (fires once per turn)', () => {
-      process.mockReturnValue({
-        stateMutated: true,
-        eventType: 'text_delta',
-      } as AccumulatorResult);
-      isTabStreaming.mockReturnValue(true);
+    it('hands a turn_state event to the applier instead of the partition', () => {
+      const event: TurnStateEvent = {
+        id: 'evt-turn-state',
+        eventType: 'turn_state',
+        timestamp: 3,
+        sessionId: SESSION_ID,
+        messageId: `turn-state-${SESSION_ID}`,
+        phase: 'generating',
+        revision: 1,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: null,
+        source: 'stream',
+      };
 
-      service.processStreamEvent(textDelta());
+      const result = service.processStreamEvent(event);
 
-      expect(markTabStreaming).not.toHaveBeenCalled();
-    });
-
-    it('does NOT light the spinner for a non-content (non-mutating) background event', () => {
-      process.mockReturnValue({ stateMutated: false } as AccumulatorResult);
-      isTabStreaming.mockReturnValue(false);
-
-      service.processStreamEvent(textDelta());
-
-      expect(markTabStreaming).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+      expect(turnStateApply).toHaveBeenCalledWith(event, undefined);
+      expect(process).not.toHaveBeenCalled();
+      expect(updateBackgroundTab).not.toHaveBeenCalled();
+      expect(consoleWarn).not.toHaveBeenCalled();
     });
   });
 });

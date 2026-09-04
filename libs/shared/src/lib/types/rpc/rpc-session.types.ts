@@ -6,13 +6,17 @@
  */
 
 import type { SessionId } from '../branded.types';
-import type { ChatSessionSummary } from '../execution';
+import type { ChatSessionSummary, SessionTurnState } from '../execution';
 import type {
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
+import type {
+  SessionMcpNotice,
+  SessionMcpServerEntry,
+} from '../messages/session-mcp-status';
 
 /**
  * Notification params for `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`
@@ -308,8 +312,24 @@ export interface SessionStatusParams {
 export interface SessionStatusResponse {
   /** Session is in the SDK lifecycle registry (process alive + known). */
   isActive: boolean;
-  /** A turn is currently mid-stream to the webview for this session. */
+  /**
+   * A turn is currently mid-stream to the webview for this session.
+   * @deprecated Derived from `turnState.phase === 'generating'`. Kept for the CLI/TUI readers.
+   */
   isStreaming: boolean;
+  /** Absent when the session is unknown to the backend. */
+  turnState?: SessionTurnState;
+  /**
+   * MCP servers the CLI reported at this session's `init` message
+   * (TASK_2026_375 B4). Absent when the backend has nothing recorded — a
+   * session it never started, or one evicted from the bounded registry.
+   *
+   * A cold-loaded webview missed the `session:mcpStatus` push, so this is how
+   * a reloaded tab recovers the chip's contents.
+   */
+  mcpServers?: readonly SessionMcpServerEntry[];
+  /** Informational notices the CLI emitted at session start. See `mcpServers`. */
+  notices?: readonly SessionMcpNotice[];
 }
 
 /** Catalog entry for an MCP-style tool advertised by `session.describe`. */

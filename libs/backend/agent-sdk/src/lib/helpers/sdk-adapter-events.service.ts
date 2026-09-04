@@ -61,6 +61,18 @@ export interface SdkAdapterSubagentEndedEvent {
   readonly cwd: string;
   readonly agentId: string;
   readonly agentType: string;
+  /**
+   * The Task tool_use id the SDK handed to the `SubagentStop` hook.
+   *
+   * Optional: the SDK types `toolUseID` as `string | undefined` on every hook
+   * callback. `SessionLifecycleNotifier` forwards it only when it is a
+   * non-empty string, and the webview treats its absence as today's behaviour.
+   *
+   * It carries the `agentId` ↔ `toolCallId` pairing that `BackgroundAgentStore`
+   * needs to re-key an entry it had to file under `toolCallId` because the
+   * `background_agent_started` event reached it without an `agentId`.
+   */
+  readonly toolCallId?: string;
   readonly lastAssistantMessage: string | null;
   readonly backgroundTasks: readonly BackgroundTaskSummary[];
   readonly timestamp: number;

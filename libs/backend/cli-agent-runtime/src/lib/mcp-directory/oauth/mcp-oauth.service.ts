@@ -130,6 +130,31 @@ export class McpOAuthService {
   }
 
   /**
+   * The redirect capture this host will use: an injected host-native listener
+   * (the VS Code URI handler) when one was supplied, otherwise a loopback built
+   * from the platform HTTP provider. Throws when the host can serve neither, so
+   * every caller reports the same reason.
+   */
+  private resolveListener(): IOAuthCallbackListener {
+    if (this.callbackListener) return this.callbackListener;
+    if (!this.httpServerProvider) {
+      throw new Error(
+        'McpOAuthService.connect requires a callbackListener or an httpServerProvider (interactive host only).',
+      );
+    }
+    return new LoopbackOAuthCallbackListener(this.httpServerProvider);
+  }
+
+  /**
+   * The redirect URL the next `connect()` will hand to the authorization
+   * server, computed without arming anything. The UI shows it so the user can
+   * register it with a provider that has no dynamic client registration.
+   */
+  async describeRedirectUri(): Promise<string> {
+    return this.resolveListener().describeRedirectUri();
+  }
+
+  /**
    * Run the full interactive connect flow. Resolves with the serverKey once the
    * token is stored; rejects on any failure (caller maps to an error envelope).
    */
@@ -137,11 +162,7 @@ export class McpOAuthService {
     const openExternal = this.openExternal;
     // A host-native callbackListener (e.g. the VS Code URI handler) makes the
     // loopback httpServerProvider unnecessary; otherwise it is required.
-    if (!this.callbackListener && !this.httpServerProvider) {
-      throw new Error(
-        'McpOAuthService.connect requires a callbackListener or an httpServerProvider (interactive host only).',
-      );
-    }
+    const listener = this.resolveListener();
     if (!openExternal) {
       throw new Error(
         'McpOAuthService.connect requires openExternal (interactive host only).',
@@ -160,13 +181,7 @@ export class McpOAuthService {
 
     const pkce = generatePkceChallenge();
 
-    // Arm the redirect capture BEFORE building the redirect URI. Prefer an
-    // injected host-native listener; otherwise fall back to the loopback.
-    const listener =
-      this.callbackListener ??
-      new LoopbackOAuthCallbackListener(
-        this.httpServerProvider as IHttpServerProvider,
-      );
+    // Arm the redirect capture BEFORE building the redirect URI.
     const callback = await listener.start(pkce.state);
     try {
       const redirectUri = callback.redirectUri;
@@ -184,6 +199,16 @@ export class McpOAuthService {
         clientSecret = registered.clientSecret;
       } else if (preRegisteredClientId) {
         // Pre-registered client path (RFC 7591 not supported by this server).
+        // The user registered ONE redirect URL with the provider, so an armed
+        // URI that drifted from the advertised one (loopback fallback to an
+        // ephemeral port) would be rejected by the authorization server with a
+        // message that says nothing about a busy port. Fail here instead.
+        const expected = await listener.describeRedirectUri();
+        if (redirectUri !== expected) {
+          throw new Error(
+            `Ptah could not bind its fixed OAuth redirect port (${expected}). Another process is using it, so the redirect URL you registered with the provider would not match. Free the port and try again.`,
+          );
+        }
         clientId = preRegisteredClientId;
         clientSecret = options.clientSecret;
       } else {
@@ -227,6 +252,30 @@ export class McpOAuthService {
     } finally {
       await callback.close();
     }
+  }
+
+  /**
+   * Advisory pre-submit probe: does this server publish OAuth discovery
+   * metadata, and does it support dynamic client registration?
+   *
+   * Runs only the two discovery steps `connect()` performs first (RFC 9728 then
+   * RFC 8414). It never arms a callback listener, never opens a browser and
+   * never registers a client, so it is safe to call on every keystroke behind a
+   * debounce. Rejects with `OAuthDiscoveryError` when no metadata document is
+   * published; other failures propagate unchanged.
+   *
+   * `dynamicRegistration: false` is the HubSpot shape — the user must create an
+   * app with the provider, register Ptah's redirect URL and supply a client ID.
+   */
+  async probeDiscovery(
+    serverUrl: string,
+  ): Promise<{ dynamicRegistration: boolean }> {
+    const authServer = await discoverAuthorizationServer(
+      serverUrl,
+      this.fetchImpl,
+    );
+    const meta = await discoverAuthServerMetadata(authServer, this.fetchImpl);
+    return { dynamicRegistration: Boolean(meta.registrationEndpoint) };
   }
 
   /** Report the connection state for a server (never returns a token). */

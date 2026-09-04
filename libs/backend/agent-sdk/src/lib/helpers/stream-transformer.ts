@@ -41,6 +41,7 @@ import {
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
+import type { SessionMcpStatusCallbackRegistry } from './session-mcp-status-callback-registry';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -72,7 +73,7 @@ export interface ResultModelUsage {
   /**
    * Current context fill from the last API turn (input + cache_read tokens).
    * Unlike the cumulative inputTokens/cacheReadInputTokens, this represents
-   * the actual prompt size sent on the most recent turn â€” i.e., the real
+   * the actual prompt size sent on the most recent turn — i.e., the real
    * context window fill level. Undefined if no message_start was captured.
    */
   lastTurnContextTokens?: number;
@@ -225,6 +226,16 @@ export class StreamTransformer {
     private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.PRICING_PROVIDER)
     private readonly pricingProvider: IPricingProvider,
+    /**
+     * Fan-out for what the CLI reported about this session's MCP servers.
+     *
+     * NOT a `StreamTransformConfig` callback, because the other producer of the
+     * same signal — the CLI stderr notice in `SdkQueryOptionsBuilder` — is on
+     * the other side of the session-start path and shares no config object with
+     * this one. See the registry's own file header.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY)
+    private readonly mcpStatus: SessionMcpStatusCallbackRegistry,
   ) {}
 
   /**
@@ -248,6 +259,7 @@ export class StreamTransformer {
     const authEnv = this.authEnv;
     const modelResolver = this.modelResolver;
     const pricingProvider = this.pricingProvider;
+    const mcpStatus = this.mcpStatus;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -304,6 +316,25 @@ export class StreamTransformer {
                     mcpServers: sdkMessage.mcp_servers,
                   },
                 );
+              }
+              // Publish the same `mcp_servers` the log above prints. Before
+              // TASK_2026_375 this was the ONLY place it went: a Smithery
+              // server the CLI itself reported as `needs-auth` was logged at
+              // debug level and the UI showed it as installed and working.
+              //
+              // This is not turn state — it lands once per session, at init,
+              // and no chunk depends on it — so the direct channel is correct
+              // here in a way it is not for `turn_state`. See the registry's
+              // file header.
+              if (Array.isArray(sdkMessage.mcp_servers)) {
+                mcpStatus.notifyAll({
+                  kind: 'servers',
+                  sessionId: realSessionId,
+                  servers: sdkMessage.mcp_servers.map((server) => ({
+                    name: server.name,
+                    status: server.status,
+                  })),
+                });
               }
             }
             if (isResultMessage(sdkMessage)) {
@@ -428,6 +459,9 @@ export class StreamTransformer {
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||
               sdkMessage.type === 'user' ||
+              // The result's `turn_state` must travel IN the stream, after the
+              // last chunk of the turn it closes (TASK_2026_360).
+              isResultMessage(sdkMessage) ||
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage) ||
               isTaskStarted(sdkMessage) ||

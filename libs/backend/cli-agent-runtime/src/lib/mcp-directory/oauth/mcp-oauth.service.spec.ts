@@ -77,15 +77,21 @@ function makeSecrets() {
  */
 function makeFakeCallbackListener(opts?: {
   redirectUri?: string;
+  describedRedirectUri?: string;
   code?: string;
 }): IOAuthCallbackListener {
+  const armed = opts?.redirectUri ?? 'http://127.0.0.1:51820/callback';
   return {
     async start(_state: string) {
       return {
-        redirectUri: opts?.redirectUri ?? 'http://127.0.0.1:51820/callback',
+        redirectUri: armed,
         waitForCode: async () => opts?.code ?? 'CODE123',
         close: async () => undefined,
       };
+    },
+    // Defaults to the armed URI: the two agree unless a test makes them drift.
+    async describeRedirectUri() {
+      return opts?.describedRedirectUri ?? armed;
     },
   };
 }
@@ -293,6 +299,123 @@ describe('McpOAuthService', () => {
     await expect(
       service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
     ).rejects.toThrow(/pre-registered client ID/i);
+  });
+
+  // ── Fixed redirect port + dynamic-registration reporting (TASK_2026_373) ───
+
+  /** A service whose listener arms a URI different from the one it advertises. */
+  function makeDriftingService(fetchForFlow: FetchLike) {
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-drift-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    const service = new McpOAuthService({
+      callbackListener: makeFakeCallbackListener({
+        // The fixed port was busy, so the flow armed an ephemeral one.
+        redirectUri: 'http://127.0.0.1:60001/callback',
+        describedRedirectUri: 'http://127.0.0.1:41739/callback',
+      }),
+      openExternal: async () => true,
+      tokenStore: createMcpOAuthTokenStore(makeSecrets()),
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl: fetchForFlow,
+      now: () => 1_000_000,
+      callbackTimeoutMs: 5000,
+    });
+    return { service, manifestPath };
+  }
+
+  it('probeDiscovery() reports dynamicRegistration:true when a registration_endpoint is published', async () => {
+    const { service, manifestPath } = makeService();
+    cleanup.push(manifestPath);
+
+    await expect(
+      service.probeDiscovery('https://mcp.example.com/mcp'),
+    ).resolves.toEqual({ dynamicRegistration: true });
+  });
+
+  it('probeDiscovery() reports dynamicRegistration:false when the server has no registration_endpoint', async () => {
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-probe-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const service = new McpOAuthService({
+      callbackListener: makeFakeCallbackListener(),
+      openExternal: async () => true,
+      tokenStore: createMcpOAuthTokenStore(makeSecrets()),
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl: makeNoDcrFetch({}),
+    });
+
+    await expect(
+      service.probeDiscovery('https://mcp.example.com/mcp'),
+    ).resolves.toEqual({ dynamicRegistration: false });
+  });
+
+  it('describeRedirectUri() delegates to the listener without arming a flow', async () => {
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-describe-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const service = new McpOAuthService({
+      callbackListener: makeFakeCallbackListener({
+        describedRedirectUri: 'vscode://pub.name/oauth-callback',
+      }),
+      openExternal: async () => true,
+      tokenStore: createMcpOAuthTokenStore(makeSecrets()),
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl,
+    });
+
+    await expect(service.describeRedirectUri()).resolves.toBe(
+      'vscode://pub.name/oauth-callback',
+    );
+  });
+
+  it('describeRedirectUri() reports the same missing-host error as connect()', async () => {
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-describe-none-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const service = new McpOAuthService({
+      // Neither callbackListener nor httpServerProvider supplied.
+      tokenStore: createMcpOAuthTokenStore(makeSecrets()),
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl,
+    });
+
+    await expect(service.describeRedirectUri()).rejects.toThrow(
+      /callbackListener or an httpServerProvider/i,
+    );
+  });
+
+  it('connect() with a pre-registered client refuses when the armed redirect URI drifted from the advertised one', async () => {
+    const { service, manifestPath } = makeDriftingService(makeNoDcrFetch({}));
+    cleanup.push(manifestPath);
+
+    await expect(
+      service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+        clientId: 'preregistered-abc',
+      }),
+    ).rejects.toThrow(
+      /fixed OAuth redirect port \(http:\/\/127\.0\.0\.1:41739/,
+    );
+  });
+
+  it('connect() with dynamic client registration ignores the redirect-port drift', async () => {
+    // DCR registers whatever URI it is handed, so a fallback port is harmless.
+    const { service, manifestPath } = makeDriftingService(fetchImpl);
+    cleanup.push(manifestPath);
+
+    await expect(
+      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
+    ).resolves.toEqual({
+      serverKey: deriveMcpOAuthServerKey('https://mcp.example.com/mcp'),
+    });
   });
 });
 

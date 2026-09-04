@@ -56,3 +56,9 @@ This is the same data written to your local usage logs for cost tracking and ana
 :::tip
 If costs look wrong, open the Execution Tree for the suspect turn. Every node carries its own token and USD numbers — usually the culprit is a sub-agent that pulled in a large folder attachment.
 :::
+
+## MCP chip
+
+Next to the cost bar, an **MCP** chip shows how many MCP servers this session can reach. It reads a plain connected count normally, and turns amber with a `<connected>/<total>` count when a server needs authorization or has failed. Click it for a popover listing every server and status, with an **Authorize** button on any that need one.
+
+See [Connectors](/marketplace/connectors/#the-mcp-chip-in-chat) for the full breakdown, including what the chip does when your claude.ai connectors are unavailable.

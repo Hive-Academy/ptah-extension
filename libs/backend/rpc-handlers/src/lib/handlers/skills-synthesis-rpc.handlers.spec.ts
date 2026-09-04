@@ -1066,6 +1066,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         'skills',
         'deep-research',
       ),
+      workspaceRoot: '/workspace/project',
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -1102,6 +1103,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(mirror.keepClone).toHaveBeenCalledWith({
       kind: 'skill',
       slug: 'deep-research',
+      workspaceRoot: '/workspace/project',
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -1159,6 +1161,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join('/data/ptah-skills', 'synthesized-thing'),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1182,6 +1185,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join(resolveSkillsRoot(null), 'synthesized-thing'),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1211,6 +1215,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'agents',
           'backend-developer.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1256,6 +1261,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'commands',
           'orchestrate.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1283,6 +1289,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'agents',
           'senior-tester.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1400,6 +1407,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       expect(mirror.readCloneOrigin).toHaveBeenCalledWith(
         'skill',
         'deep-research',
+        '/workspace/project',
       );
       expect(mirror.listClones).not.toHaveBeenCalled();
       expect(result.clone?.['orphaned']).toBe(true);
@@ -3275,7 +3283,11 @@ describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
       ts: TS,
     });
 
-    expect(mirror.listHistory).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(mirror.listHistory).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      '/workspace/project',
+    );
     expect(result).toEqual({ body: 'SNAPSHOT BODY', ts: TS });
   });
 

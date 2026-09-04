@@ -973,8 +973,10 @@ describe('CodexCliAdapter', () => {
       });
 
       const config = mockCodexConstructor.mock.calls[0][0].config;
+      // The URL carries the spawn's working directory so the server can
+      // attribute this agent's calls to the right workspace (TASK_2026_364).
       expect(config.mcp_servers).toEqual({
-        ptah: { url: 'http://localhost:51820' },
+        ptah: { url: 'http://localhost:51820/workspace/%2Fproject' },
       });
       // Without this, codex-cli 0.150 connects to the server and still keeps
       // every ptah_* tool out of the model's tool list until it runs a tool

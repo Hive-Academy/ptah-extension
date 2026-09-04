@@ -171,6 +171,103 @@ describe('WizardRpcService', () => {
     });
   });
 
+  describe('deepAnalyze', () => {
+    it('should call wizard:deep-analyze without a resume flag by default', async () => {
+      rpcCall.mockResolvedValue(okResult({ isMultiPhase: true }));
+
+      await service.deepAnalyze();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:deep-analyze',
+        expect.not.objectContaining({ resume: true }),
+        expect.any(Object),
+      );
+    });
+
+    it('should pass resume: true when asked to continue a prior run', async () => {
+      rpcCall.mockResolvedValue(okResult({ isMultiPhase: true }));
+
+      await service.deepAnalyze({ resume: true });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:deep-analyze',
+        expect.objectContaining({ resume: true }),
+        expect.any(Object),
+      );
+    });
+
+    it('should throw when RPC fails', async () => {
+      rpcCall.mockResolvedValue(errResult('no MCP'));
+
+      await expect(service.deepAnalyze()).rejects.toThrow('no MCP');
+    });
+  });
+
+  describe('getResumableRun', () => {
+    it('should call wizard:get-resumable-run and return the response', async () => {
+      const response = { analysis: null, generation: { runId: 'run-1' } };
+      rpcCall.mockResolvedValue(okResult(response));
+
+      const result = await service.getResumableRun();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:get-resumable-run',
+        {},
+        expect.any(Object),
+      );
+      expect(result).toEqual(response);
+    });
+
+    it('should return an empty response when the RPC fails (best-effort)', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
+        /* silence */
+      });
+      rpcCall.mockResolvedValue(errResult('offline'));
+
+      await expect(service.getResumableRun()).resolves.toEqual({
+        analysis: null,
+        generation: null,
+      });
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    it('should swallow a thrown transport error', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
+        /* silence */
+      });
+      rpcCall.mockRejectedValue(new Error('transport down'));
+
+      await expect(service.getResumableRun()).resolves.toEqual({
+        analysis: null,
+        generation: null,
+      });
+
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('resumeGeneration', () => {
+    it('should call wizard:submit-selection with resume and an empty selection', async () => {
+      rpcCall.mockResolvedValue(okResult({ success: true }));
+
+      await service.resumeGeneration();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:submit-selection',
+        { selectedAgentIds: [], resume: true },
+        expect.any(Object),
+      );
+    });
+
+    it('should throw when RPC fails', async () => {
+      rpcCall.mockResolvedValue(errResult('no checkpoint'));
+
+      await expect(service.resumeGeneration()).rejects.toThrow('no checkpoint');
+    });
+  });
+
   describe('retryGenerationItem', () => {
     it('should call wizard:retry-item with the given itemId', async () => {
       rpcCall.mockResolvedValue(okResult());

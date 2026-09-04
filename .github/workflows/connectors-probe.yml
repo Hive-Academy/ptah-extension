@@ -1,0 +1,110 @@
+name: Connectors Catalog Probe
+
+on:
+  schedule:
+    # 03:17 UTC every Monday, clear of the nightly coverage job's 02:00 UTC start.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+env:
+  # Node 24 bundles the npm 11 version required by this workspace's lockfile.
+  NODE_VERSION: 24
+  NX_TUI: false
+  PTAH_LIVE_PROBES: 1
+
+jobs:
+  probe-connectors-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Workaround for npm/cli#4828: package-lock.json generated on
+        # Windows omits Linux rollup platform binaries.
+        # Fall back to `npm install` if `npm ci` fails on transitive drift.
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Run live connector catalog probe
+        id: probe
+        run: |
+          set -o pipefail
+          npx nx test @ptah-extension/cli-agent-runtime --testPathPatterns ptah-connectors-catalog.live 2>&1 | tee "${RUNNER_TEMP}/connectors-probe-output.txt"
+
+      - name: Open or update the probe failure issue
+        if: failure() && steps.probe.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: '[connectors-probe] Live connector catalog probe failed'
+        run: |
+          output_file="${RUNNER_TEMP}/connectors-probe-output.txt"
+          body_file="${RUNNER_TEMP}/connectors-probe-issue-body.md"
+
+          {
+            echo 'The scheduled live connector catalog probe failed.'
+            echo
+            printf -- '- Run: %s/%s/actions/runs/%s\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            printf -- '- Commit: `%s`\n' "${GITHUB_SHA}"
+            echo
+            echo '## Probe output'
+            echo
+            echo '```text'
+            if [[ -f "${output_file}" ]]; then
+              cat "${output_file}"
+            else
+              echo 'The probe output file was not created.'
+            fi
+            echo '```'
+          } > "${body_file}"
+
+          mapfile -t matching_issues < <(
+            gh issue list --state open --limit 1000 --json number,title \
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              while IFS=$'\t' read -r issue_number candidate_title; do
+                if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
+                  printf '%s\n' "${issue_number}"
+                fi
+              done |
+              sort -n
+          )
+
+          if (( ${#matching_issues[@]} == 0 )); then
+            issue_url="$(
+              gh issue create --title "${ISSUE_TITLE}" --body-file "${body_file}"
+            )"
+            keeper_number="${issue_url##*/}"
+          else
+            keeper_number="${matching_issues[0]}"
+            gh issue edit "${keeper_number}" \
+              --title "${ISSUE_TITLE}" \
+              --body-file "${body_file}"
+          fi
+
+          for duplicate_number in "${matching_issues[@]:1}"; do
+            gh issue close "${duplicate_number}" --reason 'not planned'
+          done
+
+          echo "Probe failure recorded in issue #${keeper_number}."

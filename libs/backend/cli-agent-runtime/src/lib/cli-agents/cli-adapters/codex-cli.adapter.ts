@@ -29,6 +29,7 @@ import {
   createBufferedEmitter,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -577,7 +578,9 @@ export class CodexCliAdapter implements CliAdapter {
     if (options.mcpPort) {
       config['mcp_servers'] = {
         ptah: {
-          url: `http://localhost:${options.mcpPort}`,
+          // Scoped to the spawn's working directory so the server attributes
+          // this agent's calls to the right workspace (TASK_2026_364).
+          url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
         },
       };
       // Codex connects to this server and then hides its tools. Measured on

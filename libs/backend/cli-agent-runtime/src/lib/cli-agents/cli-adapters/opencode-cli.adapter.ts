@@ -61,6 +61,9 @@ import {
   createBufferedEmitter,
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 
 /**
  * Provider API-key env vars treated as a "credentials present" signal when no
@@ -216,13 +219,27 @@ export class OpencodeCliAdapter implements CliAdapter {
   /** MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var. */
   readonly supportsMcp = true;
 
+  /**
+   * @param spawner - Off-thread process spawner. Supplied by
+   *   `CliDetectionService` from `SDK_TOKENS.SDK_PROCESS_SPAWNER`. Without it
+   *   every spawn below runs `cross-spawn` inline, which on Windows is a
+   *   synchronous `CreateProcessW` that cost 300-900 ms of event-loop lag per
+   *   rival-CLI launch (TASK_2026_367).
+   */
+  constructor(private readonly spawner?: IProcessSpawner) {}
+
   async detect(): Promise<CliDetectionResult> {
     try {
       const binaryPath = await resolveCliPath('opencode');
       if (!binaryPath) {
         return { cli: 'opencode', installed: false, supportsSteer: false };
       }
-      const version = await probeCliVersion(binaryPath);
+      const version = await probeCliVersion(
+        binaryPath,
+        undefined,
+        undefined,
+        this.spawner,
+      );
 
       return {
         cli: 'opencode',
@@ -277,7 +294,7 @@ export class OpencodeCliAdapter implements CliAdapter {
   ): Promise<string | undefined> {
     return new Promise((resolve) => {
       let stdout = '';
-      const child = spawnCli(binary, ['models'], {});
+      const child = spawnCli(binary, ['models'], { spawner: this.spawner });
       const timer = setTimeout(() => {
         child.kill();
         resolve(undefined);
@@ -348,12 +365,17 @@ export class OpencodeCliAdapter implements CliAdapter {
    * server as a remote endpoint. opencode deep-merges this per-process at the
    * highest precedence, so it never touches the shared project config on disk.
    */
-  private buildMcpConfigContent(port: number): string {
+  private buildMcpConfigContent(
+    port: number,
+    workingDirectory: string,
+  ): string {
     return JSON.stringify({
       mcp: {
         ptah: {
           type: 'remote',
-          url: `http://localhost:${port}`,
+          // Scoped to the spawn's working directory so the server attributes
+          // this agent's calls to the right workspace (TASK_2026_364).
+          url: ptahMcpServerUrl(port, workingDirectory),
           enabled: true,
         },
       },
@@ -411,6 +433,7 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (options.mcpPort) {
       env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
         options.mcpPort,
+        options.workingDirectory,
       );
     }
 
@@ -427,6 +450,7 @@ export class OpencodeCliAdapter implements CliAdapter {
         cwd: options.workingDirectory,
         env,
         detached: true,
+        spawner: this.spawner,
       },
     );
     child.stdout?.setEncoding('utf8');
@@ -435,11 +459,17 @@ export class OpencodeCliAdapter implements CliAdapter {
     child.stdin?.end();
 
     const onAbort = (): void => {
-      if (child.pid && !child.killed) {
-        // Tree-kill the whole process group — child.kill() alone orphans the
-        // real opencode process (and its bash subprocesses) on abort/timeout.
-        void killProcessTree(child.pid);
-      }
+      // `pid` is known synchronously for an inline spawn and NOT for an
+      // off-thread one, where the child is created on a worker. `whenSpawned`
+      // is the one read that works for both; it settles to null if the child
+      // never started, so this can never hang (TASK_2026_367).
+      void child.whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          // Tree-kill the whole process group — child.kill() alone orphans the
+          // real opencode process (and its bash subprocesses) on abort/timeout.
+          void killProcessTree(pid);
+        }
+      });
     };
     abortController.signal.addEventListener('abort', onAbort);
 
@@ -477,11 +507,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
       output.emit(`[stderr] ${cleaned}\n`);
-      const isError =
-        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned,
-        );
-      segment.emit({ type: isError ? 'error' : 'info', content: cleaned });
+      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
     });
 
     const done = new Promise<number>((resolve) => {

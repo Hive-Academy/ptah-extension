@@ -11,21 +11,18 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 - Redact: Real API keys, tokens, email, license keys — use `sk-...REDACTED`
 - Annotations (optional): Use a subtle gold arrow/box `#D4AF37` to match brand
 
-**Total: 54 screenshots across 15 sections**
+**Total: 51 screenshots across 15 sections**
 
 ---
 
-## Getting Started (7)
+## Getting Started (4)
 
-| Filename                 | Shows                                                   | Page                              |
-| ------------------------ | ------------------------------------------------------- | --------------------------------- |
-| `welcome.png`            | Welcome screen for unlicensed users on first launch     | `getting-started/first-launch.md` |
-| `install-windows.png`    | Windows installer wizard                                | `getting-started/installation.md` |
-| `install-macos.png`      | macOS DMG drag-to-Applications                          | `getting-started/installation.md` |
-| `setup-analysis.png`     | Project analysis progress step                          | `getting-started/first-launch.md` |
-| `setup-import.png`       | Session import dialog (`~/.claude/projects/` discovery) | `getting-started/first-launch.md` |
-| `license-activate.png`   | License activation panel with key input                 | `getting-started/signing-in.md`   |
-| `providers-settings.png` | Providers settings panel with API key fields            | `getting-started/signing-in.md`   |
+| Filename                 | Shows                                        | Page                              |
+| ------------------------ | -------------------------------------------- | --------------------------------- |
+| `install-windows.png`    | Windows installer wizard                     | `getting-started/installation.md` |
+| `install-macos.png`      | macOS DMG drag-to-Applications               | `getting-started/installation.md` |
+| `setup-analysis.png`     | Project analysis progress step               | `getting-started/first-launch.md` |
+| `providers-settings.png` | Providers settings panel with API key fields | `getting-started/signing-in.md`   |
 
 ## Chat (5)
 
@@ -188,8 +185,25 @@ not exist in the app, so the reference was removed rather than faked:
 | `agents-sync-targets`, `agents-sync-diff`             | No CLI-sync UI exists                                                                                                                                 |
 | `context-inspector`                                   | No context-inspector surface exists                                                                                                                   |
 | `templates-panel`                                     | No Templates panel exists in the Electron app                                                                                                         |
+| `setup-import`                                        | No session-import dialog exists — the Claude CLI history import is automatic and silent                                                               |
 | `diff-agent-proposed`                                 | Needs a live agent turn proposing an edit — not reproducible in a capture pass                                                                        |
 | `browser-settings`                                    | `ptah-browser-settings` exists but holds one "Allow Localhost" toggle, while the page describes an executable path, headless toggle and user-data dir |
 
 The last two rows are docs-prose drift, not missing assets: the pages describe
 behaviour the app does not have. Fixing that prose is a separate pass.
+
+### Deleted as stale (2026-09-03)
+
+Both of these were captured before the open-source move and showed a screen the
+app no longer has. A wrong screenshot outranks the prose next to it, so they
+were deleted rather than left in place:
+
+| Shot               | Why                                                                                                                                                                                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `welcome`          | Showed the pre-open-source gate — "Create Account & Start Free Trial", a 100-day trial pitch and a license-key field. That screen was deleted in `c11282e03`. The current first screen is `ElectronWelcomeComponent`: logo, "Welcome to Ptah Desktop", one **Open Folder** button |
+| `license-activate` | A crop of the same removed screen. Key entry now lives in the **Membership** card at the top of Settings (`license-status-card.component.ts`)                                                                                                                                     |
+
+Re-capturing `welcome` needs an Electron profile with **zero** persisted
+workspaces, which the current harness cannot produce — it copies the real
+`~/.ptah` profile precisely so surfaces are not empty. Both pages read fine
+without the images; add a shot only alongside an empty-profile fixture.

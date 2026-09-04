@@ -1,16 +1,16 @@
 /**
- * SdkQueryRunner â€” unified SDK query invocation primitive.
+ * SdkQueryRunner — unified SDK query invocation primitive.
  *
  * Reconciles the previously-forked one-shot (InternalQueryService) and
- * interactive (SessionLifecycleManager â†’ SessionQueryExecutor) paths under a
+ * interactive (SessionLifecycleManager → SessionQueryExecutor) paths under a
  * single `run({ mode })` discriminator.
  *
  * Modes:
- *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
- *                   maxTurns explicit, persistSession=false, subagent +
- *                   compaction hooks wired, identity prompt + PTAH_CORE
- *                   appended. Used by `InternalQueryService`.
- *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
+ *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool,
+ *                   maxTurns explicit, persistSession=false, subagent hooks
+ *                   wired, identity prompt + PTAH_CORE appended. Used by
+ *                   `InternalQueryService`.
+ *   - `interactive` — caller pre-builds `Options` via `SdkQueryOptionsBuilder`
  *                   and hands them in along with the iterable/string prompt.
  *                   The runner only owns `moduleLoader.getQueryFunction()` +
  *                   `queryFn(...)`. Session-registry / streamInput /
@@ -18,11 +18,15 @@
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
  * is INPUT-ONLY on the interactive branch and IS NOT ACCEPTED on the oneShot
- * branch â€” the runner never imports `EnhancedPromptsService`.
+ * branch — the runner never imports `EnhancedPromptsService`.
  *
- * Compaction hook conditionality: oneShot wires compaction hooks (preserves the
- * pre-refactor InternalQueryService behaviour). Interactive option construction
- * happens INSIDE `SdkQueryOptionsBuilder` (not here) and is unaffected.
+ * Compaction hooks: oneShot does NOT wire them (TASK_2026_376 finding 4).
+ * `buildOneShotHooks`'s synthetic session id never names a real Ptah session,
+ * so the registry fan-out this hook would otherwise trigger can never resolve
+ * a transcript for any one-shot caller — see that method's doc comment.
+ * Interactive option construction happens INSIDE `SdkQueryOptionsBuilder` (not
+ * here) and is unaffected; it wires the same `CompactionHookHandler` against a
+ * real session id.
  */
 
 import * as os from 'os';
@@ -42,7 +46,6 @@ import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
-import { CompactionHookHandler } from './compaction-hook-handler';
 import { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import {
   buildModelIdentityPrompt,
@@ -164,8 +167,6 @@ export class SdkQueryRunner {
     private readonly subagentHookHandler: SubagentHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
-    @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
@@ -264,7 +265,7 @@ export class SdkQueryRunner {
         ? options.systemPrompt
         : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built â€” launching query`, {
+    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: input.model,
       permissionMode: 'bypassPermissions',
       maxTurns: options.maxTurns,
@@ -514,17 +515,31 @@ export class SdkQueryRunner {
       cwd,
       oneShotSessionId,
     );
-    const compactionHooks = this.compactionHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
 
+    // Compaction hooks are deliberately NOT wired on this path. `maxTurns`
+    // was the wrong axis (TASK_2026_376 finding 4): `oneShotSessionId` above
+    // is synthetic BY CONSTRUCTION, for every one-shot caller, whatever its
+    // turn budget. It never names a real Ptah session, so it can never be
+    // resolved to a transcript. If `PreCompact` fires anyway on a multi-turn
+    // one-shot query — and `CURATOR_MAX_TURNS = 6` made this reachable, not
+    // theoretical — `CompactionHookHandler` fans that synthetic id to
+    // `CompactionCallbackRegistry`, whose one subscriber
+    // (`MemoryCuratorService.start()`) calls `transcriptReader.read` on an id
+    // that names no session, fails, and falls back to a placeholder curation
+    // keyed to a phantom session — the same class of defect TASK_2026_293
+    // fixed for the unresolved-id case. No caller of this path (curator,
+    // skill-synthesis, agent-generation wizards, harness-ai services) ever
+    // has a real Ptah session id to give this hook, so there is no turn
+    // budget at which wiring it helps a real subscriber.
+    //
+    // This costs nothing for the SDK's own compaction: `PreCompact` /
+    // `PostCompact` are pure notification hooks (see
+    // `compaction-hook-handler.ts`, always returns `{ continue: true }`) —
+    // the SDK compacts on its own configured threshold whether or not
+    // anything is subscribed to hear about it.
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks]) {
-      for (const [event, matchers] of Object.entries(hooks)) {
-        const key = event as HookEvent;
-        mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
-      }
+    for (const [event, matchers] of Object.entries(subagentHooks)) {
+      mergedHooks[event as HookEvent] = matchers;
     }
 
     return mergedHooks;
