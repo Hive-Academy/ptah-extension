@@ -213,6 +213,62 @@ describe('PTAH_CONNECTORS', () => {
       expect(urls).not.toContain(heldBackUrl);
     }
   });
+
+  // ── one product, one row (TASK_2026_379 C3) ───────────────────────────────
+
+  it('gives every entry a distinct label', () => {
+    // Two rows can be the same vendor — Asana v1 and v2, Gmail direct and via
+    // Smithery — but a user picks a card by its label, so two cards that read
+    // the same are two cards nobody can choose between.
+    const labels = PTAH_CONNECTORS.map((c) => c.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('lists every Google Workspace MCP server Google documents', () => {
+    // developers.google.com/workspace/guides/configure-mcp-servers, read
+    // 2026-09-04. A row silently dropped here is a product a user can no
+    // longer reach, and nothing else in this file would notice.
+    const expected = [
+      'https://gmailmcp.googleapis.com/mcp/v1',
+      'https://drivemcp.googleapis.com/mcp/v1',
+      'https://docsmcp.googleapis.com/mcp/v1',
+      'https://sheetsmcp.googleapis.com/mcp/v1',
+      'https://slidesmcp.googleapis.com/mcp/v1',
+      'https://calendarmcp.googleapis.com/mcp/v1',
+      'https://chatmcp.googleapis.com/mcp/v1',
+      'https://people.googleapis.com/mcp/v1',
+    ];
+    const urls = PTAH_CONNECTORS.map((c) => c.url ?? '');
+    for (const url of expected) {
+      expect(urls).toContain(url);
+    }
+  });
+
+  it('asks Google for the scopes Google documents, and nothing else', () => {
+    // Every Google server needs the client to name its scopes, so a Google row
+    // without them cannot complete consent.
+    const google = PTAH_CONNECTORS.filter((c) =>
+      (c.url ?? '').includes('.googleapis.com/'),
+    );
+    expect(google.length).toBeGreaterThan(0);
+    for (const connector of google) {
+      expect(connector.kind).toBe('oauth-app');
+      expect(connector.scopes?.length ?? 0).toBeGreaterThan(0);
+      for (const scope of connector.scopes ?? []) {
+        expect(scope.startsWith('https://www.googleapis.com/auth/')).toBe(true);
+      }
+    }
+  });
+
+  it('keeps both Asana endpoints and tells them apart', () => {
+    // v1 is the deprecated beta transport; v2 registers no client for you.
+    const asana = PTAH_CONNECTORS.filter((c) => c.id.startsWith('asana'));
+    expect(asana.map((c) => c.id).sort()).toEqual(['asana', 'asana-v2']);
+    const v2 = asana.find((c) => c.id === 'asana-v2');
+    expect(v2?.kind).toBe('oauth-app');
+    expect(v2?.url).toBe('https://mcp.asana.com/v2/mcp');
+    expect(asana.find((c) => c.id === 'asana')?.kind).toBe('oauth-dcr');
+  });
 });
 
 describe('ptahConnectorCategoryLabel', () => {

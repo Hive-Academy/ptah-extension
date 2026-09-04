@@ -15,10 +15,13 @@
  *
  * Run it, then paste the printed table into the batch report:
  *
- * ```powershell
- * $env:PTAH_LIVE_PROBES='1'
- * npx nx test @ptah-extension/cli-agent-runtime --testPathPattern ptah-connectors-catalog.live
  * ```
+ * PTAH_LIVE_PROBES=1 npx jest --config libs/backend/cli-agent-runtime/jest.config.ts  *   --rootDir libs/backend/cli-agent-runtime  *   --testPathPatterns "ptah-connectors-catalog.live"
+ * ```
+ *
+ * The flag is `--testPathPatterns`, PLURAL. Jest 30 renamed it, and the
+ * singular form is ignored: it runs the whole suite and buries the table
+ * (measured in TASK_2026_379 C1).
  *
  * The catalog itself lives in `libs/shared` and CANNOT import this lib
  * (frontend/shared must not depend on a backend lib), which is why the probe
@@ -58,7 +61,7 @@ const CANDIDATES: readonly CandidateServer[] = [
     label: 'Atlassian',
     url: 'https://mcp.atlassian.com/v1/mcp',
   },
-  { id: 'asana', label: 'Asana', url: 'https://mcp.asana.com/sse' },
+  { id: 'asana', label: 'Asana v1 beta', url: 'https://mcp.asana.com/sse' },
   { id: 'intercom', label: 'Intercom', url: 'https://mcp.intercom.com/mcp' },
   { id: 'stripe', label: 'Stripe', url: 'https://mcp.stripe.com' },
   { id: 'paypal', label: 'PayPal', url: 'https://mcp.paypal.com/mcp' },
@@ -168,6 +171,29 @@ const CANDIDATES: readonly CandidateServer[] = [
   { id: 'pagerduty', label: 'PagerDuty', url: 'https://mcp.pagerduty.com/mcp' },
   { id: 'shopify', label: 'Shopify', url: 'https://setup.shopify.com/mcp' },
 
+  // ── C3.1 / C3.2 — the rest of the Google Workspace family, and Asana v2 ───
+  {
+    id: 'google-sheets',
+    label: 'Google Sheets',
+    url: 'https://sheetsmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-slides',
+    label: 'Google Slides',
+    url: 'https://slidesmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-chat',
+    label: 'Google Chat',
+    url: 'https://chatmcp.googleapis.com/mcp/v1',
+  },
+  {
+    id: 'google-people',
+    label: 'Google People',
+    url: 'https://people.googleapis.com/mcp/v1',
+  },
+  { id: 'asana-v2', label: 'Asana v2', url: 'https://mcp.asana.com/v2/mcp' },
+
   // ── C1.3 — Smithery-hosted Google servers ─────────────────────────────────
   {
     id: 'gmail-smithery',
@@ -201,7 +227,7 @@ const CANDIDATES: readonly CandidateServer[] = [
 
 /** Per-request ceiling, so one hanging host cannot stall the whole run. */
 const REQUEST_TIMEOUT_MS = 15_000;
-/** Whole-suite ceiling: 60 candidates x two discovery chains, 8 in flight. */
+/** Whole-suite ceiling: 65 candidates x two discovery chains, 8 in flight. */
 const SUITE_TIMEOUT_MS = 900_000;
 /** Probes in flight at once. Keeps the run inside the suite ceiling. */
 const PROBE_CONCURRENCY = 8;

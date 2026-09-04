@@ -183,9 +183,98 @@ you edited.
 
 ---
 
-## C3 — Scheduled probe (after C1 and C2 land)
+## C3 — Remaining catalog rows (executor: claude cli)
 
-A weekly GitHub Actions workflow that runs the live probe with
-`PTAH_LIVE_PROBES=1` and opens an issue when an entry changes kind or fails.
-Vendor churn is proven: Asana dropped dynamic registration between its v1 and
-v2 endpoints. Not started in this task.
+C1 and C2 are committed (`48d10f56d`). This batch closes the four data gaps the
+C1 report named in its section 7.
+
+**Files (yours alone):**
+
+- `libs/shared/src/lib/connectors/ptah-connectors.catalog.ts`
+- `libs/shared/src/lib/connectors/ptah-connectors.catalog.spec.ts`
+- `libs/backend/cli-agent-runtime/src/lib/mcp-directory/oauth/ptah-connectors-catalog.live.spec.ts`
+
+### C3.1 The four remaining Google Workspace servers
+
+C1 shipped Gmail, Calendar, Drive, Docs and BigQuery. Google documents four
+more on the same page: Sheets, Slides, Chat and People. Add each as
+`kind: 'oauth-app'` with `setupSteps` in the shape C1 established (one step
+containing `{redirectUrl}`) and `scopes` read from Google's documentation —
+never guessed. If a scope set is not documented for a server, omit `scopes` and
+say so in the report.
+
+Reuse the wording of the existing Google rows so the five and the four read as
+one family.
+
+### C3.2 Asana v2
+
+`https://mcp.asana.com/v2/mcp`. The research report and the C1 probe agree it
+has no registration endpoint, so it is `oauth-app` and needs `setupSteps`. Keep
+the existing `asana` v1 row: it still probes clean and Asana has not retired it.
+Label the two so a user can tell them apart, and say in the v2 `description`
+what it adds.
+
+### C3.3 Probe and specs
+
+Add every new row to the live probe candidate list. Run the probe with the
+**plural** flag — `--testPathPatterns`, as your own C1 report established, since
+the singular form silently runs the whole suite:
+
+```
+PTAH_LIVE_PROBES=1 npx jest --config libs/backend/cli-agent-runtime/jest.config.ts --rootDir libs/backend/cli-agent-runtime --testPathPatterns "ptah-connectors-catalog.live"
+```
+
+Paste the full table. A row whose probe fails does not ship. The existing spec
+cases already enforce the `setupSteps` and `scopes` invariants; add cases only
+where a new invariant appears.
+
+### C3 verification
+
+```
+npx nx run-many -t typecheck lint test -p @ptah-extension/shared @ptah-extension/cli-agent-runtime
+```
+
+Write `batch-report-C3.md`: rows added, the probe table, scopes with their
+source, test counts, anything you could not verify.
+
+---
+
+## C4 — Scheduled catalog probe (executor: codex cli)
+
+**Files (yours alone):**
+
+- `.github/workflows/connectors-probe.yml` (new)
+- `.ptah/specs/TASK_2026_379/batch-report-C4.md` (your report)
+
+Read `.github/workflows/nightly-coverage.yml` first and follow its conventions
+for the runner, the Node setup, the npm install step and the concurrency group.
+Do not copy a convention it does not use.
+
+The workflow:
+
+- Runs weekly on a schedule, and on `workflow_dispatch`.
+- Sets `PTAH_LIVE_PROBES=1` and runs the live catalog probe with the **plural**
+  `--testPathPatterns` flag (the singular form is ignored by Jest 30 and
+  silently runs the whole suite).
+- On failure, opens ONE issue titled so a second failure updates it rather than
+  filing a duplicate, with the probe output in the body. Use `actions/github-script`
+  or the `gh` CLI already available on the runner; do not add a marketplace
+  action that is not already used elsewhere in this repository.
+- Never runs on pull requests. This probe makes real network calls to third
+  parties; it must not run per-PR.
+
+Validate the file parses: `npx js-yaml .github/workflows/connectors-probe.yml`
+or an equivalent already available in the repository. Do not trigger the
+workflow.
+
+Write `batch-report-C4.md`: the file added, the schedule chosen and why, the
+conventions you took from `nightly-coverage.yml`, and the parse-check output.
+
+---
+
+## Not automatable
+
+**End-to-end connect.** The probe proves discovery and registration metadata.
+It cannot prove that consent completes, that a token is issued, or that a tool
+call returns. That needs a human with an account, and it is the reason Square,
+Ahrefs and Semrush are held back rather than shipped on a green probe.
