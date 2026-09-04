@@ -7,8 +7,11 @@ import {
   MAX_PAGE_SIZE,
   VISIBILITIES,
   type AdminCategory,
+  type AdminCreateTopicRequest,
+  type AdminCreatedTopic,
   type AdminTopicSummary,
   type Paged,
+  type Visibility,
 } from '@ptah-contracts/community';
 import { validate } from '@ptah-web/core';
 
@@ -48,6 +51,21 @@ export const PACK_REPO_URL_REGEX =
  * house style. Client-side UX guard only — the server validates independently.
  */
 export const PACK_SLUG_REGEX = /^[a-z0-9-]{2,64}$/;
+
+/**
+ * Lowercase slug shape for `Category.slug`. Mirrors the backend
+ * `CreateCategoryDto.slug` `@Matches(...)`, which is the same shape
+ * `PACK_SLUG_REGEX` uses — admin slug rules do not vary per surface.
+ *
+ * Declared separately rather than aliased because the two constraints belong to
+ * two different DTOs: one can be relaxed without the other.
+ *
+ * ⚠️ A CATEGORY SLUG IS CHOSEN ONCE AND NEVER PATCHED. `UpdateCategoryDto` has
+ * no `slug` field: the slug is the category's public URL, it is written into
+ * `Notification.route` at write time, and there is no redirect table. A create
+ * form may suggest one from the name; an edit form must not offer it.
+ */
+export const CATEGORY_SLUG_REGEX = /^[a-z0-9-]{2,64}$/;
 
 // --- Request shapes (outbound — not validated) ---
 
@@ -280,7 +298,10 @@ const adminCategorySchema = z.object({
   /** Denormalised `MemberGroup.name` per key, same order. */
   cohortNames: z.array(z.string()),
   sortOrder: z.number().int(),
-  /** ⚠️ INCLUDES soft-deleted topics — unlike `MemberCategory.topicCount`. */
+  /**
+   * ⚠️ LIVE TOPICS ONLY. `CategoriesService.listForAdmin` counts with
+   * `NOT_DELETED`, so this is NOT the number `onDelete: Restrict` enforces on.
+   */
   topicCount: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -312,7 +333,70 @@ const adminTopicSummarySchema = z.object({
   editedAt: z.string().nullable(),
 }) satisfies z.ZodType<AdminTopicSummary>;
 
-export type { AdminCategory, AdminTopicSummary };
+export type {
+  AdminCategory,
+  AdminCreateTopicRequest,
+  AdminCreatedTopic,
+  AdminTopicSummary,
+};
+
+/**
+ * `{ id, slug }` from `POST /admin/community/topics`. The server allocates the
+ * slug (R1.2.2 — members and admins do not author topic URLs), so the created
+ * row must be read back from the queue rather than assembled by the caller.
+ */
+const adminCreatedTopicSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+}) satisfies z.ZodType<AdminCreatedTopic>;
+
+/**
+ * `{ reordered: n }` from `PATCH /admin/community/categories/reorder` — the
+ * number of rows the transaction renumbered.
+ */
+export interface ReorderedResponse {
+  reordered: number;
+}
+
+const reorderedResponseSchema = z.object({
+  reordered: z.number().int(),
+}) satisfies z.ZodType<ReorderedResponse>;
+
+/**
+ * Body for `POST /api/v1/admin/community/categories`.
+ *
+ * `cohortKeys` is meaningful only when `visibility === 'cohort'` — a non-empty
+ * array on a `member` category gates nothing and later reads as an access rule.
+ * `sortOrder` is omitted for "append": the server places the category after the
+ * current last one on the sparse scale `reorder` uses, so a client that
+ * computes a sort key races every other admin doing the same.
+ */
+export interface CreateCategoryRequest {
+  slug: string;
+  name: string;
+  description?: string | null;
+  visibility: Visibility;
+  cohortKeys?: string[];
+  sortOrder?: number;
+}
+
+/**
+ * Body for `PATCH /api/v1/admin/community/categories/:id`.
+ *
+ * ⚠️ NO `slug`. The backend `UpdateCategoryDto` does not accept one — see
+ * {@link CATEGORY_SLUG_REGEX}. `description: null` CLEARS the stored value;
+ * omitting the key leaves it untouched.
+ *
+ * ⚠️ CHANGING `visibility` CHANGES WHO CAN SEE EVERY TOPIC IN THE CATEGORY,
+ * instantly and with no per-topic override.
+ */
+export interface UpdateCategoryRequest {
+  name?: string;
+  description?: string | null;
+  visibility?: Visibility;
+  cohortKeys?: string[];
+  sortOrder?: number;
+}
 
 /**
  * ⚠️ THERE IS NO `AdminPost` SCHEMA HERE, AND ITS ABSENCE IS A DECISION.
@@ -572,6 +656,138 @@ export class AdminBuildersApiService {
       ),
       map((response) => response.categories),
     );
+  }
+
+  /**
+   * `POST /admin/community/categories` — create a category.
+   *
+   * ⚠️ THIS IS THE ROOT CAUSE FIX FOR "0 THREADS". A forum with no category
+   * cannot hold a topic: `Topic.categoryId` is a required FK, so until one
+   * category exists there is nothing to post into and the queue is empty for a
+   * structural reason no filter change can undo.
+   *
+   * A duplicate `slug` yields 409; an unknown `cohortKey` yields 400 (the
+   * service checks each key against real `MemberGroup` rows, because an unknown
+   * key would produce a category invisible to every member).
+   *
+   * The server answers with the ADMIN view — the row plus `cohortNames` and
+   * `topicCount` — re-read from `listForAdmin()`, so a created category renders
+   * exactly as the same category does on the next `GET`.
+   */
+  public createCommunityCategory(
+    body: CreateCategoryRequest,
+  ): Observable<AdminCategory> {
+    return this.http
+      .post<unknown>(`${this.base}/community/categories`, body)
+      .pipe(
+        map(validate(adminCategorySchema, 'POST /admin/community/categories')),
+      );
+  }
+
+  /**
+   * `PATCH /admin/community/categories/:id` — name, description, visibility,
+   * cohort keys. `slug` is NOT patchable (it is the category's public URL).
+   */
+  public updateCommunityCategory(
+    id: string,
+    body: UpdateCategoryRequest,
+  ): Observable<AdminCategory> {
+    return this.http
+      .patch<unknown>(`${this.base}/community/categories/${id}`, body)
+      .pipe(
+        map(
+          validate(
+            adminCategorySchema,
+            `PATCH /admin/community/categories/${id}`,
+          ),
+        ),
+      );
+  }
+
+  /**
+   * `PATCH /admin/community/categories/reorder` — R8.8.
+   *
+   * ⚠️ `ids` MUST BE EVERY CATEGORY ID, IN THE ORDER THEY SHOULD APPEAR. The
+   * server rejects a partial list, a duplicate and a foreign id with a 400 and
+   * writes nothing: `sortOrder` is a TOTAL ordering, so renumbering a subset
+   * onto the sparse scale would interleave the renumbered rows with the
+   * untouched ones at values nobody chose. A caller moving one category up
+   * therefore swaps two entries in a local copy and sends the whole list.
+   *
+   * ⚠️ THE LITERAL `reorder` SEGMENT IS DECLARED BEFORE `:id` ON THE SERVER
+   * (RI-3). Nest matches in declaration order; the ordering is what stops this
+   * request from becoming "update the category whose id is `reorder`".
+   */
+  public reorderCommunityCategories(
+    ids: readonly string[],
+  ): Observable<ReorderedResponse> {
+    return this.http
+      .patch<unknown>(`${this.base}/community/categories/reorder`, {
+        ids: [...ids],
+      })
+      .pipe(
+        map(
+          validate(
+            reorderedResponseSchema,
+            'PATCH /admin/community/categories/reorder',
+          ),
+        ),
+      );
+  }
+
+  /**
+   * `DELETE /admin/community/categories/:id` — a HARD delete, unlike every
+   * other delete on this surface.
+   *
+   * ⚠️ THE DATABASE REFUSES IT WHILE THE CATEGORY HOLDS TOPICS.
+   * `Topic.category` is `onDelete: Restrict`, and `CategoriesService` turns the
+   * resulting `P2003` into a 409 carrying ONE FIXED SENTENCE naming the
+   * remedy. That sentence is the only actionable thing in the response, so a
+   * caller must surface it rather than a generic failure message.
+   *
+   * ⚠️ `AdminCategory.topicCount` COUNTS LIVE TOPICS ONLY, so it CANNOT promise
+   * the delete will succeed. `CategoriesService.listForAdmin` computes it with
+   * `NOT_DELETED` while the foreign key counts every row, tombstones included —
+   * a category showing 0 can still be refused, and the caller's confirmation
+   * has to say so.
+   */
+  public deleteCommunityCategory(id: string): Observable<DeletedResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/community/categories/${id}`)
+      .pipe(
+        map(
+          validate(
+            deletedResponseSchema,
+            `DELETE /admin/community/categories/${id}`,
+          ),
+        ),
+      );
+  }
+
+  /**
+   * `POST /admin/community/topics` — an admin authors a thread.
+   *
+   * ⚠️ AN AUDITED ADMIN ROUTE, NOT THE MEMBER WRITE PATH. `MemberGuard` denies
+   * an admin without a Builders entitlement by design, and that is not changed
+   * for this: the admin writes through their own controller, the acting admin
+   * becomes the author of the topic and of post #1, and the audit row
+   * (`community.topic.create`) is written inside the same transaction (PRE-6).
+   *
+   * `body` is RAW MARKDOWN stored as post #1. Nothing on the admin surface
+   * renders it — an operator writes markdown here and reads it back through the
+   * member thread view.
+   *
+   * Answers 201 `{ id, slug }`. The slug is server-allocated, so the caller
+   * re-reads the queue instead of assembling a row.
+   */
+  public createCommunityTopic(
+    body: AdminCreateTopicRequest,
+  ): Observable<AdminCreatedTopic> {
+    return this.http
+      .post<unknown>(`${this.base}/community/topics`, body)
+      .pipe(
+        map(validate(adminCreatedTopicSchema, 'POST /admin/community/topics')),
+      );
   }
 
   /**

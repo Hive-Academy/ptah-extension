@@ -1,13 +1,43 @@
 <div class="flex flex-col gap-5">
-  <header class="flex flex-col gap-1">
-    <h1 class="text-2xl font-bold tracking-tight text-base-content">
-      Community moderation
-    </h1>
-    <p class="text-sm text-base-content-muted">
-      Pin, lock, move, remove and restore member threads. Every action here
-      writes an audit entry.
-    </p>
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <h1 class="text-2xl font-bold tracking-tight text-base-content">
+        Community moderation
+      </h1>
+      <p class="text-sm text-base-content-muted">
+        Create categories, author threads, then pin, lock, move, remove and
+        restore them. Every action here writes an audit entry.
+      </p>
+    </div>
+
+    <!--
+      ⚠️ REFUSED ONLY WHEN THE READ SUCCEEDED WITH ZERO ROWS. A FAILED read
+      leaves this reachable: the categories may well exist, and disabling the
+      one write that needs them would turn a transport failure into a product
+      limitation.
+    -->
+    <button
+      type="button"
+      class="btn btn-sm btn-primary normal-case"
+      [disabled]="forumHasNoCategories()"
+      [attr.title]="
+        forumHasNoCategories()
+          ? 'Create a category before authoring a thread.'
+          : null
+      "
+      (click)="openThreadForm()"
+    >
+      New thread
+    </button>
   </header>
+
+  <!-- Categories --------------------------------------------------------- -->
+  <ptah-admin-category-manager
+    [categories]="categories()"
+    [loadError]="categoriesError()"
+    [busy]="categoriesLoading()"
+    (changed)="loadCategories()"
+  />
 
   <!-- Filters ------------------------------------------------------------ -->
   <div class="flex flex-wrap items-end gap-3">
@@ -111,11 +141,33 @@
     </div>
   } @else if (topics().length === 0) {
     <div class="rounded-xl border border-hairline bg-base-200">
-      <ptah-empty-state
-        [icon]="MessagesSquareIcon"
-        message="No threads match these filters."
-        hint="Clear the search, pick another category, or switch on “Show deleted” to include tombstones."
-      />
+      <!--
+        ⚠️ THREE DIFFERENT EMPTY STATES, BECAUSE THERE ARE THREE DIFFERENT
+        CAUSES. "No threads match these filters" is a lie when the forum has no
+        category: nothing can be posted at all, and no filter change will ever
+        produce a row. "The forum has no categories yet" is a lie when the
+        category read FAILED — that is a claim about data nobody read. Each
+        branch names its own cause and points at its own fix.
+      -->
+      @if (forumHasNoCategories()) {
+        <ptah-empty-state
+          [icon]="MessagesSquareIcon"
+          message="The forum has no categories yet, so it cannot hold a thread."
+          hint="Create one in the Categories section above, then use “New thread”."
+        />
+      } @else if (categoriesFailed()) {
+        <ptah-empty-state
+          [icon]="MessagesSquareIcon"
+          message="No threads match these filters."
+          hint="The category list did not load, so the category filter and the move controls are empty. Retry it in the Categories section above."
+        />
+      } @else {
+        <ptah-empty-state
+          [icon]="MessagesSquareIcon"
+          message="No threads match these filters."
+          hint="Clear the search, pick another category, or switch on “Show deleted” to include tombstones."
+        />
+      }
     </div>
   } @else {
     <ul class="divide-y divide-hairline rounded-xl border border-hairline bg-base-200 px-4">
@@ -355,3 +407,19 @@
     </dl>
   }
 </ptah-detail-drawer>
+
+<!-- New thread ----------------------------------------------------------- -->
+<!--
+  ⚠️ DECLARED AFTER THE DETAIL DRAWER, DELIBERATELY. Both drawers are always
+  mounted (the slide is a CSS transform), so document order decides which one a
+  `querySelector('ptah-detail-drawer')` finds. The triage drawer is the primary
+  one on this screen and stays first.
+-->
+<ptah-admin-new-thread-modal
+  [open]="threadOpen()"
+  [categories]="categories()"
+  [saving]="threadSaving()"
+  [errorMessage]="threadError()"
+  (submitted)="submitThread($event)"
+  (cancelled)="closeThreadForm()"
+/>

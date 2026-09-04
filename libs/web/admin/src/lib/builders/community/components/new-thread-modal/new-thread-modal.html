@@ -1,0 +1,128 @@
+<ptah-detail-drawer [open]="open()" title="New thread" (closed)="onCancel()">
+  @if (open()) {
+    <form class="flex flex-col gap-4" (submit)="submit($event)">
+      @if (visibleError(); as message) {
+        <div
+          class="rounded-lg border border-hairline bg-base-100 p-3 text-sm text-error"
+          role="alert"
+        >
+          {{ message }}
+        </div>
+      }
+
+      <div class="flex flex-col gap-1">
+        <label
+          class="text-xs font-medium text-base-content-muted"
+          for="thread-category"
+        >
+          Category
+        </label>
+        <!--
+          EVERY category, with no visibility filter — an admin authoring a
+          thread sees the same list they moderate, including `staff` ones.
+        -->
+        <select
+          id="thread-category"
+          class="select select-bordered select-sm bg-base-100 text-sm"
+          (change)="onCategory($event)"
+        >
+          @for (category of categories(); track category.id) {
+            <option
+              [value]="category.id"
+              [selected]="category.id === categoryId()"
+            >
+              {{ category.name }} ({{ category.visibility }})
+            </option>
+          }
+        </select>
+        @if (categories().length === 0) {
+          <p class="text-xs text-base-content-muted">
+            The category list is not loaded, so there is nothing to post into
+            yet. Retry it in the Categories section.
+          </p>
+        }
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label
+          class="text-xs font-medium text-base-content-muted"
+          for="thread-title"
+        >
+          Title
+        </label>
+        <input
+          id="thread-title"
+          type="text"
+          class="input input-bordered input-sm bg-base-100 text-sm"
+          [attr.placeholder]="'3 to ' + titleMaxLength + ' characters'"
+          [value]="title()"
+          (input)="onTitle($event)"
+        />
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label
+          class="text-xs font-medium text-base-content-muted"
+          for="thread-body"
+        >
+          First post (markdown)
+        </label>
+        <!--
+          ⚠️ A PLAIN TEXTAREA WITH NO PREVIEW, AND THAT IS THE POINT. Rendering
+          the draft would put a second consumer on the member markdown
+          chokepoint from an admin surface. The admin reads it back through the
+          member thread view, where it is sanitized once.
+        -->
+        <textarea
+          id="thread-body"
+          rows="10"
+          class="textarea textarea-bordered bg-base-100 font-mono text-sm"
+          placeholder="Markdown. It is stored as post #1 and rendered on the member thread view, never here."
+          [value]="body()"
+          (input)="onBody($event)"
+        ></textarea>
+        <p class="text-xs text-base-content-muted">
+          Up to {{ bodyMaxLength }} characters.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-4">
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            [checked]="pinned()"
+            (change)="togglePinned()"
+          />
+          Pinned
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            [checked]="locked()"
+            (change)="toggleLocked()"
+          />
+          Locked
+        </label>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          type="submit"
+          class="btn btn-sm btn-primary normal-case"
+          [disabled]="saving()"
+        >
+          Post thread
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm normal-case"
+          (click)="onCancel()"
+        >
+          Discard draft
+        </button>
+      </div>
+    </form>
+  }
+</ptah-detail-drawer>
