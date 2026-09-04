@@ -32,6 +32,7 @@ import {
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
   SdkQueryRunner,
+  OffThreadProcessSpawner,
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
@@ -45,13 +46,13 @@ import {
   CompactionHookHandler,
   CompactionCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
+  SessionMcpStatusCallbackRegistry,
+  SessionTurnStateRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
   SubagentStopCallbackRegistry,
   PostToolUseCallbackRegistry,
   PostToolUseHookHandler,
-  PreToolUseCallbackRegistry,
-  PreToolUseHookHandler,
   SessionStartCallbackRegistry,
   SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
@@ -204,18 +205,6 @@ export function registerSdkServices(
   );
 
   container.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
-    { useClass: PreToolUseCallbackRegistry },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER,
-    { useClass: PreToolUseHookHandler },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
     SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
     { useClass: SessionStartCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -324,6 +313,12 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_PROCESS_SPAWNER,
+    { useClass: OffThreadProcessSpawner },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_QUERY_RUNNER,
     { useClass: SdkQueryRunner },
     { lifecycle: Lifecycle.Singleton },
@@ -376,6 +371,34 @@ export function registerSdkServices(
     { useClass: SessionIdResolvedCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  // Registered BEFORE StreamTransformer / SdkQueryOptionsBuilder resolve, both
+  // of which now inject it as a required dependency.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
+    { useClass: SessionMcpStatusCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.registerSingleton(
+    SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+    SessionTurnStateRegistry,
+  );
+  // Alias: a fresh session streams under its tabId until the SDK reports the
+  // real UUID. Same subscriber contract as MemoryTriggerService /
+  // SkillTriggerService — synchronous, never overwrites the real-id entry.
+  const turnStateRegistry = container.resolve<SessionTurnStateRegistry>(
+    SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+  );
+  container
+    .resolve<SessionIdResolvedCallbackRegistry>(
+      SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    )
+    .register(({ tabId, realSessionId }) => {
+      if (tabId) {
+        turnStateRegistry.rekey(tabId, realSessionId);
+      }
+    });
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,

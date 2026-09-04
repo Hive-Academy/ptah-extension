@@ -24,6 +24,7 @@ import type {
   ToolStartEvent,
 } from '@ptah-extension/shared';
 import { AgentStatsService } from '../agent-stats.service';
+import { buildStreamingIndexes } from '../indexes/streaming-indexes';
 import { buildAgentNode, buildInterleavedChildren } from './agent-node.fn';
 import type { BackgroundAgentLookup, BuilderDeps } from './builder-deps';
 import { buildMessageNode, findMessageStartEvent } from './message-node.fn';
@@ -57,6 +58,10 @@ function makeDeps(
     backgroundAgentStore: bgStore,
     agentStats,
     loggedUnmatchedToolCallIds: new Set<string>(),
+    // Unmemoized on purpose: these tests mutate `state` between builder calls
+    // with the SAME deps bag, so the indexes must be re-derived every time.
+    // Memoization is the orchestrator's job, not this lib's.
+    getIndexes: (st) => buildStreamingIndexes(st),
     buildMessageNode: (messageId, st, depth = 0) =>
       buildMessageNode(deps, messageId, st, depth),
     findMessageStartEvent: (st, messageId) =>
@@ -520,6 +525,42 @@ describe('builder fns (integration)', () => {
       expect(result).toBeNull();
       expect(consoleSpy).toHaveBeenCalled();
       consoleSpy.mockRestore();
+    });
+
+    it('buildToolChildren nests a real agent_start but skips a local_bash one', () => {
+      const state = createEmptyStreamingState();
+      const toolCallId = 'toolu_bash';
+
+      setEvent(state, {
+        id: 'evt_agent_bash',
+        eventType: 'agent_start',
+        timestamp: 10,
+        sessionId: 's',
+        messageId: 'm',
+        parentToolUseId: toolCallId,
+        toolCallId,
+        agentType: 'local_bash',
+        agentDescription: 'Create Nx React+Vite workspace in temp dir',
+      } as AgentStartEvent);
+
+      const deps = makeDeps(agentStats, makeBackgroundAgentStub());
+      expect(buildToolChildren(deps, toolCallId, state, 0)).toEqual([]);
+
+      setEvent(state, {
+        id: 'evt_agent_real',
+        eventType: 'agent_start',
+        timestamp: 20,
+        sessionId: 's',
+        messageId: 'm',
+        parentToolUseId: toolCallId,
+        toolCallId,
+        agentType: 'general-purpose',
+        agentDescription: 'Research the codebase',
+      } as AgentStartEvent);
+
+      const children = buildToolChildren(deps, toolCallId, state, 0);
+      expect(children).toHaveLength(1);
+      expect(children[0].agentType).toBe('general-purpose');
     });
 
     it('buildToolChildren returns [] at MAX_DEPTH (recursion guard)', () => {

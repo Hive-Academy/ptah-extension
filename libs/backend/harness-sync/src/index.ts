@@ -37,6 +37,27 @@ export {
   type IUserLayerRefresher,
 } from './lib/sources/user-layer-refresher.port';
 
+// The consent-gated repair of a blocked path, and the quarantine convention it
+// writes into (TASK_2026_306 Batch 8). The repair is exported for the
+// `harness:repairBlocked` RPC and for nothing else — no activation path holds
+// it, which is what makes "never runs without an explicit user action"
+// structural. `isQuarantineEntry` is exported because the ignore rule is a
+// documented convention other readers of these directories must honour.
+export {
+  HarnessBlockedRepairService,
+  REPAIR_REASON,
+  type HarnessBlockedRepairReport,
+} from './lib/repair/blocked-repair.service';
+export {
+  formatQuarantineTimestamp,
+  isQuarantineEntry,
+  moveToQuarantine,
+  quarantineDirFor,
+  restoreFromQuarantine,
+  QUARANTINE_DIR_NAME,
+  type QuarantinedOccupant,
+} from './lib/quarantine/quarantine';
+
 // Desired state.
 export {
   HarnessManifestBuilder,
@@ -50,6 +71,15 @@ export type {
   HarnessDesiredState,
 } from './lib/manifest/desired-state.types';
 export { canonicalSlug, isReservedSlug } from './lib/manifest/slug-rules';
+// The `.ptah-origin.json` reader, exported for the skill-selection surface in
+// `rpc-handlers`, which must name each candidate's origin plugin. The gate that
+// consumes it stays internal — a caller outside this lib has no business
+// re-deciding whether a clone survives a plugin toggle, and a second reader of
+// the sidecar is exactly how the two would come to disagree.
+export {
+  readUserLayerOrigin,
+  type UserLayerOrigin,
+} from './lib/manifest/plugin-origin-gate';
 
 // Workspace root normalization (E14) — every target writes at the ROOT.
 export {
@@ -83,8 +113,11 @@ export {
   acquireFileLock,
   serializeByKey,
   withFileLock,
+  FileLockTimeoutError,
+  isFileLockTimeoutError,
   DEFAULT_MAX_WAIT_MS,
   type FileLockOptions,
+  type LockUnavailableReason,
 } from './lib/lock/file-lock';
 
 // Targets.
@@ -166,6 +199,15 @@ export {
   spliceOwnedBlock,
 } from './lib/targets/mcp/codex-toml-mcp-facet';
 export {
+  codexProjectTrusted,
+  type CodexTrustOptions,
+} from './lib/targets/mcp/codex-project-trust';
+export {
+  codexHomeDir,
+  codexHomeConfigFile,
+  type CodexHomeOptions,
+} from './lib/targets/mcp/codex-home';
+export {
   configToJson,
   hashMcpConfig,
   jsonToConfig,
@@ -196,6 +238,9 @@ export {
 } from './lib/sources/plugin-config-source-resolver';
 
 // Health.
+// `blockedTargetPaths` (the `missing ∩ foreign` derivation) is NOT re-exported
+// here — it lives in `@ptah-extension/shared` with `summarizeHarnessHealth`,
+// and a second export path would be a second place to import it from.
 export {
   appliedTargetHealth,
   undetectedTargetHealth,
@@ -222,10 +267,26 @@ export {
 
 // The per-workspace consent gate for the `agents` facet, and its migration.
 // Exported because the setup wizard GRANTS the consent from `rpc-handlers`.
+// `resolveAgentMirrorSource` is exported for the HOSTS: all three build a
+// user-layer mirror call, and both rules it applies — resolve the root the
+// reconciler keys on, and gate the mirror on consent — fail silently when one
+// host drifts (TASK_2026_365).
 export {
   AgentSyncGate,
+  resolveAgentMirrorSource,
+  type AgentConsentReader,
+  type AgentMirrorSource,
   type AgentSyncDecision,
 } from './lib/state/agent-sync-gate';
+
+// The per-workspace selection gate for the `skills` facet, and its migration.
+// Exported because the selection surface RECORDS the choice from `rpc-handlers`.
+export {
+  SkillSyncGate,
+  type SkillSyncDecision,
+  type SkillSyncMode,
+  type SkillSyncSelection,
+} from './lib/state/skill-sync-gate';
 
 // Durable writes — every file this lib owns lands through these, atomically and
 // with the Windows sharing-violation retry (E21).
@@ -240,13 +301,23 @@ export {
 } from './lib/fs/windows-retry';
 
 // Content hashing (shared with the targets; useful to specs and to Batch 4).
+// Asynchronous since TASK_2026_323 (B8) — see the file header for why there is
+// deliberately no synchronous variant to fall back to.
 export {
   hashContent,
-  hashDirSync,
-  hashFileSync,
+  hashDir,
+  hashFile,
   isIgnoredEntry,
   IGNORED_ENTRY_NAMES,
+  type ContentHashOptions,
 } from './lib/hash/content-hash';
+
+// Pass cancellation. Exported because a host that wants to bound its own
+// activation reconcile needs the same error predicate the preflight uses.
+export {
+  HarnessPassAbortedError,
+  isPassAbortedError,
+} from './lib/abort/pass-abort';
 
 // DI.
 export { HARNESS_SYNC_TOKENS, type HarnessSyncDIToken } from './lib/di/tokens';

@@ -48,6 +48,34 @@ describe('VscodeUriOAuthCallbackListener', () => {
     listener.dispose();
   });
 
+  it('describeRedirectUri() resolves the same deep link without arming a waiter', async () => {
+    const listener = new VscodeUriOAuthCallbackListener();
+
+    await expect(listener.describeRedirectUri()).resolves.toBe(
+      `vscode://${AUTHORITY}/oauth-callback`,
+    );
+    // A described URI must not settle or register anything: a redirect for a
+    // state nobody armed is still ignored.
+    expect(() =>
+      __vscodeState.fireUri('state=never-armed&code=X'),
+    ).not.toThrow();
+    listener.dispose();
+  });
+
+  it('describeRedirectUri() goes through asExternalUri (remote host)', async () => {
+    (vscodeEnv.asExternalUri as jest.Mock).mockImplementationOnce(
+      async (_uri: unknown) => ({
+        toString: () => 'https://vscode.dev/tunnel/box/oauth-callback',
+      }),
+    );
+    const listener = new VscodeUriOAuthCallbackListener();
+
+    await expect(listener.describeRedirectUri()).resolves.toBe(
+      'https://vscode.dev/tunnel/box/oauth-callback',
+    );
+    listener.dispose();
+  });
+
   it('handleUri with a matching state resolves waitForCode with the code', async () => {
     const listener = new VscodeUriOAuthCallbackListener();
     const handle = await listener.start('state-abc');

@@ -90,6 +90,12 @@ export class AgentCustomizationService implements IAgentCustomizationService {
   private readonly MAX_RETRIES = 2; // 2 retries = 3 total attempts
   private readonly BACKOFF_BASE_MS = 3000; // 3s → 6s exponential backoff
   private readonly DEFAULT_MODEL = 'gpt-4o-mini'; // 150x cheaper than GPT-4
+  /**
+   * Ceiling on a single customization SDK query, covering the queue wait for a
+   * concurrency slot AND the stream. Armed before `execute()` so a caller
+   * queued behind a long one-shot cannot block indefinitely.
+   */
+  private readonly CUSTOMIZATION_TIMEOUT_MS = 10 * 60 * 1000;
 
   constructor(
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
@@ -165,6 +171,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
       );
     }
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       try {
         this.logger.debug(
           `Customization attempt ${attempt + 1}/${this.MAX_RETRIES + 1}`,
@@ -175,6 +182,13 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           projectContext,
           attempt > 0, // Simplify task on retry
         );
+        const abortController = new AbortController();
+        // Arm the timeout BEFORE execute() so the budget covers the queue wait
+        // for a concurrency slot, not just the stream after the handle resolves.
+        timeoutHandle = setTimeout(
+          () => abortController.abort(),
+          this.CUSTOMIZATION_TIMEOUT_MS,
+        );
         const handle = await this.internalQueryService.execute({
           cwd: projectContext.rootPath ?? '.',
           model: this.DEFAULT_MODEL,
@@ -182,6 +196,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           systemPromptAppend: `You are customizing the "${sectionTopic}" section of the "${templateId}" agent template.`,
           mcpServerRunning: false,
           maxTurns: 1,
+          abortController,
         });
         const response = await this.collectStreamResponse(handle.stream);
 
@@ -275,6 +290,8 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             ),
           );
         }
+      } finally {
+        if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
       }
     }
     this.logger.error(

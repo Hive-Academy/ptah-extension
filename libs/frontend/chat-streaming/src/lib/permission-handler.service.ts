@@ -3,7 +3,7 @@
  *
  * Extracted from ChatStore to handle permission-related operations:
  * - Managing permission requests (add/remove)
- * - Correlating permissions with tools (via toolUseId â†’ toolCallId)
+ * - Correlating permissions with tools (via toolUseId → toolCallId)
  * - Identifying unmatched permissions for fallback display
  * - Managing AskUserQuestion requests
  *
@@ -86,14 +86,16 @@ export class PermissionHandlerService {
   private _decisionSeq = 0;
 
   /**
-   * Tracks toolUseIds of hard permission denies (not deny_with_message).
-   * Used by StreamingHandlerService to mark specific agent nodes as "interrupted".
-   * Set-based to handle multiple concurrent denies correctly.
+   * Tracks toolUseIds of hard permission denies (not deny_with_message),
+   * bucketed by the session the denied prompt belonged to. `TurnStateApplier`
+   * drains ONE bucket on that session's terminal `turn_state` to mark the
+   * denied agent nodes as "interrupted" — a global set let another session's
+   * terminal event drain ids that were never in its tree (review F4).
    *
    * Set<string> for targeted marking. When agentToolCallId is
    * UNKNOWN_AGENT_TOOL_CALL_ID, triggers legacy fallback.
    */
-  private readonly _hardDenyToolUseIds = signal<Set<string>>(new Set());
+  private readonly _hardDenyToolUseIds = new Map<string, Set<string>>();
 
   /**
    * Public readonly access to permission requests
@@ -166,7 +168,7 @@ export class PermissionHandlerService {
 
   /**
    * Check if a request should be visible in the UI.
-   * Always returns true â€” permissions/questions must always be shown regardless
+   * Always returns true — permissions/questions must always be shown regardless
    * of which tab is active. Each request carries its own sessionId for response
    * routing, so the backend handles delivery to the correct session.
    * Hiding permissions behind tab matching caused them to be silently dropped
@@ -394,11 +396,10 @@ export class PermissionHandlerService {
         originalRequest.agentToolCallId !== UNKNOWN_AGENT_TOOL_CALL_ID
           ? originalRequest.agentToolCallId
           : UNKNOWN_AGENT_TOOL_CALL_ID;
-      this._hardDenyToolUseIds.update((ids) => {
-        const next = new Set(ids);
-        next.add(denyId);
-        return next;
-      });
+      const bucket = this.hardDenyBucketFor(response.id, originalRequest);
+      const ids = this._hardDenyToolUseIds.get(bucket) ?? new Set<string>();
+      ids.add(denyId);
+      this._hardDenyToolUseIds.set(bucket, ids);
     }
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
@@ -418,20 +419,40 @@ export class PermissionHandlerService {
   }
 
   /**
-   * Consume the hard-deny toolUseIds (read and reset).
-   * Called by StreamingHandlerService when session stats arrive to determine
-   * which specific agent nodes to mark as "interrupted".
+   * The bucket a hard deny is recorded under: the session the prompt carries,
+   * else the session of the tab it was routed to (`claudeSessionId ?? tabId`)
+   * — the same key a `turn_state` event resolves to for that tab.
+   */
+  private hardDenyBucketFor(
+    promptId: string,
+    request: PermissionRequest | undefined,
+  ): string {
+    if (request?.sessionId) return request.sessionId;
+    const tabId =
+      request?.tabId ??
+      this._promptTargetTabs.get(promptId)?.[0] ??
+      this.tabManager.activeTabId() ??
+      '';
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return tab?.claudeSessionId ?? tabId;
+  }
+
+  /**
+   * Consume the hard-deny toolUseIds of ONE session (read and reset).
+   * Called by `TurnStateApplier` on that session's terminal `turn_state`,
+   * after the event passed the session/revision acceptance check, to determine
+   * which specific agent nodes to mark as "interrupted". Other sessions'
+   * buckets are untouched.
    *
    * Returns Set of agent toolCallIds (or UNKNOWN_AGENT_TOOL_CALL_ID sentinel).
    * If Set contains UNKNOWN_AGENT_TOOL_CALL_ID, caller should fall back to markLastAgentAsInterrupted.
    *
-   * @returns Set of toolUseIds that were hard-denied since last consumption (empty if none)
+   * @returns Set of toolUseIds hard-denied for `sessionId` since last consumption (empty if none)
    */
-  consumeHardDenyToolUseIds(): Set<string> {
-    const ids = this._hardDenyToolUseIds();
-    if (ids.size > 0) {
-      this._hardDenyToolUseIds.set(new Set());
-    }
+  consumeHardDenyToolUseIds(sessionId: string): Set<string> {
+    const ids = this._hardDenyToolUseIds.get(sessionId);
+    if (!ids) return new Set<string>();
+    this._hardDenyToolUseIds.delete(sessionId);
     return ids;
   }
 
@@ -620,22 +641,33 @@ export class PermissionHandlerService {
    * Remove all permission and question requests for a specific session.
    * Called when the backend notifies that a session has been aborted.
    * Prevents stale permission/question cards from lingering in the UI.
+   *
+   * Matches on `tabId` as well as `sessionId`, mirroring the backend's own
+   * `PendingResponseRegistry.cleanupBySession`. The broadcast carries the
+   * record's TAB id, while a prompt now carries the resolved SDK session id
+   * (see `SdkPermissionHandler.createCallback`'s `sessionIdResolver`) — so the
+   * two only coincide when the caller had no separate tab id. Filtering on
+   * `sessionId` alone left every prompt of an aborted surface workflow on
+   * screen, still answerable, against a session that no longer exists.
    */
   cleanupSession(sessionId: string): void {
+    const owns = (r: { sessionId?: string; tabId?: string }): boolean =>
+      r.sessionId === sessionId || r.tabId === sessionId;
+
     const removedIds = this._permissionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     const removedQuestionIds = this._questionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     this._questionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     for (const id of removedIds) {

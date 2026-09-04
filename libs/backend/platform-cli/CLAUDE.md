@@ -42,6 +42,9 @@ Implementations: `CliFileSystemProvider`, `CliStateStorage`, `CliTokenCounter`, 
 
 - Implement every `PLATFORM_TOKENS.*` port that the CLI app needs — do not stub via no-ops unless documented (`CliUserInteraction` may use stdin/stdout TTY prompts).
 - **Never import** `platform-vscode` or `platform-electron`.
+- **`createFileWatcher` must never hand its glob to chokidar** — same rule and
+  same reason as the Electron adapter's; the translation lives once, in
+  `planGlobWatch` (platform-core). See `platform-electron/CLAUDE.md`.
 - State storage backs onto `~/.ptah/state/` JSON files (or similar) — keep schema compatible with other platforms.
 - `IDiagnosticsProvider`/`IEditorProvider` may be near-no-ops (no editor), but must satisfy the interface.
 - `catch (error: unknown)`.

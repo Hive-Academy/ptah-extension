@@ -302,6 +302,53 @@ function harnessHealthLabel(
   }
 }
 
+/**
+ * The BLOCKED set for one target: desired paths an unowned file occupies.
+ *
+ * `blocked = missing ∩ foreign`, DERIVED from the payload rather than carried
+ * as a field. Both terms are already computed and already transmitted, so every
+ * consumer can answer "which of these gaps are refusals?" with no contract
+ * change at all — and a new field would be a second producer of a set two sides
+ * already agree on.
+ *
+ * It lives HERE, beside {@link summarizeHarnessHealth}, for that function's
+ * exact reason: more than one consumer reads it and they must never disagree.
+ * The reconciler's blocked-path log line is one; the webview health card's
+ * blocked disclosure is another, and a frontend lib cannot import
+ * `harness-sync`, so a derivation on the backend side would have forced the
+ * card to write a second intersection. One rule, one place.
+ *
+ * The intersection IS the reconciler's `plan.blocked`, structurally, and it
+ * cannot drift from it:
+ *
+ *   - every planner pushes a blocked path into BOTH lists in one step
+ *     (`harness-sync/.../claude-target.ts:277`, `workspace-target.ts:164-166`,
+ *     `mcp/mcp-facet-planner.ts:107-108`), so `blocked ⊆ foreign` holds by
+ *     construction rather than by two lists being kept in step;
+ *   - `missing` is the planned (or failed) writes PLUS `plan.blocked`, and a
+ *     desired path is either written or blocked and never both — so the only
+ *     members of `missing` that can also be `foreign` are the blocked ones.
+ *
+ * Deriving it rather than reading `plan.blocked` is also what makes the same
+ * answer available on the read-only `verify()` path, which never sees a plan.
+ *
+ * Order follows `missing`, which is the order the target planned its desired
+ * entries in. Duplicates are collapsed; nothing else is reordered.
+ */
+export function blockedTargetPaths(target: HarnessTargetHealth): string[] {
+  if (target.missing.length === 0 || target.foreign.length === 0) return [];
+
+  const foreign = new Set(target.foreign);
+  const seen = new Set<string>();
+  const blocked: string[] = [];
+  for (const relPath of target.missing) {
+    if (!foreign.has(relPath) || seen.has(relPath)) continue;
+    seen.add(relPath);
+    blocked.push(relPath);
+  }
+  return blocked;
+}
+
 // ---------------------------------------------------------------------------
 // RPC wire shapes (TASK_2026_278 Batch 4)
 // ---------------------------------------------------------------------------
@@ -357,6 +404,187 @@ export interface HarnessRemoveResult {
   summary: HarnessHealthSummary;
   /** Manifest-owned paths actually deleted, summed across targets. */
   removed: number;
+}
+
+// ---------------------------------------------------------------------------
+// Consent-gated repair of a blocked path (TASK_2026_306, Batch 8)
+// ---------------------------------------------------------------------------
+
+/** One path the user has explicitly consented to repair. */
+export interface HarnessRepairBlockedPath {
+  target: HarnessTargetId;
+  /** Workspace-relative POSIX path, exactly as it appears in `blocked`. */
+  relPath: string;
+}
+
+/**
+ * Params for `harness:repairBlocked`.
+ *
+ * **Per-path, and only per-path.** There is deliberately no `all: true`, no
+ * `target:` filter and no "repair everything" shape. The entire justification
+ * for touching one of these paths is that the user claimed it, and a claim over
+ * a set they did not enumerate is not a claim. An empty list is the default and
+ * is a complete no-op: no move, no reconcile, not one byte written.
+ */
+export interface HarnessRepairBlockedParams {
+  paths: HarnessRepairBlockedPath[];
+}
+
+/**
+ * What happened to one consented path.
+ *
+ * - `repaired` — the occupant reached quarantine and the managed copy landed.
+ * - `restored` — the occupant reached quarantine, the managed copy did NOT
+ *   land, and the occupant was put back. The path is blocked again, which is
+ *   the state it started in.
+ * - `move-failed` — the occupant could not be moved. **Nothing was written at
+ *   this path**; the occupant is untouched.
+ * - `restore-failed` — the occupant reached quarantine, the write did not land,
+ *   and it could not be put back. The user's directory exists at
+ *   {@link HarnessRepairPathResult.quarantinePath} and nowhere else, so that
+ *   field is always populated for this outcome.
+ * - `not-blocked` — the path is not in the reconciler's current blocked set.
+ *   Refused, untouched. This is what stops the RPC being a general-purpose
+ *   "move this directory" primitive.
+ * - `not-a-path` — a blocked MCP fragment key (`.mcp.json#github`). It is a key
+ *   inside a config file the user also writes, not a file, so there is nothing
+ *   to move aside and this repair does not apply to it.
+ */
+export type HarnessRepairOutcome =
+  | 'repaired'
+  | 'restored'
+  | 'move-failed'
+  | 'restore-failed'
+  | 'not-blocked'
+  | 'not-a-path';
+
+/** Per-path outcome, one entry per requested path, in request order. */
+export interface HarnessRepairPathResult {
+  target: HarnessTargetId;
+  relPath: string;
+  outcome: HarnessRepairOutcome;
+  /**
+   * Absolute path of the quarantined occupant. Present whenever a move
+   * happened — including every failure after the move — so the user is always
+   * told where their directory went.
+   */
+  quarantinePath?: string;
+  /** Short, user-facing. Present for every outcome other than `repaired`. */
+  reason?: string;
+}
+
+/** Result of `harness:repairBlocked`. */
+export interface HarnessRepairBlockedResult {
+  paths: HarnessRepairPathResult[];
+  /** Count of `repaired` outcomes — what `missing` should have dropped by. */
+  repaired: number;
+  /**
+   * Health AFTER the repair, or `null` when no pass ran (an empty or fully
+   * rejected selection). `null` is the honest answer there: nothing changed, so
+   * the caller's existing report is still current.
+   */
+  health: HarnessHealth | null;
+  summary: HarnessHealthSummary;
+}
+
+// ---------------------------------------------------------------------------
+// The per-workspace skill selection (TASK_2026_316, Batch 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this workspace propagates everything the user layer offers, or only
+ * the recorded allowlist.
+ *
+ * The string union is restated here rather than imported from
+ * `@ptah-extension/harness-sync`, for this file's whole reason to exist: the
+ * selection surface is a webview and a webview cannot import a backend lib.
+ * `SkillSyncMode` over there is the same two literals, so the two assign to
+ * each other structurally and neither is a cast.
+ */
+export type HarnessSkillSyncMode = 'all' | 'selected';
+
+/**
+ * One skill the selection surface can offer, as read off disk.
+ *
+ * `pluginId` is NULLABLE and its absence is the normal case, not an error. A
+ * hand-authored `SKILL.md`, a promoted synth skill and anything installed
+ * before the origin sidecar existed all have no plugin above them — and those
+ * are precisely the skills no plugin toggle can speak for, which is the whole
+ * reason this selection exists. A UI must render a `null` origin as ordinary.
+ */
+export interface HarnessSkillCandidate {
+  /**
+   * The DIRECTORY name, which is the key {@link HarnessGetSkillSelectionResult.slugs}
+   * and `disabledSkillIds` are both keyed by. Deliberately not the frontmatter
+   * `name`: the two can differ, and only the directory name is stable enough to
+   * record.
+   */
+  slug: string;
+  /** `SKILL.md` frontmatter `name`, falling back to {@link slug}. */
+  name: string;
+  /** `SKILL.md` frontmatter `description`. Empty when the file declares none. */
+  description: string;
+  /** The plugin this skill came from, or `null` when nothing names one. */
+  pluginId: string | null;
+}
+
+/**
+ * Params for `harness:get-skill-selection`.
+ *
+ * Deliberately empty: the answer is a property of the open workspace, and a
+ * caller cannot ask about a different one.
+ */
+export type HarnessGetSkillSelectionParams = Record<string, never>;
+
+/**
+ * Result of `harness:get-skill-selection`.
+ *
+ * READ-ONLY. This method resolves the gate and never persists the answer, for
+ * `verify()`'s exact reason: a derived decision is a write, and asking what
+ * state the harness is in must not change it. A surface that polls must not be
+ * able to record a selection on the user's behalf.
+ */
+export interface HarnessGetSkillSelectionResult {
+  mode: HarnessSkillSyncMode;
+  /** The recorded allowlist. Empty and meaningless under `'all'`. */
+  slugs: string[];
+  /** Everything this workspace COULD propagate, sorted by slug. */
+  available: HarnessSkillCandidate[];
+  /**
+   * The mode was absent on disk and this answer came from the migration's
+   * evidence walk. The UI needs it to tell "the user chose everything" from
+   * "this workspace predates the gate", which look identical otherwise.
+   */
+  derived: boolean;
+}
+
+/**
+ * Params for `harness:set-skill-selection`.
+ *
+ * `slugs` is meaningless under `'all'` and is cleared rather than kept — a
+ * stale allowlist surviving a switch to `'all'` would read as a selection
+ * nobody made the next time the user narrowed the mode again.
+ */
+export interface HarnessSetSkillSelectionParams {
+  mode: HarnessSkillSyncMode;
+  slugs?: string[];
+}
+
+/** Result of `harness:set-skill-selection`. */
+export interface HarnessSetSkillSelectionResult {
+  /**
+   * Whether the decision reached `{ws}/.ptah/harness/state.json`. A failed
+   * write leaves the previous selection in force, so no pass runs and `health`
+   * is `null` — reporting success there would show the user a selection the
+   * next reconcile does not honour.
+   */
+  saved: boolean;
+  mode: HarnessSkillSyncMode;
+  /** The allowlist as NORMALIZED and recorded (trimmed, deduplicated, sorted). */
+  slugs: string[];
+  /** Health after the propagation, or `null` when no pass ran. */
+  health: HarnessHealth | null;
+  summary: HarnessHealthSummary;
 }
 
 /**

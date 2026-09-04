@@ -18,6 +18,8 @@
  * facade constructs it eagerly in its constructor body. See WAVE_C7i_DESIGN.md.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   SessionId,
@@ -27,6 +29,7 @@ import type {
 import { blankToUndefined } from '@ptah-extension/shared';
 
 import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
+import type { ActivityHold } from '../no-activity-watchdog';
 
 /**
  * A single session record held in the dual-index registry.
@@ -37,6 +40,17 @@ import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
  * registry, not from session-lifecycle-manager).
  */
 export interface SessionRecord {
+  /**
+   * Opaque identity of THIS registration, minted fresh in `register()`.
+   *
+   * `tabId` and `realSessionId` are stable across re-registrations under the
+   * same key — a slash-command re-query ends the old record and registers a new
+   * one under the same id — so neither can answer "is the record I was holding
+   * still the one registered?". The token can: two registrations never share
+   * one. Compare it through `SessionControl.endSessionIfTokenMatches`, never by
+   * reading it and acting later.
+   */
+  readonly token: string;
   /** Immutable tab ID assigned at tile creation. */
   readonly tabId: string;
   /** Null until the SDK system 'init' message fires; set ONCE via bindRealSessionId. */
@@ -71,6 +85,15 @@ export interface SessionRecord {
    * a tool call in one workspace's session never sees another workspace's level.
    */
   permissionLevel: PermissionLevel;
+  /**
+   * The session's `NoActivityWatchdog`, seen through its hold/release half.
+   * The turn state owns exactly one hold on it: count 1 while no turn is in
+   * flight, 0 while one is. Idle between turns is silence Ptah chose, not a
+   * hung provider — without the hold the watchdog fired exactly 180 s after
+   * every `result` and marked every running subagent interrupted
+   * (TASK_2026_363). Null until `SessionQueryExecutor` builds the watchdog.
+   */
+  activityHold: ActivityHold | null;
   lastActivityAt: number;
 }
 
@@ -122,6 +145,7 @@ export class SessionRegistry {
     realSessionId?: string,
   ): SessionRecord {
     const rec: SessionRecord = {
+      token: randomUUID(),
       tabId,
       realSessionId: realSessionId ?? null,
       query: null,
@@ -132,6 +156,7 @@ export class SessionRegistry {
       turnInFlight: false,
       currentModel: config.model || '',
       permissionLevel: 'ask',
+      activityHold: null,
       lastActivityAt: this._now(),
     };
     this.byTabId.set(tabId, rec);
@@ -196,6 +221,15 @@ export class SessionRegistry {
    */
   find(idOrTabId: string): SessionRecord | undefined {
     return this.byTabId.get(idOrTabId) ?? this.bySessionId.get(idOrTabId);
+  }
+
+  /**
+   * Token of the record CURRENTLY registered under this id, or null when
+   * nothing is registered. A caller that holds an old token can compare against
+   * a fresh read to tell "still my record" from "replaced by a newer one".
+   */
+  getToken(idOrTabId: string): string | null {
+    return this.find(idOrTabId)?.token ?? null;
   }
 
   /**
@@ -305,8 +339,15 @@ export class SessionRegistry {
    * Mark a turn as started. Called by the streaming pump immediately before it
    * yields a user message, so the pump's own drain loop stops after exactly one
    * message and holds the rest (TASK_2026_294).
+   *
+   * Releases the idle hold on the watchdog on the false→true transition only,
+   * so the hold count owned by the turn state is 1 while no turn is in flight
+   * and 0 while one is (TASK_2026_363).
    */
   markTurnStarted(rec: SessionRecord): void {
+    if (!rec.turnInFlight) {
+      rec.activityHold?.release();
+    }
     rec.turnInFlight = true;
     rec.lastActivityAt = this._now();
   }
@@ -320,11 +361,20 @@ export class SessionRegistry {
    * no separate clear. A turn that emits neither is bounded by
    * `NoActivityWatchdog`, which aborts the controller and ends the pump loop.
    *
+   * Re-takes the idle hold on the watchdog on the true→false transition only.
+   * The guard is load-bearing: this is called from the `result` branch, the
+   * interrupt path and the adapter, and a double call must not stack holds.
+   * Invariant: the hold count owned by the turn state is 1 while no turn is in
+   * flight, 0 while one is (TASK_2026_363).
+   *
    * @returns true when a live record was found and cleared.
    */
   markTurnEnded(idOrTabId: string): boolean {
     const rec = this.find(idOrTabId);
     if (!rec) return false;
+    if (rec.turnInFlight) {
+      rec.activityHold?.hold();
+    }
     rec.turnInFlight = false;
     if (rec.resolveNext) {
       const wake = rec.resolveNext;

@@ -126,6 +126,192 @@ describe('SmitheryInstalledManifestStore', () => {
     expect(await manifest.getConfig('missing')).toEqual({});
   });
 
+  describe('Connections API fields (TASK_2026_375 B2)', () => {
+    it('persists namespace + connectionId and reads them back through get()', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await manifest.install({
+        qualifiedName: 'hubspot',
+        serverKey: 'smithery_hubspot',
+        config: {},
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+
+      expect(manifest.get('smithery_hubspot')).toMatchObject({
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+    });
+
+    it('leaves both fields undefined for a legacy install', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await manifest.install({
+        qualifiedName: '@old/one',
+        serverKey: 'smithery_old_one',
+        config: {},
+      });
+
+      const record = manifest.get('smithery_old_one');
+      expect(record?.namespace).toBeUndefined();
+      expect(record?.connectionId).toBeUndefined();
+    });
+
+    it('get() returns null for a serverKey that is not installed', () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+      expect(manifest.get('never-installed')).toBeNull();
+    });
+
+    it('get() re-reads a record another instance wrote', async () => {
+      const { store } = makeSecretStore();
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+      const writer = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await writer.install({
+        qualifiedName: 'hubspot',
+        serverKey: 'smithery_hubspot',
+        config: {},
+        namespace: 'abdallah',
+        connectionId: 'hubspot',
+      });
+
+      expect(reader.get('smithery_hubspot')?.namespace).toBe('abdallah');
+    });
+  });
+
+  describe('freshness (TASK_2026_375 B1.1)', () => {
+    it('sees a record another live instance wrote, without reconstruction', async () => {
+      const { store } = makeSecretStore();
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+      const writer = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      // The reader was constructed BEFORE the write and is never rebuilt.
+      expect(reader.list()).toHaveLength(0);
+
+      await writer.install({
+        qualifiedName: '@vendor/hubspot',
+        serverKey: 'smithery_hubspot',
+        config: {},
+      });
+
+      const list = reader.list();
+      expect(list).toHaveLength(1);
+      expect(list[0].serverKey).toBe('smithery_hubspot');
+    });
+
+    it('sees an uninstall performed by another live instance', async () => {
+      const { store } = makeSecretStore();
+      const writer = new SmitheryInstalledManifestStore(store, manifestPath);
+      await writer.install({
+        qualifiedName: '@a/b',
+        serverKey: 'k',
+        config: {},
+      });
+
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+      expect(reader.list()).toHaveLength(1);
+
+      await writer.uninstall('k');
+
+      expect(reader.list()).toHaveLength(0);
+    });
+
+    it('does not clobber a record written by another instance', async () => {
+      const { store } = makeSecretStore();
+      const a = new SmitheryInstalledManifestStore(store, manifestPath);
+      const b = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await a.install({ qualifiedName: '@a/a', serverKey: 'ka', config: {} });
+      await b.install({ qualifiedName: '@b/b', serverKey: 'kb', config: {} });
+
+      expect(
+        a
+          .list()
+          .map((r) => r.serverKey)
+          .sort(),
+      ).toEqual(['ka', 'kb']);
+    });
+
+    it('reads the encrypted config of a record written after construction', async () => {
+      const { store } = makeSecretStore();
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+      const writer = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      await writer.install({
+        qualifiedName: '@a/b',
+        serverKey: 'k',
+        config: { apiToken: 'secret' },
+      });
+
+      expect(await reader.getConfig('k')).toEqual({ apiToken: 'secret' });
+    });
+
+    it('yields an empty list after the manifest file is deleted', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+      await manifest.install({
+        qualifiedName: '@a/b',
+        serverKey: 'k',
+        config: {},
+      });
+      expect(manifest.list()).toHaveLength(1);
+
+      fs.rmSync(manifestPath);
+
+      expect(manifest.list()).toEqual([]);
+    });
+
+    it('yields an empty list for a corrupt manifest without throwing', async () => {
+      const { store } = makeSecretStore();
+      const manifest = new SmitheryInstalledManifestStore(store, manifestPath);
+      await manifest.install({
+        qualifiedName: '@a/b',
+        serverKey: 'k',
+        config: {},
+      });
+
+      fs.writeFileSync(manifestPath, '{ not json', 'utf-8');
+
+      expect(() => manifest.list()).not.toThrow();
+      expect(manifest.list()).toEqual([]);
+    });
+
+    it('re-parses when a same-millisecond write changed the file size', async () => {
+      const { store } = makeSecretStore();
+      const reader = new SmitheryInstalledManifestStore(store, manifestPath);
+
+      // Two writes with the SAME mtime: only the size tells them apart.
+      const stamp = new Date(1_700_000_000_000);
+      const write = (json: string) => {
+        fs.writeFileSync(manifestPath, json, 'utf-8');
+        fs.utimesSync(manifestPath, stamp, stamp);
+      };
+      write(JSON.stringify({ version: 1, servers: {} }));
+      expect(reader.list()).toEqual([]);
+
+      write(
+        JSON.stringify({
+          version: 1,
+          servers: {
+            k: {
+              source: 'smithery',
+              qualifiedName: '@a/b',
+              serverKey: 'k',
+              hasEncryptedConfig: false,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        }),
+      );
+
+      expect(reader.list()).toHaveLength(1);
+    });
+  });
+
   it('createSmitheryConfigSecretStore routes config to per-server slots', async () => {
     const calls: Array<[string, string, string?]> = [];
     const store = createSmitheryConfigSecretStore({

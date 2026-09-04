@@ -45,10 +45,12 @@ Languages: ${workspaceContext.languages.join(', ') || '(none detected)'}`;
 
     const toolsBlock = `## Tools
 Use the ptah.harness MCP tools to ground your recommendations:
-- searchSkills(query?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. Do NOT shell out to install a skills.sh skill — record it on the config instead (see What Apply Writes) and Apply installs it for you.
-- searchMcpRegistry(query, limit?) — search the official MCP Registry plus Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'smithery'.
+- searchSkills(query?, limit?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. Do NOT shell out to install a skills.sh skill — record it on the config instead (see What Apply Writes) and Apply installs it for you.
+- searchMcpRegistry(query, limit?) — search the official MCP Registry and Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'smithery'. \`limit\` bounds the merged list, drawn round-robin so no source starves the others.
+
+READ THE STATUS FIELD. Both searches return \`status\` ('ok' | 'degraded') and a per-source \`sources\` array. An empty result is a real "nothing exists" answer ONLY when status is 'ok'; 'degraded' means a source failed and the answer is incomplete. Never tell the user a skill or server does not exist, and never author a replacement for one, on the strength of a degraded search — retry it or say the catalogue was unreachable.
 - listInstalledMcpServers() — check what MCP servers are already installed in the workspace.
-- createSkill(name, description, content, allowedTools?) — author custom skills.
+- createSkill(name, description, content, allowedTools?, scope?) — author custom skills. \`scope\` is 'user' (default, loads in every workspace on this machine) or 'workspace' (loads in THIS project only, written under \`{ws}/.ptah/plugins\` beside \`.ptah/specs\` so it can be committed and travels with the repo). Prefer 'workspace' for any skill that names this codebase, its conventions or its domain; keep 'user' for genuinely reusable ones.
 - proposeConfig(configUpdates, isConfigComplete?) — push partial HarnessConfig updates to the configuration surface. Call proposeConfig whenever configuration decisions firm up (persona, agents, skills, system prompt, MCP servers); configUpdates is a partial HarnessConfig — only include fields you are changing. Call it again with isConfigComplete=true once the configuration is ready to apply.`;
 
     const applyExpectations = `## What Apply Writes
@@ -62,7 +64,7 @@ When the user clicks Apply, Ptah materializes the configuration:
 
 A skills.sh skill is only installed if you record its origin alongside the id. Put the id in \`skills.selectedSkills\` and the origin in \`skills.selectedSkillRefs\`:
 \`{ skills: { selectedSkills: ['frontend-design'], selectedSkillRefs: [{ skillId: 'frontend-design', source: 'skills.sh', installSource: 'anthropics/skills' }] } }\`
-\`installSource\` is the \`owner/repo\` slug that searchSkills returns on the result — copy it verbatim. Optional: \`scope\` ('project', the default, or 'global').
+\`installSource\` is the \`owner/repo\` slug that searchSkills returns on the result — copy it verbatim. There is no \`scope\` key: it was removed when installs moved to the source-root reconciler, and a ref that still carries one has it stripped.
 Locally discovered skills need no ref — just the id in \`selectedSkills\`. A skills.sh skill recorded without an \`installSource\` is NOT installed, and the user is warned to add it by hand.
 
 An MCP entry is only installed if you give it a \`config\`. Record servers like this:

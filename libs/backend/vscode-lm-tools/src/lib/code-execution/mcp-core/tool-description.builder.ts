@@ -363,7 +363,7 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_diagnostics',
     description:
-      'Get TypeScript/JavaScript errors and warnings from the workspace diagnostics provider. Returns an honest available/unavailable result with source, status, and flattened diagnostics. Each diagnostic includes file path, line number, severity, and message.',
+      'Get TypeScript/JavaScript errors and warnings from the workspace diagnostics provider. Returns an honest available/unavailable result with source, status, and flattened diagnostics. Each diagnostic includes file path, line number, severity, and message. PASS `files` WITH THE FILES YOU CHANGED: on a large monorepo an unscoped call type-checks every project and can exceed the call timeout, while a scoped one checks only the projects owning those files and returns in seconds.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -372,6 +372,12 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
           enum: ['error', 'warning', 'all'],
           description:
             'Filter by severity level (default: "all"). Use "error" to see only errors.',
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Absolute paths of the files you care about. Narrows the check to the projects that own them, which is dramatically faster on a monorepo. Diagnostics from sibling files in the same project are still reported, so a break your edit caused elsewhere is not hidden. Omit to check the whole workspace.',
         },
       },
     },
@@ -718,15 +724,25 @@ export function buildWebSearchTool(): MCPToolDefinition {
   return {
     name: 'ptah_web_search',
     description:
-      'Search the web for current information using your configured search provider (Tavily, Serper, or Exa). ' +
-      'Returns structured results with titles, URLs, and snippets, plus a narrative summary. ' +
-      'Configure your provider and API key in Ptah Settings > Web Search.',
+      'Search the web for current information using your configured search providers (Tavily, Serper, Exa). ' +
+      'Every configured provider runs in parallel and the results are merged and de-duplicated. ' +
+      'Returns structured results with titles, URLs, snippets and the providers that returned each one, ' +
+      'plus a narrative summary and a Provider status section naming any provider that failed and why. ' +
+      'Configure your providers and API keys in Ptah Settings > Web Search.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'The search query. Be specific for better results.',
+        },
+        providers: {
+          type: 'array',
+          items: { type: 'string', enum: ['tavily', 'serper', 'exa'] },
+          description:
+            "Overrides the user's configured provider set for this one call. " +
+            'When a previous call reported a failed provider in its Provider status section, ' +
+            'retry with only the providers that reported ok.',
         },
         maxResults: {
           type: 'number',
@@ -1178,13 +1194,28 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
       'Harness-builder tool: search both the locally installed Ptah plugin skills ' +
       '(SKILL.md files under ~/.ptah/plugins, including harness-authored ptah-harness-* plugins) ' +
       'AND the skills.sh marketplace. Each result is tagged with source: "local" or "skills.sh"; ' +
-      'skills.sh entries carry their install source (owner/repo) and installs count. ' +
+      'skills.sh entries carry their install source (owner/repo), installs count and marketplace url. ' +
       'Returns skill IDs, names, descriptions, plugin IDs, and per-skill enabled/disabled status. ' +
       'Use this when authoring or configuring a harness to discover which skills exist. NOTE: local ' +
       'results are the on-disk plugin inventory, NOT the set of skills you can invoke right now via ' +
       'the Skill tool. A query is required to reach skills.sh; omit it to list only local plugin skills. ' +
       'To install a skills.sh skill, run `npx skills add <owner/repo> --skill <id> -y` via Bash — it ' +
-      'lands in ~/.claude/skills and is then natively discovered.',
+      'lands in ~/.claude/skills and is then natively discovered.\n\n' +
+      'READING THE RESULT — the payload carries "status" ("ok" | "degraded") and a per-source ' +
+      '"sources" array of {source, status, count, error?}. An empty "skills" list means the ' +
+      'marketplace genuinely has nothing ONLY when status is "ok". When status is "degraded" a ' +
+      'source failed (network, rate limit, upstream 5xx, already retried three times) and the tool ' +
+      'result is flagged as an error — do NOT report "no such skill exists" or start authoring a ' +
+      'replacement on the strength of it. Retry, or say the marketplace was unreachable.\n\n' +
+      "Descriptions for skills.sh entries are read from each skill's SKILL.md frontmatter on a " +
+      'best-effort basis; a blank description means that lookup failed, not that the skill is ' +
+      'undocumented — open its url.\n\n' +
+      'PAGING — "offset" and "limit" page the skills.sh half; local plugin results are a complete ' +
+      'on-disk inventory and are never paged. The result echoes "offset"/"limit" and carries ' +
+      '"hasMore" (fetch the next page with offset += limit) and "total" — present ONLY when the ' +
+      'whole marketplace result set was seen, never estimated. The skills.sh source entry adds ' +
+      '"limitedByUpstream": true when the marketplace\'s own 200-result ceiling was reached, at ' +
+      'which point no further page is reachable and the query must be narrowed instead.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1192,6 +1223,16 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
           type: 'string',
           description:
             'Optional search query to filter skills by name or description',
+        },
+        limit: {
+          type: 'number',
+          description:
+            'skills.sh rows per page (1-200, default 50). Local results are never capped.',
+        },
+        offset: {
+          type: 'number',
+          description:
+            'skills.sh rows to skip (default 0). Use with hasMore to page; the marketplace caps a query at 200 rows total.',
         },
       },
     },
@@ -1207,11 +1248,23 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_create_skill',
     description:
-      'Harness-builder tool: author a new plugin skill on disk. Writes a SKILL.md to ' +
-      '~/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md with YAML frontmatter ' +
-      'and the provided markdown content, then returns the skill ID and file path. ' +
-      'Use this to persist a reusable skill while building a harness — it does not register ' +
-      'the skill into the current session; the skill becomes available after the plugin is enabled.',
+      'Harness-builder tool: author a new plugin skill on disk. Writes a SKILL.md with YAML ' +
+      'frontmatter and the provided markdown content, then returns the skill ID, file path, ' +
+      'plugin ID and scope. Use this to persist a reusable skill while building a harness.\n\n' +
+      'SCOPE — choose deliberately, because it decides where the skill loads:\n' +
+      '- scope:"user" (the DEFAULT) writes ~/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
+      'and loads in EVERY workspace on this machine.\n' +
+      '- scope:"workspace" writes {workspace}/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
+      'and loads in THIS project only. It sits beside .ptah/specs, so it can be committed and ' +
+      'travels with the repository to the whole team. Prefer it for anything that names this ' +
+      'codebase, its conventions or its domain. It requires an open workspace folder and fails ' +
+      'clearly without one.\n' +
+      'The two scopes share one plugin ID, so the same name cannot be used in both — the call is ' +
+      'refused rather than letting the workspace copy silently shadow the global one.\n\n' +
+      'AVAILABILITY — harness-authored (ptah-harness-*) plugins are active on discovery and need no ' +
+      'separate enable step, so the skill is normally invocable from the next turn of this session ' +
+      'onward; copies reach the other CLI harness directories at the next harness reconcile. Call ' +
+      'ptah_harness_search_skills to confirm rather than assuming either way.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1234,6 +1287,12 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
           items: { type: 'string' },
           description: 'Optional list of tools this skill is allowed to use',
         },
+        scope: {
+          type: 'string',
+          enum: ['user', 'workspace'],
+          description:
+            '"user" (default) loads everywhere on this machine; "workspace" loads only in this project and can be committed with it.',
+        },
       },
       required: ['name', 'description', 'content'],
     },
@@ -1244,9 +1303,9 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
 /**
  * Build the ptah_harness_search_mcp_registry tool definition
  *
- * Searches the three catalogue sources. The description deliberately tells the
+ * Searches the two catalogue sources. The description deliberately tells the
  * agent what this tool CANNOT see — vendors that host their own remote MCP
- * endpoint are usually absent from all three — and points it at web search as
+ * endpoint are usually absent from both — and points it at web search as
  * the fallback, so the user is never asked to paste an official URL by hand.
  */
 export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
@@ -1254,34 +1313,39 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io), the PulseMCP directory (a trusted ' +
-      'online catalogue of vendor/community servers — e.g. Autodesk, IFC, ' +
-      'Procore — not present in the official registry), AND, when a Smithery ' +
-      'API key is configured, the Smithery registry for servers matching a ' +
-      'query. Each result is tagged with source: "official", "pulsemcp", or ' +
-      '"smithery". Returns server names and descriptions. Use specific ' +
-      'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
-      'for best results. Pair with ptah_harness_list_installed_mcp to see which ' +
-      'servers are already configured before adding more, and install a chosen ' +
-      'server with ptah_harness_install_mcp_server.\n\n' +
-      'COVERAGE LIMIT — these three sources are catalogues of PUBLISHED ' +
-      'packages. A vendor that hosts its own remote MCP endpoint is usually in ' +
-      'NONE of them (Apollo, HubSpot, Zernio, Sentry, Notion and Linear all ' +
-      'return nothing here). So when the user names a specific product and this ' +
-      'tool returns no relevant hit, do NOT conclude the server does not exist ' +
-      'and do NOT ask the user for a link. Fall back to ptah_web_search — query ' +
-      'the vendor\'s own documentation (e.g. "<vendor> MCP server endpoint ' +
-      'docs") and the official Claude connectors directory at ' +
-      'claude.com/connectors, which lists vendor-hosted remote servers. Remote ' +
-      'servers need only their HTTPS endpoint URL: Ptah connects them via OAuth ' +
-      'with dynamic client registration (RFC 9728 / 8414 / 7591), so no API key ' +
-      'or manual client setup is required.\n\n' +
+      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is ' +
+      'configured, the Smithery registry for servers matching a query. Each ' +
+      'result is tagged with source: "official" or "smithery". Returns server ' +
+      'names and descriptions. Use specific technology or vendor keywords ' +
+      '(e.g., "github", "postgresql", "autodesk") for best results. Pair with ' +
+      'ptah_harness_list_installed_mcp to see which servers are already configured ' +
+      'before adding more, and install a chosen server with ' +
+      'ptah_harness_install_mcp_server.\n\n' +
+      'COVERAGE LIMIT — these two sources are catalogues of PUBLISHED packages. ' +
+      'A vendor that hosts its own remote MCP endpoint is usually in NEITHER ' +
+      '(Apollo, HubSpot, Zernio, Sentry, Notion and Linear all return nothing ' +
+      'here). So when the user names a specific product and this tool returns no ' +
+      'relevant hit, do NOT conclude the server does not exist and do NOT ask ' +
+      "the user for a link. Fall back to ptah_web_search — query the vendor's " +
+      'own documentation (e.g. "<vendor> MCP server endpoint docs") and the ' +
+      'official Claude connectors directory at claude.com/connectors, which ' +
+      'lists vendor-hosted remote servers. Remote servers need only their HTTPS ' +
+      'endpoint URL: Ptah connects them via OAuth with dynamic client registration ' +
+      '(RFC 9728 / 8414 / 7591), so no API key or manual client setup is ' +
+      'required.\n\n' +
       "TRUST RULE — only accept an endpoint URL published on the vendor's own " +
       'domain or in the official connectors directory. Never connect a URL ' +
       'scraped from a blog, forum or third-party listicle: OAuth dynamic client ' +
       "registration would hand that server the user's real credentials. If you " +
       'cannot confirm the endpoint from an authoritative source, say so and ' +
-      'stop rather than guessing a URL.',
+      'stop rather than guessing a URL.\n\n' +
+      'READING THE RESULT — "limit" bounds the MERGED list, which is drawn ' +
+      'round-robin from the two sources so neither can starve the other, and ' +
+      'duplicate server names are dropped. The payload carries "status" ("ok" | ' +
+      '"degraded") and a per-source "sources" array of {source, status, count, ' +
+      'error?}; when a source fails the other is still returned, status is ' +
+      '"degraded" and the tool result is flagged as an error, so an empty list ' +
+      'is only a true negative while status is "ok"',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1291,7 +1355,8 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
         },
         limit: {
           type: 'number',
-          description: 'Maximum number of results to return (default: 10)',
+          description:
+            'Maximum number of results in the merged list across all sources (default: 10)',
         },
       },
       required: ['query'],
@@ -1375,6 +1440,52 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
       required: ['serverName', 'config'],
     },
     annotations: { destructiveHint: false, idempotentHint: true },
+  };
+}
+
+/**
+ * Build the ptah_harness_propose_config tool definition
+ *
+ * The sixth harness method, and the one that closes the loop: the other five
+ * discover and install, this one hands the assembled configuration back to the
+ * surface for the user to review. It was reachable only from `execute_code`
+ * (`ptah.harness.proposeConfig`), so an agent working from the MCP tool list
+ * finished a long build with nowhere to put the result and improvised a
+ * markdown file instead.
+ */
+export function buildHarnessProposeConfigTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_propose_config',
+    description:
+      'Harness-builder tool: propose harness configuration to the surface for user review. ' +
+      'Call it repeatedly as decisions firm up — each call is a partial update, merged into the ' +
+      'configuration the user sees, so send only the fields you have settled. Call it a final ' +
+      'time with isConfigComplete=true when the harness is finished. Fields (all optional): ' +
+      'name, persona {label, description, goals[], templateId?}, agents {enabledAgents, ' +
+      'harnessSubagents[]}, skills {selectedSkills[], selectedSkillRefs[], createdSkills[]}, ' +
+      'prompt {systemPrompt, enhancedSections}, mcp {servers[], enabledTools}, claudeMd ' +
+      '{generateProjectClaudeMd, customSections, previewContent}. A skill ref is ' +
+      '{skillId, source?: "local"|"skills.sh", installSource?} — copy installSource verbatim from ' +
+      'the ptah_harness_search_skills result so Apply can install it. Unknown keys are rejected: ' +
+      'the error names the offending path, so fix and re-send rather than writing the config to a ' +
+      'file. This is the ONLY way to hand a structured harness config to the user for approval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        configUpdates: {
+          type: 'object',
+          description:
+            'Partial harness configuration. Only the fields listed in the tool description are accepted.',
+        },
+        isConfigComplete: {
+          type: 'boolean',
+          description:
+            'Set true on the final call to mark the harness ready for the user to apply. Defaults to false.',
+        },
+      },
+      required: ['configUpdates'],
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
   };
 }
 

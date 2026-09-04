@@ -40,6 +40,7 @@ const fsp = require('fs/promises') as {
   stat: jest.Mock;
 };
 
+import * as path from 'path';
 import {
   buildHarnessNamespace,
   type HarnessNamespaceDependencies,
@@ -76,13 +77,10 @@ interface McpRegistryMock {
 
 interface SkillsDirectoryMock extends HarnessSkillsDirectory {
   search: jest.Mock;
+  searchPage?: jest.Mock;
 }
 
 interface SmitheryRegistryMock extends HarnessMcpRegistrySource {
-  listServers: jest.Mock;
-}
-
-interface PulseMcpRegistryMock extends HarnessMcpRegistrySource {
   listServers: jest.Mock;
 }
 
@@ -98,7 +96,6 @@ function makeDeps(
     workspaceRoot?: string;
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
-    pulseMcpRegistry?: PulseMcpRegistryMock;
     mcpInstaller?: McpInstallerMock;
   } = {},
 ): {
@@ -107,7 +104,6 @@ function makeDeps(
   mcpRegistry: McpRegistryMock;
   skillsDirectory?: SkillsDirectoryMock;
   smitheryRegistry?: SmitheryRegistryMock;
-  pulseMcpRegistry?: PulseMcpRegistryMock;
   mcpInstaller?: McpInstallerMock;
   broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
@@ -135,7 +131,6 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
-    pulseMcpRegistry: overrides.pulseMcpRegistry,
     mcpInstaller: overrides.mcpInstaller,
     getWorkspaceRoot: () =>
       overrides.workspaceRoot === undefined ? 'D:/ws' : overrides.workspaceRoot,
@@ -148,7 +143,6 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
-    pulseMcpRegistry: overrides.pulseMcpRegistry,
     mcpInstaller: overrides.mcpInstaller,
     broadcast,
     logger,
@@ -451,7 +445,7 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
   it('returns all skills with isDisabled annotation when query is empty', async () => {
     const { deps } = makeDeps({ skills: sample, disabled: ['lint'] });
-    const out = await buildHarnessNamespace(deps).searchSkills();
+    const { skills: out } = await buildHarnessNamespace(deps).searchSkills();
     expect(out).toHaveLength(2);
     expect(out.find((s) => s.skillId === 'lint')?.isDisabled).toBe(true);
     expect(out.find((s) => s.skillId === 'test')?.isDisabled).toBe(false);
@@ -465,19 +459,21 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
   it('filters results case-insensitively across id/name/description', async () => {
     const { deps } = makeDeps({ skills: sample });
-    const out = await buildHarnessNamespace(deps).searchSkills('JEST');
+    const { skills: out } =
+      await buildHarnessNamespace(deps).searchSkills('JEST');
     expect(out.map((s) => s.skillId)).toEqual(['test']);
   });
 
   it('treats whitespace-only query as "all"', async () => {
     const { deps } = makeDeps({ skills: sample });
-    const out = await buildHarnessNamespace(deps).searchSkills('   ');
+    const { skills: out } =
+      await buildHarnessNamespace(deps).searchSkills('   ');
     expect(out).toHaveLength(2);
   });
 
   it('tags local skills with source="local"', async () => {
     const { deps } = makeDeps({ skills: sample });
-    const out = await buildHarnessNamespace(deps).searchSkills();
+    const { skills: out } = await buildHarnessNamespace(deps).searchSkills();
     expect(out.every((s) => s.source === 'local')).toBe(true);
   });
 
@@ -515,7 +511,8 @@ describe('buildHarnessNamespace — searchSkills', () => {
     };
     const { deps } = makeDeps({ skills: sample, skillsDirectory });
 
-    const out = await buildHarnessNamespace(deps).searchSkills('react');
+    const result = await buildHarnessNamespace(deps).searchSkills('react');
+    const out = result.skills;
 
     const remote = out.find((s) => s.source === 'skills.sh');
     expect(remote).toBeDefined();
@@ -524,12 +521,15 @@ describe('buildHarnessNamespace — searchSkills', () => {
       descriptorId: 'vercel-labs/agent-skills:react-best-practices',
       invocationName: 'react-best-practices',
       sourceId: 'vercel-labs/agent-skills',
-      invocability: 'unknown',
+      // A marketplace row is not installed, so it cannot be invoked. The old
+      // 'unknown' was on every single result and therefore carried nothing.
+      invocability: 'not-invocable',
     });
     expect(remote?.installSource).toBe('vercel-labs/agent-skills');
     expect(remote?.installs).toBe(1000);
     expect(out.some((s) => s.source === 'local')).toBe(false);
-    expect(skillsDirectory.search).toHaveBeenCalledWith('react');
+    expect(skillsDirectory.search).toHaveBeenCalledWith('react', 50);
+    expect(result.status).toBe('ok');
   });
 
   it('does not call skills.sh when query is empty', async () => {
@@ -543,7 +543,30 @@ describe('buildHarnessNamespace — searchSkills', () => {
     expect(skillsDirectory.search).not.toHaveBeenCalled();
   });
 
-  it('degrades to local-only when skills.sh search throws', async () => {
+  it('forwards an explicit limit and caps it at the upstream 200-row ceiling', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => []),
+    };
+    const { deps } = makeDeps({ skills: sample, skillsDirectory });
+    const ns = buildHarnessNamespace(deps);
+
+    await ns.searchSkills('lint', 5);
+    expect(skillsDirectory.search).toHaveBeenLastCalledWith('lint', 5);
+
+    // 200 is the marketplace's own per-query ceiling, so a bigger page could
+    // never be filled.
+    await ns.searchSkills('lint', 500);
+    expect(skillsDirectory.search).toHaveBeenLastCalledWith('lint', 200);
+  });
+
+  // ---------------------------------------------------------------------
+  // The three-state contract. A caught upstream failure that came back as a
+  // clean empty list was indistinguishable from "the marketplace has nothing",
+  // and an agent acted on it: it told the user no Three.js skills existed and
+  // authored replacements for four that did.
+  // ---------------------------------------------------------------------
+
+  it('marks the result degraded and names the failing source when skills.sh throws', async () => {
     const skillsDirectory: SkillsDirectoryMock = {
       search: jest.fn(async () => {
         throw new Error('network down');
@@ -551,11 +574,154 @@ describe('buildHarnessNamespace — searchSkills', () => {
     };
     const { deps, logger } = makeDeps({ skills: sample, skillsDirectory });
 
-    const out = await buildHarnessNamespace(deps).searchSkills('lint');
+    const result = await buildHarnessNamespace(deps).searchSkills('lint');
 
-    expect(out.every((s) => s.source === 'local')).toBe(true);
-    expect(out.map((s) => s.skillId)).toEqual(['lint']);
+    expect(result.status).toBe('degraded');
+    expect(result.skills.map((s) => s.skillId)).toEqual(['lint']);
+    expect(result.sources).toContainEqual({
+      source: 'skills.sh',
+      status: 'failed',
+      count: 0,
+      error: 'network down',
+    });
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('never reports an upstream failure as a clean empty result', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => {
+        throw new Error('upstream 503');
+      }),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('threejs');
+
+    expect(result.skills).toEqual([]);
+    expect(result.count).toBe(0);
+    // The list is empty either way — `status` is the only thing that tells a
+    // caller which of the two it is looking at.
+    expect(result.status).toBe('degraded');
+  });
+
+  it('reports status "ok" for a genuinely empty marketplace answer', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => []),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('threejs');
+
+    expect(result.skills).toEqual([]);
+    expect(result.status).toBe('ok');
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({
+        source: 'skills.sh',
+        status: 'ok',
+        count: 0,
+      }),
+    );
+  });
+
+  it('reports skills.sh as unavailable, not failed, when no client is wired', async () => {
+    const { deps } = makeDeps({ skills: sample });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('lint');
+
+    expect(result.status).toBe('ok');
+    expect(result.sources.find((s) => s.source === 'skills.sh')?.status).toBe(
+      'unavailable',
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Paging. Every response used to carry exactly `count: 50` with no total
+  // and no cursor, so a caller could not tell a complete answer from the
+  // first sixth of one.
+  // ---------------------------------------------------------------------
+
+  it('pages the marketplace through searchPage and echoes the window', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => []),
+      searchPage: jest.fn(async () => ({
+        skills: [makeSkillShEntry({ skillId: 'b' })],
+        offset: 25,
+        limit: 25,
+        hasMore: true,
+        limitedByUpstream: false,
+      })),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('x', 25, 25);
+
+    expect(skillsDirectory.searchPage).toHaveBeenCalledWith('x', 25, 25);
+    expect(skillsDirectory.search).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ offset: 25, limit: 25, hasMore: true });
+    expect(result.total).toBeUndefined();
+  });
+
+  it('reports a total only when the marketplace ran out', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => []),
+      searchPage: jest.fn(async () => ({
+        skills: [makeSkillShEntry({ skillId: 'a' })],
+        offset: 0,
+        limit: 25,
+        hasMore: false,
+        total: 3,
+        limitedByUpstream: false,
+      })),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('x', 25);
+
+    expect(result.total).toBe(3);
+    expect(result.hasMore).toBe(false);
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({
+        source: 'skills.sh',
+        total: 3,
+        limitedByUpstream: false,
+      }),
+    );
+  });
+
+  it('surfaces the upstream ceiling on the source report', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => []),
+      searchPage: jest.fn(async () => ({
+        skills: [makeSkillShEntry({ skillId: 'a' })],
+        offset: 175,
+        limit: 25,
+        hasMore: false,
+        limitedByUpstream: true,
+      })),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('x', 25, 175);
+
+    expect(result.total).toBeUndefined();
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({
+        source: 'skills.sh',
+        limitedByUpstream: true,
+      }),
+    );
+  });
+
+  it('falls back to the unpaged client and claims no further pages', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => [makeSkillShEntry({ skillId: 'a' })]),
+    };
+    const { deps } = makeDeps({ skills: [], skillsDirectory });
+
+    const result = await buildHarnessNamespace(deps).searchSkills('x', 25, 50);
+
+    expect(skillsDirectory.search).toHaveBeenCalledWith('x', 25);
+    expect(result.hasMore).toBe(false);
   });
 });
 
@@ -577,6 +743,13 @@ describe('buildHarnessNamespace — createSkill', () => {
 
     expect(result.skillId).toBe('code-review-helper');
     expect(result.skillPath).toMatch(/code-review-helper[\\/]SKILL.md$/);
+    // Default scope is user-global, and the result says so — the two scopes
+    // write to different roots and the caller cannot otherwise tell.
+    expect(result.scope).toBe('user');
+    expect(result.pluginId).toBe('ptah-harness-code-review-helper');
+    expect(result.skillPath).toContain(
+      path.join('D:/home', '.ptah', 'plugins'),
+    );
 
     expect(fsp.mkdir).toHaveBeenCalled();
     const [writtenPath, writtenBody] = fsp.writeFile.mock.calls[0];
@@ -587,7 +760,7 @@ describe('buildHarnessNamespace — createSkill', () => {
     expect(writtenBody).toContain('- mcp__ptah__execute_code');
     expect(writtenBody).toContain('# Body');
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('Created skill'),
+      expect.stringContaining('Created user-scoped skill'),
     );
   });
 
@@ -604,6 +777,98 @@ describe('buildHarnessNamespace — createSkill', () => {
     await expect(
       buildHarnessNamespace(deps).createSkill('my-skill', 'd', 'c'),
     ).rejects.toThrow(/already exists/);
+    expect(fsp.writeFile).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // Workspace scope. A skill that only means something in one project used to
+  // be written user-global with no alternative, so it loaded everywhere.
+  // -----------------------------------------------------------------------
+
+  it('writes a workspace-scoped skill under {ws}/.ptah/plugins', async () => {
+    existsSync.mockReturnValue(false);
+    const { deps } = makeDeps();
+
+    const result = await buildHarnessNamespace(deps).createSkill(
+      'House Style',
+      'This repo only',
+      '# Body',
+      undefined,
+      'workspace',
+    );
+
+    expect(result.scope).toBe('workspace');
+    expect(result.pluginId).toBe('ptah-harness-house-style');
+    expect(result.skillPath).toBe(
+      path.join(
+        'D:/ws',
+        '.ptah',
+        'plugins',
+        'ptah-harness-house-style',
+        'skills',
+        'house-style',
+        'SKILL.md',
+      ),
+    );
+  });
+
+  it('refuses a workspace-scoped skill when no folder is open', async () => {
+    existsSync.mockReturnValue(false);
+    const { deps } = makeDeps({ workspaceRoot: '' });
+
+    await expect(
+      buildHarnessNamespace(deps).createSkill(
+        'house-style',
+        'd',
+        'c',
+        undefined,
+        'workspace',
+      ),
+    ).rejects.toThrow(/no workspace folder is open/i);
+    expect(fsp.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses a slug already taken in the other scope rather than shadowing it', async () => {
+    // Both roots produce the plugin id `ptah-harness-house-style`, and the
+    // loader resolves that clash workspace-wins — so writing the second copy
+    // would silently stop the first from loading.
+    const userSkillMd = path.join(
+      'D:/home',
+      '.ptah',
+      'plugins',
+      'ptah-harness-house-style',
+      'skills',
+      'house-style',
+      'SKILL.md',
+    );
+    existsSync.mockImplementation((p: string) => p === userSkillMd);
+    const { deps } = makeDeps();
+
+    await expect(
+      buildHarnessNamespace(deps).createSkill(
+        'house-style',
+        'd',
+        'c',
+        undefined,
+        'workspace',
+      ),
+    ).rejects.toThrow(/already exists in the user scope/);
+    expect(fsp.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown scope', async () => {
+    existsSync.mockReturnValue(false);
+    const { deps } = makeDeps();
+
+    await expect(
+      buildHarnessNamespace(deps).createSkill(
+        'x-skill',
+        'd',
+        'c',
+        undefined,
+        'global' as never,
+      ),
+    ).rejects.toThrow(/Invalid scope/);
     expect(fsp.writeFile).not.toHaveBeenCalled();
   });
 });
@@ -662,6 +927,7 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
       { name: 'official/srv', description: undefined, source: 'official' },
       { name: 'smithery/srv', description: undefined, source: 'smithery' },
     ]);
+    expect(out.status).toBe('ok');
   });
 
   it('degrades to official-only when Smithery search throws', async () => {
@@ -676,74 +942,140 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
     expect(out.servers.map((s) => s.source)).toEqual(['official']);
+    expect(out.status).toBe('degraded');
+    expect(out.sources).toContainEqual({
+      source: 'smithery',
+      status: 'failed',
+      count: 0,
+      error: 'missing key',
+    });
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it('merges PulseMCP results tagged source="pulsemcp" when configured', async () => {
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest
-        .fn()
-        .mockResolvedValue({ servers: [{ name: 'autodesk-mcp' }] }),
-    };
-    const { deps } = makeDeps({
-      servers: { servers: [{ name: 'official/srv' }] },
-      pulseMcpRegistry,
-    });
-
-    const out = await buildHarnessNamespace(deps).searchMcpRegistry(
-      'autodesk',
-      5,
-    );
-
-    expect(pulseMcpRegistry.listServers).toHaveBeenCalledWith({
-      query: 'autodesk',
-      limit: 5,
-    });
-    expect(out.servers).toEqual([
-      { name: 'official/srv', description: undefined, source: 'official' },
-      { name: 'autodesk-mcp', description: undefined, source: 'pulsemcp' },
-    ]);
-  });
-
-  it('merges official + smithery + pulsemcp results in order', async () => {
+  it('still returns Smithery when the official registry throws', async () => {
+    // The official source used to be awaited unguarded, so a registry outage
+    // took Smithery down with it.
     const smitheryRegistry: SmitheryRegistryMock = {
       listServers: jest
         .fn()
         .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
     };
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest
-        .fn()
-        .mockResolvedValue({ servers: [{ name: 'pulse/srv' }] }),
+    const { deps, mcpRegistry } = makeDeps({ smitheryRegistry });
+    mcpRegistry.listServers.mockRejectedValue(new Error('registry 503'));
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.name)).toEqual(['smithery/srv']);
+    expect(out.status).toBe('degraded');
+  });
+
+  it('applies limit to the MERGED list and draws round-robin across two sources', async () => {
+    // Concatenating per-source windows meant a caller asking for 4 got 4
+    // official rows plus 4 Smithery rows — 8 for limit 4 — and at limit 20 the
+    // relevant Smithery entries vanished behind 20 official ones entirely.
+    const officialNames = Array.from({ length: 10 }, (_, i) => ({
+      name: `official/${i}`,
+    }));
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockResolvedValue({
+        servers: Array.from({ length: 10 }, (_, i) => ({
+          name: `smithery/${i}`,
+        })),
+      }),
     };
     const { deps } = makeDeps({
-      servers: { servers: [{ name: 'official/srv' }] },
+      servers: { servers: officialNames },
       smitheryRegistry,
-      pulseMcpRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db', 4);
+
+    expect(out.servers).toHaveLength(4);
+    expect(out.count).toBe(4);
+    expect(out.servers.map((s) => s.name)).toEqual([
+      'official/0',
+      'smithery/0',
+      'official/1',
+      'smithery/1',
+    ]);
+  });
+
+  it('drops a server name a higher-priority source already supplied', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'shared/srv' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'shared/srv' }] },
+      smitheryRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
-    expect(out.servers.map((s) => s.source)).toEqual([
-      'official',
-      'smithery',
-      'pulsemcp',
+    expect(out.servers).toHaveLength(1);
+    expect(out.servers[0].source).toBe('official');
+  });
+
+  it('reports an unconfigured source as unavailable without degrading the call', async () => {
+    const { deps } = makeDeps({ servers: { servers: [{ name: 'off' }] } });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('x');
+
+    expect(out.status).toBe('ok');
+    expect(out.sources.map((s) => `${s.source}:${s.status}`)).toEqual([
+      'official:ok',
+      'smithery:unavailable',
     ]);
   });
 
-  it('still returns official results when PulseMCP search fails', async () => {
-    const pulseMcpRegistry: PulseMcpRegistryMock = {
-      listServers: jest.fn().mockRejectedValue(new Error('pulse down')),
+  it('merges official + smithery results in order', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual(['official', 'smithery']);
+  });
+
+  it('still returns official results when Smithery search fails', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockRejectedValue(new Error('smithery down')),
     };
     const { deps, logger } = makeDeps({
       servers: { servers: [{ name: 'official/srv' }] },
-      pulseMcpRegistry,
+      smitheryRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
 
     expect(out.servers.map((s) => s.source)).toEqual(['official']);
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('fans out to exactly two sources and reports official + smithery', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockResolvedValue({ servers: [] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.sources).toHaveLength(2);
+    expect(out.sources.map((s) => s.source).sort()).toEqual([
+      'official',
+      'smithery',
+    ]);
   });
 });
 

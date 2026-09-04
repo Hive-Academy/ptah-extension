@@ -47,7 +47,14 @@ export async function bringUpSubsystems(
       const mcpService = container.resolve(TOKENS.CODE_EXECUTION_MCP) as {
         start: () => Promise<number>;
         getPort: () => number | null;
-        ensureRegisteredForSubagents: () => void;
+        // Structural, and deliberately widened past `Promise<void>`: the call
+        // now resolves with a `{ registered, reason }` outcome (TASK_2026_332).
+        // This lib cannot import `vscode-lm-tools` for the real type — the
+        // dependency runs the other way — so it reads the one field it needs.
+        ensureRegisteredForSubagents: () => void | Promise<void | {
+          registered?: boolean;
+          reason?: string;
+        }>;
       };
 
       if (mcpService.getPort() !== null) {
@@ -61,7 +68,18 @@ export async function bringUpSubsystems(
         logger.info(`[SubsystemBringUp] MCP server started on port ${port}`);
       }
       try {
-        mcpService.ensureRegisteredForSubagents();
+        // Awaited so a rejection lands in this catch rather than as an
+        // unhandled rejection — the call became async in TASK_2026_318.
+        const registration = await mcpService.ensureRegisteredForSubagents();
+        // ...and the non-throwing failure is reported too. Activation-time
+        // registration losing a race with a concurrent host used to leave no
+        // trace at all here (TASK_2026_332).
+        if (registration && registration.registered === false) {
+          logger.warn(
+            '[SubsystemBringUp] MCP started but .mcp.json entry was not written',
+            { reason: registration.reason },
+          );
+        }
       } catch (regError: unknown) {
         logger.warn(
           '[SubsystemBringUp] MCP ensureRegisteredForSubagents failed (non-fatal)',

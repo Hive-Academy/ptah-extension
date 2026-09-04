@@ -23,10 +23,24 @@ Ptah is multi-provider by design. You configure the AI services you want to use,
 | [GitHub Copilot](/providers/copilot/)   | OAuth           | Code completion quality, bundled if you have Copilot.        | $0 (your subscription).                |
 | [OpenAI Codex](/providers/codex/)       | OAuth / API key | GPT-5 family, high-reasoning modes.                          | OpenAI published rates.                |
 | [Ollama](/providers/ollama/)            | Local / token   | Offline work, privacy, local models.                         | $0 for local, Cloud uses Ollama rates. |
+| [LM Studio](/providers/lm-studio/)      | Local (no key)  | Local models over an OpenAI-compatible server.               | $0 — runs on your hardware.            |
 | [OpenRouter](/providers/openrouter/)    | API key         | Access hundreds of models with one key; live pricing feed.   | Live from OpenRouter registry.         |
+| [Requesty](/providers/requesty/)        | API key         | Multi-model routing with no translation layer.               | Requesty published rates.              |
 | [Moonshot (Kimi)](/providers/moonshot/) | API key         | 256K context, agentic coding flagship (`kimi-k2.7-code`).    | Moonshot published rates.              |
 | [Z.AI (GLM)](/providers/z-ai/)          | API key         | 1M context, open-source coding leader (`glm-5.2`).           | Z.AI published rates.                  |
+| [Sakana (Fugu)](/providers/sakana/)     | API key         | Fugu and Fugu Ultra, 200K context.                           | Unpublished — reported as $0.          |
 | [Ptah CLI](/providers/ptah-cli/)        | User-configured | Wrap any CLI-based agent. Highest priority in CLI detection. | Delegated to wrapped tool.             |
+
+Ollama Cloud is configured from the same panel as local Ollama. See
+[Ollama](/providers/ollama/).
+
+You can also add a **custom provider** — any Anthropic-compatible or
+OpenAI-compatible endpoint you define yourself, with your own base URL, key,
+model list, and tier map:
+
+```bash
+ptah provider custom add my-endpoint --base-url https://... --key <key>
+```
 
 And three web search providers for grounding:
 
@@ -51,6 +65,6 @@ Non-secret settings live in `~/.ptah/settings.json`. Secrets live in secure stor
 
 ## No provider gating
 
-Every provider integration — API keys and OAuth flows alike — is part of the free, open-source
-Community tier. Bring your own key (or sign in via OAuth) and you're set; nothing here requires a
-subscription. See the individual provider pages for setup details.
+Ptah is free and fully open source. Every provider integration — API keys and OAuth flows alike —
+is available to everyone. Bring your own key (or sign in via OAuth) and you're set. No Ptah account,
+no license key, and no subscription is involved. See the individual provider pages for setup details.

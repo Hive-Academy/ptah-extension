@@ -95,7 +95,12 @@ interface WorkspaceState {
 
 const DEBOUNCE_MS = 300;
 const REGISTRY_FILE = 'registry.md';
-const SPECS_GLOB = '**/.ptah/specs/**';
+/**
+ * Watched RELATIVE to the workspace root (see `startWatcher`), which is what
+ * lets every adapter resolve it exactly: `RelativePattern` in VS Code, and a
+ * concrete `<root>/.ptah/specs` directory in the chokidar-backed adapters.
+ */
+const SPECS_GLOB = '.ptah/specs/**';
 
 /**
  * Files this service itself generates at the ROOT of `.ptah/specs/`.
@@ -173,11 +178,16 @@ export class TaskIndexService implements ITaskIndexNotifier {
     try {
       const indexWritten = await start;
       if (!indexWritten) {
-        // The README landed but the derived index did not — the store is
-        // chosen lazily and its SQLite connection opens LATER in the Electron
-        // and CLI boot than DI registration does. Un-latch so the next caller
+        // The README landed but the derived index did not — most often a store
+        // whose SQLite connection is not open yet. Un-latch so the next caller
         // performs a real warm-up instead of inheriting an empty index for the
         // rest of the session.
+        //
+        // TASK_2026_306 defect E gave that "next caller" a trigger rather than
+        // leaving it to chance: `startTaskSpecsIndex` re-warms on the
+        // connection's `onDidOpen`. This latch is still what makes that second
+        // call do real work, and it remains the only recovery for hosts and
+        // paths with no open signal — do not remove it as redundant.
         state.started = false;
       }
     } catch (error: unknown) {
@@ -416,7 +426,12 @@ export class TaskIndexService implements ITaskIndexNotifier {
   private startWatcher(root: string, state: WorkspaceState): void {
     if (state.watcher) return;
     try {
-      const watcher = this.fs.createFileWatcher(SPECS_GLOB);
+      // Scoped to THIS root, not a bare cross-workspace glob. One watcher is
+      // created per workspace and `extractFolder` already discards anything
+      // outside `<root>/.ptah/specs/`, so an unscoped watch only bought every
+      // root a copy of every other root's events. Scoping also gives the Node
+      // adapters a concrete directory to watch instead of the workspace tree.
+      const watcher = this.fs.createFileWatcher(SPECS_GLOB, { cwd: root });
       state.watcher = watcher;
       state.subscriptions.push(
         watcher.onDidChange((p) => this.onWatchEvent(root, p)),
@@ -476,6 +491,10 @@ export class TaskIndexService implements ITaskIndexNotifier {
    * Full scan → single-transaction `replaceWorkspace`. Guarantees the derived
    * index equals a fresh rebuild (R3.2). `emit` gates the push so the silent
    * warm-up during `ensureStarted` doesn't broadcast.
+   *
+   * The scan is unconditional; only the WRITE is skipped when the store reports
+   * it cannot accept one yet. `indexWritten` in the result says which happened,
+   * and it is what `ensureStarted` latches on.
    */
   private async rebuild(
     root: string,
@@ -492,17 +511,42 @@ export class TaskIndexService implements ITaskIndexNotifier {
       ({ body: _body, ...summary }) => summary,
     );
     let indexWritten = true;
-    try {
-      this.store.replaceWorkspace(root, summaries, scan.excluded);
-    } catch (error: unknown) {
+    if (!this.store.isReady()) {
+      // The one PREDICTABLE offline case, and the whole reason `isReady()`
+      // exists (TASK_2026_306 task 4.4). Both Electron and the CLI register the
+      // store in the same DI pass as the activation warm-up but call
+      // `openAndMigrate` hundreds of log lines later, so this first warm-up runs
+      // against a connection that is certain to reject the write. Attempting it
+      // anyway produced `Persistence is offline` as a WARN on every clean boot —
+      // an expected outcome in the channel reserved for unexpected ones, which
+      // is how a reader learns to ignore the channel.
+      //
+      // ONLY the write is skipped. The scan above already ran, so
+      // `state.specsDirExists` below is set from it and `ensureSpecsReadme` still
+      // writes the contract doc — which is why this guard costs nothing on a host
+      // where `openAndMigrate` genuinely never succeeds. `indexWritten: false`
+      // still un-latches `ensureStarted`, so the `onDidOpen` re-warm in
+      // `di/start-index.ts` performs the real rebuild moments later.
       indexWritten = false;
-      // WARN, not ERROR: the commonest cause is a store whose SQLite
-      // connection has not been opened yet (Electron/CLI open it well after DI
-      // registration). `ensureStarted` treats this as "not started" and retries
-      // on the next call, so it is recoverable rather than a defect.
-      this.logger.warn('[task-specs] index rebuild write failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.debug(
+        '[task-specs] index rebuild write skipped — store not ready yet',
+      );
+    } else {
+      try {
+        this.store.replaceWorkspace(root, summaries, scan.excluded);
+      } catch (error: unknown) {
+        indexWritten = false;
+        // WARN, not ERROR: this is recoverable, not a defect. `ensureStarted`
+        // treats it as "not started" and a later call performs a real rebuild.
+        //
+        // Reaching here means a store that reported itself READY failed anyway —
+        // a closed connection, a full disk, a corrupt page. That is unpredicted
+        // and belongs in this channel. The guard above removed the one predicted
+        // failure from it; it did not remove the channel.
+        this.logger.warn('[task-specs] index rebuild write failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     const state = this.states.get(root);
     if (state) state.specsDirExists = scan.specsDirExists;

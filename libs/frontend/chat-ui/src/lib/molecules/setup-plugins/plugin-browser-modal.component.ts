@@ -20,9 +20,12 @@ import {
   ChevronRight,
   Wand2,
 } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
 import {
   isOptOutPluginSource,
+  type HarnessSetSkillSelectionParams,
+  type HarnessSkillCandidate,
+  type HarnessSkillSyncMode,
   type PluginInfo,
   type PluginSkillEntry,
 } from '@ptah-extension/shared';
@@ -81,6 +84,34 @@ function isOptOutPlugin(plugin: PluginInfo): boolean {
 }
 
 /**
+ * Timeout for `harness:set-skill-selection`.
+ *
+ * Far longer than the 10s the plugin calls get, because this one is not a
+ * config write: recording the selection runs a propagation pass that copies
+ * skills across up to six harness targets and retries on Windows lock
+ * contention. `HarnessHealthStore` gives `harness:reconcile` the same budget.
+ */
+const SKILL_SELECTION_SAVE_TIMEOUT_MS = 90_000;
+
+/**
+ * A comparable key for a selection, so "the user changed nothing" is decidable.
+ *
+ * Slugs are sorted because the backend normalizes them (trimmed, deduplicated,
+ * sorted) before recording, and tick-order is not a change. Under `'all'` the
+ * allowlist is meaningless and is deliberately excluded from the key — a stale
+ * set left over from a previous `'selected'` session must not read as an edit.
+ */
+function skillSelectionKey(
+  mode: HarnessSkillSyncMode,
+  slugs: Iterable<string>,
+): string {
+  if (mode === 'all') {
+    return 'all';
+  }
+  return `selected|${[...slugs].sort().join(',')}`;
+}
+
+/**
  * PluginBrowserModalComponent - Modal dialog for browsing and configuring plugins
  *
  * Patterns: Signal-based state, DaisyUI modal, computed filtering, effect for open trigger
@@ -92,6 +123,17 @@ function isOptOutPlugin(plugin: PluginInfo): boolean {
  * - Checkbox selection with immutable Set signal updates
  * - Saves configuration via RPC on confirm
  * - Recommended badge for default plugins
+ * - Per-workspace skill selection: all-vs-allowlist for what this project
+ *   propagates into its AI tools' harness directories (TASK_2026_316)
+ *
+ * ### Two axes, one modal
+ *
+ * This is the only surface that speaks for both, which is why the selection
+ * lives here rather than in a second picker. The plugin checkboxes decide what
+ * loads into a SESSION; the section above them decides what this WORKSPACE
+ * copies onto disk for Claude, Codex, Copilot and Cursor. They are saved by
+ * two different RPCs and neither derives the other — most of the selectable
+ * slugs have no plugin above them at all.
  *
  * SOLID Principles:
  * - Single Responsibility: Browse and configure plugin selection
@@ -134,6 +176,140 @@ function isOptOutPlugin(plugin: PluginInfo): boolean {
             <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
+
+        <!--
+          Which of the user's skills THIS project gets (TASK_2026_316).
+
+          OUTSIDE the loading/error chain below, deliberately. This section
+          answers a per-workspace question that has nothing to do with the
+          plugin catalogue, and the dashboard's skill-selection card opens
+          this modal for it and nothing else. While it lived inside that
+          chain's else-branch, a plugin read that was slow — or that belonged
+          to another component, since the catalogue is shared — hid the one
+          control the user came for, and a plugin read that FAILED hid it for
+          good (TASK_2026_345 gate regression).
+
+          No backticks in this comment: the whole template is a template
+          literal, so one would end it mid-file.
+        -->
+        @if (skillSelectionAvailable()) {
+          <section
+            class="rounded-lg border border-base-300 bg-base-200/30 p-3 mb-4"
+            data-testid="skill-selection"
+            aria-label="Skills for this project"
+          >
+            <div class="flex items-start gap-3">
+              <div class="flex-1 min-w-0">
+                <span class="block text-sm font-medium"
+                  >Skills for this project</span
+                >
+                <span
+                  class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
+                >
+                  Which of your skills Ptah copies into this project's AI tools.
+                  Every project keeps its own answer.
+                </span>
+              </div>
+              <div
+                class="join shrink-0"
+                role="radiogroup"
+                aria-label="Skill selection mode"
+              >
+                <button
+                  class="btn btn-xs join-item"
+                  [ngClass]="
+                    skillMode() === 'all' ? 'btn-primary' : 'btn-ghost'
+                  "
+                  type="button"
+                  role="radio"
+                  [attr.aria-checked]="skillMode() === 'all'"
+                  data-testid="skill-mode-all"
+                  (click)="setSkillMode('all')"
+                >
+                  All of them
+                </button>
+                <button
+                  class="btn btn-xs join-item"
+                  [ngClass]="
+                    skillMode() === 'selected' ? 'btn-primary' : 'btn-ghost'
+                  "
+                  type="button"
+                  role="radio"
+                  [attr.aria-checked]="skillMode() === 'selected'"
+                  data-testid="skill-mode-selected"
+                  (click)="setSkillMode('selected')"
+                >
+                  Only the ones I pick
+                </button>
+              </div>
+            </div>
+
+            @if (skillMode() === 'all') {
+              @if (skillModeDerived()) {
+                <span
+                  class="block text-xs text-base-content-muted mt-2"
+                  data-testid="skill-mode-derived"
+                >
+                  This project was already receiving skills before it could be
+                  asked, so Ptah kept them all flowing. Narrow it whenever you
+                  like.
+                </span>
+              }
+            } @else {
+              <div
+                class="mt-2 max-h-40 overflow-y-auto pr-1"
+                role="group"
+                aria-label="Selectable skills"
+              >
+                @for (candidate of skillCandidates(); track candidate.slug) {
+                  <label
+                    class="flex items-start gap-2 py-1 px-1 -mx-1 rounded cursor-pointer hover:bg-base-200/60"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs checkbox-primary mt-0.5"
+                      [checked]="isSkillSlugSelected(candidate.slug)"
+                      (change)="toggleSkillSlug(candidate.slug)"
+                      [attr.aria-label]="
+                        (isSkillSlugSelected(candidate.slug)
+                          ? 'Deselect '
+                          : 'Select ') + candidate.name
+                      "
+                    />
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-xs font-medium">{{
+                        candidate.name
+                      }}</span>
+                      @if (candidate.description) {
+                        <span
+                          class="block text-xs text-base-content-muted leading-relaxed"
+                          >{{ candidate.description }}</span
+                        >
+                      }
+                    </span>
+                    @if (candidate.pluginId) {
+                      <span class="badge badge-xs badge-ghost shrink-0">{{
+                        candidate.pluginId
+                      }}</span>
+                    }
+                  </label>
+                } @empty {
+                  <span class="block text-xs text-base-content-muted py-2">
+                    No skills on this machine yet. Anything you add with the
+                    harness wizard, a marketplace or skills.sh shows up here.
+                  </span>
+                }
+              </div>
+              <span
+                class="block text-xs text-base-content-muted mt-1"
+                data-testid="skill-selection-count"
+              >
+                {{ selectedSkillSlugs().size }} of
+                {{ skillCandidates().length }} skills selected
+              </span>
+            }
+          </section>
+        }
 
         @if (isLoading()) {
           <!-- Loading state -->
@@ -434,6 +610,12 @@ function isOptOutPlugin(plugin: PluginInfo): boolean {
 })
 export class PluginBrowserModalComponent {
   private readonly rpcService = inject(ClaudeRpcService);
+  /**
+   * The shared plugin list + config. See `loadPlugins`; the modal keeps its own
+   * per-workspace skill selection and its own skill listing, which nothing else
+   * reads.
+   */
+  private readonly catalog = inject(PluginCatalogService);
 
   /** Lucide icon references */
   protected readonly PuzzleIcon = Puzzle;
@@ -484,6 +666,63 @@ export class PluginBrowserModalComponent {
 
   /** Set of plugin IDs whose skill list is currently expanded */
   readonly expandedPlugins = signal<Set<string>>(new Set());
+
+  // -------------------------------------------------------------------------
+  // The per-workspace skill selection (TASK_2026_316)
+  //
+  // A SECOND axis, not a second copy of the first. `selectedIds` above decides
+  // which plugins load into a session; the four signals below decide which of
+  // the user's skills this WORKSPACE has copied into its AI tools' harness
+  // directories, and the two answers are independent — a plugin can be off in
+  // chat while its skills still reach Codex, and a hand-authored SKILL.md with
+  // no plugin above it has no checkbox on the first axis at all.
+  //
+  // Which is why the list below is keyed on `available` from
+  // `harness:get-skill-selection` rather than on `availablePlugins`. A promoted
+  // synth skill, a hand-authored SKILL.md and a `skills.sh` install all arrive
+  // with `pluginId: null`, and that is the normal case, not an error. Omitting
+  // them would let the first `'selected'` save reap them with no control
+  // anywhere able to bring them back.
+  // -------------------------------------------------------------------------
+
+  /** Everything this workspace COULD propagate, sorted by slug, as the backend reported it. */
+  readonly skillCandidates = signal<HarnessSkillCandidate[]>([]);
+
+  /** The allowlist being edited. Meaningless (and unsent) under `'all'`. */
+  readonly selectedSkillSlugs = signal<Set<string>>(new Set());
+
+  /** Whether this workspace propagates everything or only {@link selectedSkillSlugs}. */
+  readonly skillMode = signal<HarnessSkillSyncMode>('all');
+
+  /**
+   * The `'all'` on screen was inferred by the migration, not chosen by anyone.
+   *
+   * Surfaced quietly rather than acted on: a user who chose everything and a
+   * workspace that predates the gate look identical without it, and only the
+   * second deserves a sentence explaining why it is set that way.
+   */
+  readonly skillModeDerived = signal(false);
+
+  /**
+   * Whether the selection section renders at all.
+   *
+   * False when `harness:get-skill-selection` did not answer — no workspace is
+   * open, or the host predates Batch 3. A control that cannot be saved is worse
+   * than no control, so the whole section is withheld rather than shown inert.
+   */
+  readonly skillSelectionAvailable = signal(false);
+
+  /**
+   * The selection as loaded, for deciding whether the user actually changed it.
+   *
+   * Load-bearing, not an optimization. `harness:get-skill-selection` is
+   * READ-ONLY on purpose — asking must not record — and saving an untouched
+   * derived `'all'` would quietly convert "this workspace predates the gate"
+   * into "the user chose everything", destroying the one distinction `derived`
+   * exists to carry. It would also spend a full propagation pass every time
+   * someone toggles an unrelated plugin.
+   */
+  private skillSelectionBaseline = skillSelectionKey('all', []);
 
   /**
    * Filtered plugins based on search query.
@@ -617,6 +856,35 @@ export class PluginBrowserModalComponent {
   }
 
   /**
+   * Switch between propagating every skill and propagating an allowlist.
+   *
+   * Switching to `'all'` KEEPS the ticked slugs in memory rather than clearing
+   * them, so a user who flips the control to look at the other option and flips
+   * back has not lost their work. Nothing stale is ever sent: the save path
+   * omits `slugs` entirely under `'all'`, and the backend clears the recorded
+   * allowlist itself.
+   */
+  setSkillMode(mode: HarnessSkillSyncMode): void {
+    this.skillMode.set(mode);
+  }
+
+  /** Whether a slug is in the allowlist being edited. */
+  isSkillSlugSelected(slug: string): boolean {
+    return this.selectedSkillSlugs().has(slug);
+  }
+
+  /** Add or remove one slug, immutably so the signal actually fires. */
+  toggleSkillSlug(slug: string): void {
+    const updated = new Set(this.selectedSkillSlugs());
+    if (updated.has(slug)) {
+      updated.delete(slug);
+    } else {
+      updated.add(slug);
+    }
+    this.selectedSkillSlugs.set(updated);
+  }
+
+  /**
    * Handle search input changes.
    */
   onSearchInput(event: Event): void {
@@ -673,6 +941,22 @@ export class PluginBrowserModalComponent {
       );
 
       if (result.isSuccess()) {
+        // The shared catalog now holds the PREVIOUS config. Re-read it before
+        // anything renders from it — the status widget beside this modal reads
+        // the same signals, and leaving it stale would show the old count until
+        // the window reloaded. Awaited rather than fired: `saved` below is what
+        // parents act on, and a parent that re-reads must not race this.
+        await this.catalog.refresh();
+        // Second write, and only if the user moved this control. It runs after
+        // the plugin save rather than beside it because both propagate, and
+        // the selection is the narrower filter — letting it land last means the
+        // harness ends the save reflecting the answer the user just gave.
+        if (!(await this.saveSkillSelection())) {
+          this.saveError.set(
+            'Your plugin choices were saved, but Ptah could not record which skills this project gets.',
+          );
+          return;
+        }
         this.saved.emit(enabledPluginIds);
         this.closed.emit();
       } else {
@@ -688,6 +972,106 @@ export class PluginBrowserModalComponent {
     } finally {
       this.isSaving.set(false);
     }
+  }
+
+  /**
+   * Record the skill selection, if and only if the user changed it.
+   *
+   * Returns `true` for "nothing to do" as well as for a successful write —
+   * both mean the recorded selection now matches what is on screen. A `saved:
+   * false` reply is a real failure: the previous selection stays in force and
+   * no pass ran, so reporting success would show the user a selection the next
+   * reconcile does not honour.
+   *
+   * The reply's NORMALIZED slugs are adopted rather than the ones sent, so the
+   * baseline matches what is actually on disk (trimmed, deduplicated, sorted)
+   * and a re-save cannot fire on a difference that only exists locally.
+   */
+  private async saveSkillSelection(): Promise<boolean> {
+    if (!this.skillSelectionAvailable()) {
+      return true;
+    }
+
+    const mode = this.skillMode();
+    const slugs = this.selectedSkillSlugs();
+    if (skillSelectionKey(mode, slugs) === this.skillSelectionBaseline) {
+      return true;
+    }
+
+    const params: HarnessSetSkillSelectionParams =
+      mode === 'all' ? { mode } : { mode, slugs: Array.from(slugs) };
+
+    try {
+      const result = await this.rpcService.call(
+        'harness:set-skill-selection',
+        params,
+        { timeout: SKILL_SELECTION_SAVE_TIMEOUT_MS },
+      );
+
+      if (result.isSuccess() && result.data?.saved) {
+        this.applySkillSelection({
+          mode: result.data.mode,
+          slugs: result.data.slugs,
+          // The user just answered, so nothing here is inferred any more.
+          derived: false,
+        });
+        return true;
+      }
+
+      console.error(
+        '[PluginBrowserModal] Failed to record the skill selection:',
+        result.error,
+      );
+      return false;
+    } catch (err: unknown) {
+      console.error(
+        '[PluginBrowserModal] Error recording the skill selection:',
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Adopt a selection the backend reported, and take it as the new baseline.
+   *
+   * `available` is optional because the save reply does not carry it: recording
+   * a selection cannot change what the user layer OFFERS, only which of it this
+   * workspace takes, so the loaded candidate list stays as it is.
+   */
+  private applySkillSelection(selection: {
+    mode: HarnessSkillSyncMode;
+    slugs: string[];
+    derived: boolean;
+    available?: HarnessSkillCandidate[];
+  }): void {
+    if (selection.available !== undefined) {
+      this.skillCandidates.set(selection.available);
+    }
+    this.skillMode.set(selection.mode);
+    this.selectedSkillSlugs.set(new Set(selection.slugs));
+    this.skillModeDerived.set(selection.derived);
+    this.skillSelectionBaseline = skillSelectionKey(
+      selection.mode,
+      selection.slugs,
+    );
+    this.skillSelectionAvailable.set(true);
+  }
+
+  /**
+   * Withdraw the selection section entirely.
+   *
+   * For no workspace, a host that predates Batch 3, or a failed read — in every
+   * case the modal does not know the current selection, and a control seeded
+   * with a guess would let a Save write that guess to disk.
+   */
+  private clearSkillSelection(): void {
+    this.skillSelectionAvailable.set(false);
+    this.skillCandidates.set([]);
+    this.selectedSkillSlugs.set(new Set());
+    this.skillMode.set('all');
+    this.skillModeDerived.set(false);
+    this.skillSelectionBaseline = skillSelectionKey('all', []);
   }
 
   /**
@@ -731,34 +1115,56 @@ export class PluginBrowserModalComponent {
     this.error.set(null);
     this.saveError.set(null);
 
+    // Two reads, started together and applied INDEPENDENTLY.
+    //
+    // The catalog is SHARED (TASK_2026_345). This modal is mounted beside a
+    // `PluginStatusWidgetComponent` in every view that hosts it, and both used
+    // to issue their own `plugins:list-available` + `plugins:get-config` pair —
+    // visibly, as duplicate pairs in `tmp/logs/log.log:1907-1924`.
+    // `ensureLoaded` is the first read or a no-op; `saveConfiguration` below is
+    // what makes it stale again.
+    const catalogLoad = this.catalog.ensureLoaded();
+    // NOT part of the shared catalog: the skill selection is per-WORKSPACE, it
+    // has its own failure semantics, and only this modal reads it. It swallows
+    // its own rejection rather than failing the load — a host without this
+    // handler, or with no workspace open, must still be able to configure
+    // plugins, and the section it feeds simply does not render.
+    const selectionRead = this.rpcService
+      .call('harness:get-skill-selection', {}, { timeout: 10000 })
+      .catch(() => null);
+
+    // Applied BEFORE the catalog is awaited, and never inside its try. These
+    // two answers have nothing to do with each other: the selection is the only
+    // thing the dashboard's skill-selection card opens this modal for, and
+    // `ensureLoaded()` can hand back a read that a DIFFERENT component started,
+    // so sequencing the selection behind it made the one control the user came
+    // for wait on a request this modal did not even issue.
+    const selectionResult = await selectionRead;
+    if (selectionResult?.isSuccess() && selectionResult.data) {
+      this.applySkillSelection(selectionResult.data);
+    } else {
+      this.clearSkillSelection();
+    }
+
     try {
-      const [listResult, configResult] = await Promise.all([
-        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
-        this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
-      ]);
+      await catalogLoad;
 
-      let plugins: PluginInfo[] = [];
+      const plugins: PluginInfo[] = [...this.catalog.plugins()];
+      this.availablePlugins.set(plugins);
 
-      if (listResult.isSuccess() && listResult.data) {
-        plugins = listResult.data.plugins;
-        this.availablePlugins.set(plugins);
-      } else {
-        this.availablePlugins.set([]);
-      }
-
-      if (configResult.isSuccess() && configResult.data) {
+      const config = this.catalog.config();
+      if (config !== null) {
         this.selectedIds.set(
-          this.deriveSelection(plugins, configResult.data.enabledPluginIds, [
-            ...(configResult.data.disabledPluginIds ?? []),
+          this.deriveSelection(plugins, config.enabledPluginIds, [
+            ...(config.disabledPluginIds ?? []),
           ]),
         );
-        this.disabledSkillIds.set(
-          new Set(configResult.data.disabledSkillIds ?? []),
-        );
+        this.disabledSkillIds.set(new Set(config.disabledSkillIds ?? []));
       } else {
         this.selectedIds.set(new Set());
         this.disabledSkillIds.set(new Set());
       }
+
       if (plugins.length > 0) {
         try {
           const pluginIds = plugins.map((p) => p.id);
@@ -794,6 +1200,11 @@ export class PluginBrowserModalComponent {
       this.selectedIds.set(new Set());
       this.pluginSkills.set(new Map());
       this.disabledSkillIds.set(new Set());
+      // Deliberately NOT `clearSkillSelection()`. The selection was read and
+      // applied above, by a request that succeeded; a failure on the plugin
+      // side has nothing to say about which skills this project gets, and
+      // discarding a good answer because an unrelated read failed is how the
+      // dashboard's card could open this modal and offer no control at all.
     } finally {
       this.isLoading.set(false);
     }

@@ -10,6 +10,37 @@
  *   - Every `MESSAGE_TYPES.CHAT_*` payload shape.
  *   - Ptah-CLI child-session metadata save.
  *   - Background-agent registration on `background_agent_started` events.
+ *
+ * ## Chunk coalescing (TASK_2026_323 B7)
+ *
+ * `CHAT_CHUNK` messages are buffered by {@link StreamBatchBuffer} and delivered
+ * as `MESSAGE_TYPES.BATCH` envelopes. See that file for the ordering and
+ * failure rules. Two invariants live HERE rather than there:
+ *
+ *  - **The loop never awaits each chunk's transport round-trip.** Below the
+ *    transport cap, `push()` returns immediately; only a full in-flight window
+ *    pauses the SDK drain until one send settles. Turn boundaries still await:
+ *    the buffer is flushed before `CHAT_COMPLETE` and before `CHAT_ERROR`, so a
+ *    completion can never overtake the chunks it completes.
+ *  - **All three transports unwrap a batch.** `MessageRouterService` for the
+ *    two webview hosts, `CliWebviewManagerAdapter` for CLI/TUI. The CLI one is
+ *    load-bearing and easy to miss: that transport emits the message `type` as
+ *    an EventEmitter event NAME, and four consumers subscribe to `'chat:chunk'`
+ *    by name (`chat-bridge`, `session-submit.service`, `anthropic-proxy.service`,
+ *    the TUI's `use-chat`). Without de-batching there they go silent — no
+ *    error, no fallback.
+ *
+ * ## The per-event debug log is NOT level-guarded, deliberately
+ *
+ * `Logger.log` already returns on `!shouldLog(level)` BEFORE it stringifies its
+ * args (`logger.ts:203`, ahead of the `JSON.stringify` at `:206-217`), so at the
+ * default production level nothing is serialised. A level guard here would
+ * therefore buy nothing, and `Logger` exposes no public level accessor to write
+ * one with (`minLevel` and `shouldLog` are both private). What a per-event call
+ * DOES cost unconditionally is the template literal, the rest-args array and the
+ * context object — small, but paid on every event of every session. Sampling
+ * every {@link DEBUG_LOG_EVERY_N_EVENTS}th event removes that without hiding
+ * anything: turn boundaries and errors log their own totals regardless.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -19,7 +50,12 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  SessionMetadataStore,
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+} from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -34,11 +70,18 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
+import { StreamBatchBuffer } from './stream-batch-buffer';
 
 export interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
   broadcastMessage(type: string, payload: unknown): Promise<void>;
 }
+
+/**
+ * Emit the per-event debug line once every N events. See the class doc for why
+ * this is sampling rather than a level guard.
+ */
+export const DEBUG_LOG_EVERY_N_EVENTS = 100;
 
 @injectable()
 export class ChatStreamBroadcaster {
@@ -58,12 +101,14 @@ export class ChatStreamBroadcaster {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {}
 
   private readonly streamingSessionIds = new Set<string>();
 
   /**
-   * True while a broadcast loop is attached to this id â€” the liveness signal
+   * True while a broadcast loop is attached to this id — the liveness signal
    * that registry presence (`isSessionActive`) is NOT. Callers deciding
    * "continue into the live session vs. resume it" must consult this, since a
    * registered session whose loop has exited can no longer deliver events.
@@ -78,7 +123,7 @@ export class ChatStreamBroadcaster {
 
   /**
    * Stream flat events to webview
-   * Handles SDK AsyncIterable<FlatStreamEventUnion> â†’ webview messages.
+   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
    *
    * The webview rebuilds ExecutionNode trees at render time from these flat events.
    * Events include tabId for routing and sessionId (real SDK UUID) for storage.
@@ -101,20 +146,56 @@ export class ChatStreamBroadcaster {
     let childMetadataSaved = false;
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
+    let recordReplaced = false;
+    // The id the turn state is keyed under. `sessionId` is the tabId for a
+    // fresh session; the events carry the real SDK UUID once known, and the
+    // registry's alias (`rekey`) covers the gap either way (TASK_2026_360).
+    let turnSessionId: string = sessionId;
+    const pushTurnState = (
+      state: ReturnType<SessionTurnStateRegistry['forceIdle']>,
+    ): void => {
+      batch.push({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: {
+          tabId,
+          sessionId: turnSessionId,
+          event: toTurnStateEvent(turnSessionId, state),
+          ...(surfaceMode ? { surfaceMode: true } : {}),
+        },
+      });
+    };
 
     this.streamingSessionIds.add(sessionId as string);
+    // Identity of the record this loop is the consumer OF, captured before the
+    // first event. The finally block compares against it so teardown can only
+    // ever hit the record streamed here.
+    const recordToken = this.sdkAdapter.getSessionToken(sessionId);
+    const batch = new StreamBatchBuffer({
+      sink: (type, payload) =>
+        this.webviewManager.broadcastMessage(type, payload),
+      onError: (error: unknown) =>
+        this.logger.warn(
+          `[RPC] Failed to deliver a chat batch for session ${sessionId}`,
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+    });
     try {
       for await (const event of stream) {
         eventCount++;
-        this.logger.debug(
-          `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
-          {
-            sessionId,
-            tabId,
-            eventType: event.eventType,
-            messageId: event.messageId,
-          },
-        );
+        if (event.sessionId) {
+          turnSessionId = event.sessionId;
+        }
+        if (eventCount % DEBUG_LOG_EVERY_N_EVENTS === 0) {
+          this.logger.debug(
+            `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
+            {
+              sessionId,
+              tabId,
+              eventType: event.eventType,
+              messageId: event.messageId,
+            },
+          );
+        }
         if (
           isPtahCliSession &&
           !childMetadataSaved &&
@@ -139,17 +220,26 @@ export class ChatStreamBroadcaster {
             }
           } catch (err: unknown) {
             this.logger.warn(
-              '[RPC] Failed to save child session metadata â€” session may appear in sidebar',
+              '[RPC] Failed to save child session metadata — session may appear in sidebar',
               { error: err instanceof Error ? err.message : String(err) },
             );
           }
         }
-        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
-          tabId, // For frontend tab routing
-          sessionId: event.sessionId, // Real SDK UUID from the event
-          event,
-          ...(surfaceMode ? { surfaceMode: true } : {}),
+        const backPressure = batch.push({
+          type: MESSAGE_TYPES.CHAT_CHUNK,
+          payload: {
+            tabId, // For frontend tab routing
+            sessionId: event.sessionId, // Real SDK UUID from the event
+            event,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
+          },
         });
+        // Most events stay on the allocation-free path. Once the send window is
+        // retained by the transport, pause the SDK drain until one releases;
+        // this is a bounded overlap, not the old per-send transport await.
+        if (backPressure !== undefined) {
+          await backPressure;
+        }
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
         }
@@ -167,6 +257,10 @@ export class ChatStreamBroadcaster {
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {
           turnCompleteSent = true;
+          // A turn boundary is the one place the buffer MUST NOT wait for its
+          // timer: `chat:complete` closes the turn in the UI, so it arriving
+          // ahead of the chunks it completes renders a truncated message.
+          await batch.flush();
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
@@ -179,6 +273,7 @@ export class ChatStreamBroadcaster {
         }
       }
 
+      await batch.flush();
       if (!turnCompleteSent) {
         await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,
@@ -192,6 +287,10 @@ export class ChatStreamBroadcaster {
       }
       streamExitedNormally = true;
     } catch (error) {
+      // Deliver whatever arrived before the failure. These chunks are real
+      // output the user already paid for, and the error message reads as a
+      // non-sequitur without them.
+      await batch.flush();
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       const lowerMessage = errorMessage.toLowerCase();
@@ -215,6 +314,15 @@ export class ChatStreamBroadcaster {
           { errorSource: 'ChatRpcHandlers.streamExecutionNodesToWebview' },
         );
       }
+      // The turn is over whatever happened; tell the UI IN the chunk stream so
+      // the idle state lands after the chunks and before CHAT_ERROR.
+      pushTurnState(
+        this.turnState.forceIdle(
+          turnSessionId,
+          isUserAbort ? 'aborted_streaming' : undefined,
+        ),
+      );
+      await batch.flush();
       const isCorruptedResume = eventCount === 0 && !isUserAbort;
       if (isCorruptedResume) {
         this.logger.warn(
@@ -242,27 +350,54 @@ export class ChatStreamBroadcaster {
         });
       }
     } finally {
+      // A loop that exits mid-turn (clean end with no `result`) leaves the UI
+      // believing the agent still generates. Settle it before teardown.
+      if (this.turnState.get(turnSessionId)?.phase === 'generating') {
+        pushTurnState(this.turnState.forceIdle(turnSessionId));
+        await batch.flush();
+      }
+      // Release the timer and let any size-triggered flush that is still in
+      // flight land before teardown ends the session underneath it.
+      batch.dispose();
+      await batch.settle();
       this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
-      // This loop is the session's ONLY consumer, so its exit â€” for any
-      // reason, not just the clean `for await` completion â€” leaves nothing
-      // reading the SDK query. Gating cleanup on `streamExitedNormally` left
-      // the registry record alive after a mid-stream throw (provider drop,
-      // transport close), and `isSessionActive` (registry presence) then
-      // reported that corpse as active: the next `chat:continue` skipped
-      // auto-resume and pushed the user's message onto a queue nobody drains,
-      // hanging the turn with no events and no watchdog (the watchdog is armed
-      // by the stream transformer that just died). `isSessionActive` keeps this
-      // idempotent for the user-abort path, where `chat:abort` already ended
-      // the session.
-      if (this.sdkAdapter.isSessionActive(sessionId)) {
+      // This loop is the session's ONLY consumer, so its exit — for any
+      // reason, not just the clean `for await` completion — leaves nothing
+      // reading the SDK query, and the record must be torn down.
+      //
+      // But it may tear down ONLY the record it actually streamed. Ids are
+      // reused: `executeSlashCommandQuery` ends the old record and registers a
+      // NEW one under the SAME id, then spends ~2s on harness preflight before
+      // the fresh query starts. The old loop sees that end as a thrown abort
+      // and arrives here meanwhile, while a presence check by id
+      // (`isSessionActive`) says "active", because the NEW record is. Ending on
+      // that answer aborted the replacement's AbortController and the
+      // follow-up slash command died with "Operation aborted".
+      // `endSessionIfTokenMatches` compares record identity and tears down
+      // atomically, so a newer record under the same id is never touched, while
+      // the idempotency that matters for the user-abort path (where
+      // `chat:abort` already ended the session) still holds: the record is gone
+      // and there is nothing to match.
+      if (recordToken !== null) {
         try {
-          await this.sdkAdapter.endSession(sessionId);
-          this.logger.info(
-            `[RPC] Session ${sessionId} cleaned up after stream exit`,
-            { normalExit: streamExitedNormally, eventCount },
+          const ended = await this.sdkAdapter.endSessionIfTokenMatches(
+            sessionId,
+            recordToken,
           );
+          if (ended) {
+            this.logger.info(
+              `[RPC] Session ${sessionId} cleaned up after stream exit`,
+              { normalExit: streamExitedNormally, eventCount },
+            );
+          } else {
+            recordReplaced = true;
+            this.logger.info(
+              `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`,
+              { normalExit: streamExitedNormally, eventCount },
+            );
+          }
         } catch (cleanupErr) {
           this.logger.warn(
             `[RPC] Failed to clean up session ${sessionId} after stream exit`,
@@ -271,6 +406,12 @@ export class ChatStreamBroadcaster {
               : new Error(String(cleanupErr)),
           );
         }
+      }
+      // The turn state dies with the session — but not when a newer record
+      // under the same id is already streaming its own (slash follow-up race).
+      if (!recordReplaced) {
+        this.turnState.clear(turnSessionId);
+        this.turnState.clear(sessionId);
       }
     }
   }

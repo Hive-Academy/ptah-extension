@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_236
-status: in_review
+status: done
 type: FEATURE
 title: >-
   User-defined Anthropic/OpenAI-compatible provider entries, with Requesty and
@@ -26,12 +26,12 @@ description: >-
   host, and Save & Test Connection has to actually probe tool-calling or every
   gateway quirk arrives as a Ptah bug. Research phase first; no code until the
   research doc lands.
-assignee:
+assignee: null
 depends_on: []
-executor:
-claim:
+executor: null
+claim: null
 created: 2026-08-12T00:00:00.000Z
-updated: 2026-08-12T00:00:00.000Z
+updated: '2026-08-25T21:11:44.489Z'
 ---
 
 ## Description

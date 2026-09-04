@@ -54,6 +54,86 @@ describe('SqliteConnectionService', () => {
     expect(finalVersion).toBeGreaterThan(0);
   });
 
+  /**
+   * TASK_2026_306 defect E. Registration and opening are separated by most of a
+   * host's boot, so consumers registered in between need the lifecycle owner to
+   * announce the transition rather than discovering it by failing a write.
+   */
+  describe('onDidOpen', () => {
+    const makeService = (): SqliteConnectionService => {
+      const service = new SqliteConnectionService(
+        ':memory:',
+        createMockLogger(),
+      );
+      service.configure({
+        factory: () => new FakeSqliteDatabase(),
+        vecPathResolver: () => '/fake/vec/path',
+      });
+      return service;
+    };
+
+    it('fires once the connection is open and migrated', async () => {
+      const service = makeService();
+      const listener = jest.fn(() => {
+        // Fired AFTER migrations, so a subscriber that writes finds its tables.
+        expect(service.isOpen).toBe(true);
+      });
+      service.onDidOpen(listener);
+
+      await service.openAndMigrate();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire on the already-open no-op call', async () => {
+      const service = makeService();
+      const listener = jest.fn();
+      service.onDidOpen(listener);
+
+      await service.openAndMigrate();
+      await service.openAndMigrate();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire for a subscriber that arrives after the open', async () => {
+      const service = makeService();
+      await service.openAndMigrate();
+
+      const listener = jest.fn();
+      service.onDidOpen(listener);
+
+      // Contract: this event answers "tell me when it changes", not "tell me
+      // the current state" — a late subscriber checks `isOpen` itself.
+      expect(listener).not.toHaveBeenCalled();
+      expect(service.isOpen).toBe(true);
+    });
+
+    it('stops firing after dispose', async () => {
+      const service = makeService();
+      const listener = jest.fn();
+      service.onDidOpen(listener).dispose();
+
+      await service.openAndMigrate();
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('survives a throwing listener without failing the open', async () => {
+      const service = makeService();
+      const second = jest.fn();
+      service.onDidOpen(() => {
+        throw new Error('subscriber blew up');
+      });
+      service.onDidOpen(second);
+
+      await expect(service.openAndMigrate()).resolves.toBeUndefined();
+
+      expect(service.isOpen).toBe(true);
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('is idempotent: a second openAndMigrate is a no-op when already open', async () => {
     const fake = new FakeSqliteDatabase();
     const logger = createMockLogger();

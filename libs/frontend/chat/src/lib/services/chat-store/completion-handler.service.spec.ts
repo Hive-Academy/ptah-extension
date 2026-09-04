@@ -1,5 +1,5 @@
 /**
- * CompletionHandlerService specs â€” error routing from chat:error events.
+ * CompletionHandlerService specs — error routing from chat:error events.
  *
  * The service is largely deprecated (per its own docstring) and now only
  * handles `handleChatError`. Tests assert the error is routed to the correct

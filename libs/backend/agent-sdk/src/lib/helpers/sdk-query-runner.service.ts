@@ -1,16 +1,16 @@
 /**
- * SdkQueryRunner â€” unified SDK query invocation primitive.
+ * SdkQueryRunner — unified SDK query invocation primitive.
  *
  * Reconciles the previously-forked one-shot (InternalQueryService) and
- * interactive (SessionLifecycleManager â†’ SessionQueryExecutor) paths under a
+ * interactive (SessionLifecycleManager → SessionQueryExecutor) paths under a
  * single `run({ mode })` discriminator.
  *
  * Modes:
- *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
- *                   maxTurns explicit, persistSession=false, subagent +
- *                   compaction hooks wired, identity prompt + PTAH_CORE
- *                   appended. Used by `InternalQueryService`.
- *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
+ *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool,
+ *                   maxTurns explicit, persistSession=false, subagent hooks
+ *                   wired, identity prompt + PTAH_CORE appended. Used by
+ *                   `InternalQueryService`.
+ *   - `interactive` — caller pre-builds `Options` via `SdkQueryOptionsBuilder`
  *                   and hands them in along with the iterable/string prompt.
  *                   The runner only owns `moduleLoader.getQueryFunction()` +
  *                   `queryFn(...)`. Session-registry / streamInput /
@@ -18,11 +18,15 @@
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
  * is INPUT-ONLY on the interactive branch and IS NOT ACCEPTED on the oneShot
- * branch â€” the runner never imports `EnhancedPromptsService`.
+ * branch — the runner never imports `EnhancedPromptsService`.
  *
- * Compaction hook conditionality: oneShot wires compaction hooks (preserves the
- * pre-refactor InternalQueryService behaviour). Interactive option construction
- * happens INSIDE `SdkQueryOptionsBuilder` (not here) and is unaffected.
+ * Compaction hooks: oneShot does NOT wire them (TASK_2026_376 finding 4).
+ * `buildOneShotHooks`'s synthetic session id never names a real Ptah session,
+ * so the registry fan-out this hook would otherwise trigger can never resolve
+ * a transcript for any one-shot caller — see that method's doc comment.
+ * Interactive option construction happens INSIDE `SdkQueryOptionsBuilder` (not
+ * here) and is unaffected; it wires the same `CompactionHookHandler` against a
+ * real session id.
  */
 
 import * as os from 'os';
@@ -42,7 +46,7 @@ import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
-import { CompactionHookHandler } from './compaction-hook-handler';
+import { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import {
   buildModelIdentityPrompt,
   getActiveProviderId,
@@ -63,6 +67,20 @@ import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
+
+/**
+ * Above this, the synchronous part of `query()` is a main-thread stall worth
+ * reporting, not a launch.
+ *
+ * `query()` is synchronous all the way down to `child_process.spawn`, and on
+ * Windows that spawn blocks the calling thread for as long as the OS takes to
+ * scan the image — ~1.6 s for the 253 MB `claude.exe`. Ten boot-time one-shot
+ * queries each produced an `[event-loop] lag` line matching their own launch
+ * duration to within ~10 ms (TASK_2026_341). `OffThreadProcessSpawner` moves
+ * the spawn onto a worker; this guard is what tells us if anything ever puts it
+ * back — a regression here is invisible in a unit test and expensive in Electron.
+ */
+const QUERY_LAUNCH_BLOCK_WARN_MS = 100;
 
 /**
  * Env keys that together name ONE provider. They are mutually exclusive: a
@@ -149,15 +167,58 @@ export class SdkQueryRunner {
     private readonly subagentHookHandler: SubagentHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
-    @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly processSpawner: OffThreadProcessSpawner,
   ) {}
+
+  /**
+   * Route the SDK's CLI spawn through {@link OffThreadProcessSpawner}.
+   *
+   * `spawnClaudeCodeProcess` is the SDK's only public seam for this, and it is
+   * set here — on the ONE funnel both the one-shot and the interactive launch
+   * pass through — rather than in `SdkQueryOptionsBuilder`, so a caller that
+   * builds its own options still gets the fix.
+   *
+   * A caller-supplied spawner always wins: a host running the CLI in a VM or
+   * container has already answered this question, and overriding it would
+   * silently move its process back onto the local machine.
+   *
+   * `options.stderr` is handed down explicitly because the SDK only pipes and
+   * forwards stderr inside its own `spawnLocalProcess`; supplying a custom
+   * spawner skips that wiring entirely.
+   */
+  private useOffThreadSpawner(options: SdkQueryOptions): void {
+    if (options.spawnClaudeCodeProcess) return;
+    const onStderr = options.stderr;
+    options.spawnClaudeCodeProcess = (spawnOptions) =>
+      this.processSpawner.spawn(spawnOptions, onStderr ? { onStderr } : {});
+  }
+
+  /**
+   * Run the synchronous half of a query launch and report it if it stalls.
+   *
+   * The whole point of this task: `queryFn(...)` is not awaited anywhere,
+   * because there is nothing async about it — whatever it costs, it costs on
+   * this thread.
+   */
+  private launch<T>(mode: 'oneShot' | 'interactive', invoke: () => T): T {
+    const startedAt = Date.now();
+    const result = invoke();
+    const blockedMs = Date.now() - startedAt;
+    if (blockedMs > QUERY_LAUNCH_BLOCK_WARN_MS) {
+      this.logger.warn(`${SERVICE_TAG} query() blocked the event loop`, {
+        blockedMs,
+        mode,
+      });
+    }
+    return result;
+  }
 
   private resolveSafeCwd(requested: string): string {
     const safety = isUnsafeWorkspacePath(requested, this.platformInfo);
@@ -204,7 +265,7 @@ export class SdkQueryRunner {
         ? options.systemPrompt
         : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built â€” launching query`, {
+    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: input.model,
       permissionMode: 'bypassPermissions',
       maxTurns: options.maxTurns,
@@ -221,10 +282,12 @@ export class SdkQueryRunner {
     });
 
     const queryStartMs = Date.now();
-    const conversation = queryFn({
-      prompt: input.prompt,
-      options,
-    });
+    const conversation = this.launch('oneShot', () =>
+      queryFn({
+        prompt: input.prompt,
+        options,
+      }),
+    );
 
     this.logger.info(
       `${SERVICE_TAG} SDK query() returned conversation handle in ${Date.now() - queryStartMs}ms`,
@@ -257,7 +320,10 @@ export class SdkQueryRunner {
     prompt: string | AsyncIterable<SDKUserMessage>,
     options: SdkQueryOptions,
   ): InteractiveRunResult {
-    const sdkQuery = queryFn({ prompt, options });
+    this.useOffThreadSpawner(options);
+    const sdkQuery = this.launch('interactive', () =>
+      queryFn({ prompt, options }),
+    );
     return { sdkQuery };
   }
 
@@ -376,6 +442,8 @@ export class SdkQueryRunner {
       options.outputFormat = input.outputFormat;
     }
 
+    this.useOffThreadSpawner(options);
+
     return options;
   }
 
@@ -447,17 +515,31 @@ export class SdkQueryRunner {
       cwd,
       oneShotSessionId,
     );
-    const compactionHooks = this.compactionHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
 
+    // Compaction hooks are deliberately NOT wired on this path. `maxTurns`
+    // was the wrong axis (TASK_2026_376 finding 4): `oneShotSessionId` above
+    // is synthetic BY CONSTRUCTION, for every one-shot caller, whatever its
+    // turn budget. It never names a real Ptah session, so it can never be
+    // resolved to a transcript. If `PreCompact` fires anyway on a multi-turn
+    // one-shot query — and `CURATOR_MAX_TURNS = 6` made this reachable, not
+    // theoretical — `CompactionHookHandler` fans that synthetic id to
+    // `CompactionCallbackRegistry`, whose one subscriber
+    // (`MemoryCuratorService.start()`) calls `transcriptReader.read` on an id
+    // that names no session, fails, and falls back to a placeholder curation
+    // keyed to a phantom session — the same class of defect TASK_2026_293
+    // fixed for the unresolved-id case. No caller of this path (curator,
+    // skill-synthesis, agent-generation wizards, harness-ai services) ever
+    // has a real Ptah session id to give this hook, so there is no turn
+    // budget at which wiring it helps a real subscriber.
+    //
+    // This costs nothing for the SDK's own compaction: `PreCompact` /
+    // `PostCompact` are pure notification hooks (see
+    // `compaction-hook-handler.ts`, always returns `{ continue: true }`) —
+    // the SDK compacts on its own configured threshold whether or not
+    // anything is subscribed to hear about it.
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks]) {
-      for (const [event, matchers] of Object.entries(hooks)) {
-        const key = event as HookEvent;
-        mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
-      }
+    for (const [event, matchers] of Object.entries(subagentHooks)) {
+      mergedHooks[event as HookEvent] = matchers;
     }
 
     return mergedHooks;

@@ -7,7 +7,11 @@
  *  3. `setScopeFilter('workspace')` causes `refresh()` to pass the active
  *     workspace path through `MemoryRpcService.list`.
  *  4. `loadStats()` honors the same scope decision (passes `null` in `'all'`
- *     mode, the workspace path in `'workspace'` mode).
+ *     mode, the workspace path in `'workspace'` mode) AND forwards the explicit
+ *     `scope` wire field alongside it.
+ *  5. `loadSymbols()` forwards `scope` too — `'all'` there is expressed by an
+ *     ABSENT `workspaceRoot`, which the backend cannot tell apart from "no
+ *     folder open" without it (TASK_2026_315 A4 revision).
  */
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
@@ -80,11 +84,26 @@ describe('MemoryStateService — scopeFilter', () => {
   it('loadStats() passes null in "all" scope, the workspace path otherwise', async () => {
     service.setScopeFilter('all');
     await service.loadStats();
-    expect(statsMock).toHaveBeenLastCalledWith(null);
+    expect(statsMock).toHaveBeenLastCalledWith(null, 'all');
 
     service.setScopeFilter('workspace');
     await service.loadStats();
-    expect(statsMock).toHaveBeenLastCalledWith('D:/ws');
+    expect(statsMock).toHaveBeenLastCalledWith('D:/ws', 'workspace');
+  });
+
+  /**
+   * Regression for the A4 revision. `null` on its own means "global/unscoped
+   * rows only" to the backend; without the explicit `scope: 'all'` the stats
+   * tile's `codeIndex` reads a hard 0 in all-scope, because
+   * `code_symbols.workspace_root` is never NULL.
+   */
+  it('loadStats() in "all" scope sends scope:"all" so the total stays cross-workspace', async () => {
+    service.setScopeFilter('all');
+    await service.loadStats();
+
+    const [workspaceRoot, scope] = statsMock.mock.calls[0];
+    expect(workspaceRoot).toBeNull();
+    expect(scope).toBe('all');
   });
 
   it('switching scope "all" → "workspace" restores workspace-scoped list calls', async () => {
@@ -429,7 +448,33 @@ describe('MemoryStateService — loadSymbols', () => {
     expect(args.query).toBe('foo');
     expect(args.offset).toBe(100);
     expect(args.limit).toBe(50);
+    expect(args.scope).toBe('workspace');
     expect(service.symbolItems().length).toBe(1);
     expect(service.symbolTotal()).toBe(1);
+  });
+
+  /**
+   * Regression for the A4 revision. All-scope symbol search is expressed by
+   * OMITTING `workspaceRoot`, which the backend reads as "use the current
+   * root" — so without `scope: 'all'` the search silently narrowed from every
+   * indexed workspace to the active one.
+   */
+  it('loadSymbols() in "all" scope omits workspaceRoot AND sends scope:"all"', async () => {
+    service.setScopeFilter('all');
+    await service.loadSymbols();
+
+    const args = searchSymbolsMock.mock.calls[0][0];
+    expect(args.workspaceRoot).toBeUndefined();
+    expect(args.scope).toBe('all');
+  });
+
+  it('loadSymbols() in "all" scope works with no workspace open', async () => {
+    workspaceSignal.set(null);
+    service.setScopeFilter('all');
+    await service.loadSymbols();
+
+    expect(searchSymbolsMock).toHaveBeenCalledTimes(1);
+    expect(searchSymbolsMock.mock.calls[0][0].scope).toBe('all');
+    expect(service.symbolError()).toBeNull();
   });
 });

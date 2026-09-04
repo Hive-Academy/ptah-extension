@@ -42,6 +42,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
+import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -58,6 +59,22 @@ import type {
  */
 export const MESSAGE_ID_NOT_FOUND_PHRASE =
   'not found in session history' as const;
+
+/**
+ * Bounds a history read to the END of the transcript.
+ *
+ * Absent `tailBytes` the whole transcript is read, which is what every UI and
+ * replay path wants. A caller that then throws most of it away — the memory
+ * curator keeps 32 KB — must pass a window instead, because the discarded
+ * work is a synchronous parse on the backend main thread that grows with the
+ * session (TASK_2026_323, B4).
+ */
+export interface TranscriptWindowOptions {
+  /** Read only the last N bytes of the JSONL. Omit to read everything. */
+  readonly tailBytes?: number;
+  /** Aborts the read between parse batches. */
+  readonly signal?: AbortSignal;
+}
 
 @injectable()
 export class SessionHistoryReaderService {
@@ -82,6 +99,8 @@ export class SessionHistoryReaderService {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.PRICING_PROVIDER)
     private readonly pricingProvider: IPricingProvider,
+    @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
+    private readonly usageTracker: LiveUsageTracker,
   ) {}
 
   /**
@@ -170,6 +189,7 @@ export class SessionHistoryReaderService {
         await this.hydrateMissingPricing(mainMessages, agentSessions);
       }
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
+      this.seedLiveUsageBaseline(sessionId, mainMessages);
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
         sessionId,
@@ -186,6 +206,60 @@ export class SessionHistoryReaderService {
         error instanceof Error ? error : new Error(String(error)),
       );
       return { events: [], stats: null };
+    }
+  }
+
+  /**
+   * Hand `LiveUsageTracker` a starting figure for a session this process has
+   * not seen stream (TASK_2026_374).
+   *
+   * ## Why the write is here
+   *
+   * `CompactionHookHandler` samples `getCumulativeTokens` on the SDK's
+   * transport path: it may not do file I/O and may not throw, so it cannot go
+   * and find this number itself, and for a session resumed from JSONL the
+   * tracker had nothing — a manual `/compact` published `preTokens: 0` and the
+   * frontend's pre/post delta had no baseline. This method is the only place in
+   * `agent-sdk` that has already parsed the transcript for exactly these
+   * fields, so the seed costs no extra read and no extra syscall. `chat:resume`
+   * calls `readSessionHistory` before the user can type `/compact`, which is
+   * what makes the baseline present when the hook needs it.
+   *
+   * ## Why the LAST frame and not the aggregate
+   *
+   * The tracker holds one request's usage frame (`recordSessionUsage` keeps a
+   * per-field max of `message_start` / `message_delta` counts), so the seed has
+   * to be the same shape. {@link aggregateUsageStats} SUMS every message: with
+   * prompt caching its `cacheRead` total runs into the millions on a long
+   * session, and publishing that as `preTokens` would be a confidently wrong
+   * answer where 0 was merely an empty one. The last frame before the end of
+   * the transcript is the session's context size — the quantity
+   * `compact_metadata.pre_tokens` reports at the boundary.
+   *
+   * Messages before the last `compact_boundary` are not evidence about the
+   * CURRENT context, so a scan that reaches one stops and seeds nothing: after
+   * a compaction with no assistant turn since, "unknown" is the honest answer
+   * and 0 is the correct published value.
+   */
+  private seedLiveUsageBaseline(
+    sessionId: string,
+    mainMessages: readonly SessionHistoryMessage[],
+  ): void {
+    for (let i = mainMessages.length - 1; i >= 0; i--) {
+      const msg = mainMessages[i];
+      if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+        return;
+      }
+      const tokens = extractTokenUsage(msg.usage);
+      if (!tokens) continue;
+      this.usageTracker.seedResumedSession(
+        sessionId,
+        tokens.input +
+          tokens.output +
+          (tokens.cacheRead ?? 0) +
+          (tokens.cacheCreation ?? 0),
+      );
+      return;
     }
   }
 
@@ -226,6 +300,7 @@ export class SessionHistoryReaderService {
   async readHistoryForCuration(
     sessionId: string,
     workspacePath: string,
+    options?: TranscriptWindowOptions,
   ): Promise<
     {
       id: string;
@@ -234,8 +309,11 @@ export class SessionHistoryReaderService {
       timestamp: number;
     }[]
   > {
-    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
-      this.eventFactory.extractContentForCuration(content),
+    return this.readHistoryMessages(
+      sessionId,
+      workspacePath,
+      (content) => this.eventFactory.extractContentForCuration(content),
+      options,
     );
   }
 
@@ -251,6 +329,7 @@ export class SessionHistoryReaderService {
     sessionId: string,
     workspacePath: string,
     extractContent: (content: unknown) => string,
+    options?: TranscriptWindowOptions,
   ): Promise<
     {
       id: string;
@@ -279,7 +358,20 @@ export class SessionHistoryReaderService {
         return [];
       }
       const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
-      const rawMessages = await this.jsonlReader.readJsonlMessages(sessionFile);
+      const tailBytes = options?.tailBytes;
+      // A caller that only wants the end of the transcript must say so, and
+      // then only the end is read and parsed. Reading 50 MB to keep the last
+      // 32 KB is what blocked the backend main thread per turn per session
+      // (TASK_2026_323, B4).
+      const rawMessages =
+        typeof tailBytes === 'number' && tailBytes > 0
+          ? await this.jsonlReader.readJsonlTail(sessionFile, {
+              maxBytes: tailBytes,
+              signal: options?.signal,
+            })
+          : await this.jsonlReader.readJsonlMessages(sessionFile, {
+              signal: options?.signal,
+            });
       let startIndex = 0;
       for (let i = rawMessages.length - 1; i >= 0; i--) {
         if (

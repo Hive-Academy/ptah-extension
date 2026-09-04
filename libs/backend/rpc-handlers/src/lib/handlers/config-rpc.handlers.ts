@@ -23,6 +23,7 @@ import {
   SdkPermissionHandler,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
+import type { IPricingProvider } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   ProviderModelsService,
@@ -40,7 +41,9 @@ import {
   ConfigEffortSetParams,
   ConfigEffortSetResult,
   ConfigEffortGetResult,
+  ConfigPricingGetResult,
   getModelPricingDescription,
+  getPricingMap,
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -64,6 +67,7 @@ export class ConfigRpcHandlers {
     'config:models-list',
     'config:effort-get',
     'config:effort-set',
+    'config:pricing-get',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -85,6 +89,8 @@ export class ConfigRpcHandlers {
     private readonly modelSettings: ModelSettings,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
     private readonly reasoningSettings: ReasoningSettings,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -99,6 +105,7 @@ export class ConfigRpcHandlers {
     this.registerModelsList();
     this.registerEffortGet();
     this.registerEffortSet();
+    this.registerPricingGet();
     const autopilotEnabled = this.configManager.getWithDefault<boolean>(
       'autopilot.enabled',
       false,
@@ -122,8 +129,49 @@ export class ConfigRpcHandlers {
         'config:models-list',
         'config:effort-get',
         'config:effort-set',
+        'config:pricing-get',
       ],
       initialPermissionLevel: effectiveLevel,
+    });
+  }
+
+  /**
+   * config:pricing-get - Hand the runtime pricing map to the webview.
+   *
+   * `pricing.utils` stores its map in a module-level `let`, and the webview
+   * bundle holds its OWN instance of that module. Every hydration path —
+   * OpenRouter's catalog, `seedStaticModelPricing`, Ollama Cloud's metadata —
+   * runs in the extension host, so the renderer's copy never held anything but
+   * the handful of bundled entries. There is no way to share the map short of
+   * sending it, which is what this does.
+   *
+   * Awaits {@link IPricingProvider.ensureHydrated} first so a webview that
+   * boots faster than the catalog fetch does not cache the bundled table
+   * forever. Hydration failure is reported, never thrown: a renderer holding
+   * the bundled table is degraded, not broken, and `hydrated: false` tells it
+   * the answer is worth asking for again.
+   */
+  private registerPricingGet(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      ConfigPricingGetResult
+    >('config:pricing-get', async () => {
+      let hydrated = false;
+      try {
+        hydrated = await this.pricingProvider.ensureHydrated();
+      } catch (error) {
+        // Not fatal — fall through and serve whatever the map holds.
+        this.logger.warn(
+          'RPC: config:pricing-get hydration failed, serving bundled pricing',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      const pricing = getPricingMap();
+      this.logger.debug('RPC: config:pricing-get called', {
+        entryCount: Object.keys(pricing).length,
+        hydrated,
+      });
+      return { pricing, hydrated };
     });
   }
 

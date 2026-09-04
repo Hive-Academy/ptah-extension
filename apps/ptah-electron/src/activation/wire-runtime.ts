@@ -1,14 +1,14 @@
 import type { DependencyContainer } from 'tsyringe';
 import type { BrowserWindow } from 'electron';
-import {
-  PLATFORM_TOKENS,
-  ContentDownloadService,
-} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS, bringUpSubsystems } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  bringUpSubsystems,
+  armDiagnostics,
+} from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
+import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
   EnhancedPromptsService,
@@ -17,87 +17,144 @@ import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation
 import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
-import {
-  initPluginLoader,
-  mirrorUserLayer,
-  propagateHarness,
-  reconcileHarness,
-  reconcileUserLayer,
-  syncSkillRegistryCatalog,
-} from './plugin-activation';
+import { propagateHarness } from './plugin-activation';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
 import type { DependencyGraphService } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { GatewayService } from '@ptah-extension/messaging-gateway';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
-import {
-  bootThothRuntime,
-  startThothCron,
-  type ThothRuntimeRefs,
-} from '@ptah-extension/thoth-runtime';
+
+import type { BootCoordinator } from './boot-coordinator';
+import { createHeavyServicesBooter } from './boot-heavy-services';
+
+/**
+ * How much heap the embedder warmup may ADD to the Electron MAIN process.
+ *
+ * ### What the old check actually measured (C3, TASK_2026_315)
+ *
+ * This replaces an inline `200` that appeared twice — once in the comparison,
+ * once in the message it printed — under the label "Worker heap after warmup".
+ * That label was wrong in the way that matters: the embedder runs in a separate
+ * Electron `utilityProcess` (`build-embedder-worker` → `embedder-worker.mjs`),
+ * so `process.memoryUsage()` here reports the MAIN process and knows nothing
+ * about the worker's memory at all.
+ *
+ * Three captures of that ABSOLUTE figure:
+ *
+ * | capture                    | workspace                  | heap after warmup |
+ * | -------------------------- | -------------------------- | ----------------- |
+ * | `tmp/logs/b2-trace.log`    | small (few hundred files)  | 56.3 MB           |
+ * | `tmp/logs/log.log`         | property-hub (15 445 files)| 246.0 MB          |
+ * | `tmp/logs/coldstart-306.log` | large                    | 272.0 MB          |
+ *
+ * The spread tracks WORKSPACE SIZE — the file index and symbol index — not the
+ * embedder. So the old threshold fired on any ordinary large project and stayed
+ * quiet on any small one, which is a false alarm dressed as a budget: it could
+ * not be exceeded for the reason it named, and could not be raised to a number
+ * that meant anything, because the quantity is not attributable to warmup.
+ *
+ * The fix is to measure something the number can legitimately bound: the heap
+ * DELTA across `warmup()`. That is attributable — it is what the warmup call
+ * retained in main — and it is stable across workspace sizes, because whatever
+ * the index already cost is on both sides of the subtraction.
+ *
+ * ### What the budget is FOR
+ *
+ * It is an architectural assertion, not a capacity limit. The model, tokenizer
+ * and ONNX session are supposed to live entirely in the utilityProcess; main
+ * should retain only the client proxy and one round of `Float32Array` results.
+ * A delta in the tens of MB means that boundary holds. A delta above this
+ * budget means main is holding worker payloads — the failure this seam exists
+ * to catch, and the one the absolute-heap version could never distinguish from
+ * "the user opened a big repo".
+ *
+ * Measured at **+0.1 MB** on the verification boot (2026-08-23,
+ * `tmp/logs/b4-verify.log`: `main heap +0.1 MB, now 53.8 MB`) — i.e. the
+ * boundary holds today and the old check was reporting the 53.8 MB the rest of
+ * the process already owned. One capture, deliberately: the figure is expected
+ * to be workspace-independent by construction, because whatever the file and
+ * symbol indexes cost appears on both sides of the subtraction.
+ *
+ * 48 MB is chosen to sit far above sampling noise (GC timing moves `heapUsed`
+ * by single-digit MB between two adjacent reads) and below the in-heap
+ * footprint of any embedding model Ptah ships, so a model that landed in main
+ * cannot hide under the budget while ordinary variance cannot trip it.
+ *
+ * ### Why exceeding it only logs
+ *
+ * There is no reclaim lever at this seam: `EmbedderWorkerClient` exposes
+ * `embed`/`rerank`/`warmup`/`dispose` and nothing else, and disposing the
+ * worker is precisely what warmup exists to avoid. Acting on this would need
+ * the worker's own RSS reported back over `embedder-worker-protocol.ts`, which
+ * is a memory-curator change and not this file's to make. Recorded as the
+ * follow-up rather than faked here.
+ */
+const WARMUP_HEAP_DELTA_BUDGET_MB = 48;
+
+/** Current main-process V8 heap in MB. */
+function heapUsedMb(): number {
+  return process.memoryUsage().heapUsed / (1024 * 1024);
+}
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
   getMainWindow: () => BrowserWindow | null;
   startupWorkspaceRoot: string | undefined;
+  /**
+   * Owns the stable refs object, the abort signal and the warmup barrier. Every
+   * long-lived handle produced below is written into `coordinator.refs`.
+   */
+  coordinator: BootCoordinator;
+  /**
+   * `app.getPath('logs')`, where `.cpuprofile` captures are written. Passed in
+   * rather than read here for the same reason every other Electron API in this
+   * activation path is passed in — this module must stay importable without an
+   * Electron runtime.
+   */
+  logsPath?: string;
 }
 
-export interface WireRuntimeResult {
+export interface WireRuntimePreWindowResult {
+  /**
+   * Window-bounds persistence. Also mirrored into `coordinator.refs`; returned
+   * here because `registerPostWindow` needs it as an argument, before the
+   * window exists.
+   */
   resolvedStateStorage: IStateStorage | undefined;
   /**
-   * Call this AFTER the main BrowserWindow fires `did-finish-load` to trigger
-   * the 3-second idle warmup of the embedder + cross-encoder models.
-   * The delay is intentionally anchored to window-ready so warmup I/O does not
-   * overlap with the renderer's first render burst.
-   * No-op when memory-curator was not started (null workspace or start failure).
+   * The post-window phase. Call it AFTER `registerPostWindow` has created and
+   * loaded the main window; it opens the boot gate and awaits the heavy work.
+   *
+   * `main.ts` hands this to `coordinator.startPostWindow`, which catches every
+   * rejection — do not await it on the activation path.
    */
-  scheduleWarmup: () => void;
-  /**
-   * Thoth handles (SQLite / memory / skills / cron / status bridges) come
-   * straight from `@ptah-extension/thoth-runtime` — see {@link ThothRuntimeRefs}
-   * for their null semantics. The extra fields below are host-owned.
-   */
-  refs: ThothRuntimeRefs & {
-    gitWatcher: {
-      stop: () => void;
-      switchWorkspace: (p: string) => void;
-    } | null;
-    /**
-     * Messaging gateway service handle for orderly shutdown. Null when
-     * persistence-sqlite is unavailable or `gateway.enabled` is `false` —
-     * caller's LIFO will-quit chain must tolerate null.
-     */
-    messagingGateway: GatewayService | null;
-    /**
-     * Ptah CLI registry handle for orderly shutdown. Resolved eagerly here
-     * (while the container is healthy) so `will-quit` can dispose the captured
-     * instance instead of resolving it from the container mid-teardown — a
-     * first-time lazy construction during shutdown races with DI teardown and
-     * can hang or throw. Null when the CLI agent runtime is not registered.
-     */
-    cliRegistry: { disposeAll: () => void } | null;
-  };
+  postWindow: () => Promise<void>;
 }
 
-export async function wireRuntime(
+/**
+ * The pre-window half of Electron activation (TASK_2026_331 B1.T3).
+ *
+ * Everything here must finish before the window can usefully appear:
+ * diagnostics (so the window's own creation is instrumented), the RPC surface
+ * (the renderer issues RPCs during its own bootstrap), and MCP bring-up (the
+ * memory boot scan issues LLM queries and must see a live MCP port).
+ *
+ * Everything else moved into {@link WireRuntimePreWindowResult.postWindow}.
+ */
+export async function wireRuntimePreWindow(
   options: WireRuntimeOptions,
-): Promise<WireRuntimeResult> {
-  const { container, getMainWindow, startupWorkspaceRoot } = options;
+): Promise<WireRuntimePreWindowResult> {
+  const { container, getMainWindow, startupWorkspaceRoot, logsPath } = options;
+  const coordinator = options.coordinator;
+  const refs = coordinator.refs;
 
-  const refs: WireRuntimeResult['refs'] = {
-    gitWatcher: null,
-    sqliteConnection: null,
-    memoryCurator: null,
-    memoryTrigger: null,
-    skillSynthesis: null,
-    skillTrigger: null,
-    cronScheduler: null,
-    messagingGateway: null,
-    symbolWatcher: null,
-    statusBridgeDisposables: null,
-    cliRegistry: null,
-  };
+  // FIRST, before anything heavy. In Electron the backend shares its event loop
+  // with BrowserWindow management, so a synchronous burst anywhere below this
+  // line freezes the whole app — and everything below this line is a candidate
+  // (plugin loading, SQLite open, memory curator, harness reconcile). Arming
+  // the monitor after the boot it is meant to observe would be instrumentation
+  // that is blind to the most expensive stretch of the process's life.
+  refs.diagnostics = armDiagnostics({ container, logsPath });
 
   let resolvedStateStorage: IStateStorage | undefined;
   try {
@@ -108,7 +165,7 @@ export async function wireRuntime(
       AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
     );
     enhancedPrompts.setAnalysisReader(analysisStorage);
-  } catch (error) {
+  } catch (error: unknown) {
     console.warn(
       '[Ptah Electron] Failed to wire multi-phase analysis reader:',
       error instanceof Error ? error.message : String(error),
@@ -123,255 +180,68 @@ export async function wireRuntime(
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
+
+  // Autocomplete discovery watchers. `autocomplete:*` has no capability
+  // requirement in `RPC_HANDLER_MANIFEST`, so this host has always SERVED the
+  // `@` and `/` pickers — it just never armed their invalidation, which only
+  // the VS Code bootstrap did. Without it the per-workspace cache had no way to
+  // learn that `.claude/agents` or `.claude/commands` changed, and since it has
+  // no TTL the picker served the list captured at first use for the rest of the
+  // session. Each service arms one watcher per open folder and re-arms them on
+  // `onDidChangeWorkspaceFolders`, which is exactly what this host needs: the
+  // active workspace changes at runtime here, unlike in a VS Code window.
+  for (const [label, token] of [
+    ['agents', TOKENS.AGENT_DISCOVERY_SERVICE],
+    ['commands', TOKENS.COMMAND_DISCOVERY_SERVICE],
+  ] as const) {
+    try {
+      const service = container.resolve(token) as {
+        initializeWatchers: () => void;
+      };
+      service.initializeWatchers();
+    } catch (error: unknown) {
+      // A missing watcher degrades the pickers to "refreshes on workspace
+      // switch", never to a failed boot.
+      console.warn(
+        `[Ptah Electron] Could not arm ${label} discovery watcher:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   try {
     resolvedStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
-  } catch (error) {
+    refs.resolvedStateStorage = resolvedStateStorage;
+  } catch (error: unknown) {
     console.warn(
       '[Ptah Electron] Could not resolve STATE_STORAGE for window persistence:',
       error instanceof Error ? error.message : String(error),
     );
   }
 
-  let hasBootedHeavyServices = false;
+  const booter = createHeavyServicesBooter({ container, coordinator });
 
-  const bootHeavyServices = async (workspaceRoot: string | undefined) => {
-    if (hasBootedHeavyServices) return;
-    hasBootedHeavyServices = true;
-    console.log(
-      '[Ptah Electron] Booting deferred backend services for workspace...',
-    );
-    const thoth = await bootThothRuntime(container, {
-      workspaceRoot,
-      logPrefix: '[Ptah Electron]',
-    });
-    refs.sqliteConnection = thoth.sqliteConnection;
-    refs.memoryCurator = thoth.memoryCurator;
-    refs.memoryTrigger = thoth.memoryTrigger;
-    refs.skillSynthesis = thoth.skillSynthesis;
-    refs.skillTrigger = thoth.skillTrigger;
-    refs.symbolWatcher = thoth.symbolWatcher;
-    refs.statusBridgeDisposables = thoth.statusBridgeDisposables;
-
-    const contentDownload = container.resolve<ContentDownloadService>(
-      PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-    );
-    initPluginLoader(container, contentDownload.getPluginsPath());
-    await mirrorUserLayer(container, workspaceRoot);
-    const sqliteOpen =
-      refs.sqliteConnection !== null && refs.sqliteConnection.isOpen;
-    // Pre-network, so a warm start detects divergence and reaps deleted
-    // upstreams with no download at all. The post-download callback below runs
-    // the same pass again against the refreshed sources; this one is what makes
-    // an offline or fully-cached start still notice a clone the user edited
-    // (defect 8). Both passes are a directory walk plus a content hash.
-    await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
-    if (sqliteOpen) {
-      void syncSkillRegistryCatalog(container);
-    }
-    contentDownload
-      .ensureContent()
-      .then(async (result) => {
-        if (!result.success) {
-          console.warn(
-            '[Ptah Electron] Content download failed (non-blocking):',
-            result.error ?? 'Unknown error',
-          );
-        }
-        await mirrorUserLayer(container, workspaceRoot);
-        // Unconditional: the `!result.fromCache` gate that used to sit here is
-        // defect 8. A cached download still needs the sweep, because what
-        // changed may be the CLONE (a user edit) or the upstream's absence,
-        // neither of which the download result knows anything about.
-        await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
-        // Re-reconcile against the post-download user layer. The pass below
-        // this block runs before the network is done — so on a cold first run
-        // it sees an empty user layer and copies nothing, and on a content
-        // update it copies the previous revision. Both leave the workspace
-        // without skills until the NEXT app start (TASK_2026_278). Running it
-        // here for cached downloads too is deliberate: the branch that "already
-        // has everything" is exactly the one where this is a cheap hash-compare
-        // no-op, and skipping it would leave the fromCache path depending on
-        // the initial call having raced correctly.
-        await reconcileHarness(
-          container,
-          workspaceRoot,
-          'content-download-complete',
-        );
-      })
-      .catch((err: unknown) => {
-        console.warn(
-          '[Ptah Electron] Post-download reconcile failed (non-fatal):',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-    // First pass, not awaiting the network, so a warm start has skills before
-    // the window even opens. `downloadPending` only changes how an empty user
-    // layer is REPORTED; the callback above corrects the content.
-    await reconcileHarness(container, workspaceRoot, 'activation', {
-      downloadPending: true,
-    });
-    try {
-      const providerModels = container.resolve(
-        AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
-      ) as { prefetchPricing: () => Promise<number> };
-      providerModels.prefetchPricing().catch((err) => {
-        console.warn(
-          '[Ptah Electron] Pricing pre-fetch failed (using bundled defaults):',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-      console.log('[Ptah Electron] Pricing pre-fetch initiated (background)');
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Pricing pre-fetch setup failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      const cliDetection = container.resolve(TOKENS.CLI_DETECTION_SERVICE) as {
-        detectAll: () => Promise<
-          Array<{ cli: string; installed: boolean; version?: string }>
-        >;
-        refreshCliTokens: () => Promise<void>;
-      };
-
-      cliDetection
-        .detectAll()
-        .then(async (results) => {
-          const installed = results.filter((r) => r.installed);
-          console.log(
-            `[Ptah Electron] CLI detection complete: ${installed.length}/${results.length} CLIs found`,
-          );
-          if (installed.some((r) => r.cli === 'codex')) {
-            try {
-              await cliDetection.refreshCliTokens();
-            } catch (refreshErr) {
-              console.warn(
-                '[Ptah Electron] CLI token refresh failed (non-blocking):',
-                refreshErr instanceof Error
-                  ? refreshErr.message
-                  : String(refreshErr),
-              );
-            }
-          }
-        })
-        .catch((err) => {
-          console.warn(
-            '[Ptah Electron] CLI detection failed (non-blocking):',
-            err instanceof Error ? err.message : String(err),
-          );
-        });
-    } catch (cliDetectError) {
-      console.warn(
-        '[Ptah Electron] CLI detection setup failed (non-blocking):',
-        cliDetectError instanceof Error
-          ? cliDetectError.message
-          : String(cliDetectError),
-      );
-    }
-    if (workspaceRoot) {
-      try {
-        const sessionImporter = container.resolve(
-          SDK_TOKENS.SDK_SESSION_IMPORTER,
-        ) as {
-          scanAndImport: (path: string, limit?: number) => Promise<number>;
-        };
-        const imported = await sessionImporter.scanAndImport(workspaceRoot, 50);
-        if (imported > 0) {
-          console.log(
-            `[Ptah Electron] Imported ${imported} existing Claude session(s)`,
-          );
-        }
-      } catch (importError) {
-        console.warn(
-          '[Ptah Electron] Session import skipped (non-fatal):',
-          importError instanceof Error
-            ? importError.message
-            : String(importError),
-        );
-      }
-    }
-    if (workspaceRoot) {
-      try {
-        const { GitWatcherService } =
-          await import('../services/git-watcher.service');
-        const gitInfoSvc = container.resolve(
-          TOKENS.GIT_INFO_SERVICE,
-        ) as InstanceType<
-          typeof import('@ptah-extension/vscode-core').GitInfoService
-        >;
-        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-          broadcastMessage: (type: string, payload: unknown) => Promise<void>;
-        };
-
-        const logger = container.resolve<
-          import('@ptah-extension/vscode-core').Logger
-        >(TOKENS.LOGGER);
-        const watcher = new GitWatcherService(gitInfoSvc, logger);
-        watcher.start(workspaceRoot, (type, payload) => {
-          webviewManager.broadcastMessage(type, payload);
-        });
-        refs.gitWatcher = watcher;
-        console.log('[Ptah Electron] Git file system watcher started');
-      } catch (error) {
-        console.warn(
-          '[Ptah Electron] Git watcher setup failed (non-fatal):',
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-    await startThothCron(container, thoth, {
-      logPrefix: '[Ptah Electron]',
-    });
-    refs.cronScheduler = thoth.cronScheduler;
-  }; // end of bootHeavyServices
   createApplicationMenu(container, getMainWindow);
-  const workspaceProvider = container.resolve<IWorkspaceProvider>(
-    PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-  );
-  workspaceProvider.onDidChangeWorkspaceFolders(() => {
-    // Drop cached dependency graphs for workspaces that are no longer open so
-    // their nodes/edges don't linger in memory after a folder is closed. The
-    // event carries no removed path, so retaining the currently-open set is the
-    // race-free way to evict closed workspaces. Non-fatal.
-    try {
-      const depGraph = container.resolve<DependencyGraphService>(
-        TOKENS.DEPENDENCY_GRAPH_SERVICE,
-      );
-      depGraph.retainOnly(workspaceProvider.getWorkspaceFolders());
-    } catch (err) {
-      console.warn(
-        '[Ptah Electron] Dependency graph eviction skipped (non-fatal):',
-        err,
-      );
-    }
 
-    const active = workspaceProvider.getWorkspaceRoot();
-    if (active) {
-      bootHeavyServices(active).catch((err) => {
-        console.error(
-          '[Ptah Electron] Failed to boot heavy services lazily:',
-          err,
-        );
-      });
-      // The NEW workspace gets a FULL pass — user-layer refresh, then reconcile
-      // — because one of the user layer's sources is `{ws}/.claude/agents`, and
-      // that directory belongs to the workspace we just switched to. A bare
-      // reconcile here mirrored nothing and therefore propagated the PREVIOUS
-      // workspace's agents into the new one while reporting a clean pass.
-      // `bootHeavyServices` is one-shot, so this call is what covers the second
-      // and subsequent switches. The outgoing workspace is deliberately left
-      // untouched (E12): `SkillJunctionService` reaped it on every folder
-      // switch, which broke every other host still working in that directory.
-      void propagateHarness(container, active, 'workspace-folders-changed');
-    }
-  });
-
-  if (startupWorkspaceRoot) {
-    await bootHeavyServices(startupWorkspaceRoot);
-  }
+  // B1 (TASK_2026_315) — MCP comes up BEFORE the heavy boot, not after it.
+  //
+  // The heavy boot → `bootThothRuntime` starts the memory and skill boot scans,
+  // and the memory scan dials a real LLM query per unscanned session. With
+  // bring-up below that call those queries were issued against
+  // `mcpServerRunning: false` and ran tool-less (`[SdkQueryRunner] MCP disabled`
+  // in the captured log), while the identical query minutes later — after
+  // bring-up — got `mcpServerRunning: true, mcpPort: 51820`. Same work, two
+  // different tool surfaces, decided by activation ordering alone.
+  //
+  // Nothing in `bringUpSubsystems` depends on the Thoth boot: it resolves
+  // `CODE_EXECUTION_MCP`, binds a local port and writes the `ptah` entry into
+  // `{ws}/.mcp.json`. The dependency runs the other way, which is the bug.
+  //
+  // Placement is also what keeps the workspace-change listener honest. It is
+  // registered AFTER this await and immediately before the startup boot
+  // RESERVATION below, with no await between the two, so a folder-change event
+  // cannot interleave and win the one-shot latch out from under it.
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
@@ -392,65 +262,163 @@ export async function wireRuntime(
     );
   }
 
-  // Eagerly construct the Ptah CLI registry now that all subsystems (including
-  // the SDK singletons it injects) are wired, and capture it for orderly
-  // shutdown. Deferring this to will-quit forces a first-time lazy build of its
-  // dependency graph mid-teardown, which races with DI shutdown and can hang or
-  // throw (blocked-network production case). Non-fatal: a null ref simply means
-  // will-quit has nothing to dispose.
+  const workspaceProvider = container.resolve<IWorkspaceProvider>(
+    PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+  );
+  workspaceProvider.onDidChangeWorkspaceFolders(() => {
+    // Drop cached dependency graphs for workspaces that are no longer open so
+    // their nodes/edges don't linger in memory after a folder is closed. The
+    // event carries no removed path, so retaining the currently-open set is the
+    // race-free way to evict closed workspaces. Non-fatal.
+    try {
+      const depGraph = container.resolve<DependencyGraphService>(
+        TOKENS.DEPENDENCY_GRAPH_SERVICE,
+      );
+      depGraph.retainOnly(workspaceProvider.getWorkspaceFolders());
+    } catch (err: unknown) {
+      console.warn(
+        '[Ptah Electron] Dependency graph eviction skipped (non-fatal):',
+        err,
+      );
+    }
+
+    const active = workspaceProvider.getWorkspaceRoot();
+    if (active) {
+      // Read BEFORE reserving, synchronously: `startOrJoin` creates the entry,
+      // so asking afterwards always answers "yes".
+      const alreadyBooted = booter.isReserved(active);
+      booter.startOrJoin(active).catch((err: unknown) => {
+        console.error(
+          '[Ptah Electron] Failed to boot heavy services lazily:',
+          err,
+        );
+      });
+      // The NEW workspace gets a FULL pass — user-layer refresh, then reconcile
+      // — because one of the user layer's sources is `{ws}/.claude/agents`, and
+      // that directory belongs to the workspace we just switched to. A bare
+      // reconcile here mirrored nothing and therefore propagated the PREVIOUS
+      // workspace's agents into the new one while reporting a clean pass. The
+      // outgoing workspace is deliberately left untouched (E12):
+      // `SkillJunctionService` reaped it on every folder switch, which broke
+      // every other host still working in that directory.
+      //
+      // Only when the root has booted BEFORE (TASK_2026_345). A first switch to
+      // a root reserves its heavy boot on the line above, and that boot already
+      // performs the identical full pass and its own `activation` harness
+      // reconcile. Firing this beside it is what put two `mirrorAll` and two
+      // `reconcile` passes on the same tree at the same time — the log shows
+      // one of them reporting `fastForwarded: 15` while its twin reported `0`
+      // for the same clones (`tmp/logs/log.log:1206-1223`). The second and every
+      // later switch back to a root finds its boot latched and needs this.
+      if (alreadyBooted) {
+        void propagateHarness(container, active, 'workspace-folders-changed');
+      }
+    }
+  });
+  // RESERVED HERE, in the same synchronous block as the listener above — no
+  // `await` may sit between the two. The reservation is what makes the one-shot
+  // latch honest: a folder-change event arriving before it would create the
+  // entry for its own root first and the startup root would then start a SECOND
+  // boot. The body does not run until `openWindowGate()` below.
+  if (startupWorkspaceRoot) {
+    void booter.startOrJoin(startupWorkspaceRoot).catch(() => undefined);
+  }
+
+  // The barrier replaces the old `if (refs.memoryCurator === null) return;`
+  // early return. With a window-first boot `did-finish-load` fires long before
+  // the curator exists, so sampling it once at that moment skipped warmup on
+  // every single launch.
+  coordinator.armWarmup(() => runEmbedderWarmup(container));
+
+  const postWindow = async (): Promise<void> => {
+    booter.openWindowGate();
+    if (startupWorkspaceRoot) {
+      await booter.startOrJoin(startupWorkspaceRoot);
+    }
+    captureShutdownHandles(container, coordinator);
+  };
+
+  return { resolvedStateStorage, postWindow };
+}
+
+/**
+ * Eagerly construct the two disposal handles whose dependency graphs must NOT
+ * be built during teardown.
+ *
+ * Resolving either of these in `will-quit` forces a first-time lazy build
+ * mid-teardown, which races with DI shutdown and can hang or throw (observed in
+ * the auto-updater e2e: production build, blocked network). Non-fatal: a null
+ * ref simply means `will-quit` has nothing to dispose.
+ */
+function captureShutdownHandles(
+  container: DependencyContainer,
+  coordinator: BootCoordinator,
+): void {
   try {
-    refs.cliRegistry = container.resolve<{ disposeAll: () => void }>(
-      CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
-    );
-  } catch (cliRegistryError) {
+    coordinator.refs.cliRegistry = container.resolve<{
+      disposeAll: () => void;
+    }>(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY);
+  } catch (cliRegistryError: unknown) {
     console.warn(
       '[Ptah Electron] CLI registry eager resolve failed (non-fatal):',
       cliRegistryError instanceof Error
         ? cliRegistryError.message
         : String(cliRegistryError),
     );
-    refs.cliRegistry = null;
+    coordinator.refs.cliRegistry = null;
   }
 
-  /**
-   * PHASE 4.96: Pre-warm embedder + reranker.
-   *
-   * Called by post-window.ts AFTER mainWindow fires `did-finish-load` so
-   * warmup I/O does not overlap with the renderer's first render burst.
-   * Fire-and-forget, non-fatal. Logs heap usage to detect budget overruns.
-   */
-  function scheduleWarmup(): void {
-    if (refs.memoryCurator === null) return;
-    setTimeout(() => {
-      void (async () => {
-        try {
-          const embedderClient = container.resolve<EmbedderWorkerClient>(
-            PERSISTENCE_TOKENS.EMBEDDER,
-          );
-          await embedderClient.warmup();
-          const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
-          if (heapMb > 200) {
-            console.warn(
-              `[Ptah Electron] Worker heap after warmup: ${heapMb.toFixed(1)} MB (budget: 200 MB)`,
-            );
-          } else {
-            console.log(
-              `[Ptah Electron] Embedder warmup complete (heap: ${heapMb.toFixed(1)} MB)`,
-            );
-          }
-        } catch (err: unknown) {
-          console.warn(
-            '[Ptah Electron] Embedder warmup failed (non-fatal):',
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      })();
-    }, 3000);
+  // Same eager-capture rationale. Resolving the agent process manager during
+  // will-quit would build its dependency graph at exactly the moment its job is
+  // to tear things down.
+  try {
+    coordinator.refs.agentProcessManager = container.resolve<{
+      disposeAll: () => Promise<void>;
+    }>(TOKENS.AGENT_PROCESS_MANAGER);
+  } catch (agentManagerError: unknown) {
+    console.warn(
+      '[Ptah Electron] Agent process manager eager resolve failed (non-fatal):',
+      agentManagerError instanceof Error
+        ? agentManagerError.message
+        : String(agentManagerError),
+    );
+    coordinator.refs.agentProcessManager = null;
   }
+}
 
-  return {
-    resolvedStateStorage,
-    scheduleWarmup,
-    refs,
-  };
+/**
+ * Pre-warm the embedder + reranker.
+ *
+ * Invoked by {@link BootCoordinator} once the warmup barrier opens — the window
+ * has finished loading AND the memory curator exists. Fire-and-forget and
+ * non-fatal; the coordinator owns the 3-second idle delay.
+ */
+async function runEmbedderWarmup(
+  container: DependencyContainer,
+): Promise<void> {
+  try {
+    const embedderClient = container.resolve<EmbedderWorkerClient>(
+      PERSISTENCE_TOKENS.EMBEDDER,
+    );
+    const heapBeforeMb = heapUsedMb();
+    await embedderClient.warmup();
+    const heapAfterMb = heapUsedMb();
+    const deltaMb = heapAfterMb - heapBeforeMb;
+    if (deltaMb > WARMUP_HEAP_DELTA_BUDGET_MB) {
+      console.warn(
+        `[Ptah Electron] Embedder warmup added ${deltaMb.toFixed(1)} MB to the main-process heap ` +
+          `(budget: ${WARMUP_HEAP_DELTA_BUDGET_MB} MB; heap ${heapBeforeMb.toFixed(1)} → ${heapAfterMb.toFixed(1)} MB). ` +
+          'The model should live in the utilityProcess — this much retained in main means something is holding worker payloads.',
+      );
+    } else {
+      console.log(
+        `[Ptah Electron] Embedder warmup complete (main heap +${deltaMb.toFixed(1)} MB, now ${heapAfterMb.toFixed(1)} MB)`,
+      );
+    }
+  } catch (err: unknown) {
+    console.warn(
+      '[Ptah Electron] Embedder warmup failed (non-fatal):',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }

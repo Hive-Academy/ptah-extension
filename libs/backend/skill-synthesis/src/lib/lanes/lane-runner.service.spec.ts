@@ -7,13 +7,20 @@
  * the bound on how many times a single `run()` may call the LLM.
  */
 import 'reflect-metadata';
+import type { IMcpServerStatus } from '@ptah-extension/platform-core';
 import {
   LANE_DEGRADED_RETRY_MS,
   LANE_MAX_EXECUTIONS_PER_RUN,
+  LANE_TOOL_USE_DEFAULT_MAX_TURNS,
   LaneRunnerService,
+  SKILL_SYNTHESIS_QUERY_LANE,
   timeoutBackoffMs,
 } from './lane-runner.service';
-import { LANE_AUTH_RETRY_MS, SKILL_LANE_IDS } from './lane.types';
+import {
+  LANE_AUTH_RETRY_MS,
+  LANE_QUOTA_RETRY_MS,
+  SKILL_LANE_IDS,
+} from './lane.types';
 import type { IInternalQuery } from '../internal-query.interface';
 import {
   assistantText,
@@ -55,6 +62,37 @@ describe('LaneRunnerService — auth-unresolvable stalls (Q2)', () => {
     expect(out.failure.reason).toBe('Lane judge: endpoint unreachable');
     expect(out.failure.retryAfterMs).toBe(LANE_AUTH_RETRY_MS);
     // Q2: it stalls. It does NOT quietly ride the user's active provider.
+    expect(query.execute).not.toHaveBeenCalled();
+  });
+
+  it('forwards a quota failure verbatim and never calls the LLM either', async () => {
+    // The gate's whole value: the second and later rows cost ZERO upstream
+    // requests. A runner that dispatched anyway would re-pay the discovery
+    // cost per row, which is the defect.
+    const query = makeQueryStub([]);
+    const resolver = makeFailingResolverStub({
+      ok: false,
+      failure: {
+        kind: 'quota-exhausted',
+        reason:
+          'Lane judge: Provider quota exhausted; retrying in about 15 min.',
+        retryAfterMs: LANE_QUOTA_RETRY_MS,
+      },
+    });
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      resolver.service,
+      makeBudgetStub().store,
+      query.query,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'hi' });
+
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.failure.kind).toBe('quota-exhausted');
+    expect(out.failure.retryAfterMs).toBe(LANE_QUOTA_RETRY_MS);
+    expect(out.failure.reason).not.toMatch(/timed out/i);
     expect(query.execute).not.toHaveBeenCalled();
   });
 
@@ -442,6 +480,40 @@ describe('LaneRunnerService — the queue write on a transport failure', () => {
     expect(queue.requeue).not.toHaveBeenCalled();
   });
 
+  it('requeues a quota-exhausted row behind the provider cooldown too', async () => {
+    // `quota-exhausted` is TRANSPORT: nothing ran. It earns the same queue
+    // write as the other two, and it must not be `markUnscored`.
+    const queue = makeQueueStub();
+    const before = Date.now();
+
+    const out = await new LaneRunnerService(
+      makeLogger(),
+      makeFailingResolverStub({
+        ok: false,
+        failure: {
+          kind: 'quota-exhausted',
+          reason: 'Lane judge: Provider quota exhausted.',
+          retryAfterMs: LANE_QUOTA_RETRY_MS,
+        },
+      }).service,
+      makeBudgetStub().store,
+      makeQueryStub([]).query,
+      queue.store,
+    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
+
+    expect(out.status).toBe('failed');
+    expect(queue.requeue).toHaveBeenCalledTimes(1);
+    const [id, notBefore, reason] = queue.requeue.mock.calls[0] as [
+      string,
+      number,
+      string,
+    ];
+    expect(id).toBe('row-1');
+    expect(notBefore).toBeGreaterThanOrEqual(before + LANE_QUOTA_RETRY_MS);
+    expect(notBefore).toBeLessThan(before + LANE_AUTH_RETRY_MS);
+    expect(reason).toBe('Lane judge: Provider quota exhausted.');
+  });
+
   it('leaves structured-output-unsupported for the drain to map', async () => {
     // That transition also writes the candidate's `judge_status`; splitting the
     // pair across two owners is how a row and its candidate end up disagreeing.
@@ -510,6 +582,229 @@ describe('LaneRunnerService — the queue write on a transport failure', () => {
     expect(out.status === 'failed' && out.failure.kind).toBe(
       'auth-unresolvable',
     );
+  });
+});
+
+describe('LaneRunnerService — the MCP wiring is DERIVED, not defaulted', () => {
+  /** The status port, reduced to the one method `resolveMcpSessionWiring` reads. */
+  const statusPort = (port: number | null): IMcpServerStatus => ({
+    getPort: () => port,
+  });
+
+  it('hands the live port to execute when the caller supplies no flag', async () => {
+    // The defect: every lane ran with `mcpServerRunning: false` while the
+    // in-process server was listening, so background work could not call a
+    // single Ptah tool. No lane caller passes the flag, so the default IS the
+    // behaviour.
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+      null,
+      statusPort(51821),
+    ).run({ laneId: 'judge', prompt: 'x' });
+
+    expect(query.calls[0].mcpServerRunning).toBe(true);
+    // The PORT, not just the boolean: the server falls back to an OS-assigned
+    // port when the configured one is taken, and a lane told only "running"
+    // would be pointed at the `PTAH_MCP_PORT` default instead.
+    expect(query.calls[0].mcpPort).toBe(51821);
+  });
+
+  it('reports false on a host whose MCP server is not listening', async () => {
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+      null,
+      statusPort(null),
+    ).run({ laneId: 'judge', prompt: 'x' });
+
+    expect(query.calls[0].mcpServerRunning).toBe(false);
+    expect(query.calls[0].mcpPort).toBeUndefined();
+  });
+
+  it('reports false in a host that registered no status port at all', async () => {
+    // The CLI starts no MCP server; the port is optional for exactly that.
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'judge', prompt: 'x' });
+
+    expect(query.calls[0].mcpServerRunning).toBe(false);
+  });
+
+  it('lets an EXPLICIT request flag win over the host status', async () => {
+    // Derived is the default, not a mandate: a caller that names the flag has
+    // a reason, and silently overriding it would be the same class of defect
+    // in the other direction.
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+      null,
+      statusPort(51821),
+    ).run({ laneId: 'judge', prompt: 'x', mcpServerRunning: false });
+
+    expect(query.calls[0].mcpServerRunning).toBe(false);
+    expect(query.calls[0].mcpPort).toBeUndefined();
+  });
+});
+
+/**
+ * TASK_2026_352. The consumer holds a per-CALLER concurrency ceiling as well as
+ * a global one, so naming a lane is what stops this library's background calls
+ * from serialising into the memory curator's and back — nine such waits on one
+ * boot (`tmp/logs/log.log:938 … 1424`, each reading `limit:1, inFlight:1`).
+ */
+describe('LaneRunnerService — the concurrency lane', () => {
+  it('charges every call to the one skill-synthesis lane', async () => {
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'judge', prompt: 'x' });
+
+    expect(query.calls[0].lane).toBe(SKILL_SYNTHESIS_QUERY_LANE);
+  });
+
+  it('uses the SAME lane for a different SkillLane', async () => {
+    // One lane for all four `SkillLane`s, deliberately: they are alternative
+    // routes for one background pipeline, so the ceiling should bound the
+    // pipeline rather than each route. A per-`SkillLane` name would let a
+    // single drain tick hold the whole host-wide budget.
+    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('archaeologist')).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'archaeologist', prompt: 'x' });
+
+    expect(query.calls[0].lane).toBe(SKILL_SYNTHESIS_QUERY_LANE);
+  });
+});
+
+describe('LaneRunnerService — a tool-use lane gets a real turn budget', () => {
+  it('defaults a `toolUse: required` lane to LANE_TOOL_USE_DEFAULT_MAX_TURNS', async () => {
+    // `1` is not a small budget for a retrieval lane, it is an impossible one:
+    // the one-shot still exposes the tool preset, so a single tool call spends
+    // the only turn and the run ends `error_max_turns`.
+    const query = makeQueryStub([[resultMessage({ subtype: 'success' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(
+        resolvedLane('archaeologist', { config: { toolUse: 'required' } }),
+      ).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'archaeologist', prompt: 'x' });
+
+    expect(LANE_TOOL_USE_DEFAULT_MAX_TURNS).toBe(8);
+    expect(query.calls[0].maxTurns).toBe(LANE_TOOL_USE_DEFAULT_MAX_TURNS);
+  });
+
+  it('still honours a caller that names its own number', async () => {
+    const query = makeQueryStub([[resultMessage({ subtype: 'success' })]]);
+    await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(
+        resolvedLane('archaeologist', { config: { toolUse: 'required' } }),
+      ).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'archaeologist', prompt: 'x', maxTurns: 3 });
+
+    expect(query.calls[0].maxTurns).toBe(3);
+  });
+});
+
+describe('LaneRunnerService — the ladder reads the result subtype', () => {
+  const SCHEMA = { type: 'object' } as Record<string, unknown>;
+
+  const sdkLane = () => resolvedLane('judge', { config: { toolUse: 'none' } });
+
+  it('does NOT re-run without outputFormat when the run ended error_max_turns', async () => {
+    // An `SDKResultError` carries no structured output and no JSON because the
+    // run STOPPED — not because the endpoint ignored the schema. Re-running it
+    // buys a second timeout-length execution to learn nothing, and that second
+    // call is the one that timed out in the field.
+    const logger = makeLogger();
+    const query = makeQueryStub([
+      [assistantText('partial'), resultMessage({ subtype: 'error_max_turns' })],
+      [resultMessage({ result: '{"never":"reached"}' })],
+    ]);
+
+    const out = await new LaneRunnerService(
+      logger,
+      makeResolverStub(sdkLane()).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
+
+    expect(query.execute).toHaveBeenCalledTimes(1);
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.failure.kind).toBe('tool-use-unsupported');
+    expect(out.failure.retryAfterMs).toBe(LANE_DEGRADED_RETRY_MS);
+    // The next log audit has to be able to tell the two apart.
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('ended without an answer'),
+      expect.objectContaining({ subtype: 'error_max_turns' }),
+    );
+  });
+
+  it('maps the other SDK error subtypes to structured-output-unsupported', async () => {
+    for (const subtype of [
+      'error_during_execution',
+      'error_max_budget_usd',
+      'error_max_structured_output_retries',
+    ]) {
+      const query = makeQueryStub([[resultMessage({ subtype })]]);
+      const out = await new LaneRunnerService(
+        makeLogger(),
+        makeResolverStub(sdkLane()).service,
+        makeBudgetStub().store,
+        query.query,
+      ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
+
+      expect(query.execute).toHaveBeenCalledTimes(1);
+      expect(out.status === 'failed' && out.failure.kind).toBe(
+        'structured-output-unsupported',
+      );
+    }
+  });
+
+  it('still earns exactly one re-run on a success subtype with no JSON', async () => {
+    // The rung the ladder exists for is untouched: an endpoint that ANSWERED
+    // and ignored `outputFormat` is a capability finding, not a stopped run.
+    const query = makeQueryStub([
+      [resultMessage({ subtype: 'success', result: 'I cannot do schemas.' })],
+      [assistantText('{"novelty":7}'), resultMessage({ subtype: 'success' })],
+    ]);
+
+    const out = await new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(sdkLane()).service,
+      makeBudgetStub().store,
+      query.query,
+    ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
+
+    expect(query.execute).toHaveBeenCalledTimes(2);
+    expect(query.calls[1].outputFormat).toBeUndefined();
+    expect(out.status === 'ok' && out.run.json).toEqual({ novelty: 7 });
+    expect(LANE_MAX_EXECUTIONS_PER_RUN).toBe(2);
   });
 });
 

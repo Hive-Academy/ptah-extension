@@ -31,6 +31,21 @@ import type {
 } from '../sources/harness-source.port';
 import { createAntigravityTarget, createCodexTarget } from './rival-targets';
 import type { IHarnessTarget } from './harness-target.port';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite is about Codex and Antigravity SHARING `{ws}/.agents/skills`, so the
+ * selection is recorded up front rather than re-tested.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 interface FakeLogger {
   debug: jest.Mock;
@@ -71,6 +86,7 @@ describe('Codex + Antigravity shared `.agents/skills` directory', () => {
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-shareddir-ws-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-shareddir-src-'));
     tempHome = mkdtempSync(join(tmpdir(), 'harness-sync-shareddir-home-'));
   });

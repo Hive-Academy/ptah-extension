@@ -77,7 +77,10 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import { Logger } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { AgentGenerationOrchestratorService } from './orchestrator.service';
+import {
+  AgentGenerationOrchestratorService,
+  stripCompositionMarkers,
+} from './orchestrator.service';
 import type { OrchestratorGenerationOptions } from './orchestrator.service';
 import type { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import type { ITemplateStorageService } from '../interfaces/template-storage.interface';
@@ -302,7 +305,9 @@ function wireHappyPath(
   mocks.contentGenerator.generateContent.mockResolvedValue(
     Result.ok({
       content: '# Generated\n\nBody',
-      description: 'Generated description for test project',
+      warnings: [],
+      rejectedSections: 0,
+      tailoredSections: 0,
     }),
   );
 
@@ -311,7 +316,10 @@ function wireHappyPath(
   );
 
   mocks.fileWriter.writeAgent.mockResolvedValue(
-    Result.ok('/workspace/test-project/.claude/agents/backend-developer.md'),
+    Result.ok({
+      filePath: '/workspace/test-project/.claude/agents/backend-developer.md',
+      status: 'written' as const,
+    }),
   );
 }
 
@@ -570,8 +578,8 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(summary.failed).toBe(0);
       expect(typeof summary.durationMs).toBe('number');
       expect(summary.durationMs).toBeGreaterThanOrEqual(0);
-      expect(summary.agents).toHaveLength(1);
-      expect(summary.agents[0].sourceTemplateId).toBe('backend-developer');
+      expect(summary.outcomes).toHaveLength(1);
+      expect(summary.outcomes[0].agentId).toBe('backend-developer');
     });
 
     it('writes generated agents to context.rootPath/.claude/agents/<id>.md', async () => {
@@ -660,12 +668,15 @@ describe('AgentGenerationOrchestratorService', () => {
 
     it('strips the second YAML frontmatter block from generated content', async () => {
       const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
+      const authored = 'Writes server-side code for this repository.';
+      wireHappyPath(mocks, createMockTemplate({ description: authored }));
       mocks.contentGenerator.generateContent.mockResolvedValue(
         Result.ok({
           content:
             '\n---\nname: stale\ndescription: stale\n---\n\nReal body content',
-          description: 'Fresh description',
+          warnings: [],
+          rejectedSections: 0,
+          tailoredSections: 0,
         }),
       );
 
@@ -676,20 +687,88 @@ describe('AgentGenerationOrchestratorService', () => {
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
       // Final content should keep exactly one frontmatter block (the
       // orchestrator-built one), not the stale templated block.
-      expect(writtenAgent.content).toContain(
-        'description: "Fresh description"',
-      );
+      expect(writtenAgent.content).toContain(`description: "${authored}"`);
       expect(writtenAgent.content).not.toContain('description: stale');
+      expect(writtenAgent.content).toContain('Real body content');
     });
 
-    it('caps description at 120 characters with ellipsis', async () => {
+    /**
+     * The cap was 120, which is narrower than any real agent description.
+     *
+     * A description's job is WHAT the agent does AND WHEN to reach for it, and
+     * the WHEN half is what makes it selectable. Measured across the 15 shipped
+     * templates, the shortest description is 417 characters and the longest
+     * 647 — so a 120-char cap truncated every one of them mid-sentence, always
+     * inside the WHEN clause, and the agent files went out advertising half a
+     * trigger. 1,024 is the ceiling the harness targets themselves impose.
+     */
+    it('leaves a real description intact and caps only a runaway one', async () => {
       const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-      const longDesc = 'A'.repeat(200);
-      mocks.contentGenerator.generateContent.mockResolvedValue(
-        Result.ok({
-          content: 'body',
-          description: longDesc,
+      const realistic = 'A'.repeat(647);
+      wireHappyPath(mocks, createMockTemplate({ description: realistic }));
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).toContain(realistic);
+      expect(writtenAgent.content).not.toContain('...');
+    });
+
+    it('caps description at 1024 characters with ellipsis', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(
+        mocks,
+        createMockTemplate({ description: 'A'.repeat(2000) }),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).toMatch(/A{1021}\.\.\./);
+    });
+
+    /**
+     * Description precedence: the AUTHORED template is the only source.
+     *
+     * The template's `description:` frontmatter is the sentence every harness
+     * reads to decide whether to dispatch to this agent — it names the triggers
+     * AND the exclusions, and it was written knowing which sibling agents it has
+     * to be distinguishable from. The generated one-liner knew neither, and once
+     * the template won it had no reachable success path, so the content pass no
+     * longer asks for one at all.
+     */
+    it('writes the authored template description verbatim', async () => {
+      const { service, mocks } = createOrchestrator();
+      const authored =
+        'Writes server-side code. Use when a task assigns backend files. Not for UI work.';
+      wireHappyPath(mocks, createMockTemplate({ description: authored }));
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).toContain(`description: "${authored}"`);
+    });
+
+    /**
+     * The fallback is deterministic and stack-agnostic. It used to read
+     * "<Name> for <ProjectType> projects", which put an analysis-derived label
+     * into the one sentence a harness selects on — and every shipped template
+     * declares a description anyway, so this path only ever serves a
+     * hand-rolled or malformed one.
+     */
+    it('falls back to "<Humanized Name> agent" when the template declares none', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          name: 'backend-developer',
+          description: undefined,
         }),
       );
 
@@ -698,7 +777,73 @@ describe('AgentGenerationOrchestratorService', () => {
       });
 
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
-      expect(writtenAgent.content).toMatch(/A{117}\.\.\./);
+      expect(writtenAgent.content).toContain(
+        'description: "Backend Developer agent"',
+      );
+      expect(writtenAgent.content).not.toContain('projects"');
+    });
+
+    it('surfaces a rejected LLM section as a generation warning', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.ok({
+          content: 'body',
+          warnings: [
+            '[Backend Developer] LLM section FRAMEWORK_CONVENTIONS rejected (states a version number) — kept the authored fallback',
+          ],
+          rejectedSections: 1,
+          tailoredSections: 0,
+        }),
+      );
+
+      const result = await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      expect(
+        result.value!.warnings.some((w) =>
+          w.includes('FRAMEWORK_CONVENTIONS rejected'),
+        ),
+      ).toBe(true);
+    });
+
+    /**
+     * The no-SDK path. When generation fails outright the authored template body
+     * is emitted verbatim — including whatever sits between its `LLM` markers —
+     * so this is the ONE path where an unstripped `<!-- LLM:… -->` line reaches
+     * `.claude/agents/` and, from there, every rival CLI's harness dir.
+     */
+    it('strips LLM markers from the authored fallback when generation fails', async () => {
+      const { service, mocks } = createOrchestrator();
+      const template = createMockTemplate({
+        content: [
+          '# Backend Developer',
+          '',
+          '<!-- LLM:FRAMEWORK_CONVENTIONS -->',
+          '## Framework conventions',
+          '',
+          '- Follow what the framework already establishes.',
+          '<!-- /LLM:FRAMEWORK_CONVENTIONS -->',
+        ].join('\n'),
+      });
+      wireHappyPath(mocks, template);
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.err(new Error('SDK unavailable')),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).not.toContain('LLM:');
+      // The fallback text between the markers survives — dropping it would ship
+      // an agent file with an empty section where a rule used to be.
+      expect(writtenAgent.content).toContain('## Framework conventions');
+      expect(writtenAgent.content).toContain(
+        '- Follow what the framework already establishes.',
+      );
     });
   });
 
@@ -953,7 +1098,12 @@ describe('AgentGenerationOrchestratorService', () => {
       let writeCalls = 0;
       mocks.fileWriter.writeAgent.mockImplementation(async () => {
         writeCalls++;
-        if (writeCalls === 1) return Result.ok('/path/agent-a.md');
+        if (writeCalls === 1) {
+          return Result.ok({
+            filePath: '/path/agent-a.md',
+            status: 'written' as const,
+          });
+        }
         return Result.err(new Error('Permission denied'));
       });
 
@@ -1161,7 +1311,9 @@ describe('AgentGenerationOrchestratorService', () => {
         }
         return Result.ok({
           content: '# B',
-          description: 'desc',
+          rejectedSections: 0,
+          tailoredSections: 0,
+          warnings: [],
         });
       });
 
@@ -1246,7 +1398,12 @@ describe('AgentGenerationOrchestratorService', () => {
       mocks.contentGenerator.generateContent.mockImplementation(async (t) =>
         t.id === 'beta' || t.id === 'visual-reviewer'
           ? Result.err(new Error('LLM rate limited'))
-          : Result.ok({ content: `# ${t.id}`, description: `desc ${t.id}` }),
+          : Result.ok({
+              content: `# ${t.id}`,
+              warnings: [],
+              rejectedSections: 0,
+              tailoredSections: 0,
+            }),
       );
       mocks.outputValidation.validate.mockResolvedValue(
         Result.ok(createValidationResult()),
@@ -1255,9 +1412,10 @@ describe('AgentGenerationOrchestratorService', () => {
       const written: string[] = [];
       mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
         written.push(agent.sourceTemplateId);
-        return Result.ok(
-          `/workspace/test-project/.claude/agents/${agent.sourceTemplateId}.md`,
-        );
+        return Result.ok({
+          filePath: `/workspace/test-project/.claude/agents/${agent.sourceTemplateId}.md`,
+          status: 'written' as const,
+        });
       });
 
       const result = await service.generateAgents({
@@ -1305,5 +1463,415 @@ describe('AgentGenerationOrchestratorService', () => {
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
       expect(writtenAgent.content).not.toContain('model:');
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// stripCompositionMarkers — the emit-side half of the shared-block mechanism.
+//
+// Both defects pinned here were invisible end-to-end: the output still "looked
+// right" in an LF fixture, and the over-broad collapse only showed up as a code
+// sample that had quietly lost a blank line.
+// -----------------------------------------------------------------------------
+
+describe('stripCompositionMarkers', () => {
+  it('removes marker lines and collapses the seam (LF)', () => {
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '## Replace, do not accumulate',
+      '',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      'outro',
+    ].join('\n');
+
+    expect(stripCompositionMarkers(content)).toBe(
+      ['intro', '', '## Replace, do not accumulate', '', 'outro'].join('\n'),
+    );
+  });
+
+  it('removes marker lines and collapses the seam on CRLF input', () => {
+    // Templates are authored on Windows. The previous `\n`-anchored strip left
+    // an orphaned `\r` behind and its `\n{3,}` collapse never matched at all,
+    // so the tidy-up silently did nothing on the platform that produces the
+    // corpus.
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '## Replace, do not accumulate',
+      '',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      'outro',
+    ].join('\r\n');
+
+    const out = stripCompositionMarkers(content);
+
+    expect(out).not.toContain('STATIC:');
+    expect(out).not.toContain('\r\r');
+    expect(out).toBe(
+      ['intro', '', '## Replace, do not accumulate', '', 'outro'].join('\r\n'),
+    );
+  });
+
+  it('leaves a CRLF document with no markers byte-identical', () => {
+    const content = 'a\r\n\r\n\r\n\r\nb\r\n';
+    expect(stripCompositionMarkers(content)).toBe(content);
+  });
+
+  it('does NOT reflow blank runs away from the seam', () => {
+    // The old global `\n{3,}` → `\n\n` rewrote the whole document. Inside a
+    // fence the blank run is part of the specimen the agent is shown.
+    const content = [
+      '<!-- STATIC:CLI_DELEGATION -->',
+      'delegation rules',
+      '<!-- /STATIC:CLI_DELEGATION -->',
+      '',
+      '```markdown',
+      '## Report',
+      '',
+      '',
+      '',
+      'body after three blank lines',
+      '```',
+    ].join('\n');
+
+    const out = stripCompositionMarkers(content);
+
+    expect(out).not.toContain('STATIC:');
+    expect(out).toContain('## Report\n\n\n\nbody after three blank lines');
+  });
+
+  it('collapses a run only once when two markers are adjacent', () => {
+    const content = [
+      'intro',
+      '',
+      '<!-- STATIC:REPLACEMENT_POLICY -->',
+      '<!-- /STATIC:REPLACEMENT_POLICY -->',
+      '',
+      '<!-- STATIC:CLI_DELEGATION -->',
+      '<!-- /STATIC:CLI_DELEGATION -->',
+      '',
+      'outro',
+    ].join('\n');
+
+    expect(stripCompositionMarkers(content)).toBe(
+      ['intro', '', 'outro'].join('\n'),
+    );
+  });
+
+  it('strips a malformed id rather than shipping it', () => {
+    // Rejection belongs to the resolver, at load time. Refusing to strip here
+    // would only mean the marker reaches the agent file.
+    const out = stripCompositionMarkers(
+      'a\n<!-- /STATIC:ANT I_PATTERNS -->\nb\n',
+    );
+    expect(out).not.toContain('STATIC:');
+  });
+
+  /**
+   * LLM and VAR markers are the same mechanism and had the same leak.
+   *
+   * The no-SDK path emits the AUTHORED text between an `LLM` pair, so on any run
+   * where the SDK is unavailable the marker lines travel with it. They were
+   * blanked by an inline `replace(..., '')` in one caller and not handled at all
+   * in the other.
+   */
+  it('strips LLM markers and keeps the authored fallback between them', () => {
+    const content = [
+      'intro',
+      '',
+      '<!-- LLM:FRAMEWORK_CONVENTIONS -->',
+      '## Framework conventions',
+      '',
+      '- Follow the conventions the framework in use already establishes.',
+      '<!-- /LLM:FRAMEWORK_CONVENTIONS -->',
+      '',
+      'outro',
+    ].join('\n');
+
+    const out = stripCompositionMarkers(content);
+
+    expect(out).not.toContain('LLM:');
+    expect(out).toContain('## Framework conventions');
+    expect(out).toContain(
+      '- Follow the conventions the framework in use already establishes.',
+    );
+    expect(out).toBe(
+      [
+        'intro',
+        '',
+        '## Framework conventions',
+        '',
+        '- Follow the conventions the framework in use already establishes.',
+        '',
+        'outro',
+      ].join('\n'),
+    );
+  });
+
+  it('strips VAR markers the same way, on CRLF input', () => {
+    const content = [
+      '<!-- VAR:PROJECT_CONTEXT -->',
+      'A monorepo.',
+      '<!-- /VAR:PROJECT_CONTEXT -->',
+    ].join('\r\n');
+
+    const out = stripCompositionMarkers(content);
+
+    expect(out).not.toContain('VAR:');
+    expect(out).not.toContain('\r\r');
+    expect(out.trim()).toBe('A monorepo.');
+  });
+
+  it('strips a mixed STATIC/LLM document in one pass', () => {
+    const content = [
+      '<!-- STATIC:CLI_DELEGATION -->',
+      'delegation rules',
+      '<!-- /STATIC:CLI_DELEGATION -->',
+      '',
+      '<!-- LLM:REVIEW_FOCUS -->',
+      '## Review focus',
+      '<!-- /LLM:REVIEW_FOCUS -->',
+    ].join('\n');
+
+    const out = stripCompositionMarkers(content);
+
+    expect(out).not.toMatch(/<!--\s*\/?(?:STATIC|LLM|VAR):/);
+    expect(out).toContain('delegation rules');
+    expect(out).toContain('## Review focus');
+  });
+
+  it('leaves a marker-shaped line that is not a composition id alone', () => {
+    // Prettier-safe: a template may legitimately carry an HTML comment.
+    const content = 'a\n<!-- prettier-ignore -->\nb';
+    expect(stripCompositionMarkers(content)).toBe(content);
+  });
+});
+
+// =============================================================================
+// 6. ABORTABLE, OUTCOME-HONEST GENERATION (TASK_2026_361)
+//    The abort signal reaches the SDK config, stops every later render/write,
+//    and each selected agent ends with exactly one terminal outcome.
+// =============================================================================
+
+type AgentOutcome = Parameters<
+  NonNullable<OrchestratorGenerationOptions['onAgentOutcome']>
+>[0];
+
+describe('AgentGenerationOrchestratorService — abortable, outcome-honest generation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    existsSyncMock.mockReturnValue(false);
+  });
+
+  function wireAgents(
+    mocks: OrchestratorMocks,
+    ids: string[],
+  ): Record<string, AgentTemplate> {
+    wireHappyPath(mocks);
+    const templates: Record<string, AgentTemplate> = {};
+    for (const id of ids) templates[id] = createMockTemplate({ id });
+    mocks.agentSelector.selectAgents.mockResolvedValue(
+      Result.ok(
+        ids.map((id) => ({
+          template: templates[id],
+          relevanceScore: 100,
+          matchedCriteria: [],
+        })),
+      ),
+    );
+    mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+      Result.ok(templates[id]),
+    );
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) =>
+      Result.ok({ filePath: agent.filePath, status: 'written' as const }),
+    );
+    return templates;
+  }
+
+  it('passes the abort signal into the content-generation SDK config', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a']);
+    const controller = new AbortController();
+
+    await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    const sdkConfig = mocks.contentGenerator.generateContent.mock.calls[0]![2];
+    expect(sdkConfig?.abortSignal).toBe(controller.signal);
+  });
+
+  it('records every remaining agent as not generated and writes nothing after an abort during rendering', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const controller = new AbortController();
+    mocks.contentGenerator.generateContent.mockImplementation(async () => {
+      controller.abort('user_cancelled');
+      throw new Error('Content generation aborted: user_cancelled');
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
+    expect(mocks.contentGenerator.generateContent).toHaveBeenCalledTimes(1);
+    expect(summary.lifecycle).toBe('paused');
+    expect(summary.outcomes.map((o) => o.status)).toEqual(['failed', 'failed']);
+    expect(summary.outcomes.map((o) => o.error)).toEqual([
+      'not generated: user_cancelled',
+      'not generated: user_cancelled',
+    ]);
+    expect(summary.writtenCount).toBe(0);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.successful).toBe(0);
+  });
+
+  it('stops before the next write once the watchdog aborts, and reports timed-out', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b', 'agent-c']);
+    const controller = new AbortController();
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
+      controller.abort('generation_timeout');
+      return Result.ok({
+        filePath: agent.filePath,
+        status: 'written' as const,
+      });
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+    expect(mocks.contentGenerator.generateContent).toHaveBeenCalledTimes(1);
+    expect(summary.lifecycle).toBe('timed-out');
+    expect(summary.writtenCount).toBe(1);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.outcomes[0]).toEqual(
+      expect.objectContaining({ agentId: 'agent-a', status: 'written' }),
+    );
+    expect(summary.outcomes[1].error).toBe('not generated: generation_timeout');
+    expect(summary.outcomes[2].error).toBe('not generated: generation_timeout');
+  });
+
+  it('aggregates mixed written / unchanged / failed outcomes with their section counts', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b', 'agent-c']);
+    const counts: Record<string, [number, number]> = {
+      'agent-a': [1, 2],
+      'agent-b': [0, 3],
+      'agent-c': [2, 0],
+    };
+    mocks.contentGenerator.generateContent.mockImplementation(async (t) =>
+      Result.ok({
+        content: `# ${t.id}`,
+        warnings: [],
+        rejectedSections: counts[t.id][0],
+        tailoredSections: counts[t.id][1],
+      }),
+    );
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
+      if (agent.sourceTemplateId === 'agent-a') {
+        return Result.ok({
+          filePath: agent.filePath,
+          status: 'written' as const,
+        });
+      }
+      if (agent.sourceTemplateId === 'agent-b') {
+        return Result.ok({
+          filePath: agent.filePath,
+          status: 'unchanged' as const,
+        });
+      }
+      return Result.err(new Error('Disk full'));
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(summary.lifecycle).toBe('completed');
+    expect(summary.totalAgents).toBe(3);
+    expect(summary.writtenCount).toBe(1);
+    expect(summary.unchangedCount).toBe(1);
+    expect(summary.failedCount).toBe(1);
+    expect(summary.successful).toBe(2);
+    expect(summary.failed).toBe(1);
+    expect(summary.rejectedSections).toBe(3);
+    expect(summary.tailoredSections).toBe(5);
+    expect(summary.outcomes.map((o) => o.status)).toEqual([
+      'written',
+      'unchanged',
+      'failed',
+    ]);
+    expect(summary.outcomes[2].error).toBe('Disk full');
+    expect(summary.outcomes[2].rejectedSections).toBe(2);
+    expect(summary.outputDirectory.replace(/\\/g, '/')).toBe(
+      '/workspace/test-project/.claude/agents',
+    );
+    expect(
+      summary.warnings.some((w) => w.includes('Failed to write agent-c')),
+    ).toBe(true);
+  });
+
+  it('fires onAgentOutcome exactly once per selected agent, in order', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const seen: AgentOutcome[] = [];
+    const onAgentOutcome = jest.fn(async (outcome: AgentOutcome) => {
+      seen.push(outcome);
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+      onAgentOutcome,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
+    expect(seen.map((o) => o.agentId)).toEqual(['agent-a', 'agent-b']);
+    expect(seen.every((o) => o.status === 'written')).toBe(true);
+    expect(result.value!.outcomes).toEqual(seen);
+  });
+
+  it('records a failed template load as a failed outcome and still reports the run', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+      id === 'agent-b'
+        ? Result.err(new Error('template missing'))
+        : Result.ok(createMockTemplate({ id })),
+    );
+
+    const result = await service.generateAgents({
+      workspacePath: '/workspace/test-project',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.outcomes[1]).toEqual(
+      expect.objectContaining({
+        agentId: 'agent-b',
+        status: 'failed',
+        error: 'Failed to load template: template missing',
+      }),
+    );
+    expect(result.value!.writtenCount).toBe(1);
   });
 });

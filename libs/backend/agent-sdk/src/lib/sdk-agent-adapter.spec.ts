@@ -142,6 +142,7 @@ function createMockModelService(): jest.Mocked<
     | 'getDefaultModel'
     | 'getApiModelsNormalized'
     | 'clearCache'
+    | 'invalidateForAuthChange'
     | 'resolveModelId'
   >
 > {
@@ -150,6 +151,7 @@ function createMockModelService(): jest.Mocked<
     getDefaultModel: jest.fn().mockResolvedValue('claude-sonnet-4-20250514'),
     getApiModelsNormalized: jest.fn().mockResolvedValue([]),
     clearCache: jest.fn(),
+    invalidateForAuthChange: jest.fn(),
     resolveModelId: jest.fn((m: string) => m),
   };
 }
@@ -244,17 +246,45 @@ function createMockPlatformInfo(
   };
 }
 
+/**
+ * `IWorkspaceProvider` stand-in with a MUTABLE folder list.
+ *
+ * `onDidChangeWorkspaceFolders` captures its listener — the adapter subscribes
+ * from its constructor — and `__state.setFolders` mutates the list BEFORE
+ * firing, which is the real contract: `ElectronWorkspaceProvider.removeFolder`
+ * splices and only then calls `fireFoldersChange`, so a handler always observes
+ * the POST-change folder list. A mock that fired first would let the
+ * no-workspace guard pass on a stale count and silently pass the specs below.
+ */
+type MockWorkspaceProvider = jest.Mocked<IWorkspaceProvider> & {
+  __state: { setFolders(folders: string[]): void };
+};
+
 function createMockWorkspaceProvider(
   root: string | null = '/fake/workspace-root',
-): jest.Mocked<IWorkspaceProvider> {
+): MockWorkspaceProvider {
+  let folders: string[] = root ? [root] : [];
+  const listeners: Array<() => void> = [];
+
   return {
-    getWorkspaceRoot: jest.fn(() => root),
-    getWorkspaceFolders: jest.fn(() => (root ? [root] : [])),
+    getWorkspaceRoot: jest.fn(() => folders[0]),
+    getWorkspaceFolders: jest.fn(() => [...folders]),
     getConfiguration: jest.fn(<T>(_: string, __: string, def?: T) => def),
     setConfiguration: jest.fn().mockResolvedValue(undefined),
     onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
-    onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
-  } as unknown as jest.Mocked<IWorkspaceProvider>;
+    onDidChangeWorkspaceFolders: jest.fn((listener: () => void) => {
+      listeners.push(listener);
+      return { dispose: jest.fn() };
+    }),
+    __state: {
+      setFolders(next: string[]): void {
+        folders = [...next];
+        for (const listener of [...listeners]) {
+          listener();
+        }
+      },
+    },
+  } as unknown as MockWorkspaceProvider;
 }
 
 function createFakeQuery(): Query {
@@ -286,7 +316,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
-  workspaceProvider: jest.Mocked<IWorkspaceProvider>;
+  workspaceProvider: MockWorkspaceProvider;
   forkService: ReturnType<typeof createMockForkService>;
   events: SdkAdapterEvents;
   activityRegistry: SessionActivityRegistry;
@@ -375,6 +405,34 @@ function makeSessionConfig(
     tabId: 'tab_1',
     ...overrides,
   } as AISessionConfig & { tabId: string };
+}
+
+/** The auth result shape the adapter awaits, taken from the port itself. */
+type AuthConfigureResult = Awaited<
+  ReturnType<IAuthEnvProvider['configureAuthentication']>
+>;
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+
+/**
+ * A promise settled by hand.
+ *
+ * Every interleaving spec in this file is built on one: gating
+ * `configureAuthentication` freezes an `initialize()` pass at a known point,
+ * so the concurrent calls under test can be lined up before anything settles.
+ */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('SdkAgentAdapter', () => {
@@ -522,6 +580,345 @@ describe('SdkAgentAdapter', () => {
         'valid-model-2',
       );
       expect(h.modelService.resolveModelId).toHaveBeenCalledWith('haiku');
+    });
+  });
+
+  // TASK_2026_306 Defect G — `initialize()` had no in-flight guard of any kind.
+  // `initialized` is only assigned AFTER `configureAuthentication` and
+  // `findExecutable()` have both returned, so the whole expensive window was
+  // re-entrant. The boot OAuth token refresh writes `~/.codex/auth.json` while
+  // the first pass is running, so the adapter raced itself on every cold start
+  // with an expired token: `Initializing SDK adapter...` and `Detecting Claude
+  // CLI installation...` each appeared twice.
+  //
+  // Shape mirrored from `AuthManager.configureAuthentication` — which is why
+  // only the AUTH half of that race was already de-duplicated.
+  describe('initialize() in-flight guard (TASK_2026_306)', () => {
+    function countInfoLines(h: AdapterHarness, fragment: string): number {
+      return (h.logger.info as jest.Mock).mock.calls.filter(
+        ([message]: [unknown]) =>
+          typeof message === 'string' && message.includes(fragment),
+      ).length;
+    }
+
+    it('collapses two concurrent calls into one pass, resolving both to the same result', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const second = h.adapter.initialize();
+
+      gate.resolve({ configured: true, details: [] });
+      const [a, b] = await Promise.all([first, second]);
+
+      expect(a).toBe(true);
+      expect(b).toBe(true);
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(1);
+      // The two doubled lines from the captured boot log.
+      expect(countInfoLines(h, 'Initializing SDK adapter')).toBe(1);
+      expect(countInfoLines(h, 'Detecting Claude CLI installation')).toBe(1);
+    });
+
+    it('is a concurrency guard, not a memo — sequential calls each run a real pass', async () => {
+      const h = makeAdapter();
+
+      await h.adapter.initialize();
+      await h.adapter.initialize();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not latch after a failed pass — the guard is cleared in a finally', async () => {
+      const h = makeAdapter();
+      h.authManager.configureAuthentication.mockRejectedValueOnce(
+        new Error('auth exploded'),
+      );
+
+      await expect(h.adapter.initialize()).resolves.toBe(false);
+      // A `then`-cleared guard would hold the rejected promise forever and
+      // every later caller would inherit the failure.
+      await expect(h.adapter.initialize()).resolves.toBe(true);
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    it('reset() still forces a genuine re-init even when a pass is in flight', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const resetting = h.adapter.reset();
+
+      gate.resolve({ configured: true, details: [] });
+      await first;
+      await resetting;
+
+      // Two real passes: the in-flight one, then the reset's own. A reset
+      // answered by the guard would leave the adapter on pre-reset state.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.authManager.clearAuthentication).toHaveBeenCalledTimes(1);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+  });
+
+  // TASK_2026_308 F3-2 — `initialize`'s `finally` cleared `initInFlight`
+  // unconditionally.
+  //
+  // HONEST NOTE ON REACHABILITY. There is no PUBLIC call sequence that puts a
+  // foreign promise in the slot while a pass is in flight: the only writer is
+  // `initialize` itself, and it writes only when the slot is null, so the
+  // guard hands every concurrent caller the running pass instead of installing
+  // a second one. That is precisely the defect — the invariant "a pass only
+  // ever clears itself" is a property of microtask FIFO ordering plus the
+  // current set of writers, not of the method. The second spec below therefore
+  // drives the interleaving by writing the private slot directly. It is
+  // white-box on purpose: it pins the invariant the identity check makes
+  // local, which is the whole point of the change, and it goes red the instant
+  // the check is removed.
+  describe('initInFlight identity on clear (TASK_2026_308 F3-2)', () => {
+    interface InitSlot {
+      initInFlight: Promise<boolean> | null;
+    }
+
+    function slotOf(adapter: SdkAgentAdapter): InitSlot {
+      return adapter as unknown as InitSlot;
+    }
+
+    it('clears the slot when it still holds its own settled pass', async () => {
+      const h = makeAdapter();
+
+      await h.adapter.initialize();
+
+      // The half the identity check must NOT break: a normal pass still
+      // releases the slot, so the next sequential call runs a real pass.
+      expect(slotOf(h.adapter).initInFlight).toBeNull();
+    });
+
+    it('leaves a slot that no longer holds its own pass untouched', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const slot = slotOf(h.adapter);
+      expect(slot.initInFlight).not.toBeNull();
+
+      // The interleaving: while the first pass is parked on the gate, the slot
+      // comes to hold somebody else's promise. An unconditional clear in the
+      // `finally` destroys it and every later caller starts a duplicate pass
+      // against a run that is still going.
+      const foreign = Promise.resolve(true);
+      slot.initInFlight = foreign;
+
+      gate.resolve({ configured: true, details: [] });
+      await expect(first).resolves.toBe(true);
+
+      expect(slot.initInFlight).toBe(foreign);
+    });
+  });
+
+  // TASK_2026_308 F3-3 — two concurrent resets broke `reset`'s own contract.
+  //
+  // `doReset` waits out an in-flight pass so a reset can never be ANSWERED by
+  // the `initialize` guard. Two resets awaiting the SAME pass both proceed,
+  // both `dispose()`, and the second's `initialize()` is then answered by the
+  // guard holding the FIRST reset's fresh pass — the forbidden outcome,
+  // reached from the other side. The second reset also disposed the adapter
+  // while the pass it was about to be handed was still building it.
+  describe('concurrent reset() serialisation (TASK_2026_308 F3-3)', () => {
+    /**
+     * The adapter's teardown/bring-up events in the order they really happened.
+     *
+     * `configureAuthentication` is called once per init pass and
+     * `clearAuthentication` once per `dispose()`, both on the same mock object,
+     * so jest's globally increasing `invocationCallOrder` interleaves them into
+     * a single trace. That trace IS the contract: every `dispose` must be
+     * followed by an `init` of its own before its caller returns.
+     */
+    function lifecycleTrace(h: AdapterHarness): string[] {
+      const events: Array<{ order: number; label: string }> = [];
+      for (const order of h.authManager.configureAuthentication.mock
+        .invocationCallOrder) {
+        events.push({ order, label: 'init' });
+      }
+      for (const order of h.authManager.clearAuthentication.mock
+        .invocationCallOrder) {
+        events.push({ order, label: 'dispose' });
+      }
+      return events
+        .sort((a, b) => a.order - b.order)
+        .map((event) => event.label);
+    }
+
+    it('gives each of two concurrent resets its own dispose and its own fresh pass', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      // Both resets see the SAME in-flight pass and both park on it. That is
+      // the interleaving; nothing here depends on timing beyond the gate.
+      const first = h.adapter.initialize();
+      const resetA = h.adapter.reset();
+      const resetB = h.adapter.reset();
+
+      gate.resolve({ configured: true, details: [] });
+      await Promise.all([first, resetA, resetB]);
+
+      // Before the fix this was ['init', 'dispose', 'init', 'dispose'] — reset
+      // B disposed and was then handed reset A's pass by the guard, so its own
+      // init never happened and the trailing `dispose` was never answered.
+      expect(lifecycleTrace(h)).toEqual([
+        'init',
+        'dispose',
+        'init',
+        'dispose',
+        'init',
+      ]);
+      // Three real passes: the original, then one per reset.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(3);
+      expect(h.authManager.clearAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    // Not a reproduction of the defect — a guard on the mechanism that fixes
+    // it. The chain is a promise every later reset awaits, so without the
+    // `previous.catch(...)` inside it one failing reset would reject every
+    // reset queued behind it forever after. Remove that `catch` and this spec
+    // goes red.
+    it('does not wedge the chain when the reset ahead of it fails', async () => {
+      const h = makeAdapter();
+      h.authManager.clearAuthentication.mockImplementationOnce(() => {
+        throw new Error('teardown exploded');
+      });
+
+      const resetA = h.adapter.reset();
+      const resetB = h.adapter.reset();
+
+      await expect(resetA).rejects.toThrow('teardown exploded');
+      await expect(resetB).resolves.toBeUndefined();
+
+      // A died inside its dispose and never initialized. B still ran its own
+      // dispose and its own pass.
+      expect(lifecycleTrace(h)).toEqual(['dispose', 'dispose', 'init']);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+  });
+
+  // TASK_2026_315 finding A1 — removing the LAST workspace folder started an
+  // OAuth proxy.
+  //
+  // `handleWorkspaceChanged` guarded only on `initialized`. With zero folders
+  // open `resolveActiveAuth()` has no workspace scope to read and falls through
+  // to the GLOBAL default provider, which differs from the workspace-scoped one
+  // that was active. The differing pair defeated the equality early-return in
+  // `reconfigureAuthIfChanged`, so a full reconfigure ran: an OAuth token
+  // refresh was burned and a translation proxy bound on 127.0.0.1 under the
+  // GLOBAL scope, where the `disposeForScope(path)` in `workspace:removeFolder`
+  // could not reach it. Nothing threw; a socket just stayed open for the rest
+  // of the session. Only a test stops that recurring.
+  describe('no-workspace guard on folder change (TASK_2026_315 A1)', () => {
+    /** Let the fire-and-forget reconfigure chain settle before asserting. */
+    function flush(): Promise<void> {
+      return new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    /**
+     * What `ActiveProviderResolver.resolveActiveAuth` returns once there is no
+     * workspace scope left to read: the global default, `openai-codex` in the
+     * captured log, against an `apiKey`/`anthropic` session.
+     */
+    function resolveToGlobalDefault(h: AdapterHarness): void {
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'openai-codex',
+      });
+    }
+
+    it('does not reconfigure auth when the last workspace folder is removed', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+
+      // The whole finding in one assertion: no second configure means no OAuth
+      // refresh and no proxy bind on the way to zero folders.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+      // And the provider-keyed caches stay warm — see decision note (b).
+      expect(h.cliDetector.clearCache).not.toHaveBeenCalled();
+      expect(h.modelService.clearCache).not.toHaveBeenCalled();
+      expect(h.modelService.invalidateForAuthChange).not.toHaveBeenCalled();
+    });
+
+    // Companion positive case: the guard must not be widened into a regression
+    // that freezes auth across a GENUINE switch.
+    it('still reconfigures on a switch from folder A to folder B with a different provider', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'ollama-cloud',
+      });
+      h.workspaceProvider.__state.setFolders(['/ws/b']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.cliDetector.clearCache).toHaveBeenCalledTimes(1);
+      // SCOPED, not blanket (judge round 1, TASK_2026_353). The model catalogs
+      // are keyed per auth identity, so the incoming provider cannot read the
+      // outgoing one's list; wiping them would only make the switch BACK pay
+      // another multi-second SDK-bridge spawn.
+      expect(h.modelService.invalidateForAuthChange).toHaveBeenCalledTimes(1);
+      expect(h.modelService.clearCache).not.toHaveBeenCalled();
+    });
+
+    // Pins decision note (a): FREEZING rather than tearing down keeps
+    // `lastConfiguredAuth` an accurate record of what the auth env holds, so
+    // re-adding a folder that resolves to the SAME provider is correctly a
+    // no-op. A teardown variant would have nulled it and reconfigured here —
+    // the same OAuth refresh, merely deferred.
+    it('re-adding a folder with the same provider does not reconfigure', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'apiKey',
+        providerId: 'anthropic',
+      });
+      h.workspaceProvider.__state.setFolders(['/ws/a']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+    });
+
+    // Pins decision note (a), other half: the frozen record does not suppress a
+    // real change. A folder re-added with a DIFFERENT provider reconfigures.
+    it('re-adding a folder with a different provider reconfigures', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      h.workspaceProvider.__state.setFolders(['/ws/b']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -688,6 +1085,7 @@ describe('SdkAgentAdapter', () => {
 
       const existingQuery = createFakeQuery();
       h.sessionLifecycle.find.mockReturnValueOnce({
+        token: 'record-token-1',
         tabId: 'sess-1',
         realSessionId: null,
         query: existingQuery,
@@ -696,6 +1094,7 @@ describe('SdkAgentAdapter', () => {
         messageQueue: [],
         resolveNext: null,
         turnInFlight: false,
+        activityHold: null,
         currentModel: 'claude-sonnet-4-20250514',
         permissionLevel: 'ask',
         lastActivityAt: 0,

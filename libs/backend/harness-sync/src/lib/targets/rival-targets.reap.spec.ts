@@ -75,6 +75,10 @@ describe('rival targets — reaping a disabled skill (E5)', () => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-reap-ws-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-reap-src-'));
     tempHome = mkdtempSync(join(tmpdir(), 'harness-sync-reap-home-'));
+    // Skills are gated per workspace since TASK_2026_316, and a fresh temp
+    // workspace has no manifest evidence. This suite is about the per-skill
+    // REAP, so the selection is recorded up front rather than re-tested.
+    new HarnessStateStore().save(ws, { version: 1, skillSyncMode: 'all' });
   });
 
   afterEach(() => {
@@ -189,7 +193,11 @@ describe('Copilot home-directory reap (E19)', () => {
     mkdirSync(homeAgentsDir, { recursive: true });
     // Agents are gated per workspace since TASK_2026_286. This suite is about
     // the home REAP, so consent is recorded up front rather than re-tested.
-    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
+    new HarnessStateStore().save(ws, {
+      version: 1,
+      agentSyncEnabled: true,
+      skillSyncMode: 'all',
+    });
   });
 
   afterEach(() => {

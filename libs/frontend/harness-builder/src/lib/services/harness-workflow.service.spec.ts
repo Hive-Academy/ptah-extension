@@ -223,6 +223,42 @@ describe('HarnessWorkflowService', () => {
     });
   });
 
+  it('abort marks the session idle so the spinner actually stops', async () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = surfaceRegistry.surfaces()[0];
+    const convId = binding.conversationForSurface(surfaceId)!;
+    registry.appendSession(convId, REAL_SESSION);
+    liveness.markStreaming(REAL_SESSION);
+    expect(service.isProcessing()).toBe(true);
+
+    await service.abort();
+
+    // `session:turnEnded` — the only thing that normally flips liveness — is
+    // raised from the SDK's Stop hook, which an interrupt tears down before it
+    // can run. Without this the Stop button and the disabled composer stayed
+    // stuck for the rest of the session.
+    expect(service.isProcessing()).toBe(false);
+    expect(service.error()).toBeNull();
+  });
+
+  it('a failed abort reports the error and leaves the session marked live', async () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = surfaceRegistry.surfaces()[0];
+    const convId = binding.conversationForSurface(surfaceId)!;
+    registry.appendSession(convId, REAL_SESSION);
+    liveness.markStreaming(REAL_SESSION);
+
+    rpc.call.mockResolvedValueOnce(failedResult('interrupt refused'));
+    await service.abort();
+
+    // The agent is very likely still running — claiming idle would hand back a
+    // composer that interleaves with a live turn.
+    expect(service.isProcessing()).toBe(true);
+    expect(service.error()).toBe('interrupt refused');
+  });
+
   it('dispose releases the claim and closes the surface', async () => {
     await service.startWorkflow('configure-harness', 'configure');
     const surfaceId = surfaceRegistry.surfaces()[0];
@@ -259,7 +295,14 @@ describe('HarnessWorkflowService', () => {
       mode: 'new-project',
       sessionId: null,
       workspaceRoot: '/ws',
-      bubbles: [{ text: 'A booking tool for physiotherapy clinics' }],
+      bubbles: [
+        {
+          text: 'A booking tool for physiotherapy clinics',
+          // The send-time stamp travels with the bubble: it is what places the
+          // turn in the merged transcript after a reload.
+          at: expect.any(Number),
+        },
+      ],
     });
 
     service.dispose();
@@ -466,8 +509,19 @@ describe('HarnessWorkflowService — resume after reload', () => {
     mode: 'new-project',
     sessionId: REAL_SESSION,
     workspaceRoot: '/ws',
+    // Deliberately UNSTAMPED — this is a record written before the transcript
+    // became one timeline, and a live workflow must survive that upgrade.
     bubbles: [{ text: 'A booking tool for physiotherapy clinics' }],
   };
+
+  /**
+   * `PERSISTED` after rehydration. An unstamped bubble is taken as time zero,
+   * which keeps it above the replayed tree — where the old two-list view drew
+   * it.
+   */
+  const REHYDRATED_BUBBLES = [
+    { text: 'A booking tool for physiotherapy clinics', at: 0 },
+  ];
 
   function seed(record: unknown): void {
     localStorage.setItem(
@@ -542,7 +596,7 @@ describe('HarnessWorkflowService — resume after reload', () => {
 
     expect(service.isActive()).toBe(true);
     expect(service.viewMode()).toBe('new-project');
-    expect(service.userBubbles()).toEqual(PERSISTED.bubbles);
+    expect(service.userBubbles()).toEqual(REHYDRATED_BUBBLES);
     expect(service.resumedFromReload()).toBe(true);
     expect(TestBed.inject(WorkflowSessionClaimService).hasClaims()).toBe(true);
 
@@ -610,7 +664,7 @@ describe('HarnessWorkflowService — resume after reload', () => {
     const service = await bootWorkflow();
 
     expect(service.isActive()).toBe(true);
-    expect(service.userBubbles()).toEqual(PERSISTED.bubbles);
+    expect(service.userBubbles()).toEqual(REHYDRATED_BUBBLES);
     // Nothing to replay and nothing to continue — but the transcript is back.
     expect(rpc.call).not.toHaveBeenCalled();
   });
@@ -674,7 +728,7 @@ describe('HarnessWorkflowService — resume after reload', () => {
 
     // A question that can't be fetched must not cost the user the transcript.
     expect(service.isActive()).toBe(true);
-    expect(service.userBubbles()).toEqual(PERSISTED.bubbles);
+    expect(service.userBubbles()).toEqual(REHYDRATED_BUBBLES);
     expect(permissionHandlerStub.handleQuestionRequest).not.toHaveBeenCalled();
   });
 

@@ -7,9 +7,12 @@
 One concern: **reconcile the user layer into the harness directories AI tools
 actually read**, as idempotent, manifest-owned copies.
 
-`~/.ptah/user/{skills,commands,agents}` is the single editable source, plus
-`~/.ptah/mcp-installed.json` for MCP servers. Everything downstream is a
-derived, hash-gated copy that a manifest proves Ptah owns.
+`~/.ptah/user/{skills,commands}` and `~/.ptah/user/agents/<workspace-key>` are
+the single editable source, plus `~/.ptah/mcp-installed.json` for MCP servers.
+Skills and commands are per-machine; agents are per-workspace, because the setup
+wizard tailors them per project (see "The agent clone is keyed by WORKSPACE").
+Everything downstream is a derived, hash-gated copy that a manifest proves Ptah
+owns.
 `HarnessReconciler.reconcile(ws)` is the ONE entry point — every host, RPC
 handler and trigger calls it, and calling it twice costs a directory walk.
 
@@ -20,14 +23,55 @@ Replaces four separate fan-outs that each had their own idea of ownership:
 
 ## Target × facet matrix
 
-| Target          | skills                     | commands                     | agents                          | mcp                                |
-| --------------- | -------------------------- | ---------------------------- | ------------------------------- | ---------------------------------- |
-| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | source-managed `.claude/agents` | `{ws}/.mcp.json`                   |
-| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`       | `~/.codex/config.toml`             |
-| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md`  | `~/.copilot/mcp-config.json`       |
-| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`        | `{ws}/.cursor/mcp.json`            |
-| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**               | `~/.gemini/config/mcp_config.json` |
-| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**               | `{ws}/.vscode/mcp.json`            |
+| Target          | skills                     | commands                     | agents                          | mcp                                  |
+| --------------- | -------------------------- | ---------------------------- | ------------------------------- | ------------------------------------ |
+| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | source-managed `.claude/agents` | `{ws}/.mcp.json`                     |
+| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`       | `~/.codex/config.toml` ‡             |
+| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md`  | `~/.copilot/mcp-config.json` †       |
+| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`        | `{ws}/.cursor/mcp.json`              |
+| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**               | `~/.gemini/config/mcp_config.json` § |
+| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**               | `{ws}/.vscode/mcp.json`              |
+
+§ **Antigravity is TWO PRODUCTS, and this file is the one the CLI reads.** The
+Antigravity EDITOR also documents a workspace config at
+`{ws}/.agents/mcp_config.json`. The `agy` CLI does not read it — measured three
+ways: `agy mcp list` reported `No MCP servers configured` with that exact file
+on disk and listed a server the moment the same entry went into the global file;
+the CLI's bundled docs
+(`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`)
+define a Global and a Plugin scope and no workspace one; and the `agy` binary
+carries string literals for `.agents/skills`, `.agents/rules`,
+`.agents/hooks.json`, `.agents/plugins`, `.agents/workflows` and
+`.agents/agents`, and none for `.agents/mcp_config.json`. The reconciler
+therefore stays on the global file, which is also correct for a user INSTALL (a
+machine-wide choice). `CodeExecutionMCP` writes BOTH for Ptah's own server, so
+the editor gets it too; the workspace file has no other writer.
+
+‡ **Codex reads TWO config files and MERGES them**, and this is the one the
+RECONCILER writes. `CodexTomlMcpFacet` takes a `scope` — `'home'` (the default,
+what the registry builds and what the matrix above describes) or `'workspace'`
+for `{ws}/.codex/config.toml`. Which one is right is a question about the
+SERVER, not about Codex: a server the user INSTALLED is a machine-wide choice
+and belongs in home, while Ptah's OWN server is bound to one workspace's Ptah
+process and is registered per workspace by `CodeExecutionMCP`. `codex --help`
+and `codex doctor` name only the home file, which is misleading and cost one
+wrong conclusion; verified on codex-cli 0.150.1 by adding
+`{ws}/.codex/config.toml` and watching `codex doctor` go from `MCP servers 1`
+to `2`. A project-scoped file is honoured **only for a TRUSTED project** — the
+same probe in an untrusted temp repo ignored it silently, which is what
+`codexProjectTrusted` exists to detect so a writer can fall back to the home
+file rather than write one Codex discards.
+
+† **Copilot reads THREE MCP sources, and this is only the one Ptah installs
+into.** `copilot mcp --help` lists user `~/.copilot/mcp-config.json`, workspace
+`.mcp.json` **or** `.github/mcp.json`, and plugins. The home file is the right
+target for a USER-installed server, because an install is per machine and the
+install surface fans it out per target — but it is wrong as a description of
+what Copilot can read, and that distinction matters: `CodeExecutionMCP`
+deliberately does NOT write `~/.copilot/mcp-config.json` for Ptah's own server,
+because Copilot already picks it up from the `{ws}/.mcp.json` written for
+Claude. Verified with `copilot mcp list`, which prints
+`Workspace servers: ptah (http)` with no Copilot-specific file on disk.
 
 Every cell is reported per target in `HarnessTargetHealth.facets`, so an
 artifact a tool genuinely cannot accept reads as `unsupported` rather than as a
@@ -35,21 +79,29 @@ permanently missing count nobody can act on (defect 12). `source-managed` is
 different: the target's directory is editable input, so Ptah deliberately does
 not write it, record it in a manifest, or reap it.
 
-**The whole `agents` COLUMN is gated on user consent (TASK_2026_286).** Skills
-and commands are content the user installed or authored on purpose — a plugin
-toggle, a `SKILL.md` they wrote, a harness-builder run. Agents were the one
-artifact kind with no gate at all: every `.md` under `~/.ptah/user/agents` was
-fanned out to `.codex/agents`, `.github/agents` and `.cursor/agents` on the
-first pass, in every workspace. Two gates now, and either one dropping an agent
-REAPS it, because agents are manifest-owned:
+**Two columns are gated on user consent now: `agents` (TASK_2026_286) and
+`skills` (TASK_2026_316).** The claim used to stop at agents, reasoning that
+skills and commands "are content the user installed or authored on purpose — a
+plugin toggle, a `SKILL.md` they wrote, a harness-builder run" and so needed no
+gate. **That premise was true only of the workspace where the install
+happened, and false of every other workspace on the machine** —
+`~/.ptah/user/skills` is one directory per MACHINE, and the mirror is
+create-if-absent, so enabling a plugin once, in one project, cloned its skills
+into a base every later workspace inherited unconditionally, on any stack, with
+no per-workspace question ever asked. That is the whole of the bug
+TASK_2026_316 fixes. Either gate dropping an entry REAPS it, because both
+facets are manifest-owned:
 
-| Gate                                 | Scope     | Lives in                        | Set by                                          |
-| ------------------------------------ | --------- | ------------------------------- | ----------------------------------------------- |
-| `state.json` → `agentSyncEnabled`    | workspace | `{ws}/.ptah/harness/state.json` | the setup wizard, via `AgentSyncGate.enable`    |
-| `PluginConfigState.disabledAgentIds` | per agent | workspace state (plugin config) | the user, keyed by slug like `disabledSkillIds` |
+| Gate                                 | Scope         | Lives in                                                  | Set by                                                               |
+| ------------------------------------ | ------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
+| `state.json` → `agentSyncEnabled`    | workspace     | `{ws}/.ptah/harness/state.json`                           | the setup wizard, via `AgentSyncGate.enable`                         |
+| `PluginConfigState.disabledAgentIds` | per agent     | workspace state (plugin config)                           | the user, keyed by slug like `disabledSkillIds`                      |
+| `state.json` → `skillSyncMode`       | workspace     | `{ws}/.ptah/harness/state.json`                           | the user via `SkillSyncGate.select` / `.enableAll`, or the migration |
+| `state.json` → `enabledSkillSlugs`   | per selection | `{ws}/.ptah/harness/state.json` (only under `'selected'`) | the user, via the same call                                          |
 
-See "The agents consent gate and its migration" below for the absent-flag rule,
-which is the load-bearing half.
+See "The agents consent gate and its migration" below for the absent-flag rule
+for agents, and "The skills selection gate and its migration" for skills —
+both load-bearing halves.
 
 **Why unsupported and source-managed cells are not gaps** — `unsupported` is
 an upstream limit, while `source-managed` identifies editable input Ptah must
@@ -75,8 +127,15 @@ leave alone:
 
 `~/.gemini/config/mcp_config.json` is the only harness file written from OUTSIDE
 this lib as well as inside it. The reconciler installs the USER's servers into
-it; `AntigravityCliAdapter` (`cli-agent-runtime`) writes Ptah's OWN server into
-it before every spawn and removes that entry after `done`.
+it; `AntigravityCliAdapter` (`cli-agent-runtime`) overwrites Ptah's OWN server
+entry in it for the duration of a spawn and RESTORES what it found after `done`;
+and `CodeExecutionMCP` (`vscode-lm-tools`) keeps that entry there persistently
+while its HTTP server runs. Three writers, one key each — see the partition
+table below.
+
+`{ws}/.agents/mcp_config.json` — the Antigravity EDITOR's workspace config — is
+written by `CodeExecutionMCP` alone and is not a harness file this lib
+reconciles. See the § note under the matrix for why the CLI cannot use it.
 
 This cell used to read `— unsupported`, justified as "user-installed servers are
 not offered for `agy` by the install surface, so there is no intent to
@@ -92,11 +151,23 @@ never back — which is why the facet is exported from the barrel.
 
 **The keys are partitioned, and neither writer may reap the other's.**
 
-| Key                           | Owner           | Lifetime             | Who may remove it              |
-| ----------------------------- | --------------- | -------------------- | ------------------------------ |
-| `ptah` (`PTAH_SPAWN_MCP_KEY`) | the CLI adapter | one spawn            | the adapter, after `done`      |
-| a key in the manifest         | the reconciler  | until intent dropped | the reconciler's removal sweep |
-| anything else                 | the user        | forever              | nobody here                    |
+| Key                           | Owner              | Lifetime              | Who may remove it               |
+| ----------------------------- | ------------------ | --------------------- | ------------------------------- |
+| `ptah` (`PTAH_SPAWN_MCP_KEY`) | `CodeExecutionMCP` | while its server runs | `CodeExecutionMCP`, on `stop()` |
+| a key in the manifest         | the reconciler     | until intent dropped  | the reconciler's removal sweep  |
+| anything else                 | the user           | forever               | nobody here                     |
+
+**`ptah` used to be adapter-owned and one spawn long. It is not any more.**
+`CodeExecutionMCP` now keeps a PERSISTENT `ptah` entry in every detected CLI's
+config for as long as its HTTP server is up, so that an `agy` (or `codex`)
+session the USER starts has Ptah tools rather than only the ones Ptah spawns.
+`AntigravityCliAdapter` still overwrites the key with its own run's port before
+a spawn — its port and the persistent one differ only while a run is in flight —
+but its cleanup now **RESTORES what the run found instead of deleting**. An
+unconditional delete would silently revoke the persistent registration every
+time a Ptah-spawned agent finished. Restoring needs no knowledge of the other
+writer: absent means nobody owned the key, and removing it is exactly the old
+behaviour.
 
 Each half falls out of a rule that already existed, which is why this is a
 partition rather than a special case. The reconciler only ever touches keys the
@@ -110,6 +181,36 @@ while Ptah was its sole writer.
 The one overlap is a user installing a server whose key is literally `ptah`.
 That is the ordinary collision rule — a desired key an unowned entry occupies is
 `foreign` and `blocked`, never overwritten.
+
+### The lock deadline FAILS the mutation; it does not write unlocked (TASK_2026_332)
+
+`acquireFileLock` retries with backoff until `maxWaitMs` (2 s for an MCP config,
+short because one caller is a CLI SPAWN and a user waiting on `agy` must not pay
+five seconds for somebody else's reconcile). It used to return an unheld handle
+on expiry and `withFileLock` **ran the task anyway** — so two hosts contending
+for longer than the deadline both proceeded unlocked and lost each other's key,
+silently. That is the exact failure the section above describes, restored
+through the one door the lock left open.
+
+The bound itself is right: blocking forever on a stale lock is worse than a rare
+lost update, which is why it exists. So the fix was the DECISION at expiry, not
+a longer timeout. `withFileLock` now throws `FileLockTimeoutError`, naming the
+file and the wait duration. Affordable because every caller already treats a
+failed mutation as transient and retries on its own schedule — `applyMcpFacet`
+records a `writeFailed` row that the next `mode: 'full'` pass re-attempts,
+`AntigravityCliAdapter` documents its spawn-time write as non-fatal and the next
+spawn rewrites it, and `CodeExecutionMCP` logs and keeps no ownership record so
+a later call retries. What is traded away is liveness for ONE mutation under
+real cross-process contention.
+
+Two things deliberately did NOT change. **`acquireFileLock` still returns an
+unheld handle** rather than throwing, because `acquireWorkspaceLock` builds on
+it and the reconciler inspects `lock.acquired` to proceed degraded on purpose.
+And **an uncreatable lock DIRECTORY is not a timeout** (`reason:
+'no-lock-directory'`): nobody holds anything, and that directory is the one the
+guarded file lives in, so the caller's own write is about to fail and report the
+real permission problem — masking it with a lock error would make that two
+errors for one cause. Pinned by `lock/file-lock.spec.ts`.
 
 **Atomicity was not enough, so there is a lock.** `atomicWriteWithRetry`
 guarantees no reader sees half a file; it guarantees nothing about two writers
@@ -200,6 +301,228 @@ like every other source fact — `HarnessPluginConfigReader` gained one optional
 field and `PluginLoaderService` still satisfies it STRUCTURALLY, with no import
 either way.
 
+## The agent clone is keyed by WORKSPACE (TASK_2026_365)
+
+`~/.ptah/user/{skills,commands}` are per-MACHINE stores of per-machine content:
+a skill a user installed once is the same skill in every project. **Agents are
+not.** The setup wizard tailors each one to a project's stack and architecture,
+and names the result after the ROLE — `backend-developer`,
+`frontend-developer` — so two projects produce two different files under one
+name. `~/.ptah/user/agents` was flat, so they had one destination.
+
+`mirrorAgents` is create-if-absent and could not overwrite. `reconcileFileClone`
+could: when the source hash differs from the sidecar and the clone is
+unmodified, it fast-forwards. So every activation, folder change, plugin toggle
+and content download in workspace B rewrote the clone to B's agents, and the
+next pass in A copied them into A's `.codex/agents` and `.github/agents`.
+
+The measured signature, from `~/.ptah/user/agents/.history/frontend-developer/`:
+two snapshots six seconds apart, one 15784 bytes (an Angular project) and one
+17432 (a React one), plus a `figma-designer` history directory for an agent the
+first project has never had. **The cost is not only churn.** The shared clone
+held the React agent for those six seconds; a reconcile inside that window would
+have written another project's agents into this repository's rival-CLI
+directories.
+
+`agentsRoot` is therefore `~/.ptah/user/agents/<workspace-key>`, and the key is
+`userLayerAgentDirName(root)` in **`@ptah-extension/shared`** — `agent-generation`
+writes the directory and this lib reads it, neither may import the other, and
+`shared` is the one bridge (the same reason the origin-sidecar schema is there).
+Four properties worth not re-deriving:
+
+- **The hash is hand-rolled FNV-1a, not `node:crypto`.** `libs/shared` is
+  imported by `libs/frontend/**`, so a `crypto` import in that barrel reaches the
+  webview bundle.
+- **Case folds on `win32` only**, exactly as `codexProjectTrusted` does and for
+  its reason: separator collapses cannot invent a match between two real
+  directories, and case folding can — on ext4 `/a/App` and `/a/app` are two
+  workspaces.
+- **`PluginConfigSourceResolver.resolve(ws)` applies the scope**, on the
+  read-failure path as well as the success path, so a transient plugin-loader
+  failure cannot hand the builder the unscoped base.
+- **The reader and the writer must derive the key from the SAME root.**
+  `resolveAgentMirrorSource` returns `resolveHarnessWorkspaceRoot(ws)` for
+  exactly this. A host passing its raw folder would mirror into a directory the
+  reconciler never reads, and agents are manifest-owned, so the reconciler would
+  then reap every copy it has.
+
+**The migration seeds; it never reaps.** On the first pass for a workspace, when
+the scoped directory does not exist and the flat base holds clones,
+`UserLayerMirrorService.seedLegacyAgents` copies them in. The mirror and
+reconcile that follow converge that seed onto `{ws}/.claude/agents`, which is
+the truth for that project; a workspace with no `.claude/agents` keeps exactly
+what it had, now private to it. It copies `.md` clones and their sidecars and
+NOT `.history` — that history is the interleaved record of every workspace on
+the machine, so copying it into one project would assert an edit trail that
+project never had. The flat originals are never deleted, on the quarantine
+precedent.
+
+### Consent gates the MIRROR now, not only the propagation
+
+`buildAgents()` has been gated since TASK_2026_286, but every host passed
+`agentSourceDir: {ws}/.claude/agents` unconditionally — a fact
+`TASK_2026_286/context.md:18` recorded and did not fix. So any repository that
+ships `.claude/agents` populated the machine-wide user layer on its first
+activation, whoever wrote those files, and whether or not the setup wizard had
+ever run. Each clone was written with `pluginId: null`, which the plugin-origin
+gate never filters.
+
+`resolveAgentMirrorSource(root, gate)` is the ONE implementation of that
+decision, because there are THREE hosts and both of its rules fail silently when
+one drifts. Two rules about the gate itself:
+
+- **It reads `AgentSyncGate.resolve`, never `state.agentSyncEnabled` directly.**
+  An absent flag is answered from manifest evidence, and the mirror runs BEFORE
+  the reconcile that persists that answer — so reading the raw flag would skip
+  the mirror on the first pass after an upgrade and hand the reconciler an empty
+  desired state, which is a reap.
+- **A `null` gate reads as CONSENTED.** An unresolvable token is a wiring gap,
+  not a consent answer, and mirroring only ever creates clones. The reconciler
+  resolves the gate itself before it can delete anything, so the unknown answer
+  falls to the non-destructive side.
+
+The gate is taken as `AgentConsentReader`, a one-method structural interface, so
+a host or a spec does not construct a manifest store to answer it.
+
+Pinned by `state/agent-workspace-scope.spec.ts` (both halves) and
+`agent-generation`'s `user-layer/user-layer-agent-scope.spec.ts` (two workspaces
+stay apart, and the seed).
+
+## The skills selection gate and its migration (TASK_2026_316)
+
+The `agents` gate above closes one hole; skills had a bigger one, because
+`~/.ptah/user/skills` is one directory per MACHINE and the mirror is
+create-if-absent — enable a plugin once, in one workspace, and its skills are
+cloned there permanently, and `buildSkills` had only a denylist
+(`disabledSkillIds`), never an allowlist. Fixed as three gates in
+`buildSkills`, evaluated OUTERMOST FIRST, and all three a conjunction:
+
+1. **The per-workspace selection** — `SkillSyncGate`
+   (`state/skill-sync-gate.ts`). The only level that can speak for a skill with
+   no plugin above it at all: a hand-authored `SKILL.md`, a promoted synth
+   skill, a `skills.sh` install. `'all'` propagates everything the user layer
+   offers; `'selected'` propagates only the recorded `enabledSkillSlugs`, keyed
+   exactly like `disabledSkillIds` (raw directory name, no case folding).
+2. **Plugin enablement, as an outer gate over the user-layer base** (Batch 1,
+   `manifest/plugin-origin-gate.ts`). A user-layer clone carries its origin in
+   the `.ptah-origin.json` sidecar `UserLayerMirrorService` writes beside it;
+   `createPluginOriginGate` reads it before the clone is treated as desired
+   state. Four rules, each a refusal to delete: no sidecar, or `pluginId:
+null`, is never filtered — nothing above a user-authored clone can speak for
+   it; an opt-out plugin (`ptah-harness-*`, `ptah-skillssh-*`) is filtered only
+   by `disabledPluginIds`, because it is never in `enabledPluginIds` to begin
+   with; a bundled or external plugin is filtered by absence from the
+   overlay — and only when the overlay is KNOWN, because an unreadable overlay
+   read literally would assert every plugin on the machine disabled and empty
+   every skill directory it manages in one silent pass. This is also what
+   closes the second defect found while fixing the first: unchecking a plugin
+   had stopped removing its skills, because `disabledPluginIds` was tested only
+   inside the overlay loop and the user-layer base loop had no plugin-id
+   concept at all.
+3. **`disabledSkillIds`**, unchanged — the per-skill toggle documented in
+   `skill-toggles.md`.
+
+**The migration is the load-bearing half, with more force than the agents
+one.** Skills are the largest artifact family by count, so a mode that
+defaulted to `'selected'` with an empty allowlist would not merely stop new
+propagation — the first routine reconcile after the upgrade would delete every
+`.claude/skills/*`, `.agents/skills/*`, `.github/skills/*` and
+`.cursor/skills/*` Ptah had ever written, in every existing workspace,
+silently, reported as an ordinary clean pass. So an ABSENT `skillSyncMode` is
+never a bare `'selected'`, resolved by `SkillSyncGate.resolve` from the same
+kind of evidence walk as `agentSyncEnabled`'s:
+
+| `skillSyncMode` | Any per-target manifest owns a `skill` entry? | Result                        |
+| --------------- | --------------------------------------------- | ----------------------------- |
+| `'all'`         | —                                             | `'all'`                       |
+| `'selected'`    | —                                             | `'selected'`                  |
+| absent          | yes                                           | `'all'`                       |
+| absent          | no                                            | `'selected'`, empty allowlist |
+
+Prior propagation IS prior consent; a workspace with no skill entries has
+nothing to lose and starts gated with nothing selected, which is the intended
+behaviour for a genuinely new workspace (U2) and not a special case of the
+migration. The resolved value is PERSISTED so the walk runs once — `verify()`
+resolves the gate but never persists it, and `persist()` never overwrites a
+recorded mode, exactly as `agentSyncEnabled`'s migration works and for the same
+reason.
+
+`select(cwd, slugs)` and `enableAll(cwd)` are the user-driven surface — unlike
+`persist()`, both overwrite a recorded mode, because that is the difference
+between the migration inferring an answer and the user actually giving one.
+Reached from `harness:set-skill-selection` / `harness:get-skill-selection`
+(RPC) and `ptah skill select [slug...] | --all` / `ptah skill selection` (CLI,
+Batch 5) — neither resolves `SkillSyncGate` out of DI directly, which is what
+keeps the extension, the CLI/TUI and the Marketplace badge on one
+implementation of what a workspace propagates.
+
+**The origin-sidecar schema and both opt-out prefixes
+(`HARNESS_PLUGIN_ID_PREFIX`, `SKILLS_SH_PLUGIN_ID_PREFIX`) live in
+`@ptah-extension/shared`, not `agent-generation` (Task 1.1 decision).**
+`UserLayerMirrorService` (`agent-generation`) writes the sidecar and reaps
+against it; this lib only reads it — and `harness-sync` must never import
+`agent-generation`, the reconciler is a leaf and that lib is upstream of it.
+The alternative was a second copy of the filename and the `pluginId` field, and
+`ptah-harness-` was already spelled twice independently (here and in
+`agent-sdk`'s `plugin-loader.service.ts`) before this task started — standing
+evidence that copies of these constants drift rather than stay in step.
+`shared` is the one place both libs may depend on, so the format moved there
+instead of adding a third copy.
+
+**Unselected slugs are not reported in `HarnessHealth` (Task 4.3 decision).**
+The selection is applied when the desired state is BUILT, in `buildSkills`
+above — an unselected skill never enters `expected`, `missing` or `foreign`,
+because it never becomes a candidate in the first place. Reporting it as
+anything would put a permanent amber count in front of a user for a state they
+chose on purpose, with no action that clears it short of selecting the skill —
+indistinguishable from a real gap. `disabledSkillIds` already sets this
+precedent: a disabled skill isn't reported as `missing` either.
+
+## The desired state is a function of the ROOT (TASK_2026_346)
+
+`IHarnessSourceResolver.resolve(workspaceRoot?)` takes the root the pass is
+FOR. `HarnessReconcilerService` passes it from `reconcile` (both modes) and
+from `verify`, already normalized by `resolveHarnessWorkspaceRoot` — the same
+value the lock, the manifests and the gates are keyed on. Nothing below the
+reconciler entry point may ask a host "which folder is open".
+
+**Why it is not optional in practice.** The default resolver reads
+`PluginLoaderService`, which reads an `IStateStorage` that on Electron is a
+PROXY delegating to the ACTIVE workspace. Active is the right scope for a
+caller answering a click; it is the wrong scope for a caller reconciling a root
+it was handed, and with two folders open the two are routinely different. The
+captured sequence (`tmp/logs/log.log`): `workspace:addFolder property-hub`
+(`:1109`) fires the folder-change pass for **qa3elhamor**, `workspace:switch`
+(`:1122`) flips storage to **property-hub** before that pass reaches its source
+resolve, and the pass then wrote 44 property-hub skill copies into qa3elhamor
+(`:1225`, 11 per target across claude/codex/copilot/antigravity) and recorded
+every one in qa3elhamor's manifests. Switching back reaped all 44 (`:1647`) —
+correctly, because they are manifest-owned and the now-correct desired state
+does not name them. Every tab switch tore down and re-materialised the other
+folder's harness. The removal rules were never wrong; the state handed to them
+described the wrong workspace.
+
+**The reader half.** `HarnessPluginConfigReader`'s three methods take the same
+optional root, and `PluginLoaderService` honours it through one private
+`storageFor(root)`: no root → the injected storage (unchanged); a root with a
+single-scope storage → the injected storage, because a one-workspace host has
+one storage which IS the answer for every root; a root with a workspace-scoped
+storage (`IWorkspaceScopedStateStorage`, probed structurally from
+`platform-core`) → that root's own storage, or the DEFAULT EMPTY config when
+the host has none registered for it. The `{ws}/.ptah/plugins` scan is scoped
+the same way. A host wiring the reader through a lambda must forward the
+argument; Electron's `phase-2-libraries.ts` is the one that has to.
+
+**An unscoped reader is answered by FORWARDING, not by an empty state.**
+Returning `empty` for a reader that cannot scope looks like the safe direction
+and is not: an empty `overlayPluginPaths` drops every overlay-only skill
+(skills.sh roots, workspace-scoped `ptah-harness-*`) out of the desired state,
+and skills are manifest-owned, so the "safe" fallback REAPS them. Forwarding a
+root a reader ignores leaves that reader exactly as it behaved before, which is
+the only fallback here that removes nothing. Absence of `overlayPluginPathsKnown`
+is still the non-reaping signal for the separate question of the plugin FILTER;
+the two are not interchangeable.
+
 ## Boundaries
 
 **Belongs here**:
@@ -238,8 +561,11 @@ either way.
 `HarnessReconcilerService` (`reconcile`, `verify`, `remove`), `HarnessPropagationService`
 (`propagate`), `HarnessPreflightService` (`ensure`), `HarnessManifestBuilder`,
 `ManagedManifestStore`, `ClaudeTarget`, `WorkspaceHarnessTarget`,
-`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`, `AgentSyncGate`.
-Ports: `IHarnessTarget`, `IHarnessSourceResolver`, `IHarnessCliDetector`,
+`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`, `AgentSyncGate`,
+`resolveAgentMirrorSource` (the ONE agent-mirror decision all three hosts make —
+scope the root, gate on consent; see TASK_2026_365 below).
+Ports: `IHarnessTarget`, `IHarnessSourceResolver` (`resolve(workspaceRoot?)` —
+see "The desired state is a function of the root" below), `IHarnessCliDetector`,
 `IHarnessMcpFacet`, `IHarnessAgentTransformer`, `IUserLayerRefresher`,
 `IHarnessContentGate`.
 
@@ -259,11 +585,14 @@ Targets: `createCodexTarget`, `createCopilotTarget`, `createCursorTarget`,
 Transforms: `transformSkillMarkdown`, `CodexAgentTransformer`,
 `CopilotAgentTransformer`, `CursorAgentTransformer`, `transformAgentContent`.
 MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`,
-`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`.
+`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`, `codexProjectTrusted`.
 Workspace: `resolveHarnessWorkspaceRoot`.
 Lock: `acquireWorkspaceLock`, `serializePerWorkspace`, `acquireFileLock`,
-`withFileLock`, `serializeByKey`. Hashing: `hashDirSync`,
-`hashFileSync`, `hashContent`. Rules: `isReservedSlug`, `canonicalSlug`.
+`withFileLock`, `serializeByKey`. Hashing: `hashDir`, `hashFile`, `hashContent`
+(the first two are ASYNC and take a `ContentHashOptions` — there is deliberately
+no synchronous variant, see "Preflight semantics" below). Cancellation:
+`HarnessPassAbortedError`, `isPassAbortedError`. Rules: `isReservedSlug`,
+`canonicalSlug`.
 Wiring: `createPluginConfigSourceResolver`, `createStaticSourceResolver`,
 `ALL_HARNESS_TARGET_FACTORIES`, `registerHarnessSyncServices`,
 `HARNESS_SYNC_TOKENS`.
@@ -271,7 +600,9 @@ Wiring: `createPluginConfigSourceResolver`, `createStaticSourceResolver`,
 Wire types (`HarnessHealth`, `HarnessTargetHealth`, `HarnessTargetId`,
 `HARNESS_TARGET_IDS`, `HarnessCollision`) live in `@ptah-extension/shared`
 because the `harness:health` RPC and the Marketplace badge cross into the
-webview. So does **`summarizeHarnessHealth()`** — a pure reducer from a report
+webview. So do **`summarizeHarnessHealth()`** and **`blockedTargetPaths()`**
+(the `missing ∩ foreign` derivation — see the blocked-path condition below).
+`summarizeHarnessHealth()` is a pure reducer from a report
 to `{ level: 'ok' | 'degraded' | 'error' | 'unknown', …counts }`. It is in
 `shared` and not here because three consumers must never disagree about what
 "healthy" means: the Marketplace badge, `ptah harness doctor`'s exit code, and
@@ -298,7 +629,7 @@ permanently amber badge nobody can clear.
 - `targets/link-ownership.ts` — is a symlink at a desired path Ptah's leftover
   junction, or the user's own link?
 - `lock/file-lock.ts` — the lock MECHANISM: `O_EXCL` create, stale reclaim,
-  in-process queue, and "proceed unlocked past the deadline"
+  in-process queue, and "FAIL past the deadline" (see below)
 - `lock/workspace-lock.ts` — the per-workspace POLICY over it:
   `{ws}/.ptah/harness/.lock`
 - `targets/harness-target.port.ts` — `detect → preflightKeys → plan → apply → verify`
@@ -314,13 +645,15 @@ permanently amber badge nobody can clear.
 - `workspace/workspace-root.ts` — `resolveHarnessWorkspaceRoot` (E14)
 - `health/harness-health.ts` — the ONE plan → `HarnessTargetHealth` reduction,
   in two flavours: `plannedTargetHealth` (no apply happened) and
-  `appliedTargetHealth` (plan + apply result)
+  `appliedTargetHealth` (plan + apply result). The `missing ∩ foreign`
+  derivation is NOT here — see `blockedTargetPaths` below
 - `gitignore/gitignore-writer.ts` — the managed `.gitignore` block (E23)
 - `gitignore/harness-state-store.ts` — `{ws}/.ptah/harness/state.json`, the
   per-workspace memory of decisions the USER made (as opposed to the manifests
   next to it, which record what PTAH wrote)
 - `state/agent-sync-gate.ts` — the `agents` consent gate over that same file,
-  plus the absent-flag migration that reads the manifests for evidence
+  the absent-flag migration that reads the manifests for evidence, and
+  `resolveAgentMirrorSource` (the host-facing agent-mirror decision)
 - `reconciler/harness-reconciler.service.ts` — the facade
 - `propagation/harness-propagation.service.ts` — refresh + reconcile; the ONE
   call an emit site makes
@@ -350,12 +683,12 @@ CLI). Both guard the call in a `try/catch` even though the port promises never
 to throw — they sit inside blocks whose failure path aborts a session.
 
 Three properties make it safe on EVERY session start, and all three are pinned
-by `preflight/harness-preflight.service.spec.ts`: it races a timer and lets the
-losing pass finish in the background (never cancelled — it holds the workspace
-lock mid-copy); it throttles per workspace root (`minIntervalMs`, 60 s) so the
-skill-synthesis drain's dozens of nightly one-shot sessions do not each pay for
-a walk of `~/.ptah/user`; and it resolves the caller's cwd to the workspace root
-first (E14).
+by `preflight/harness-preflight.service.spec.ts`: it races a timer and CANCELS
+the losing pass (see "Preflight semantics" below — this was "lets it finish in
+the background" until TASK_2026_323); it throttles per workspace root
+(`minIntervalMs`, 60 s) so the skill-synthesis drain's dozens of nightly
+one-shot sessions do not each pay for a walk of `~/.ptah/user`; and it resolves
+the caller's cwd to the workspace root first (E14).
 
 ## What triggers a pass
 
@@ -385,11 +718,65 @@ host is shutting down.
 Preflight compares desired SOURCE hashes against the manifest and stats each
 owned path. It does not re-hash target directories. Three properties make that
 safe to run on every single session start, all pinned by
-`preflight/harness-preflight.service.spec.ts`: it races a timer and lets the
-losing pass finish in the background (never cancelled — it holds the workspace
-lock mid-copy); it throttles per workspace root (60 s) so the skill-synthesis
+`preflight/harness-preflight.service.spec.ts`: it races a timer and CANCELS the
+losing pass; it throttles per workspace root (60 s) so the skill-synthesis
 drain's nightly one-shot sessions do not each pay for a walk of `~/.ptah/user`;
 and it resolves the caller's cwd to the workspace root first (E14).
+
+#### Cancellation, and the commit point that makes it safe (TASK_2026_323 / B8)
+
+**The losing pass used to be left running, and that was the bug.** The stated
+reason — "it holds the workspace lock and is mid-copy, so aborting it would
+leave a target half populated with no manifest entry for what landed" — is true
+of the APPLY phase and false of everything before it. A preflight spends almost
+all of its time hashing: `HarnessManifestBuilder.build` walks `~/.ptah/user` and
+digests every byte of every skill, and then each detected target's `plan` (and,
+on the no-drift path, its `verify`, which IS `plan`) re-hashes every managed copy
+on disk. That is one source walk plus up to six target walks, per session start
+and per rival-CLI agent spawn, and it was synchronous — `readdirSync` +
+`lstatSync` + `readFileSync` + sha256, recursive to depth 20. In Electron the
+backend shares its event loop with every `BrowserWindow`, so a walk that outlives
+its session is measured in frozen UI. Three chat tabs with CLI agents is the
+reported symptom.
+
+Two mechanisms, in `abort/pass-abort.ts`:
+
+- **Async and yielding.** `hash/content-hash.ts` is `fs/promises` throughout,
+  yields via `setImmediate` once per directory and every 64 files, and takes a
+  `ContentHashOptions.signal`. There is deliberately **no synchronous variant
+  left** — a second spelling of this walk is how the blocking one grows back.
+  The one-level `readdirSync` listings in `HarnessManifestBuilder.listSkillSlugs`
+  / `listMarkdownFiles` are the deliberate exception: a handful of stat calls per
+  candidate whose cost does not grow with file size.
+- **A per-target commit point.** `HarnessReconcilerService.reconcileTarget` mints
+  a `HarnessPassSignal` per target and calls `commit()` immediately before the
+  first manifest write. Before it, an abort abandons the target and nothing has
+  been written; after it, the signal is detached and that target finishes
+  regardless. It is **per target, not per pass**, because each target persists
+  its own manifest right after its own apply — a pass-wide commit would let one
+  target needing one write make the other five uncancellable, which is most of
+  the hashing being cancelled. Pinned by
+  `reconciler/harness-reconciler.cancellation.spec.ts`.
+
+Three consequences worth not re-deriving:
+
+- **An aborted pass records nothing** — no `lastHealth`, no `health` event, no
+  manifest — so nothing downstream can mistake it for a completed one.
+  `HarnessPassAbortedError` is the ONE error `reconcileTarget` re-throws instead
+  of converting into a `writeFailed` row; reporting a session's expired budget
+  as a target malfunction would turn the badge red for a non-problem.
+- **The 60 s throttle stamp is deliberately KEPT on an aborted pass.** Clearing
+  it would make a workspace too large to hash inside the budget redo the whole
+  walk on the very next session start and abort again, forever. The next pass
+  past the throttle re-runs it, and every `mode: 'full'` trigger is unbounded
+  anyway.
+- **The gate migrations (`agentSyncEnabled`, `skillSyncMode`) do NOT commit the
+  pass**, even though they write `state.json`. Each is one atomic write of a
+  decision derived from manifest evidence a cancelled pass cannot have changed,
+  so "state.json written, pass abandoned" is consistent and the next pass
+  re-derives the same answer. Committing there would make the first preflight in
+  every new workspace uncancellable — precisely the workspace with the most
+  hashing to do.
 
 **The blind spot is deliberate and worth knowing.** Because preflight never
 re-hashes a target, a hand-edit to a managed COPY is invisible to it. The copy
@@ -398,6 +785,22 @@ keys are fragments inside a shared config file with no path to stat, so they are
 hash-compared only. `.gitignore` maintenance is likewise `full`-only: preflight
 is deliberately blind to whether a target is DETECTED, so it could not name the
 right directories even if it wanted to.
+
+#### Concurrent coalescing and external-pass credit (TASK_2026_367 / C6a)
+
+Concurrent calls to `HarnessPreflightService.ensure()` for the same workspace
+root coalesce into a single in-flight promise (`inFlight` map), sharing one
+`AbortController`, one budget timer, and one hash walk. Callers passing `force: true`
+bypass the 60 s throttle interval but join any already in-flight pass for that
+root, preventing duplicate concurrent passes over the same directories. The
+promise is cleaned up in a `finally` block on settlement.
+
+Additionally, `HarnessPreflightService` subscribes to the reconciler's `health`
+events via `reconciler.onHealth()`, updating `lastPassAt` whenever any reconcile
+pass completes (preflight, full, or `propagate()`). A session starting shortly
+after an external pass skips its own preflight under the throttle interval rather
+than paying budget to re-derive the identical state. `dispose()` unsubscribes
+the health listener when the service is torn down.
 
 ## The `.gitignore` managed block (E23)
 
@@ -456,14 +859,17 @@ once, so two hosts cannot drift.
 | `harness.preflightTimeoutMs` | `DEFAULT_PREFLIGHT_TIMEOUT_MS` (1500) | `readPreflightTimeoutMs` in each host | `HarnessPreflightDeps.readTimeoutMs`       |
 | `harness.manageGitignore`    | `DEFAULT_MANAGE_GITIGNORE` (true)     | `readManageGitignore` in each host    | `HarnessGitignoreDeps.readManageGitignore` |
 
-**Neither gate for the `agents` facet is a setting, deliberately.**
-`agentSyncEnabled` is a per-WORKSPACE decision the user made, so it lives in
+**Neither gate for the `agents` facet is a setting, deliberately, and the same
+is true of `skillSyncMode`.** `agentSyncEnabled` and `skillSyncMode` are
+per-WORKSPACE decisions the user made, so both live in
 `{ws}/.ptah/harness/state.json` beside the `.gitignore` decisions rather than in
-`~/.ptah/settings.json` — a user-global "sync agents" toggle would either
-propagate into every project on the machine or silently mean nothing in most of
-them. `disabledAgentIds` lives in the workspace plugin config with
-`disabledSkillIds` and `disabledPluginIds`, for the same reason those do.
-Consequently neither is read by a host and neither is handed down as a lambda.
+`~/.ptah/settings.json` — a user-global "sync agents" (or "sync skills") toggle
+would either propagate into every project on the machine or silently mean
+nothing in most of them. For skills that IS the reported bug, restated as a
+setting instead of a mechanism. `disabledAgentIds` lives in the workspace
+plugin config with `disabledSkillIds` and `disabledPluginIds`, for the same
+reason those do. Consequently none of these is read by a host or handed down as
+a lambda.
 
 Both settings above are declared in `platform-core`'s `FILE_BASED_SETTINGS_KEYS` and read with
 **section `'ptah'` and a DOTTED key**, not section `'harness'`. Only the `'ptah'`
@@ -507,6 +913,224 @@ Only a COLLISION is — the user already has a server under a key the desired
 state asks for. `.vscode/mcp.json` holding four servers a user installed by hand
 is an ordinary config file, and listing them opened `ptah harness doctor` with
 four findings nobody could action.
+
+### `missing` with `writeFailed: 0` — the blocked-path condition (TASK_2026_306)
+
+A steady-state pass can report a permanent shortfall and a perfect write record
+at the same time. That is not a contradiction and it is not a bug:
+
+```
+[WARN] [harness-sync] Reconcile finished with gaps: … missing=13, foreign=19, writeFailed=0
+```
+
+`tmp/logs/coldstart-306.log:844`, a real Electron cold start, twice in one boot
+with identical counts — the signature of a CONVERGED state, not a stuck retry.
+
+**`writeFailed: 0` was never evidence that those writes succeeded.** A blocked
+path is filtered out BEFORE `plan.writes` is built: `targets/claude-target.ts:189-194`
+does `scanned.push(relPath); continue;` on a `foreign` outcome, and
+`workspace-target.ts:164-166` and `targets/mcp/mcp-facet-planner.ts:107-108` do
+the same. Nothing was ever enqueued, so the failure counter is structurally
+incapable of ever counting one. The thirteen are REFUSALS — Ptah declining to
+overwrite a file it cannot prove it wrote (E9) — reported as `missing` because
+the artifact genuinely is not installed.
+
+The condition is made legible by a second log line, emitted from
+`HarnessReconcilerService.logBlocked` only when the set is non-empty, naming
+every blocked path, its per-path reason, and the one user action that clears it
+(**move** the occupant aside — never delete it — then re-run
+`ptah harness doctor --fix`). That action also names the Dashboard home's
+**"Your harness is short"** card, because a log line cannot be clicked and the
+card is where the same list can be read without a terminal. The card is named
+as a place to READ, and it carries exactly ONE control: a route into the
+consent dialog (TASK_2026_306 Batch 9 / Task 11.2). The card itself still
+performs no repair and captures no consent — the per-path checkboxes live in
+the dialog, they arrive with nothing ticked, and `harness:repairBlocked` is
+sent only the paths the user actually ticked. The card had no control at all
+until the dialog existed, on the rule that a button opening nothing is worse
+than no button. The summary line above it is unchanged, and `summarizeHarnessHealth` still reads
+`degraded` — the harness really is incomplete. Nothing about this closes the
+gap; it stops spelling a refusal as a gap of unknown cause.
+
+**The WARN is emitted once per SET, not once per pass (TASK_2026_346).** `full`
+turned out not to be rare: activation, the content-download callback, every
+workspace-folder change and every plugin toggle are all `full`, and one captured
+Electron session emitted the identical twelve-path object five times
+(`tmp/logs/log.log:1286, 1290, 1315, 1824, 2154`). A blocked set is a CONVERGED
+steady state, so a repetition carries no news. `logBlocked` therefore remembers
+the set per workspace root — sorted `target|relPath|reason`, so target
+registration order cannot read as a change — and WARNs only on first sight or a
+real change. An unchanged set leaves `debug` "Blocked set unchanged since the
+last full pass"; a set that empties leaves "Blocked set is now empty", because
+otherwise the last thing the log said about a since-repaired workspace would be
+that twelve paths were blocked. The memory is per PROCESS and deliberately not
+persisted. Keyed per root so a folder switch is not read as a change in either
+folder.
+
+**`blocked` is DERIVED, never transmitted, and the derivation lives in
+`@ptah-extension/shared`.** `blockedTargetPaths()` sits in
+`shared/.../harness-sync.types.ts` beside `summarizeHarnessHealth`, for that
+function's exact reason: more than one consumer reads it and they must never
+disagree. This lib's reconcile log is one consumer and the webview health card
+is another, and a frontend lib cannot import a backend lib — so a copy here
+would have forced the card to write a second intersection, which is the whole
+failure mode being avoided. It is `missing ∩ foreign` over the existing payload,
+which is exactly `plan.blocked` because every planner pushes into both lists in
+one step and a desired path is either written or blocked, never both. There is
+no `blocked` wire field and there should not be one: adding it would be a second
+producer of a set the consumers already agree on. Import the function — the
+reconcile log, `ptah harness doctor` and the health card must not each grow
+their own intersection.
+
+**Do NOT "fix" this by excluding `blocked` from `missing`.** That is the
+documented non-converging regression: `harness doctor --fix` reports "in sync"
+and exits 0 while `harness doctor` over the identical untouched tree reports the
+same paths as gaps and exits 1, forever. See the four-term table above.
+
+#### The 13 are of UNKNOWN provenance — `SkillJunctionService` did not write them
+
+The obvious hypothesis is wrong, and it has already cost one investigation. The
+premise "these are Ptah's own orphaned copies, unadoptable only because
+`.claude/skills` never got a `.ptah-managed.json` sidecar" is **false**. Three
+independent facts, each sufficient alone:
+
+1. **`SkillJunctionService` LINKED skills and only COPIED commands.** The one
+   filesystem write for a skill was `createJunction(sourcePath, linkPath)` — no
+   `cp -r`, no fallback branch, no "if the junction fails, copy instead". A real
+   directory is not a possible output of that function.
+   `git e107e6f89^:libs/backend/agent-sdk/src/lib/helpers/skill-junction.service.ts:304-356`
+2. **It refused to touch occupied paths**, logging
+   `Skipping ${skillName}: real directory exists (likely SDK-created)`. The
+   legacy code already suspected non-Ptah provenance and deferred to it.
+   `git e107e6f89^:.../skill-junction.service.ts:336-343`
+3. **Even a surviving junction would not be blocked today.**
+   `targets/claude-target.ts:480-486` migrates one whose target resolves inside a
+   declared source root, and `~/.ptah/plugins` / `~/.ptah/skills` are declared
+   (`sources/plugin-config-source-resolver.ts:55`).
+
+The asymmetry was correct design, not an accident: a link is self-identifying,
+so only the copied COMMANDS needed an out-of-band ownership record. That is why
+the sidecar story explains `.claude/commands` and explains nothing about the 13
+skill directories.
+
+At least three non-Ptah candidates fit and the evidence does not discriminate
+between them: the Claude Code SDK itself; the pre-TASK_2026_288
+`npx skills add --agent claude-code` path, which wrote straight into
+`{ws}/.claude/skills`
+(`libs/backend/rpc-handlers/src/lib/harness/io/harness-skill-install.service.ts:17-25`);
+or the user, by hand. **Nothing shows any of them is Ptah's.**
+
+Consequently **content matching is not a valid ownership proof here** and must
+not be added as one. A content match proves the _skill_ is the same skill, not
+that _Ptah wrote this directory_ — and both non-Ptah install paths produce
+matching content by construction, so the heuristic would be maximally confident
+exactly where it is least entitled to be. Consent is the only ownership proof
+available, which is why the planned repair is gated on it.
+
+The reconcile log still states the manual remedy, and it is still the right one
+for a user who does not want the repair: **move** the occupant aside — not
+delete it — then re-run `ptah harness doctor --fix`. Move is reversible and
+delete is not, and `--fix` writes Ptah's copy into whatever gap the move leaves.
+
+##### The wording is guarded by an ALLOWLIST, in `shared` (TASK_2026_309)
+
+**SIX** surfaces say how a blocked path gets cleared — this lib's reconcile
+WARN, the Marketplace popover, the Dashboard card, the repair dialog,
+`HarnessHealthStore`'s repair-failure message, and
+**`HarnessRepairPathResult.reason`** — and each must say MOVE. The guard used
+to be a DENYLIST of eight regexes, and only two surfaces carried even that:
+"purge", "wipe", "drop", "nuke", "clear out" and "get rid of" all passed it,
+and "remove the occupant" would have shipped on the others with a green suite.
+It is now an exact-match allowlist in
+`libs/shared/src/lib/types/harness-blocked-wording.ts`
+(`HARNESS_BLOCKED_APPROVED_ACTIONS`, `HARNESS_BLOCKED_APPROVED_PROSE`,
+`HARNESS_REPAIR_REASONS`, `harnessBlockedWordingViolations`), which is `shared`
+for `summarizeHarnessHealth`'s exact reason: a frontend lib cannot import this
+one, and private copies of the sentence is how the wordings drifted apart.
+
+**`reason` is PROSE, not data, and that is what hid it.** Every value
+`HarnessBlockedRepairService` puts in that field (`blocked-repair.service.ts`
+:230, :318, :334, :399, :406) is a Ptah-authored sentence, rendered
+unconditionally at `harness-repair-dialog.component.ts:276-280`. The first
+version of the guard never saw one, because the only `reason` any spec
+exercised was an invented fixture passed as `data` — and `data` is struck
+before the residue is judged. So the five literals are on the allowlist and
+pinned from BOTH sides: `blocked-repair.service.spec.ts` asserts the service
+emits them, and `harness-repair-dialog.spec.ts` renders them and asserts the
+dialog stays clean. Neither half is sufficient alone. The two templates
+(`move-failed`, `restore-failed`) approve only the fixed HEAD — the tail is
+`describeError(error)`, which is the OS talking.
+
+**Brittleness is the feature.** Any rewording of these strings — the action,
+the WARN's `note`, either per-path `reason`, a repair `reason`, a button label
+or an outcome line — fails its surface spec, so the new wording gets
+re-approved by a human editing the allowlist rather than re-scanned by a regex
+it happens to slip past. Adding a legitimate phrasing means editing
+`HARNESS_BLOCKED_RECONCILE_STEPS`, `HARNESS_REPAIR_REASONS` or
+`HARNESS_BLOCKED_APPROVED_PROSE`; there is no other door.
+
+**Two denylists survive underneath it, and both are sound in that position
+only.** `containsDestructiveVerb` runs on the residue AFTER the approved
+sentences are struck, so it can only ever ADD a failure and can never grant
+permission — which is what makes it safe and is exactly what the guard it
+replaced was not. It exists because the residue rule needs four consecutive
+words (below that, "Claude Code" and "13 blocked paths" would each need
+approving), so a two-word button label like "Delete these" is structurally
+invisible to it. The same function is turned on the ALLOWLIST itself, so a
+destructive verb cannot become approved wording by being typed into that file
+— the one path the two-sided pin cannot close on its own. `read it before you
+discard anything` is the single sanctioned exemption.
+
+#### Consent-gated repair + the quarantine convention — BACKEND SHIPPED (Batch 8), consent UI PLANNED (Batch 9)
+
+**The repair is real code.** `HarnessBlockedRepairService`
+(`lib/repair/blocked-repair.service.ts`) is the repair; the convention it writes
+into is `lib/quarantine/quarantine.ts`. Decided by the user on 2026-08-22
+(TASK_2026_306 / U1–U4). **The consent DIALOG does not exist yet** — see the
+Consent row below. Every other row in this table describes shipped behaviour.
+
+| Rule     | Value                                                                                                                                                                                                                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Location | `.claude/skills/.ptah-quarantine/<name>-<timestamp>` — alongside the occupant, so the move is same-volume. Not `~/.ptah/` (a workspace on `D:` and a home on `C:` is the common Windows case), not the recycle bin (opaque)                                                                                               |
+| Naming   | UTC compact to the MILLISECOND (`alpha-20260823T141530123`), with a `-2`, `-3` … suffix for a residual collision. The timestamp is what a human reads to find their directory, so a collision suffixes rather than re-rolls                                                                                               |
+| Scanning | **Never scanned.** `isQuarantineEntry` is called from `ClaudeTarget.scanTargetDirs` and `WorkspaceHarnessTarget.scanForeignDirs`, and `QUARANTINE_DIR_NAME` is in `IGNORED_ENTRY_NAMES` so no source walk or hash sees it either                                                                                          |
+| Cleanup  | **Never automatic.** No TTL, no sweep, no "older than N days" job, and no UI button offering one — an expiry policy silently converts a reversible operation into a destructive one on a timer                                                                                                                            |
+| Git      | Already ignored: the quarantine lives inside a directory `managedDirs()` puts in the managed `.gitignore` block (E23)                                                                                                                                                                                                     |
+| Consent  | **PLANNED (Batch 9) — there is no dialog.** The BACKEND half is shipped: `harness:repairBlocked` takes a per-path selection and has no bulk shape. The surface that collects it — one dialog, per-path checkboxes, defaulting to none selected — is unstarted. Until it lands, the only caller is a direct RPC invocation |
+
+**The order, and why every step is where it is.** Move the occupant to
+quarantine and PROVE it moved (destination present, source gone), then run one
+ordinary full pass. The write is the reconciler's, not a second writer — which
+is what makes "a failed move means no write at that path" STRUCTURAL rather than
+a branch somebody has to remember: an occupant still in place is still unowned,
+so `planEntry` returns `'foreign'` and `targets/claude-target.ts:189-194` drops
+the path before `plan.writes` is built. **The refusal that caused the defect is
+the same refusal that makes the repair safe.** A path the pass did not write —
+`missing` after the apply — gets its occupant back; if the restore itself fails,
+the error names the quarantine path, because at that point the directory exists
+in exactly one place.
+
+**There is no `rm` on the repair path.** The move phase takes the workspace lock
+and RELEASES it before the write pass — it has to, or it would deadlock the pass
+— so the restore window is not exclusive by construction. Rather than delete
+whatever sits on the destination on the strength of an argument about a lock
+that is not held, the restore MOVES the obstruction aside into the quarantine
+exactly as the original occupant was, and reports it as `supersededPath`. The
+restore phase re-takes the lock, so the window is both narrow and non-lethal.
+The one surviving deletion is the second half of the cross-volume `EXDEV`
+fallback, which deletes only what it has already copied.
+
+**Every per-path step is in its own `try`.** On Windows an `EPERM`/`EBUSY` from
+an editor or an antivirus scanner holding one directory open is the expected
+failure, not an exotic one, and a repair of thirteen paths that dies on the
+third is worse than one that repairs twelve and names the one it could not.
+
+**Unreachable from activation.** The dependency runs repair → reconciler, so
+nothing on the activation path can arrive here. `HARNESS_SYNC_TOKENS.BLOCKED_REPAIR`
+is held by exactly one caller: `harness:repairBlocked`, in
+`rpc-handlers/.../harness-health-rpc.service.ts`. A blocked MCP fragment key
+(`.mcp.json#github`) is refused — it is a key inside a config file the user also
+writes, not a file, so there is nothing to move aside.
 
 ### Legacy adoption
 
@@ -556,6 +1180,15 @@ out of the way. That is the correct answer, not a gap in the mechanism.
 - **`harness:remove`** `{ confirm: true }` → `{ health, summary, removed }`.
   `confirm` is `z.literal(true)` at the schema, so reaching the method IS the
   confirmation.
+- **`harness:repairBlocked`** `{ paths: [{ target, relPath }] }` →
+  `{ paths, repaired, health, summary }`. The consent-gated repair (Batch 8).
+  Per-path only — there is deliberately no bulk shape, because the selection IS
+  the ownership claim. An empty list is legal and is a complete no-op: no move,
+  no pass, not one byte written. A path outside the reconciler's CURRENT blocked
+  set is refused, re-derived here rather than trusted from the caller's report,
+  which is what stops this being a general-purpose "move this directory"
+  primitive. `harness:` was already in `ALLOWED_METHOD_PREFIXES`, so the runtime
+  half of the dual registration came free with the namespace.
 - **`harness:healthChanged`** push, payload `HarnessHealthChangedPayload`.
   Edge-triggered on the SUMMARY, not per pass: preflight runs on every session
   start, so a per-pass push would be a webview message per session for a badge
@@ -672,6 +1305,52 @@ structural, so `PluginLoaderService` satisfies it with no import either way.
   hash and `sourceHash` is the SOURCE hash; comparing the first detects a
   hand-edited copy, comparing the second detects a changed upstream. Byte-copy
   targets omit `sourceHash`.
+- **Do NOT write a Codex `features` key beside a server entry. One was built,
+  measured end to end, and deleted.** `targets/mcp/codex-tool-search-flag.ts`
+  wrote `features.tool_search_always_defer_mcp_tools = false` on the belief that
+  a registered server is useless without it — Codex defers MCP tools out of the
+  model's eager tool list, and that key is what `CodexCliAdapter` sends
+  in-process. Tested against a live Ptah MCP server on codex-cli 0.150.1 with
+  `codex exec`: the eager list was empty with the flag in the project config,
+  with it in the home config, and without it at all — and with NO flag anywhere,
+  a session asked to search its tools called `ptah_workspace_analyze` and got a
+  result. The flag moves nothing (`codex features list` reports it with stage
+  `removed`), and the registration alone is sufficient. If eager listing ever
+  matters, the lever is the AGENTS.md Ptah already propagates, not a config key.
+- **`codexProjectTrusted` (`targets/mcp/codex-project-trust.ts`) exists because
+  Codex ignores an untrusted project's config SILENTLY.** A project-scoped
+  `{ws}/.codex/config.toml` is merged only when the home config records
+  `[projects.'<path>'] trust_level = "trusted"` — measured as `MCP servers 2` in
+  a trusted workspace against `MCP servers 1` in an untrusted one, with no
+  warning either way. The reader lets a writer pick the scope Codex will
+  actually read (`CodeExecutionMCP` falls back to the home file for an untrusted
+  root) instead of writing a file that is discarded. Three rules: it is
+  READ-ONLY, because trust grants Codex the right to run commands in a directory
+  and recording that for the user would be Ptah answering a question asked of
+  them; every ambiguity reads as NOT trusted, which costs a home-scoped entry
+  that works rather than a workspace one that is ignored; and **case is folded
+  per FILESYSTEM, never unconditionally.** Separators and a trailing separator
+  normalize on every platform — those collapses cannot invent a match. Case
+  folding can: on ext4 `/a/App` and `/a/app` are two directories, and folding
+  would read trust granted to a sibling as this project's. It is therefore
+  enabled for `win32` (Codex records paths LOWERCASED there, so an exact
+  comparison would report every Windows project untrusted) and `darwin` (APFS
+  and HFS+ are case-insensitive by default), and disabled everywhere else. The
+  `caseInsensitive` option overrides it, which is also how one CI host proves
+  all three behaviours.
+- **`~/.codex` is the DEFAULT, not the rule — `CODEX_HOME` relocates it, and
+  `codex-home.ts` is the one place that decides.** Verified on codex-cli
+  0.150.1: `CODEX_HOME=/tmp/xyz codex doctor` reports
+  `config.toml /tmp/xyz/config.toml` — directly inside the override, with no
+  nested `.codex`. The variable is not exotic (~80 references in the `codex`
+  binary against 2 for `XDG_CONFIG_HOME`), and relocating a dotfile directory is
+  ordinary on Linux and macOS. `CodexTomlMcpFacet` (home scope) and
+  `codexProjectTrusted` both resolve through `codexHomeDir`, because a facet
+  writing one path while the trust reader read another would be a bug that only
+  appears on a machine with the variable set. An explicit `homeDir` PINS the
+  resolution and suppresses the env lookup, which is what keeps every spec that
+  pins it hermetic; no host passes `homeDir`, so production always gets the
+  environment's answer.
 - **Codex MCP is spliced between marker comments, not round-tripped.**
   `~/.codex/config.toml` is a file the user hand-edits — model preferences,
   sandbox policy, comments explaining why. No TOML library in this repo
@@ -724,63 +1403,67 @@ structural, so `PluginLoaderService` satisfies it with no import either way.
 
 Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 
-| #          | Case                                    | Status                                                                                                                                     |
-| ---------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| E1         | Host deactivates mid-session            | Closed — no teardown path exists                                                                                                           |
-| E2/E3      | Sources missing / download in flight    | Closed — `sources: 'sources-missing' \| 'pending-download'`, no throw                                                                      |
-| E9         | User's own `.claude/skills/foo`         | Closed — reported `foreign`, never touched                                                                                                 |
-| E10        | Hand-edited managed copy                | Closed — overwritten + `overwrittenLocalEdit`                                                                                              |
-| E11        | Two hosts reconcile concurrently        | Closed — file lock + in-process queue                                                                                                      |
-| E12        | Workspace folder change                 | Closed — new ws gets a full `propagate` (mirror THEN reconcile, because `{ws}/.claude/agents` is a per-workspace source), old ws untouched |
-| E13        | Two workspaces open                     | Closed — per-workspace manifest                                                                                                            |
-| E20        | Reserved names / case collisions        | Closed — reported, skipped                                                                                                                 |
-| E21        | Antivirus/locked file on Windows        | Closed — 3× retry, then `write-failed`; manifest records only applied entries                                                              |
-| E5         | Disable / demote → reaped everywhere    | Closed — manifest-owned only, all six targets                                                                                              |
-| E14        | Rival CLI spawned with cwd = sub-folder | Closed — `resolveHarnessWorkspaceRoot` at the reconciler entry                                                                             |
-| E17        | Rival CLI not installed                 | Closed — `detected: false`, nothing written; installing later populates                                                                    |
-| E18        | Codex MCP                               | Closed — fenced `[mcp_servers.*]` blocks, user's other servers byte-preserved                                                              |
-| E19        | Copilot home-vs-workspace precedence    | Closed — `ptah-`/`ptahsynth-` home copies reaped, user files kept                                                                          |
-| E22        | Uninstall / `ptah harness remove`       | Closed — `reconciler.remove(ws)`; Batch 4 exposes it                                                                                       |
-| E4         | Synth skill promoted mid-session        | Closed (Batch 3) — `SkillPromotionService` emits, both port impls propagate                                                                |
-| E15        | Harness-builder skill created           | Closed (Batch 3) — `harness:create-skill` propagates after `createSkillPlugin`                                                             |
-| E16        | Enhancement apply / revert              | Closed (Batch 3) — enhancer emits, port propagates all three kinds                                                                         |
-| E24        | Cron / gateway / curator sessions       | Closed (Batch 3) — preflight in the shared session path; live MCP port                                                                     |
-| E6, E7, E8 | User-layer divergence/reaping           | Closed (Batch 1b) — source-layer, in `agent-generation`'s `user-layer-*.spec.ts`                                                           |
-| E23        | `.gitignore` managed block              | Closed (Batch 4) — `gitignore/gitignore-writer.spec.ts` + `reconciler/harness-reconciler.gitignore.spec.ts`                                |
-| E25        | Shipped content path literals           | Closed in Batch 0                                                                                                                          |
-| E26        | Agents propagated with no user consent  | Closed (TASK_2026_286) — `agentSyncEnabled` + `disabledAgentIds`; an ABSENT flag resolves from manifest evidence, never to a bare `false`  |
+| #          | Case                                            | Status                                                                                                                                                                                                                         |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| E1         | Host deactivates mid-session                    | Closed — no teardown path exists                                                                                                                                                                                               |
+| E2/E3      | Sources missing / download in flight            | Closed — `sources: 'sources-missing' \| 'pending-download'`, no throw                                                                                                                                                          |
+| E9         | User's own `.claude/skills/foo`                 | Closed — reported `foreign`, never touched                                                                                                                                                                                     |
+| E10        | Hand-edited managed copy                        | Closed — overwritten + `overwrittenLocalEdit`                                                                                                                                                                                  |
+| E11        | Two hosts reconcile concurrently                | Closed — file lock + in-process queue                                                                                                                                                                                          |
+| E12        | Workspace folder change                         | Closed — new ws gets a full `propagate` (mirror THEN reconcile, because `{ws}/.claude/agents` is a per-workspace source), old ws untouched. **No teardown on folder REMOVAL, deliberately** — see "Never remove on deactivate" |
+| E13        | Two workspaces open                             | Closed — per-workspace manifest, per-workspace SOURCES (`resolve(workspaceRoot)`, TASK_2026_346) and a per-workspace AGENT CLONE (`agents/<workspace-key>`, TASK_2026_365)                                                     |
+| E20        | Reserved names / case collisions                | Closed — reported, skipped                                                                                                                                                                                                     |
+| E21        | Antivirus/locked file on Windows                | Closed — 3× retry, then `write-failed`; manifest records only applied entries                                                                                                                                                  |
+| E5         | Disable / demote → reaped everywhere            | Closed — manifest-owned only, all six targets                                                                                                                                                                                  |
+| E14        | Rival CLI spawned with cwd = sub-folder         | Closed — `resolveHarnessWorkspaceRoot` at the reconciler entry                                                                                                                                                                 |
+| E17        | Rival CLI not installed                         | Closed — `detected: false`, nothing written; installing later populates                                                                                                                                                        |
+| E18        | Codex MCP                                       | Closed — fenced `[mcp_servers.*]` blocks, user's other servers byte-preserved                                                                                                                                                  |
+| E19        | Copilot home-vs-workspace precedence            | Closed — `ptah-`/`ptahsynth-` home copies reaped, user files kept                                                                                                                                                              |
+| E22        | Uninstall / `ptah harness remove`               | Closed — `reconciler.remove(ws)`; Batch 4 exposes it                                                                                                                                                                           |
+| E4         | Synth skill promoted mid-session                | Closed (Batch 3) — `SkillPromotionService` emits, both port impls propagate                                                                                                                                                    |
+| E15        | Harness-builder skill created                   | Closed (Batch 3) — `harness:create-skill` propagates after `createSkillPlugin`                                                                                                                                                 |
+| E16        | Enhancement apply / revert                      | Closed (Batch 3) — enhancer emits, port propagates all three kinds                                                                                                                                                             |
+| E24        | Cron / gateway / curator sessions               | Closed (Batch 3) — preflight in the shared session path; live MCP port                                                                                                                                                         |
+| E6, E7, E8 | User-layer divergence/reaping                   | Closed (Batch 1b) — source-layer, in `agent-generation`'s `user-layer-*.spec.ts`                                                                                                                                               |
+| E23        | `.gitignore` managed block                      | Closed (Batch 4) — `gitignore/gitignore-writer.spec.ts` + `reconciler/harness-reconciler.gitignore.spec.ts`                                                                                                                    |
+| E25        | Shipped content path literals                   | Closed in Batch 0                                                                                                                                                                                                              |
+| E26        | Agents propagated with no user consent          | Closed (TASK_2026_286) — `agentSyncEnabled` + `disabledAgentIds`; an ABSENT flag resolves from manifest evidence, never to a bare `false`                                                                                      |
+| E27        | Skills propagated with no per-workspace consent | Closed (TASK_2026_316) — `skillSyncMode` + `enabledSkillSlugs` + the plugin-origin gate over the user-layer base; an ABSENT mode resolves from manifest evidence, never to a bare `'selected'`                                 |
+| E28        | Two workspaces' agents collide on one slug      | Closed (TASK_2026_365) — `agents/<workspace-key>`, seeded from the flat base and never reaped; the mirror is gated on the same consent as the propagation                                                                      |
 
 ### Where each edge case is pinned
 
-| #            | Spec file                                                                                                                                                              |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1, E5       | `reconciler/harness-reconciler.idempotency-removal.spec.ts`                                                                                                            |
-| E2, E3       | `reconciler/harness-reconciler.sources-health.spec.ts`                                                                                                                 |
-| E4, E15, E16 | `propagation/harness-propagation.service.spec.ts`                                                                                                                      |
-| E9, E10      | `reconciler/harness-reconciler.foreign-edits.spec.ts`                                                                                                                  |
-| E11          | `reconciler/harness-reconciler.concurrency.spec.ts`, `lock/workspace-lock.spec.ts`                                                                                     |
-| E12, E13     | `reconciler/harness-reconciler.workspace-isolation.spec.ts`                                                                                                            |
-| E14          | `workspace/workspace-root.spec.ts` (including the case-insensitive home boundary on win32)                                                                             |
-| E17          | `targets/rival-targets.detection.spec.ts`                                                                                                                              |
-| E18          | `targets/mcp/codex-toml-mcp-facet.spec.ts`                                                                                                                             |
-| E19, E5      | `targets/rival-targets.reap.spec.ts`                                                                                                                                   |
-| E20          | `manifest/slug-rules.spec.ts`                                                                                                                                          |
-| E21          | `reconciler/harness-reconciler.write-failure.spec.ts`, `fs/atomic-write.spec.ts`                                                                                       |
-| E22          | `reconciler/harness-reconciler.remove.spec.ts`                                                                                                                         |
-| E23          | `gitignore/gitignore-writer.spec.ts`, `reconciler/harness-reconciler.gitignore.spec.ts`                                                                                |
-| E24          | `preflight/harness-preflight.service.spec.ts`                                                                                                                          |
-| E26          | `reconciler/harness-reconciler.agent-consent.spec.ts` (the gate, the wizard grant, and THE MIGRATION), `manifest/harness-manifest.builder.spec.ts` (the two filters)   |
-| —            | Codex/Antigravity shared dir: `targets/rival-targets.shared-dir.spec.ts`                                                                                               |
-| —            | **Antigravity MCP schema + the `ptah`/manifest/user key partition: `targets/mcp/antigravity-mcp-facet.spec.ts`**                                                       |
-| —            | **Install → spawn → cleanup → uninstall, and a concurrent reconcile + spawn: `reconciler/harness-reconciler.antigravity-mcp.spec.ts`**                                 |
-| —            | **The adapter side of the same rule: `cli-agent-runtime/.../antigravity-cli.adapter.mcp.spec.ts`**                                                                     |
-| —            | Legacy manifest adoption: `reconciler/harness-reconciler.migration.spec.ts`                                                                                            |
-| —            | **`reconcile` and `verify` agree; adoption; blocked = foreign + missing; user MCP servers are not findings: `reconciler/harness-reconciler.verify-agreement.spec.ts`** |
-| —            | Manifest-save failure + adoption recovery: `reconciler/harness-reconciler.manifest-recovery.spec.ts`                                                                   |
-| —            | Symlink migration vs. the user's own link: `targets/claude-target.symlink-migration.spec.ts`                                                                           |
-| —            | Workspace-folder change runs the FULL pass: `apps/ptah-electron/.../plugin-activation.spec.ts`                                                                         |
-| —            | Health surface + push: `rpc-handlers/.../harness-health-rpc.service.spec.ts`                                                                                           |
-| —            | `ptah harness doctor` exit codes: `apps/ptah-cli/.../harness.spec.ts`                                                                                                  |
+| #            | Spec file                                                                                                                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1, E5       | `reconciler/harness-reconciler.idempotency-removal.spec.ts`                                                                                                                                                                                   |
+| E2, E3       | `reconciler/harness-reconciler.sources-health.spec.ts`                                                                                                                                                                                        |
+| E4, E15, E16 | `propagation/harness-propagation.service.spec.ts`                                                                                                                                                                                             |
+| E9, E10      | `reconciler/harness-reconciler.foreign-edits.spec.ts`                                                                                                                                                                                         |
+| E11          | `reconciler/harness-reconciler.concurrency.spec.ts`, `lock/workspace-lock.spec.ts`                                                                                                                                                            |
+| E12, E13     | `reconciler/harness-reconciler.workspace-isolation.spec.ts` (the target paths) and **`reconciler/harness-reconciler.workspace-scoped-sources.spec.ts`** (the SOURCES), plus `agent-sdk/.../plugin-loader.service.spec.ts` for the loader half |
+| E14          | `workspace/workspace-root.spec.ts` (including the case-insensitive home boundary on win32)                                                                                                                                                    |
+| E17          | `targets/rival-targets.detection.spec.ts`                                                                                                                                                                                                     |
+| E18          | `targets/mcp/codex-toml-mcp-facet.spec.ts`                                                                                                                                                                                                    |
+| E19, E5      | `targets/rival-targets.reap.spec.ts`                                                                                                                                                                                                          |
+| E20          | `manifest/slug-rules.spec.ts`                                                                                                                                                                                                                 |
+| E21          | `reconciler/harness-reconciler.write-failure.spec.ts`, `fs/atomic-write.spec.ts`                                                                                                                                                              |
+| E22          | `reconciler/harness-reconciler.remove.spec.ts`                                                                                                                                                                                                |
+| E23          | `gitignore/gitignore-writer.spec.ts`, `reconciler/harness-reconciler.gitignore.spec.ts`                                                                                                                                                       |
+| E24          | `preflight/harness-preflight.service.spec.ts`                                                                                                                                                                                                 |
+| E26          | `reconciler/harness-reconciler.agent-consent.spec.ts` (the gate, the wizard grant, and THE MIGRATION), `manifest/harness-manifest.builder.spec.ts` (the two filters)                                                                          |
+| E27          | `reconciler/harness-reconciler.plugin-gate.spec.ts` (the plugin-origin gate over the user-layer base), `reconciler/harness-reconciler.skill-consent.spec.ts` (the selection gate and its migration)                                           |
+| E28          | `state/agent-workspace-scope.spec.ts` (the reader scope and the writer decision), `shared/.../user-layer-agents.spec.ts` (the key), `agent-generation/.../user-layer-agent-scope.spec.ts` (two workspaces stay apart, and the seed)           |
+| —            | Codex/Antigravity shared dir: `targets/rival-targets.shared-dir.spec.ts`                                                                                                                                                                      |
+| —            | **Antigravity MCP schema + the `ptah`/manifest/user key partition: `targets/mcp/antigravity-mcp-facet.spec.ts`**                                                                                                                              |
+| —            | **Install → spawn → cleanup → uninstall, and a concurrent reconcile + spawn: `reconciler/harness-reconciler.antigravity-mcp.spec.ts`**                                                                                                        |
+| —            | **The adapter side of the same rule: `cli-agent-runtime/.../antigravity-cli.adapter.mcp.spec.ts`**                                                                                                                                            |
+| —            | Legacy manifest adoption: `reconciler/harness-reconciler.migration.spec.ts`                                                                                                                                                                   |
+| —            | **`reconcile` and `verify` agree; adoption; blocked = foreign + missing; user MCP servers are not findings: `reconciler/harness-reconciler.verify-agreement.spec.ts`**                                                                        |
+| —            | Manifest-save failure + adoption recovery: `reconciler/harness-reconciler.manifest-recovery.spec.ts`                                                                                                                                          |
+| —            | Symlink migration vs. the user's own link: `targets/claude-target.symlink-migration.spec.ts`                                                                                                                                                  |
+| —            | Workspace-folder change runs the FULL pass: `apps/ptah-electron/.../plugin-activation.spec.ts`                                                                                                                                                |
+| —            | Health surface + push: `rpc-handlers/.../harness-health-rpc.service.spec.ts`                                                                                                                                                                  |
+| —            | `ptah harness doctor` exit codes: `apps/ptah-cli/.../harness.spec.ts`                                                                                                                                                                         |
 
 ### The original defect inventory
 
@@ -845,6 +1528,12 @@ a patch at the site where it was found.
   target open — that combination is what made a lost manifest freeze a whole
   target. The rule covers the manifests, `state.json`, the MCP intent store,
   both MCP facets and `.gitignore`.
+- **Never scope one side of an artifact root without the other.** The agent
+  clone lives under `userLayerAgentDirName(root)`; the mirror WRITES it and this
+  lib READS it, and a reader keyed on a different spelling of the root sees an
+  empty directory. Agents are manifest-owned, so an empty desired state is a
+  DELETION of every propagated copy, reported as an ordinary clean pass. Both
+  sides resolve through `resolveHarnessWorkspaceRoot` for exactly this reason.
 - **Never let a new gate default to OFF for an artifact kind that is already on
   disk.** Everything this lib writes is manifest-owned, so "not in the desired
   state" means DELETED. An absent flag must resolve from evidence of what Ptah
@@ -878,6 +1567,8 @@ a patch at the site where it was found.
   bespoke target has to remember. Never return an MCP config path from it.
 - Never re-derive "is the harness healthy". Call `summarizeHarnessHealth` from
   `@ptah-extension/shared`. Three consumers depend on that rule being one rule.
+  Same rule, same place, for **`blockedTargetPaths`** (`missing ∩ foreign`):
+  never write the intersection inline, here or in a webview.
 - **Never let a spec touch the real home directory.** Every facet and rival
   target factory takes a `homeDir` override; pass a temp one. A spec that
   writes to `~/.codex/config.toml` or `~/.claude/skills` corrupts the developer's

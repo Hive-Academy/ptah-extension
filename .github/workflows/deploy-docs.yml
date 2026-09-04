@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  NODE_VERSION: 24
   NX_TUI: false
 
 jobs:
@@ -28,11 +28,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Match the DO buildpack + lockfile resolution (engines.npm >= 11).
-      # node 22 ships npm 10, which rejects our npm-11 lockfile; pin npm 11
-      # so `npm ci` validates cleanly instead of always hitting the fallback.
-      - name: Pin npm to 11
-        run: npm install -g npm@^11.0.0
+      # No npm pin step: node 24 ships npm 11, which reads our npm-11 lockfile
+      # directly. This matches the DO buildpack, which uses the npm bundled with
+      # the node it installs (see engines.node in the root package.json).
 
       # Cache node_modules — skips npm ci on cache hit
       - name: Cache node_modules

@@ -17,6 +17,20 @@ import type { HarnessMcpIntent } from './mcp-intent-store';
 export interface HarnessSourceLayout {
   skillsRoot: string;
   commandsRoot: string;
+  /**
+   * The agent clones for ONE workspace — `~/.ptah/user/agents/<workspace-key>`,
+   * not the `agents` directory itself.
+   *
+   * Skills and commands are per-MACHINE content and their roots are flat. An
+   * agent is not: the wizard tailors it to a project and names it after the
+   * ROLE, so two projects write two different `backend-developer.md`. A flat
+   * root gave them one destination, and the mirror's fast-forward then flipped
+   * it on every activation, rewriting every rival CLI's agent copy in whichever
+   * workspace ran last (TASK_2026_365).
+   *
+   * `PluginConfigSourceResolver.resolve(workspaceRoot)` is what appends the key,
+   * so a layout built by hand still carries whatever root its author chose.
+   */
   agentsRoot: string;
   /**
    * Extra absolute directories a LEGACY junction was allowed to point into,
@@ -58,6 +72,34 @@ export interface HarnessSourceState {
    * workspace. The user layer wins every collision.
    */
   overlayPluginPaths: string[];
+  /**
+   * Whether {@link overlayPluginPaths} is a TRUTHFUL picture of what this
+   * workspace has enabled — as opposed to whatever a failed read left behind.
+   *
+   * **Absent is NOT an empty enabled set.** Absent means "I have no opinion
+   * about the plugin overlay", and the manifest builder answers that by
+   * filtering NOTHING. Only `true` licenses the builder to read an id's absence
+   * from the overlay as "that plugin is off here".
+   *
+   * The distinction did not matter while the overlay was purely ADDITIVE: an
+   * empty one cost nothing the user layer did not already carry. Since
+   * TASK_2026_316 the overlay is also the plugin FILTER over the user-layer
+   * base, so an empty one asserts "every clone with a plugin origin is
+   * disabled". Skills are manifest-owned, which makes that assertion a
+   * REAP — `.claude/skills/*`, `.agents/skills/*`, `.github/skills/*` and
+   * `.cursor/skills/*` deleted wholesale, silently, and reported as an ordinary
+   * clean pass. `PluginConfigSourceResolver` has three separate failure paths
+   * that all return an empty overlay, so that is a live transient, not a
+   * hypothetical.
+   *
+   * Optional in the same spirit as {@link HarnessSourceLayout.legacyLinkRoots},
+   * with the safe direction reversed: there, a resolver built by hand opts into
+   * STRICT behaviour by saying nothing; here it opts into UNFILTERED behaviour,
+   * because here the strict answer is the one that deletes files. A spec, a
+   * preflight assembled by hand, or a host that has not been taught about the
+   * gate all get the pre-gate behaviour rather than an accidental reap.
+   */
+  overlayPluginPathsKnown?: boolean;
   /** Skill slugs the user (or the residency budget) switched off. */
   disabledSkillIds: string[];
   /** Plugin ids whose overlay directories must be ignored entirely. */
@@ -77,7 +119,22 @@ export interface HarnessSourceState {
 
 /** Resolves the current source state. Must never throw — degrade to empty. */
 export interface IHarnessSourceResolver {
-  resolve(): HarnessSourceState;
+  /**
+   * @param workspaceRoot The ALREADY-NORMALIZED root the caller is reconciling,
+   *   when it has one. The desired state is a function of that root, not of
+   *   whichever folder the host happens to have active: with two folders open,
+   *   resolving the ambient scope while reconciling the other one wrote
+   *   folder B's plugin overlay into folder A's target directories and reaped
+   *   it again on the way back (TASK_2026_346, `tmp/logs/log.log:1225`).
+   *
+   *   Optional so a resolver bound to fixed state — `createStaticSourceResolver`
+   *   and every spec — stays assignable with a zero-argument `resolve`, and so a
+   *   caller with no root (a health surface asked before a folder is open) can
+   *   still ask for the ambient answer. A resolver that cannot scope is
+   *   entitled to ignore it; what it must not do is claim a per-root answer it
+   *   did not compute.
+   */
+  resolve(workspaceRoot?: string): HarnessSourceState;
 }
 
 /**

@@ -37,6 +37,10 @@ interface FakeContainer extends Partial<DependencyContainer> {
   // override with arbitrary `jest.fn()` flavors and we don't care about the
   // arity match here.
   resolve: jest.Mock;
+  /** Registration probe. Defaults to "nothing is registered", which is what a
+   *  `mode: 'minimal'` bootstrap actually looks like; tests that exercise an
+   *  optional subsystem's teardown flip it per token. */
+  isRegistered: jest.Mock;
   /** Adapter returned by `resolve(AGENT_ADAPTER_TOKEN)`; tests can override. */
   __sdkAdapter: {
     initialize: jest.Mock;
@@ -65,6 +69,7 @@ function makeFakeContainer(
   const container: FakeContainer = {
     clearInstances: jest.fn(),
     resolve: jest.fn(() => sdkAdapter),
+    isRegistered: jest.fn(() => false),
     __sdkAdapter: sdkAdapter,
   };
   return container;
@@ -495,6 +500,50 @@ describe('withEngine', () => {
       stderrSpy.mockRestore();
     });
 
+    /**
+     * TASK_2026_329 — pins the guard move in `shutdownAgentProcesses`
+     * (with-engine.ts:464-481). A partial container double that omits
+     * `isRegistered` (the headless spec's shape) used to convert an SDK init
+     * failure into a `TypeError: ...isRegistered is not a function` because the
+     * guard sat OUTSIDE the try and called `isRegistered` unconditionally. The
+     * guard now checks `typeof isRegistered === 'function'` INSIDE the try, so
+     * an init-failure teardown reaches `SdkInitFailedError` instead. This test
+     * does NOT change with-engine.ts — it only pins the guard.
+     */
+    it('rejects with SdkInitFailedError (ptahCode sdk_init_failed), not TypeError, when the container lacks isRegistered', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        // A partial double that omits `isRegistered` entirely.
+        delete (c as Partial<FakeContainer>).isRegistered;
+        c.__sdkAdapter.initialize = jest.fn(async () => false);
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      let caught: unknown;
+      try {
+        await withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        );
+      } catch (error: unknown) {
+        caught = error;
+      }
+
+      expect(caught).not.toBeInstanceOf(TypeError);
+      expect(caught).toBeInstanceOf(SdkInitFailedError);
+      expect((caught as SdkInitFailedError).ptahCode).toBe('sdk_init_failed');
+
+      stderrSpy.mockRestore();
+    });
+
     it('throws SdkInitFailedError when initialize() throws', async () => {
       const { bootstrap } = makeFakeBootstrap();
       const wrapped: typeof bootstrap = (options) => {
@@ -633,6 +682,114 @@ describe('withEngine', () => {
         async () => undefined,
       );
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * TASK_2026_323 B11 — a spawned CLI agent is a child of this process, and
+     * `process.exit` orphans anything still live. A completed
+     * continuation-capable agent holds its subprocess open by design, so
+     * nothing else in the teardown chain ends it.
+     */
+    it('disposes the agent process manager on the success teardown path', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const disposeAll = jest.fn(async () => undefined);
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.isRegistered = jest.fn(
+          (token: symbol) => token === Symbol.for('AgentProcessManager'),
+        );
+        c.resolve = jest.fn((token: symbol) =>
+          token === Symbol.for('AgentProcessManager')
+            ? { disposeAll }
+            : c.__sdkAdapter,
+        );
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(disposeAll).toHaveBeenCalledTimes(1);
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * TASK_2026_326 finding 1 — the proxy half. `PtahCliRegistry.disposeAll()`
+     * was called from nowhere in the CLI or the TUI, so every ptah-cli agent a
+     * command spawned left its proxy socket listening for the life of the
+     * process. Ordering matters: an agent subprocess speaks THROUGH the proxy.
+     */
+    it('disposes agent processes before ptah-cli proxies on the success teardown path', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
+      const agentDisposeAll = jest.fn(async () => {
+        order.push('agents');
+      });
+      const proxyDisposeAll = jest.fn(() => {
+        order.push('proxies');
+      });
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.isRegistered = jest.fn(
+          (token: symbol) =>
+            token === Symbol.for('AgentProcessManager') ||
+            token === Symbol.for('SdkPtahCliRegistry'),
+        );
+        c.resolve = jest.fn((token: symbol) => {
+          if (token === Symbol.for('AgentProcessManager')) {
+            return { disposeAll: agentDisposeAll };
+          }
+          if (token === Symbol.for('SdkPtahCliRegistry')) {
+            return { disposeAll: proxyDisposeAll };
+          }
+          return c.__sdkAdapter;
+        });
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(order).toEqual(['agents', 'proxies']);
+      expect(agentDisposeAll).toHaveBeenCalledTimes(1);
+      expect(proxyDisposeAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the agent process manager when it was never registered', async () => {
+      // `mode: 'minimal'` never registers the CLI agent runtime. Resolving the
+      // token anyway would turn an ordinary lightweight command's teardown into
+      // a stderr warning about a subsystem it never used.
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      expect(captured?.isRegistered).toHaveBeenCalledWith(
+        Symbol.for('AgentProcessManager'),
+      );
+      expect(captured?.resolve).not.toHaveBeenCalledWith(
+        Symbol.for('AgentProcessManager'),
+      );
     });
 
     // The bootstrap-FAILURE teardown, which is a different code path from the

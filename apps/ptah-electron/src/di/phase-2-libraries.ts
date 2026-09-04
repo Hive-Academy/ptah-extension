@@ -205,18 +205,31 @@ export function registerPhase2Libraries(
       const loader = container.resolve<HarnessPluginConfigReader>(
         SDK_TOKENS.SDK_PLUGIN_LOADER,
       );
+      // Every wrapper forwards `workspaceRoot`. Electron is the ONE host that
+      // can have two folders open at once, so it is the one host where the
+      // active workspace and the root being reconciled are routinely different
+      // — dropping the argument here is how folder B's overlay was written into
+      // folder A and reaped again on the way back (TASK_2026_346).
       return {
-        resolveCurrentPluginPaths: () => loader.resolveCurrentPluginPaths(),
+        resolveCurrentPluginPaths: (workspaceRoot) =>
+          loader.resolveCurrentPluginPaths(workspaceRoot),
         // Dormant promoted skills are folded into the disabled channel here,
         // once, rather than at every reconcile call site. The residency
         // budget's decision is "this skill must not occupy prompt budget",
         // which is precisely what `disabledSkillIds` means to the builder.
         // Electron-only: the candidate store is a Thoth (SQLite) service.
-        getDisabledSkillIds: () => [
-          ...loader.getDisabledSkillIds(),
+        //
+        // `readDormantSkillSlugs` takes no root and is NOT widened to take one:
+        // `SkillCandidateStore` is backed by the single machine-level
+        // `~/.ptah/ptah.db`, and dormancy is a residency-budget decision about
+        // the model's prompt, not about a folder. Giving it a workspace
+        // argument it does not honour would be a scope this side cannot keep.
+        getDisabledSkillIds: (workspaceRoot) => [
+          ...loader.getDisabledSkillIds(workspaceRoot),
           ...readDormantSkillSlugs(container),
         ],
-        getWorkspacePluginConfig: () => loader.getWorkspacePluginConfig(),
+        getWorkspacePluginConfig: (workspaceRoot) =>
+          loader.getWorkspacePluginConfig(workspaceRoot),
       };
     }),
     // Batch 3. `HarnessPropagationService` runs this before each reconcile, so

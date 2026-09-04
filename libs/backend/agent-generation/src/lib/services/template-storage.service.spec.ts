@@ -25,6 +25,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 jest.mock('fs/promises');
 
 import { TemplateStorageService } from './template-storage.service';
+import { TemplatePartialResolver } from './template-partial-resolver';
 
 const mockReaddir = readdir as jest.MockedFunction<typeof readdir>;
 const mockReadFile = readFile as jest.MockedFunction<typeof readFile>;
@@ -156,6 +157,7 @@ Core orchestration logic.
     service = new TemplateStorageService(
       mockLogger as any,
       mockSentry as any,
+      new TemplatePartialResolver(mockLogger as any),
       '/test/templates/agents',
     );
   });
@@ -784,6 +786,7 @@ Content`;
       const local = new TemplateStorageService(
         throwingLogger as any,
         sentryService as any,
+        new TemplatePartialResolver(throwingLogger as any),
         '/test/templates/agents',
       );
       throwOnDebug = true;

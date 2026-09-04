@@ -11,7 +11,7 @@
  * - `LmStudioTranslationProxy` is the thin @injectable subclass.
  *
  * Note: Ollama no longer uses this proxy. Ollama v0.14.0+
- * speaks Anthropic Messages API natively â€” see OllamaModelDiscoveryService.
+ * speaks Anthropic Messages API natively — see OllamaModelDiscoveryService.
  *
  * All HTTP server logic, request/response translation, retry, and streaming
  * are handled by the base class in openai-translation/translation-proxy-base.ts.
@@ -66,6 +66,16 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
       );
     }
     return provider.baseUrl;
+  }
+
+  /**
+   * The other DYNAMIC case: the id arrives as a constructor argument
+   * (`'lm-studio'` for {@link LmStudioTranslationProxy}) and is already the
+   * registry id, so the quota gate keys on the string
+   * `ProviderAuthResolver` resolves rather than on the `'LMStudio'` log label.
+   */
+  protected getProviderId(): string {
+    return this.providerId;
   }
 
   /**

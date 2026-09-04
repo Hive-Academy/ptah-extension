@@ -36,8 +36,16 @@
  *
  * Shorter than the workspace lock's 5s, because one caller is a CLI SPAWN. A
  * user waiting on `agy` to start must not pay five seconds because a reconcile
- * is mid-pass. Past the deadline the write proceeds unlocked — degraded, and
- * still no worse than the behaviour this file replaces.
+ * is mid-pass.
+ *
+ * **Past the deadline the mutation FAILS — it does not proceed unlocked**
+ * (TASK_2026_332). It used to run anyway, which made the deadline a hole
+ * straight through this lock: two hosts contending for more than two seconds
+ * both proceeded unlocked and lost each other's key, silently, which is the
+ * exact failure the paragraphs above describe. A `FileLockTimeoutError` names
+ * the config file and the wait duration, and every caller — the facet planner,
+ * the Antigravity spawn write, `CodeExecutionMCP` — already retries a failed
+ * mutation on its own schedule. See {@link withFileLock} for the full argument.
  */
 
 import { serializeByKey, withFileLock } from '../../lock/file-lock';

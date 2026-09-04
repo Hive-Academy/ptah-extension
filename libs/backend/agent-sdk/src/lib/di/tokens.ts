@@ -48,6 +48,7 @@ export const SDK_TOKENS = {
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_QUERY_RUNNER: Symbol.for('SdkQueryRunner'),
+  SDK_PROCESS_SPAWNER: Symbol.for('SdkProcessSpawner'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
@@ -116,10 +117,6 @@ export const SDK_TOKENS = {
   SDK_TOOL_FAILURE_HOOK_HANDLER: Symbol.for('SdkToolFailureHookHandler'),
   SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
   PRICING_PROVIDER: Symbol.for('SDK_PRICING_PROVIDER'),
-  SDK_PRE_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
-    'SdkPreToolUseCallbackRegistry',
-  ),
-  SDK_PRE_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPreToolUseHookHandler'),
   SDK_SESSION_START_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionStartCallbackRegistry',
   ),
@@ -132,6 +129,21 @@ export const SDK_TOKENS = {
    */
   SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionIdResolvedCallbackRegistry',
+  ),
+  /**
+   * Per-session turn state — the single source of truth for "is the agent
+   * busy" (TASK_2026_360). Read by `session:status` and every turn_state
+   * producer on the chunk stream.
+   */
+  SDK_SESSION_TURN_STATE_REGISTRY: Symbol.for('SdkSessionTurnStateRegistry'),
+  /**
+   * Fan-out for what the CLI reported about a session's MCP servers, plus the
+   * one stderr notice Ptah surfaces (TASK_2026_375 B4). Two producers —
+   * `StreamTransformer` (SDK `init`) and `SdkQueryOptionsBuilder` (CLI stderr)
+   * — and one consumer in `rpc-handlers`.
+   */
+  SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionMcpStatusCallbackRegistry',
   ),
 } as const;
 

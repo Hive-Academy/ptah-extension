@@ -22,6 +22,11 @@ import {
 
 import { ProviderAuthResolver } from './provider-auth-resolver';
 import { ProviderAuthError } from './provider-auth.error';
+import { ProviderQuotaError } from './provider-quota.error';
+import {
+  ProviderQuotaStore,
+  PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+} from './provider-quota.store';
 import type { CuratorProxyManager } from './curator-proxy-manager';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
@@ -51,6 +56,8 @@ interface Harness {
   resolver: ProviderAuthResolver;
   authSecrets: MockAuthSecretsService;
   config: MockConfigManager;
+  /** This harness's OWN quota store — never the process-wide singleton. */
+  quota: ProviderQuotaStore;
   ensureProxy: jest.Mock;
   copilotAuthed: jest.Mock;
   copilotRestore: jest.Mock;
@@ -80,6 +87,12 @@ function createHarness(opts: {
    * written before TASK_2026_262 assumed.
    */
   derivedTiers?: Record<string, TierMap>;
+  /**
+   * Providers already cooling down from a 429 when the case starts, keyed by
+   * registry id. The value is the raw `retry-after` header the upstream sent,
+   * or `undefined` for the normal bare case.
+   */
+  rateLimited?: Record<string, string | undefined>;
 }): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues ?? {} });
@@ -130,6 +143,15 @@ function createHarness(opts: {
     isAuthenticated: jest.fn(async () => true),
   } as unknown as IOpenRouterAuthService;
 
+  // A fresh store per harness. The production one is a module singleton and a
+  // shared instance across cases would make the quota specs order-dependent.
+  const quota = new ProviderQuotaStore();
+  for (const [providerId, retryAfter] of Object.entries(
+    opts.rateLimited ?? {},
+  )) {
+    quota.recordRateLimit(providerId, retryAfter);
+  }
+
   const resolver = new ProviderAuthResolver(
     asLogger(logger),
     asConfig(config),
@@ -139,12 +161,14 @@ function createHarness(opts: {
     copilotAuth,
     codexAuth,
     openRouterAuth,
+    quota,
   );
 
   return {
     resolver,
     authSecrets,
     config,
+    quota,
     ensureProxy,
     copilotAuthed,
     copilotRestore,
@@ -801,5 +825,154 @@ describe('ProviderAuthResolver — live-catalogue tiers for a lane (TASK_2026_26
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gemma-3-12b');
     expect(getLiveDerivedTiers).toHaveBeenCalledWith('lm-studio');
     expect(getLiveDerivedTiers).not.toHaveBeenCalledWith('openrouter');
+  });
+});
+
+/**
+ * The quota gate (TASK_2026_306 defect B).
+ *
+ * The load-bearing case is the FIRST one. `resolve()` answers `null` early for
+ * an empty provider id and for a requested id that IS the active provider, and
+ * background lanes hit both: every lane ships `provider: ''`, and the run that
+ * produced this task had the exhausted subscription as the active provider. A
+ * gate below those returns compiles, reads correctly, and does nothing at all
+ * on the only path that mattered.
+ */
+describe('ProviderAuthResolver.resolve — the quota gate', () => {
+  it('gates an INHERITING caller when the ACTIVE provider is cooling down (R1)', async () => {
+    // `provider: ''` + an exhausted active provider. If this passes with the
+    // check placed below the early returns, the check is not being reached.
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+
+    await expect(resolver.resolve('')).rejects.toBeInstanceOf(
+      ProviderQuotaError,
+    );
+  });
+
+  it('gates a caller that NAMES the active provider while it is cooling down', async () => {
+    // The second early return. Same reasoning: "you are already on it" is not
+    // an answer when "it" is rate-limited.
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+
+    await expect(resolver.resolve('openai-codex')).rejects.toBeInstanceOf(
+      ProviderQuotaError,
+    );
+  });
+
+  it('gates a NON-active provider the caller asked for by id', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      rateLimited: { 'lm-studio': undefined },
+    });
+
+    await expect(resolver.resolve('lm-studio', 'lane')).rejects.toBeInstanceOf(
+      ProviderQuotaError,
+    );
+  });
+
+  it('throws rather than returning null — a null would ride the exhausted quota', async () => {
+    // This is the distinction the whole defect turns on: `null` means "usable,
+    // inherit", and inheriting an exhausted provider is the failure.
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+
+    const error = await resolver.resolve('').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderQuotaError);
+    expect((error as ProviderQuotaError).name).toBe('ProviderQuotaError');
+    expect((error as ProviderQuotaError).providerId).toBe('openai-codex');
+    expect((error as ProviderQuotaError).retryAfterMs).toBeGreaterThan(0);
+    expect((error as ProviderQuotaError).retryAfterMs).toBeLessThanOrEqual(
+      PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+    );
+  });
+
+  it('carries the upstream retry-after when one arrived, not the default', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': '90' },
+    });
+
+    const error = (await resolver
+      .resolve('')
+      .catch((e: unknown) => e)) as ProviderQuotaError;
+    expect(error.retryAfterMs).toBeGreaterThan(80_000);
+    expect(error.retryAfterMs).toBeLessThanOrEqual(90_000);
+  });
+
+  it('names no provider in the message — the id travels on the error', async () => {
+    // The reason string is written verbatim to `skill_synthesis_queue.reason`
+    // and read by a user. It must be short, honest, and must not say "timed
+    // out" — that is the misclassification this whole task removes.
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+
+    const error = (await resolver
+      .resolve('')
+      .catch((e: unknown) => e)) as ProviderQuotaError;
+    expect(error.message).not.toMatch(/timed out/i);
+    expect(error.message).not.toContain('openai-codex');
+    expect(error.message).toMatch(/quota/i);
+  });
+
+  it('lets a DIFFERENT provider through while one is cooling down', async () => {
+    // The gate is per provider. Gating everything would take out background
+    // work on providers that are perfectly healthy.
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      rateLimited: { 'lm-studio': undefined },
+    });
+
+    await expect(resolver.resolve('moonshot', 'lane')).resolves.not.toBeNull();
+  });
+
+  it('re-opens once the cooldown expires', async () => {
+    const { resolver, quota } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+    await expect(resolver.resolve('')).rejects.toBeInstanceOf(
+      ProviderQuotaError,
+    );
+
+    jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() + PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS + 1_000);
+    try {
+      expect(quota.retryAfterMs('openai-codex')).toBe(0);
+      await expect(resolver.resolve('')).resolves.toBeNull();
+    } finally {
+      jest.spyOn(Date, 'now').mockRestore();
+    }
+  });
+
+  it('re-opens immediately once the provider answers again', async () => {
+    const { resolver, quota } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': undefined },
+    });
+    await expect(resolver.resolve('')).rejects.toBeInstanceOf(
+      ProviderQuotaError,
+    );
+
+    quota.recordSuccess('openai-codex');
+
+    await expect(resolver.resolve('')).resolves.toBeNull();
+  });
+
+  it('is inert when nothing is cooling down', async () => {
+    const { resolver } = createHarness({ activeProviderId: 'openai-codex' });
+    await expect(resolver.resolve('')).resolves.toBeNull();
+    await expect(resolver.resolve('openai-codex')).resolves.toBeNull();
   });
 });

@@ -58,6 +58,7 @@ A sixth category, **Your Skills**, appears once you author your own skill — se
 - [Enable and disable plugins](/plugins/installing/)
 - [Change your selection later](/plugins/managing/)
 - [Turn off individual skills](/plugins/skill-toggles/)
+- [Choose which skills a project gets](/plugins/skill-selection/)
 - [Skills you authored yourself](/plugins/harness-plugins/)
 - [Understand plugin storage](/plugins/plugin-storage/)
 - [Create your own plugin](/plugins/creating-plugins/)

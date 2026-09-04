@@ -5,7 +5,7 @@
  * configuration: auth headers, API endpoint, and Responses API routing.
  *
  * Key difference from Copilot:
- * - Codex uses the Responses API (/responses) exclusively â€” no Chat Completions
+ * - Codex uses the Responses API (/responses) exclusively — no Chat Completions
  * - Endpoint depends on auth mode: api.openai.com (API key) vs user-configured (OAuth)
  * - completionsPath is unused because shouldUseResponsesApi always returns true
  *
@@ -39,10 +39,19 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The registry id, taken from the provider entry rather than re-typed, so the
+   * quota gate keys on the same string `ProviderAuthResolver` resolves. The
+   * config's `name` above is a log label and would key nothing.
+   */
+  protected getProviderId(): string {
+    return CODEX_PROVIDER_ENTRY.id;
+  }
+
+  /**
    * Get the Codex API base URL from the auth service.
    * Returns auth-mode-appropriate endpoint:
-   *   API key â†’ https://api.openai.com/v1
-   *   OAuth  â†’ user-configured endpoint from settings
+   *   API key → https://api.openai.com/v1
+   *   OAuth  → user-configured endpoint from settings
    */
   protected async getApiEndpoint(): Promise<string> {
     return this.codexAuth.getApiEndpoint();
@@ -74,7 +83,7 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   /**
    * Map Claude model names to Codex-compatible GPT equivalents.
    *
-   * The Codex API does NOT support Claude model names at all â€” unlike Copilot
+   * The Codex API does NOT support Claude model names at all — unlike Copilot
    * which natively supports Claude models. When the SDK sends 'claude-sonnet-4-6',
    * we must map it to the Codex-equivalent (e.g., 'gpt-5.3-codex').
    *
@@ -98,7 +107,7 @@ export class CodexTranslationProxy extends TranslationProxyBase {
     const mapped = CODEX_DEFAULT_TIERS[tier];
 
     this.logger.debug(
-      `[CodexProxy] Mapped Claude model '${modelId}' (tier: ${tier}) â†’ '${mapped}'`,
+      `[CodexProxy] Mapped Claude model '${modelId}' (tier: ${tier}) → '${mapped}'`,
     );
     return mapped;
   }

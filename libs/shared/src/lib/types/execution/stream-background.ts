@@ -18,6 +18,12 @@ import type {
   ToolResultEvent,
   ToolStartEvent,
 } from './stream';
+import type {
+  SdkAssistantMessageError,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
+} from '../sdk-hook.types';
 
 /**
  * Background agent started event
@@ -45,28 +51,6 @@ export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
   /** Path to background agent output file (from SDK placeholder tool_result) */
   readonly outputFilePath?: string;
   /** Tab ID for routing events to the correct webview tab */
-  readonly tabId?: string;
-}
-
-/**
- * Background agent progress event
- *
- * Emitted periodically while a background agent executes. Contains streaming
- * summary deltas from the agent's JSONL transcript file. These events flow
- * through a separate delivery path (WebviewManager.broadcastMessage) since
- * they outlive the main agent's streaming loop.
- */
-export interface BackgroundAgentProgressEvent extends FlatStreamEvent {
-  readonly eventType: 'background_agent_progress';
-  /** Links to the parent Task tool_use */
-  readonly toolCallId: string;
-  /** Short agent identifier for lookup */
-  readonly agentId: string;
-  /** New summary text delta from the agent's transcript */
-  readonly summaryDelta?: string;
-  /** Current agent execution status */
-  readonly status: 'running' | 'completed' | 'error';
-  /** Tab ID for routing */
   readonly tabId?: string;
 }
 
@@ -140,6 +124,14 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   /** Elapsed time in milliseconds */
   readonly durationMs: number;
   /**
+   * SDK short-hex agent id from the SubagentStart hook, when the registry
+   * knows it by the time this event is built. The hook fires AFTER
+   * `task_started` for most agents, so `agent_start` usually lacks the id and
+   * the progress/status/completed events are what finally carry it to the
+   * monitor store — which is what the transcript read is keyed on.
+   */
+  readonly agentId?: string;
+  /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
    * not part of a workflow run.
@@ -173,6 +165,8 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly description?: string;
   /** Error text if status is 'failed' */
   readonly errorMessage?: string;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -208,6 +202,8 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly toolUses?: number;
   /** Total elapsed time in milliseconds */
   readonly durationMs?: number;
+  /** See {@link AgentProgressEvent.agentId}. */
+  readonly agentId?: string;
   /**
    * Stable id grouping every agent that belongs to a single `Workflow` tool
    * run. Inherited from the workflow run root. Undefined when this agent is
@@ -216,6 +212,74 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly workflowRunId?: string;
   /** Human-legible workflow name, inherited from the workflow run root. */
   readonly workflowName?: string;
+}
+
+/**
+ * Lifecycle phase of a session turn, derived once by the backend.
+ *
+ * - 'generating': root assistant turn in flight
+ * - 'awaiting-background': turn ended; SDK reports in-flight background tasks
+ * - 'sleeping': turn ended; SDK reports session crons (ScheduleWakeup / loop)
+ * - 'idle': turn ended; nothing pending
+ * - 'failed': StopFailure observed for this turn
+ */
+export type SessionTurnPhase =
+  | 'generating'
+  | 'awaiting-background'
+  | 'sleeping'
+  | 'idle'
+  | 'failed';
+
+/** The phases that say the turn ENDED. Everything except 'generating'. */
+const TERMINAL_TURN_PHASES: ReadonlySet<SessionTurnPhase> = new Set([
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'failed',
+]);
+
+/**
+ * True when `phase` says the turn ended.
+ *
+ * One definition for two consumers that MUST agree, on opposite sides of the
+ * frontend (`chat-state` may not import `chat-streaming`):
+ * `TurnStateApplier.apply` finalizes the in-flight assistant message on a
+ * terminal phase, and `TabManagerService.acceptsTurnState` heals a stranded
+ * tab only on a terminal phase (TASK_2026_371). Two copies of this set would
+ * drift.
+ */
+export function isTerminalTurnPhase(phase: SessionTurnPhase): boolean {
+  return TERMINAL_TURN_PHASES.has(phase);
+}
+
+/**
+ * Backend-owned per-session turn state — the single source of truth for
+ * every "is the agent busy" signal. Also returned by `session:status`.
+ */
+export interface SessionTurnState {
+  /** Current lifecycle phase of the turn */
+  readonly phase: SessionTurnPhase;
+  /** Monotonic per session. Consumers ignore an event whose revision is <= the last applied. */
+  readonly revision: number;
+  /** Background tasks the SDK reported as in flight at the last snapshot */
+  readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
+  /** Session crons (ScheduleWakeup / loop) the SDK reported at the last snapshot */
+  readonly sessionCrons: readonly SdkSessionCronSummary[];
+  /** Why the turn ended; null while generating or when the SDK gave no reason */
+  readonly terminalReason: SdkTerminalReason | null;
+  /** Set only for phase 'failed'. */
+  readonly error?: SdkAssistantMessageError;
+  /** When this state was derived (Unix epoch ms) */
+  readonly timestamp: number;
+}
+
+/**
+ * Turn state event — delivered IN the chunk stream so it can neither overtake
+ * nor trail the text deltas it describes. Not a separate push message.
+ * `messageId` is `turn-state-${sessionId}` and is never rendered.
+ */
+export interface TurnStateEvent extends FlatStreamEvent, SessionTurnState {
+  readonly eventType: 'turn_state';
 }
 
 /**
@@ -236,9 +300,9 @@ export type FlatStreamEventUnion =
   | CompactionStartEvent
   | CompactionCompleteEvent
   | BackgroundAgentStartedEvent
-  | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
   | AgentProgressEvent
   | AgentStatusEvent
-  | AgentCompletedEvent;
+  | AgentCompletedEvent
+  | TurnStateEvent;

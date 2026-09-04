@@ -10,6 +10,13 @@ export {
   type CuratorProxyHandle,
 } from './lib/auth/curator-proxy-manager';
 export { ProviderAuthError } from './lib/auth/provider-auth.error';
+export { ProviderQuotaError } from './lib/auth/provider-quota.error';
+export {
+  ProviderQuotaStore,
+  providerQuotaStore,
+  PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+  type ProviderQuotaState,
+} from './lib/auth/provider-quota.store';
 export {
   AuthManager,
   type AuthResult,

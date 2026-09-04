@@ -202,6 +202,19 @@ export class SessionQueryExecutor {
         }
       },
     );
+    // The turn state owns one hold on this watchdog: taken while no turn is in
+    // flight, released by `markTurnStarted`, re-taken by `markTurnEnded`. A
+    // fresh record has `turnInFlight === false`, so the initial idle hold is
+    // taken here and the pump's first yield releases it. Without it the
+    // watchdog fired exactly 180 s after every `result` and marked every
+    // running subagent interrupted (2026-08-31 log, session 314c9c90: result
+    // 00:37:02Z → kill 00:40:02Z; TASK_2026_363). A slash-command string
+    // prompt never goes through the pump, so no idle hold is taken and the
+    // watchdog arms on `start()` as before.
+    rec.activityHold = activityWatchdog;
+    if (!isSlashCommand) {
+      activityWatchdog.hold();
+    }
     try {
       // Before the SDK is even loaded: this is the one funnel every
       // interactive, gateway and resumed session passes through, and it is the
@@ -257,6 +270,18 @@ export class SessionQueryExecutor {
         mcpServersOverride,
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
         authEnvOverride,
+        // A turn parked on a permission prompt or an AskUserQuestion card emits
+        // no stream events by construction. Without this the watchdog below
+        // reads the user's own deliberation as a wedged provider and aborts the
+        // session — which is what killed New Project runs mid-question, three
+        // minutes into a prompt the UI advertises as untimed (TASK_2026_317).
+        activityHold: activityWatchdog,
+        // The routing ids the builder computes are pinned at build time, when a
+        // new session has no SDK UUID yet — so they fall back to the caller's
+        // tabId, which for a surface workflow is a correlation id no frontend
+        // registry knows. Reading the record live means a prompt raised after
+        // the SDK `init` message carries the id the UI actually routes on.
+        sessionIdResolver: () => rec.realSessionId ?? undefined,
       });
       const isResume = !!resumeSessionId;
       let effectivePrompt: string | AsyncIterable<SDKUserMessage>;

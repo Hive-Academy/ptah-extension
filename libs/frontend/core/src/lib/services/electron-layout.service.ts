@@ -16,7 +16,7 @@ import {
   inject,
   DestroyRef,
 } from '@angular/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, lastPathSegment } from '@ptah-extension/shared';
 import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
@@ -349,7 +349,7 @@ export class ElectronLayoutService implements MessageHandler {
         this._activeWorkspaceIndex(),
       );
     } else {
-      this.vscodeService.updateWorkspaceRoot('');
+      this.coordinateWorkspaceCleared();
     }
 
     this.persistLayout();
@@ -492,6 +492,46 @@ export class ElectronLayoutService implements MessageHandler {
   }
 
   /**
+   * The mirror of {@link coordinateWorkspaceSwitch} for "no workspace".
+   *
+   * Both of this service's zero-folder paths — closing the last folder, and a
+   * host sync that reports none with nothing cached — used to just call
+   * `updateWorkspaceRoot('')` and tell nobody. That left
+   * `WorkspaceScopeService` still naming the folder that had been closed, so
+   * reopening it was a switch to the "already active" workspace, which
+   * correctly early-returns; every scope-keyed cache then served its
+   * pre-closure snapshot, and the folder's `.ptah/plugins` can have changed
+   * while it was closed (TASK_2026_345, judge round 2).
+   *
+   * Routed through the coordinator rather than touching the scope from here so
+   * that `switchTo` keeps exactly one owner. Core defines the port; the chat
+   * library implements the fan-out. Non-fatal for the same reason the switch
+   * path is: a coordinator that throws must not leave the sidebar wedged, and
+   * `updateWorkspaceRoot('')` still has to run either way.
+   */
+  private coordinateWorkspaceCleared(): void {
+    if (this.coordinator) {
+      try {
+        const result = this.coordinator.clearWorkspace();
+        if (result instanceof Promise) {
+          result.catch((error) => {
+            console.error(
+              '[ElectronLayout] Async workspace clear coordination failed:',
+              error,
+            );
+          });
+        }
+      } catch (error) {
+        console.error(
+          '[ElectronLayout] Failed to coordinate workspace clear:',
+          error,
+        );
+      }
+    }
+    this.vscodeService.updateWorkspaceRoot('');
+  }
+
+  /**
    * Clean up workspace state via the coordinator.
    */
   private cleanupWorkspaceState(workspacePath: string): void {
@@ -628,7 +668,7 @@ export class ElectronLayoutService implements MessageHandler {
             this._workspaceFolders.set([]);
             this._activeWorkspaceIndex.set(0);
             this.appState.setWorkspaceInfo(null);
-            this.vscodeService.updateWorkspaceRoot('');
+            this.coordinateWorkspaceCleared();
           }
         }
       } else if (cachedState) {
@@ -688,7 +728,17 @@ export class ElectronLayoutService implements MessageHandler {
     }
   }
 
+  /**
+   * The display name for a workspace folder.
+   *
+   * Delegates to the shared helper rather than keeping its own
+   * `split(sep).pop() || path`, which is what this was. That form returns `''`
+   * for a path with a trailing separator and the `|| folderPath` guard then put
+   * the ENTIRE path in the sidebar's folder-name slot; `lastPathSegment` drops
+   * empty segments instead. Kept as a method so the four call sites read the
+   * same as before.
+   */
   private folderName(folderPath: string): string {
-    return folderPath.split(/[\\/]/).pop() || folderPath;
+    return lastPathSegment(folderPath);
   }
 }

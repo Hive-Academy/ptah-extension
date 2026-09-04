@@ -88,6 +88,7 @@ import type {
   SkillSynthesisInvocationEntry,
   SkillSynthesisInvocationsParams,
   SkillSynthesisInvocationsResult,
+  SkillSynthesisCandidateScope,
   SkillSynthesisListCandidatesParams,
   SkillSynthesisListCandidatesResult,
   SkillSynthesisPinParams,
@@ -191,6 +192,7 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
   SkillDismissSuggestionParamsSchema,
@@ -394,9 +396,13 @@ export class SkillsSynthesisRpcHandlers {
       SkillSynthesisListCandidatesResult
     >('skillSynthesis:listCandidates', async (params) => {
       try {
-        const filter = params?.status ?? 'candidate';
-        const limit = clampLimit(params?.limit, 100);
-        const rows = this.collectByStatus(filter);
+        const parsed = SkillListCandidatesParamsSchema.parse(params);
+        const filter = parsed?.status ?? 'candidate';
+        const limit = clampLimit(parsed?.limit, 100);
+        const rows = this.collectByStatus(
+          filter,
+          this.listScope(parsed?.scope),
+        );
         const candidates = rows.slice(0, limit).map((r) => toSummary(r));
         return { candidates };
       } catch (error) {
@@ -967,7 +973,11 @@ export class SkillsSynthesisRpcHandlers {
           return { clone: null, body: null, history: [] };
         }
         const body = this.readCloneBody(mirror, kind, parsed.slug);
-        const historyEntries = await mirror.listHistory(kind, parsed.slug);
+        const historyEntries = await mirror.listHistory(
+          kind,
+          parsed.slug,
+          this.agentScope(),
+        );
         const history = historyEntries.map((h) => ({
           ts: h.ts,
           hasBody: h.hasSkillMd,
@@ -1145,14 +1155,18 @@ export class SkillsSynthesisRpcHandlers {
       try {
         const mirror = this.requireDesktop(this.mirror);
         const kind = parsed.kind as SkillRegistryKind;
-        const entries = await mirror.listHistory(kind, parsed.slug);
+        const entries = await mirror.listHistory(
+          kind,
+          parsed.slug,
+          this.agentScope(),
+        );
         const entry = entries.find((e) => e.ts === parsed.ts);
         if (!entry || !entry.hasSkillMd) {
           return { body: null, ts: parsed.ts };
         }
         const fileName = kind === 'skill' ? 'SKILL.md' : `${parsed.slug}.md`;
         const filePath = join(entry.path, fileName);
-        const roots = mirror.getUserLayerRoots();
+        const roots = mirror.getUserLayerRoots(this.agentScope());
         const root =
           kind === 'skill'
             ? roots.skills
@@ -1240,6 +1254,7 @@ export class SkillsSynthesisRpcHandlers {
           kind,
           slug: parsed.slug,
           sourceDir,
+          workspaceRoot: this.agentScope(),
         });
         if (!result.failed) {
           registry.setDiverged(kind, parsed.slug, false);
@@ -1275,7 +1290,11 @@ export class SkillsSynthesisRpcHandlers {
         const registry = this.requireDesktop(this.registry);
         const mirror = this.requireDesktop(this.mirror);
         const kind = parsed.kind as SkillRegistryKind;
-        const result = await mirror.keepClone({ kind, slug: parsed.slug });
+        const result = await mirror.keepClone({
+          kind,
+          slug: parsed.slug,
+          workspaceRoot: this.agentScope(),
+        });
         registry.setDiverged(kind, parsed.slug, false);
         registry.setPending(kind, parsed.slug, null);
         return {
@@ -1842,7 +1861,11 @@ export class SkillsSynthesisRpcHandlers {
     const successRate = stats.total > 0 ? stats.succeeded / stats.total : 0;
     let historyCount = 0;
     try {
-      const history = await mirror.listHistory(row.kind, row.slug);
+      const history = await mirror.listHistory(
+        row.kind,
+        row.slug,
+        this.agentScope(),
+      );
       historyCount = history.length;
     } catch {
       historyCount = 0;
@@ -1874,11 +1897,29 @@ export class SkillsSynthesisRpcHandlers {
    * degrades to "nothing is orphaned" rather than failing the whole listing —
    * an un-flagged clone renders exactly as it did before this field existed.
    */
+  /**
+   * The workspace whose AGENT clones this surface addresses, or `undefined`.
+   *
+   * Agent clones are keyed by workspace (TASK_2026_365) because the setup
+   * wizard tailors an agent per project and names it after the role, so two
+   * projects write two different `backend-developer.md`. Skills and commands are
+   * per-machine and ignore this. A host with no folder open passes `undefined`
+   * and reads the unscoped base, which holds the pre-key clones.
+   */
+  private agentScope(): string | undefined {
+    try {
+      const root = this.workspaceProvider.getWorkspaceRoot();
+      return root && root.length > 0 ? root : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async readOrphanFlags(
     mirror: UserLayerMirrorService,
   ): Promise<ReadonlyMap<string, boolean>> {
     try {
-      const entries = await mirror.listClones();
+      const entries = await mirror.listClones(this.agentScope());
       return new Map(
         entries.map((entry) => [`${entry.kind}/${entry.slug}`, entry.orphaned]),
       );
@@ -1897,7 +1938,7 @@ export class SkillsSynthesisRpcHandlers {
     slug: string,
   ): Promise<boolean> {
     try {
-      const entry = await mirror.readCloneOrigin(kind, slug);
+      const entry = await mirror.readCloneOrigin(kind, slug, this.agentScope());
       return entry?.orphaned === true;
     } catch {
       return false;
@@ -1910,7 +1951,7 @@ export class SkillsSynthesisRpcHandlers {
     slug: string,
   ): string | null {
     try {
-      const roots = mirror.getUserLayerRoots();
+      const roots = mirror.getUserLayerRoots(this.agentScope());
       const root =
         kind === 'skill'
           ? roots.skills
@@ -1985,17 +2026,45 @@ export class SkillsSynthesisRpcHandlers {
     return null;
   }
 
+  /**
+   * Resolve the wire `scope` into the argument `SkillCandidateStore` takes:
+   * a workspace root to scope to, or `undefined` for every project.
+   *
+   * The default is `'workspace'` — the NARROW reading — because the list backs
+   * a review queue and a candidate is unreviewed work from one project. It is
+   * the only read in the subsystem that narrows; see `listByStatus`'s header
+   * for why the other six must not.
+   *
+   * A host with NO workspace open (the CLI, an unfolded window) resolves to
+   * `undefined` and sees everything. There is nothing to scope to there, and
+   * scoping to `''` would match only rows explicitly marked cross-project —
+   * which the candidate write path never produces — so the list would be
+   * permanently empty.
+   */
+  private listScope(
+    scope: SkillSynthesisCandidateScope | undefined,
+  ): string | undefined {
+    if (scope === 'all') return undefined;
+    return this.workspaceProvider.getWorkspaceRoot() ?? undefined;
+  }
+
   private collectByStatus(
     filter: 'candidate' | 'promoted' | 'rejected' | 'all',
+    workspaceRoot?: string,
   ): SkillCandidateRow[] {
     if (filter === 'all') {
       return [
-        ...this.store.listByStatus('candidate'),
-        ...this.store.listByStatus('promoted'),
-        ...this.store.listByStatus('rejected'),
+        ...this.store.listByStatus('candidate', workspaceRoot),
+        ...this.store.listByStatus('promoted', workspaceRoot),
+        ...this.store.listByStatus('rejected', workspaceRoot),
       ];
     }
-    return this.store.listByStatus(filter as SkillStatus);
+    // No cast. `filter` is narrowed to the three lifecycle values by the branch
+    // above, which IS `SkillStatus`. It used to carry `as SkillStatus` because
+    // the value arrived unvalidated from the wire; now that
+    // `SkillListCandidatesParamsSchema` rejects anything else at the boundary,
+    // the assertion has nothing left to assert.
+    return this.store.listByStatus(filter, workspaceRoot);
   }
 
   private report(error: unknown, errorSource: string): void {
@@ -2203,6 +2272,9 @@ function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
     rejectedAt: row.rejectedAt,
     rejectedReason: row.rejectedReason,
     pinned: row.pinned,
+    // `?? null` and NOT `?? ''`. `null` is "we do not know which project this
+    // came from"; `''` is the distinct claim "deliberately cross-project".
+    workspaceRoot: row.workspaceRoot ?? null,
     displayName: row.displayName ?? null,
     // `?? null` and NOT `?? 0`. `judgeScore: null` IS the `unscored` verdict —
     // "we do not know" — and a zero here would be indistinguishable from a

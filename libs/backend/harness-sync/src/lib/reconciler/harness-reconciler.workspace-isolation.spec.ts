@@ -24,6 +24,22 @@ import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { HarnessReconcilerService } from './harness-reconciler.service';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { HarnessSourceState } from '../sources/harness-source.port';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly resolves it to
+ * `'selected'` with an empty allowlist. Every suite below predates the gate and
+ * is about something else, so the selection is recorded up front rather than
+ * re-tested. `reconciler/harness-reconciler.skill-consent.spec.ts` owns the gate.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 interface FakeLogger {
   debug: jest.Mock;
@@ -77,6 +93,8 @@ describe('HarnessReconcilerService — cross-workspace isolation', () => {
     wsA = mkdtempSync(join(tmpdir(), 'harness-sync-wsA-'));
     wsB = mkdtempSync(join(tmpdir(), 'harness-sync-wsB-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-src-'));
+    grantSkillSync(wsA);
+    grantSkillSync(wsB);
   });
 
   afterEach(() => {

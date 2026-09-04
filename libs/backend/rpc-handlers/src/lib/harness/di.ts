@@ -37,6 +37,7 @@ import { HarnessSkillGenerationService } from './ai/harness-skill-generation.ser
 import { HarnessDocumentGenerationService } from './ai/harness-document-generation.service';
 import { HarnessWorkflowPromptService } from './ai/harness-workflow-prompt.service';
 import { HarnessHealthRpcService } from './health/harness-health-rpc.service';
+import { HarnessSkillSelectionRpcService } from './selection/harness-skill-selection-rpc.service';
 
 export { HARNESS_TOKENS } from './tokens';
 
@@ -92,4 +93,10 @@ export function registerHarnessServices(container: DependencyContainer): void {
   // to the reconciler's health stream to drive the `harness:healthChanged`
   // push. A transient would add a listener per resolve and push N copies.
   container.registerSingleton(HARNESS_TOKENS.HEALTH, HarnessHealthRpcService);
+  // Holds no subscription and no state of its own — every answer is read off
+  // disk per call — so the singleton here is cost, not correctness.
+  container.registerSingleton(
+    HARNESS_TOKENS.SKILL_SELECTION,
+    HarnessSkillSelectionRpcService,
+  );
 }

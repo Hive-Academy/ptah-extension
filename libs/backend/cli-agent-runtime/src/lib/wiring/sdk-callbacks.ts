@@ -209,6 +209,13 @@ function wireSessionIdResolvedCallback(
  * Point every tracked CLI agent whose parent is still the tab id at the real
  * SDK session UUID, then re-persist the ones that already exited — their
  * `agent:exited` persist ran against the pre-resolution parent.
+ *
+ * Only the agents this call actually REMAPPED are re-persisted. Filtering on
+ * `parentSessionId === realSessionId` after the remap also matches every agent
+ * that was already filed under the real id and whose stored reference is
+ * therefore already correct, so each resolution re-persisted the whole session's
+ * agent history — one all-sessions blob rewrite per agent, times a
+ * `retryWithBackoff(retries: 3)` (TASK_2026_323 blocker B5).
  */
 function remapAgentProcessManagerParents(
   container: DependencyContainer,
@@ -224,11 +231,26 @@ function remapAgentProcessManagerParents(
   const agentProcessManager = container.resolve<AgentProcessManager>(
     TOKENS.AGENT_PROCESS_MANAGER,
   );
+
+  // Captured BEFORE the remap — afterwards the two ids are indistinguishable.
+  const remappedAgentIds = new Set(
+    (agentProcessManager.getStatus() as AgentProcessInfo[])
+      .filter((a) => a.parentSessionId === tabId)
+      .map((a) => a.agentId),
+  );
+
   agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+
+  if (tabId === realSessionId || remappedAgentIds.size === 0) {
+    return;
+  }
 
   const allAgents = agentProcessManager.getStatus() as AgentProcessInfo[];
   const exitedWithParent = allAgents.filter(
-    (a) => a.parentSessionId === realSessionId && a.status !== 'running',
+    (a) =>
+      remappedAgentIds.has(a.agentId) &&
+      a.parentSessionId === realSessionId &&
+      a.status !== 'running',
   );
   if (exitedWithParent.length > 0) {
     logger.info(

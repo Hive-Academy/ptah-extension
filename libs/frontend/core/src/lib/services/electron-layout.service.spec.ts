@@ -38,6 +38,10 @@ function rpcSuccess<T>(data: T): RpcResult<T> {
 function buildCoordinator() {
   return {
     switchWorkspace: jest.fn(),
+    // The "no workspace" transition. Reaching zero folders without calling it
+    // is what left `WorkspaceScopeService` naming a closed folder
+    // (TASK_2026_345, judge round 2).
+    clearWorkspace: jest.fn(),
     removeWorkspaceState: jest.fn(),
     getStreamingSessionIds: jest.fn().mockReturnValue([]),
     confirm: jest.fn().mockResolvedValue(true),
@@ -1538,6 +1542,65 @@ describe('ElectronLayoutService — removeFolder()', () => {
     expect(service.activeWorkspaceIndex()).toBe(0);
     // With no workspaces, updateWorkspaceRoot('') should be called
     expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith('');
+    // ...and the coordinator must be TOLD (TASK_2026_345, judge round 2).
+    // Without this the workspace scope kept naming `/only` after it closed, so
+    // reopening it was a switch to the "already active" workspace — an
+    // early-return — and every scope-keyed cache served its pre-closure
+    // snapshot. `switchWorkspace` must NOT be the call: there is no workspace
+    // to switch to.
+    expect(coordinator.clearWorkspace).toHaveBeenCalledTimes(1);
+    expect(coordinator.switchWorkspace).not.toHaveBeenCalled();
+  });
+
+  /** An rpc whose `workspace:removeFolder` succeeds, so the branch is reached. */
+  function rpcThatRemoves(): ReturnType<typeof buildRpc> {
+    const built = buildRpc();
+    built.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:removeFolder')
+        return rpcSuccess({ success: true });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    return built;
+  }
+
+  it('still clears the workspace root when the coordinator throws', async () => {
+    // Non-fatal for the same reason the switch path is: a coordinator that
+    // throws must not leave the sidebar showing a folder that is gone.
+    setup(rpcThatRemoves());
+    coordinator.clearWorkspace = jest.fn(() => {
+      throw new Error('coordinator exploded');
+    });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/only', name: 'only' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    await expect(service.removeFolder(0)).resolves.toBeUndefined();
+
+    expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith('');
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('coordinates a switch, not a clear, when folders remain', async () => {
+    // The other half of the branch: `clearWorkspace` is the ZERO-folder
+    // transition only. Firing it whenever a folder is removed would throw away
+    // every scope-keyed cache on a removal that did not empty the window.
+    setup(rpcThatRemoves());
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/a', name: 'a' },
+      { path: '/b', name: 'b' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    await service.removeFolder(0);
+
+    expect(coordinator.clearWorkspace).not.toHaveBeenCalled();
+    expect(coordinator.switchWorkspace).toHaveBeenCalledWith('/b');
   });
 
   it('does not remove when streaming sessions exist and user cancels', async () => {

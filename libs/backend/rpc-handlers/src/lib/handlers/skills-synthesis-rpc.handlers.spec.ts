@@ -1066,6 +1066,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         'skills',
         'deep-research',
       ),
+      workspaceRoot: '/workspace/project',
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -1102,6 +1103,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(mirror.keepClone).toHaveBeenCalledWith({
       kind: 'skill',
       slug: 'deep-research',
+      workspaceRoot: '/workspace/project',
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -1159,6 +1161,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join('/data/ptah-skills', 'synthesized-thing'),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1182,6 +1185,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join(resolveSkillsRoot(null), 'synthesized-thing'),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1211,6 +1215,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'agents',
           'backend-developer.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1256,6 +1261,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'commands',
           'orchestrate.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1283,6 +1289,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'agents',
           'senior-tester.md',
         ),
+        workspaceRoot: '/workspace/project',
       });
     });
 
@@ -1400,6 +1407,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       expect(mirror.readCloneOrigin).toHaveBeenCalledWith(
         'skill',
         'deep-research',
+        '/workspace/project',
       );
       expect(mirror.listClones).not.toHaveBeenCalled();
       expect(result.clone?.['orphaned']).toBe(true);
@@ -2023,6 +2031,8 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
       judgePanelRationales: null,
       judgedAt: null,
       displayName: null,
+      // ── 0040 origin ────────────────────────────────────────────────────────
+      workspaceRoot: null,
       // ── 0036 empirical gates ───────────────────────────────────────────────
       replayConfidence: null,
       replayHoldoutSessionId: null,
@@ -2043,6 +2053,131 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
     })) as { candidates: Array<Record<string, unknown>> };
     return result.candidates[0];
   }
+
+  it('rejects an unknown status instead of returning an empty list', async () => {
+    // The gap this closes: `status` reached the handler unvalidated and
+    // `collectByStatus` cast it, so a malformed value produced a
+    // `WHERE status = ?` that matched nothing. An empty review queue that is
+    // really a rejected request is indistinguishable from the feature working.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', { status: 'pending' }),
+    ).rejects.toThrow();
+    expect(store.listByStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown scope rather than silently narrowing', async () => {
+    // Without the schema this fell into the `else` branch and quietly became
+    // the workspace-scoped read — safe, but it answered a question nobody
+    // asked.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', {
+        status: 'candidate',
+        scope: 'global',
+      }),
+    ).rejects.toThrow();
+    expect(store.listByStatus).not.toHaveBeenCalled();
+  });
+
+  it('still accepts no params at all', async () => {
+    // The method has no required parameter and every caller may send
+    // `undefined`; `.nullish()` is what keeps that true.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', undefined),
+    ).resolves.toEqual({ candidates: [] });
+    expect(store.listByStatus).toHaveBeenCalledWith(
+      'candidate',
+      '/workspace/project',
+    );
+  });
+
+  it('leaves limit clamping to clampLimit rather than rejecting', async () => {
+    // `limit` is typed at the boundary but NOT range-checked: `clampLimit`
+    // owns the range, and rejecting `limit: 0` would be a behaviour change
+    // wearing validation's clothes.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', {
+        status: 'candidate',
+        limit: 0,
+      }),
+    ).resolves.toEqual({ candidates: [] });
+  });
+
+  it('scopes the list to the open workspace by DEFAULT', async () => {
+    // The reported defect: a brand-new project's review queue was every other
+    // project's backlog, because this read never named a workspace. The
+    // default is the NARROW one, so a caller that says nothing gets the
+    // scoped read.
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    });
+    expect(store.listByStatus).toHaveBeenCalledWith(
+      'candidate',
+      '/workspace/project',
+    );
+  });
+
+  it("scope: 'all' passes no root, so the store reads every project", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+      scope: 'all',
+    });
+    // `undefined`, NOT `''`. An empty string is a real value meaning
+    // "deliberately cross-project" and would match almost nothing.
+    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
+  });
+
+  it("status: 'all' scopes each of the three status reads", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', { status: 'all' });
+    expect(store.listByStatus).toHaveBeenCalledTimes(3);
+    for (const status of ['candidate', 'promoted', 'rejected']) {
+      expect(store.listByStatus).toHaveBeenCalledWith(
+        status,
+        '/workspace/project',
+      );
+    }
+  });
+
+  it('a host with no workspace open reads every project rather than nothing', async () => {
+    // There is nothing to scope to, and scoping to `''` would match only rows
+    // explicitly marked cross-project — which the capture path never writes —
+    // so the list would be permanently empty.
+    const { rpcHandler, store } = buildHandlers([]);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    });
+    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
+  });
+
+  it('carries the originating workspace onto the summary', async () => {
+    const summary = await listOne(
+      candidateRow({ workspaceRoot: 'D:\\projects\\alpha' }),
+    );
+    expect(summary['workspaceRoot']).toBe('D:\\projects\\alpha');
+  });
+
+  it('projects an unknown origin as null, never an empty string', async () => {
+    // `null` is "we do not know which project this came from"; `''` is the
+    // distinct claim "deliberately cross-project". The UI renders them
+    // differently and must be able to tell them apart.
+    const summary = await listOne(candidateRow({ workspaceRoot: null }));
+    expect(summary['workspaceRoot']).toBeNull();
+    expect(summary['workspaceRoot']).not.toBe('');
+  });
 
   it('projects a never-judged candidate as all-null, never zero', async () => {
     const summary = await listOne(candidateRow());
@@ -3148,7 +3283,11 @@ describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
       ts: TS,
     });
 
-    expect(mirror.listHistory).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(mirror.listHistory).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      '/workspace/project',
+    );
     expect(result).toEqual({ body: 'SNAPSHOT BODY', ts: TS });
   });
 

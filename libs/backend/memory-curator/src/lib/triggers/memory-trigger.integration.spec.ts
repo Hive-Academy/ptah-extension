@@ -10,7 +10,6 @@ import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
 import {
   CuratorRateLimitService,
   PostToolUseCallbackRegistry,
-  PreToolUseCallbackRegistry,
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   SessionStartCallbackRegistry,
@@ -36,6 +35,7 @@ function makeLogger(): Logger {
 function makeCurator(): MemoryCuratorService {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -132,10 +132,10 @@ function buildHarness(opts?: {
   const sessionEndHookRegistry = new SessionEndHookCallbackRegistry(
     makeLogger(),
   );
-  const preToolUseRegistry = new PreToolUseCallbackRegistry(makeLogger());
   const sessionStartRegistry = new SessionStartCallbackRegistry(makeLogger());
   const observationQueue = {
-    insert: jest.fn(),
+    enqueue: jest.fn(),
+    flush: jest.fn(),
     drainForSession: jest.fn(() => []),
     markProcessed: jest.fn(),
     purgeOlderThan: jest.fn(() => 0),
@@ -163,7 +163,6 @@ function buildHarness(opts?: {
     sessionEndHookRegistry,
     rateLimiter,
     observationQueue,
-    preToolUseRegistry,
     sessionStartRegistry,
     transcriptReader,
     sessionIdResolvedRegistry,

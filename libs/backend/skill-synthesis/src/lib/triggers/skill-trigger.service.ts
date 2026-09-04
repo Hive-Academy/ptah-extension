@@ -791,11 +791,27 @@ export class SkillTriggerService {
         // instead of behind a 200 ms sleep. `source: 'boot'` rides the row, so
         // the stage handler still reaches `analyzeSession` with the boot
         // source and its template-only, no-LLM behaviour is preserved.
-        run: (sessionId, workspaceRoot, runSignal) =>
-          this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
+        //
+        // Always `'ran'`. Enqueueing is a local INSERT and spends nothing
+        // upstream, so no provider gate can stall it — the `'stalled'` outcome
+        // belongs to the memory pipeline, which dials the curator LLM inline
+        // (TASK_2026_306 Batch 10). Returning it here would stop the scan for
+        // a condition that cannot arise.
+        //
+        // For the same reason there is NO rate-limiter call here, and the
+        // asymmetry with the memory pipeline is deliberate. TASK_2026_319 put
+        // `MemoryTriggerService.runBootScan` behind `maxCuratesPerHour`
+        // because it spends a curate per session; making this callback consume
+        // that same budget would starve real curation to pay for a SQLite
+        // insert. What this row costs is gated later, by the drain's own token
+        // budget and tier caps.
+        run: async (sessionId, workspaceRoot, runSignal) => {
+          await this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
             source: 'boot',
             signal: runSignal,
-          }),
+          });
+          return 'ran';
+        },
       });
       this.synthesis.pushEvent({
         kind: 'boot-scan',

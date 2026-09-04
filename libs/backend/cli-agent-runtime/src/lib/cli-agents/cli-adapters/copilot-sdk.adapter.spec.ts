@@ -14,6 +14,7 @@ interface FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
 }
 
@@ -32,10 +33,12 @@ function createFakeChild(): FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.pid = FAKE_PID;
+  emitter.whenSpawned = Promise.resolve(FAKE_PID);
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -124,7 +127,14 @@ describe('CopilotSdkAdapter', () => {
 
       const result = await adapter.detect();
 
-      expect(mockProbeCliVersion).toHaveBeenCalledWith(cmdPath);
+      // Trailing args are the probe's own defaults plus the injected spawner
+      // (undefined here — this adapter was constructed without one).
+      expect(mockProbeCliVersion).toHaveBeenCalledWith(
+        cmdPath,
+        undefined,
+        undefined,
+        undefined,
+      );
       expect(result.installed).toBe(true);
       expect(result.path).toBe(cmdPath);
     });
@@ -297,6 +307,8 @@ describe('CopilotSdkAdapter', () => {
       const mcpJson = argsArg[idx + 1];
       expect(mcpJson).toContain('51820');
       expect(mcpJson).toContain('ptah');
+      // The URL carries the spawn's working directory (TASK_2026_364).
+      expect(mcpJson).toContain('http://localhost:51820/workspace/%2Fproj');
 
       currentChild?.emitClose(0);
       await handle.done;
@@ -627,6 +639,9 @@ describe('CopilotSdkAdapter', () => {
       handle.onOutput(() => {});
 
       handle.abort.abort();
+      // The tree kill awaits `whenSpawned`: off-thread, the pid is not known
+      // when abort fires. One microtask turn is all it costs here.
+      await Promise.resolve();
 
       expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
 
@@ -845,6 +860,7 @@ describe('CopilotSdkAdapter', () => {
       const continuedChild = currentChild;
 
       handle.abort.abort();
+      await Promise.resolve();
       expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
 
       continuedChild?.emitClose(null, 'SIGTERM');

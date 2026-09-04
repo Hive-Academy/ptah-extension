@@ -15,7 +15,11 @@ import type {
   DirectoryEntry,
   IFileWatcher,
 } from '@ptah-extension/platform-core';
-import { FileType, createEvent } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  createEvent,
+  planGlobWatch,
+} from '@ptah-extension/platform-core';
 
 export class CliFileSystemProvider implements IFileSystemProvider {
   async readFile(filePath: string): Promise<string> {
@@ -131,6 +135,13 @@ export class CliFileSystemProvider implements IFileSystemProvider {
     return maxResults ? results.slice(0, maxResults) : results;
   }
 
+  /**
+   * Watch a glob. Same translation as `ElectronFileSystemProvider` and for the
+   * same reason — chokidar dropped glob support in v4, so a pattern handed to
+   * it became a literal directory name and the watcher never fired. See the
+   * header of `glob-watch-plan.ts`; the rule for keeping these two adapters in
+   * step is that the translation lives THERE, not copied into each of them.
+   */
   createFileWatcher(
     pattern: string,
     options?: { exclude?: string[]; cwd?: string },
@@ -141,20 +152,23 @@ export class CliFileSystemProvider implements IFileSystemProvider {
 
     let underlying: { close(): Promise<void> | void } | undefined;
     let disposed = false;
-    const hasExcludes = !!options?.exclude && options.exclude.length > 0;
-    const cwd = options?.cwd;
-    // With `cwd`, chokidar emits paths relative to it — resolve to absolute so
-    // consumers get the same absolute paths the VS Code adapter emits.
-    const toAbs = (p: string): string => (cwd ? path.resolve(cwd, p) : p);
+    const plan = planGlobWatch(pattern, options);
+    // chokidar echoes back the absolute root it was given, so paths arrive
+    // absolute — the same shape the VS Code adapter emits (`uri.fsPath`).
+    const emit =
+      (fire: (p: string) => void) =>
+      (filePath: string): void => {
+        const absolute = path.resolve(filePath);
+        if (plan.matches(absolute)) fire(absolute);
+      };
     void (async () => {
       const mod = (await import('chokidar')) as {
         watch: (
-          pattern: string,
+          target: string,
           options: {
             ignoreInitial: boolean;
             persistent: boolean;
-            ignored?: string[];
-            cwd?: string;
+            ignored?: (candidate: string) => boolean;
           },
         ) => {
           on(event: string, handler: (filePath: string) => void): unknown;
@@ -162,15 +176,17 @@ export class CliFileSystemProvider implements IFileSystemProvider {
         };
       };
       if (disposed) return;
-      const watcher = mod.watch(pattern, {
+      const watcher = mod.watch(plan.watchRoot, {
         ignoreInitial: true,
         persistent: true,
-        ...(cwd ? { cwd } : {}),
-        ...(hasExcludes ? { ignored: options?.exclude } : {}),
+        // A FUNCTION, not globs: chokidar v4+ does not glob here either, and a
+        // function is consulted for directories, so it prunes `node_modules`
+        // rather than walking it and discarding the events.
+        ignored: (candidate: string) => plan.ignores(candidate),
       });
-      watcher.on('change', (filePath) => fireChange(toAbs(filePath)));
-      watcher.on('add', (filePath) => fireCreate(toAbs(filePath)));
-      watcher.on('unlink', (filePath) => fireDelete(toAbs(filePath)));
+      watcher.on('change', emit(fireChange));
+      watcher.on('add', emit(fireCreate));
+      watcher.on('unlink', emit(fireDelete));
       underlying = watcher;
     })();
 

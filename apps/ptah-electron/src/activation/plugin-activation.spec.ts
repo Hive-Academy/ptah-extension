@@ -32,6 +32,8 @@ const USER_LAYER_MIRROR_TOKEN = Symbol.for('PtahUserLayerMirrorService');
 const SKILL_REGISTRY_STORE_TOKEN = Symbol.for('SkillRegistryStore');
 const SKILL_REGISTRY_CATALOG_TOKEN = Symbol.for('SkillRegistryCatalogService');
 const SKILL_CANDIDATE_STORE_TOKEN = Symbol.for('SkillCandidateStore');
+const SQLITE_CONNECTION_TOKEN = Symbol.for('PtahSqliteConnection');
+const AGENT_SYNC_GATE_TOKEN = Symbol.for('HarnessSyncAgentSyncGate');
 
 const CONFIGURED_SKILLS_ROOT = path.join('/configured', 'skills-root');
 
@@ -48,11 +50,26 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: { SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader') },
 }));
 
+// `resolveAgentMirrorSource` is stubbed with its own shape rather than left
+// undefined: the host now DELEGATES the agent decision to `harness-sync`, so a
+// bare token mock would throw inside `buildMirrorSources` and every pass below
+// would report zero calls. The real rules it applies — resolve the root the
+// reconciler keys on, gate the mirror on consent — are pinned in that lib's own
+// spec, which is where they belong (TASK_2026_365).
 jest.mock('@ptah-extension/harness-sync', () => ({
   HARNESS_SYNC_TOKENS: {
     RECONCILER: Symbol.for('HarnessReconciler'),
     PROPAGATION: Symbol.for('HarnessSyncPropagation'),
+    AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
   },
+  resolveHarnessWorkspaceRoot: (root: string) => root,
+  resolveAgentMirrorSource: (root: string | undefined) =>
+    root === undefined || root === ''
+      ? {}
+      : {
+          agentSourceDir: path.join(root, '.claude', 'agents'),
+          workspaceRoot: root,
+        },
 }));
 
 jest.mock('@ptah-extension/agent-generation', () => ({
@@ -76,9 +93,12 @@ jest.mock('@ptah-extension/skill-synthesis', () => ({
 
 import { resolveSkillsRoot } from '@ptah-extension/skill-synthesis';
 import {
+  USER_LAYER_COALESCE_WINDOW_MS,
+  createUserLayerRefresher,
   mirrorUserLayer,
   propagateHarness,
   reconcileUserLayer,
+  refreshUserLayer,
 } from './plugin-activation';
 
 const RECONCILER_TOKEN = Symbol.for('HarnessReconciler');
@@ -117,6 +137,7 @@ function emptyReconcileResult(over: Record<string, unknown> = {}) {
 
 function makeHarness(
   reconcileResult: Record<string, unknown> = emptyReconcileResult(),
+  options: { sqliteOpen?: boolean } = {},
 ): Harness {
   const mirrorAll = jest.fn().mockResolvedValue({
     skillsMirrored: 0,
@@ -167,6 +188,11 @@ function makeHarness(
     [SKILL_REGISTRY_STORE_TOKEN, { setDiverged, setPending }],
     [SKILL_REGISTRY_CATALOG_TOKEN, { sync: catalogSync }],
     [SKILL_CANDIDATE_STORE_TOKEN, { listDormantPromotedSlugs: () => [] }],
+    [SQLITE_CONNECTION_TOKEN, { isOpen: options.sqliteOpen ?? true }],
+    [
+      AGENT_SYNC_GATE_TOKEN,
+      { resolve: () => ({ enabled: true, derived: false }) },
+    ],
   ]);
 
   return {
@@ -194,6 +220,9 @@ const EXPECTED_SOURCES = {
   pluginsBasePath: PLUGINS_BASE,
   synthesizedSkillsRoot: CONFIGURED_SKILLS_ROOT,
   agentSourceDir: path.join(WORKSPACE_ROOT, '.claude', 'agents'),
+  // Agent clones are keyed by workspace, so the mirror is told which one it is
+  // writing for (TASK_2026_365).
+  workspaceRoot: WORKSPACE_ROOT,
 };
 
 describe('electron plugin-activation — user-layer sources (TASK_2026_278)', () => {
@@ -247,23 +276,34 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
     expect(h.reconcile).not.toHaveBeenCalled();
   });
 
-  it('re-syncs the catalog when the pass only reaped or orphaned clones', async () => {
+  it('does not sync the catalog itself — that is the pass owner’s job (TASK_2026_345)', async () => {
+    // The sync used to live here, gated on `fastForwarded || diverged ||
+    // reaped || orphaned`, while `bootHeavyServicesOnce` fired an ungated one
+    // right beside it. Two call sites x two passes per switch is where the four
+    // syncs of log.log:1206-1223 came from. `runUserLayerPass` now owns it.
     const h = makeHarness(emptyReconcileResult({ reaped: 1, orphaned: 2 }));
 
     await reconcileUserLayer(h.container as never, WORKSPACE_ROOT, true);
 
-    // A reap DELETES a clone and an orphan re-flags one; both leave the
-    // catalog stale exactly as a fast-forward does, and the old condition
-    // named neither.
-    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+    expect(h.catalogSync).not.toHaveBeenCalled();
   });
 
-  it('leaves the catalog alone when nothing changed at all', async () => {
-    const h = makeHarness(emptyReconcileResult({ noop: 3 }));
+  it('still records divergence in the registry store', async () => {
+    // The half of the old tail that stays: divergence is per-slug state the
+    // reconcile itself discovered, not a whole-catalog refresh.
+    const h = makeHarness(
+      emptyReconcileResult({
+        diverged: 1,
+        divergedSlugs: [
+          { kind: 'skill', slug: 'a-skill', pendingSourceHash: 'abc' },
+        ],
+      }),
+    );
 
     await reconcileUserLayer(h.container as never, WORKSPACE_ROOT, true);
 
-    expect(h.catalogSync).not.toHaveBeenCalled();
+    expect(h.setDiverged).toHaveBeenCalledWith('skill', 'a-skill', true);
+    expect(h.setPending).toHaveBeenCalledWith('skill', 'a-skill', 'abc');
   });
 
   it('never throws out of activation when the mirror fails', async () => {
@@ -273,6 +313,222 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
     await expect(
       reconcileUserLayer(h.container as never, WORKSPACE_ROOT, true),
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * TASK_2026_345 — one user-layer pass per workspace switch.
+ *
+ * The baseline for one switch to `property-hub` (`tmp/logs/log.log:1206-1223`)
+ * was two `mirrorAll`, two `reconcile` and FOUR catalog syncs, with the two
+ * mirror/reconcile pairs running CONCURRENTLY on the same tree — the log shows
+ * one reporting `fastForwarded: 15` and its twin `0` for the same clones in the
+ * same second. Four triggers were asking: `activation` (the heavy boot),
+ * `workspace-folders-changed` (the folder listener's propagation),
+ * `content-download-complete`, and an `addFolder` immediately followed by a
+ * `switch`.
+ *
+ * These tests pin the counts the fix promises: N triggers in the window are one
+ * pass, that pass syncs the catalog exactly once, and a trigger that arrives
+ * after the pass drained still gets its own.
+ */
+describe('electron plugin-activation — refreshUserLayer coalescing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    (resolveSkillsRoot as jest.Mock).mockReturnValue(CONFIGURED_SKILLS_ROOT);
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('runs ONE pass for the four triggers a workspace switch fires', async () => {
+    const h = makeHarness();
+
+    const all = Promise.all([
+      refreshUserLayer(h.container as never, WORKSPACE_ROOT, 'activation'),
+      refreshUserLayer(
+        h.container as never,
+        WORKSPACE_ROOT,
+        'workspace-folders-changed',
+      ),
+      refreshUserLayer(
+        h.container as never,
+        WORKSPACE_ROOT,
+        'content-download-complete',
+      ),
+      createUserLayerRefresher(h.container as never).refresh(WORKSPACE_ROOT),
+    ]);
+
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await all;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(h.reconcileAll).toHaveBeenCalledTimes(1);
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('names every trigger on the one pass it ran', async () => {
+    const h = makeHarness();
+    const logged: string[] = [];
+    (console.log as jest.Mock).mockImplementation((line: unknown) => {
+      if (typeof line === 'string') logged.push(line);
+    });
+
+    const all = Promise.all([
+      refreshUserLayer(h.container as never, WORKSPACE_ROOT, 'activation'),
+      refreshUserLayer(
+        h.container as never,
+        WORKSPACE_ROOT,
+        'workspace-folders-changed',
+      ),
+    ]);
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await all;
+
+    // Losing the reason list is how the duplicate triggers stayed invisible:
+    // four passes each blamed one cause and none of them mentioned the others.
+    expect(
+      logged.filter((line) =>
+        line.startsWith('[Ptah Electron] User-layer pass'),
+      ),
+    ).toEqual([
+      '[Ptah Electron] User-layer pass (activation + workspace-folders-changed)',
+    ]);
+  });
+
+  it('runs the pass in the one correct order: mirror, then reconcile, then catalog', async () => {
+    const h = makeHarness();
+    const order: string[] = [];
+    h.mirrorAll.mockImplementation(async () => {
+      order.push('mirrorAll');
+      return {
+        skillsMirrored: 0,
+        agentsMirrored: 0,
+        commandsMirrored: 0,
+        skipped: 0,
+        conflicts: 0,
+        errors: 0,
+      };
+    });
+    h.reconcileAll.mockImplementation(async () => {
+      order.push('reconcileAll');
+      return emptyReconcileResult();
+    });
+    h.catalogSync.mockImplementation(async () => {
+      order.push('catalogSync');
+      return { upserted: 0, linked: 0 };
+    });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await pass;
+
+    // Reconciling an unmirrored layer copies nothing, and syncing before the
+    // reconcile records a state the pass is about to change.
+    expect(order).toEqual(['mirrorAll', 'reconcileAll', 'catalogSync']);
+  });
+
+  it('runs a SECOND pass for a trigger that arrives after the first drained', async () => {
+    const h = makeHarness();
+
+    const first = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await first;
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+
+    // The real `content-download-complete`: it follows the network, so it is
+    // seconds away, not milliseconds. It must not be swallowed.
+    const second = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'content-download-complete',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await second;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(2);
+    expect(h.reconcileAll).toHaveBeenCalledTimes(2);
+    expect(h.catalogSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('joins two spellings of one directory into a single pass', async () => {
+    const h = makeHarness();
+
+    const all = Promise.all([
+      refreshUserLayer(h.container as never, WORKSPACE_ROOT, 'activation'),
+      refreshUserLayer(
+        h.container as never,
+        `${WORKSPACE_ROOT.replace(/\\/g, '/')}/`,
+        'switch',
+      ),
+    ]);
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await all;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps two different workspaces apart', async () => {
+    const h = makeHarness();
+    const other = path.join('/tmp', 'other-ws');
+
+    const all = Promise.all([
+      refreshUserLayer(h.container as never, WORKSPACE_ROOT, 'activation'),
+      refreshUserLayer(h.container as never, other, 'activation'),
+    ]);
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await all;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(2);
+    expect(h.mirrorAll.mock.calls[0][0].agentSourceDir).toBe(
+      path.join(WORKSPACE_ROOT, '.claude', 'agents'),
+    );
+    expect(h.mirrorAll.mock.calls[1][0].agentSourceDir).toBe(
+      path.join(other, '.claude', 'agents'),
+    );
+  });
+
+  it('skips the catalog sync when SQLite is closed', async () => {
+    const h = makeHarness(emptyReconcileResult(), { sqliteOpen: false });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await pass;
+
+    expect(h.mirrorAll).toHaveBeenCalledTimes(1);
+    expect(h.catalogSync).not.toHaveBeenCalled();
+  });
+
+  it('never rejects, whatever the pass hits', async () => {
+    const h = makeHarness();
+    h.mirrorAll.mockRejectedValue(new Error('EPERM'));
+    h.reconcileAll.mockRejectedValue(new Error('EPERM'));
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toBeUndefined();
   });
 });
 

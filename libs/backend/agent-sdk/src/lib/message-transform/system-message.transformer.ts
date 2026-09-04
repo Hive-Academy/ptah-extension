@@ -10,6 +10,7 @@ import {
   AgentCompletedEvent,
   BackgroundAgentStartedEvent,
   SessionId,
+  isAgentTaskType,
 } from '@ptah-extension/shared';
 
 import type {
@@ -20,6 +21,7 @@ import type {
   SDKTaskNotificationMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
+import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -146,6 +148,22 @@ export class SystemMessageTransformer {
   ): FlatStreamEventUnion[] {
     const toolUseId = msg.tool_use_id;
 
+    // A background Bash command arrives on the very same task lifecycle as a
+    // subagent, tagged `task_type: 'local_bash'` and parented to the Bash
+    // tool_use id. Left alone it becomes an agent_start, which the execution
+    // tree nests as a subagent bubble under the Bash node and the monitor
+    // store files as a live agent. Reject it here and mark the task so the
+    // rest of its lifecycle is rejected too — none of the bookkeeping below
+    // (task parent link, subagent registry) applies to a shell command.
+    if (!isAgentTaskType(msg.task_type)) {
+      state.markNonAgentTask(msg.task_id);
+      helpers.logger.debug(
+        '[SdkMessageTransformer] task_started with non-agent task_type — skipping AgentStartEvent',
+        { taskId: msg.task_id, taskType: msg.task_type, toolUseId },
+      );
+      return [];
+    }
+
     if (toolUseId) {
       state.setTaskParent(msg.task_id, toolUseId);
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
@@ -189,6 +207,7 @@ export class SystemMessageTransformer {
     const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
     const workflowRun = state.getWorkflowRun(toolUseId);
+    const record = helpers.subagentRegistry.get(toolUseId);
 
     const event: AgentStartEvent = {
       id: generateEventId(),
@@ -201,8 +220,12 @@ export class SystemMessageTransformer {
       agentType: msg.task_type ?? 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
+      // Usually still undefined here — the SubagentStart hook that mints the
+      // id tends to fire after task_started. The later lifecycle events carry
+      // it once the registry has it (see AgentProgressEvent.agentId).
+      agentId: record?.agentId,
       teammateName:
-        helpers.subagentRegistry.get(toolUseId)?.teammateName ??
+        record?.teammateName ??
         helpers.subagentRegistry.peekPendingTeammateName(toolUseId),
       taskId: msg.task_id,
       workflowRunId: workflowRun?.runId,
@@ -223,6 +246,10 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    if (state.isNonAgentTask(msg.task_id)) {
+      return [];
+    }
+
     const parentToolUseId =
       msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
 
@@ -257,6 +284,7 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage.total_tokens,
       toolUses: msg.usage.tool_uses,
       durationMs: msg.usage.duration_ms,
+      agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
       workflowRunId: workflowRun?.runId,
       workflowName: workflowRun?.name,
     };
@@ -270,6 +298,10 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    if (state.isNonAgentTask(msg.task_id)) {
+      return [];
+    }
+
     const parentToolUseId = state.getTaskParentToolUseId(msg.task_id);
 
     if (!parentToolUseId) {
@@ -304,6 +336,7 @@ export class SystemMessageTransformer {
         status: patch.status,
         description: patch.description,
         errorMessage: patch.error,
+        agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
         workflowRunId: workflowRun?.runId,
         workflowName: workflowRun?.name,
       };
@@ -367,12 +400,40 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    const events = this.buildAgentCompleted(msg, state, helpers, sessionId);
+
+    // A settled background task changes the turn state whatever kind of task
+    // it was (`local_bash` included), so this runs past every early return
+    // above. The SubagentStop hook normally wrote the authoritative list
+    // moments earlier; this emits it IN the stream, where order is guaranteed.
+    // `applySnapshot` never touches 'generating'. No session → not routable.
+    if (sessionId) {
+      const current = helpers.turnState.get(sessionId)?.backgroundTasks ?? [];
+      const remaining = current.filter((task) => task.id !== msg.task_id);
+      const next = helpers.turnState.applySnapshot(sessionId, remaining);
+      if (next) {
+        events.push(toTurnStateEvent(sessionId, next));
+      }
+    }
+
+    return events;
+  }
+
+  private buildAgentCompleted(
+    msg: SDKTaskNotificationMessage,
+    state: TransformerState,
+    helpers: TransformerHelpers,
+    sessionId?: TransformerSessionId,
+  ): FlatStreamEventUnion[] {
     const parentToolUseId =
       msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
 
+    // Read before clearing — `clearTaskParent` also drops the non-agent mark.
+    const isNonAgentTask = state.isNonAgentTask(msg.task_id);
+
     state.clearTaskParent(msg.task_id);
 
-    if (msg.skip_transcript) {
+    if (isNonAgentTask || msg.skip_transcript) {
       return [];
     }
 
@@ -407,6 +468,7 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,
+      agentId: helpers.subagentRegistry.get(parentToolUseId)?.agentId,
       workflowRunId: workflowRun?.runId,
       workflowName: workflowRun?.name,
     };

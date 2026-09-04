@@ -321,6 +321,212 @@ describe('TasksViewComponent', () => {
   // -------------------------------------------------------------------------
   // The filter surface (Tasks 7.3 / 7.4)
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // The THIRD empty case — no folder open (A2)
+  //
+  // `tasks:*` is scoped to an open folder and the host refuses the namespace
+  // with a typed `WORKSPACE_NOT_OPEN` when there is none. That refusal has to
+  // read as its own state: not the red error banner it used to produce, and not
+  // the create-CTA empty state either, because a task is a folder under
+  // `.ptah/specs` and there is nowhere to put one.
+  // -------------------------------------------------------------------------
+  describe('no folder open', () => {
+    /** The host's typed refusal, as `ClaudeRpcService` hands it to the store. */
+    const refusal = {
+      success: false,
+      isSuccess: () => false,
+      error: 'No workspace folder open.',
+      errorCode: 'WORKSPACE_NOT_OPEN' as const,
+    };
+
+    /**
+     * @param views the saved views `TaskViewsService` is holding. Non-empty
+     * models the state after a folder that HAD views is closed while the Tasks
+     * tab stays mounted: nothing clears `_views()` on a workspace change, so
+     * the palette keeps listing them.
+     */
+    async function renderRefused(
+      views: readonly SavedTaskView[] = [],
+    ): Promise<ComponentFixture<TasksViewComponent>> {
+      rpcCall = jest.fn(async (method: string) => {
+        if (method === 'tasks:board') return refusal;
+        if (method === 'tasks:getViews')
+          return ok({ views: [...views], activeViewId: null, skipped: 0 });
+        return ok(board());
+      });
+      TestBed.configureTestingModule({
+        imports: [TasksViewComponent],
+        providers: [
+          {
+            provide: ClaudeRpcService,
+            useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
+          },
+        ],
+      });
+      const fixture = TestBed.createComponent(TasksViewComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('renders the no-workspace state instead of the error banner', async () => {
+      const fixture = await renderRefused();
+      const host = fixture.nativeElement as HTMLElement;
+
+      const panel = host.querySelector('[data-testid="tasks-no-workspace"]');
+      expect(panel).not.toBeNull();
+      expect(panel?.textContent).toContain('No folder is open');
+      // The refusal is not a failure, so nothing red is on screen.
+      expect(host.querySelector('.alert-error')).toBeNull();
+    });
+
+    it('offers no create affordance anywhere on the screen', async () => {
+      const fixture = await renderRefused();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.textContent).not.toContain('Create your first task');
+      expect(
+        host.querySelector('[data-testid="tasks-filtered-empty"]'),
+      ).toBeNull();
+      // The header's New Task button is the same offer in a different place.
+      expect(
+        host.querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-create-trigger"]',
+        )?.disabled,
+      ).toBe(true);
+      expect(
+        host.querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-sweep-trigger"]',
+        )?.disabled,
+      ).toBe(true);
+    });
+
+    /**
+     * The coverage hole that let the palette bypass ship: the header buttons
+     * were gated and the palette was not, and 571 tests could not tell, because
+     * none of them opened the palette in this state. The palette is a second,
+     * keyboard-driven entry point to the same commands — `Ctrl+K` and the
+     * "Commands" button are both always enabled — so it needs its own assertion
+     * here, not just a unit test on the catalogue.
+     */
+    it('offers no runnable write command in the palette either', async () => {
+      const fixture = await renderRefused();
+      const host = fixture.nativeElement as HTMLElement;
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+      expect(
+        host.querySelector('[data-testid="task-palette-dialog"]'),
+      ).not.toBeNull();
+
+      const optionFor = (label: string): HTMLElement => {
+        const found = Array.from(
+          host.querySelectorAll<HTMLElement>('[role="option"]'),
+        ).find((el) => el.textContent?.includes(label));
+        if (found === undefined) throw new Error(`no palette option: ${label}`);
+        return found;
+      };
+
+      for (const label of ['Create a task', 'Reindex the workspace tasks']) {
+        const option = optionFor(label);
+        // Listed, and saying why — FR-C6.6 — rather than quietly missing.
+        expect(option.getAttribute('data-testid')).toBe(
+          'task-palette-option-disabled',
+        );
+        expect(option.getAttribute('aria-disabled')).toBe('true');
+        expect(option.textContent).toContain('No folder is open');
+      }
+
+      // And pressing them does nothing: no create modal, no reindex RPC.
+      optionFor('Create a task').click();
+      fixture.detectChanges();
+      expect(
+        host.querySelector('[data-testid="tasks-create-status"]'),
+      ).toBeNull();
+      expect(host.textContent).toContain('No folder is open');
+
+      optionFor('Reindex the workspace tasks').click();
+      await fixture.whenStable();
+      expect(
+        rpcCall.mock.calls.some(([method]) => method === 'tasks:reindex'),
+      ).toBe(false);
+      expect(
+        rpcCall.mock.calls.some(([method]) => method === 'tasks:create'),
+      ).toBe(false);
+    });
+
+    /**
+     * A saved view outlives the folder it was loaded for — nothing in
+     * `TaskViewsService` clears `_views()` on a workspace change — and
+     * `applyView` persists the active-view pointer through `tasks:saveViews`
+     * every time it runs, however local "apply a lens" sounds. So the stale
+     * entry has to be disabled too, and clicking it must reach no RPC.
+     */
+    it('disables a stale saved view in the palette, and clicking it writes nothing', async () => {
+      const stale: SavedTaskView = {
+        id: 'view-a',
+        name: 'Done work',
+        filter: { ...EMPTY_TASK_FILTER, statuses: ['done'] },
+        sort: DEFAULT_TASK_SORT,
+        order: 0,
+      };
+      const fixture = await renderRefused([stale]);
+      const host = fixture.nativeElement as HTMLElement;
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const option = Array.from(
+        host.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((el) => el.textContent?.includes('Apply view: Done work'));
+      expect(option).toBeDefined();
+      expect(option?.getAttribute('data-testid')).toBe(
+        'task-palette-option-disabled',
+      );
+      expect(option?.textContent).toContain('No folder is open');
+
+      option?.click();
+      await fixture.whenStable();
+
+      expect(
+        rpcCall.mock.calls.some(([method]) => method === 'tasks:saveViews'),
+      ).toBe(false);
+    });
+
+    it('re-asks the host exactly once when "Check again" is clicked', async () => {
+      const fixture = await renderRefused();
+      const boardCalls = () =>
+        rpcCall.mock.calls.filter(([method]) => method === 'tasks:board')
+          .length;
+      const before = boardCalls();
+
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-no-workspace-retry"]',
+        )
+        ?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(boardCalls()).toBe(before + 1);
+      // Still refused, so the state holds — one click, one request.
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="tasks-no-workspace"]',
+        ),
+      ).not.toBeNull();
+    });
+  });
+
   describe('filter surface', () => {
     const populated = board({
       backlog: [

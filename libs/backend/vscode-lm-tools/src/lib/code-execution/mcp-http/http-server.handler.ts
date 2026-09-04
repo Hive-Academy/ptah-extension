@@ -51,6 +51,18 @@ export function getConfiguredPort(
 /**
  * Try to listen on a specific port. Returns a promise that resolves with
  * the server+port on success, or rejects on error.
+ *
+ * **Both listeners are removed on either outcome, and that is load-bearing.**
+ * Every candidate port is attempted against the SAME `http.Server` instance, so
+ * anything this function leaves attached survives into the next attempt. The
+ * success callback used to be passed as `server.listen(port, host, cb)`, which
+ * Node registers as a one-time `'listening'` listener — but "one-time" only
+ * consumes it when it FIRES. A candidate that fails with `EADDRINUSE` never
+ * fires it, so it stayed on the shared server and the next candidate's single
+ * `'listening'` event was delivered to it as well: the started line was logged,
+ * and `ptah.mcp.port` written, once per ATTEMPTED port rather than once per
+ * server (TASK_2026_354). Two attempts produced the duplicate pair at
+ * `tmp/logs/log.log:551-552`; three would have produced three.
  */
 function tryListen(
   server: http.Server,
@@ -59,14 +71,18 @@ function tryListen(
   workspaceState: IStateStorage,
 ): Promise<HttpServerResult> {
   return new Promise((resolve, reject) => {
-    const onError = (error: NodeJS.ErrnoException) => {
+    const cleanup = () => {
       server.removeListener('error', onError);
+      server.removeListener('listening', onListening);
+    };
+
+    const onError = (error: NodeJS.ErrnoException) => {
+      cleanup();
       reject(error);
     };
-    server.on('error', onError);
 
-    server.listen(port, 'localhost', () => {
-      server.removeListener('error', onError);
+    const onListening = () => {
+      cleanup();
       const address = server.address();
       if (!address || typeof address === 'string') {
         reject(new Error('Failed to get server address'));
@@ -80,8 +96,29 @@ function tryListen(
         'CodeExecutionMCP',
       );
       resolve({ server, port: actualPort });
-    });
+    };
+
+    server.on('error', onError);
+    server.on('listening', onListening);
+    server.listen(port, 'localhost');
   });
+}
+
+/**
+ * The most likely reason a bind failed, phrased for someone reading a boot log.
+ *
+ * `EADDRINUSE` on the Ptah default port is almost always a second Ptah instance
+ * — the Electron app and the VS Code extension running together, or two
+ * Electron windows. `EACCES` on Windows is a different animal: the Hyper-V /
+ * WinNAT dynamic-port exclusion ranges make whole blocks unbindable with no
+ * process holding them, so blaming a peer there would send the reader hunting
+ * for something that does not exist.
+ */
+function likelyHolderOf(code: string | undefined): string {
+  if (code === 'EACCES') {
+    return 'the OS has reserved it (on Windows, a Hyper-V/WinNAT excluded port range)';
+  }
+  return 'another running Ptah instance is most likely already listening there';
 }
 
 /**
@@ -102,6 +139,21 @@ export function getMcpPortCandidates(configuredPort: number): number[] {
   ).filter((port) => port <= 65_535);
 }
 
+/** A candidate port that could not be bound, with the errno that said so. */
+interface UnavailablePort {
+  port: number;
+  code: string | undefined;
+}
+
+/** `51820 (EADDRINUSE), 51821 (EACCES)` — the ports we could not have. */
+function describeUnavailable(failures: UnavailablePort[]): string {
+  const label = failures.length === 1 ? 'port' : 'ports';
+  const listed = failures
+    .map(({ port, code }) => (code ? `${port} (${code})` : `${port}`))
+    .join(', ');
+  return `MCP ${label} ${listed} unavailable`;
+}
+
 /**
  * Start the HTTP MCP server.
  *
@@ -109,6 +161,12 @@ export function getMcpPortCandidates(configuredPort: number): number[] {
  * is unavailable. This keeps fallback selection deterministic so the actual
  * listening port can be propagated to every MCP consumer. Port 0 is never
  * used as a collision fallback.
+ *
+ * A fallback produces exactly ONE warning, and it is emitted after the outcome
+ * is known so it can state the port actually chosen rather than the port about
+ * to be attempted. The previous per-attempt "retrying with N" line told a
+ * reader neither whether N worked nor who was holding the port they asked for
+ * (TASK_2026_354).
  */
 export async function startHttpServer(
   config: HttpServerConfig,
@@ -120,11 +178,20 @@ export async function startHttpServer(
   });
 
   const candidates = getMcpPortCandidates(configuredPort);
+  const failures: UnavailablePort[] = [];
   let lastUnavailableError: NodeJS.ErrnoException | undefined;
 
-  for (const [index, port] of candidates.entries()) {
+  for (const port of candidates) {
     try {
-      return await tryListen(server, port, logger, workspaceState);
+      const result = await tryListen(server, port, logger, workspaceState);
+      if (failures.length > 0) {
+        logger.warn(
+          `${describeUnavailable(failures)}; ` +
+            `${likelyHolderOf(failures[failures.length - 1].code)}. ` +
+            `Started on port ${result.port} instead.`,
+        );
+      }
+      return result;
     } catch (error: unknown) {
       const err = error as NodeJS.ErrnoException;
       if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') {
@@ -132,13 +199,16 @@ export async function startHttpServer(
       }
 
       lastUnavailableError = err;
-      const nextPort = candidates[index + 1];
-      if (nextPort !== undefined) {
-        logger.warn(
-          `MCP port ${port} unavailable (${err.code}), retrying with ${nextPort}`,
-        );
-      }
+      failures.push({ port, code: err.code });
     }
+  }
+
+  if (failures.length > 0) {
+    logger.warn(
+      `${describeUnavailable(failures)}; ` +
+        `${likelyHolderOf(failures[failures.length - 1].code)}. ` +
+        `No fallback port left - the MCP server did not start.`,
+    );
   }
 
   throw lastUnavailableError ?? new Error('No valid MCP server port available');
@@ -175,6 +245,32 @@ const MAX_BODY_SIZE = 1024 * 1024;
 function extractCallerSessionId(url: string | undefined): string | undefined {
   if (!url) return undefined;
   const match = url.match(/^\/session\/([^/?]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+/**
+ * Extract the caller's declared workspace root from the MCP URL path.
+ *
+ * Accepted URL grammar (CLOSED — pinned by http-server.handler.spec.ts):
+ *   /                                  → anonymous
+ *   /session/{id}                      → session only
+ *   /workspace/{root}                  → workspace only
+ *   /session/{id}/workspace/{root}     → both, session first — the ONLY
+ *                                        combined order
+ *
+ * The workspace segment must be TERMINAL (only a trailing slash or a query
+ * string may follow), so `/workspace/{root}/session/{id}` is fully rejected
+ * rather than half-parsed. `{root}` is `encodeURIComponent`-encoded by the
+ * writer, so a Windows root (`D:\projects\x` → `D%3A%5Cprojects%5Cx`)
+ * contains no `/` or `?` and round-trips exactly through decodeURIComponent.
+ */
+function extractCallerWorkspaceRoot(
+  url: string | undefined,
+): string | undefined {
+  if (!url) return undefined;
+  const match = url.match(
+    /^(?:\/session\/[^/?]+)?\/workspace\/([^/?]+)\/?(?:\?.*)?$/,
+  );
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
@@ -241,6 +337,10 @@ async function handleHttpRequest(
       const callerSessionId = extractCallerSessionId(req.url);
       if (callerSessionId) {
         mcpRequest._callerSessionId = callerSessionId;
+      }
+      const callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
+      if (callerWorkspaceRoot) {
+        mcpRequest._callerWorkspaceRoot = callerWorkspaceRoot;
       }
 
       const mcpResponse = await onMCPRequest(mcpRequest);

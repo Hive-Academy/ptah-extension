@@ -482,7 +482,7 @@ export class MessageFinalizationService {
    * provided set. Returns the same node reference if no change was needed.
    *
    * Unlike findAndMarkLastAgent (which stops at the first match), this marks ALL
-   * matching agents â€” handling the case where multiple agents had permissions denied.
+   * matching agents — handling the case where multiple agents had permissions denied.
    */
   private markMatchingAgentsAsInterrupted(
     node: ExecutionNode,

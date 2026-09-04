@@ -151,6 +151,10 @@ export type PtahNotification =
   | 'skill.removed'
   | 'skill.popular'
   | 'skill.recommended'
+  // The per-workspace skill selection (TASK_2026_316): `selection` is the
+  // read, `selected` the write, matching `installed` / `removed` above.
+  | 'skill.selection'
+  | 'skill.selected'
   | 'skill.created'
   | 'mcp.search'
   | 'mcp.details'
@@ -255,6 +259,10 @@ export type PtahNotification =
   | 'agent_cli.stopped'
   | 'agent_cli.resumed'
   | 'debug.di.phase'
+  // Event-loop lag over threshold (TASK_2026_323). Verbose-only, like
+  // `debug.di.phase`, and emitted repeatedly for as long as the loop is
+  // blocked — a single occurrence is a spike, a run of them is a stall.
+  | 'debug.perf.lag'
   | 'doctor.report'
   | 'init.plan'
   // `ptah spec` (TASK_2026_179, step 16). One per subcommand, and each

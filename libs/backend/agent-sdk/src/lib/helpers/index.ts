@@ -29,6 +29,7 @@ export {
 export {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
+  type ActivityHold,
 } from './no-activity-watchdog';
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
@@ -48,10 +49,25 @@ export {
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
 export {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+  type TurnStopSnapshot,
+  type TurnFailureSnapshot,
+} from './session-turn-state.registry';
+export {
   SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedPayload,
   type SessionIdResolvedRegistryCallback,
 } from './session-id-resolved-callback-registry';
+export {
+  SessionMcpStatusCallbackRegistry,
+  classifyCliNotice,
+  CLAUDE_AI_CONNECTORS_DISABLED_MARKER,
+  type SessionMcpStatusEvent,
+  type SessionMcpServersPayload,
+  type SessionCliNoticePayload,
+  type SessionMcpStatusRegistryCallback,
+} from './session-mcp-status-callback-registry';
 export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 export {
   SessionEndCallbackRegistry,
@@ -74,12 +90,6 @@ export {
   type PostToolUsePayload,
 } from './post-tool-use-callback-registry';
 export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-export {
-  PreToolUseCallbackRegistry,
-  type PreToolUseCallback,
-  type PreToolUsePayload,
-} from './pre-tool-use-callback-registry';
-export { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
 export {
   SessionStartCallbackRegistry,
   type SessionStartCallback,
@@ -161,6 +171,12 @@ export {
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
+export {
+  OffThreadProcessSpawner,
+  type OffThreadSpawnHooks,
+  type PtahSpawnedProcess,
+  type SpawnTransport,
+} from './off-thread-process-spawner';
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';

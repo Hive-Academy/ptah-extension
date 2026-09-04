@@ -198,9 +198,54 @@ describe('HTTP server lifecycle', () => {
       server = result.server;
 
       expect(result.port).toBe(occupiedPort + 1);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
-        `MCP port ${occupiedPort} unavailable (EADDRINUSE), retrying with ${occupiedPort + 1}`,
+        `MCP port ${occupiedPort} (EADDRINUSE) unavailable; ` +
+          `another running Ptah instance is most likely already listening there. ` +
+          `Started on port ${occupiedPort + 1} instead.`,
       );
+    } finally {
+      await new Promise<void>((resolve) => occupier.close(() => resolve()));
+    }
+  });
+
+  // TASK_2026_354: every candidate port is attempted against the SAME
+  // `http.Server`. The success callback used to be handed to
+  // `server.listen(port, host, cb)`, which registers a ONE-TIME 'listening'
+  // listener — and "one-time" only consumes it when it fires. A candidate that
+  // failed with EADDRINUSE left its listener attached, so the next candidate's
+  // single 'listening' event reached both: the started line was logged, and
+  // `ptah.mcp.port` written, once per ATTEMPTED port. That is the duplicate
+  // pair at tmp/logs/log.log:551-552.
+  it('logs the started line exactly once even after a port fallback', async () => {
+    const occupier = http.createServer();
+    await new Promise<void>((resolve) =>
+      occupier.listen(0, 'localhost', resolve),
+    );
+    const occupiedPort = (occupier.address() as AddressInfo).port;
+
+    try {
+      const result = await startHttpServer({
+        port: occupiedPort,
+        logger,
+        workspaceState: state,
+        onMCPRequest: jest.fn(),
+      });
+      server = result.server;
+
+      const startedLines = logger.info.mock.calls.filter(([message]) =>
+        String(message).includes('CodeExecutionMCP server started'),
+      );
+      expect(startedLines).toHaveLength(1);
+      expect(startedLines[0][0]).toBe(
+        `CodeExecutionMCP server started on http://localhost:${result.port}`,
+      );
+
+      // The same leak wrote the port to workspace state twice.
+      const portWrites = state.update.mock.calls.filter(
+        ([key]) => key === 'ptah.mcp.port',
+      );
+      expect(portWrites).toHaveLength(1);
     } finally {
       await new Promise<void>((resolve) => occupier.close(() => resolve()));
     }
@@ -228,15 +273,20 @@ describe('HTTP server lifecycle', () => {
           onMCPRequest: jest.fn(),
         }),
       ).rejects.toMatchObject({ code: 'EADDRINUSE' });
-      expect(logger.warn).toHaveBeenCalledTimes(2);
-      expect(logger.warn).toHaveBeenNthCalledWith(
-        1,
-        `MCP port ${basePort} unavailable (EADDRINUSE), retrying with ${basePort + 1}`,
+      // One warning per start, naming every port that was refused and the fact
+      // that nothing was left to fall back to.
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        `MCP ports ${basePort} (EADDRINUSE), ${basePort + 1} (EADDRINUSE), ` +
+          `${basePort + 2} (EADDRINUSE) unavailable; ` +
+          `another running Ptah instance is most likely already listening there. ` +
+          `No fallback port left - the MCP server did not start.`,
       );
-      expect(logger.warn).toHaveBeenNthCalledWith(
-        2,
-        `MCP port ${basePort + 1} unavailable (EADDRINUSE), retrying with ${basePort + 2}`,
-      );
+      // The reader gets ASCII: a boot log piped through a legacy Windows
+      // console renders typographic punctuation as mojibake.
+      const [warning] = logger.warn.mock.calls[0];
+      // eslint-disable-next-line no-control-regex
+      expect(String(warning)).toMatch(/^[\x00-\x7F]*$/);
     } finally {
       await Promise.all(
         [first, second, third].map(
@@ -396,5 +446,94 @@ describe('HTTP request handling', () => {
     );
     const call = onMCPRequest.mock.calls[0][0];
     expect(call._callerSessionId).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Caller-workspace URL grammar (TASK_2026_364, Batch A).
+  //
+  // The accepted grammar is CLOSED. Exactly four shapes parse:
+  //   /                               → anonymous (neither field stamped)
+  //   /session/{id}                   → session only
+  //   /workspace/{root}               → workspace only
+  //   /session/{id}/workspace/{root}  → both — the ONLY combined order
+  // The workspace segment must be terminal; every other shape is anonymous.
+  // -------------------------------------------------------------------------
+
+  const toolsCallBody = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+  });
+
+  it('stamps _callerWorkspaceRoot from /workspace/{root} and leaves the session unset', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-plain', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe('ws-plain');
+    expect(call._callerSessionId).toBeUndefined();
+  });
+
+  it('round-trips an encodeURIComponent-encoded Windows workspace root exactly', async () => {
+    const windowsRoot = 'D:\\projects\\ptah-extension';
+    await fetchPath(
+      port,
+      'POST',
+      `/workspace/${encodeURIComponent(windowsRoot)}`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe(windowsRoot);
+  });
+
+  it('stamps both fields from /session/{id}/workspace/{root} — the only combined order', async () => {
+    const windowsRoot = 'D:\\projects\\ptah-extension';
+    await fetchPath(
+      port,
+      'POST',
+      `/session/tab-abc/workspace/${encodeURIComponent(windowsRoot)}`,
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBe('tab-abc');
+    expect(call._callerWorkspaceRoot).toBe(windowsRoot);
+  });
+
+  it('does not stamp _callerWorkspaceRoot from a session-only URL', async () => {
+    await fetchPath(port, 'POST', '/session/tab-abc', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBe('tab-abc');
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS the reversed order /workspace/{root}/session/{id} entirely', async () => {
+    // Neither field parses: the session segment is not leading and the
+    // workspace segment is not terminal. Half-parsing this shape would
+    // attribute the call to a workspace while dropping the session silently.
+    await fetchPath(
+      port,
+      'POST',
+      '/workspace/ws-x/session/tab-abc',
+      toolsCallBody,
+    );
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerSessionId).toBeUndefined();
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS a workspace segment behind an unknown prefix', async () => {
+    await fetchPath(port, 'POST', '/other/workspace/ws-x', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('REJECTS trailing path segments after the workspace root', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-x/extra', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+
+  it('accepts a trailing slash and a query string after the workspace root', async () => {
+    await fetchPath(port, 'POST', '/workspace/ws-x/?probe=1', toolsCallBody);
+    const call = onMCPRequest.mock.calls[0][0];
+    expect(call._callerWorkspaceRoot).toBe('ws-x');
   });
 });

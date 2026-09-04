@@ -611,6 +611,22 @@ export class MemoryStore implements IMemoryLister {
     }
   }
 
+  /**
+   * Per-tier memory counts.
+   *
+   * The `workspaceRoot` argument is a deliberate TRI-STATE and the three states
+   * are genuinely different queries — do not collapse them:
+   *
+   *   - `string`    → that workspace only (`workspace_root IS 'X'`)
+   *   - `null`      → global / unscoped memories only (`workspace_root IS NULL`)
+   *   - `undefined` → NO predicate: every workspace in `~/.ptah/state`
+   *
+   * `undefined` is a raw store capability with exactly one legitimate use — a
+   * whole-database sweep (see the wizard-seed integration specs). It is NOT
+   * reachable from an RPC call: `MemoryRpcHandlers` resolves the tri-state at
+   * the boundary, because `memory:stats` landing in this branch is what made a
+   * no-workspace call answer with a cross-workspace union (TASK_2026_315 A4).
+   */
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
     const db = this.connection.db;
     const whereSql =

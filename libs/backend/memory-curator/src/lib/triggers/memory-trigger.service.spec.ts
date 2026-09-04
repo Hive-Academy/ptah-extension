@@ -12,6 +12,7 @@ import type {
   PostToolUseCallbackRegistry,
   PostToolUsePayload,
   SessionActivityCallback,
+  SessionActivityPayload,
   SessionActivityRegistry,
   SessionEndCallback,
   SessionEndCallbackRegistry,
@@ -24,8 +25,6 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
-  PreToolUseCallbackRegistry,
-  PreToolUsePayload,
   SessionStartCallbackRegistry,
   SessionStartPayload,
   SessionIdResolvedCallbackRegistry,
@@ -225,6 +224,7 @@ function makeWorkspace(
 function makeCurator(): MemoryCuratorService {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -280,7 +280,8 @@ function makeObservationQueue(): FakeQueueStore {
     }
   });
   const store = {
-    insert: jest.fn((insert: ObservationQueueInsert) => {
+    flush: jest.fn(),
+    enqueue: jest.fn((insert: ObservationQueueInsert) => {
       inserts.push(insert);
       const row: ObservationQueueRow = {
         id: nextId.value++,
@@ -351,7 +352,6 @@ function buildService(opts?: {
     SessionEndHookPayload,
     SessionEndHookCallbackRegistry
   >;
-  preToolUse: SetRegistryHarness<PreToolUsePayload, PreToolUseCallbackRegistry>;
   sessionStart: SetRegistryHarness<
     SessionStartPayload,
     SessionStartCallbackRegistry
@@ -373,7 +373,6 @@ function buildService(opts?: {
   const stop = makeSetRegistry<StopPayload>();
   const toolFailure = makeSetRegistry<ToolFailurePayload>();
   const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
-  const preToolUse = makeSetRegistry<PreToolUsePayload>();
   const sessionStart = makeSetRegistry<SessionStartPayload>();
   const sessionIdResolved = makeSetRegistry<SessionIdResolvedPayload>();
   const curator = opts?.curator ?? makeCurator();
@@ -398,7 +397,6 @@ function buildService(opts?: {
     sessionEndHook.registry as unknown as SessionEndHookCallbackRegistry,
     rateLimiter,
     queue.store,
-    preToolUse.registry as unknown as PreToolUseCallbackRegistry,
     sessionStart.registry as unknown as SessionStartCallbackRegistry,
     transcriptReader,
     sessionIdResolved.registry as unknown as SessionIdResolvedCallbackRegistry,
@@ -420,10 +418,6 @@ function buildService(opts?: {
     sessionEndHook: sessionEndHook as unknown as SetRegistryHarness<
       SessionEndHookPayload,
       SessionEndHookCallbackRegistry
-    >,
-    preToolUse: preToolUse as unknown as SetRegistryHarness<
-      PreToolUsePayload,
-      PreToolUseCallbackRegistry
     >,
     sessionStart: sessionStart as unknown as SetRegistryHarness<
       SessionStartPayload,
@@ -1776,12 +1770,15 @@ describe('MemoryTriggerService — observation queue side effects', () => {
     );
   });
 
-  it('onPreToolUseRead inserts a file-read row only when toolName is Read', () => {
-    const { service, preToolUse, queue } = buildService();
+  it('PostToolUse Read inserts the same file-read observation row', () => {
+    const { service, postToolUse, queue } = buildService();
     service.start();
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Read',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 1,
@@ -1793,14 +1790,19 @@ describe('MemoryTriggerService — observation queue side effects', () => {
       }),
     );
     queue.inserts.length = 0;
-    preToolUse.fire({
+    postToolUse.fire({
       toolName: 'Edit',
       toolInput: { file_path: '/ws/src/index.ts' },
+      toolOutput: 'updated',
+      exitCode: null,
+      success: true,
       sessionId: 's1',
       workspaceRoot: '/ws',
       timestamp: 2,
     });
-    expect(queue.inserts).toHaveLength(0);
+    expect(
+      queue.inserts.filter((row) => row.kind === 'file-read'),
+    ).toHaveLength(0);
   });
 
   it('commit-detect path inserts a commit row in addition to the tool-use row', () => {
@@ -1915,6 +1917,135 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     expect(unprocessed.length).toBeGreaterThan(0);
   });
 
+  /**
+   * TASK_2026_306 Batch 10 — finding F1, the whole point of this batch.
+   *
+   * The provider quota gate (Batch 2) stops the curator before it dials a
+   * rate-limited provider. Under the pre-fix code "stop" was `runQuery → ''` →
+   * `extract() → []`, which is byte-identical to a pass that ran and found
+   * nothing — and `invokeCurate` marked its drained rows processed on every
+   * resolve without inspecting anything. `drainForSession` filters
+   * `processed_at IS NULL`, so the discarded observations never came back.
+   * Observed live: 15 drain-and-discard passes in a few hundred lines of one
+   * cold start (`tmp/logs/coldstart-306.log:1232-1260`).
+   *
+   * ## Why these two cases and not one
+   *
+   * An assertion that the extraction is empty is worthless here — it holds
+   * before AND after the fix. The discriminating question is whether the ROWS
+   * SURVIVE, so the first case asserts `processedAt === null` and a successful
+   * re-drain. The second case is its inverse and is equally load-bearing:
+   * without it, "never mark anything processed" would satisfy the first, and
+   * every session that genuinely had nothing to learn would be re-fed forever.
+   * Either case alone can be passed by a wrong implementation. Together they
+   * pin the branch.
+   */
+  describe('a stalled curation pass keeps its input (TASK_2026_306 F1)', () => {
+    function makeStalledCurator(): MemoryCuratorService {
+      return {
+        curate: jest.fn().mockResolvedValue({
+          outcome: 'stalled',
+          extracted: 0,
+          merged: 0,
+          created: 0,
+          skipped: 0,
+        }),
+        pushEvent: jest.fn(),
+        recentEvents: jest.fn(() => []),
+        lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+        rekeySession: jest.fn(),
+      } as unknown as MemoryCuratorService;
+    }
+
+    it('leaves the drained observations processed_at IS NULL and re-drains them on the next pass', async () => {
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        curator: makeStalledCurator(),
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'work worth keeping' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // The pass DID drain — this is not a "nothing happened" assertion.
+      const drained = (queue.store.drainForSession as jest.Mock).mock.results[0]
+        .value as ObservationQueueRow[];
+      expect(drained.length).toBeGreaterThan(0);
+
+      // …and then left every row exactly where it found it.
+      expect(queue.markProcessed).not.toHaveBeenCalled();
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt === null)).toBe(true);
+
+      // The survival claim, stated as the next pass would ask it: a fresh
+      // drain still returns them, so the episodes outlive the cooldown.
+      const redrained = queue.store.drainForSession('s1', 500);
+      expect(redrained.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    });
+
+    it('a pass that RAN and found nothing still marks its rows processed', async () => {
+      // The inverse guard. `makeCurator()` returns `outcome: 'ran'` with zero
+      // counts — the "found nothing" case that used to be indistinguishable
+      // from a stall. It must keep its pre-fix behaviour exactly.
+      const queue = makeObservationQueue();
+      const { service, stop } = buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+        observationQueue: queue,
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'nothing memorable' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      expect(queue.markProcessed).toHaveBeenCalledTimes(1);
+      const rows = queue.rowsBySession.get('s1') ?? [];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.processedAt !== null)).toBe(true);
+      expect(queue.store.drainForSession('s1', 500)).toEqual([]);
+    });
+
+    it('restores the episode buffer that tryEpisodeCurate cleared before the pass', async () => {
+      // The second of the three pieces of state. `episodes.reset` fires before
+      // the curate resolves and cannot be deferred without swallowing turns
+      // that arrive mid-pass, so the stall path puts the buffer back. Proven
+      // through the transcript of the NEXT curate: the restored turn is
+      // counted again rather than lost.
+      const curator = makeStalledCurator();
+      const { service, stop } = buildService({
+        curator,
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 1,
+        }),
+      });
+      service.start();
+      stop.fire(stopPayload({ lastAssistantMessage: 'first turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+      expect(curator.curate).toHaveBeenCalledTimes(1);
+
+      // A second turn lands after the stall. Its episode summary must include
+      // the restored turn, not just the new one.
+      jest.advanceTimersByTime(10_000);
+      stop.fire(stopPayload({ lastAssistantMessage: 'second turn' }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+
+      // `turns=2` is the discriminating token: the restored turn plus the new
+      // one. Drop the reattach and this reads `turns=1`. (The assistant text
+      // itself is NOT the discriminator — it rides the surviving
+      // `observation_queue` rows and would appear either way.)
+      expect(curator.curate).toHaveBeenCalledTimes(2);
+      const second = (curator.curate as jest.Mock).mock.calls[1][0];
+      expect(second.transcript).toEqual(expect.stringContaining('turns=2'));
+    });
+  });
+
   it('drain limit is honoured: large queue is capped by memory.triggers.maxObservationsPerCurate', async () => {
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
@@ -1936,7 +2067,13 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     const queue = makeObservationQueue();
     const drainSpy = queue.store.drainForSession as jest.Mock;
     const blockingCurator = {
-      curate: jest.fn().mockResolvedValue(undefined),
+      curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      }),
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
@@ -2191,5 +2328,173 @@ describe('MemoryTriggerService — rekeySession (TASK_2026_296)', () => {
     jest.advanceTimersByTime(500_000);
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(h.curator.curate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_323 blocker B2 — the capture path is gated, cheap and bounded.
+ *
+ * The six enqueue sites fire on every tool call, assistant turn and prompt
+ * submit of every open session. Nothing gated them: the per-trigger `*.enabled`
+ * flags were all consulted AFTER the write, so a user who wanted no memory at
+ * all still paid for a `JSON.stringify` and a SQLite round trip per tool call.
+ */
+describe('MemoryTriggerService — capture gating and caches (TASK_2026_323)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const disabled = (): IWorkspaceProvider =>
+    makeWorkspace({ 'memory.enabled': false });
+
+  it('memory.enabled=false captures nothing from any hook', () => {
+    const { service, stop, postToolUse, userPromptSubmit, queue } =
+      buildService({ workspace: disabled() });
+    service.start();
+
+    stop.fire(stopPayload());
+    postToolUse.fire(postToolUsePayload());
+    userPromptSubmit.fire(userPromptPayload());
+    postToolUse.fire({
+      toolName: 'Read',
+      toolInput: { file_path: '/a.ts' },
+      toolOutput: 'file contents',
+      exitCode: null,
+      success: true,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 3000,
+    });
+
+    expect(queue.inserts).toHaveLength(0);
+    expect(queue.store.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('memory.enabled=false arms no idle timer and runs no curate', async () => {
+    const { service, activity, curator } = buildService({
+      workspace: disabled(),
+    });
+    service.start();
+
+    activity.registry.notifyAll({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 1000,
+    } as SessionActivityPayload);
+    jest.advanceTimersByTime(1_000_000);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('memory.enabled defaults to true — capture is unchanged when unset', () => {
+    const { service, stop, queue } = buildService();
+    service.start();
+    stop.fire(stopPayload());
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({ kind: 'assistant-turn' }),
+    );
+  });
+
+  it('stop() flushes the pending batch rather than losing it', () => {
+    const { service, queue } = buildService();
+    service.start();
+    service.stop();
+    expect(queue.store.flush).toHaveBeenCalled();
+  });
+
+  /**
+   * The cue cache keys on the JOINED cue list, not the array's identity.
+   *
+   * `getConfiguration` hands back a freshly parsed array on every miss — which
+   * is what a settings-file read does — so an identity key never hit and every
+   * prompt submit recompiled the whole cue list.
+   */
+  it('does not recompile the cue list when the config hands back a fresh array', () => {
+    const cueList = ['remember (this|that)', 'save to memory'];
+    const workspace = makeWorkspace();
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, def: unknown) => {
+        if (key === 'memory.triggers.userPromptSubmit.cueList') {
+          // A NEW array each read — the real provider's behaviour.
+          return [...cueList];
+        }
+        if (key === 'memory.triggers.userPromptSubmit.minPromptLength')
+          return 20;
+        if (key === 'memory.triggers.maxCuratesPerHour') return 0;
+        return def;
+      },
+    );
+
+    const { service, userPromptSubmit } = buildService({ workspace });
+    service.start();
+
+    const cache = () =>
+      (service as unknown as { cueCache: { compiled: RegExp[] } | null })
+        .cueCache;
+
+    userPromptSubmit.fire(userPromptPayload());
+    const first = cache()?.compiled;
+    expect(first).toBeDefined();
+
+    userPromptSubmit.fire(userPromptPayload());
+    expect(cache()?.compiled).toBe(first);
+  });
+
+  it('recompiles when the cue list contents actually change', () => {
+    const workspace = makeWorkspace();
+    let cues = ['remember (this|that)'];
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, def: unknown) => {
+        if (key === 'memory.triggers.userPromptSubmit.cueList')
+          return [...cues];
+        if (key === 'memory.triggers.userPromptSubmit.minPromptLength')
+          return 20;
+        if (key === 'memory.triggers.maxCuratesPerHour') return 0;
+        return def;
+      },
+    );
+
+    const { service, userPromptSubmit } = buildService({ workspace });
+    service.start();
+    const cache = () =>
+      (service as unknown as { cueCache: { compiled: RegExp[] } | null })
+        .cueCache;
+
+    userPromptSubmit.fire(userPromptPayload());
+    const first = cache()?.compiled;
+
+    cues = ['save to memory'];
+    userPromptSubmit.fire(userPromptPayload());
+    expect(cache()?.compiled).not.toBe(first);
+  });
+
+  /**
+   * TASK_2026_323 blocker B4 — the curator reads only the TAIL of the
+   * transcript. `composeTranscript` keeps 32 KB of formatted excerpt, so
+   * parsing a 50 MB JSONL to throw away all but the end was pure main-thread
+   * cost. The 512 KB window bounds RAW bytes, which carry uuids, timestamps and
+   * usage the formatted excerpt never shows.
+   */
+  it('reads the transcript tail rather than the whole file', async () => {
+    const { service, stop, transcriptReader } = buildService({
+      workspace: makeWorkspace({ 'memory.triggers.turnThreshold': 1 }),
+    });
+    service.start();
+
+    stop.fire(stopPayload());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(transcriptReader.read).toHaveBeenCalledWith(
+      's1',
+      '/ws',
+      expect.objectContaining({ tailBytes: expect.any(Number) }),
+    );
+    const [, , options] = (transcriptReader.read as jest.Mock).mock
+      .calls[0] as [string, string, { tailBytes: number }];
+    expect(options.tailBytes).toBeGreaterThanOrEqual(32 * 1024);
   });
 });

@@ -161,6 +161,16 @@ export interface TaskPaletteContext {
   readonly excludedCount: number;
   /** True while a board-wide write or reindex is outstanding. */
   readonly busy: boolean;
+  /**
+   * Whether the host will accept a `tasks:*` WRITE right now — `false` while no
+   * folder is open and the namespace is being refused with `WORKSPACE_NOT_OPEN`.
+   *
+   * Comes from `TasksStore.canWriteSpecs`, which is the single source of truth
+   * the header buttons read too. See {@link ACTION_WRITES_SPECS} for how it is
+   * applied: this field is deliberately NOT consulted by any individual entry
+   * builder, because per-entry checks are what let two of them be forgotten.
+   */
+  readonly canWriteSpecs: boolean;
 }
 
 const NO_SELECTION_REASON =
@@ -168,6 +178,88 @@ const NO_SELECTION_REASON =
 
 const NO_CHECKED_TASKS_REASON =
   'No tasks are checked — tick a card, or use the checkbox and Shift-click on the board, then run this from the palette.';
+
+const NO_WORKSPACE_REASON =
+  'No folder is open — a task is a folder under .ptah/specs, so there is nowhere to write one. Open a folder and this becomes available.';
+
+/**
+ * Which action kinds reach a `tasks:*` WRITE, and therefore cannot run while
+ * the host is refusing the namespace.
+ *
+ * ## Why a Record over the union rather than a check inside each builder
+ *
+ * An exhaustive `Record<TaskPaletteAction['kind'], boolean>` makes forgetting
+ * one a TYPECHECK failure, not a review question: a variant added to
+ * {@link TaskPaletteAction} without an entry here does not compile. That is the
+ * whole reason this map exists instead of three more ternaries — `board:create`
+ * and `board:reindex` were originally missed precisely because each entry
+ * decided for itself, and nothing could tell that two of them had not.
+ *
+ * ## READ THIS BEFORE ADDING A KEY: the type checks COMPLETENESS, not TRUTH
+ *
+ * The `Record` guarantees every kind is *listed*. It cannot guarantee any of
+ * them is classified *correctly*, and a wrong value here looks exactly like a
+ * right one — it compiles, the tests pass, and nothing downstream will make a
+ * reader suspect it. That is not hypothetical: `applyView` shipped as `false`
+ * because "apply a saved view" sounds like a lens change, and
+ * `TaskViewsService.applyView` in fact persists the active-view pointer through
+ * `tasks:saveViews` on every call. A stale saved view left over from a folder
+ * that has since closed was therefore still clickable, and clicking it earned
+ * the very refusal this gate exists to prevent.
+ *
+ * So do NOT classify a new kind from its name or from what the dispatcher arm
+ * appears to do. Open the method that arm calls, follow it to the RPC it
+ * issues, and record the evidence. Each value below is the result of that
+ * exercise, with the call it was derived from:
+ *
+ * | kind             | dispatches to                          | reaches            |
+ * | ---------------- | -------------------------------------- | ------------------ |
+ * | `openTask`       | `TasksStore.openTask`                  | `tasks:get` (read) |
+ * | `applyView`      | `TaskViewsService.applyView` → `persist` (UNCONDITIONAL, after the local lens) | `tasks:saveViews` |
+ * | `setStatus`      | `TasksStore.updateStatus` → `applyMetadata` | `tasks:updateMetadata` |
+ * | `setLabels`      | `TasksStore.applyMetadata`             | `tasks:updateMetadata` |
+ * | `bulkSetStatus`  | `TasksStore.requestBulkStatus` → `requestBulk`; at or below the confirm threshold it runs the write immediately | `tasks:bulkUpdateStatus` |
+ * | `createTask`     | the component's `openCreate` — opens the modal, whose submit calls `TasksStore.createTask` | `tasks:create` |
+ * | `setFilter`      | `TasksStore.setFilter` — `_filter.set` | nothing |
+ * | `clearFilter`    | `TasksStore.clearFilter` — `_filter.set` | nothing |
+ * | `openExclusions` | the component's `openExclusions` — a drawer signal | nothing |
+ * | `reindex`        | `TasksStore.reindex`                   | `tasks:reindex`    |
+ *
+ * `createTask` is the one classified on the flow it OPENS rather than on an RPC
+ * in its immediate callee: `openCreate` only raises a modal. It is a write
+ * because letting a user fill that modal in and submit it into a guaranteed
+ * refusal is the same defect one step later.
+ */
+const ACTION_WRITES_SPECS: Record<TaskPaletteAction['kind'], boolean> = {
+  openTask: false,
+  setFilter: false,
+  clearFilter: false,
+  openExclusions: false,
+  // Writes. `applyView` is the non-obvious one — see the table above; it
+  // persists the active-view pointer even though the user only asked to look
+  // at something. Disabling it costs nothing here: with no folder open the
+  // board is empty, so there is nothing for the lens to filter.
+  applyView: true,
+  setStatus: true,
+  setLabels: true,
+  bulkSetStatus: true,
+  createTask: true,
+  reindex: true,
+};
+
+/**
+ * Disable one entry if running it would write, with the no-workspace sentence.
+ *
+ * The no-workspace reason OVERRIDES an existing one on purpose. "No task is
+ * selected — open a task first" and "wait for it to finish" are both true in
+ * the abstract and both useless advice with no folder open: the first sends the
+ * user looking for a task list that cannot exist, the second implies waiting
+ * will help. The root condition is the one worth saying.
+ */
+function gateWrite(entry: TaskPaletteEntry): TaskPaletteEntry {
+  if (!ACTION_WRITES_SPECS[entry.action.kind]) return entry;
+  return { ...entry, disabledReason: NO_WORKSPACE_REASON };
+}
 
 // ---------------------------------------------------------------------------
 // Filter-facet toggles (FR-C6.2: "toggle any single filter facet")
@@ -479,7 +571,13 @@ export function buildPaletteEntries(
     });
   }
 
-  return entries;
+  // ONE gate, applied to the finished catalogue, keyed off the action union
+  // rather than off any entry's own idea of its preconditions. Every command
+  // that would write is disabled-with-reason in a single pass — including any
+  // added later, which is the point (see ACTION_WRITES_SPECS). The entries stay
+  // LISTED and say why, per FR-C6.6.
+  if (context.canWriteSpecs) return entries;
+  return entries.map(gateWrite);
 }
 
 /**
@@ -499,4 +597,8 @@ export const EMPTY_PALETTE_CONTEXT: TaskPaletteContext = {
   selectionCount: 0,
   excludedCount: 0,
   busy: false,
+  // A board that has not loaded yet has not been refused either. The gate is
+  // driven by the host's answer, not by the absence of one, so the neutral
+  // context is permissive and the first refusal is what closes it.
+  canWriteSpecs: true,
 };

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_295
-status: in_progress
+status: done
 type: bugfix
 title: >-
   The empty string is a third session-identity state nothing intends, and half

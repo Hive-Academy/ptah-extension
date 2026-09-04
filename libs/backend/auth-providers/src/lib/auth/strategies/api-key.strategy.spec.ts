@@ -1,5 +1,5 @@
 ﻿/**
- * ApiKeyStrategy â€” unit specs.
+ * ApiKeyStrategy — unit specs.
  *
  * The API-key strategy multiplexes these flows:
  *   1. Direct Anthropic ('anthropic' / legacy 'apiKey'): read key from
@@ -314,7 +314,7 @@ describe('ApiKeyStrategy', () => {
       expect(result.details[0]).toContain('API key from environment');
     });
 
-    it('auth-required: no key anywhere â†’ configured=false, no env mutation', async () => {
+    it('auth-required: no key anywhere → configured=false, no env mutation', async () => {
       const harness = makeStrategy({ credentials: {} });
       const ctx = makeContext('anthropic');
 
@@ -406,7 +406,7 @@ describe('ApiKeyStrategy', () => {
       expect(result.configured).toBe(true);
     });
 
-    it('running proxy with no URL â†’ restart hint', async () => {
+    it('running proxy with no URL → restart hint', async () => {
       const harness = makeStrategy({
         providerKeys: { openrouter: 'sk-or-v1-abc' },
       });
@@ -421,7 +421,7 @@ describe('ApiKeyStrategy', () => {
       expect(result.errorMessage).toContain('Try restarting');
     });
 
-    it('start failure â†’ "check if a local port is available" hint', async () => {
+    it('start failure → "check if a local port is available" hint', async () => {
       const harness = makeStrategy({
         providerKeys: { openrouter: 'sk-or-v1-abc' },
       });
@@ -438,7 +438,7 @@ describe('ApiKeyStrategy', () => {
       expect(result.errorMessage).toContain('local port is available');
     });
 
-    it('auth-required: no OpenRouter key in SecretStorage â†’ configured=false, proxy not started', async () => {
+    it('auth-required: no OpenRouter key in SecretStorage → configured=false, proxy not started', async () => {
       const harness = makeStrategy({ providerKeys: {} });
 
       const result = await harness.strategy.configure(
@@ -563,7 +563,7 @@ describe('ApiKeyStrategy', () => {
       expect(result.details[0]).toContain('Moonshot');
     });
 
-    it('auth-required: no provider key in SecretStorage â†’ configured=false', async () => {
+    it('auth-required: no provider key in SecretStorage → configured=false', async () => {
       const harness = makeStrategy({ providerKeys: {} });
 
       const result = await harness.strategy.configure(makeContext('moonshot'));

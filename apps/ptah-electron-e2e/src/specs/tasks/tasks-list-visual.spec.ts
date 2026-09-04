@@ -10,12 +10,12 @@ import { test, expect } from '../../support/fixtures';
  * the two claims the layout was actually built on, because jsdom has no layout
  * and no scrolling:
  *
- *   1. A row is dramatically shorter than a card. Measured here from real
- *      bounding boxes, both layouts in the same window at the same width.
- *   2. `position: sticky` PINS. This is the defect the layout exists to fix,
- *      and it is also the one that silently does nothing when it is put on a
- *      `<tr>` instead of each `<th>` — a mistake no class-name assertion can
- *      catch, in either direction.
+ *   1. A row is shorter than a card while carrying MORE of the task — the
+ *      description and every metadata field. Measured here from real bounding
+ *      boxes, both layouts in the same window at the same width.
+ *   2. `position: sticky` PINS the group header. This is the defect the layout
+ *      exists to fix, and no class-name assertion can catch it in either
+ *      direction.
  *
  * The screenshots are for a human to judge density and hierarchy. The
  * assertions are what fail the build.
@@ -364,7 +364,7 @@ test.describe('Tasks list layout (visual + measured)', () => {
     );
 
     await ui.page.locator('[data-testid="tasks-view-mode-list"]').click();
-    const row = ui.page.locator('ptah-task-list tbody tr').first();
+    const row = ui.page.locator('[data-testid="task-row"]').first();
     await expect(row).toBeVisible();
     const rowBox = await row.boundingBox();
 
@@ -378,37 +378,34 @@ test.describe('Tasks list layout (visual + measured)', () => {
       `[tasks-list] card=${cardHeight.toFixed(1)}px row=${rowHeight.toFixed(1)}px ratio=${(cardHeight / rowHeight).toFixed(2)}x`,
     );
 
-    // The whole point of the layout. Deliberately a loose bound — this pins
-    // that the density win is real and survives a theme or font change, not
-    // that a row is exactly 40px.
+    // A row shows the description AND every metadata field the card shows, so
+    // it is no longer a 40px table row — but it must still be denser than the
+    // card. Deliberately a loose bound, so a theme or font change does not
+    // fail it.
     expect(
       rowHeight,
-      `a list row (${rowHeight}px) must be less than half a Kanban card (${cardHeight}px)`,
-    ).toBeLessThan(cardHeight / 2);
+      `a list row (${rowHeight}px) must be shorter than a Kanban card (${cardHeight}px)`,
+    ).toBeLessThan(cardHeight * 0.85);
     expect(rowHeight).toBeGreaterThan(0);
   });
 
-  test('the list renders every column with real metadata', async ({
+  test('the list renders every field with real metadata', async ({
     ui,
   }, testInfo) => {
     await openTasksList(ui);
     const page = ui.page;
 
-    for (const header of [
-      'Task',
-      'Description',
-      'Type',
-      // "Size", not "Estimate" — the longer word clipped to "ESTIMAT" at this
-      // column's width, and a header that cannot finish its own word is worse
-      // than a shorter one meaning the same thing.
-      'Size',
-      'Updated',
-      'Executor',
-      'Progress',
+    for (const field of [
+      'task-row-title',
+      'task-row-description',
+      'task-row-type',
+      'task-row-estimate',
+      'task-row-updated',
+      'task-row-executor',
     ]) {
       await expect(
-        page.locator('ptah-task-list thead th', { hasText: header }).first(),
-        `the ${header} column must render`,
+        page.locator(`[data-testid="${field}"]`).first(),
+        `the ${field} field must render`,
       ).toBeVisible();
     }
 
@@ -418,42 +415,38 @@ test.describe('Tasks list layout (visual + measured)', () => {
     ).toContainText('/');
 
     /**
-     * The Task column must actually HAVE a width.
+     * The title must stay on ONE line and must clip inside its own row.
      *
-     * It had ~8px on the first visual pass: eight px-sized columns summed past
-     * the pane, and table-fixed handed the single unsized column whatever was
-     * left. Every row's id and title then painted across Description. No unit
-     * test can see this — jsdom has no layout — so the width is pinned here,
-     * against the widest sibling it must beat.
+     * The row's main block is a `min-w-0` flex child. Without that, the block
+     * grows to its longest text, the title stops truncating, and the actions
+     * are pushed off the pane. jsdom has no layout, so it is pinned here.
      */
-    const taskHeader = page
-      .locator('ptah-task-list thead th', { hasText: 'Task' })
-      .first();
-    const descHeader = page
-      .locator('ptah-task-list thead th', { hasText: 'Description' })
-      .first();
-    const taskWidth = (await taskHeader.boundingBox())?.width ?? 0;
-    const descWidth = (await descHeader.boundingBox())?.width ?? 0;
-    // eslint-disable-next-line no-console
-    console.log(
-      `[tasks-list] taskCol=${taskWidth.toFixed(0)}px descCol=${descWidth.toFixed(0)}px`,
+    const firstRowMain = page.locator('[data-testid="task-row-main"]').first();
+    const mainBox = await firstRowMain.boundingBox();
+    const overflow = await firstRowMain.evaluate(
+      (el) => el.scrollWidth - el.clientWidth,
     );
     expect(
-      taskWidth,
-      'the Task column must be the widest — it carries the id AND the title',
-    ).toBeGreaterThan(descWidth);
-    expect(taskWidth).toBeGreaterThan(180);
+      overflow,
+      `the row's main block (${mainBox?.width.toFixed(0)}px) must clip its own content, not push the actions off the pane`,
+    ).toBeLessThanOrEqual(1);
+    expect(mainBox?.width ?? 0).toBeGreaterThan(180);
+
+    // The actions stay inside the pane, at the row's right edge.
+    const start = page.locator('[data-testid="task-row-start"]').first();
+    const startBox = await start.boundingBox();
+    const listBox = await page.locator('ptah-task-list').boundingBox();
+    expect(
+      (startBox?.x ?? 0) + (startBox?.width ?? 0),
+      'the Start button must sit inside the list pane',
+    ).toBeLessThanOrEqual((listBox?.x ?? 0) + (listBox?.width ?? 0) + 1);
 
     /**
-     * Every cell must fit on ONE line.
-     *
-     * "Aug 10, 2026" wrapped the Updated column onto two lines, which put ~8px
-     * of dead height on every row in the list — a density regression that is
-     * invisible in a unit test and easy to reintroduce with one more column or
-     * one longer format. Measured against the row's own line box.
+     * The description is capped at two lines, so a long body cannot turn one
+     * row into a page. Measured against the row's own line box.
      */
     const rowHeights = await page
-      .locator('ptah-task-list tbody tr')
+      .locator('[data-testid="task-row"]')
       .evaluateAll((rows) => rows.map((r) => r.getBoundingClientRect().height));
     const tallest = Math.max(...rowHeights);
     // eslint-disable-next-line no-console
@@ -462,24 +455,8 @@ test.describe('Tasks list layout (visual + measured)', () => {
     );
     expect(
       tallest,
-      'no row may wrap onto a second line — a single-line row is ~40px',
-    ).toBeLessThan(44);
-
-    // Nothing may paint outside its own cell: the id must not reach the
-    // Description column, which is what the missing overflow-hidden allowed.
-    const firstRowTaskCell = page
-      .locator('ptah-task-list tbody tr')
-      .first()
-      .locator('td')
-      .nth(1);
-    const cellBox = await firstRowTaskCell.boundingBox();
-    const overflow = await firstRowTaskCell.evaluate(
-      (el) => el.scrollWidth - el.clientWidth,
-    );
-    expect(
-      overflow,
-      `the Task cell (${cellBox?.width.toFixed(0)}px) must clip its own content, not spill into Description`,
-    ).toBeLessThanOrEqual(1);
+      'no row may grow past three text lines plus a metadata line',
+    ).toBeLessThan(110);
 
     await expect(
       page.locator('[data-testid="task-list-count-in_review"]'),
@@ -495,32 +472,28 @@ test.describe('Tasks list layout (visual + measured)', () => {
   /**
    * THE assertion this whole layout was built for.
    *
-   * `position: sticky` on a `<tr>` is silently ignored by Chromium — the only
-   * engine this ships on — so the class-name assertions in jsdom would pass
-   * just as happily over a header that scrolls away. This scrolls the real
-   * container and reads real coordinates.
+   * The class-name assertions in jsdom would pass just as happily over a
+   * header that scrolls away. This scrolls the real container and reads real
+   * coordinates.
    */
-  test('the group and column headers stay pinned while the rows scroll', async ({
+  test('the group header stays pinned while the rows scroll', async ({
     ui,
   }, testInfo) => {
     await openTasksList(ui);
     const page = ui.page;
 
     const scroller = page.locator('ptah-task-list > div');
-    // BOTH locators are scoped to the SAME section. Every group renders its own
-    // header and its own thead, so an unscoped `.first()` picks the topmost
-    // group in DOM order — which, once the list is scrolled, is a section that
-    // left the viewport, and the comparison measures nothing.
+    // Scoped to ONE section. Every group renders its own header, so an
+    // unscoped `.first()` picks the topmost group in DOM order — which, once
+    // the list is scrolled, is a section that left the viewport, and the
+    // comparison measures nothing.
     const section = page.locator('ptah-task-list section', {
       has: page.locator('[data-testid="task-list-group-in_review"]'),
     });
     const groupHeader = section.locator('header').first();
-    const columnHeader = section
-      .locator('thead th', { hasText: 'Task' })
-      .first();
 
     const firstRowIdBefore = await page
-      .locator('ptah-task-list tbody tr')
+      .locator('[data-testid="task-row"]')
       .first()
       .getAttribute('data-task-id');
 
@@ -536,17 +509,14 @@ test.describe('Tasks list layout (visual + measured)', () => {
 
     const scrollerBox = await scroller.boundingBox();
     const groupBox = await groupHeader.boundingBox();
-    const columnBox = await columnHeader.boundingBox();
 
     expect(groupBox, 'a group header must still be laid out').not.toBeNull();
-    expect(columnBox, 'a column header must still be laid out').not.toBeNull();
 
     const scrollerTop = scrollerBox?.y ?? 0;
     const groupTop = groupBox?.y ?? -1;
-    const columnTop = columnBox?.y ?? -1;
     // eslint-disable-next-line no-console
     console.log(
-      `[tasks-list] scrollTop=${scrolled} containerTop=${scrollerTop.toFixed(1)} groupHeaderTop=${groupTop.toFixed(1)} columnHeaderTop=${columnTop.toFixed(1)}`,
+      `[tasks-list] scrollTop=${scrolled} containerTop=${scrollerTop.toFixed(1)} groupHeaderTop=${groupTop.toFixed(1)}`,
     );
 
     // Pinned: the group header sits at the container's top edge even though
@@ -556,16 +526,9 @@ test.describe('Tasks list layout (visual + measured)', () => {
       'the group header must be pinned to the top of the scroll container',
     ).toBeLessThanOrEqual(2);
 
-    // And the column header sits directly beneath it — the h-8 / top-8 pair.
-    const groupHeight = groupBox?.height ?? 0;
-    expect(
-      Math.abs(columnTop - (groupTop + groupHeight)),
-      'the column header must pin directly under the group header, not slide beneath it',
-    ).toBeLessThanOrEqual(2);
-
     // Sanity: the rows really did move, so the pin is not just an unscrolled list.
     const firstRowIdAfter = await page
-      .locator('ptah-task-list tbody tr')
+      .locator('[data-testid="task-row"]')
       .first()
       .getAttribute('data-task-id');
     expect(firstRowIdAfter).toBe(firstRowIdBefore);
@@ -583,15 +546,15 @@ test.describe('Tasks list layout (visual + measured)', () => {
     await openTasksList(ui);
     const page = ui.page;
 
-    const reviewRows = page.locator('ptah-task-list tbody tr', {
-      has: page.locator('[data-task-id^="TASK_2026_3"]'),
-    });
-    const before = await page.locator('ptah-task-list tbody tr').count();
+    const reviewRows = page.locator(
+      '[data-testid="task-row"][data-task-id^="TASK_2026_3"]',
+    );
+    const before = await page.locator('[data-testid="task-row"]').count();
 
     await page.locator('[data-testid="task-list-group-in_review"]').click();
     await page.waitForTimeout(150);
 
-    const after = await page.locator('ptah-task-list tbody tr').count();
+    const after = await page.locator('[data-testid="task-row"]').count();
     expect(after, 'folding must remove that group’s rows').toBeLessThan(before);
     await expect(
       page.locator('[data-testid="task-list-group-in_review"]'),
@@ -640,12 +603,18 @@ test.describe('Tasks list layout (visual + measured)', () => {
       'the detail panel must take more than the old fixed 384px',
     ).toBeGreaterThan(384);
 
-    // Compact drops the scanning columns; Task and Type stay.
+    // Compact drops the description and the metadata; title and type stay.
     await expect(
-      page.locator('ptah-task-list thead th', { hasText: 'Description' }),
+      page.locator('[data-testid="task-row-description"]'),
     ).toHaveCount(0);
+    await expect(page.locator('[data-testid="task-row-updated"]')).toHaveCount(
+      0,
+    );
     await expect(
-      page.locator('ptah-task-list thead th', { hasText: 'Task' }).first(),
+      page.locator('[data-testid="task-row-title"]').first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-testid="task-row-type"]').first(),
     ).toBeVisible();
 
     await saveArtifact(

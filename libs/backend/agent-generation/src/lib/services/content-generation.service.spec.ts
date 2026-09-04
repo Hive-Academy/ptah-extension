@@ -29,7 +29,11 @@ jest.mock('fs', () => ({
   readFileSync: jest.fn().mockReturnValue('## Project Profile\n\nMock content'),
 }));
 
-import { ContentGenerationService } from './content-generation.service';
+import {
+  ContentGenerationService,
+  GenerationAbortedError,
+} from './content-generation.service';
+import type { GeneratedSectionValidator } from './generated-section-validator';
 import { AgentTemplate, AgentProjectContext } from '../types/core.types';
 import { Result } from '@ptah-extension/shared';
 import {
@@ -241,7 +245,7 @@ describe('ContentGenerationService', () => {
       expect(result.value!.content).toBe('');
     });
 
-    it('should return description as empty string when no LLM sections', async () => {
+    it('should return no warnings when there are no LLM sections', async () => {
       const template = {
         ...baseTemplate,
         content: '# Simple',
@@ -250,7 +254,7 @@ describe('ContentGenerationService', () => {
       const result = await service.generateContent(template, mockContext);
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.description).toBe('');
+      expect(result.value!.warnings).toEqual([]);
     });
 
     describe('conditional processing', () => {
@@ -355,7 +359,7 @@ Default content
                   description: 'NestJS backend developer',
                   sections: {
                     FRAMEWORK_SPECIFICS:
-                      '## NestJS Best Practices\n- Use modules',
+                      '## Framework conventions\n- Declare modules the way the framework already does.',
                   },
                 },
               }),
@@ -365,18 +369,51 @@ Default content
         const template = {
           ...baseTemplate,
           content: `<!-- LLM:FRAMEWORK_SPECIFICS -->
-## Placeholder
+## Framework conventions
+
+- Generic authored fallback.
 <!-- /LLM:FRAMEWORK_SPECIFICS -->`,
         };
 
         const result = await service.generateContent(template, mockContext);
 
         expect(result.isOk()).toBe(true);
-        expect(result.value!.content).toContain('## NestJS Best Practices');
-        expect(result.value!.content).not.toContain('## Placeholder');
+        expect(result.value!.content).toContain(
+          '- Declare modules the way the framework already does.',
+        );
+        expect(result.value!.content).not.toContain(
+          '- Generic authored fallback.',
+        );
+        expect(result.value!.warnings).toEqual([]);
       });
 
-      it('should return description from SDK structured output', async () => {
+      /**
+       * The agent `description` is authored metadata. The content pass used to
+       * ask the model for one as a second source, and once the template won
+       * that contest the generated value had no reachable success path — so it
+       * is gone from the schema and the prompt, not merely ignored downstream.
+       */
+      it('asks the schema for sections only, never a description', async () => {
+        const template = {
+          ...baseTemplate,
+          content: `<!-- LLM:FRAMEWORK_SPECIFICS -->
+Placeholder
+<!-- /LLM:FRAMEWORK_SPECIFICS -->`,
+        };
+
+        await service.generateContent(template, mockContext);
+
+        const callArgs = mockInternalQueryService.execute.mock.calls[0][0];
+        const schema = callArgs.outputFormat.schema as {
+          properties: Record<string, unknown>;
+          required: string[];
+        };
+        expect(Object.keys(schema.properties)).toEqual(['sections']);
+        expect(schema.required).toEqual(['sections']);
+        expect(callArgs.prompt).not.toContain('"description"');
+      });
+
+      it('ignores a description the model volunteers anyway', async () => {
         SdkStreamProcessorMock.mockImplementation(
           () =>
             ({
@@ -399,9 +436,8 @@ Placeholder
         const result = await service.generateContent(template, mockContext);
 
         expect(result.isOk()).toBe(true);
-        expect(result.value!.description).toBe(
-          'Backend developer for NestJS microservices',
-        );
+        expect(result.value).not.toHaveProperty('description');
+        expect(result.value!.content).toContain('content');
       });
 
       it('should fall back to template content when internalQueryService throws', async () => {
@@ -422,13 +458,19 @@ Fallback content A
         expect(result.value!.content).toContain('Fallback content A');
       });
 
-      it('should use template fallback for sections with empty SDK response', async () => {
+      /**
+       * An empty section is what the prompt ASKS for when the evidence cannot
+       * carry one — the model abstaining rather than padding to a length. The
+       * authored fallback is exactly what would have shipped anyway, so this
+       * must not read as a failure: no warning to the caller, no warn-level
+       * log, and nothing in the wizard's generation summary.
+       */
+      it('treats an empty section as an honest abstention, not a rejection', async () => {
         SdkStreamProcessorMock.mockImplementation(
           () =>
             ({
               process: jest.fn().mockResolvedValue({
                 structuredOutput: {
-                  description: '',
                   sections: { FRAMEWORK_SPECIFICS: '' },
                 },
               }),
@@ -446,6 +488,12 @@ Default content
 
         expect(result.isOk()).toBe(true);
         expect(result.value!.content).toContain('Default content');
+        expect(result.value!.warnings).toEqual([]);
+        expect(mockLogger.warn).not.toHaveBeenCalled();
+        expect(mockLogger.debug).toHaveBeenCalledWith(
+          expect.stringContaining('shipping the authored fallback'),
+          expect.objectContaining({ templateName: expect.any(String) }),
+        );
       });
 
       it('should handle multiple LLM sections in one call', async () => {
@@ -520,6 +568,242 @@ Fallback VAR content
 
         expect(result.isOk()).toBe(true);
         expect(result.value!.content).toContain('Fallback VAR content');
+      });
+    });
+
+    /**
+     * The prompt is the FIRST half of the no-numbers rule; the validator is the
+     * second. Pinning the instructions matters because a section that never
+     * mentions counts is one the validator never has to discard — and a
+     * discarded section costs a full SDK call and ships the generic fallback.
+     */
+    describe('LLM section prompt contract', () => {
+      async function promptFor(sectionId: string): Promise<string> {
+        const template = {
+          ...baseTemplate,
+          content: `<!-- LLM:${sectionId} -->
+## Heading
+Generic fallback.
+<!-- /LLM:${sectionId} -->`,
+        };
+        await service.generateContent(template, mockContext);
+        return mockInternalQueryService.execute.mock.calls[0][0]
+          .prompt as string;
+      }
+
+      async function systemPromptFor(sectionId: string): Promise<string> {
+        const template = {
+          ...baseTemplate,
+          content: `<!-- LLM:${sectionId} -->
+## Heading
+Generic fallback.
+<!-- /LLM:${sectionId} -->`,
+        };
+        await service.generateContent(template, mockContext);
+        return mockInternalQueryService.execute.mock.calls[0][0]
+          .systemPromptAppend as string;
+      }
+
+      it('forbids counts, versions, percentages and dates, and demands a cited path', async () => {
+        const prompt = await promptFor('FRAMEWORK_CONVENTIONS');
+
+        expect(prompt).toContain('No counts');
+        expect(prompt).toContain('no version numbers');
+        expect(prompt).toContain('no percentages');
+        expect(prompt).toContain('no dates');
+        expect(prompt).toContain('backticked path');
+        expect(prompt).toContain('8 to 15 lines');
+      });
+
+      it('tells the model to keep the blueprint heading verbatim', async () => {
+        const prompt = await promptFor('ARCHITECTURE_PATTERNS');
+        expect(prompt).toContain('keeping the blueprint\'s "## " heading');
+      });
+
+      it.each([
+        ['FRAMEWORK_CONVENTIONS', 'declares and wires'],
+        [
+          'ARCHITECTURE_PATTERNS',
+          'direction dependencies are allowed to point',
+        ],
+        ['BUILD_AND_DEPLOY_SURFACE', 'build, packaging and release surface'],
+        ['TEST_INFRASTRUCTURE', 'where tests live relative to the code'],
+        ['EXISTING_PATTERNS', 'extend rather than replace'],
+        ['REVIEW_FOCUS', 'looks at first'],
+      ])('gives %s a role-appropriate topic', async (id, marker) => {
+        expect(await promptFor(id)).toContain(marker);
+      });
+
+      it('falls back to the humanised id for a section it has no topic for', async () => {
+        // A new id should read as a thinner prompt, not a failed wizard.
+        const prompt = await promptFor('SOMETHING_NEW');
+        expect(prompt).toContain('WRITE ABOUT: Something New');
+      });
+
+      /**
+       * The call wires MCP tools through `resolveMcpSessionWiring`, so a
+       * sentence telling the model it has none was a lie it could act on —
+       * either by not checking a convention it could have confirmed, or by
+       * checking anyway and then citing under a rule written for a toolless
+       * run. The prompt now matches what is actually wired: reading is allowed,
+       * citing is still restricted to what was opened or listed.
+       */
+      it('does not claim the model is toolless, and bounds what it may cite', async () => {
+        const systemPrompt = await systemPromptFor('FRAMEWORK_CONVENTIONS');
+
+        expect(systemPrompt).not.toMatch(/no tools/i);
+        expect(systemPrompt).toContain('You MAY read a file');
+        expect(systemPrompt).toContain('paths you actually opened');
+      });
+
+      /**
+       * Thin evidence has to have an honest answer. Without one the model pads
+       * to the 8-15 line target with general advice, which is worse than the
+       * authored fallback and costs a validator rejection to find out.
+       */
+      it('tells the model to return an empty section rather than pad it', async () => {
+        const systemPrompt = await systemPromptFor('FRAMEWORK_CONVENTIONS');
+        const prompt = await promptFor('FRAMEWORK_CONVENTIONS');
+
+        expect(systemPrompt).toContain(
+          'return an empty string for that section',
+        );
+        expect(systemPrompt).toContain('authored fallback ships');
+        expect(prompt).toContain('fewer than about six distinct path-backed');
+      });
+    });
+
+    /**
+     * The enforcement half. `GeneratedSectionValidator` owns the rules; these
+     * pin that `fillDynamicSections` actually applies them, keeps the authored
+     * fallback when it rejects, and reports the rejection to the caller instead
+     * of swallowing it.
+     */
+    describe('post-generation validation', () => {
+      function withSections(sections: Record<string, string>): void {
+        SdkStreamProcessorMock.mockImplementation(
+          () =>
+            ({
+              process: jest.fn().mockResolvedValue({
+                structuredOutput: { sections },
+              }),
+            }) as never,
+        );
+      }
+
+      const template = {
+        ...baseTemplate,
+        content: `<!-- LLM:FRAMEWORK_CONVENTIONS -->
+## Framework conventions
+
+- Generic authored fallback.
+<!-- /LLM:FRAMEWORK_CONVENTIONS -->`,
+      };
+
+      it.each([
+        ['a version number', '## Framework conventions\n- Uses Angular 21.3.'],
+        [
+          'a count of repository contents',
+          '## Framework conventions\n- There are 15 libs behind the port layer.',
+        ],
+        [
+          'a percentage',
+          '## Framework conventions\n- Coverage sits around 72% today.',
+        ],
+        [
+          'a date',
+          '## Framework conventions\n- Migrated to standalone components in 2026.',
+        ],
+        [
+          'a renamed heading',
+          '## Angular conventions\n- Components are standalone.',
+        ],
+      ])('rejects %s and keeps the authored fallback', async (_why, text) => {
+        withSections({ FRAMEWORK_CONVENTIONS: text });
+
+        const result = await service.generateContent(template, mockContext);
+
+        expect(result.value!.content).toContain('- Generic authored fallback.');
+        expect(result.value!.warnings).toHaveLength(1);
+        expect(result.value!.warnings[0]).toContain('FRAMEWORK_CONVENTIONS');
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('rejected'),
+          expect.objectContaining({ reason: expect.any(String) }),
+        );
+      });
+
+      it.each([
+        [
+          'a measurement, not a census',
+          '## Framework conventions\n- Indent with 2 spaces; keep files under 700 lines.',
+        ],
+        [
+          'a file extension that is not a version',
+          '## Framework conventions\n- Contracts live in `rpc.types.ts`.',
+        ],
+      ])('accepts %s', async (_why, text) => {
+        withSections({ FRAMEWORK_CONVENTIONS: text });
+
+        const result = await service.generateContent(template, mockContext);
+
+        expect(result.value!.warnings).toEqual([]);
+        expect(result.value!.content).not.toContain(
+          '- Generic authored fallback.',
+        );
+      });
+
+      it('leaves VAR sections ungated — they exist to carry data', async () => {
+        const varTemplate = {
+          ...baseTemplate,
+          content: `<!-- VAR:PROJECT_CONTEXT -->
+## Project context
+Fallback.
+<!-- /VAR:PROJECT_CONTEXT -->`,
+        };
+        withSections({ PROJECT_CONTEXT: 'Monorepo with 15 packages.' });
+
+        const result = await service.generateContent(varTemplate, mockContext);
+
+        expect(result.value!.content).toContain('Monorepo with 15 packages.');
+        expect(result.value!.warnings).toEqual([]);
+      });
+
+      it('rejects a section citing a path the analysis never surfaced', async () => {
+        const ctx: AgentProjectContext = {
+          ...mockContext,
+          relevantFiles: [
+            { relativePath: 'src/main.ts' } as never,
+            { relativePath: 'src/app/app.module.ts' } as never,
+          ],
+        };
+        withSections({
+          FRAMEWORK_CONVENTIONS:
+            '## Framework conventions\n- Register providers in `src/invented/nowhere.ts`.',
+        });
+
+        const result = await service.generateContent(template, ctx);
+
+        expect(result.value!.warnings[0]).toContain('src/invented/nowhere.ts');
+        expect(result.value!.content).toContain('- Generic authored fallback.');
+      });
+
+      it('accepts a section citing a path the analysis did surface', async () => {
+        const ctx: AgentProjectContext = {
+          ...mockContext,
+          relevantFiles: [
+            { relativePath: 'src/main.ts' } as never,
+            { relativePath: 'src/app/app.module.ts' } as never,
+          ],
+        };
+        withSections({
+          FRAMEWORK_CONVENTIONS:
+            '## Framework conventions\n- Bootstrap happens in `src/main.ts`; modules are declared in `src/app`.',
+        });
+
+        const result = await service.generateContent(template, ctx);
+
+        expect(result.value!.warnings).toEqual([]);
+        expect(result.value!.content).toContain('Bootstrap happens in');
       });
     });
 
@@ -786,7 +1070,7 @@ Default
 
     it('should emit a message_start status event when onStreamEvent is provided', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: 'desc', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
       });
       const events: unknown[] = [];
       const onStreamEvent = jest.fn((e: unknown) => events.push(e));
@@ -829,7 +1113,7 @@ default
 
     it('should provide a toolCallIdFactory that generates gen-<agentId>-<index>-<timestamp> IDs', async () => {
       const { emitConfig } = configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
       });
 
       const template = {
@@ -856,7 +1140,7 @@ default
 
     it('should fall back to "unknown" agentId in toolCallIdFactory when agentId is empty', async () => {
       const { emitConfig } = configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
       });
 
       // Use a template with empty name to exercise the `|| 'unknown'` branch.
@@ -880,7 +1164,7 @@ default
 
     it('should convert text/thinking/tool_start/tool_input/tool_result stream events into flat events', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
         eventsToEmit: [
           { kind: 'text', content: 'hello world', timestamp: 1 },
           { kind: 'thinking', content: 'pondering', timestamp: 2 },
@@ -950,7 +1234,7 @@ default
 
     it('should fall back to activeToolCallId when tool_input/tool_result lack an explicit ID', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
         eventsToEmit: [
           {
             kind: 'tool_start',
@@ -1001,7 +1285,7 @@ default
 
     it('should fabricate a tool-unk ID when tool_input/tool_result arrive with no active tool', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
         eventsToEmit: [
           { kind: 'tool_input', content: 'orphan input', timestamp: 1 },
           { kind: 'tool_result', content: 'orphan result', timestamp: 2 },
@@ -1036,7 +1320,7 @@ default
 
     it('should fabricate a tool-<counter> ID when tool_start has no toolCallId', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
         eventsToEmit: [
           {
             kind: 'tool_start',
@@ -1075,7 +1359,7 @@ default
 
     it('should default tool_start toolName to "unknown" when omitted', async () => {
       configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
         eventsToEmit: [
           {
             kind: 'tool_start',
@@ -1114,7 +1398,7 @@ default
 
     it('should NOT invoke onStreamEvent when no callback is supplied (emitter is a no-op wrapper)', async () => {
       const { emitConfig } = configureStreamProcessor({
-        structuredOutput: { description: '', sections: { S: 'c' } },
+        structuredOutput: { sections: { S: 'c' } },
       });
 
       const template = {
@@ -1208,7 +1492,7 @@ fallback body
       } as AgentProjectContext;
     }
 
-    it('should include monorepoType, relevant files, and the entire fullAnalysis block in the prompt', async () => {
+    it('should include monorepoType, relevant files, and the naming half of fullAnalysis', async () => {
       const richContext = makeRichContext();
       const template = {
         ...baseTemplate,
@@ -1225,20 +1509,47 @@ Default
       expect(prompt).toContain('Monorepo Type: nx');
       expect(prompt).toContain('Key Files: src/main.ts, src/app.module.ts');
       expect(prompt).toContain('Project Description: NestJS API server');
-      expect(prompt).toContain(
-        'Architecture Patterns: Layered (92% confidence)',
-      );
-      expect(prompt).toContain('DDD (81% confidence)');
-      expect(prompt).toContain('Language Distribution: TypeScript 95%');
-      expect(prompt).toContain('JavaScript 5%');
-      expect(prompt).toContain('Test Coverage: 72% estimated');
-      expect(prompt).toContain('framework: jest');
-      expect(prompt).toContain('unit: true');
-      expect(prompt).toContain('integration: false');
-      expect(prompt).toContain('Code Issues: 3 errors, 12 warnings');
+      expect(prompt).toContain('Architecture Patterns: Layered, DDD');
+      expect(prompt).toContain('Test Setup: framework jest');
+      expect(prompt).toContain('unit tests present');
       expect(prompt).toContain('Key File Locations:');
       expect(prompt).toContain('src/main.ts');
       expect(prompt).toContain('src/services/user.service.ts');
+    });
+
+    /**
+     * The model reproduces the shape of what it is shown.
+     *
+     * Every number the analysis carries used to be pasted into the prompt, and
+     * the sections came back reading like a dashboard — "92% confidence",
+     * "3 errors, 12 warnings", "72% coverage" — all of it stale before the
+     * wizard finished. The validator would now discard those sections, which is
+     * a wasted SDK call and a lost section. Cheaper to never show the numbers.
+     */
+    it('shows the model no confidence score, distribution, coverage figure or issue tally', async () => {
+      const richContext = makeRichContext();
+      const template = {
+        ...baseTemplate,
+        content: `<!-- LLM:SECTION_A -->
+Default
+<!-- /LLM:SECTION_A -->`,
+      };
+
+      await service.generateContent(template, richContext);
+
+      const prompt = mockInternalQueryService.execute.mock.calls[0][0]
+        .prompt as string;
+      const analysisBlock = prompt.slice(
+        prompt.indexOf('PROJECT ANALYSIS DATA'),
+        prompt.indexOf('## SECTIONS TO FILL'),
+      );
+
+      expect(analysisBlock).not.toContain('92%');
+      expect(analysisBlock).not.toContain('confidence');
+      expect(analysisBlock).not.toContain('Language Distribution');
+      expect(analysisBlock).not.toContain('72%');
+      expect(analysisBlock).not.toContain('Code Issues');
+      expect(analysisBlock).not.toMatch(/\d+\s*%/);
     });
 
     it('should label test framework as "unknown" when testCoverage.testFramework is missing', async () => {
@@ -1264,7 +1575,8 @@ x
 
       const prompt = mockInternalQueryService.execute.mock.calls[0][0]
         .prompt as string;
-      expect(prompt).toContain('framework: unknown');
+      expect(prompt).toContain('Test Setup: framework unknown');
+      expect(prompt).toContain('no test kinds detected');
     });
 
     it('should omit fullAnalysis blocks when their fields are empty/missing', async () => {
@@ -1292,9 +1604,7 @@ x
         .prompt as string;
       expect(prompt).not.toContain('Project Description:');
       expect(prompt).not.toContain('Architecture Patterns:');
-      expect(prompt).not.toContain('Language Distribution:');
-      expect(prompt).not.toContain('Test Coverage:');
-      expect(prompt).not.toContain('Code Issues:');
+      expect(prompt).not.toContain('Test Setup:');
       expect(prompt).not.toContain('Key File Locations:');
     });
 
@@ -1590,5 +1900,207 @@ x
       expect(prompt).toContain('Project Type: Node');
       expect(prompt).toContain('Frameworks: Express');
     });
+  });
+});
+
+// =============================================================================
+// Abort signal and section counts (TASK_2026_361)
+// =============================================================================
+
+describe('ContentGenerationService — abort signal and section counts', () => {
+  const template: AgentTemplate = {
+    ...baseTemplate,
+    content: [
+      '<!-- LLM:SECTION_A -->',
+      'Fallback A',
+      '<!-- /LLM:SECTION_A -->',
+      '<!-- LLM:SECTION_B -->',
+      'Fallback B',
+      '<!-- /LLM:SECTION_B -->',
+      '<!-- VAR:SECTION_C -->',
+      'Fallback C',
+      '<!-- /VAR:SECTION_C -->',
+    ].join('\n'),
+  };
+
+  function build(validator?: { accept: (sectionId: string) => boolean }): {
+    service: ContentGenerationService;
+    execute: jest.Mock;
+  } {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const execute = jest.fn().mockResolvedValue({
+      stream: makeStream(null),
+      abort: jest.fn(),
+      close: jest.fn(),
+    });
+    const modelSettings = { selectedModel: { get: () => 'model' } };
+    const sectionValidator = {
+      buildPathIndex: jest.fn(() => ({})),
+      validate: jest.fn(async ({ sectionId }: { sectionId: string }) =>
+        (validator?.accept(sectionId) ?? true)
+          ? { accepted: true, violations: [] }
+          : { accepted: false, violations: ['states a version number'] },
+      ),
+    } as unknown as GeneratedSectionValidator;
+    const service = new ContentGenerationService(
+      logger as never,
+      { execute } as never,
+      modelSettings as never,
+      null,
+      sectionValidator,
+    );
+    return { service, execute };
+  }
+
+  it('links an external abort to the SDK controller and rethrows without fallback content', async () => {
+    const { service, execute } = build();
+    const controller = new AbortController();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn(async () => {
+            controller.abort('user_cancelled');
+            throw new Error('AbortError');
+          }),
+        }) as never,
+    );
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(GenerationAbortedError);
+
+    const passedController = execute.mock.calls[0][0]
+      .abortController as AbortController;
+    expect(passedController.signal.aborted).toBe(true);
+    expect(passedController.signal.reason).toBe('user_cancelled');
+  });
+
+  it('rethrows even when the stream ends quietly after an external abort', async () => {
+    const { service } = build();
+    const controller = new AbortController();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn(async () => {
+            controller.abort('generation_timeout');
+            return { structuredOutput: null };
+          }),
+        }) as never,
+    );
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow('generation_timeout');
+  });
+
+  it('throws immediately for an already-aborted signal without calling the SDK', async () => {
+    const { service, execute } = build();
+    const controller = new AbortController();
+    controller.abort('user_cancelled');
+
+    await expect(
+      service.generateContent(template, mockContext, {
+        mcpServerRunning: false,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(GenerationAbortedError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('removes its abort listener when the call settles', async () => {
+    const { service } = build();
+    const controller = new AbortController();
+    const removeSpy = jest.spyOn(controller.signal, 'removeEventListener');
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({ structuredOutput: null }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+      abortSignal: controller.signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('counts validator rejections and accepted non-empty replacements', async () => {
+    const { service } = build({ accept: (id) => id !== 'SECTION_B' });
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({
+            structuredOutput: {
+              sections: {
+                SECTION_A: '## A\n- `src/a.ts` rule',
+                SECTION_B: '## B\n- something',
+                SECTION_C: 'npm',
+              },
+            },
+          }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.rejectedSections).toBe(1);
+    expect(result.value!.tailoredSections).toBe(2);
+    expect(result.value!.warnings).toHaveLength(1);
+    expect(result.value!.content).toContain('Fallback B');
+    expect(result.value!.content).toContain('`src/a.ts` rule');
+  });
+
+  it('reports zero tailored sections when the SDK returns no structured output', async () => {
+    const { service } = build();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({ structuredOutput: null }),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.rejectedSections).toBe(0);
+    expect(result.value!.tailoredSections).toBe(0);
+    expect(result.value!.content).toContain('Fallback A');
+  });
+
+  it('still falls back to authored content for an internal (non-external) failure', async () => {
+    const { service } = build();
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockRejectedValue(new Error('socket hang up')),
+        }) as never,
+    );
+
+    const result = await service.generateContent(template, mockContext, {
+      mcpServerRunning: false,
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.content).toContain('Fallback A');
   });
 });

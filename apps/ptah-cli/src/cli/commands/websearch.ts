@@ -4,14 +4,13 @@
  * Sub-commands (per task-description.md §3.1) — all delegate to the shared
  * WebSearchRpcHandlers:
  *
- *   status                          RPC `webSearch:getApiKeyStatus` (per
- *                                   provider — gathered for the active
- *                                   provider only)
+ *   status [--provider <p[,p]>]     RPC `webSearch:getApiKeyStatus` (once per
+ *                                   configured provider, or per override)
  *   set-key --provider <p> --key <k>  RPC `webSearch:setApiKey`
  *   remove-key --provider <p>       RPC `webSearch:deleteApiKey`
  *   test                            RPC `webSearch:test`
  *   config get                      RPC `webSearch:getConfig`
- *   config set --provider <p> --max-results <n>   RPC `webSearch:setConfig`
+ *   config set --provider <p[,p]> --max-results <n>   RPC `webSearch:setConfig`
  *
  * `status` and `config get` redact secrets unless `--reveal` is set globally.
  *
@@ -24,6 +23,10 @@ import { redact } from '../output/redactor.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+
+const VALID_WEBSEARCH_PROVIDERS = ['tavily', 'serper', 'exa'] as const;
+
+type WebSearchProvider = (typeof VALID_WEBSEARCH_PROVIDERS)[number];
 
 export type WebsearchSubcommand =
   | 'status'
@@ -65,7 +68,7 @@ export async function execute(
   try {
     switch (opts.subcommand) {
       case 'status':
-        return await runStatus(opts, globals, formatter, engine);
+        return await runStatus(opts, globals, formatter, stderr, engine);
       case 'set-key':
         return await runSetKey(opts, globals, formatter, stderr, engine);
       case 'remove-key':
@@ -96,31 +99,43 @@ async function runStatus(
   opts: WebsearchOptions,
   globals: GlobalOptions,
   formatter: Formatter,
+  stderr: WebsearchStderrLike,
   engine: typeof withEngine,
 ): Promise<number> {
+  const overrides =
+    opts.provider === undefined
+      ? undefined
+      : parseProviderList(opts.provider, stderr, 'status');
+  if (overrides === null) return ExitCode.UsageError;
+
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    const config = await callRpc<{ provider?: string; maxResults?: number }>(
-      ctx.transport,
-      'webSearch:getConfig',
-      {},
-    );
-    const provider = opts.provider ?? config?.provider ?? 'tavily';
-    const status = await callRpc<{ configured?: boolean }>(
-      ctx.transport,
-      'webSearch:getApiKeyStatus',
-      { provider },
-    );
-    await formatter.writeNotification(
-      'websearch.status',
-      redact(
-        {
-          provider,
-          configured: status?.configured === true,
-          maxResults: config?.maxResults,
-        },
-        { reveal: globals.reveal },
-      ),
-    );
+    const config = await callRpc<{
+      providers?: WebSearchProvider[];
+      maxResults?: number;
+    }>(ctx.transport, 'webSearch:getConfig', {});
+    const configuredProviders = config?.providers?.length
+      ? config.providers
+      : ['tavily'];
+    const providers = overrides ?? configuredProviders;
+
+    for (const provider of providers) {
+      const status = await callRpc<{ configured?: boolean }>(
+        ctx.transport,
+        'webSearch:getApiKeyStatus',
+        { provider },
+      );
+      await formatter.writeNotification(
+        'websearch.status',
+        redact(
+          {
+            provider,
+            configured: status?.configured === true,
+            maxResults: config?.maxResults,
+          },
+          { reveal: globals.reveal },
+        ),
+      );
+    }
     return ExitCode.Success;
   });
 }
@@ -187,14 +202,19 @@ async function runTest(
   return engine(globals, { mode: 'full' }, async (ctx) => {
     const result = await callRpc<{
       success?: boolean;
-      provider?: string;
-      error?: string;
+      results?: Array<{
+        provider: string;
+        success: boolean;
+        error?: string;
+      }>;
     }>(ctx.transport, 'webSearch:test', {});
-    await formatter.writeNotification('websearch.test', {
-      success: result?.success === true,
-      provider: result?.provider,
-      error: result?.error,
-    });
+    for (const providerResult of result?.results ?? []) {
+      await formatter.writeNotification('websearch.test', {
+        provider: providerResult.provider,
+        success: providerResult.success,
+        error: providerResult.error,
+      });
+    }
     return result?.success === true ? ExitCode.Success : ExitCode.GeneralError;
   });
 }
@@ -231,9 +251,16 @@ async function runConfigSet(
     );
     return ExitCode.UsageError;
   }
+
+  const providers =
+    opts.provider === undefined
+      ? undefined
+      : parseProviderList(opts.provider, stderr, 'config set');
+  if (providers === null) return ExitCode.UsageError;
+
   return engine(globals, { mode: 'full' }, async (ctx) => {
     const params: Record<string, unknown> = {};
-    if (opts.provider !== undefined) params['provider'] = opts.provider;
+    if (providers !== undefined) params['providers'] = providers;
     if (opts.maxResults !== undefined) params['maxResults'] = opts.maxResults;
     await callRpc<{ success?: boolean }>(
       ctx.transport,
@@ -243,6 +270,42 @@ async function runConfigSet(
     await formatter.writeNotification('websearch.config', params);
     return ExitCode.Success;
   });
+}
+
+function parseProviderList(
+  raw: string,
+  stderr: WebsearchStderrLike,
+  command: string,
+): WebSearchProvider[] | null {
+  const values = Array.from(
+    new Set(
+      raw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+
+  if (values.length === 0) {
+    stderr.write(
+      `ptah websearch ${command}: --provider must contain at least one provider (tavily, serper, or exa)\n`,
+    );
+    return null;
+  }
+
+  const unknown = values.filter((value) => !isWebSearchProvider(value));
+  if (unknown.length > 0) {
+    stderr.write(
+      `ptah websearch ${command}: unknown provider${unknown.length === 1 ? '' : 's'} '${unknown.join(', ')}'; expected tavily, serper, or exa\n`,
+    );
+    return null;
+  }
+
+  return values.filter(isWebSearchProvider);
+}
+
+function isWebSearchProvider(value: string): value is WebSearchProvider {
+  return (VALID_WEBSEARCH_PROVIDERS as readonly string[]).includes(value);
 }
 
 function wrapResult(result: unknown): Record<string, unknown> {

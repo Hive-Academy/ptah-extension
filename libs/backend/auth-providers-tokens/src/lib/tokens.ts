@@ -8,6 +8,8 @@ export const AUTH_PROVIDERS_TOKENS = {
     'SdkWorkspaceProviderProfileResolver',
   ),
   SDK_PROVIDER_PROXY_POOL: Symbol.for('SdkProviderProxyPool'),
+  /** The shared 429 cooldown record. See `auth/provider-quota.store.ts`. */
+  SDK_PROVIDER_QUOTA_STORE: Symbol.for('SdkProviderQuotaStore'),
 
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),

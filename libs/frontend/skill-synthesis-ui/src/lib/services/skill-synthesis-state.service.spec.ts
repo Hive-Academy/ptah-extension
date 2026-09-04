@@ -47,6 +47,62 @@ function makeRpc(): jest.Mocked<
   >;
 }
 
+describe('SkillSynthesisStateService — candidate scope', () => {
+  function setup() {
+    const rpc = {
+      listCandidates: jest.fn(async () => []),
+    } as unknown as jest.Mocked<
+      Pick<SkillSynthesisRpcService, 'listCandidates'>
+    >;
+    TestBed.configureTestingModule({
+      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+    });
+    const svc = TestBed.inject(SkillSynthesisStateService);
+    return { svc, rpc };
+  }
+
+  it('defaults to the current workspace', async () => {
+    // The narrow default is the fix: every project on the machine shares one
+    // database, so an unscoped list showed a freshly opened project every
+    // other project's pending captures.
+    const { svc, rpc } = setup();
+    expect(svc.scopeFilter()).toBe('workspace');
+
+    await svc.refreshCandidates();
+
+    // `status: 'all'` is the status filter's own default, untouched here.
+    expect(rpc.listCandidates).toHaveBeenCalledWith({
+      status: 'all',
+      scope: 'workspace',
+    });
+  });
+
+  it('setScopeFilter widens to all projects and reloads', async () => {
+    const { svc, rpc } = setup();
+
+    await svc.setScopeFilter('all');
+
+    expect(svc.scopeFilter()).toBe('all');
+    expect(rpc.listCandidates).toHaveBeenCalledWith({
+      status: 'all',
+      scope: 'all',
+    });
+  });
+
+  it('the scope travels with a status change, not just with a scope change', async () => {
+    const { svc, rpc } = setup();
+    await svc.setScopeFilter('all');
+    rpc.listCandidates.mockClear();
+
+    await svc.setStatusFilter('promoted');
+
+    expect(rpc.listCandidates).toHaveBeenCalledWith({
+      status: 'promoted',
+      scope: 'all',
+    });
+  });
+});
+
 describe('SkillSynthesisStateService — suggestions', () => {
   function setup(rpc = makeRpc()) {
     TestBed.configureTestingModule({

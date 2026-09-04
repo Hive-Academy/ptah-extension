@@ -99,6 +99,12 @@ export class SubagentRegistryService {
       registration.teammateName ??
       this.store.consumePendingTeammateName(registration.toolCallId);
 
+    // Prefer a taskId already on the registration (e.g. history replay); otherwise
+    // consume the pending taskId captured from the SDK task_started event before the hook.
+    const taskId =
+      registration.taskId ??
+      this.store.consumePendingTaskId(registration.toolCallId);
+
     const record: SubagentRecord = {
       ...registration,
       status: isPendingBackground
@@ -109,6 +115,7 @@ export class SubagentRegistryService {
         backgroundStartedAt: Date.now(),
       }),
       ...(teammateName ? { teammateName } : {}),
+      ...(taskId ? { taskId } : {}),
     };
 
     this.store.set(registration.toolCallId, record);
@@ -411,9 +418,10 @@ export class SubagentRegistryService {
   setTaskId(toolCallId: string, taskId: string): void {
     const record = this.store.getRaw(toolCallId);
     if (!record) {
+      this.store.markPendingTaskId(toolCallId, taskId);
       this.logger.debug(
         '[SubagentRegistryService.setTaskId] Record not found, cannot set taskId',
-        { toolCallId, taskId },
+        { toolCallId, taskId, buffered: true },
       );
       return;
     }

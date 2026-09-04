@@ -21,7 +21,6 @@ import {
   ToolFailureCallbackRegistry,
   SessionEndHookCallbackRegistry,
   CuratorRateLimitService,
-  PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
   SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -189,13 +188,6 @@ function buildTestContainer(): DependencyContainer {
     { lifecycle: Lifecycle.Singleton },
   );
   c.register(
-    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
-    {
-      useClass: PreToolUseCallbackRegistry,
-    },
-    { lifecycle: Lifecycle.Singleton },
-  );
-  c.register(
     SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
     {
       useClass: SessionStartCallbackRegistry,
@@ -226,6 +218,7 @@ function buildTestContainer(): DependencyContainer {
       start: jest.fn(),
       stop: jest.fn(),
       curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
         success: true,
         memoriesUpserted: 0,
         topMemoryIds: [],

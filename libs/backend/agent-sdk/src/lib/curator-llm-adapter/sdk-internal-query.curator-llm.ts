@@ -3,6 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type ICuratorLLM,
+  type CuratorExtraction,
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,
 } from '@ptah-extension/memory-contracts';
@@ -16,7 +17,14 @@ import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
-import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
+import {
+  isAssistantMessage,
+  isErrorResult,
+  isResultMessage,
+  isTextBlock,
+  isToolUseBlock,
+  type SDKMessage,
+} from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
   buildExtractUserPrompt,
@@ -36,11 +44,83 @@ const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
 const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
 /**
- * Matched by `name` rather than `instanceof` because the error class lives in
- * `auth-providers`, which depends on this lib — importing it here would close
- * the cycle. Kept in sync with `ProviderAuthError`'s constructor.
+ * The two resolver throws the curator recognises, matched by `name` rather than
+ * `instanceof` because both classes live in `auth-providers`, which depends on
+ * this lib — importing either here would close the cycle. Kept in sync with
+ * `ProviderAuthError`'s and `ProviderQuotaError`'s constructors, and with
+ * `skill-synthesis`'s identical mirrors in `lanes/lane-auth-resolver.port.ts`.
+ *
+ * ## The curator answers them DIFFERENTLY, and that is the whole point
+ *
+ * `ProviderAuthError` — the curator provider is configured but unusable. The
+ * curator FALLS BACK to the active provider, a deliberate divergence from
+ * skill-synthesis lanes (which stall) recorded when this adapter was written:
+ * curation is small, cheap, and runs on behalf of a user who is present, so
+ * riding the foreground provider is better than silently curating nothing.
+ * That behaviour is unchanged.
+ *
+ * `ProviderQuotaError` — the provider that would actually be dialled is
+ * rate-limited. The curator STOPS for this pass. The auth fallback is exactly
+ * wrong here for two reasons: `''` (no curator provider pinned) resolves TO the
+ * active provider, so "fall back to active" would very often mean "retry the
+ * provider that just said no"; and where the curator provider IS separate, the
+ * fallback would move an exhausted provider's work onto the user's foreground
+ * quota, which is the defect the gate exists to stop.
+ *
+ * Stopping means returning nothing for this pass, never throwing:
+ * `ICuratorLLM`'s contract does not grow a failure mode. It DOES grow a
+ * discriminator — `extract` resolves `{ status: 'stalled' }` rather than an
+ * empty draft list (TASK_2026_306 Batch 10) — because "stopped" and "ran and
+ * found nothing" are the same bytes otherwise, and the caller destroys its own
+ * input when it cannot tell them apart. Still a resolve, still no throw.
  */
 const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
+const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
+
+/**
+ * What `resolveCuratorAuth` decided. `'ride-active'` is the pre-existing
+ * `undefined` — either nothing to override, or the documented auth fallback —
+ * and `'cooling-down'` is the new quota stop.
+ *
+ * A discriminated result rather than a second `undefined` because the two mean
+ * opposite things to the caller: one says "go, on the active provider", the
+ * other says "do not go at all". Collapsing them into `undefined` is precisely
+ * how a quota stall would walk straight into the fallback.
+ */
+type CuratorAuthDecision =
+  | { readonly kind: 'ride-active' }
+  | { readonly kind: 'override'; readonly auth: OneShotAuthOverride }
+  | { readonly kind: 'cooling-down'; readonly providerId: string };
+
+/**
+ * What one `runQuery` call produced.
+ *
+ * `runQuery` used to answer `''` for the quota stall, which is the exact point
+ * where the information was lost: `''` is also what a model that replied with
+ * nothing produces, and by the time `parseDrafts` has turned both into `[]` the
+ * distinction is unrecoverable. Carrying it here — the earliest point it
+ * exists — is what lets `extract` publish `status: 'stalled'` without
+ * reconstructing anything.
+ *
+ * The same collapse happened a second time, one layer down, and TASK_2026_376
+ * F8 is that repeat. With tools reachable (`resolveMcpSessionWiring` below) a
+ * run can spend every turn calling them and emit no assistant text at all. The
+ * old collector gathered text ONLY, so that run reached the caller as `''` —
+ * byte-identical to a model that answered nothing, and byte-identical to a run
+ * that never started. Three different events, one value. `tools-only` and
+ * `silent` are separate arms for the same reason `cooling-down` is: the caller
+ * acts differently on them, and a discriminator is the only thing a `''` cannot
+ * be mistaken for.
+ */
+type CuratorQueryOutcome =
+  | { readonly kind: 'text'; readonly text: string; readonly toolUses: number }
+  | {
+      readonly kind: 'tools-only';
+      readonly toolUses: number;
+      readonly toolNames: readonly string[];
+    }
+  | { readonly kind: 'silent' }
+  | { readonly kind: 'cooling-down'; readonly providerId: string };
 
 /**
  * What the curator asks for when the user has pinned no explicit model.
@@ -61,6 +141,49 @@ const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
  * Haiku is the right tier: curation is high-volume, low-reasoning summarisation.
  */
 export const CURATOR_DEFAULT_MODEL_TIER = 'haiku';
+
+/**
+ * The curator's bounded turn budget.
+ *
+ * ## What `maxTurns` means, verified rather than assumed
+ *
+ * Read out of the installed `@anthropic-ai/claude-agent-sdk@0.3.150`:
+ *
+ *  - `Options.maxTurns` (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1527-1530`):
+ *    "Maximum number of conversation turns before the query stops. A turn
+ *    consists of a user message and assistant response."
+ *  - `AgentDefinition.maxTurns` (same file, `:73-75`) states the unit outright:
+ *    "Maximum number of agentic turns (API round-trips) before stopping".
+ *  - Exceeding it is a RESULT, not a throw: `SDKResultError.subtype` includes
+ *    `'error_max_turns'` (`:3402`) and `TerminalReason` includes `'max_turns'`
+ *    (`:5687`).
+ *  - `SdkQueryRunner` forwards the number to the CLI as `--max-turns`, so the
+ *    ceiling is enforced by the `claude` binary, not by this process.
+ *
+ * One turn is therefore ONE API round-trip. `maxTurns: 1` — what this used to
+ * be — buys the model exactly one assistant response. It may emit `tool_use`
+ * blocks in it, and the SDK will even run the tools, but delivering the
+ * `tool_result` back needs a SECOND round-trip, and that one never happens.
+ * The model never observes what its own tool call returned and never writes the
+ * JSON that follows from it. The MCP wiring three lines above `maxTurns` was
+ * attached and unreachable (TASK_2026_376 F8).
+ *
+ * ## Why 6
+ *
+ * Two is the floor: call, observe, answer. Six is the floor plus room for a
+ * short chain — search memory, read a file the transcript named, then answer —
+ * which is the shape curation actually has.
+ *
+ * It stays a BOUND, and a small one. `DEFAULT_ONE_SHOT_MAX_TURNS` is 25
+ * (`helpers/sdk-query-runner.service.ts:66`); the curator asks for a quarter of
+ * that because it runs behind a 60-second per-lane queue budget
+ * (`DEFAULT_QUEUE_TIMEOUT_MS`, `internal-query/internal-query.service.ts`) on a
+ * lane whose `perLaneLimit` is 1. Every turn this run spends is a turn the next
+ * curation window waits, and a window that waits past the budget is DROPPED
+ * (TASK_2026_376 F4). A generous ceiling here is not free latency — it is the
+ * next window's data loss. Raise it only with that trade in hand.
+ */
+export const CURATOR_MAX_TURNS = 6;
 
 @injectable()
 export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
@@ -85,19 +208,29 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     return (typeof rawProvider === 'string' ? rawProvider : '').trim();
   }
 
-  private async resolveCuratorAuth(): Promise<OneShotAuthOverride | undefined> {
-    if (!this.resolver) return undefined;
+  private async resolveCuratorAuth(): Promise<CuratorAuthDecision> {
+    if (!this.resolver) return { kind: 'ride-active' };
     const curatorProviderId = this.resolveCuratorProviderId();
     try {
       const auth = await this.resolver.resolve(curatorProviderId);
-      return auth ?? undefined;
+      return auth ? { kind: 'override', auth } : { kind: 'ride-active' };
     } catch (error: unknown) {
+      if (error instanceof Error && error.name === PROVIDER_QUOTA_ERROR_NAME) {
+        // The quota branch. See the constants' docblock for why this does NOT
+        // reuse the auth fallback below: the provider a fallback would ride is
+        // frequently the very one that is rate-limited.
+        this.logger.warn(
+          '[memory-curator] curator provider is rate-limited; skipping this curation pass until its quota refills',
+          { error: error.message, curatorProviderId },
+        );
+        return { kind: 'cooling-down', providerId: curatorProviderId };
+      }
       if (error instanceof Error && error.name === PROVIDER_AUTH_ERROR_NAME) {
         this.logger.warn(
           '[memory-curator] curator provider auth unavailable; riding active provider',
           { error: error.message, curatorProviderId },
         );
-        return undefined;
+        return { kind: 'ride-active' };
       }
       throw error;
     }
@@ -138,15 +271,56 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   async extract(
     transcript: string,
     signal?: AbortSignal,
-  ): Promise<readonly ExtractedMemoryDraft[]> {
-    const text = await this.runQuery(
+  ): Promise<CuratorExtraction> {
+    const outcome = await this.runQuery(
       EXTRACT_SYSTEM_PROMPT,
       buildExtractUserPrompt(transcript),
       signal,
     );
-    return this.parseDrafts(text);
+    if (outcome.kind === 'cooling-down') {
+      return {
+        status: 'stalled',
+        reason: 'provider-cooling-down',
+        providerId: outcome.providerId,
+      };
+    }
+    // `tools-only` and `silent` both produced no JSON, and neither is an empty
+    // extraction. `{ status: 'extracted', drafts: [] }` is what the caller reads
+    // as "this pass ran and honestly found nothing", and it consumes the
+    // session's queued observations on that reading. A run that spent six turns
+    // in tool calls and never wrote its answer has not earned that. The
+    // `no-output` arm is the difference, and the caller maps it to the same
+    // input-preserving outcome a stall gets (TASK_2026_376 R1).
+    //
+    // The two arms stay distinct HERE — the log line for each is different —
+    // because they diagnose different things: one is a model that worked and
+    // did not answer, the other is a model that did nothing at all.
+    if (outcome.kind === 'tools-only') {
+      this.logger.info(
+        '[memory-curator] curator extract pass did its work through tools and returned no JSON; leaving this session for the next pass',
+        { toolUses: outcome.toolUses, toolNames: outcome.toolNames },
+      );
+      return {
+        status: 'no-output',
+        usedTools: true,
+        toolNames: outcome.toolNames,
+      };
+    }
+    if (outcome.kind === 'silent') {
+      this.logger.warn(
+        '[memory-curator] curator extract pass produced neither text nor tool calls',
+      );
+      return { status: 'no-output', usedTools: false, toolNames: [] };
+    }
+    return { status: 'extracted', drafts: this.parseDrafts(outcome.text) };
   }
 
+  /**
+   * No stalled arm here, deliberately — see the note on `ICuratorLLM.resolve`.
+   * A cooldown that starts between `extract` and `resolve` degrades to "store
+   * the drafts unmerged", which loses no input, so there is nothing for the
+   * caller to decide.
+   */
   async resolve(
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
@@ -156,19 +330,35 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     if (related.length === 0) {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
-    const text = await this.runQuery(
+    const outcome = await this.runQuery(
       RESOLVE_SYSTEM_PROMPT,
       buildResolveUserPrompt(drafts, related),
       signal,
     );
-    return this.parseResolved(text, drafts);
+    if (outcome.kind === 'cooling-down') {
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    if (outcome.kind === 'tools-only') {
+      this.logger.info(
+        '[memory-curator] curator resolve pass used tools and returned no JSON; storing the drafts unmerged',
+        { toolUses: outcome.toolUses, toolNames: outcome.toolNames },
+      );
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    if (outcome.kind === 'silent') {
+      this.logger.warn(
+        '[memory-curator] curator resolve pass produced neither text nor tool calls; storing the drafts unmerged',
+      );
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    return this.parseResolved(outcome.text, drafts);
   }
 
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<CuratorQueryOutcome> {
     const abortController = new AbortController();
     if (signal) {
       if (signal.aborted) abortController.abort();
@@ -178,7 +368,20 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         });
     }
     try {
-      const auth = await this.resolveCuratorAuth();
+      const decision = await this.resolveCuratorAuth();
+      if (decision.kind === 'cooling-down') {
+        // Stop, before the query rather than after it — the point of the gate
+        // is that the second and later passes cost zero upstream requests.
+        //
+        // This used to `return ''`, collapsing the stall into the same value a
+        // model that said nothing produces. That collapse is finding F1: the
+        // trigger service marks its drained observations processed on every
+        // resolve, so a stalled pass discarded the episodes it was gated from
+        // curating and they never came back. The named outcome is what the
+        // caller inspects instead.
+        return { kind: 'cooling-down', providerId: decision.providerId };
+      }
+      const auth = decision.kind === 'override' ? decision.auth : undefined;
       const handle = await this.internalQuery.execute({
         cwd: this.resolveQueryCwd(),
         model: this.resolveCuratorModel(),
@@ -187,27 +390,78 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // Was hard-coded false (defect 13). The curator reads and writes memory
         // through Ptah tools when they are reachable.
         ...resolveMcpSessionWiring(this.mcpServerStatus),
-        maxTurns: 1,
+        // Was 1, which made the MCP wiring on the line above unusable: one
+        // round-trip cannot carry a tool_result back to the model. See
+        // CURATOR_MAX_TURNS for the SDK semantics this number is derived from
+        // and for why it stays small.
+        maxTurns: CURATOR_MAX_TURNS,
+        // The curator's own concurrency lane. Before TASK_2026_352 every
+        // internal one-shot shared a single host-wide slot, so a curation pass
+        // queued behind an unrelated skill-synthesis lane call and back again
+        // — nine times on one boot (`tmp/logs/log.log:938 … 1424`).
+        lane: 'memory-curator',
         abortController,
         auth,
       });
-      let collected = '';
+      // The text of the LAST assistant message, not the concatenation of every
+      // one of them (TASK_2026_376 R1, logic finding 1).
+      //
+      // Both prompts tell the model that its FINAL message must contain only
+      // the JSON object, and `extractJsonObject` scans from index 0 and returns
+      // the FIRST balanced `{...}` it finds. While `maxTurns` was 1 those two
+      // rules could not disagree: one turn is one assistant message. At six
+      // turns a concatenation puts the model's THINKING-OUT-LOUD in front of
+      // its answer, so a first turn reading `draft so far: {"memories": []}`
+      // parses cleanly and returns zero drafts, and a first turn reading
+      // `I will search for {subject: X}` fails to parse at all. Either way
+      // `parseDrafts` answers `[]`, the pass reports a successful empty run,
+      // and `MemoryTriggerService` marks the observations processed — the
+      // session's real drafts are gone and it can never be curated again.
+      //
+      // Assigning rather than appending is the whole fix: the parser now reads
+      // the message the prompt promised. A final message that carries no text
+      // leaves this `''`, which is the `tools-only` / `silent` path below, and
+      // that path no longer consumes its input either.
+      let lastAssistantText = '';
+      let toolUses = 0;
+      const toolNames: string[] = [];
+      let hitTurnCeiling = false;
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
-        if (msg.type === 'assistant') {
-          const message = (
-            msg as unknown as {
-              message?: { content?: Array<{ type: string; text?: string }> };
-            }
-          ).message;
-          for (const block of message?.content ?? []) {
-            if (block.type === 'text' && typeof block.text === 'string') {
-              collected += block.text;
+        if (isAssistantMessage(msg)) {
+          let messageText = '';
+          for (const block of msg.message.content) {
+            if (isTextBlock(block)) messageText += block.text;
+            // The half the old collector dropped. A turn spent on a tool call
+            // contributed NOTHING here, so a run that searched memory and read
+            // three files was reported exactly like a run that said nothing.
+            if (isToolUseBlock(block)) {
+              toolUses++;
+              if (block.name.length > 0 && !toolNames.includes(block.name)) {
+                toolNames.push(block.name);
+              }
             }
           }
+          lastAssistantText = messageText;
         }
-        if (msg.type === 'result') break;
+        if (isResultMessage(msg)) {
+          // `error_max_turns` is a RESULT in this SDK, never a throw, so an
+          // exhausted budget is silent unless it is read here. It is the one
+          // signal that says CURATOR_MAX_TURNS is set too low for the work.
+          hitTurnCeiling =
+            isErrorResult(msg) && msg.subtype === 'error_max_turns';
+          break;
+        }
       }
-      return collected;
+      if (hitTurnCeiling) {
+        this.logger.warn(
+          '[memory-curator] curator run stopped at its turn ceiling; the model had more tool work queued than the budget allows',
+          { maxTurns: CURATOR_MAX_TURNS, toolUses, toolNames },
+        );
+      }
+      if (lastAssistantText.length > 0)
+        return { kind: 'text', text: lastAssistantText, toolUses };
+      if (toolUses > 0) return { kind: 'tools-only', toolUses, toolNames };
+      return { kind: 'silent' };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[memory-curator] curator LLM query failed', {

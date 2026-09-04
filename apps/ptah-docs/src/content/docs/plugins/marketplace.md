@@ -17,13 +17,13 @@ The modal fetches the available plugins and your saved configuration together. W
 
 Plugins are grouped into five categories, always rendered in this order. A category with no matching plugins is hidden entirely, which is why you will not see **Your Skills** until you have authored one.
 
-| Category           | Contains                                                                                      |
-| ------------------ | --------------------------------------------------------------------------------------------- |
-| **Core Tools**     | `ptah-core` — orchestration, review, refactoring, docs, design                                |
-| **Backend Tools**  | `ptah-nx-saas` — Nx, NestJS, webhooks, resilience, SaaS platform, deployment                  |
-| **Frontend Tools** | `ptah-angular` and `ptah-react`                                                               |
-| **Creative Tools** | `ptah-video` — the marketing-video pipeline                                                   |
-| **Your Skills**    | Every `ptah-harness-*` plugin you authored — see [Harness plugins](/plugins/harness-plugins/) |
+| Category           | Contains                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core Tools**     | `ptah-core` — orchestration, review, refactoring, docs, design                                                                              |
+| **Backend Tools**  | `ptah-nx-saas` — Nx, NestJS, webhooks, resilience, SaaS platform, deployment, and `ptah-dotnet` — .NET solution layout and domain modelling |
+| **Frontend Tools** | `ptah-angular` and `ptah-react`                                                                                                             |
+| **Creative Tools** | `ptah-video` — the marketing-video pipeline                                                                                                 |
+| **Your Skills**    | Every `ptah-harness-*` plugin you authored — see [Harness plugins](/plugins/harness-plugins/)                                               |
 
 ## Search
 

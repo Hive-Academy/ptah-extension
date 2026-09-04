@@ -230,42 +230,50 @@ export const useUserStore = create<UserStore>((set) => ({
 
 ## Module Boundary Rules for React
 
-Configure in `.eslintrc.json`:
+Configure in `eslint.config.mjs` (flat config):
 
-```json
-{
-  "@nx/enforce-module-boundaries": [
-    "error",
-    {
-      "depConstraints": [
+```js
+import nx from '@nx/eslint-plugin';
+
+export default [
+  {
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+    plugins: { '@nx': nx },
+    rules: {
+      '@nx/enforce-module-boundaries': [
+        'error',
         {
-          "sourceTag": "type:feature",
-          "onlyDependOnLibsWithTags": ["type:feature", "type:ui", "type:data-access", "type:util", "type:api-interfaces"]
+          depConstraints: [
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: ['type:feature', 'type:ui', 'type:data-access', 'type:util', 'type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:ui',
+              onlyDependOnLibsWithTags: ['type:ui', 'type:util', 'type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:data-access',
+              onlyDependOnLibsWithTags: ['type:data-access', 'type:util', 'type:api-interfaces'],
+            },
+            {
+              sourceTag: 'type:util',
+              onlyDependOnLibsWithTags: ['type:util'],
+            },
+            {
+              sourceTag: 'type:api-interfaces',
+              onlyDependOnLibsWithTags: ['type:api-interfaces'],
+            },
+            {
+              sourceTag: 'scope:shared',
+              onlyDependOnLibsWithTags: ['scope:shared'],
+            },
+          ],
         },
-        {
-          "sourceTag": "type:ui",
-          "onlyDependOnLibsWithTags": ["type:ui", "type:util", "type:api-interfaces"]
-        },
-        {
-          "sourceTag": "type:data-access",
-          "onlyDependOnLibsWithTags": ["type:data-access", "type:util", "type:api-interfaces"]
-        },
-        {
-          "sourceTag": "type:util",
-          "onlyDependOnLibsWithTags": ["type:util"]
-        },
-        {
-          "sourceTag": "type:api-interfaces",
-          "onlyDependOnLibsWithTags": ["type:api-interfaces"]
-        },
-        {
-          "sourceTag": "scope:shared",
-          "onlyDependOnLibsWithTags": ["scope:shared"]
-        }
-      ]
-    }
-  ]
-}
+      ],
+    },
+  },
+];
 ```
 
 ## Workspace Initialization
@@ -371,8 +379,5 @@ export default UserProfilePage;
 
 Load these for detailed implementation guidance:
 
-- [library-organization.md](references/library-organization.md) - Detailed library structure
 - [server-components.md](references/server-components.md) - RSC patterns and best practices
 - [client-components.md](references/client-components.md) - Client component patterns
-- [data-fetching.md](references/data-fetching.md) - Server/client data fetching strategies
-- [module-boundaries.md](references/module-boundaries.md) - Boundary enforcement details

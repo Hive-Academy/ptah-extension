@@ -326,10 +326,10 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
             <!-- ── Card 1: Workspace Analysis ── -->
             <div
               class="group relative rounded-xl p-px cursor-pointer
-                     bg-gradient-to-br from-secondary/20 via-base-300/50 to-secondary/10
-                     hover:from-secondary/40 hover:via-secondary/15 hover:to-secondary/30
+                     bg-gradient-to-br from-secondary/10 via-base-300/50 to-secondary/5
+                     hover:from-secondary/20 hover:via-secondary/[0.08] hover:to-secondary/15
                      transition-all duration-300 ease-out
-                     hover:shadow-[0_0_30px_oklch(var(--s)/0.08)]
+                     hover:shadow-[0_0_30px_oklch(var(--s)/0.04)]
                      card-enter card-enter-delay-1"
               (click)="openSetupWizard()"
               (keydown.enter)="openSetupWizard()"
@@ -345,7 +345,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 <div class="flex items-start justify-between">
                   <div class="relative">
                     <div
-                      class="absolute -inset-1 rounded-xl bg-secondary/10 blur-sm icon-glow"
+                      class="absolute -inset-1 rounded-xl bg-secondary/5 blur-sm icon-glow"
                     ></div>
                     <div
                       class="relative w-11 h-11 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center"
@@ -445,7 +445,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                     class="flex items-center gap-3 text-xs text-base-content-muted pt-2 border-t border-base-300/30"
                   >
                     <div class="flex items-center gap-1.5">
-                      <span class="w-1 h-1 rounded-full bg-secondary/50"></span>
+                      <span class="w-1 h-1 rounded-full bg-secondary/25"></span>
                       <span>{{ setupStatus()!.agentCount }} agents</span>
                     </div>
                     <div class="flex items-center gap-1.5">
@@ -463,9 +463,9 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 <!-- CTA button -->
                 <button
                   class="btn btn-sm w-full mt-auto gap-1
-                         bg-gradient-to-r from-secondary/10 to-secondary/5
-                         border border-secondary/20
-                         hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
+                         bg-gradient-to-r from-secondary/5 to-secondary/[0.03]
+                         border border-secondary/10
+                         hover:border-secondary/20 hover:from-secondary/10 hover:to-secondary/5
                          text-secondary font-medium transition-all duration-200"
                 >
                   {{
@@ -591,8 +591,8 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
             <!-- ── Card 3: New Project ── -->
             <div
               class="group relative rounded-xl p-px cursor-pointer
-                     bg-gradient-to-br from-secondary/20 via-base-300/50 to-secondary/10
-                     hover:from-secondary/40 hover:via-secondary/15 hover:to-secondary/30
+                     bg-gradient-to-br from-secondary/10 via-base-300/50 to-secondary/5
+                     hover:from-secondary/20 hover:via-secondary/[0.08] hover:to-secondary/15
                      transition-all duration-300 ease-out
                      card-enter card-enter-delay-3"
               (click)="onNewProjectCardActivate()"
@@ -626,13 +626,13 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                     <div class="flex items-center gap-2">
                       <div class="relative flex items-center justify-center">
                         <span
-                          class="w-2 h-2 rounded-full bg-secondary status-dot-breathe"
+                          class="w-2 h-2 rounded-full bg-info status-dot-breathe"
                         ></span>
                         <span
-                          class="absolute w-2 h-2 rounded-full bg-secondary/30 animate-ping"
+                          class="absolute w-2 h-2 rounded-full bg-info/30 animate-ping"
                         ></span>
                       </div>
-                      <span class="text-xs font-medium text-secondary">
+                      <span class="text-xs font-medium text-info">
                         {{ newProjectStatusLabel() }}
                       </span>
                     </div>
@@ -658,9 +658,9 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 @if (hasActiveNewProject()) {
                   <button
                     class="btn btn-sm w-full mt-auto gap-1
-                           bg-gradient-to-r from-secondary/20 to-secondary/10
-                           border border-secondary/30
-                           hover:border-secondary/50 hover:from-secondary/30 hover:to-secondary/20
+                           bg-gradient-to-r from-secondary/10 to-secondary/5
+                           border border-base-300
+                           hover:border-secondary/25 hover:from-secondary/15 hover:to-secondary/10
                            text-secondary font-medium transition-all duration-200"
                     type="button"
                     data-testid="new-project-resume"
@@ -676,9 +676,9 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 } @else {
                   <button
                     class="btn btn-sm w-full mt-auto gap-1
-                           bg-gradient-to-r from-secondary/10 to-secondary/5
-                           border border-secondary/20
-                           hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
+                           bg-gradient-to-r from-secondary/5 to-secondary/[0.03]
+                           border border-secondary/10
+                           hover:border-secondary/20 hover:from-secondary/10 hover:to-secondary/5
                            text-secondary font-medium transition-all duration-200"
                     type="button"
                     data-testid="new-project-start"

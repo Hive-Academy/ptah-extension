@@ -168,22 +168,168 @@ describe('WizardPhaseGeneration (TASK_2026_107 Phase 3)', () => {
     });
   });
 
+  const outcome = (
+    overrides: Partial<GenerationCompletePayload['agents'][number]> = {},
+  ): GenerationCompletePayload['agents'][number] => ({
+    agentId: 'frontend-developer',
+    filePath: 'D:\\ws\\.claude\\agents\\frontend-developer.md',
+    status: 'written',
+    rejectedSections: 0,
+    tailoredSections: 2,
+    ...overrides,
+  });
+
+  const completePayload = (
+    overrides: Partial<GenerationCompletePayload> = {},
+  ): GenerationCompletePayload => ({
+    success: true,
+    outputDirectory: 'D:\\ws\\.claude\\agents',
+    writtenCount: 1,
+    unchangedCount: 0,
+    failedCount: 0,
+    rejectedSections: 0,
+    tailoredSections: 2,
+    agents: [outcome()],
+    duration: 1000,
+    ...overrides,
+  });
+
   describe('handleGenerationComplete', () => {
     it('persists completionData and tears down routing via unregisterAllPhaseSurfaces', () => {
-      const payload: GenerationCompletePayload = {
-        success: true,
-        generatedCount: 3,
-        duration: 1000,
-      } as unknown as GenerationCompletePayload;
+      const payload = completePayload();
 
       phaseGen.handleGenerationComplete(payload);
 
-      expect(completionData()).not.toBeNull();
+      expect(completionData()).toEqual(payload);
       expect(state.setCurrentStepIfGeneration).toHaveBeenCalledTimes(1);
       expect(surfaces.unregisterAllPhaseSurfaces).toHaveBeenCalledTimes(1);
       // Full nuke is reserved for the next pass start (handleGenerationStream
       // first-event reset) and for explicit wizard reset.
       expect(surfaces.resetPhaseSurfaces).not.toHaveBeenCalled();
+    });
+
+    it('maps mixed outcomes onto items: written/unchanged complete, failed is error', () => {
+      skillGenerationProgress.set([
+        {
+          id: 'frontend-developer',
+          name: 'frontend-developer.md',
+          type: 'agent',
+          status: 'in-progress',
+          progress: 40,
+        },
+        {
+          id: 'backend-developer',
+          name: 'backend-developer.md',
+          type: 'agent',
+          status: 'pending',
+        },
+        {
+          id: 'senior-tester',
+          name: 'senior-tester.md',
+          type: 'agent',
+          status: 'in-progress',
+        },
+        {
+          id: 'ep-1',
+          name: 'enhanced-prompt',
+          type: 'enhanced-prompt',
+          status: 'pending',
+        },
+      ]);
+
+      phaseGen.handleGenerationComplete(
+        completePayload({
+          success: false,
+          writtenCount: 1,
+          unchangedCount: 1,
+          failedCount: 1,
+          agents: [
+            outcome(),
+            outcome({
+              agentId: 'backend-developer',
+              filePath: 'D:\\ws\\.claude\\agents\\backend-developer.md',
+              status: 'unchanged',
+            }),
+            outcome({
+              agentId: 'senior-tester',
+              filePath: 'D:\\ws\\.claude\\agents\\senior-tester.md',
+              status: 'failed',
+              error: 'SDK timeout',
+            }),
+          ],
+        }),
+      );
+
+      const items = skillGenerationProgress();
+      const byId = new Map(items.map((item) => [item.id, item]));
+      expect(byId.get('frontend-developer')?.status).toBe('complete');
+      expect(byId.get('frontend-developer')?.progress).toBe(100);
+      expect(byId.get('backend-developer')?.status).toBe('complete');
+      expect(byId.get('senior-tester')?.status).toBe('error');
+      expect(byId.get('senior-tester')?.errorMessage).toBe('SDK timeout');
+      // A non-agent item is never touched by agent outcomes.
+      expect(byId.get('ep-1')?.status).toBe('pending');
+    });
+
+    it('creates an item for an outcome with no pre-seeded item (resumed run)', () => {
+      phaseGen.handleGenerationComplete(
+        completePayload({
+          agents: [
+            outcome({
+              agentId: 'devops-engineer',
+              filePath: '/ws/.claude/agents/devops-engineer.md',
+              status: 'failed',
+              error: 'not generated because the run timed out',
+            }),
+          ],
+        }),
+      );
+
+      const items = skillGenerationProgress();
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        id: 'devops-engineer',
+        name: 'devops-engineer.md',
+        type: 'agent',
+        status: 'error',
+        errorMessage: 'not generated because the run timed out',
+      });
+    });
+
+    it('a failed outcome stays an error even after a final progress event', () => {
+      skillGenerationProgress.set([
+        {
+          id: 'senior-tester',
+          name: 'senior-tester.md',
+          type: 'agent',
+          status: 'in-progress',
+        },
+      ]);
+
+      // The final progress event must not mark anything complete.
+      phaseGen.handleGenerationProgress({
+        progress: { phase: 'complete', percentComplete: 100 },
+      });
+      expect(skillGenerationProgress()[0].status).toBe('in-progress');
+
+      phaseGen.handleGenerationComplete(
+        completePayload({
+          success: false,
+          writtenCount: 0,
+          failedCount: 1,
+          agents: [
+            outcome({
+              agentId: 'senior-tester',
+              filePath: '/ws/.claude/agents/senior-tester.md',
+              status: 'failed',
+              error: 'aborted',
+            }),
+          ],
+        }),
+      );
+
+      expect(skillGenerationProgress()[0].status).toBe('error');
+      expect(skillGenerationProgress()[0].errorMessage).toBe('aborted');
     });
   });
 

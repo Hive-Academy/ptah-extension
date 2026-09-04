@@ -390,6 +390,69 @@ describe('parseTaskFile', () => {
       expect(messages.join(' ')).toContain('TASK_2099_999');
     });
 
+    /**
+     * Finished task folders get pruned — `b31aa9b64` removed 77 in one pass —
+     * so a terminal task naming an archived dependency is the ordinary result
+     * of that cleanup, not a typo. Reporting it forever leaves `tasks check`
+     * permanently unhealthy, and an always-red check trains a reader to ignore
+     * it, burying the live typos this warning exists to catch.
+     */
+    it.each(['done', 'cancelled'] as const)(
+      'raises no dangling warning for a %s task — its dependency is moot',
+      (status) => {
+        const result = parseTaskFile(
+          'TASK_2026_010',
+          `---\nstatus: ${status}\ntitle: x\ndepends_on:\n  - TASK_2099_999\n---\nbody`,
+          { knownFolders: ['TASK_2026_010'] },
+        );
+        expect(result.kind).toBe('task');
+        if (result.kind !== 'task') return;
+
+        expect(
+          result.task.validationIssues.filter(
+            (i) => i.code === 'dangling_depends_on',
+          ),
+        ).toEqual([]);
+        expect(result.task.frontmatterValid).toBe(true);
+        // Withheld, not erased — the provenance link stays readable.
+        expect(result.task.dependsOn).toEqual(['TASK_2099_999']);
+      },
+    );
+
+    it.each(['backlog', 'in_progress', 'in_review', 'blocked'] as const)(
+      'still raises the warning for a %s task — the dependency can still block',
+      (status) => {
+        const result = parseTaskFile(
+          'TASK_2026_010',
+          `---\nstatus: ${status}\ntitle: x\ndepends_on:\n  - TASK_2099_999\n---\nbody`,
+          { knownFolders: ['TASK_2026_010'] },
+        );
+        expect(result.kind).toBe('task');
+        if (result.kind !== 'task') return;
+
+        expect(
+          result.task.validationIssues.filter(
+            (i) => i.code === 'dangling_depends_on',
+          ),
+        ).toHaveLength(1);
+      },
+    );
+
+    it('exempts only the dangling check — a done task still reports other issues', () => {
+      // The exemption is scoped to this one code. A `done` carrier with a bad
+      // `type` must still say so, or "terminal" would become a blanket amnesty.
+      const result = parseTaskFile(
+        'TASK_2026_010',
+        '---\nstatus: done\ntype: nonsense\ntitle: x\ndepends_on:\n  - TASK_2099_999\n---\nbody',
+        { knownFolders: ['TASK_2026_010'] },
+      );
+      if (result.kind !== 'task') return;
+
+      const codes = result.task.validationIssues.map((i) => i.code);
+      expect(codes).toContain('invalid_type');
+      expect(codes).not.toContain('dangling_depends_on');
+    });
+
     it('skips the check entirely when the caller supplies no folder set', () => {
       // A single-file reparse has no view of the directory. Reporting every
       // dependency as dangling there would be a false alarm about the CALLER's

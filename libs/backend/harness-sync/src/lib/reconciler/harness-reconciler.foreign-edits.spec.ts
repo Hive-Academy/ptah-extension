@@ -20,6 +20,22 @@ import { createStaticSourceResolver } from '../sources/plugin-config-source-reso
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { HarnessReconcilerService } from './harness-reconciler.service';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite predates the gate and is about E9/E10 foreign paths and local edits, so
+ * the selection is recorded up front rather than re-tested. The gate itself is
+ * owned by `reconciler/harness-reconciler.skill-consent.spec.ts`.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 import { HarnessSourceState } from '../sources/harness-source.port';
 
 interface FakeLogger {
@@ -75,6 +91,7 @@ describe('HarnessReconcilerService — foreign files and local edits', () => {
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-recon-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-src-'));
   });
 

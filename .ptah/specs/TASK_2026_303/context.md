@@ -27,6 +27,33 @@ const rel = path.relative(normRoot, normFile);
 return !rel.startsWith('..') && !path.isAbsolute(rel);
 ```
 
+> **CORRECTION, 2026-08-28 — the premise below is FALSE. There is no Windows
+> data-loss bug.** It was measured during implementation and refuted, then
+> re-verified independently. `path.win32.relative` folds case on BOTH operands,
+> so `path.relative(...).startsWith('..')` is NOT case-sensitive on win32:
+>
+> ```
+> path.win32.relative('D:/Projects/Ptah', 'D:/projects/ptah/src/a.ts')
+>   -> 'src\\a.ts'      startsWith('..') === false   (contained, correctly)
+> path.win32.relative('/foo/bar', '/foo/barbaz/a.ts')
+>   -> '..\\barbaz\\a.ts'  startsWith('..') === true  (out, correctly)
+> ```
+>
+> A 13-case table driving the old form and `isPathWithinRoots` under win32 rules
+> found ZERO disagreements, including drive-letter casing, segment casing and the
+> separator boundary. On a Windows host the old code did the right thing.
+>
+> What was actually shipped for this finding is therefore a **consolidation**,
+> not a bugfix: one tested, platform-explicit predicate in place of three
+> hand-rolled copies, one of which was silently relying on undocumented Node
+> behaviour. The new casing specs are RULE PINS, not regression tests — they pass
+> against the old code too on a Windows host, and fail on the ubuntu CI runner
+> only because the old form follows the host's path flavour while the specs force
+> `platform: 'win32'`. That is a harness artifact, not a production defect.
+>
+> The original, incorrect reasoning is preserved below so the correction is
+> legible. Do not act on it.
+
 `path.relative` is case-sensitive even on win32. When `workspaceRoot` and a
 diagnostic's file path differ only in casing — routine on Windows when one path
 comes from `vscode.Uri.fsPath` and the other from a caller-supplied string —

@@ -585,7 +585,7 @@ export class MessageSenderService {
 
       if (!activeTabId) {
         console.warn(
-          '[MessageSender] No active tab for continuing conversation â€” starting new',
+          '[MessageSender] No active tab for continuing conversation — starting new',
         );
         return this.startNewConversation(content, options);
       }

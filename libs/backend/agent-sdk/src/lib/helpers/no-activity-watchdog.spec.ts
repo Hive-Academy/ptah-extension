@@ -126,4 +126,108 @@ describe('NoActivityWatchdog', () => {
     jest.advanceTimersByTime(WINDOW);
     expect(onTimeout).toHaveBeenCalledTimes(1);
   });
+
+  // ---- hold / release (TASK_2026_317) --------------------------------------
+  //
+  // A turn parked on `canUseTool` emits zero SDK messages, so without a hold
+  // the watchdog reads a human reading a prompt as a wedged provider. These
+  // pin the New Project regression: an AskUserQuestion card the UI advertises
+  // as untimed must survive far longer than one window.
+
+  describe('hold/release', () => {
+    it('does NOT fire while held, however long the user takes', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.start();
+      wd.hold(); // canUseTool parked on an AskUserQuestion card
+
+      jest.advanceTimersByTime(WINDOW * 10);
+      expect(onTimeout).not.toHaveBeenCalled();
+      expect(wd.isHeld).toBe(true);
+    });
+
+    it('release() starts a FULL fresh window — time spent waiting is not charged to the provider', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.start();
+      jest.advanceTimersByTime(WINDOW - 1); // nearly out of window already
+      wd.hold();
+      jest.advanceTimersByTime(WINDOW * 4); // user deliberates
+      wd.release();
+      expect(wd.isHeld).toBe(false);
+
+      jest.advanceTimersByTime(WINDOW - 1);
+      expect(onTimeout).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('is reference-counted — concurrent tool calls only unblock on the last release', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.start();
+      wd.hold();
+      wd.hold();
+      wd.release();
+
+      jest.advanceTimersByTime(WINDOW * 3);
+      expect(onTimeout).not.toHaveBeenCalled();
+
+      wd.release();
+      jest.advanceTimersByTime(WINDOW);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('kick() during a hold does not re-arm the window', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.start();
+      wd.hold();
+      wd.kick();
+      jest.advanceTimersByTime(WINDOW * 2);
+      expect(onTimeout).not.toHaveBeenCalled();
+    });
+
+    it('an unbalanced release() never arms a watchdog that was never started', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      // Teardown paths may release without a matching hold; that must not
+      // resurrect a timer on a watchdog the transformer never started.
+      wd.release();
+      wd.release();
+      jest.advanceTimersByTime(WINDOW * 2);
+      expect(onTimeout).not.toHaveBeenCalled();
+    });
+
+    it('hold()/release() are inert after stop()', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.start();
+      wd.stop();
+      wd.hold();
+      wd.release();
+      jest.advanceTimersByTime(WINDOW * 2);
+      expect(onTimeout).not.toHaveBeenCalled();
+    });
+
+    it('a hold taken before start() defers arming until start(), then honours it', () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+
+      wd.hold();
+      wd.start();
+      jest.advanceTimersByTime(WINDOW * 2);
+      expect(onTimeout).not.toHaveBeenCalled();
+
+      wd.release();
+      jest.advanceTimersByTime(WINDOW);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+  });
 });

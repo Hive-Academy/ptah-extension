@@ -128,6 +128,11 @@ function makeHarness(opts: {
    * every pre-existing case in this file relied on.
    */
   configSeed?: Record<string, string>;
+  /**
+   * The port the in-process MCP server is listening on, or `null` for a host
+   * that started none. `undefined` injects no status port at all — the CLI.
+   */
+  mcpPort?: number | null;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(
@@ -231,6 +236,9 @@ function makeHarness(opts: {
     repropagation as never,
     specFindings as never,
     (opts.scorecardAbsent ? null : scorecard) as never,
+    (opts.mcpPort === undefined
+      ? null
+      : { getPort: () => opts.mcpPort ?? null }) as never,
   );
 
   return {
@@ -368,6 +376,51 @@ describe('SkillEnhancerService', () => {
    * argument here, so the switch shipped unpinned — these three cases are that
    * pin.
    */
+  describe('enhance: the MCP wiring handed to InternalQuery', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 8,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+
+    async function mcpFieldsSentWith(
+      mcpPort: number | null | undefined,
+    ): Promise<Record<string, unknown>> {
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        mcpPort,
+      });
+      await h.svc.enhance('deep-research', makeSettings());
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      return h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+    }
+
+    it('reports the server as running, with its live port', async () => {
+      // This path hardcoded `false` on a host where the server was
+      // demonstrably listening, so an enhancement pass could not call a single
+      // Ptah tool.
+      const call = await mcpFieldsSentWith(51821);
+      expect(call['mcpServerRunning']).toBe(true);
+      expect(call['mcpPort']).toBe(51821);
+    });
+
+    it('reports false when the host started no MCP server', async () => {
+      const call = await mcpFieldsSentWith(null);
+      expect(call['mcpServerRunning']).toBe(false);
+      expect(call['mcpPort']).toBeUndefined();
+    });
+
+    it('reports false in a host that registered no status port at all', async () => {
+      const call = await mcpFieldsSentWith(undefined);
+      expect(call['mcpServerRunning']).toBe(false);
+    });
+  });
+
   describe('enhance: the model handed to InternalQuery (TASK_2026_250)', () => {
     const judgeDecision = {
       status: 'scored',
@@ -591,6 +644,7 @@ describe('SkillEnhancerService', () => {
       kind: 'skill',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledTimes(1);
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
@@ -617,6 +671,7 @@ describe('SkillEnhancerService', () => {
       kind: 'agent',
       slug: 'deep-research',
       newBody: expect.stringContaining('Improved agent body'),
+      workspaceRoot: '/home/u/project',
     });
     expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
@@ -669,6 +724,7 @@ describe('SkillEnhancerService', () => {
       kind: 'command',
       slug: 'deep-research',
       newBody: 'Improved command prompt without any frontmatter',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
       'command',
@@ -731,6 +787,7 @@ describe('SkillEnhancerService', () => {
       kind: 'agent',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledWith(
       'agent',
@@ -953,6 +1010,7 @@ describe('SkillEnhancerService', () => {
       kind: 'command',
       slug: 'deep-research',
       historyTs: '1700000000000',
+      workspaceRoot: '/home/u/project',
     });
   });
 });
@@ -1089,6 +1147,7 @@ describe('SkillEnhancerService — preview-before-apply', () => {
       kind: 'agent',
       slug: 'deep-research',
       newBody: IMPROVED,
+      workspaceRoot: '/home/u/project',
     });
     expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
   });

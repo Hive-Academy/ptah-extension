@@ -115,9 +115,54 @@ export interface ResolvedSkillLane {
 
 export type SkillLaneFailureKind =
   | 'auth-unresolvable'
+  /**
+   * The lane's resolved provider is rate-limited and still cooling down.
+   *
+   * Deliberately NOT `timeout`, which is what an exhausted subscription used to
+   * be recorded as. The two are indistinguishable from inside this library —
+   * the CLI subprocess absorbs the upstream 429 and retries internally, so the
+   * only signal a lane ever saw was its own wall clock — and treating them the
+   * same gets the backoff wrong in the expensive direction: `timeout` climbs
+   * the `2^attempt × 60s` transport ladder, which knows nothing about when the
+   * quota actually refills, while the row keeps re-paying a full lane timeout
+   * to rediscover the same dead endpoint. Quota carries the PROVIDER's own
+   * cooldown instead (`retry-after` when the upstream sent one, otherwise
+   * {@link LANE_QUOTA_RETRY_MS}), and the gate fires BEFORE dispatch, so the
+   * second and later rows cost nothing upstream at all.
+   */
+  | 'quota-exhausted'
   | 'structured-output-unsupported'
   | 'tool-use-unsupported'
   | 'timeout';
+
+/**
+ * The failure kinds that mean NOTHING RAN.
+ *
+ * The split is "did the endpoint answer at all", not "how bad was it". A
+ * transport failure requeues the row behind its own backoff; a CAPABILITY
+ * failure (`structured-output-unsupported`, `tool-use-unsupported`) means the
+ * endpoint answered and we cannot use the answer, which is `unscored` — the
+ * JUDGE's verdict, "we ran and we do not know".
+ *
+ * Exported as ONE set because three places ask the question — `LaneRunner.fail`
+ * (whether to write `requeue`), `SkillDrainService.applyLaneFailure` (which row
+ * transition), and the reader of either. It used to be an inline
+ * two-name comparison in each, and a new union member falls straight through
+ * such a comparison into `markUnscored`: it compiles, it type-checks, and it
+ * lands a stall that never ran as a judge verdict on the Activity surface.
+ * Adding a kind here is the deliberate act; forgetting to is the bug.
+ */
+export const TRANSPORT_LANE_FAILURE_KINDS: ReadonlySet<SkillLaneFailureKind> =
+  new Set<SkillLaneFailureKind>([
+    'timeout',
+    'auth-unresolvable',
+    'quota-exhausted',
+  ]);
+
+/** Whether `kind` means the endpoint never answered. See the set above. */
+export function isTransportLaneFailure(kind: SkillLaneFailureKind): boolean {
+  return TRANSPORT_LANE_FAILURE_KINDS.has(kind);
+}
 
 export interface SkillLaneFailure {
   readonly kind: SkillLaneFailureKind;
@@ -141,3 +186,24 @@ export type SkillLaneResolution =
  * foreground quota, the exact defect phase 1 exists to remove.
  */
 export const LANE_AUTH_RETRY_MS = 30 * 60_000;
+
+/**
+ * Backoff applied when a lane's resolved provider is rate-limited and the
+ * upstream sent no `retry-after` to honour.
+ *
+ * Deliberately SHORTER than {@link LANE_AUTH_RETRY_MS}, and the reason is the
+ * fault's nature rather than its severity: quota refills on a clock, a
+ * misconfigured provider does not. Waiting 30 minutes for auth costs nothing
+ * because nothing changes until the user acts; waiting 30 minutes for quota
+ * throws away background work the provider would already have served.
+ *
+ * A fallback and not the usual answer where a header exists: the resolver's
+ * `ProviderQuotaError` carries the honoured `retry-after` when the upstream
+ * sent one, and the lane resolver prefers it. Every rate-limit line in the run
+ * that produced this constant was bare, so in practice this IS the value —
+ * which is why it is argued rather than copied from its neighbour.
+ *
+ * A module constant, not a settings key. Revisit if 15 minutes proves wrong in
+ * the field; do not pre-emptively make it configurable.
+ */
+export const LANE_QUOTA_RETRY_MS = 15 * 60_000;

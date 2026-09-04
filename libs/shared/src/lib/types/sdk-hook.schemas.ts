@@ -85,13 +85,49 @@ export const SdkTurnFailedPayloadSchema = z.object({
   timestamp: z.number().int().nonnegative(),
 });
 
-/** Zod schema for {@link SdkSubagentEndedPayload}. */
+/**
+ * Zod schema for {@link SdkSubagentEndedPayload}.
+ *
+ * `toolCallId` is the one OPTIONAL field, and its `.catch(undefined)` is
+ * load-bearing. It is a correlation id, not a required part of the terminal
+ * signal: a peer of a different version that puts a blank or non-string value
+ * on the key must still deliver the payload, because dropping it leaves every
+ * background agent of that session stuck in `running` — the exact symptom
+ * TASK_2026_376 F1 was filed to repair. `.catch(undefined)` therefore accepts
+ * the payload and treats an invalid value as absent, while `.min(1)` keeps the
+ * rule that `''` is never an id. The REQUIRED fields still reject.
+ *
+ * The key sits between `agentType` and `lastAssistantMessage` because Zod emits
+ * output keys in SHAPE order, and `parseSdkSubagentEndedPayload` — proven
+ * key-order-identical in `wire-parsers.equivalence.spec.ts` — writes it there.
+ */
 export const SdkSubagentEndedPayloadSchema = z.object({
   sessionId: z.string().min(1),
   cwd: z.string().min(1),
   agentId: z.string().min(1),
   agentType: z.string().min(1),
+  toolCallId: z.string().min(1).optional().catch(undefined),
   lastAssistantMessage: z.string().nullable(),
   backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
+  timestamp: z.number().int().nonnegative(),
+});
+
+/** Zod schema for {@link SessionTurnPhase}. */
+export const SessionTurnPhaseSchema = z.enum([
+  'generating',
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'failed',
+]);
+
+/** Zod schema for {@link SessionTurnState}, used at the `session:status` RPC boundary. */
+export const SessionTurnStateSchema = z.object({
+  phase: SessionTurnPhaseSchema,
+  revision: z.number().int().nonnegative(),
+  backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
+  sessionCrons: z.array(SdkSessionCronSummarySchema).readonly(),
+  terminalReason: SdkTerminalReasonSchema.nullable(),
+  error: SdkAssistantMessageErrorSchema.optional(),
   timestamp: z.number().int().nonnegative(),
 });

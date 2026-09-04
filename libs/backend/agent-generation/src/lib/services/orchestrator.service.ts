@@ -18,10 +18,7 @@ import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import type {
-  GenerationStreamPayload,
-  ProjectAnalysisResult,
-} from '@ptah-extension/shared';
+import type { GenerationAgentOutcome } from '@ptah-extension/shared';
 import {
   ProjectType,
   WorkspaceAnalyzerService,
@@ -45,80 +42,36 @@ import {
   GeneratedAgent,
   GenerationSummary,
   ValidationResult,
+  type OrchestratorGenerationOptions,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 /**
- * Generation options for orchestrator.
- * Extends base options with workspace context and SDK config.
+ * The options contract lives with the other public types in `core.types.ts`;
+ * it is re-exported here so the existing root export keeps working.
  */
-export interface OrchestratorGenerationOptions {
-  /**
-   * Workspace root path to analyze and generate agents for.
-   */
-  workspacePath: string;
+export type { OrchestratorGenerationOptions } from '../types/core.types';
 
-  /**
-   * Minimum relevance threshold for agent selection (0-100).
-   * Default: 50
-   */
-  threshold?: number;
+/** One selected agent template with the reason it was selected. */
+interface AgentSelection {
+  template: AgentTemplate;
+  relevanceScore: number;
+  matchedCriteria: string[];
+}
 
-  /**
-   * User-selected agent IDs (manual override).
-   * If provided, skips automatic selection.
-   */
-  userOverrides?: string[];
+/** Rendered content plus the honest section counts behind it. */
+interface ResolvedAgentContent {
+  content: string;
+  rejectedSections: number;
+  tailoredSections: number;
+}
 
-  /**
-   * Variable overrides for template rendering.
-   */
-  variableOverrides?: Record<string, string>;
-
-  /**
-   * Optional enhanced prompt content from the Prompt Designer.
-   * When provided, included as context for LLM content generation.
-   */
-  enhancedPromptContent?: string;
-
-  /**
-   * Pre-computed full analysis from the wizard deep analysis (Step 1).
-   * When provided, Phase 1 builds AgentProjectContext from this data
-   * instead of running independent workspace analysis.
-   */
-  preComputedAnalysis?: ProjectAnalysisResult;
-
-  /**
-   * Whether the Ptah MCP server is currently running.
-   */
-  mcpServerRunning?: boolean;
-
-  /**
-   * Port the Ptah MCP server is listening on.
-   */
-  mcpPort?: number;
-
-  /**
-   * Model to use for content generation.
-   * When provided, overrides the default `model.selected` config.
-   */
-  model?: string;
-
-  /**
-   * Callback for real-time stream events during content generation.
-   * Receives text deltas, tool calls, and thinking events for live UI updates.
-   */
-  onStreamEvent?: (event: GenerationStreamPayload) => void;
-
-  /**
-   * Multi-phase analysis directory path (alternative to preComputedAnalysis).
-   * When provided, ContentGenerationService reads rich markdown analysis files
-   * from this directory instead of using formatAnalysisData().
-   */
-  analysisDir?: string;
-
-  /** Absolute paths to plugin directories (for SDK queries during content generation) */
-  pluginPaths?: string[];
+/** Render an `AbortSignal.reason` (string, Error, DOMException, ...) as text. */
+function describeAbortReason(reason: unknown): string {
+  if (reason === undefined || reason === null) return 'aborted';
+  if (typeof reason === 'string') return reason;
+  if (reason instanceof Error) return reason.message || reason.name;
+  return String(reason);
 }
 
 /**
@@ -160,6 +113,99 @@ export interface GenerationProgress {
    * Detected project characteristics (for analysis phase).
    */
   detectedCharacteristics?: string[];
+}
+
+/**
+ * Every composition marker line: `STATIC`, `LLM` and `VAR`, open or close.
+ *
+ * All three are the same kind of thing — a fence around content some earlier
+ * stage was supposed to act on — and all three are invisible to the agent that
+ * reads the emitted file. `LLM` and `VAR` are included because the no-SDK path
+ * keeps the AUTHORED text between the markers and emits it: without them here,
+ * a `<!-- LLM:FRAMEWORK_CONVENTIONS -->` line ships verbatim into
+ * `.claude/agents/` and every rival CLI's harness dir on every run where the SDK
+ * was unavailable, which is the exact failure the STATIC half was written for.
+ *
+ * The id is matched loosely (`[^>]*`) rather than as `\w+` on purpose: a
+ * malformed id such as `ANT I_PATTERNS` still has to be stripped here. The
+ * place that REJECTS a malformed id is `TemplatePartialResolver`, at load time;
+ * by the time content reaches emit, refusing to strip a marker would only mean
+ * shipping it into the agent file.
+ */
+const COMPOSITION_MARKER_LINE =
+  /^[ \t]*<!--[ \t]*\/?(?:STATIC|LLM|VAR):[^>]*-->[ \t]*$/;
+
+/** A line with nothing on it but horizontal whitespace. */
+const BLANK_LINE = /^[ \t]*$/;
+
+/**
+ * Remove the composition fences from content on its way into an agent file.
+ *
+ * The markers are a COMPOSITION mechanism, not content. They leaked verbatim
+ * into every generated agent, every `.codex/agents/*.toml` and every
+ * `.github/agents/*.agent.md` for as long as they existed, because nothing
+ * resolved them and nothing stripped them.
+ *
+ * Only the marker LINES go. Whatever sits between a pair is content by then —
+ * the expanded shared partial, the model's section, or the authored fallback the
+ * template shipped — and is kept exactly as it stands.
+ *
+ * Two properties this works line-by-line to get right:
+ *
+ *  - **CRLF.** Templates are authored on Windows and reach here with `\r\n`.
+ *    The previous `\n`-anchored strip left a `\r` orphaned on the line it
+ *    emptied, and the `\n{3,}` collapse never matched a CRLF run at all — so
+ *    the tidy-up silently did nothing on the platform this repository is
+ *    developed on. Splitting on `\r?\n` and rejoining with the dominant ending
+ *    makes the transform ending-agnostic.
+ *
+ *  - **Scope.** Blank runs collapse ONLY where a marker was actually removed.
+ *    The old global `\n{3,}` → `\n\n` reflowed the entire document, including
+ *    the inside of fenced code blocks, where a deliberate blank run is part of
+ *    the specimen the agent is being shown. Nothing downstream could detect
+ *    that the sample had been rewritten.
+ *
+ * Exported for its own spec: both properties above are invisible in the
+ * orchestrator's end-to-end assertions, which is how a `\n`-only strip survived
+ * on a Windows-authored corpus.
+ */
+export function stripCompositionMarkers(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+
+  // Strip the marker lines, remembering where each gap opened up so the
+  // blank-line tidy-up can be confined to those seams.
+  const kept: string[] = [];
+  const seams = new Set<number>();
+  let removedAny = false;
+  for (const line of lines) {
+    if (COMPOSITION_MARKER_LINE.test(line)) {
+      removedAny = true;
+      seams.add(kept.length);
+      continue;
+    }
+    kept.push(line);
+  }
+  if (!removedAny) return content;
+
+  // Each seam sits between two kept lines. Where that leaves more than one
+  // blank line, keep exactly one — an expanded block should not open with three
+  // blank lines where its fence used to be.
+  const drop = new Set<number>();
+  for (const seam of seams) {
+    let start = seam;
+    while (start > 0 && BLANK_LINE.test(kept[start - 1])) start--;
+    let stop = seam;
+    while (stop < kept.length && BLANK_LINE.test(kept[stop])) stop++;
+    // Nothing to collapse unless the run is longer than the one blank we keep.
+    if (stop - start < 2) continue;
+    // A seam at the very start or end of the document has no content to
+    // separate, so every blank in the run goes.
+    const keepOne = start > 0 && stop < kept.length;
+    for (let i = start + (keepOne ? 1 : 0); i < stop; i++) drop.add(i);
+  }
+
+  return kept.filter((_, i) => !drop.has(i)).join(eol);
 }
 
 /**
@@ -355,6 +401,11 @@ export class AgentGenerationOrchestratorService {
 
       const selections = selectionResult.value!;
       this.logger.info(`Selected ${selections.length} agents`);
+      const outputDirectory = path.join(
+        projectContext.rootPath,
+        '.claude',
+        'agents',
+      );
 
       if (selections.length === 0) {
         this.logger.warn('No agents selected, aborting generation');
@@ -364,10 +415,19 @@ export class AgentGenerationOrchestratorService {
           failed: 0,
           durationMs: Date.now() - startTime,
           warnings: ['No agents matched selection criteria'],
-          agents: [],
+          outputDirectory,
+          writtenCount: 0,
+          unchangedCount: 0,
+          failedCount: 0,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          lifecycle: 'completed',
+          outcomes: [],
         });
       }
-      this.logger.info(`Phase 3: Rendering ${selections.length} agents`);
+      this.logger.info(
+        `Phase 3/4: Rendering and writing ${selections.length} agents`,
+      );
       progressCallback?.({
         phase: 'rendering',
         percentComplete: 35,
@@ -376,51 +436,29 @@ export class AgentGenerationOrchestratorService {
         agentsProcessed: 0,
       });
 
-      const renderedResult = await this.renderAgents(
-        selections.map((s) => s.template.id),
+      const { outcomes, renderedAgents } = await this.produceAgents(
+        selections,
         projectContext,
+        outputDirectory,
         options,
         progressCallback,
         warnings,
       );
 
-      if (renderedResult.isErr()) {
-        this.logger.error('Template rendering failed', renderedResult.error!);
-        return Result.err(renderedResult.error!);
+      const aborted = options.abortSignal?.aborted ?? false;
+      const writtenCount = outcomes.filter(
+        (o) => o.status === 'written',
+      ).length;
+      const unchangedCount = outcomes.filter(
+        (o) => o.status === 'unchanged',
+      ).length;
+      const failedCount = outcomes.filter((o) => o.status === 'failed').length;
+      const successful = writtenCount + unchangedCount;
+
+      if (!aborted && renderedAgents.length === 0) {
+        return Result.err(new Error('No agents were successfully rendered'));
       }
-
-      const renderedAgents = renderedResult.value!;
-      this.logger.info(`Rendered ${renderedAgents.length} agents`);
-      this.logger.info('Phase 4: Writing agent files');
-      let writeFailures = 0;
-
-      for (let i = 0; i < renderedAgents.length; i++) {
-        const agent = renderedAgents[i];
-        progressCallback?.({
-          phase: 'writing',
-          percentComplete:
-            95 + Math.floor(((i + 1) / renderedAgents.length) * 5),
-          currentOperation: agent.sourceTemplateId,
-          agentsProcessed: i + 1,
-          totalAgents: renderedAgents.length,
-        });
-
-        const writeResult = await this.fileWriter.writeAgent(agent);
-        if (writeResult.isErr()) {
-          this.logger.error(
-            `Failed to write agent ${agent.sourceTemplateId}`,
-            writeResult.error!,
-          );
-          warnings.push(
-            `Failed to write ${agent.sourceTemplateId}: ${
-              writeResult.error!.message
-            }`,
-          );
-          writeFailures++;
-        }
-      }
-
-      if (writeFailures === renderedAgents.length) {
+      if (!aborted && successful === 0) {
         return Result.err(new Error('All agent file writes failed'));
       }
       // There is no Phase 5. Distributing agents to rival CLIs used to happen
@@ -435,21 +473,50 @@ export class AgentGenerationOrchestratorService {
       progressCallback?.({
         phase: 'complete',
         percentComplete: 100,
-        currentOperation: 'Generation complete',
+        currentOperation: aborted
+          ? 'Generation stopped'
+          : 'Generation complete',
       });
 
+      const abortReason = aborted
+        ? describeAbortReason(options.abortSignal?.reason)
+        : null;
+      const lifecycle: GenerationSummary['lifecycle'] = aborted
+        ? abortReason === 'generation_timeout'
+          ? 'timed-out'
+          : 'paused'
+        : successful === 0
+          ? 'failed'
+          : 'completed';
+
       const summary: GenerationSummary = {
-        totalAgents: renderedAgents.length,
-        successful: renderedAgents.length - writeFailures,
-        failed: writeFailures,
+        totalAgents: outcomes.length,
+        successful,
+        failed: failedCount,
         durationMs,
         warnings,
-        agents: renderedAgents,
+        outputDirectory,
+        writtenCount,
+        unchangedCount,
+        failedCount,
+        rejectedSections: outcomes.reduce(
+          (sum, o) => sum + o.rejectedSections,
+          0,
+        ),
+        tailoredSections: outcomes.reduce(
+          (sum, o) => sum + o.tailoredSections,
+          0,
+        ),
+        lifecycle,
+        outcomes,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
       };
 
-      this.logger.info('Agent generation complete', {
-        successful: summary.successful,
+      this.logger.info('Agent generation settled', {
+        lifecycle,
+        written: writtenCount,
+        unchanged: unchangedCount,
+        failed: failedCount,
         durationSec: (durationMs / 1000).toFixed(1),
       });
 
@@ -578,23 +645,14 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     threshold: number,
     userOverrides?: string[],
-  ): Promise<
-    Result<
-      Array<{
-        template: AgentTemplate;
-        relevanceScore: number;
-        matchedCriteria: string[];
-      }>,
-      Error
-    >
-  > {
+  ): Promise<Result<AgentSelection[], Error>> {
     try {
       if (userOverrides && userOverrides.length > 0) {
         this.logger.info('Using user-provided agent selection', {
           count: userOverrides.length,
           agents: userOverrides,
         });
-        const selections = [];
+        const selections: AgentSelection[] = [];
         const loadErrors: string[] = [];
 
         for (const agentId of userOverrides) {
@@ -660,102 +718,168 @@ export class AgentGenerationOrchestratorService {
   }
 
   /**
-   * Phase 3: Render agent templates with LLM-driven content generation.
+   * Phases 3 and 4, one agent at a time: render with LLM-driven content, then
+   * write. Every selected agent ends with exactly one terminal outcome
+   * (`written`, `unchanged` or `failed`) and `options.onAgentOutcome` fires
+   * once per outcome so a caller can checkpoint it.
    *
-   * Each template is processed by ContentGenerationService which handles:
-   * - Extracting dynamic sections (LLM + VAR markers)
-   * - Making SDK calls to fill sections with project-specific content
-   * - Substituting remaining variables from analysis context
-   *
-   * @param agentIds - Agent IDs to render
-   * @param context - Project context for variable substitution
-   * @param options - Generation options with SDK config
-   * @param progressCallback - Progress callback for updates
-   * @param warnings - Warnings array to append to
-   * @returns Result with rendered agents or error
-   * @private
+   * The abort signal is checked before each agent is rendered and again
+   * before each write. Once it fires, every remaining selected agent becomes
+   * a `failed` outcome with error `not generated: <reason>` — nothing is
+   * written after a cancel or watchdog timeout.
    */
-  private async renderAgents(
-    agentIds: string[],
+  private async produceAgents(
+    selections: AgentSelection[],
     context: AgentProjectContext,
+    outputDirectory: string,
     options: OrchestratorGenerationOptions,
     progressCallback?: (progress: GenerationProgress) => void,
-    warnings?: string[],
-  ): Promise<Result<GeneratedAgent[], Error>> {
-    try {
-      const rendered: GeneratedAgent[] = [];
-      const sdkConfig = {
-        mcpServerRunning: options.mcpServerRunning ?? false,
-        mcpPort: options.mcpPort,
-        onStreamEvent: options.onStreamEvent,
-        enhancedPromptContent: options.enhancedPromptContent,
-        model: options.model,
-        pluginPaths: options.pluginPaths,
-      };
+    warnings: string[] = [],
+  ): Promise<{
+    outcomes: GenerationAgentOutcome[];
+    renderedAgents: GeneratedAgent[];
+  }> {
+    const outcomes: GenerationAgentOutcome[] = [];
+    const renderedAgents: GeneratedAgent[] = [];
+    const signal = options.abortSignal;
+    const total = selections.length;
+    const sdkConfig: ContentGenerationSdkConfig = {
+      mcpServerRunning: options.mcpServerRunning ?? false,
+      mcpPort: options.mcpPort,
+      onStreamEvent: options.onStreamEvent,
+      enhancedPromptContent: options.enhancedPromptContent,
+      model: options.model,
+      pluginPaths: options.pluginPaths,
+      abortSignal: signal,
+    };
 
-      for (let i = 0; i < agentIds.length; i++) {
-        const agentId = agentIds[i];
-        this.logger.debug(`Rendering agent: ${agentId}`);
-        progressCallback?.({
-          phase: 'rendering',
-          percentComplete: 30 + Math.floor((i / agentIds.length) * 65),
-          currentOperation: agentId,
-          agentsProcessed: i,
-          totalAgents: agentIds.length,
+    const record = async (outcome: GenerationAgentOutcome): Promise<void> => {
+      outcomes.push(outcome);
+      await options.onAgentOutcome?.(outcome);
+    };
+    const notGenerated = (
+      agentId: string,
+      filePath: string,
+    ): GenerationAgentOutcome => ({
+      agentId,
+      filePath,
+      status: 'failed',
+      rejectedSections: 0,
+      tailoredSections: 0,
+      error: `not generated: ${describeAbortReason(signal?.reason)}`,
+    });
+
+    for (let i = 0; i < total; i++) {
+      const agentId = selections[i].template.id;
+      const filePath = path.join(outputDirectory, `${agentId}.md`);
+
+      if (signal?.aborted) {
+        await record(notGenerated(agentId, filePath));
+        continue;
+      }
+
+      this.logger.debug(`Rendering agent: ${agentId}`);
+      progressCallback?.({
+        phase: 'rendering',
+        percentComplete: 30 + Math.floor((i / total) * 65),
+        currentOperation: agentId,
+        agentsProcessed: i,
+        totalAgents: total,
+      });
+      const templateResult = await this.templateStorage.loadTemplate(agentId);
+      if (templateResult.isErr()) {
+        // Genuine "cannot produce": there is no template body to fall back
+        // to. Log loudly and aggregate the error so it is never swallowed.
+        const message = templateResult.error?.message ?? 'Unknown error';
+        this.logger.error(
+          `Cannot render ${agentId}: template failed to load — agent will be missing`,
+          templateResult.error!,
+        );
+        warnings.push(`Failed to load template for ${agentId}: ${message}`);
+        await record({
+          agentId,
+          filePath,
+          status: 'failed',
+          rejectedSections: 0,
+          tailoredSections: 0,
+          error: `Failed to load template: ${message}`,
         });
-        const templateResult = await this.templateStorage.loadTemplate(agentId);
-        if (templateResult.isErr()) {
-          // Genuine "cannot produce": there is no template body to fall back
-          // to. This is the ONLY path that drops an agent — log loudly and
-          // aggregate the error so it is never swallowed silently.
-          this.logger.error(
-            `Cannot render ${agentId}: template failed to load — agent will be missing`,
-            templateResult.error!,
-          );
-          warnings?.push(
-            `Failed to load template for ${agentId}: ${templateResult.error?.message}`,
-          );
-          continue;
-        }
+        continue;
+      }
 
-        const template = templateResult.value!;
-        // A template that parsed AND was selected must always yield a written
-        // agent file. LLM content generation and output validation are quality
-        // advisors here, not drop gates (see resolveAgentContent).
-        const finalContent = await this.resolveAgentContent(
+      const template = templateResult.value!;
+      // A template that parsed AND was selected must always yield a written
+      // agent file. LLM content generation and output validation are quality
+      // advisors here, not drop gates (see resolveAgentContent).
+      let resolved: ResolvedAgentContent;
+      try {
+        resolved = await this.resolveAgentContent(
           template,
           context,
           sdkConfig,
           options,
           warnings,
         );
+      } catch (error: unknown) {
+        if (signal?.aborted) {
+          await record(notGenerated(agentId, filePath));
+          continue;
+        }
+        throw error;
+      }
 
-        rendered.push({
-          sourceTemplateId: template.id,
-          sourceTemplateVersion: template.version,
-          content: finalContent,
-          variables: this.buildVariables(context, options.variableOverrides),
-          customizations: [],
-          generatedAt: new Date(),
-          filePath: path.join(
-            context.rootPath,
-            '.claude',
-            'agents',
-            `${template.id}.md`,
-          ),
+      const rendered: GeneratedAgent = {
+        sourceTemplateId: template.id,
+        sourceTemplateVersion: template.version,
+        content: resolved.content,
+        variables: this.buildVariables(context, options.variableOverrides),
+        customizations: [],
+        generatedAt: new Date(),
+        filePath,
+      };
+      renderedAgents.push(rendered);
+
+      if (signal?.aborted) {
+        await record(notGenerated(agentId, filePath));
+        continue;
+      }
+
+      progressCallback?.({
+        phase: 'writing',
+        percentComplete: 95 + Math.floor(((i + 1) / total) * 5),
+        currentOperation: agentId,
+        agentsProcessed: i + 1,
+        totalAgents: total,
+      });
+      const writeResult = await this.fileWriter.writeAgent(rendered);
+      if (writeResult.isErr()) {
+        const message = writeResult.error!.message;
+        this.logger.error(
+          `Failed to write agent ${agentId}`,
+          writeResult.error!,
+        );
+        warnings.push(`Failed to write ${agentId}: ${message}`);
+        await record({
+          agentId,
+          filePath,
+          status: 'failed',
+          rejectedSections: resolved.rejectedSections,
+          tailoredSections: resolved.tailoredSections,
+          error: message,
         });
+        continue;
       }
 
-      if (rendered.length === 0) {
-        return Result.err(new Error('No agents were successfully rendered'));
-      }
-
-      return Result.ok(rendered);
-    } catch (error) {
-      return Result.err(
-        new Error(`Agent rendering failed: ${(error as Error).message}`),
-      );
+      await record({
+        agentId,
+        filePath: writeResult.value!.filePath,
+        status: writeResult.value!.status,
+        rejectedSections: resolved.rejectedSections,
+        tailoredSections: resolved.tailoredSections,
+      });
     }
+
+    return { outcomes, renderedAgents };
   }
 
   /**
@@ -778,7 +902,7 @@ export class AgentGenerationOrchestratorService {
    * @param sdkConfig - SDK configuration for content generation
    * @param options - Generation options (for variable overrides)
    * @param warnings - Aggregated warnings surfaced in the generation summary
-   * @returns Final file content, never empty
+   * @returns Final file content (never empty) with its section counts
    * @private
    */
   private async resolveAgentContent(
@@ -787,12 +911,17 @@ export class AgentGenerationOrchestratorService {
     sdkConfig: ContentGenerationSdkConfig,
     options: OrchestratorGenerationOptions,
     warnings?: string[],
-  ): Promise<string> {
+  ): Promise<ResolvedAgentContent> {
     const contentResult = await this.contentGenerator.generateContent(
       template,
       context,
       sdkConfig,
     );
+    const fallback = (): ResolvedAgentContent => ({
+      content: this.renderStaticFallbackContent(template, context, options),
+      rejectedSections: 0,
+      tailoredSections: 0,
+    });
 
     if (contentResult.isErr()) {
       this.logger.warn(
@@ -802,20 +931,26 @@ export class AgentGenerationOrchestratorService {
       warnings?.push(
         `Content generation failed for ${template.id} (wrote authored template fallback): ${contentResult.error!.message}`,
       );
-      return this.renderStaticFallbackContent(template, context, options);
+      return fallback();
     }
 
-    const { content: rawContent, description: llmDescription } =
-      contentResult.value!;
-    const candidate = this.buildAgentFileContent(
-      rawContent,
-      template,
-      context,
-      llmDescription,
-    );
+    const {
+      content: rawContent,
+      warnings: sectionWarnings,
+      rejectedSections,
+      tailoredSections,
+    } = contentResult.value!;
+    for (const warning of sectionWarnings) {
+      warnings?.push(warning);
+    }
+    const candidate: ResolvedAgentContent = {
+      content: this.buildAgentFileContent(rawContent, template),
+      rejectedSections,
+      tailoredSections,
+    };
 
     const validationResult = await this.outputValidation.validate(
-      candidate,
+      candidate.content,
       context,
     );
     if (validationResult.isErr()) {
@@ -849,7 +984,7 @@ export class AgentGenerationOrchestratorService {
       warnings?.push(
         `Unsafe generated content for ${template.id} — wrote authored template fallback`,
       );
-      return this.renderStaticFallbackContent(template, context, options);
+      return fallback();
     }
 
     const criticalIssues = validation.issues
@@ -904,16 +1039,18 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     options: OrchestratorGenerationOptions,
   ): string {
-    const withoutDynamicMarkers = template.content.replace(
-      /<!--\s*\/?(?:LLM|VAR):\w+\s*-->/g,
-      '',
-    );
+    // No marker stripping here. It used to blank the `LLM`/`VAR` markers with
+    // an inline `replace(..., '')`, which emptied the line instead of removing
+    // it and left the seam of blank lines that `stripCompositionMarkers` exists
+    // to close — and it handled `LLM`/`VAR` while `buildAgentFileContent`
+    // handled `STATIC`, so the same job lived in two places with two different
+    // notions of "stripped". `buildAgentFileContent` now does all three.
     const variables = this.buildVariables(context, options.variableOverrides);
-    let body = withoutDynamicMarkers;
+    let body = template.content;
     for (const [key, value] of Object.entries(variables)) {
       body = body.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), value);
     }
-    return this.buildAgentFileContent(body, template, context);
+    return this.buildAgentFileContent(body, template);
   }
 
   /**
@@ -928,26 +1065,38 @@ export class AgentGenerationOrchestratorService {
    *
    * @param rawContent - Content from ContentGenerationService
    * @param template - Source template with metadata
-   * @param context - Project analysis context
    * @returns Content with proper frontmatter prepended
    */
   private buildAgentFileContent(
     rawContent: string,
     template: AgentTemplate,
-    context: AgentProjectContext,
-    llmDescription?: string,
   ): string {
-    const strippedContent = rawContent.replace(
-      /^\s*---\s*\n[\s\S]*?\n---\s*\n/,
-      '',
+    // Defensive only. This used to strip the template's SECOND frontmatter
+    // block (`---name/description---`), which no longer exists — templates carry
+    // one block and `TemplateStorageService` consumes it. What is left is the
+    // case the LLM content pass can still produce: generated content that opens
+    // with its own frontmatter, which would emit an agent file with two blocks.
+    const strippedContent = stripCompositionMarkers(
+      rawContent.replace(/^\s*---\s*\n[\s\S]*?\n---\s*\n/, ''),
     );
+    // The AUTHORED description is the only source. It is the `description:`
+    // frontmatter of a hand-written template, and every harness that lists
+    // subagents selects on it — the one sentence a dispatcher reads before
+    // choosing. There used to be a second source: a one-liner the content pass
+    // asked the model for, which replaced 400-600 characters of carefully
+    // bounded "use when / not for" with a generic restatement of the role,
+    // written without knowing which sibling agents it had to be distinguishable
+    // from. Once the template won that contest the generated one had no
+    // reachable success path, so it is gone rather than kept as a fallback.
+    // What remains for a template that declares none is deterministic.
     const description =
-      (llmDescription && llmDescription.trim()) ||
-      this.extractTemplateDescription(template) ||
-      `${this.humanizeName(template.name)} for ${context.projectType} projects`;
+      template.description || `${this.humanizeName(template.name)} agent`;
+    // 1,024 is the harness targets' own description ceiling. It was 120, which
+    // truncated all 15 shipped descriptions (417-647 chars) mid-sentence and
+    // always inside the WHEN clause — the half that makes an agent selectable.
     const cappedDescription =
-      description.length > 120
-        ? description.substring(0, 117) + '...'
+      description.length > 1024
+        ? description.substring(0, 1021) + '...'
         : description;
     const safeDescription = cappedDescription
       .replace(/\n/g, ' ')
@@ -975,42 +1124,6 @@ export class AgentGenerationOrchestratorService {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-
-  /**
-   * Extract the description from a template's content second frontmatter block.
-   *
-   * Templates have a dual-frontmatter format:
-   *   First block: template metadata (parsed by gray-matter, not in content)
-   *   Second block: output frontmatter (included in template.content)
-   *
-   * This method reads the second frontmatter block from the template content
-   * and extracts the description field value.
-   *
-   * @returns The description string, or undefined if not found
-   */
-  private extractTemplateDescription(
-    template: AgentTemplate,
-  ): string | undefined {
-    const frontmatterMatch = template.content.match(
-      /^\s*---\s*\n([\s\S]*?)\n---/,
-    );
-    if (!frontmatterMatch) {
-      return undefined;
-    }
-    const descriptionMatch = frontmatterMatch[1].match(
-      /^description:\s*(.+)$/m,
-    );
-    if (!descriptionMatch) {
-      return undefined;
-    }
-
-    const desc = descriptionMatch[1].trim();
-    if (desc.includes('{{')) {
-      return undefined;
-    }
-
-    return desc;
   }
 
   /**

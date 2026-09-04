@@ -163,7 +163,13 @@ export function buildSearchNamespace(
       // `{ success: false, error }` rather than throwing, so a resolved
       // failure must be propagated explicitly or it degrades to `[]` —
       // indistinguishable from "no relevant files" (TASK_2026_299).
-      if (result.success === false) {
+      //
+      // Truthiness, not `=== false`: `success` is a REQUIRED boolean on
+      // `GetFileSuggestionsResult`, so an absent one is a malformed result and
+      // should be rejected rather than read through. This had to be written
+      // `=== false` in TASK_2026_299 only because two mocks in this builder's
+      // spec omitted `success` entirely; they now carry it (TASK_2026_303).
+      if (!result.success) {
         throw new Error(
           result.error?.message ?? 'getFileSuggestions failed for query.',
         );
@@ -178,9 +184,16 @@ export function buildSearchNamespace(
 /**
  * Build diagnostics namespace.
  *
- * Calls `diagnosticsProvider.getDiagnostics(root)` (async, capability-aware)
- * and flattens the result into `DiagnosticsPayload` — preserving status,
- * source, and reason so the formatter can distinguish unavailable from clean.
+ * Calls `diagnosticsProvider.getDiagnostics(root, scope)` (async,
+ * capability-aware) and flattens the result into `DiagnosticsPayload` —
+ * preserving status, source, and reason so the formatter can distinguish
+ * unavailable from clean.
+ *
+ * An empty `files` array is passed on as NO scope rather than as an empty one.
+ * The two read alike at a call site and mean opposite things: a provider that
+ * compiles treats an empty scope as "nothing to check", and a caller that built
+ * its list from a filter that matched nothing would silently get a clean answer
+ * about no files at all.
  */
 export function buildDiagnosticsNamespace(
   diagnosticsProvider: IDiagnosticsProvider,
@@ -188,10 +201,13 @@ export function buildDiagnosticsNamespace(
 ): DiagnosticsNamespace {
   const getPayload = async (
     severityFilter?: 'error' | 'warning',
+    files?: readonly string[],
   ): Promise<DiagnosticsPayload> => {
     const root = resolveRootPerCall(workspaceProvider);
-    const result: DiagnosticsResult =
-      await diagnosticsProvider.getDiagnostics(root);
+    const result: DiagnosticsResult = await diagnosticsProvider.getDiagnostics(
+      root,
+      files && files.length > 0 ? { files } : undefined,
+    );
 
     if (result.status === 'unavailable') {
       return {
@@ -224,8 +240,8 @@ export function buildDiagnosticsNamespace(
   };
 
   return {
-    getErrors: () => getPayload('error'),
-    getWarnings: () => getPayload('warning'),
-    getAll: () => getPayload(undefined),
+    getErrors: (files) => getPayload('error', files),
+    getWarnings: (files) => getPayload('warning', files),
+    getAll: (files) => getPayload(undefined, files),
   };
 }

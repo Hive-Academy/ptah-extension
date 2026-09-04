@@ -50,10 +50,12 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
   });
 
   it('is the highest bundled version', () => {
-    // Bumped to 39 when TASK_2026_296 appended
-    // 0039_reap_orphaned_queue_rows. Tracks the current highest version and
+    // Bumped to 41 when TASK_2026_331 B4 appended
+    // 0041_skill_md_migration_state (40 for TASK_2026_322's
+    // 0040_skill_candidate_workspace_root; 39 was TASK_2026_296's own
+    // 0039_reap_orphaned_queue_rows). Tracks the current highest version and
     // moves forward with every appended migration (0038 precedent).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(39);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(41);
   });
 
   it('contains no id-shape predicate — a tabId is a UUID v4', () => {

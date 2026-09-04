@@ -16,12 +16,14 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
+import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import {
   SDKMessage,
   isResultMessage,
   isSystemInit,
   isStreamEvent,
   isUserMessage,
+  isReplayMessage,
   isAssistantMessage,
   isCompactBoundary,
   isLocalCommandOutput,
@@ -40,6 +42,7 @@ import {
   userMessageHasToolResult,
 } from './message-transform';
 import type {
+  BackgroundTaskInfo,
   TransformerState,
   TransformerHelpers,
   WorkflowRunInfo,
@@ -50,11 +53,14 @@ export { isResultMessage as isSDKResultMessage };
 @injectable()
 export class SdkMessageTransformer implements TransformerState {
   private readonly currentMessageIdByContext: Map<string, string> = new Map();
+  private readonly synthesizedMessageContexts: Set<string> = new Set();
   private readonly currentModelByContext: Map<string, string> = new Map();
   private readonly toolCallIdByContextAndBlock: Map<string, string> = new Map();
-  private readonly backgroundTaskToolUseIds: Set<string> = new Set();
+  private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
+    new Map();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
+  private readonly nonAgentTaskIds: Set<string> = new Set();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
   private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
     new Map();
@@ -78,6 +84,8 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly sessionLifecycle: SessionLifecycleManager,
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {
     this.helpers = {
       logger: this.logger,
@@ -85,6 +93,7 @@ export class SdkMessageTransformer implements TransformerState {
       modelResolver: this.modelResolver,
       sessionLifecycle: this.sessionLifecycle,
       usageTracker: this.usageTracker,
+      turnState: this.turnState,
     };
     this.assistantTransformer = new AssistantMessageTransformer();
     this.userTransformer = new UserMessageTransformer();
@@ -101,6 +110,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.modelResolver,
       this.sessionLifecycle,
       this.usageTracker,
+      this.turnState,
     );
   }
 
@@ -178,6 +188,26 @@ export class SdkMessageTransformer implements TransformerState {
           this.helpers,
           sessionId,
         );
+      }
+
+      // Replayed transcript turns. `isUserMessage` deliberately excludes them
+      // (`claude-sdk.types.ts:371`), so without this branch every one of them
+      // falls past all narrowing below and lands on the `Unknown message type`
+      // warn — which is how a resumed `/orchestrate` produced
+      // `<command-message>orchestrate</command-message>` at WARN level
+      // (log.log:2376, TASK_2026_350).
+      //
+      // Dropping is the correct handling, not merely the current one: the SDK
+      // replays the prior transcript on every resume, while Ptah has already
+      // rendered that history from JSONL via `chat:resume`. Emitting a replayed
+      // turn would duplicate it in the UI. What changes here is only the
+      // classification — a known message quietly skipped instead of an unknown
+      // one warned about.
+      if (isReplayMessage(sdkMessage)) {
+        this.logger.debug(
+          '[SdkMessageTransformer] Skipping replayed user message (history already rendered from JSONL)',
+        );
+        return [];
       }
 
       if (isSystemInit(sdkMessage)) {
@@ -272,12 +302,14 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
+    this.synthesizedMessageContexts.clear();
     this.currentModelByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
     this.activeSkillToolUseIds.clear();
     this.taskIdToParentToolUseId.clear();
     this.taskStartedEmitted.clear();
+    this.nonAgentTaskIds.clear();
     this.workflowRunByToolUseId.clear();
   }
 
@@ -289,6 +321,10 @@ export class SdkMessageTransformer implements TransformerState {
     return this.currentModelByContext.get(contextKey);
   }
 
+  isMessageSynthesized(contextKey: string): boolean {
+    return this.synthesizedMessageContexts.has(contextKey);
+  }
+
   getToolCallId(contextKey: string, blockIndex: number): string | undefined {
     return this.toolCallIdByContextAndBlock.get(`${contextKey}:${blockIndex}`);
   }
@@ -297,12 +333,20 @@ export class SdkMessageTransformer implements TransformerState {
     return this.backgroundTaskToolUseIds.has(toolUseId);
   }
 
+  getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined {
+    return this.backgroundTaskToolUseIds.get(toolUseId);
+  }
+
   getTaskParentToolUseId(taskId: string): string | undefined {
     return this.taskIdToParentToolUseId.get(taskId);
   }
 
   isTaskStartedEmitted(toolUseId: string): boolean {
     return this.taskStartedEmitted.has(toolUseId);
+  }
+
+  isNonAgentTask(taskId: string): boolean {
+    return this.nonAgentTaskIds.has(taskId);
   }
 
   hasActiveSkillToolUseId(toolUseId: string): boolean {
@@ -323,6 +367,15 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearMessageId(contextKey: string): void {
     this.currentMessageIdByContext.delete(contextKey);
+    this.synthesizedMessageContexts.delete(contextKey);
+  }
+
+  markMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.add(contextKey);
+  }
+
+  clearMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.delete(contextKey);
   }
 
   setCurrentModel(contextKey: string, model: string): void {
@@ -353,8 +406,11 @@ export class SdkMessageTransformer implements TransformerState {
     }
   }
 
-  addBackgroundTaskToolUseId(toolUseId: string): void {
-    this.backgroundTaskToolUseIds.add(toolUseId);
+  addBackgroundTaskToolUseId(
+    toolUseId: string,
+    info?: BackgroundTaskInfo,
+  ): void {
+    this.backgroundTaskToolUseIds.set(toolUseId, info ?? {});
   }
 
   removeBackgroundTaskToolUseId(toolUseId: string): void {
@@ -367,6 +423,11 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearTaskParent(taskId: string): void {
     this.taskIdToParentToolUseId.delete(taskId);
+    this.nonAgentTaskIds.delete(taskId);
+  }
+
+  markNonAgentTask(taskId: string): void {
+    this.nonAgentTaskIds.add(taskId);
   }
 
   markTaskStartedEmitted(toolUseId: string): void {

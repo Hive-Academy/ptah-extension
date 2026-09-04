@@ -1,19 +1,19 @@
 /**
- * StreamingHandlerService specs â€” flat-event ingest hot-path coverage.
+ * StreamingHandlerService specs — flat-event ingest hot-path coverage.
  *
  * What is in scope:
- *   - `agent_start` â†’ SessionManager.registerAgent and event stored in state
+ *   - `agent_start` → SessionManager.registerAgent and event stored in state
  *   - `tool_start` followed by `tool_result` for the same toolCallId update
  *     the same tracked toolCallMap entry, not a duplicate one
  *   - `text_delta` chunks accumulate into the per-block accumulator key
- *   - `agent_started` â†’ `text_delta` â†’ `message_complete` survives the round
+ *   - `agent_started` → `text_delta` → `message_complete` survives the round
  *     trip and the tab's streamingState carries the accumulated text
- *   - The 5000-event FIFO cap (`STREAMING_EVENT_CAP`) â€” synthesise 5001
+ *   - The 5000-event FIFO cap (`STREAMING_EVENT_CAP`) — synthesise 5001
  *     unique-id text deltas, confirm `state.events.size === 5000` and the
  *     first event id is evicted
  *
  * What is intentionally OUT of scope:
- *   - Tree finalization (delegated to MessageFinalizationService â€” own spec)
+ *   - Tree finalization (delegated to MessageFinalizationService — own spec)
  *   - Compaction lifecycle (own spec exists)
  *   - Background-agent forwarding (covered by agent-monitor.store specs)
  *   - The full ChatStore integration (covered by integration tests)
@@ -28,6 +28,7 @@ import {
   type TabState,
 } from '@ptah-extension/chat-types';
 import type {
+  AgentProgressEvent,
   AgentStartEvent,
   FlatStreamEventUnion,
   MessageCompleteEvent,
@@ -35,6 +36,7 @@ import type {
   TextDeltaEvent,
   ToolResultEvent,
   ToolStartEvent,
+  TurnStateEvent,
 } from '@ptah-extension/shared';
 import { SessionId } from '@ptah-extension/shared';
 import { StreamingHandlerService } from './streaming-handler.service';
@@ -43,7 +45,7 @@ import { SessionManager } from './session-manager.service';
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
-import { PermissionHandlerService } from './permission-handler.service';
+import { TurnStateApplier } from './turn-state-applier.service';
 import { BackgroundAgentStore } from './background-agent.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 
@@ -200,9 +202,7 @@ describe('StreamingHandlerService', () => {
       | 'markAgentsAsInterruptedByToolCallIds'
     >
   >;
-  let permissionHandler: jest.Mocked<
-    Pick<PermissionHandlerService, 'consumeHardDenyToolUseIds'>
-  >;
+  let turnStateApplier: jest.Mocked<Pick<TurnStateApplier, 'apply'>>;
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
@@ -334,11 +334,7 @@ describe('StreamingHandlerService', () => {
       >
     >;
 
-    permissionHandler = {
-      consumeHardDenyToolUseIds: jest.fn(() => new Set<string>()),
-    } as jest.Mocked<
-      Pick<PermissionHandlerService, 'consumeHardDenyToolUseIds'>
-    >;
+    turnStateApplier = { apply: jest.fn() };
 
     backgroundAgentStore = {
       onStarted: jest.fn(),
@@ -375,7 +371,7 @@ describe('StreamingHandlerService', () => {
     TestBed.configureTestingModule({
       providers: [
         StreamingHandlerService,
-        // EventDeduplicationService is a pure utility â€” use the real one so
+        // EventDeduplicationService is a pure utility — use the real one so
         // the source-priority logic is exercised end-to-end through the
         // streaming handler.
         EventDeduplicationService,
@@ -383,7 +379,7 @@ describe('StreamingHandlerService', () => {
         { provide: SessionManager, useValue: sessionManager },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
         { provide: MessageFinalizationService, useValue: finalization },
-        { provide: PermissionHandlerService, useValue: permissionHandler },
+        { provide: TurnStateApplier, useValue: turnStateApplier },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
       ],
@@ -437,7 +433,7 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('tool_start â†’ tool_result for the same toolCallId', () => {
+  describe('tool_start → tool_result for the same toolCallId', () => {
     it('does NOT create a duplicate toolCallMap entry on tool_result', () => {
       service.processStreamEvent(toolStart(), TAB_ID);
       expect(currentState().toolCallMap.size).toBe(1);
@@ -445,7 +441,7 @@ describe('StreamingHandlerService', () => {
 
       service.processStreamEvent(toolResult(), TAB_ID);
 
-      // Only the same toolCallId tracked â€” no second key created.
+      // Only the same toolCallId tracked — no second key created.
       expect(currentState().toolCallMap.size).toBe(1);
       expect(currentState().toolCallMap.has('tool-1')).toBe(true);
 
@@ -478,7 +474,7 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('end-to-end: message_start â†’ text_delta â†’ message_complete', () => {
+  describe('end-to-end: message_start → text_delta → message_complete', () => {
     it('persists the accumulated text and final token usage in streamingState', () => {
       service.processStreamEvent(msgStart(), TAB_ID);
       service.processStreamEvent(
@@ -608,72 +604,60 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  describe('flushUpdatesSync', () => {
-    it('delegates to BatchedUpdateService.flushSync', () => {
-      service.flushUpdatesSync();
-      expect(batchedUpdate.flushSync).toHaveBeenCalled();
-    });
+  // `flushUpdatesSync()` is deliberately absent (TASK_2026_327). It forwarded
+  // to `BatchedUpdateService.flushSync()` with no `originTabId` — the
+  // full-drain contract, which is correct ONLY at turn-end finalization and is
+  // reached there directly by `MessageFinalizationService`. Nothing in the app
+  // ever called the delegate, and re-exposing the un-scoped drain on the
+  // per-event handler is how a hidden tab's flush ends up draining every other
+  // session's deferred tree. Do not reintroduce it; if a caller needs a sync
+  // flush from here, it must pass its own tab id.
+  it('does not expose an unscoped flushUpdatesSync delegate', () => {
+    expect(
+      (service as unknown as { flushUpdatesSync?: unknown }).flushUpdatesSync,
+    ).toBeUndefined();
   });
 
-  // Visual streaming-flag self-heal. A turn-end (Stop hook / result / a
-  // background-task pause) clears `_streamingTabIds` via markTabIdle — hiding
-  // the stop button + tab spinner — while the SDK later resumes streaming on
-  // its own. The execution-tree bubble re-enters 'streaming' from those events;
-  // the flag must be re-asserted too, regardless of the tab's lifecycle status.
-  describe('streaming-flag re-assertion when the SDK pauses then resumes', () => {
-    it('re-marks the tab when content resumes and the flag was cleared', () => {
-      tabManager.isTabStreaming.mockReturnValue(false);
+  // TASK_2026_360 Defect 1: the visual streaming flag used to be re-asserted
+  // from ANY mutating event after a turn ended, so every post-turn background
+  // event (`agent_progress`, `background_agent_*`) re-lit the stop button with
+  // nothing left to clear it. Content never touches status or the flag now —
+  // the backend `generating` turn_state is the one signal that a turn runs.
+  describe('no status re-assertion from content (TASK_2026_360)', () => {
+    function agentProgress(): AgentProgressEvent {
+      return {
+        id: 'evt-progress-1',
+        eventType: 'agent_progress',
+        timestamp: 7,
+        sessionId: SESSION_ID,
+        messageId: MESSAGE_ID,
+        parentToolUseId: 'toolu_agent_1',
+        taskId: 'task-1',
+        description: 'working',
+        totalTokens: 1,
+        toolUses: 1,
+        durationMs: 1,
+        source: 'stream',
+      } as AgentProgressEvent;
+    }
 
-      service.processStreamEvent(textDelta(), TAB_ID);
-
-      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
-    });
-
-    it('does NOT re-mark when the flag is already set (steady-state streaming is a no-op)', () => {
-      tabManager.isTabStreaming.mockReturnValue(true);
-
-      service.processStreamEvent(textDelta(), TAB_ID);
-
-      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
-    });
-
-    it('re-marks an awaiting-background tab when the agent resumes after a background command finishes', () => {
-      tabManager.isTabStreaming.mockReturnValue(false);
-      tabsSignal.set([makeTab({ status: 'awaiting-background' })]);
-
-      service.processStreamEvent(textDelta(), TAB_ID);
-
-      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
-    });
-
-    // Regression: clicking Stop ends the turn (markTabIdle clears the flag and
-    // stamps an aborted terminal reason), then the SDK emits a trailing
-    // "[Request interrupted by user]" message. That content must NOT self-heal
-    // the spinner back on — otherwise the stop button reappears and the user
-    // has to click it twice. A clean completion still self-heals (above).
-    it('does NOT re-mark when the last turn ended in aborted_streaming (post-abort interrupt content)', () => {
+    it('does NOT re-mark a post-terminal (awaiting-background) tab on agent_progress', () => {
       tabManager.isTabStreaming.mockReturnValue(false);
       tabsSignal.set([
-        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_streaming' }),
+        makeTab({
+          status: 'awaiting-background',
+          lastTerminalReason: 'completed',
+        }),
       ]);
 
-      service.processStreamEvent(textDelta(), TAB_ID);
+      service.processStreamEvent(agentProgress(), TAB_ID);
 
+      expect(agentMonitorStore.onAgentProgress).toHaveBeenCalled();
       expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+      expect(tabManager.markStreaming).not.toHaveBeenCalled();
     });
 
-    it('does NOT re-mark when the last turn ended in aborted_tools', () => {
-      tabManager.isTabStreaming.mockReturnValue(false);
-      tabsSignal.set([
-        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_tools' }),
-      ]);
-
-      service.processStreamEvent(textDelta(), TAB_ID);
-
-      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
-    });
-
-    it('still self-heals when the last turn completed cleanly (background resume path)', () => {
+    it('does NOT re-mark a loaded tab on a text_delta either', () => {
       tabManager.isTabStreaming.mockReturnValue(false);
       tabsSignal.set([
         makeTab({ status: 'loaded', lastTerminalReason: 'completed' }),
@@ -681,7 +665,68 @@ describe('StreamingHandlerService', () => {
 
       service.processStreamEvent(textDelta(), TAB_ID);
 
-      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalled();
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+      expect(tabManager.markStreaming).not.toHaveBeenCalled();
+    });
+
+    it('binds the session on the fresh-tab hijack without writing status', () => {
+      const freshTab = makeTab({
+        claudeSessionId: undefined,
+        status: 'fresh',
+      } as Partial<TabState>);
+      tabsSignal.set([freshTab]);
+
+      service.processStreamEvent(msgStart(), undefined, SESSION_ID);
+
+      expect(tabManager.attachSession).toHaveBeenCalledWith(TAB_ID, SESSION_ID);
+      expect(sessionManager.setSessionId).toHaveBeenCalledWith(SESSION_ID);
+      expect(tabManager.markStreaming).not.toHaveBeenCalled();
+      expect(sessionManager.setStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('turn_state interception (TASK_2026_360)', () => {
+    function turnState(): TurnStateEvent {
+      return {
+        id: 'evt-turn-state',
+        eventType: 'turn_state',
+        timestamp: 8,
+        sessionId: SESSION_ID,
+        messageId: `turn-state-${SESSION_ID}`,
+        phase: 'idle',
+        revision: 2,
+        backgroundTasks: [],
+        sessionCrons: [],
+        terminalReason: 'completed',
+        source: 'stream',
+      };
+    }
+
+    it('hands the event to TurnStateApplier with the routed tab id and returns null', () => {
+      const event = turnState();
+
+      const result = service.processStreamEvent(event, TAB_ID);
+
+      expect(result).toBeNull();
+      expect(turnStateApplier.apply).toHaveBeenCalledWith(event, TAB_ID);
+    });
+
+    it('never stores the event in StreamingState nor schedules a UI update', () => {
+      service.processStreamEvent(turnState(), TAB_ID);
+
+      expect(currentState().events.size).toBe(0);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('intercepts before tab resolution — no lookups, no missing-tab warning', () => {
+      tabsSignal.set([]);
+
+      service.processStreamEvent(turnState());
+
+      expect(turnStateApplier.apply).toHaveBeenCalledTimes(1);
+      expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
+      expect(consoleWarn).not.toHaveBeenCalled();
     });
   });
 
@@ -726,7 +771,7 @@ describe('StreamingHandlerService', () => {
       );
     });
 
-    it('handleSessionStats finalizes every bound tab and consumes hard-deny once', () => {
+    it('handleSessionStats stashes pendingStats on every bound streaming tab and does not finalize', () => {
       const tabA = makeTab({
         id: 'tab-a',
         claudeSessionId: SESSION_ID,
@@ -742,32 +787,39 @@ describe('StreamingHandlerService', () => {
       tabsSignal.set([tabA, tabB]);
       tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
 
-      service.handleSessionStats({
+      const result = service.handleSessionStats({
         sessionId: SESSION_ID,
         cost: 0.1,
         tokens: { input: 5, output: 5 },
         duration: 100,
       });
 
-      // Per-tab finalize + idle.
-      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith('tab-a');
-      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith('tab-b');
-      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-a');
-      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-b');
-      // Hard-deny consumption is per-session — exactly one call regardless of
-      // how many bound tabs received finalization.
-      expect(permissionHandler.consumeHardDenyToolUseIds).toHaveBeenCalledTimes(
-        1,
+      expect(result).toBeNull();
+      const expectedStats = {
+        cost: 0.1,
+        tokens: { input: 5, output: 5 },
+        duration: 100,
+      };
+      expect(tabA.streamingState?.pendingStats).toEqual(expectedStats);
+      expect(tabB.streamingState?.pendingStats).toEqual(expectedStats);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-a',
+        tabA.streamingState,
       );
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-b',
+        tabB.streamingState,
+      );
+      // The turn boundary is the backend turn_state, never the stats push.
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
     });
   });
 
-  // Stop-observed guard. Phase 2 Batch 4 — TurnEndHandlerService is now the
-  // primary turn-end pivot. SESSION_STATS only finalizes as a safety net
-  // when Stop did not fire; when Stop has stamped `lastTerminalReason`, the
-  // finalization block is skipped and only the last-assistant-message stats
-  // merge runs.
-  describe('Stop-observed guard (Phase 2 Batch 4)', () => {
+  // TASK_2026_360: SESSION_STATS is not a turn boundary. The backend
+  // `turn_state` event finalizes; stats either wait for it as `pendingStats`
+  // (tab still streaming) or patch the finalized last assistant message.
+  describe('stats routing (TASK_2026_360)', () => {
     const assistantMsg = {
       id: 'asst-msg-1',
       role: 'assistant' as const,
@@ -777,7 +829,7 @@ describe('StreamingHandlerService', () => {
       duration: 0,
     };
 
-    it('finalizes via safety-net when lastTerminalReason is undefined (no Stop observed)', () => {
+    it('stashes pendingStats while the tab still streams — regardless of the terminal-reason tristate', () => {
       const tab = makeTab({
         id: TAB_ID,
         claudeSessionId: SESSION_ID,
@@ -785,28 +837,41 @@ describe('StreamingHandlerService', () => {
         status: 'streaming',
         lastTerminalReason: undefined,
         messages: [assistantMsg],
+        queuedContent: 'next please',
       } as Partial<TabState>);
       tabsSignal.set([tab]);
       tabManager.findTabsBySessionId.mockReturnValue([tab]);
 
-      service.handleSessionStats({
+      const result = service.handleSessionStats({
         sessionId: SESSION_ID,
         cost: 0.25,
         tokens: { input: 5, output: 5 },
         duration: 200,
       });
 
-      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(TAB_ID);
-      expect(tabManager.markTabIdle).toHaveBeenCalledWith(TAB_ID);
+      expect(result).toBeNull();
+      expect(tab.streamingState?.pendingStats).toEqual({
+        cost: 0.25,
+        tokens: { input: 5, output: 5 },
+        duration: 200,
+      });
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        TAB_ID,
+        tab.streamingState,
+      );
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).not.toHaveBeenCalled();
     });
 
-    it('skips finalization when lastTerminalReason is null (Stop fired without reason)', () => {
+    it('patches the last assistant message once the tab is finalized (streamingState null)', () => {
       const tab = makeTab({
         id: TAB_ID,
         claudeSessionId: SESSION_ID,
-        streamingState: createEmptyStreamingState(),
+        streamingState: null,
         status: 'loaded',
-        lastTerminalReason: null,
+        lastTerminalReason: 'completed',
         messages: [assistantMsg],
       } as Partial<TabState>);
       tabsSignal.set([tab]);
@@ -820,10 +885,6 @@ describe('StreamingHandlerService', () => {
       });
 
       expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
-      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
-      expect(
-        finalization.markAgentsAsInterruptedByToolCallIds,
-      ).not.toHaveBeenCalled();
       expect(tabManager.markTabIdle).not.toHaveBeenCalled();
       expect(tabManager.setMessages).toHaveBeenCalledWith(
         TAB_ID,
@@ -839,40 +900,13 @@ describe('StreamingHandlerService', () => {
       );
     });
 
-    it('skips finalization when lastTerminalReason is set (Stop already pivoted)', () => {
+    it('patches even when no Stop was ever observed (lastTerminalReason undefined)', () => {
       const tab = makeTab({
         id: TAB_ID,
         claudeSessionId: SESSION_ID,
-        streamingState: createEmptyStreamingState(),
+        streamingState: null,
         status: 'loaded',
-        lastTerminalReason: 'completed',
-        messages: [assistantMsg],
-      } as Partial<TabState>);
-      tabsSignal.set([tab]);
-      tabManager.findTabsBySessionId.mockReturnValue([tab]);
-
-      service.handleSessionStats({
-        sessionId: SESSION_ID,
-        cost: 0.25,
-        tokens: { input: 5, output: 5 },
-        duration: 200,
-      });
-
-      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
-      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
-      expect(
-        finalization.markAgentsAsInterruptedByToolCallIds,
-      ).not.toHaveBeenCalled();
-      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
-    });
-
-    it('still patches last-assistant-message tokens/cost/duration when Stop has finalized', () => {
-      const tab = makeTab({
-        id: TAB_ID,
-        claudeSessionId: SESSION_ID,
-        streamingState: createEmptyStreamingState(),
-        status: 'loaded',
-        lastTerminalReason: 'completed',
+        lastTerminalReason: undefined,
         messages: [assistantMsg],
       } as Partial<TabState>);
       tabsSignal.set([tab]);
@@ -890,11 +924,97 @@ describe('StreamingHandlerService', () => {
         expect.arrayContaining([
           expect.objectContaining({
             id: 'asst-msg-1',
-            role: 'assistant',
             tokens: { input: 42, output: 17 },
             cost: 0.75,
             duration: 333,
           }),
+        ]),
+      );
+    });
+
+    it('reports the queued follow-up only when the tab is already finalized', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: null,
+        status: 'loaded',
+        messages: [assistantMsg],
+        queuedContent: 'next please',
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      const result = service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.1,
+        tokens: { input: 1, output: 1 },
+        duration: 10,
+      });
+
+      expect(result).toEqual({ tabId: TAB_ID, queuedContent: 'next please' });
+    });
+
+    it('stashes onto a background-partition tab while it streams, patches once finalized', () => {
+      tabsSignal.set([]);
+      const bgState = createEmptyStreamingState();
+      const bgTab = makeTab({
+        id: 'bg-tab',
+        claudeSessionId: SESSION_ID,
+        streamingState: bgState,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabManager.findTabsBySessionId.mockReturnValue([]);
+      (
+        tabManager as unknown as {
+          findTabBySessionIdAcrossWorkspaces: jest.Mock;
+        }
+      ).findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: bgTab,
+        workspacePath: '/ws/bg',
+      });
+      const updateBackgroundTab = (
+        tabManager as unknown as { updateBackgroundTab: jest.Mock }
+      ).updateBackgroundTab;
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.2,
+        tokens: { input: 2, output: 2 },
+        duration: 20,
+      });
+
+      expect(bgState.pendingStats).toEqual({
+        cost: 0.2,
+        tokens: { input: 2, output: 2 },
+        duration: 20,
+      });
+      expect(updateBackgroundTab).toHaveBeenCalledWith('bg-tab', {
+        streamingState: expect.objectContaining({
+          pendingStats: bgState.pendingStats,
+        }),
+      });
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+
+      // Finalized: streamingState gone → the numbers land on the message.
+      (
+        tabManager as unknown as {
+          findTabBySessionIdAcrossWorkspaces: jest.Mock;
+        }
+      ).findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: { ...bgTab, streamingState: null },
+        workspacePath: '/ws/bg',
+      });
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.3,
+        tokens: { input: 3, output: 3 },
+        duration: 30,
+      });
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        'bg-tab',
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'asst-msg-1', cost: 0.3 }),
         ]),
       );
     });

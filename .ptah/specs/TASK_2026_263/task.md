@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_263
-status: in_review
+status: done
 type: feature
 title: >-
   New Project flow — intake, AskUserQuestion on the harness surface,
@@ -13,6 +13,7 @@ description: >-
   saas-workspace-initializer skill never asks about the business nor chains
   ddd-architecture / nx-workspace-architect. Make it a showcase-grade feature
   with Playwright e2e proof.
+updated: '2026-08-25T21:14:29.324Z'
 ---
 
 # New Project flow — showcase-grade rebuild

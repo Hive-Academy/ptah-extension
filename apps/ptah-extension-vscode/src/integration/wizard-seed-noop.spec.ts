@@ -323,6 +323,21 @@ describe('VS Code wizard:deep-analyze — memory seeding no-op (T5.2)', () => {
             return '## Code Conventions\n- Use ESLint\n';
           return null;
         }),
+      // The handler now answers through the storage service so the response
+      // carries the version-3 manifest fields (TASK_2026_361). This test only
+      // cares that seeding is skipped, so the mapper is the identity shape.
+      toResponse: jest.fn(
+        (
+          slugDir: string,
+          manifest: unknown,
+          phaseContents: Record<string, string>,
+        ) => ({
+          isMultiPhase: true,
+          manifest,
+          phaseContents,
+          analysisDir: slugDir,
+        }),
+      ),
     });
 
     // Wire file system provider stub (consulted by deriveWorkspaceFingerprint)

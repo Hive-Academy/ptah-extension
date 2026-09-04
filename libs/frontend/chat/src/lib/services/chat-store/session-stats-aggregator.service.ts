@@ -1,12 +1,18 @@
 import { Injectable, inject } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ConversationRegistry,
+  SurfaceSessionStatsRegistry,
+  TabManagerService,
+  type ClaudeSessionId,
+} from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
 import {
-  pickPrimaryModel,
-  SessionId,
-  type ModelUsageEntry,
-} from '@ptah-extension/shared';
+  deriveLiveModelStats,
+  type TurnModelUsage,
+} from './session-live-stats.util';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
@@ -25,6 +31,9 @@ import { MessageDispatchService } from './message-dispatch.service';
 @Injectable({ providedIn: 'root' })
 export class SessionStatsAggregatorService {
   private readonly tabManager = inject(TabManagerService);
+  private readonly streamRouter = inject(StreamRouter);
+  private readonly conversationRegistry = inject(ConversationRegistry);
+  private readonly surfaceStats = inject(SurfaceSessionStatsRegistry);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
@@ -56,79 +65,60 @@ export class SessionStatsAggregatorService {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    const targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
+    let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
       SessionId.from(stats.sessionId),
     );
+    if (targetTabs.length === 0) {
+      // `findTabsBySessionId` resolves active-workspace tabs only. A turn that
+      // ends while its tab sits in a BACKGROUND workspace (user switched
+      // folders mid-stream) still owns these stats. Every tab setter below
+      // routes through the workspace-aware `updateTabInternal`, and
+      // `streamingHandler.handleSessionStats` has its own background branch,
+      // so the normal path is safe for a partitioned tab — mirrors
+      // `TurnEndHandlerService` / `StreamingHandlerService`.
+      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        stats.sessionId,
+      );
+      if (lookup) targetTabs = [lookup.tab];
+    }
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
     if (targetTabs.length === 0) {
-      console.warn(
-        '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
-        { sessionId: stats.sessionId },
-      );
+      // A workflow surface — New Project / harness builder / a wizard analysis
+      // phase — owns sessions that have no tab BY DESIGN, so every one of its
+      // turns used to land here and be discarded as "dropping event". Nothing
+      // below applies (there is no `TabState` to write), but the stats
+      // themselves are perfectly good: record them session-keyed so the
+      // surface can render the same header a tab gets.
+      this.recordSurfaceStats(stats);
       return;
     }
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      const entries: ModelUsageEntry[] = stats.modelUsage.map((m) => ({
-        model: m.model,
-        totalCost: m.costUSD,
-        tokens: {
-          input: m.inputTokens,
-          output: m.outputTokens,
-          cacheRead: m.cacheReadInputTokens,
-        },
-      }));
       const stickyModelName = ((): string | null => {
         for (const t of targetTabs) {
-          const sm = t.sessionModel;
-          if (sm && stats.modelUsage.some((m) => m.model === sm)) return sm;
+          if (t.sessionModel) return t.sessionModel;
         }
         return null;
       })();
-      const primaryModelName = stickyModelName ?? pickPrimaryModel(entries);
-      const primaryModel =
-        stats.modelUsage.find((m) => m.model === primaryModelName) ??
-        stats.modelUsage[0];
-      const tabHasCompacted = targetTabs.some(
-        (t) =>
-          (t.lastCompactionAt ?? null) !== null || (t.compactionCount ?? 0) > 0,
-      );
-      const useCumulativeFallback = primaryModel.lastTurnContextTokens == null;
-      const cumulativeFallback =
-        primaryModel.inputTokens +
-        (primaryModel.cacheReadInputTokens ?? 0) +
-        primaryModel.outputTokens;
-      const cumulativeExceedsWindow =
-        primaryModel.contextWindow > 0 &&
-        cumulativeFallback > primaryModel.contextWindow;
-      const skipLiveStatsUpdate =
-        useCumulativeFallback && (tabHasCompacted || cumulativeExceedsWindow);
+      const derived = deriveLiveModelStats(stats.modelUsage, {
+        stickyModel: stickyModelName,
+        hasCompacted: targetTabs.some(
+          (t) =>
+            (t.lastCompactionAt ?? null) !== null ||
+            (t.compactionCount ?? 0) > 0,
+        ),
+      });
 
-      if (!skipLiveStatsUpdate) {
-        const contextUsed =
-          primaryModel.lastTurnContextTokens != null
-            ? primaryModel.lastTurnContextTokens
-            : primaryModel.inputTokens +
-              (primaryModel.cacheReadInputTokens ?? 0) +
-              primaryModel.outputTokens;
-        const contextPercent =
-          primaryModel.contextWindow > 0
-            ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
-            : 0;
+      if (derived && derived.live) {
         for (const t of targetTabs) {
           this.tabManager.setLiveModelStatsAndUsageList(
             t.id,
-            {
-              model: primaryModel.model,
-              contextUsed,
-              contextWindow: primaryModel.contextWindow,
-              contextPercent,
-            },
+            derived.live,
             stats.modelUsage,
           );
         }
-      } else {
+      } else if (derived) {
         for (const t of targetTabs) {
           this.tabManager.setModelUsageList(t.id, stats.modelUsage);
         }
@@ -136,8 +126,8 @@ export class SessionStatsAggregatorService {
           '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction); preserved per-model breakdown',
           {
             sessionId: stats.sessionId,
-            model: primaryModel.model,
-            inputTokens: primaryModel.inputTokens,
+            model: derived.primaryModel.model,
+            inputTokens: derived.primaryModel.inputTokens,
           },
         );
       }
@@ -173,5 +163,54 @@ export class SessionStatsAggregatorService {
         result.queuedContent,
       );
     }
+  }
+
+  /**
+   * Fold a turn's stats into the surface registry for a session with no tab.
+   *
+   * Uses the same {@link deriveLiveModelStats} the tab path does, so the New
+   * Project panel and a chat tab cannot report different context fills for the
+   * same turn. `hasCompacted` comes from the conversation record rather than a
+   * `TabState`, which is the only part that legitimately differs.
+   *
+   * A session the router knows nothing about is still a genuine drop and still
+   * warns — that case means routing lost the event, which is a bug.
+   */
+  private recordSurfaceStats(stats: {
+    sessionId: string;
+    cost: number;
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+    };
+    modelUsage?: TurnModelUsage[];
+  }): void {
+    const sessionId = stats.sessionId as ClaudeSessionId;
+    if (this.streamRouter.surfacesForSession(sessionId).length === 0) {
+      console.warn(
+        '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
+        { sessionId: stats.sessionId },
+      );
+      return;
+    }
+
+    const conversation =
+      this.conversationRegistry.findContainingSession(sessionId);
+    const derived = stats.modelUsage?.length
+      ? deriveLiveModelStats(stats.modelUsage, {
+          // The conversation record is the surface's equivalent of a tab's
+          // `lastCompactionAt` / `compactionCount` pair.
+          hasCompacted: (conversation?.lastCompactionAt ?? null) !== null,
+        })
+      : null;
+
+    this.surfaceStats.record(stats.sessionId, {
+      live: derived?.live ?? null,
+      modelUsage: stats.modelUsage ?? null,
+      cost: stats.cost,
+      tokens: stats.tokens,
+    });
   }
 }

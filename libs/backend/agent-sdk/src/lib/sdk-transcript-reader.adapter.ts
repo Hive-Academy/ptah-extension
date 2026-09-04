@@ -1,6 +1,9 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
+import type {
+  ITranscriptReader,
+  TranscriptReadOptions,
+} from '@ptah-extension/memory-contracts';
 import { SDK_TOKENS } from './di/tokens';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
 
@@ -12,11 +15,23 @@ export class SdkTranscriptReaderAdapter implements ITranscriptReader {
     private readonly historyReader: SessionHistoryReaderService,
   ) {}
 
-  async read(sessionId: string, workspacePath: string): Promise<string> {
+  /**
+   * `options.tailBytes` bounds the RAW JSONL that is read and parsed, not the
+   * formatted string returned. Those differ by a large factor — a transcript
+   * line carries uuids, timestamps, usage and tool metadata around the text
+   * this method keeps — so a caller wanting N bytes of formatted transcript
+   * should ask for a comfortably larger raw window and clamp the result.
+   */
+  async read(
+    sessionId: string,
+    workspacePath: string,
+    options?: TranscriptReadOptions,
+  ): Promise<string> {
     try {
       const messages = await this.historyReader.readHistoryForCuration(
         sessionId,
         workspacePath,
+        options?.tailBytes ? { tailBytes: options.tailBytes } : undefined,
       );
       if (messages.length === 0) return '';
       return messages

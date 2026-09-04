@@ -67,6 +67,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
 const OPEN_FOLDER = '/c/projects/my-repo';
 const SESSION_ID = '11111111-1111-4111-8111-111111111111' as SessionId;
@@ -76,6 +77,7 @@ function makeService(params: {
   isSessionActive?: jest.Mock;
   resumeSession?: jest.Mock;
   isStreaming?: jest.Mock;
+  mcpServerRunning?: boolean;
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -102,9 +104,12 @@ function makeService(params: {
   } as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
     get: jest.fn().mockResolvedValue(null),
+    getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
   };
   const sdkContext = {
-    isMcpServerRunning: jest.fn().mockReturnValue(false),
+    isMcpServerRunning: jest
+      .fn()
+      .mockReturnValue(params.mcpServerRunning ?? false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
   };
@@ -165,6 +170,11 @@ function makeService(params: {
     } as never,
     // OutputStyleSessionActivationService — no style selected in these specs.
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
+    // SessionMcpStatusRegistry + its agent-sdk fan-out (TASK_2026_375 B4.3).
+    // The constructor subscribes to the fan-out, so `register` must exist; a
+    // real registry is cheap and keeps the stub honest.
+    new SessionMcpStatusRegistry(),
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 }
 
@@ -218,6 +228,40 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     expect(result.activated).toBe(true);
     expect(result.activationError).toBeUndefined();
     expect(result.activationErrorCode).toBeUndefined();
+  });
+
+  /**
+   * TASK_2026_332. `autoResumeIfInactive` gained an
+   * `mcpRegisteredForSubagents` parameter so the `chat:continue` path can pass
+   * down what `ensureRegisteredForSubagents` actually reported. It DEFAULTS to
+   * `true`, and that default is load-bearing: this caller and
+   * `ensureSessionActiveForRewind` never register at all, so they have nothing
+   * to report and must not be silently downgraded into starting every resumed
+   * session without MCP.
+   */
+  it('does not downgrade mcpServerRunning on the activate path, which never registers', async () => {
+    const resumeSession = jest.fn().mockResolvedValue(
+      (async function* () {
+        /* no events */
+      })(),
+    );
+    const svc = makeService({
+      isSessionActive: jest.fn().mockReturnValue(false),
+      resumeSession,
+      mcpServerRunning: true,
+    });
+
+    await svc.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+      activate: true,
+    });
+
+    expect(resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ mcpServerRunning: true }),
+    );
   });
 
   it('omits activation fields when activate:true is not requested', async () => {

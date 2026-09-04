@@ -42,7 +42,11 @@ export interface ILaneAuthResolver {
    *   nothing was requested, or the requested provider IS the active one.
    *   Throws (name `'ProviderAuthError'`) when a configured provider is
    *   unusable; the lane resolver turns that into an `auth-unresolvable`
-   *   failure rather than a fallback.
+   *   failure rather than a fallback. Throws (name `'ProviderQuotaError'`,
+   *   carrying `retryAfterMs`) when the provider that would actually be dialled
+   *   is still cooling down from an upstream 429 — including when this lane
+   *   passed `''` and the ACTIVE provider is the exhausted one, which is the
+   *   common case. That becomes `quota-exhausted`, again never a fallback.
    */
   resolve(
     providerId: string,
@@ -57,3 +61,15 @@ export interface ILaneAuthResolver {
  * graph. Kept in sync with `ProviderAuthError`'s constructor.
  */
 export const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
+
+/**
+ * Matched by `name` rather than `instanceof` for the same reason
+ * {@link PROVIDER_AUTH_ERROR_NAME} is: `ProviderQuotaError` lives in
+ * `auth-providers`, which depends on this side of the graph, so this library
+ * cannot import the class and keeps ZERO direct SDK imports. Kept in sync with
+ * `ProviderQuotaError`'s constructor — and with the identical mirror in
+ * `agent-sdk`'s `sdk-internal-query.curator-llm.ts`, which the memory curator
+ * reads. Duplicating the string across the two consumers is the design, not a
+ * smell; sharing it would close the cycle the split exists to break.
+ */
+export const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';

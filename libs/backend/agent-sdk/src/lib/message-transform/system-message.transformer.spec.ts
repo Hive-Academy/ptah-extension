@@ -8,9 +8,14 @@ function makeState(): jest.Mocked<TransformerState> {
     getMessageId: jest.fn().mockReturnValue(undefined),
     getCurrentModel: jest.fn().mockReturnValue(undefined),
     getToolCallId: jest.fn().mockReturnValue(undefined),
+    isMessageSynthesized: jest.fn().mockReturnValue(false),
+    markMessageSynthesized: jest.fn(),
+    clearMessageSynthesized: jest.fn(),
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
+    getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
+    isNonAgentTask: jest.fn().mockReturnValue(false),
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
@@ -28,6 +33,7 @@ function makeState(): jest.Mocked<TransformerState> {
     setTaskParent: jest.fn(),
     clearTaskParent: jest.fn(),
     markTaskStartedEmitted: jest.fn(),
+    markNonAgentTask: jest.fn(),
     addActiveSkillToolUseId: jest.fn(),
     clearActiveSkillToolUseIds: jest.fn(),
     clearStreamingState: jest.fn(),
@@ -60,6 +66,12 @@ function makeHelpers(
       recordSessionUsage: jest.fn(),
       getCumulativeTokens: jest.fn().mockReturnValue(0),
       clearSessionTokenSnapshot: jest.fn(),
+    },
+    turnState: {
+      markGenerating: jest.fn().mockReturnValue(null),
+      settleTurn: jest.fn(),
+      applySnapshot: jest.fn().mockReturnValue(null),
+      get: jest.fn().mockReturnValue(undefined),
     },
   } as unknown as jest.Mocked<TransformerHelpers>;
 }
@@ -210,6 +222,52 @@ describe('SystemMessageTransformer', () => {
       const events = transformer.transformTaskStarted(msg, state, helpers);
       expect(events).toEqual([]);
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
+    });
+
+    it('rejects a local_bash task_started: no agent_start, no bookkeeping, task marked', () => {
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-bash',
+        tool_use_id: 'toolu_bash',
+        skip_transcript: false,
+        task_type: 'local_bash',
+        description: 'Create Nx React+Vite workspace in temp dir',
+        session_id: 'sess',
+      } as never;
+
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events).toEqual([]);
+      expect(state.markNonAgentTask).toHaveBeenCalledWith('task-bash');
+      expect(state.setTaskParent).not.toHaveBeenCalled();
+      expect(helpers.subagentRegistry.setTaskId).not.toHaveBeenCalled();
+      expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
+    });
+
+    it('still emits agent_start for an unknown task_type (denylist, not allowlist)', () => {
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-new',
+        tool_use_id: 'toolu_new',
+        skip_transcript: false,
+        task_type: 'some_future_agent_flavour',
+        session_id: 'sess',
+      } as never;
+
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual(['agent_start']);
+      expect(state.markNonAgentTask).not.toHaveBeenCalled();
     });
 
     it('populates teammateName from a registered record', () => {
@@ -365,11 +423,54 @@ describe('SystemMessageTransformer', () => {
       expect(events[0].eventType).toBe('agent_progress');
     });
 
+    it('carries the registry agentId once the SubagentStart hook has minted it', () => {
+      state.getTaskParentToolUseId.mockReturnValue('tool-progress');
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        toolCallId: 'tool-progress',
+        agentId: 'a01fea2eb1b977576',
+      });
+      const msg = {
+        task_id: 'task-p',
+        description: 'desc',
+        usage: { total_tokens: 10, tool_uses: 2, duration_ms: 100 },
+      } as never;
+
+      const [event] = transformer.transformTaskProgress(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(helpers.subagentRegistry.get).toHaveBeenCalledWith(
+        'tool-progress',
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_progress',
+        agentId: 'a01fea2eb1b977576',
+      });
+    });
+
     it('returns [] when no parent tool use id', () => {
       const helpers = makeHelpers();
       const msg = {
         task_id: 'task-p2',
         usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 },
+      } as never;
+      expect(transformer.transformTaskProgress(msg, state, helpers)).toEqual(
+        [],
+      );
+    });
+
+    it('returns [] for a task marked non-agent, even with a tool_use_id on the payload', () => {
+      state.isNonAgentTask.mockReturnValue(true);
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-bash',
+        tool_use_id: 'toolu_bash',
+        description: 'npm run build',
+        usage: { total_tokens: 10, tool_uses: 2, duration_ms: 100 },
       } as never;
       expect(transformer.transformTaskProgress(msg, state, helpers)).toEqual(
         [],
@@ -395,6 +496,19 @@ describe('SystemMessageTransformer', () => {
       const helpers = makeHelpers();
       const msg = { task_id: 'task-u2', patch: {} } as never;
       expect(transformer.transformTaskUpdated(msg, state, helpers)).toEqual([]);
+    });
+
+    it('returns [] for a task marked non-agent — a backgrounded bash must not become a background agent', () => {
+      state.isNonAgentTask.mockReturnValue(true);
+      state.getTaskParentToolUseId.mockReturnValue('toolu_bash');
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-bash',
+        patch: { status: 'running', is_backgrounded: true },
+      } as never;
+
+      expect(transformer.transformTaskUpdated(msg, state, helpers)).toEqual([]);
+      expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
     });
 
     it('emits both agent_status and background_agent_started when patch.is_backgrounded is true', () => {
@@ -492,7 +606,8 @@ describe('SystemMessageTransformer', () => {
       const events = transformer.transformTaskUpdated(msg, state, helpers);
 
       expect(events.map((e) => e.eventType)).toEqual(['agent_status']);
-      expect(helpers.subagentRegistry.get).not.toHaveBeenCalled();
+      // A read-only registry lookup (for the agentId) is fine; what must not
+      // happen without `is_backgrounded` is the background status WRITE.
       expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
     });
   });
@@ -526,5 +641,130 @@ describe('SystemMessageTransformer', () => {
       expect(state.clearTaskParent).toHaveBeenCalledWith('task-skip');
       expect(events).toEqual([]);
     });
+
+    it('emits nothing for a task marked non-agent, and still clears the mapping', () => {
+      state.isNonAgentTask.mockReturnValue(true);
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-bash',
+        tool_use_id: 'toolu_bash',
+        status: 'success',
+        usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
+      } as never;
+
+      const events = transformer.transformTaskNotification(msg, state, helpers);
+
+      expect(events).toEqual([]);
+      expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash');
+    });
+  });
+});
+
+describe('SystemMessageTransformer - task_notification turn_state (TASK_2026_360)', () => {
+  const T1 = {
+    id: 'task-n',
+    type: 'subagent',
+    status: 'running',
+    description: 'a',
+  };
+  const T2 = {
+    id: 'task-other',
+    type: 'subagent',
+    status: 'running',
+    description: 'b',
+  };
+  const AWAITING = {
+    phase: 'awaiting-background',
+    revision: 2,
+    backgroundTasks: [T1, T2],
+    sessionCrons: [],
+    terminalReason: 'completed',
+    timestamp: 1,
+  };
+  const NEXT = { ...AWAITING, revision: 3, backgroundTasks: [T2] };
+
+  it('applies the remaining tasks (current minus the settled task_id) and APPENDS the turn_state', () => {
+    const transformer = new SystemMessageTransformer();
+    const state = makeState();
+    state.getTaskParentToolUseId.mockReturnValue('tool-n');
+    const helpers = makeHelpers();
+    (helpers.turnState.get as jest.Mock).mockReturnValue(AWAITING);
+    (helpers.turnState.applySnapshot as jest.Mock).mockReturnValue(NEXT);
+
+    const events = transformer.transformTaskNotification(
+      { task_id: 'task-n', status: 'success' } as never,
+      state,
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual([
+      'agent_completed',
+      'turn_state',
+    ]);
+    expect(helpers.turnState.applySnapshot).toHaveBeenCalledWith('sess-1', [
+      T2,
+    ]);
+    expect(events[1]).toMatchObject({
+      phase: 'awaiting-background',
+      revision: 3,
+    });
+  });
+
+  it('still emits the turn_state for a non-agent (local_bash) task that emits no agent_completed', () => {
+    const transformer = new SystemMessageTransformer();
+    const state = makeState();
+    state.isNonAgentTask.mockReturnValue(true);
+    const helpers = makeHelpers();
+    (helpers.turnState.get as jest.Mock).mockReturnValue(AWAITING);
+    (helpers.turnState.applySnapshot as jest.Mock).mockReturnValue(NEXT);
+
+    const events = transformer.transformTaskNotification(
+      {
+        task_id: 'task-n',
+        tool_use_id: 'toolu_bash',
+        status: 'success',
+      } as never,
+      state,
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual(['turn_state']);
+  });
+
+  it('emits no turn_state while generating (applySnapshot returns null)', () => {
+    const transformer = new SystemMessageTransformer();
+    const state = makeState();
+    state.getTaskParentToolUseId.mockReturnValue('tool-n');
+    const helpers = makeHelpers();
+    (helpers.turnState.get as jest.Mock).mockReturnValue({
+      ...AWAITING,
+      phase: 'generating',
+    });
+
+    const events = transformer.transformTaskNotification(
+      { task_id: 'task-n', status: 'success' } as never,
+      state,
+      helpers,
+      'sess-1' as never,
+    );
+
+    expect(events.map((e) => e.eventType)).toEqual(['agent_completed']);
+  });
+
+  it('skips the registry when the session id is unknown', () => {
+    const transformer = new SystemMessageTransformer();
+    const state = makeState();
+    state.getTaskParentToolUseId.mockReturnValue('tool-n');
+    const helpers = makeHelpers();
+
+    transformer.transformTaskNotification(
+      { task_id: 'task-n', status: 'success' } as never,
+      state,
+      helpers,
+    );
+
+    expect(helpers.turnState.applySnapshot).not.toHaveBeenCalled();
   });
 });

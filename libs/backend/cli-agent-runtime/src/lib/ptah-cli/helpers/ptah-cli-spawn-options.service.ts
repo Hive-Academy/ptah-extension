@@ -41,6 +41,7 @@ import {
   type OutputStyleSessionActivationService,
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
+import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -171,7 +172,9 @@ export class PtahCliSpawnOptions {
       ? {
           ptah: {
             type: 'http' as const,
-            url: `http://localhost:${mcpPort}`,
+            // Scoped to the spawn's cwd so the server attributes this agent's
+            // calls to the right workspace (TASK_2026_364).
+            url: ptahMcpServerUrl(mcpPort, cwd),
           },
         }
       : {};

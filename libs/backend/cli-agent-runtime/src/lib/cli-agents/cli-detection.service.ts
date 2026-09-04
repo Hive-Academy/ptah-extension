@@ -8,6 +8,8 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type {
   CliAdapter,
@@ -30,19 +32,32 @@ export class CliDetectionService {
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
+  /**
+   * @param spawner - The off-thread process spawner, reusing `agent-sdk`'s
+   *   existing `SDK_PROCESS_SPAWNER` binding. Every rival-CLI adapter that
+   *   launches a child gets it, because `child_process.spawn` is a synchronous
+   *   `CreateProcessW` on Windows and those launches measured 300-900 ms of
+   *   event-loop lag each (TASK_2026_367). Codex and Cursor are absent on
+   *   purpose: both run their vendor SDK in process and never call `spawnCli`.
+   */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly spawner: IProcessSpawner,
   ) {
     this.adapters.set('codex', new CodexCliAdapter());
     const permissionBridge = new CopilotPermissionBridge();
-    this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
+    this.adapters.set(
+      'copilot',
+      new CopilotSdkAdapter(permissionBridge, this.spawner),
+    );
 
     this.adapters.set('cursor', new CursorCliAdapter());
-    this.adapters.set('antigravity', new AntigravityCliAdapter());
-    this.adapters.set('opencode', new OpencodeCliAdapter());
-    this.adapters.set('pi', new PiCliAdapter());
+    this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
+    this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
+    this.adapters.set('pi', new PiCliAdapter(this.spawner));
 
     this.logger.info(
       '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi',
@@ -195,9 +210,14 @@ export class CliDetectionService {
   }
 
   /**
-   * Ensure CLI credentials are fresh (non-blocking background task).
-   * Codex refreshes OAuth tokens; Cursor confirms an API key is resolvable.
-   * Call during extension startup to avoid stale-credential fallbacks on first use.
+   * CHECK — not refresh — each rival CLI's stored credentials at startup, so a
+   * stale-credential fallback on first use is visible in the log beforehand.
+   *
+   * No adapter here refreshes anything: `ensureTokensFresh` reads the CLI's own
+   * credential file and reports. The log said "credential refresh: fresh" and
+   * meant "a credential is present", which read as a contradiction next to
+   * `auth:getAuthStatus` reporting the same Codex token as stale in the same
+   * session (TASK_2026_342). Wording now matches what actually happens.
    */
   async refreshCliTokens(): Promise<void> {
     for (const cli of ['codex', 'cursor', 'opencode', 'pi'] as const) {
@@ -205,8 +225,8 @@ export class CliDetectionService {
       if (adapter?.ensureTokensFresh) {
         const fresh = await adapter.ensureTokensFresh();
         this.logger.info(
-          `[CliDetection] ${cli} credential refresh: ${
-            fresh ? 'fresh' : 'stale/unavailable'
+          `[CliDetection] ${cli} credential check: ${
+            fresh ? 'usable' : 'stale/unavailable'
           }`,
         );
         if (fresh) {

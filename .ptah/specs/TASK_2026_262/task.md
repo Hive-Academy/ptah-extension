@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_262
-status: in_review
+status: done
 type: bugfix
 title: >-
   Dynamic-catalogue providers get an unresolvable model string whenever nothing
@@ -22,6 +22,7 @@ description: >-
   `anthropicProviderId`, so this is the likeliest configuration rather than a
   corner. The fix is one live-model-list resolution step that serves every
   caller; it cannot be closed in any single caller.
+updated: '2026-08-25T21:21:46.174Z'
 ---
 
 # Dynamic-catalogue providers get an unresolvable model string

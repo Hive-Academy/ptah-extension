@@ -7,17 +7,17 @@
  * these tests pin the fix in place.
  *
  * Coverage:
- *   1. compact_boundary clears `lastTurnContextByModel` â€” a result event
+ *   1. compact_boundary clears `lastTurnContextByModel` — a result event
  *      arriving after the boundary (without a fresh message_start) emits
  *      `lastTurnContextTokens: undefined`.
  *   2. cache_creation_input_tokens is included in the lastTurnContextTokens
  *      sum (first-cache-write turns must not under-report).
- *   3. Two consecutive message_starts for the same model â€” the second
+ *   3. Two consecutive message_starts for the same model — the second
  *      overwrites the first (no leak / no accumulation).
  *
  * Mocking posture:
  *   - Direct `new StreamTransformer(...)` with hand-rolled typed mocks.
- *   - SdkMessageTransformer.transform is stubbed to [] â€” we don't care about
+ *   - SdkMessageTransformer.transform is stubbed to [] — we don't care about
  *     downstream events, only the `onResultStats` callback payload.
  *   - The async iterable is built from a plain array of SDK messages.
  */
@@ -29,6 +29,10 @@ import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
+import type {
+  SessionMcpStatusCallbackRegistry,
+  SessionMcpStatusEvent,
+} from './session-mcp-status-callback-registry';
 import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
@@ -86,6 +90,7 @@ function makeModelResolver(): jest.Mocked<
 function makePricingProvider(): jest.Mocked<IPricingProvider> {
   return {
     getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
   };
 }
 
@@ -108,6 +113,8 @@ interface Harness {
   messageTransformer: ReturnType<typeof makeMessageTransformer>;
   pricingProvider: jest.Mocked<IPricingProvider>;
   logger: jest.Mocked<Logger>;
+  /** Every event the transformer published on the MCP-status fan-out. */
+  mcpEvents: SessionMcpStatusEvent[];
 }
 
 function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
@@ -115,18 +122,31 @@ function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
   const messageTransformer = makeMessageTransformer();
   const modelResolver = makeModelResolver();
   const pricingProvider = makePricingProvider();
+  const mcpEvents: SessionMcpStatusEvent[] = [];
+  const mcpStatus = {
+    notifyAll: (event: SessionMcpStatusEvent) => {
+      mcpEvents.push(event);
+    },
+  } as unknown as SessionMcpStatusCallbackRegistry;
   const transformer = new StreamTransformer(
     logger,
     messageTransformer as unknown as SdkMessageTransformer,
     authEnv,
     modelResolver as unknown as IModelResolver,
     pricingProvider,
+    mcpStatus,
   );
-  return { transformer, messageTransformer, pricingProvider, logger };
+  return {
+    transformer,
+    messageTransformer,
+    pricingProvider,
+    logger,
+    mcpEvents,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// SDK message factories â€” minimal shapes that satisfy the type guards.
+// SDK message factories — minimal shapes that satisfy the type guards.
 // We cast through `unknown` to keep the test fixtures tight; the runtime
 // guards only inspect a handful of fields.
 // ---------------------------------------------------------------------------
@@ -159,6 +179,16 @@ function messageStart(
         },
       },
     },
+  } as unknown as SDKMessage;
+}
+
+function systemInit(mcpServers: unknown, sessionId = 'sess-1'): SDKMessage {
+  return {
+    type: 'system',
+    subtype: 'init',
+    session_id: sessionId,
+    tools: ['Read', 'mcp__ptah__ptah_ast_analyze'],
+    mcp_servers: mcpServers,
   } as unknown as SDKMessage;
 }
 
@@ -252,7 +282,7 @@ function resultMessageMulti(opts: {
 
 async function drain(iter: AsyncIterable<unknown>): Promise<void> {
   // Consume the iterator end-to-end so all callbacks fire.
-  // We don't care about the yielded events here â€” `onResultStats` is the
+  // We don't care about the yielded events here — `onResultStats` is the
   // observable signal under test.
 
   for await (const _e of iter) {
@@ -264,8 +294,8 @@ async function drain(iter: AsyncIterable<unknown>): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('StreamTransformer â€” lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
-  it('clears lastTurnContextByModel on compact_boundary â€” next result without message_start emits lastTurnContextTokens=undefined', async () => {
+describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
+  it('clears lastTurnContextByModel on compact_boundary — next result without message_start emits lastTurnContextTokens=undefined', async () => {
     const { transformer } = makeHarness();
     const captured: ResultModelUsage[][] = [];
 
@@ -301,7 +331,7 @@ describe('StreamTransformer â€” lastTurnContextTokens (TASK_2026_109_FOLLOW
     const { transformer } = makeHarness();
     const captured: ResultModelUsage[][] = [];
 
-    // First turn writes a fresh cache block â€” pre-fix this read as just
+    // First turn writes a fresh cache block — pre-fix this read as just
     // input_tokens + cache_read = 200, missing the 5000 cache_creation
     // tokens that are also part of the prompt the model actually saw.
     const messages: SDKMessage[] = [
@@ -338,7 +368,7 @@ describe('StreamTransformer â€” lastTurnContextTokens (TASK_2026_109_FOLLOW
         cache_read_input_tokens: 500,
         cache_creation_input_tokens: 0,
       }),
-      // Second message_start for the SAME model â€” must replace, not add.
+      // Second message_start for the SAME model — must replace, not add.
       messageStart(MODEL, {
         input_tokens: 100,
         cache_read_input_tokens: 50,
@@ -741,5 +771,164 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
     );
 
     expect(onTurnEnd).not.toHaveBeenCalled();
+  });
+});
+
+describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () => {
+  it('forwards the result to the transformer AFTER onTurnEnd, and yields its turn_state after the preceding message_complete', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const calls: string[] = [];
+    const onTurnEnd = jest.fn(() => {
+      calls.push('onTurnEnd');
+    });
+    messageTransformer.transform.mockImplementation((msg: SDKMessage) => {
+      calls.push(`transform:${msg.type}`);
+      if (msg.type === 'result') {
+        return [{ eventType: 'turn_state', phase: 'idle' } as never];
+      }
+      return [{ eventType: 'message_complete' } as never];
+    });
+
+    const yielded: string[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([
+        messageStart(MODEL, { input_tokens: 10 }),
+        resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+      ]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      onTurnEnd,
+    })) {
+      yielded.push((event as { eventType: string }).eventType);
+    }
+
+    expect(messageTransformer.transform).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'result' }),
+      'sess-1',
+    );
+    expect(calls).toEqual([
+      'transform:stream_event',
+      'onTurnEnd',
+      'transform:result',
+    ]);
+    expect(yielded).toEqual(['message_complete', 'turn_state']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_375 B4.2 — session MCP status published from the `init` message.
+// Before this the CLI's own `needs-auth` verdict was logged at debug level and
+// nothing else, so the UI showed a dead server as installed and working.
+// ---------------------------------------------------------------------------
+
+describe('StreamTransformer — session MCP status (TASK_2026_375)', () => {
+  const MODEL = 'claude-sonnet-4-20250514';
+
+  async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
+    for await (const _ of iterable) {
+      // Consuming the stream is the point; the events are asserted elsewhere.
+    }
+  }
+
+  it('publishes the servers the init message reported, under the REAL session id', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit(
+            [
+              { name: 'smithery', status: 'needs-auth' },
+              { name: 'oauth-mcp.sentry.dev-mcp', status: 'connected' },
+            ],
+            'real-uuid',
+          ),
+        ]),
+        // The transformer starts under the tabId; the init message is what
+        // resolves the real id, and the fan-out must use the resolved one.
+        sessionId: 'tab-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toEqual([
+      {
+        kind: 'servers',
+        sessionId: 'real-uuid',
+        servers: [
+          { name: 'smithery', status: 'needs-auth' },
+          { name: 'oauth-mcp.sentry.dev-mcp', status: 'connected' },
+        ],
+      },
+    ]);
+  });
+
+  it('publishes an EMPTY list when the session has no MCP servers', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([systemInit([])]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    // An empty list is a real answer — "this session has no MCP servers" — and
+    // is what lets the chip hide itself instead of showing a stale count.
+    expect(mcpEvents).toEqual([
+      { kind: 'servers', sessionId: 'sess-1', servers: [] },
+    ]);
+  });
+
+  it('publishes NOTHING when the init message carries no mcp_servers array', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([systemInit(undefined)]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toEqual([]);
+  });
+
+  it('keeps an unknown status verbatim — the value set belongs to the CLI', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit([{ name: 'x', status: 'reconnecting' }]),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents[0]).toMatchObject({
+      servers: [{ name: 'x', status: 'reconnecting' }],
+    });
+  });
+
+  it('publishes once per init message, not once per turn', async () => {
+    const { transformer, mcpEvents } = makeHarness();
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          systemInit([{ name: 'a', status: 'connected' }]),
+          messageStart(MODEL, { input_tokens: 10 }),
+          resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(mcpEvents).toHaveLength(1);
   });
 });

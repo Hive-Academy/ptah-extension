@@ -157,17 +157,41 @@ export class BatchedUpdateService {
     }
   }
 
-  flushSync(): void {
+  /**
+   * Force the queued updates out to `TabManager` in this tick.
+   *
+   * Two distinct callers, two distinct contracts:
+   *
+   * - **With `originTabId`** (per-event, hot): only the ORIGIN tab escapes the
+   *   visibility gate. Every other deferred tab is left deferred and drains
+   *   through the normal `visibilitychange` / active-tab / visible-set paths.
+   *   `agent_start` raises `agentStartFlushNeeded` on EVERY agent spawn, so the
+   *   un-gated version made one hidden tab's agent spawn flush all three
+   *   sessions' deferred trees — the gate at `canFlush` exists precisely to
+   *   stop that work, and this call was the hole in it.
+   *
+   * - **Without `originTabId`** (turn-end finalization): full drain, as before.
+   *   `MessageFinalizationService` calls this immediately before it promotes
+   *   the reply into `messages` and clears the tab's streaming state. A
+   *   deferred entry left behind here holds the PRE-clear state object, so a
+   *   later drain would re-install a finished turn's streaming content over
+   *   the finalized message. Finalization is once per turn, not per event, so
+   *   draining everything there costs nothing measurable.
+   */
+  flushSync(originTabId?: string): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
     if (this.deferredTabUpdates.size > 0) {
-      for (const [tabId, state] of this.deferredTabUpdates) {
+      for (const [tabId, state] of [...this.deferredTabUpdates]) {
+        if (originTabId !== undefined && tabId !== originTabId) {
+          if (!this.canFlush(tabId)) continue;
+        }
         this.pendingTabUpdates.set(tabId, state);
+        this.deferredTabUpdates.delete(tabId);
+        this.pendingFlush.delete(tabId);
       }
-      this.deferredTabUpdates.clear();
-      this.pendingFlush.clear();
     }
     this.flushPendingUpdates();
   }

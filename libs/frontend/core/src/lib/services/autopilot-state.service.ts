@@ -8,6 +8,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { MessageHandler } from './message-router.types';
+import { setIfChanged } from './idempotent-setters';
 import {
   PermissionLevel,
   PERMISSION_LEVEL_NAMES,
@@ -228,10 +229,14 @@ export class AutopilotStateService implements MessageHandler {
    * Set agent-initiated plan mode state
    * Called when the agent uses EnterPlanMode/ExitPlanMode tools
    *
+   * Idempotent: the backend re-pushes the current plan-mode state on every turn
+   * end, so an unconditional set logged (and re-notified) twice per turn for a
+   * value that never moved. Only a real transition is worth either.
+   *
    * @param active - Whether plan mode is active
    */
   setAgentPlanMode(active: boolean): void {
-    this._agentPlanMode.set(active);
+    if (!setIfChanged(this._agentPlanMode, active)) return;
     console.log(
       `[AutopilotStateService] Agent plan mode: ${
         active ? 'entered' : 'exited'

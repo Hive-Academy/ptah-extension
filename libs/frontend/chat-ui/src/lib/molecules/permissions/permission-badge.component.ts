@@ -38,7 +38,7 @@ import { LucideAngularModule, AlertTriangle, X } from 'lucide-angular';
         <!-- Badge button -->
         <button
           (click)="toggleExpanded()"
-          class="btn btn-circle btn-warning btn-sm shadow-lg relative animate-pulse"
+          class="btn btn-circle btn-primary btn-sm shadow-lg relative animate-pulse"
           [attr.aria-expanded]="isExpanded()"
           aria-label="Permission requests pending"
         >
@@ -62,7 +62,7 @@ import { LucideAngularModule, AlertTriangle, X } from 'lucide-angular';
             <div
               class="flex items-center justify-between px-2 pb-2 border-b border-base-300"
             >
-              <span class="text-xs font-medium text-warning">
+              <span class="text-xs font-medium text-primary">
                 {{ permissions().length }} permission{{
                   permissions().length > 1 ? 's' : ''
                 }}

@@ -55,14 +55,53 @@ import {
  * The cron scheduler is deliberately NOT started here — hosts run it after
  * their own activation work via {@link startThothCron} so the boot ordering
  * of the Electron reference implementation is preserved exactly.
+ *
+ * ## What is awaited and what is merely started (TASK_2026_331 B1.T4)
+ *
+ * `openAndMigrate()` is the ONLY awaited step, and it stays first. Everything
+ * a host or an RPC handler can observe — the connection ref, the schema, the
+ * `sqlite-vec` diagnostic — exists the moment this function returns, which is
+ * what keeps the window between "the renderer can call an RPC" and "SQLite is
+ * open" as short as it can be.
+ *
+ * The three long scans behind it are STARTED and not awaited: the memory
+ * trigger's boot scan, skill synthesis's SKILL.md walk plus trajectory scan,
+ * and the workspace file index. Each was tens of seconds on a machine with
+ * history, and none of them produces a value this function returns. Each
+ * attaches its own `.catch` and each is gated on {@link
+ * BootThothRuntimeOptions.signal}.
+ *
+ * The `memoryEnabled` lookup is started rather than awaited for the same
+ * reason: `IndexingControlService.getStatus` walks the workspace for a
+ * fingerprint and runs two `SELECT COUNT(*)` full-table probes purely to fill
+ * a badge, and the badge already updates live from `MEMORY_CORPUS_CHANGED`.
  */
 export async function bootThothRuntime(
   container: DependencyContainer,
   options: BootThothRuntimeOptions,
 ): Promise<ThothRuntimeRefs> {
-  const { workspaceRoot } = options;
+  const { workspaceRoot, signal } = options;
   const logPrefix = options.logPrefix ?? DEFAULT_THOTH_LOG_PREFIX;
   const refs = emptyThothRuntimeRefs();
+
+  /**
+   * Read the signal through a call, never inline.
+   *
+   * `signal.aborted` is a mutable property, and TypeScript keeps the narrowing
+   * from an earlier `signal?.aborted === true` guard alive across every `await`
+   * below it — so a later inline check compiles to `false | undefined` and is
+   * reported as an impossible comparison. A function call is opaque to that
+   * narrowing and reads the live value each time, which is the only correct
+   * behaviour here anyway.
+   */
+  const isAborted = (): boolean => signal?.aborted === true;
+
+  if (isAborted()) {
+    console.log(
+      `${logPrefix} Thoth boot skipped — shutdown started before it began`,
+    );
+    return refs;
+  }
 
   try {
     if (container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
@@ -103,7 +142,7 @@ export async function bootThothRuntime(
     console.error(
       '\n' +
         'â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n' +
-        'â•‘  [Ptah] PERSISTENCE OFFLINE â€” Memory / Skills / Cron / Gateway   â•‘\n' +
+        'â•‘  [Ptah] PERSISTENCE OFFLINE — Memory / Skills / Cron / Gateway   â•‘\n' +
         'â•‘  features will report PERSISTENCE_UNAVAILABLE until this is      â•‘\n' +
         'â•‘  resolved. The rest of the app will continue to boot.            â•‘\n' +
         (isAbiMismatch
@@ -116,6 +155,13 @@ export async function bootThothRuntime(
     );
     refs.sqliteConnection = null;
   }
+  if (isAborted()) {
+    console.log(
+      `${logPrefix} Thoth boot stopped after SQLite — shutdown in progress`,
+    );
+    return refs;
+  }
+
   let indexingControl: IndexingControlService | null = null;
   try {
     if (
@@ -130,22 +176,43 @@ export async function bootThothRuntime(
           MEMORY_TOKENS.INDEXING_CONTROL,
         );
       }
-      let memoryEnabled = true;
-      if (indexingControl && workspaceRoot) {
-        const status = await indexingControl.getStatus(workspaceRoot);
-        memoryEnabled = status.memoryEnabled;
-      }
 
-      if (memoryEnabled) {
-        refs.memoryCurator.start();
+      const curator = refs.memoryCurator;
+      if (indexingControl === null || workspaceRoot === undefined) {
+        // No control row to consult — the historical default is "enabled".
+        curator.start();
         console.log(`${logPrefix} Memory curator started`);
       } else {
-        console.log(
-          `${logPrefix} Memory curator not started (memoryEnabled = false)`,
-        );
+        // STARTED, NOT AWAITED. `getStatus` derives a workspace fingerprint by
+        // walking the tree, reads git HEAD and runs two `SELECT COUNT(*)`
+        // probes over `code_symbols` and `memory_chunks` — full-table scans
+        // that exist to populate a badge the renderer also learns about from
+        // `MEMORY_CORPUS_CHANGED`. The boot needed exactly one boolean out of
+        // all that, so it now waits for none of it.
+        const control = indexingControl;
+        const root = workspaceRoot;
+        void (async () => {
+          try {
+            const status = await control.getStatus(root);
+            if (isAborted()) return;
+            if (status.memoryEnabled) {
+              curator.start();
+              console.log(`${logPrefix} Memory curator started`);
+            } else {
+              console.log(
+                `${logPrefix} Memory curator not started (memoryEnabled = false)`,
+              );
+            }
+          } catch (error: unknown) {
+            console.warn(
+              `${logPrefix} Memory curator start skipped (non-fatal):`,
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        })();
       }
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.warn(
       `${logPrefix} Memory curator start skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),
@@ -155,16 +222,20 @@ export async function bootThothRuntime(
   try {
     if (
       refs.memoryCurator !== null &&
+      !isAborted() &&
       container.isRegistered(MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE)
     ) {
       const memoryTrigger = container.resolve<MemoryTriggerService>(
         MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
       );
+      // `start()` is synchronous but schedules the boot scan, which reads every
+      // unscanned transcript. It is fire-and-forget by construction; the signal
+      // is what stops the scheduled work.
       memoryTrigger.start();
       refs.memoryTrigger = memoryTrigger;
       console.log(`${logPrefix} Memory trigger service started`);
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.warn(
       `${logPrefix} Memory trigger start skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),
@@ -272,37 +343,67 @@ export async function bootThothRuntime(
       error instanceof Error ? error.message : String(error),
     );
   }
+  /**
+   * The skill trigger, which may only start once skill synthesis has. Kept as
+   * a named step because that ordering now happens on the continuation of an
+   * unawaited promise rather than inline.
+   */
+  const startSkillTrigger = (): void => {
+    try {
+      if (
+        refs.skillSynthesis !== null &&
+        !isAborted() &&
+        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
+      ) {
+        const skillTrigger = container.resolve<SkillTriggerService>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
+        );
+        skillTrigger.start();
+        refs.skillTrigger = skillTrigger;
+        console.log(`${logPrefix} Skill trigger service started`);
+      }
+    } catch (error: unknown) {
+      console.warn(
+        `${logPrefix} Skill trigger start skipped (non-fatal):`,
+        error instanceof Error ? error.message : String(error),
+      );
+      refs.skillTrigger = null;
+    }
+  };
+
   try {
     refs.skillSynthesis = container.resolve<SkillSynthesisService>(
       SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
     );
-    await refs.skillSynthesis.start();
-    console.log(`${logPrefix} Skill synthesis started`);
-  } catch (error) {
+    // STARTED, NOT AWAITED. `start()` re-opens SQLite (idempotent — already
+    // open above), walks every SKILL.md on disk and runs the boot trajectory
+    // scan. None of that produces anything this function returns, and all of it
+    // used to sit between the user's launch and the window.
+    //
+    // The trigger still starts only AFTER a SUCCESSFUL synthesis start, and a
+    // failure still nulls the ref, exactly as the awaited version did. Both
+    // now happen on the continuation instead of inline, which is safe because
+    // `refs` is the host's stable object: a late write is still disposed.
+    void refs.skillSynthesis
+      .start()
+      .then(() => {
+        if (isAborted()) return;
+        console.log(`${logPrefix} Skill synthesis started`);
+        startSkillTrigger();
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          `${logPrefix} Skill synthesis start skipped (non-fatal):`,
+          error instanceof Error ? error.message : String(error),
+        );
+        refs.skillSynthesis = null;
+      });
+  } catch (error: unknown) {
     console.warn(
       `${logPrefix} Skill synthesis start skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),
     );
     refs.skillSynthesis = null;
-  }
-  try {
-    if (
-      refs.skillSynthesis !== null &&
-      container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
-    ) {
-      const skillTrigger = container.resolve<SkillTriggerService>(
-        SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
-      );
-      skillTrigger.start();
-      refs.skillTrigger = skillTrigger;
-      console.log(`${logPrefix} Skill trigger service started`);
-    }
-  } catch (error) {
-    console.warn(
-      `${logPrefix} Skill trigger start skipped (non-fatal):`,
-      error instanceof Error ? error.message : String(error),
-    );
-    refs.skillTrigger = null;
   }
 
   try {
@@ -378,6 +479,7 @@ export async function bootThothRuntime(
   try {
     if (
       workspaceRoot &&
+      !isAborted() &&
       container.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)
     ) {
       const fileIndex = container.resolve<WorkspaceFileIndexService>(
@@ -390,7 +492,7 @@ export async function bootThothRuntime(
         );
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.warn(
       `${logPrefix} Workspace file index wiring skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),

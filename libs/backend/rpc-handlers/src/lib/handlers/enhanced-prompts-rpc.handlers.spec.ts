@@ -128,13 +128,40 @@ import {
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
-import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
+import type {
+  AnalysisStorageService,
+  EnhancedPromptsService,
+} from '@ptah-extension/agent-generation';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
 import { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
+
+const WORKSPACE = '/fake/workspace';
+const ANALYSIS_ROOT = `${WORKSPACE}/.ptah/analysis`;
+
+type MockAnalysisStorage = jest.Mocked<
+  Pick<AnalysisStorageService, 'resolveAuthorizedAnalysisDir'>
+>;
+
+/**
+ * Mirrors the real canonicalization contract closely enough for the handler
+ * spec: a candidate under `<workspace>/.ptah/analysis` resolves to itself,
+ * anything else is rejected with null.
+ */
+function createMockAnalysisStorage(): MockAnalysisStorage {
+  return {
+    resolveAuthorizedAnalysisDir: jest.fn(
+      (workspacePath: string, candidate: string): string | null =>
+        candidate.startsWith(`${workspacePath}/.ptah/analysis`) &&
+        !candidate.includes('..')
+          ? candidate
+          : null,
+    ),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
@@ -206,6 +233,7 @@ interface Harness {
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   enhancedPrompts: MockEnhancedPromptsService;
+  analysisStorage: MockAnalysisStorage;
   pluginLoader: MockPluginLoader;
   workspace: MockWorkspaceProvider;
   saveDialog: MockSaveDialog;
@@ -217,9 +245,10 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const enhancedPrompts = createMockEnhancedPromptsService();
+  const analysisStorage = createMockAnalysisStorage();
   const pluginLoader = createMockPluginLoader();
   const workspace = createMockWorkspaceProvider({
-    folders: [opts.workspaceRoot ?? '/fake/workspace'],
+    folders: [opts.workspaceRoot ?? WORKSPACE],
   });
   const saveDialog = createMockSaveDialog();
   const container = createMockContainer();
@@ -229,6 +258,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
     enhancedPrompts as unknown as EnhancedPromptsService,
+    analysisStorage as unknown as AnalysisStorageService,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     saveDialog as unknown as ISaveDialogProvider,
@@ -242,6 +272,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     logger,
     rpcHandler,
     enhancedPrompts,
+    analysisStorage,
     pluginLoader,
     workspace,
     saveDialog,
@@ -405,7 +436,7 @@ describe('EnhancedPromptsRpcHandlers', () => {
         generatedAt?: string;
         detectedStack?: unknown;
         summary?: unknown;
-      }>(h, 'enhancedPrompts:runWizard', { workspacePath: '/x' });
+      }>(h, 'enhancedPrompts:runWizard', { workspacePath: WORKSPACE });
 
       expect(h.enhancedPrompts.runWizard).toHaveBeenCalledTimes(1);
       expect(result.success).toBe(true);
@@ -427,12 +458,94 @@ describe('EnhancedPromptsRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'enhancedPrompts:runWizard',
-        { workspacePath: '/x' },
+        { workspacePath: WORKSPACE },
       );
 
       expect(h.enhancedPrompts.runWizard).toHaveBeenCalled();
       expect(result.success).toBe(false);
       expect(result.error).toBe('some internal error');
+    });
+
+    it('rejects a workspacePath that is not an open folder before the service is reached', async () => {
+      // runWizard writes the enhanced-prompt trace to disk under the
+      // workspace, so the workspace itself must be authorized.
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'enhancedPrompts:runWizard',
+        { workspacePath: '/tmp/evil' },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/access denied/i);
+      expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
+    });
+
+    it('rejects an analysisDir outside <workspace>/.ptah/analysis before the trace writer is reached', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'enhancedPrompts:runWizard',
+        {
+          workspacePath: WORKSPACE,
+          analysisDir: `${WORKSPACE}/.ptah/analysis/../../secrets`,
+        },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/analysis directory is outside/i);
+      expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
+      expect(
+        h.analysisStorage.resolveAuthorizedAnalysisDir,
+      ).toHaveBeenCalledWith(
+        WORKSPACE,
+        `${WORKSPACE}/.ptah/analysis/../../secrets`,
+      );
+    });
+
+    it('passes a canonicalized in-root analysisDir through to the service', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.runWizard.mockResolvedValue({
+        success: true,
+        state: {
+          enabled: true,
+          generatedPrompt: 'x',
+          generatedAt: '2026-01-01T00:00:00Z',
+          detectedStack: null,
+          configHash: 'abc',
+          workspacePath: WORKSPACE,
+        },
+        summary: null,
+      } as unknown as Awaited<ReturnType<EnhancedPromptsService['runWizard']>>);
+      h.handlers.register();
+
+      await call(h, 'enhancedPrompts:runWizard', {
+        workspacePath: WORKSPACE,
+        analysisDir: `${ANALYSIS_ROOT}/ptah-extension`,
+      });
+
+      const args = h.enhancedPrompts.runWizard.mock.calls[0];
+      expect(args[0]).toBe(WORKSPACE);
+      expect(args[5]).toBe(`${ANALYSIS_ROOT}/ptah-extension`);
+    });
+
+    it('rejects malformed analysisData with a structured error (never throws)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'enhancedPrompts:runWizard',
+        { workspacePath: WORKSPACE, analysisData: { projectType: 42 } },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/invalid analysis data/i);
+      expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
     });
   });
 
@@ -527,7 +640,7 @@ describe('EnhancedPromptsRpcHandlers', () => {
       const result = await call<{ success: boolean; status?: unknown }>(
         h,
         'enhancedPrompts:regenerate',
-        { workspacePath: '/x' },
+        { workspacePath: WORKSPACE },
       );
 
       expect(h.enhancedPrompts.regenerate).toHaveBeenCalled();
@@ -535,6 +648,21 @@ describe('EnhancedPromptsRpcHandlers', () => {
       expect(request).toMatchObject({ force: true });
       expect(result.success).toBe(true);
       expect(result.status).toBeDefined();
+    });
+
+    it('rejects a workspacePath that is not an open folder', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'enhancedPrompts:regenerate',
+        { workspacePath: '/tmp/evil' },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/access denied/i);
+      expect(h.enhancedPrompts.regenerate).not.toHaveBeenCalled();
     });
   });
 

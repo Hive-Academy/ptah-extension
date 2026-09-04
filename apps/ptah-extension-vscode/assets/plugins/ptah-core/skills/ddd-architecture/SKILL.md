@@ -73,151 +73,54 @@ libs/
 
 ## Entity Pattern
 
+An entity has identity, a private constructor reached through factories, and
+business methods that guard their own invariants. It extends a shared `Entity`
+base that supplies identity equality and the domain-event buffer:
+
 ```typescript
-// libs/orders/domain/src/lib/entities/order.entity.ts
-export class Order {
-  private _id: OrderId;
-  private _customerId: CustomerId;
-  private _items: OrderItem[] = [];
-  private _status: OrderStatus = OrderStatus.DRAFT;
-  private _placedAt: Date | null = null;
-
-  private _events: DomainEvent[] = [];
-
-  private constructor(id: OrderId, customerId: CustomerId) {
-    this._id = id;
-    this._customerId = customerId;
+export class Order extends Entity<OrderId> {
+  private constructor(
+    id: OrderId,
+    private _customerId: CustomerId,
+  ) {
+    super(id);
   }
 
-  // Factory method
-  static create(customerId: CustomerId): Order {
-    const order = new Order(OrderId.generate(), customerId);
-    order.addEvent(new OrderCreated(order.id, customerId));
-    return order;
-  }
+  static create(customerId: CustomerId): Order; // new, raises OrderCreated
+  static reconstitute(data: OrderData): Order; // rehydrate, raises nothing
 
-  // Reconstitute from persistence
-  static reconstitute(data: OrderData): Order {
-    const order = new Order(OrderId.fromString(data.id), CustomerId.fromString(data.customerId));
-    order._items = data.items.map((i) => OrderItem.reconstitute(i));
-    order._status = data.status;
-    order._placedAt = data.placedAt;
-    return order;
-  }
-
-  // Business methods
-  addItem(productId: ProductId, quantity: number, unitPrice: Money): void {
-    this.ensureCanModify();
-
-    const existingItem = this._items.find((i) => i.productId.equals(productId));
-    if (existingItem) {
-      existingItem.increaseQuantity(quantity);
-    } else {
-      this._items.push(OrderItem.create(productId, quantity, unitPrice));
-    }
-
-    this.addEvent(new OrderItemAdded(this._id, productId, quantity));
-  }
-
-  place(): void {
-    this.ensureCanModify();
-
-    if (this._items.length === 0) {
-      throw new DomainException('Cannot place empty order');
-    }
-
-    this._status = OrderStatus.PLACED;
-    this._placedAt = new Date();
-    this.addEvent(new OrderPlaced(this._id, this.total));
-  }
-
-  // Computed properties
-  get id(): OrderId {
-    return this._id;
-  }
-  get status(): OrderStatus {
-    return this._status;
-  }
-
-  get total(): Money {
-    return this._items.reduce((sum, item) => sum.add(item.subtotal), Money.zero());
-  }
-
-  // Domain events
-  get events(): ReadonlyArray<DomainEvent> {
-    return [...this._events];
-  }
-
-  clearEvents(): void {
-    this._events = [];
-  }
-
-  private addEvent(event: DomainEvent): void {
-    this._events.push(event);
-  }
-
-  private ensureCanModify(): void {
-    if (this._status !== OrderStatus.DRAFT) {
-      throw new DomainException('Order cannot be modified');
-    }
-  }
+  addItem(productId: ProductId, qty: number, unitPrice: Money): void;
+  place(): void; // rejects an empty order
+  get total(): Money; // derived, never stored
 }
 ```
+
+Read [references/entities-aggregates.md](references/entities-aggregates.md) for
+the full pattern — the `Entity` and `EntityId` base classes, the invariant
+guards, and the aggregate-root rules. Do not hand-roll a base class from this
+sketch; the reference version is the one to copy.
 
 ## Value Object Pattern
 
+A value object has no identity — two instances with equal contents are equal. It
+is immutable, validates in its constructor, and returns new instances from every
+operation. It extends a shared `ValueObject` base that supplies structural
+equality:
+
 ```typescript
-// libs/shared/domain/src/lib/value-objects/money.ts
-export class Money {
-  private constructor(
-    private readonly _amount: number,
-    private readonly _currency: string = 'USD',
-  ) {
-    if (_amount < 0) {
-      throw new DomainException('Money cannot be negative');
-    }
-  }
+export class Money extends ValueObject<{ amount: number; currency: string }> {
+  static of(amount: number, currency?: string): Money; // throws if negative
+  static zero(currency?: string): Money;
 
-  static of(amount: number, currency = 'USD'): Money {
-    return new Money(amount, currency);
-  }
-
-  static zero(currency = 'USD'): Money {
-    return new Money(0, currency);
-  }
-
-  get amount(): number {
-    return this._amount;
-  }
-  get currency(): string {
-    return this._currency;
-  }
-
-  add(other: Money): Money {
-    this.ensureSameCurrency(other);
-    return new Money(this._amount + other._amount, this._currency);
-  }
-
-  subtract(other: Money): Money {
-    this.ensureSameCurrency(other);
-    return new Money(this._amount - other._amount, this._currency);
-  }
-
-  multiply(factor: number): Money {
-    return new Money(this._amount * factor, this._currency);
-  }
-
-  equals(other: Money): boolean {
-    return this._amount === other._amount && this._currency === other._currency;
-  }
-
-  private ensureSameCurrency(other: Money): void {
-    if (this._currency !== other._currency) {
-      throw new DomainException('Currency mismatch');
-    }
-  }
+  add(other: Money): Money; // all three reject a currency mismatch
+  subtract(other: Money): Money;
+  multiply(factor: number): Money;
 }
 ```
+
+Read [references/value-objects.md](references/value-objects.md) for the
+`ValueObject` base class and further worked examples (`Email`, `Address`,
+`DateRange`, `Percentage`).
 
 ## Decision Matrix: When to Use DDD
 

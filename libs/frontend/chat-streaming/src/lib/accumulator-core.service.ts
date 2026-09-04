@@ -43,6 +43,7 @@ import {
   AccumulatorKeys,
   StreamingState,
   createEmptyStreamingState,
+  markStructuralChange,
   setStreamingEventCapped,
 } from '@ptah-extension/chat-types';
 
@@ -299,9 +300,9 @@ export class StreamingAccumulatorCore {
             this.clearTextAccumulators(state, event.messageId);
             this.pendingTextClear.delete(event.messageId);
           }
-          state.textAccumulators.set(blockKey, event.delta);
+          this.setBlockAccumulator(state, blockKey, event.delta);
         } else {
-          this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
+          this.accumulateBlockDelta(state, blockKey, event.delta);
         }
 
         ctx.onStateChanged?.(state);
@@ -340,9 +341,9 @@ export class StreamingAccumulatorCore {
             this.clearThinkingAccumulators(state, event.messageId);
             this.pendingThinkingClear.delete(event.messageId);
           }
-          state.textAccumulators.set(thinkKey, event.delta);
+          this.setBlockAccumulator(state, thinkKey, event.delta);
         } else {
-          this.accumulateDelta(state.textAccumulators, thinkKey, event.delta);
+          this.accumulateBlockDelta(state, thinkKey, event.delta);
         }
 
         ctx.onStateChanged?.(state);
@@ -567,9 +568,6 @@ export class StreamingAccumulatorCore {
       case 'background_agent_started':
         backgroundAgentStore.onStarted(event);
         return this.mutated(event.eventType);
-      case 'background_agent_progress':
-        backgroundAgentStore.onProgress(event);
-        return this.mutated(event.eventType);
       case 'background_agent_completed':
         backgroundAgentStore.onCompleted(event);
         return this.mutated(event.eventType);
@@ -585,6 +583,13 @@ export class StreamingAccumulatorCore {
       case 'agent_completed':
         agentMonitorStore.onAgentCompleted(event);
         return this.mutated(event.eventType);
+
+      case 'turn_state':
+        // Backend turn state is intercepted by `StreamingHandlerService` /
+        // `TurnStateApplier` before it reaches the accumulator and is never
+        // stored in `StreamingState`. A surface path that forwards it here
+        // (StreamRouter) gets a no-op (TASK_2026_360).
+        return skip(event.eventType);
 
       default:
         assertNever(
@@ -620,45 +625,89 @@ export class StreamingAccumulatorCore {
     state: StreamingState,
     tooluParentToolUseId: string,
   ): void {
-    for (const [eventId, evt] of state.events) {
+    for (const evt of state.events.values()) {
       if (
         evt.eventType === 'agent_start' &&
         evt.source === 'hook' &&
         evt.toolCallId &&
         !evt.toolCallId.startsWith('toolu_')
       ) {
-        const alreadyBackfilled = [...state.events.values()].some(
-          (e) =>
-            e.eventType === 'agent_start' &&
-            e.parentToolUseId === tooluParentToolUseId,
-        );
-        if (alreadyBackfilled) {
+        if (this.hasAgentStartForParent(state, tooluParentToolUseId)) {
           return; // Already have an agent_start with this toolu_* ID
         }
         const updatedEvent = {
           ...evt,
           toolCallId: tooluParentToolUseId,
           parentToolUseId: tooluParentToolUseId,
-        };
-        state.events.set(eventId, updatedEvent as FlatStreamEventUnion);
+        } as FlatStreamEventUnion;
+        // Same-id write, so this updates in place — but routing it through the
+        // capped setter is what bumps `state.revision`, and a backfill changes
+        // the tree's tool→agent matching. A raw `events.set` here left the
+        // builder's derived indexes stale (TASK_2026_323).
+        setStreamingEventCapped(state, updatedEvent);
 
         return; // Only backfill one agent_start per message_start
       }
     }
   }
 
+  /** Whether any `agent_start` is already parented to `parentToolUseId`. */
+  private hasAgentStartForParent(
+    state: StreamingState,
+    parentToolUseId: string,
+  ): boolean {
+    for (const e of state.events.values()) {
+      if (
+        e.eventType === 'agent_start' &&
+        e.parentToolUseId === parentToolUseId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
-   * Helper to index event by messageId for O(1) lookup.
+   * Index an event by messageId for O(1) message lookup, keeping the bucket in
+   * non-descending `timestamp` order.
+   *
+   * Events arrive in order, so this is a plain `push` on the hot path — the
+   * binary insert only runs for genuinely out-of-order arrivals (a late
+   * `history`/`complete` replay landing behind live stream deltas).
+   *
+   * Maintaining the order HERE is what let the message builder drop its
+   * `slice().sort()` of the entire bucket on every rebuild — an O(E log E) cost
+   * paid per message per streamed chunk (TASK_2026_323 R2).
    */
   private indexEventByMessage(
     state: StreamingState,
     event: FlatStreamEventUnion,
   ): void {
-    if (event.messageId) {
-      const messageEvents = state.eventsByMessage.get(event.messageId) || [];
-      messageEvents.push(event);
-      state.eventsByMessage.set(event.messageId, messageEvents);
+    if (!event.messageId) return;
+
+    const bucket = state.eventsByMessage.get(event.messageId);
+    if (!bucket) {
+      state.eventsByMessage.set(event.messageId, [event]);
+      return;
     }
+
+    const last = bucket[bucket.length - 1];
+    if ((last?.timestamp ?? 0) <= event.timestamp) {
+      bucket.push(event);
+      return;
+    }
+
+    let low = 0;
+    let high = bucket.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (bucket[mid].timestamp <= event.timestamp) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    bucket.splice(low, 0, event);
   }
 
   /**
@@ -669,12 +718,7 @@ export class StreamingAccumulatorCore {
     state: StreamingState,
     messageId: string,
   ): void {
-    const prefix = `${messageId}-block-`;
-    for (const key of state.textAccumulators.keys()) {
-      if (key.startsWith(prefix)) {
-        state.textAccumulators.delete(key);
-      }
-    }
+    this.clearAccumulatorsWithPrefix(state, `${messageId}-block-`);
   }
 
   /**
@@ -685,16 +729,57 @@ export class StreamingAccumulatorCore {
     state: StreamingState,
     messageId: string,
   ): void {
-    const thinkPrefix = `${messageId}-thinking-`;
-    for (const key of state.textAccumulators.keys()) {
-      if (key.startsWith(thinkPrefix)) {
-        state.textAccumulators.delete(key);
-      }
-    }
+    this.clearAccumulatorsWithPrefix(state, `${messageId}-thinking-`);
   }
 
   /**
-   * Helper to accumulate delta into Map.
+   * Drop every `textAccumulators` entry under `prefix`, flagging the derived
+   * indexes stale if anything actually went.
+   */
+  private clearAccumulatorsWithPrefix(
+    state: StreamingState,
+    prefix: string,
+  ): void {
+    let removed = false;
+    for (const key of state.textAccumulators.keys()) {
+      if (key.startsWith(prefix)) {
+        state.textAccumulators.delete(key);
+        removed = true;
+      }
+    }
+    if (removed) markStructuralChange(state);
+  }
+
+  /**
+   * Append to a text/thinking block accumulator.
+   *
+   * The block KEY SET is indexed by the tree builder (its content is not), so a
+   * brand-new key — and only a brand-new key — invalidates the derived indexes.
+   * Appending to an existing block is the hot path and must stay free of that.
+   */
+  private accumulateBlockDelta(
+    state: StreamingState,
+    key: string,
+    delta: string,
+  ): void {
+    const current = state.textAccumulators.get(key);
+    if (current === undefined) markStructuralChange(state);
+    state.textAccumulators.set(key, (current ?? '') + delta);
+  }
+
+  /** Replace a text/thinking block accumulator wholesale (complete/history). */
+  private setBlockAccumulator(
+    state: StreamingState,
+    key: string,
+    value: string,
+  ): void {
+    if (!state.textAccumulators.has(key)) markStructuralChange(state);
+    state.textAccumulators.set(key, value);
+  }
+
+  /**
+   * Helper to accumulate delta into Map. Used for `toolInputAccumulators`,
+   * which no derived index reads — builders pull it straight out of the state.
    */
   private accumulateDelta(
     map: Map<string, string>,

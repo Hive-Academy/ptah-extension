@@ -45,6 +45,7 @@ import {
   buildUpstreamUrl,
   safeJsonParse,
 } from './translation-proxy-helpers';
+import { providerQuotaStore } from '../auth/provider-quota.store';
 
 /** Configuration for a translation proxy instance */
 export interface TranslationProxyConfig {
@@ -97,6 +98,54 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * Used for the /v1/models endpoint response.
    */
   protected abstract getStaticModels(): Array<{ id: string }>;
+
+  /**
+   * The REGISTRY provider id this proxy fronts (`'openai-codex'`, not the
+   * `'Codex'` display name in {@link TranslationProxyConfig.name}).
+   *
+   * Only used to key {@link providerQuotaStore}, and it must be the registry id
+   * because that is what `ProviderAuthResolver` resolves and reads back. A
+   * cooldown recorded under a display name would gate nothing.
+   *
+   * A method rather than a config field because two subclasses serve a provider
+   * id that is only known at construction time — `CustomOpenAiTranslationProxy`
+   * (one instance per user-declared entry) and `LocalModelTranslationProxy`
+   * (the id is a constructor argument). Resolving at request time gives those
+   * two somewhere correct to answer from.
+   *
+   * The base ASKS; it never names a provider. There is deliberately no
+   * provider-id literal anywhere in this file.
+   */
+  protected abstract getProviderId(): string;
+
+  /**
+   * Record the upstream's verdict against {@link providerQuotaStore}.
+   *
+   * Wrapped because it is a pure SIDE EFFECT on the response path: a subclass
+   * whose `getProviderId()` threw would otherwise escape from inside the
+   * `http.request` callback and take the 429 response with it. The gate failing
+   * closed is a missed optimisation; a broken response is a defect.
+   */
+  private noteUpstreamQuota(
+    rateLimited: boolean,
+    retryAfter?: string | string[],
+  ): void {
+    try {
+      const providerId = this.getProviderId();
+      if (!providerId) return;
+      if (rateLimited) {
+        providerQuotaStore.recordRateLimit(providerId, retryAfter);
+      } else {
+        providerQuotaStore.recordSuccess(providerId);
+      }
+    } catch (error: unknown) {
+      this.logger.debug(
+        `${this.logPrefix} Could not record provider quota state: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   /**
    * Start the proxy server on a dynamically assigned port.
@@ -551,6 +600,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`,
             );
             proxyRes.resume();
+            // The one place every OAuth-proxy provider funnels a 429 through,
+            // which is what makes it the right place to RECORD the cooldown the
+            // resolver gates on. The response below is untouched: status,
+            // headers, body and message are byte-identical to before this call
+            // existed — this is a side effect and nothing else.
+            this.noteUpstreamQuota(true, retryAfter);
             const headers: Record<string, string> = {};
             if (retryAfter) {
               headers['retry-after'] = retryAfter;
@@ -591,6 +646,11 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             });
             return;
           }
+          // Below 400 the upstream answered, so any cooldown standing against
+          // this provider is stale. Clearing HERE rather than only on expiry is
+          // what lets a subscription that refilled early be used immediately;
+          // waiting out the full cooldown would gate a provider that works.
+          this.noteUpstreamQuota(false);
           if (originalRequest.stream) {
             onStreamingSuccess(proxyRes, res, originalRequest.model, requestId);
             proxyRes.on('end', () => resolve());

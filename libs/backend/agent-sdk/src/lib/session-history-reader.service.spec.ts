@@ -1,24 +1,24 @@
 ﻿/**
- * session-history-reader.service â€” unit specs.
+ * session-history-reader.service — unit specs.
  *
  * Covers `SessionHistoryReaderService`, the public facade over the
  * JSONL reader + replay pipeline. The interesting behaviour here is NOT
  * the replay itself (exhaustively covered by `session-replay.service.spec.ts`
  * and `jsonl-reader.service.spec.ts`), but the facade's contract:
  *
- *   - `sessionId` must match `/^[a-zA-Z0-9_-]+$/` â€” anything else (including
+ *   - `sessionId` must match `/^[a-zA-Z0-9_-]+$/` — anything else (including
  *     path-traversal attempts like "../../etc/passwd") returns an empty
  *     payload rather than touching the filesystem.
- *   - Missing sessions directory â†’ empty events, null stats, warn log.
- *   - Missing session file â†’ empty events, null stats, warn log.
- *   - Happy path â†’ delegates to the injected children and returns the replay
+ *   - Missing sessions directory → empty events, null stats, warn log.
+ *   - Missing session file → empty events, null stats, warn log.
+ *   - Happy path → delegates to the injected children and returns the replay
  *     service's event stream alongside aggregated stats.
- *   - Aggregation honours the `compact_boundary` â€” usage in pre-compact
+ *   - Aggregation honours the `compact_boundary` — usage in pre-compact
  *     messages is NOT counted in `tokens.input/output`.
  *   - `readHistoryAsMessages` returns only user/assistant messages, skips
  *     task-notification content, and starts after the last compact_boundary.
  *
- * Every collaborator is a typed stub â€” no real fs access, no live replay.
+ * Every collaborator is a typed stub — no real fs access, no live replay.
  */
 
 import 'reflect-metadata';
@@ -27,6 +27,7 @@ import type { JsonlReaderService } from './helpers/history/jsonl-reader.service'
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
+import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
@@ -64,6 +65,8 @@ interface Stubs {
   pricingProvider: jest.Mocked<IPricingProvider>;
   authEnv: AuthEnv;
   logger: MockLogger;
+  /** Real, not stubbed — the seed and the read are the behaviour under test. */
+  usageTracker: LiveUsageTracker;
 }
 
 function makeStubs(): Stubs {
@@ -87,14 +90,16 @@ function makeStubs(): Stubs {
     },
     pricingProvider: {
       getPricing: jest.fn().mockResolvedValue(null),
+      ensureHydrated: jest.fn().mockResolvedValue(true),
     },
     authEnv: {} as AuthEnv,
     logger: createMockLogger(),
+    usageTracker: new LiveUsageTracker(),
   };
 }
 
 function makeService(stubs: Stubs): SessionHistoryReaderService {
-  const factory = new HistoryEventFactory(); // real â€” no deps
+  const factory = new HistoryEventFactory(); // real — no deps
   return new SessionHistoryReaderService(
     asLogger(stubs.logger),
     stubs.jsonlReader as unknown as JsonlReaderService,
@@ -103,6 +108,7 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.modelResolver as unknown as IModelResolver,
     stubs.authEnv,
     stubs.pricingProvider,
+    stubs.usageTracker,
   );
 }
 
@@ -122,7 +128,7 @@ describe('SessionHistoryReaderService', () => {
       );
 
       expect(result).toEqual({ events: [], stats: null });
-      // Traversal rejected pre-filesystem â€” reader must never be called.
+      // Traversal rejected pre-filesystem — reader must never be called.
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       // The facade catches the SdkError internally and logs via `error`.
       expect(stubs.logger.error).toHaveBeenCalled();
@@ -184,7 +190,7 @@ describe('SessionHistoryReaderService', () => {
     });
 
     // -----------------------------------------------------------------------
-    // Happy path â€” delegation + stats aggregation
+    // Happy path — delegation + stats aggregation
     // -----------------------------------------------------------------------
 
     it('delegates to the replay service and aggregates usage stats', async () => {
@@ -261,7 +267,7 @@ describe('SessionHistoryReaderService', () => {
           model: 'claude-sonnet-4-20250514',
           uuid: 'init',
         } as SessionHistoryMessage,
-        // Pre-compact usage â€” MUST be excluded from aggregation.
+        // Pre-compact usage — MUST be excluded from aggregation.
         {
           type: 'assistant',
           uuid: 'old',
@@ -287,7 +293,7 @@ describe('SessionHistoryReaderService', () => {
           subtype: 'compact_boundary',
           uuid: 'boundary',
         } as SessionHistoryMessage,
-        // Post-compact usage â€” counted.
+        // Post-compact usage — counted.
         {
           type: 'assistant',
           uuid: 'new',
@@ -370,7 +376,7 @@ describe('SessionHistoryReaderService', () => {
             content: [{ type: 'text', text: 'real assistant reply' }],
           },
         } as SessionHistoryMessage,
-        // task-notification user message â€” must be skipped.
+        // task-notification user message — must be skipped.
         {
           type: 'user',
           uuid: 'u2',
@@ -463,7 +469,7 @@ describe('SessionHistoryReaderService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // resolveNativeMessageId â€” Fix NODE-NESTJS-3A/39
+  // resolveNativeMessageId — Fix NODE-NESTJS-3A/39
   // -------------------------------------------------------------------------
 
   describe('resolveNativeMessageId', () => {
@@ -483,7 +489,7 @@ describe('SessionHistoryReaderService', () => {
       );
 
       expect(result).toBe(LINE_UUID);
-      // Fast path â€” no I/O
+      // Fast path — no I/O
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       expect(stubs.jsonlReader.readJsonlMessages).not.toHaveBeenCalled();
     });
@@ -784,6 +790,135 @@ describe('SessionHistoryReaderService', () => {
       expect(stats).not.toBeNull();
       // 1000 * 2.5e-6 + 500 * 10e-6 = 0.0025 + 0.005 = 0.0075
       expect(stats?.totalCost).toBeCloseTo(0.0075, 6);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Resume baseline for LiveUsageTracker (TASK_2026_374, defect 2)
+  //
+  // `CompactionHookHandler` samples `getCumulativeTokens` synchronously on the
+  // SDK transport path. For a session resumed from JSONL the live map is empty,
+  // so a manual `/compact` published `preTokens: 0`. Reading the history is the
+  // one moment the number is already in hand.
+  // -------------------------------------------------------------------------
+
+  describe('resume baseline seeding', () => {
+    function usageMessage(
+      uuid: string,
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_input_tokens: number;
+        cache_creation_input_tokens: number;
+      },
+    ): SessionHistoryMessage {
+      return {
+        type: 'assistant',
+        uuid,
+        message: {
+          role: 'assistant',
+          model: 'claude-sonnet-4-20250514',
+          content: [{ type: 'text', text: uuid }],
+          usage,
+        },
+        usage,
+      } as SessionHistoryMessage;
+    }
+
+    function readyStubs(): Stubs {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      return stubs;
+    }
+
+    it('seeds the LAST usage frame, not the summed session total', async () => {
+      const stubs = readyStubs();
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        usageMessage('a1', {
+          input_tokens: 40,
+          output_tokens: 10,
+          cache_read_input_tokens: 90_000,
+          cache_creation_input_tokens: 0,
+        }),
+        usageMessage('a2', {
+          input_tokens: 60,
+          output_tokens: 400,
+          cache_read_input_tokens: 120_000,
+          cache_creation_input_tokens: 2_000,
+        }),
+      ]);
+
+      const service = makeService(stubs);
+      await service.readSessionHistory('valid-session', '/workspace');
+
+      // Last frame only: 60 + 400 + 120000 + 2000. The aggregate would be
+      // 212 510 — a different measurement, and with prompt caching one that
+      // grows without bound over a long session.
+      expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(
+        122_460,
+      );
+    });
+
+    it('closes the preTokens=0 gap the PreCompact hook reported after a resume', async () => {
+      const stubs = readyStubs();
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        usageMessage('a1', {
+          input_tokens: 1_000,
+          output_tokens: 500,
+          cache_read_input_tokens: 180_000,
+          cache_creation_input_tokens: 0,
+        }),
+      ]);
+
+      // Before the read the tracker knows nothing — this is exactly the state
+      // the hook sampled.
+      expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(0);
+
+      const service = makeService(stubs);
+      await service.readSessionHistory('valid-session', '/workspace');
+
+      expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(
+        181_500,
+      );
+    });
+
+    it('seeds nothing when the transcript ends at a compaction boundary', async () => {
+      const stubs = readyStubs();
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        usageMessage('a1', {
+          input_tokens: 1_000,
+          output_tokens: 500,
+          cache_read_input_tokens: 180_000,
+          cache_creation_input_tokens: 0,
+        }),
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'boundary',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      await service.readSessionHistory('valid-session', '/workspace');
+
+      // Pre-boundary frames describe a context that no longer exists. 0 is the
+      // honest answer; a stale 181 500 would be a confident wrong one.
+      expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(0);
+    });
+
+    it('does not seed when the session file is missing', async () => {
+      const stubs = readyStubs();
+      stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
+        new Error('ENOENT: session file missing'),
+      );
+
+      const service = makeService(stubs);
+      await service.readSessionHistory('valid-session', '/workspace');
+
+      expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(0);
     });
   });
 });

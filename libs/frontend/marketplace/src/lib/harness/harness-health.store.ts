@@ -6,6 +6,8 @@ import {
   type HarnessHealth,
   type HarnessHealthChangedPayload,
   type HarnessHealthSummary,
+  type HarnessRepairBlockedPath,
+  type HarnessRepairBlockedResult,
   type HarnessTargetId,
 } from '@ptah-extension/shared';
 
@@ -62,6 +64,7 @@ export class HarnessHealthStore implements MessageHandler {
   private readonly _summary = signal<HarnessHealthSummary>(UNKNOWN_SUMMARY);
   private readonly _loading = signal(false);
   private readonly _reconciling = signal(false);
+  private readonly _repairing = signal(false);
   private readonly _error = signal<string | null>(null);
 
   /** Message types this store handles via `MessageRouterService`. */
@@ -77,14 +80,18 @@ export class HarnessHealthStore implements MessageHandler {
   public readonly loading = this._loading.asReadonly();
   /** True while `harness:reconcile` is in flight. Separate so the badge does not flicker. */
   public readonly reconciling = this._reconciling.asReadonly();
+  /** True while `harness:repairBlocked` is in flight. Own flag — it moves the user's files. */
+  public readonly repairing = this._repairing.asReadonly();
   /** Last transport/handler error, cleared at the start of the next call. */
   public readonly error = this._error.asReadonly();
 
   /** Targets in the order the backend reported them; empty until the first report. */
   public readonly targets = computed(() => this._health()?.targets ?? []);
 
-  /** True while either call is in flight — the panel disables its actions on this. */
-  public readonly busy = computed(() => this._loading() || this._reconciling());
+  /** True while any of the three calls is in flight — the panel disables its actions on this. */
+  public readonly busy = computed(
+    () => this._loading() || this._reconciling() || this._repairing(),
+  );
 
   /**
    * Fetch the current report.
@@ -166,6 +173,72 @@ export class HarnessHealthStore implements MessageHandler {
       this._error.set(messageOf(error, 'Failed to reconcile the harness'));
     } finally {
       this._reconciling.set(false);
+    }
+  }
+
+  /**
+   * Move the occupants of the given blocked paths aside and install Ptah's
+   * copies — the consent-gated repair (`harness:repairBlocked`, Batch 8).
+   *
+   * ### The empty list never reaches the wire
+   *
+   * `paths.length === 0` returns `null` without calling anything. The backend
+   * already treats an empty list as a total no-op, so this is not what makes
+   * the operation safe — it is what makes "the user consented to nothing"
+   * observable as *no request at all* rather than as a request the handler
+   * happened to ignore. A consent RPC that fires when consent was withheld is
+   * indistinguishable at this layer from one that fires when it was given, and
+   * the difference is the whole of decision U3.
+   *
+   * ### Why the caller passes paths rather than a flag
+   *
+   * There is deliberately no `repairAll()` here and no `targets` overload.
+   * Nothing proves Ptah wrote the directories at these paths — the candidates
+   * are the Claude Code SDK, the pre-TASK_2026_288 `npx skills add` path, and
+   * the user's own hand — so the user's enumeration IS the ownership claim, and
+   * a convenience that manufactures a wider claim than the user made would
+   * quietly undo the reason the RPC is per-path in the first place.
+   *
+   * ### `health: null` is not "no report"
+   *
+   * The backend answers `null` when no pass ran, which is every fully-refused
+   * or empty selection. Writing that into {@link health} would blank a report
+   * the user is looking at to describe a call that changed nothing, so the
+   * existing report is left standing. Only a non-null report is adopted.
+   *
+   * @returns the per-path outcomes, or `null` when nothing was sent or the call
+   *   failed. A `null` return with {@link error} set is a transport failure; a
+   *   `null` return with no error means the selection was empty.
+   */
+  public async repairBlocked(
+    paths: readonly HarnessRepairBlockedPath[],
+  ): Promise<HarnessRepairBlockedResult | null> {
+    if (paths.length === 0 || this._repairing()) {
+      return null;
+    }
+    this._repairing.set(true);
+    this._error.set(null);
+    try {
+      const result = await this.rpc.call(
+        'harness:repairBlocked',
+        { paths: paths.map((p) => ({ target: p.target, relPath: p.relPath })) },
+        { timeout: HARNESS_RPC_TIMEOUTS.RECONCILE_MS },
+      );
+      if (result.isSuccess() && result.data) {
+        if (result.data.health !== null) {
+          this.applyReport(result.data.health, result.data.summary);
+        }
+        return result.data;
+      }
+      this._error.set(result.error ?? 'Failed to move the blocked paths aside');
+      return null;
+    } catch (error: unknown) {
+      this._error.set(
+        messageOf(error, 'Failed to move the blocked paths aside'),
+      );
+      return null;
+    } finally {
+      this._repairing.set(false);
     }
   }
 

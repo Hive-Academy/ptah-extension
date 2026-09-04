@@ -37,6 +37,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
+import { McpStatusChipComponent } from '../molecules/mcp-status-chip.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
@@ -54,6 +55,7 @@ import {
   TabId,
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
@@ -114,6 +116,7 @@ import type {
     CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
+    McpStatusChipComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -141,6 +144,13 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _appState = inject(AppStateManager);
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
+  /**
+   * Asked one question only: "does an interactive workflow surface already own
+   * this prompt?" — see the fallback ladder in
+   * {@link resolvedQuestionRequests}. The verdict lives on the router so this
+   * view and the routing itself can never disagree about who owns a prompt.
+   */
+  private readonly _streamRouter = inject(StreamRouter);
   /**
    * Read the one-tick auto-animate suppression flag set by
    * `CompactionLifecycleService.handleCompactionComplete`. Combined with
@@ -707,6 +717,15 @@ export class ChatViewComponent implements OnDestroy {
    *      silent drops; the backend's `awaitQuestionResponse` has
    *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
    *      the tool call forever.
+   *
+   * Rung 2 is a safety net for questions NOBODY owns, and it must stay that
+   * way. A workflow surface (New Project, harness builder) raises questions
+   * whose `tabId`/`sessionId` is its own correlation id, which resolves to a
+   * `SurfaceId` rather than a tab — so rung 1 misses by construction and the
+   * net used to fire, painting the workflow's question onto whichever canvas
+   * tile happened to be focused while the workflow's own panel stayed empty.
+   * A claimed correlation id means the prompt HAS an owner and this tile is
+   * not it; showing it here is a mis-route, not a rescue (TASK_2026_317).
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
@@ -729,9 +748,28 @@ export class ChatViewComponent implements OnDestroy {
       const legacyMatch =
         tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
       if (legacyMatch) return true;
+      if (this.isClaimedByWorkflowSurface(q)) return false;
       return isActiveTile;
     });
   });
+
+  /**
+   * True when an INTERACTIVE workflow surface owns this question — it has a
+   * panel of its own to render the card on, so the active-tile safety net in
+   * {@link resolvedQuestionRequests} must stand down rather than adopt it.
+   *
+   * Delegated to the router rather than reading the claim map directly. A raw
+   * claim lookup is not the same question: Tribunal claims its CONDUCTOR TAB's
+   * id against a surface it never registers, and treating that as "owned
+   * elsewhere" would have hidden the conductor's own prompts from every tile
+   * but the one already matching by id.
+   */
+  private isClaimedByWorkflowSurface(q: {
+    readonly tabId?: string;
+    readonly sessionId?: string;
+  }): boolean {
+    return this._streamRouter.interactiveSurfaceOwning(q) !== null;
+  }
 
   readonly resolvedQueuedContent = computed(() => {
     const tab = this.resolvedTab();
@@ -764,12 +802,22 @@ export class ChatViewComponent implements OnDestroy {
 
     // Force the embedded agent panel open when a deep-tree caller (the
     // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
-    // monotonic counter re-triggers even after the user manually closed the
-    // panel. Counter starts at 0 (initial effect run is a no-op).
+    // monotonic sequence re-triggers even after the user manually closed the
+    // panel. Sequence starts at 0 (initial effect run is a no-op).
+    //
+    // The request names the tab it came from. Only the surface rendering that
+    // tab reacts — with several canvas tiles live, an unscoped request opened
+    // the panel in every one of them (the chip is inside one tile, the effect
+    // runs in all). A request with no tab id came from the main panel, which
+    // has no SESSION_CONTEXT, so only main-panel surfaces honour it.
     effect(() => {
-      const requests = this.agentMonitorStore.panelOpenRequests();
-      if (requests === 0) return;
+      const request = this.agentMonitorStore.panelOpenRequest();
+      if (request.seq === 0) return;
       untracked(() => {
+        const mine = this._sessionContext
+          ? request.tabId === this._sessionContext()
+          : request.tabId === null;
+        if (!mine) return;
         this.agentPanelOpen.set(true);
         this._userExplicitlyClosed = false;
       });
@@ -808,7 +856,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Edit queued message â€” pushes content back to the input and clears the queue.
+   * Edit queued message — pushes content back to the input and clears the queue.
    * Uses restoreContentToInput so the user can modify and re-send.
    */
   editQueue(): void {
@@ -851,7 +899,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Handle "Resume All" â€” builds a single combined prompt for all interrupted agents
+   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
    * and sends it as one message to the existing session.
    */
   handleResumeAllAgents(agents: SubagentRecord[]): void {
@@ -1254,11 +1302,6 @@ export class ChatViewComponent implements OnDestroy {
         deleteError: err instanceof Error ? err.message : String(err),
       };
     }
-  }
-
-  /** Handle "New Session" request from context warning bar */
-  onNewSessionFromContextWarning(): void {
-    this._tabManager.createTab('New Session');
   }
 
   /** Switch the current tab from compact back to full view */

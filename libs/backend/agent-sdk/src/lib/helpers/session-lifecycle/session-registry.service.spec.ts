@@ -117,6 +117,74 @@ describe('SessionRegistry', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Record identity: `token` distinguishes two registrations under one key
+  // -------------------------------------------------------------------------
+
+  describe('token / getToken()', () => {
+    // tabId and realSessionId are STABLE across a re-registration under the
+    // same key (a slash-command re-query does exactly that), so neither can
+    // answer "is the record I was holding still the registered one". The token
+    // can, which is what makes `endSessionIfTokenMatches` decidable.
+    it('mints a DIFFERENT token for a second register() under the same key', () => {
+      const { registry } = makeRegistry();
+
+      const first = registry.register(
+        'tab_tok',
+        makeConfig(),
+        new AbortController(),
+      );
+      const second = registry.register(
+        'tab_tok',
+        makeConfig(),
+        new AbortController(),
+      );
+
+      expect(first.token).toEqual(expect.any(String));
+      expect(first.token.length).toBeGreaterThan(0);
+      expect(second.token).not.toBe(first.token);
+      expect(second.tabId).toBe(first.tabId);
+    });
+
+    it('getToken() returns the CURRENT record token, not the replaced one', () => {
+      const { registry } = makeRegistry();
+
+      const first = registry.register(
+        'tab_tok2',
+        makeConfig(),
+        new AbortController(),
+      );
+      expect(registry.getToken('tab_tok2')).toBe(first.token);
+
+      const second = registry.register(
+        'tab_tok2',
+        makeConfig(),
+        new AbortController(),
+      );
+
+      expect(registry.getToken('tab_tok2')).toBe(second.token);
+      expect(registry.getToken('tab_tok2')).not.toBe(first.token);
+    });
+
+    it('getToken() resolves through the realSessionId index too', () => {
+      const { registry } = makeRegistry();
+      const rec = registry.register(
+        'tab_tok3',
+        makeConfig(),
+        new AbortController(),
+      );
+      registry.bindRealSessionId('tab_tok3', 'real-uuid-tok');
+
+      expect(registry.getToken('real-uuid-tok')).toBe(rec.token);
+    });
+
+    it('getToken() returns null for an unknown id', () => {
+      const { registry } = makeRegistry();
+
+      expect(registry.getToken('never-registered')).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Case 2: bindRealSessionId() adds bySessionId entry with identity equality
   // -------------------------------------------------------------------------
 
@@ -935,5 +1003,98 @@ describe('SessionRegistry', () => {
       expect(ids).toContain('real-bound-uuid');
       expect(ids).not.toContain('tab_bound');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Turn state owns the idle watchdog hold (TASK_2026_363)
+// ---------------------------------------------------------------------------
+//
+// The record carries the session's `NoActivityWatchdog` as `activityHold`.
+// The turn state owns exactly one hold on it: count 1 while no turn is in
+// flight, 0 while one is. Both transitions are guarded, because
+// `markTurnEnded` is called from the `result` branch, the interrupt path and
+// the adapter, and a double call must not stack holds.
+
+describe('SessionRegistry — turn state owns the idle watchdog hold (TASK_2026_363)', () => {
+  function makeHold(): { hold: jest.Mock; release: jest.Mock } {
+    return { hold: jest.fn(), release: jest.fn() };
+  }
+
+  function registerWithHold(tabId: string) {
+    const { registry } = makeRegistry();
+    const rec = registry.register(tabId, makeConfig(), new AbortController());
+    const hold = makeHold();
+    rec.activityHold = hold;
+    return { registry, rec, hold };
+  }
+
+  it('register() initialises activityHold to null', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_hold_null',
+      makeConfig(),
+      new AbortController(),
+    );
+    expect(rec.activityHold).toBeNull();
+  });
+
+  it('markTurnStarted releases exactly once per false→true transition', () => {
+    const { registry, rec, hold } = registerWithHold('tab_start');
+
+    registry.markTurnStarted(rec);
+    registry.markTurnStarted(rec);
+
+    expect(hold.release).toHaveBeenCalledTimes(1);
+    expect(hold.hold).not.toHaveBeenCalled();
+    expect(rec.turnInFlight).toBe(true);
+  });
+
+  it('markTurnEnded holds exactly once per true→false transition', () => {
+    const { registry, rec, hold } = registerWithHold('tab_end');
+    registry.markTurnStarted(rec);
+
+    expect(registry.markTurnEnded('tab_end')).toBe(true);
+    expect(registry.markTurnEnded('tab_end')).toBe(true);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+    expect(rec.turnInFlight).toBe(false);
+  });
+
+  it('markTurnEnded before any turn started takes no hold (the idle hold is already owned)', () => {
+    const { registry, hold } = registerWithHold('tab_end_idle');
+
+    registry.markTurnEnded('tab_end_idle');
+
+    expect(hold.hold).not.toHaveBeenCalled();
+    expect(hold.release).not.toHaveBeenCalled();
+  });
+
+  it('two full turns stay balanced: one release and one hold per turn', () => {
+    const { registry, rec, hold } = registerWithHold('tab_two_turns');
+
+    registry.markTurnStarted(rec);
+    registry.markTurnEnded('tab_two_turns');
+    registry.markTurnStarted(rec);
+    registry.markTurnEnded('tab_two_turns');
+
+    expect(hold.release).toHaveBeenCalledTimes(2);
+    expect(hold.hold).toHaveBeenCalledTimes(2);
+  });
+
+  it('activityHold === null is safe for both transitions', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_no_hold',
+      makeConfig(),
+      new AbortController(),
+    );
+    expect(rec.activityHold).toBeNull();
+
+    expect(() => {
+      registry.markTurnStarted(rec);
+      registry.markTurnEnded('tab_no_hold');
+    }).not.toThrow();
+    expect(rec.turnInFlight).toBe(false);
   });
 });

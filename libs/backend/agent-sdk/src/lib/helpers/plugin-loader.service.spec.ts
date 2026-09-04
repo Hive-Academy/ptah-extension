@@ -82,6 +82,15 @@ interface Harness {
   logger: MockLogger;
   pluginsBasePath: string;
   externalStore: ExternalPluginStateStore;
+  /** Temp workspace root, present only when the spec asked for one. */
+  workspaceRoot?: string;
+}
+
+/** The one slice of `IWorkspaceProvider` the loader reads. */
+function createWorkspaceProvider(workspaceRoot: string | undefined): {
+  getWorkspaceRoot(): string | undefined;
+} {
+  return { getWorkspaceRoot: () => workspaceRoot };
 }
 
 function makeHarness(options: {
@@ -105,10 +114,64 @@ function makeHarness(options: {
   omitDisabledPluginIds?: boolean;
   /** Skip creating the plugins base directory entirely (ENOENT path). */
   omitBasePath?: boolean;
+  /**
+   * Harness dirs to create under `{ws}/.ptah/plugins`. Supplying this (or
+   * `openWorkspace`) creates a temp workspace root and wires a workspace
+   * provider that reports it.
+   */
+  workspaceHarnessDirs?: string[];
+  /** Same shape as `skills`, but rooted in the workspace plugin dir. */
+  workspaceSkills?: Record<
+    string,
+    Array<{ dir: string; name?: string; description?: string }>
+  >;
+  /** Open a workspace with no plugin dir in it. */
+  openWorkspace?: boolean;
 }): Harness {
   const pluginsBasePath = fs.mkdtempSync(
     path.join(os.tmpdir(), 'ptah-plugin-loader-'),
   );
+
+  const wantsWorkspace =
+    options.openWorkspace === true ||
+    options.workspaceHarnessDirs !== undefined ||
+    options.workspaceSkills !== undefined;
+  const workspaceRoot = wantsWorkspace
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-plugin-loader-ws-'))
+    : undefined;
+
+  if (workspaceRoot !== undefined) {
+    const workspacePlugins = path.join(workspaceRoot, '.ptah', 'plugins');
+    for (const dir of options.workspaceHarnessDirs ?? []) {
+      fs.mkdirSync(path.join(workspacePlugins, dir), { recursive: true });
+    }
+    for (const [pluginId, entries] of Object.entries(
+      options.workspaceSkills ?? {},
+    )) {
+      for (const entry of entries) {
+        const skillDir = path.join(
+          workspacePlugins,
+          pluginId,
+          'skills',
+          entry.dir,
+        );
+        fs.mkdirSync(skillDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(skillDir, 'SKILL.md'),
+          [
+            '---',
+            `name: "${entry.name ?? entry.dir}"`,
+            `description: "${entry.description ?? `desc for ${entry.dir}`}"`,
+            '---',
+            '',
+            'body',
+            '',
+          ].join('\n'),
+          'utf-8',
+        );
+      }
+    }
+  }
 
   if (options.omitBasePath) {
     fs.rmSync(pluginsBasePath, { recursive: true, force: true });
@@ -164,10 +227,17 @@ function makeHarness(options: {
   const service = new PluginLoaderService(
     logger as unknown as Logger,
     externalStore,
+    createWorkspaceProvider(workspaceRoot) as never,
   );
   service.initialize(pluginsBasePath, createStateStorage(persisted));
 
-  return { service, logger, pluginsBasePath, externalStore };
+  return {
+    service,
+    logger,
+    pluginsBasePath,
+    externalStore,
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+  };
 }
 
 const created: string[] = [];
@@ -181,7 +251,13 @@ afterEach(() => {
 
 function track(h: Harness): Harness {
   created.push(h.pluginsBasePath);
+  if (h.workspaceRoot !== undefined) created.push(h.workspaceRoot);
   return h;
+}
+
+/** `{ws}/.ptah/plugins/{id}` for the harness's temp workspace. */
+function wsPlugin(h: Harness, id: string): string {
+  return path.join(h.workspaceRoot as string, '.ptah', 'plugins', id);
 }
 
 describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
@@ -230,6 +306,139 @@ describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
     );
 
     expect(service.discoverHarnessPluginPaths()).toEqual([]);
+  });
+
+  it('EXCLUDES workspace-scoped harness dirs — this method feeds the user-layer mirror', () => {
+    // The load-bearing asymmetry. The mirror CLONES what this returns into
+    // `~/.ptah/user/skills` create-if-absent, and the user layer is the
+    // desired state's BASE — so a mirrored workspace skill would outlive its
+    // workspace and propagate into every other project forever, which is the
+    // exact opposite of the scope the caller asked for.
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        workspaceHarnessDirs: ['ptah-harness-local'],
+      }),
+    );
+
+    expect(h.service.discoverHarnessPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+    ]);
+  });
+});
+
+describe('PluginLoaderService — workspace-scoped harness plugins', () => {
+  it('discovers ptah-harness-* under {ws}/.ptah/plugins', () => {
+    const h = track(
+      makeHarness({
+        workspaceHarnessDirs: ['ptah-harness-local', 'ptah-harness-other'],
+      }),
+    );
+
+    expect(h.service.discoverWorkspaceHarnessPluginPaths().sort()).toEqual(
+      [
+        wsPlugin(h, 'ptah-harness-local'),
+        wsPlugin(h, 'ptah-harness-other'),
+      ].sort(),
+    );
+  });
+
+  it('reports no workspace scope when no folder is open', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+
+    expect(h.service.getWorkspacePluginsBasePath()).toBeNull();
+    expect(h.service.discoverWorkspaceHarnessPluginPaths()).toEqual([]);
+  });
+
+  it('does not warn when the workspace has no .ptah/plugins directory', () => {
+    const h = track(makeHarness({ openWorkspace: true }));
+
+    expect(h.service.discoverWorkspaceHarnessPluginPaths()).toEqual([]);
+    expect(h.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('includes them in the reconciler overlay alongside the user-global ones', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        workspaceHarnessDirs: ['ptah-harness-local'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths().sort()).toEqual(
+      [
+        path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+        wsPlugin(h, 'ptah-harness-local'),
+      ].sort(),
+    );
+  });
+
+  it('honours disabledPluginIds for a workspace-scoped plugin', () => {
+    const h = track(
+      makeHarness({
+        workspaceHarnessDirs: ['ptah-harness-local'],
+        disabledPluginIds: ['ptah-harness-local'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([]);
+  });
+
+  it('lets the workspace copy win a slug clash, and says so', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-dup'],
+        workspaceHarnessDirs: ['ptah-harness-dup'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      wsPlugin(h, 'ptah-harness-dup'),
+    ]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('shadows a user-global one'),
+      expect.objectContaining({ pluginId: 'ptah-harness-dup' }),
+    );
+  });
+
+  it('lists them in getAvailablePlugins, tagged workspace, so they are toggleable', () => {
+    // This list is also the allowlist `plugins:save-config` filters
+    // `disabledPluginIds` against — absent from it, the id cannot be turned off.
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        skills: { 'ptah-harness-alpha': [{ dir: 'alpha' }] },
+        workspaceHarnessDirs: ['ptah-harness-local'],
+        workspaceSkills: {
+          'ptah-harness-local': [
+            { dir: 'local', description: 'this repo only' },
+          ],
+        },
+      }),
+    );
+
+    const plugins = h.service.getAvailablePlugins();
+    const local = plugins.find((p) => p.id === 'ptah-harness-local');
+    const alpha = plugins.find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(local).toBeDefined();
+    expect(local?.description).toBe('this repo only');
+    expect(local?.skillCount).toBe(1);
+    expect(local?.keywords).toContain('workspace');
+    expect(alpha?.keywords).toContain('global');
+  });
+
+  it('resolves a workspace harness id to its workspace path, not the global root', () => {
+    const h = track(
+      makeHarness({
+        workspaceHarnessDirs: ['ptah-harness-local'],
+        enabledPluginIds: ['ptah-harness-local'],
+      }),
+    );
+
+    expect(h.service.resolvePluginPaths(['ptah-harness-local'])).toEqual([
+      wsPlugin(h, 'ptah-harness-local'),
+    ]);
   });
 });
 
@@ -936,5 +1145,431 @@ describe('PluginLoaderService — external plugin allowlist', () => {
       expect(entry).toBeDefined();
       expect(entry?.skillCount).toBe(0);
     });
+  });
+});
+
+/**
+ * TASK_2026_315 C4 — a permanently broken skill root is reported ONCE.
+ *
+ * `tmp/logs/log.log` lines 793, 844 and 1012 carry the identical
+ *
+ *     [PluginLoaderService] Skipping skill without a readable SKILL.md
+ *     {"path":"…\\ptah-skillssh-oso95-scroll-world\\skills\\scroll-world\\SKILL.md", …}
+ *
+ * once per `plugins:list-available`. The condition is permanent — that
+ * directory tree has no SKILL.md and never will regain one on its own — so
+ * every repeat is a line that tells a reader nothing the first one did not.
+ *
+ * What must NOT change: the skill is still skipped, the surrounding plugin
+ * still lists, and the scan itself still runs on every call so a root that is
+ * repaired is picked up with no cache to invalidate.
+ */
+describe('PluginLoaderService.discoverSkillsForPlugins — broken-root log volume', () => {
+  /** A skill directory with no `SKILL.md`, the shape the log complains about. */
+  function breakSkill(base: string, pluginId: string, slug: string): string {
+    const dir = path.join(base, pluginId, 'skills', slug);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  // WARN since TASK_2026_354: the same failure is now surfaced to the user as
+  // `PluginInfo.status`, so the log line is the diagnostic half of a state they
+  // can act on rather than a debug crumb. The dedupe below is what keeps that
+  // honest instead of nagging.
+  function skipLines(h: Harness): unknown[][] {
+    return h.logger.warn.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('Skipping skill without a readable SKILL.md'),
+    );
+  }
+
+  it('logs the same unreadable SKILL.md once across repeated list calls', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    h.service.discoverSkillsForPlugins([pluginPath]);
+
+    expect(skipLines(h)).toHaveLength(1);
+  });
+
+  it('still skips the broken skill and still lists a healthy sibling', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        skills: { 'ptah-harness-alpha': [{ dir: 'good' }] },
+      }),
+    );
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+
+    const skills = h.service.discoverSkillsForPlugins([pluginPath]);
+
+    expect(skills.map((s) => s.skillId)).toEqual(['good']);
+  });
+
+  it('picks a repaired root back up, and reports it again if it breaks anew', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    const skillDir = breakSkill(
+      h.pluginsBasePath,
+      'ptah-harness-alpha',
+      'broken',
+    );
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+    const skillMd = path.join(skillDir, 'SKILL.md');
+
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(skipLines(h)).toHaveLength(1);
+
+    // Repaired: the scan is not cached, so it is picked up immediately.
+    fs.writeFileSync(
+      skillMd,
+      '---\nname: "broken"\ndescription: "now readable"\n---\nbody\n',
+      'utf-8',
+    );
+    const repaired = h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(repaired.map((s) => s.skillId)).toEqual(['broken']);
+    expect(skipLines(h)).toHaveLength(1);
+
+    // Broken again is a NEW fault, not the memoised one.
+    fs.rmSync(skillMd, { force: true });
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(skipLines(h)).toHaveLength(2);
+  });
+
+  it('reports the skip at WARN, not DEBUG', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+
+    h.service.discoverSkillsForPlugins([
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+    ]);
+
+    expect(skipLines(h)).toHaveLength(1);
+    expect(h.logger.debug).not.toHaveBeenCalledWith(
+      expect.stringContaining('Skipping skill without a readable SKILL.md'),
+      expect.anything(),
+    );
+  });
+});
+
+/**
+ * TASK_2026_354 — a broken plugin is a STATE, not just a log line.
+ *
+ * `ptah-skillssh-oso95-scroll-world` has a `skills/scroll-world/` directory
+ * with no `SKILL.md`. Before this, the only trace was one debug line and the
+ * plugin rendered in the browser modal as an ordinary entry with
+ * `skillCount: 0` — indistinguishable from a plugin that legitimately ships no
+ * skills, and with nothing telling the user they could fix it by reinstalling.
+ *
+ * The plugin must still LIST. Hiding it would leave the user unable to
+ * uninstall the thing that is failing.
+ */
+describe('PluginLoaderService.getAvailablePlugins — broken-plugin status', () => {
+  function breakSkill(base: string, pluginId: string, slug: string): void {
+    fs.mkdirSync(path.join(base, pluginId, 'skills', slug), {
+      recursive: true,
+    });
+  }
+
+  it('marks a harness plugin with an unreadable SKILL.md as broken, with the path', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+
+    const entry = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(entry).toBeDefined();
+    expect(entry?.status).toBe('broken');
+    expect(entry?.issues).toHaveLength(1);
+    expect(entry?.issues?.[0].path).toBe(
+      path.join(
+        h.pluginsBasePath,
+        'ptah-harness-alpha',
+        'skills',
+        'broken',
+        'SKILL.md',
+      ),
+    );
+    expect(entry?.issues?.[0].code).toBe('ENOENT');
+    expect(entry?.issues?.[0].message).toEqual(expect.any(String));
+  });
+
+  it('marks a healthy plugin ok and sends no issues array', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        skills: { 'ptah-harness-alpha': [{ dir: 'good' }] },
+      }),
+    );
+
+    const entry = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(entry?.status).toBe('ok');
+    // Omitted, not empty: the field means "here is what is wrong".
+    expect(entry?.issues).toBeUndefined();
+  });
+
+  it('still lists the broken plugin, and its healthy siblings stay ok', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha', 'ptah-harness-beta'],
+        skills: { 'ptah-harness-beta': [{ dir: 'fine' }] },
+      }),
+    );
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+
+    const plugins = h.service.getAvailablePlugins();
+    const alpha = plugins.find((p) => p.id === 'ptah-harness-alpha');
+    const beta = plugins.find((p) => p.id === 'ptah-harness-beta');
+
+    // Uninstalling it is the user's remedy, so it must remain visible.
+    expect(alpha).toBeDefined();
+    expect(alpha?.status).toBe('broken');
+    expect(beta?.status).toBe('ok');
+  });
+
+  it('reports every unreadable skill in a plugin, not just the first', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken-one');
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken-two');
+
+    const entry = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(
+      entry?.issues?.map((issue) => path.basename(path.dirname(issue.path))),
+    ).toEqual(expect.arrayContaining(['broken-one', 'broken-two']));
+  });
+
+  it('keeps reporting the status on repeat calls, even though the log dedupes', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+
+    h.service.getAvailablePlugins();
+    // The log memo must not leak into the payload: a panel opened a second time
+    // has to render the same broken badge as the first.
+    const second = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(second?.status).toBe('broken');
+    expect(second?.issues).toHaveLength(1);
+  });
+
+  it('clears the status once the skill becomes readable', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+    const skillMd = path.join(
+      h.pluginsBasePath,
+      'ptah-harness-alpha',
+      'skills',
+      'broken',
+      'SKILL.md',
+    );
+
+    expect(
+      h.service.getAvailablePlugins().find((p) => p.id === 'ptah-harness-alpha')
+        ?.status,
+    ).toBe('broken');
+
+    fs.writeFileSync(
+      skillMd,
+      '---\nname: "broken"\ndescription: "now readable"\n---\nbody\n',
+      'utf-8',
+    );
+
+    const repaired = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+    expect(repaired?.status).toBe('ok');
+    expect(repaired?.skillCount).toBe(1);
+  });
+});
+
+/**
+ * Reading a workspace OTHER than the active one (TASK_2026_346).
+ *
+ * With two folders open, the harness reconciler builds a desired state per
+ * ROOT while the injected `IStateStorage` is a proxy that answers for whichever
+ * folder is ACTIVE. Reading the ambient scope while reconciling the other root
+ * is what wrote one folder's overlay into the other's target directories and
+ * reaped it again on the way back.
+ */
+describe('PluginLoaderService — reads scoped to a workspace root', () => {
+  /**
+   * A `WorkspaceAwareStateStorage`-shaped proxy, satisfied STRUCTURALLY.
+   *
+   * Hand-built rather than imported: the real class lives in `vscode-core` and
+   * the point of `isWorkspaceScopedStateStorage` is that neither side imports
+   * the other. If this object stops being accepted, the structural contract has
+   * drifted and that is exactly what should fail.
+   */
+  function createWorkspaceAwareStorage(
+    perRoot: Record<string, PluginConfigState>,
+    activeRoot: string,
+  ) {
+    const stores = new Map<string, IStateStorage>();
+    for (const [root, config] of Object.entries(perRoot)) {
+      stores.set(path.resolve(root), createStateStorage(config));
+    }
+    const active = (): IStateStorage =>
+      stores.get(path.resolve(activeRoot)) as IStateStorage;
+
+    return {
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        active().get<T>(key, defaultValue),
+      update: (key: string, value: unknown): Promise<void> =>
+        active().update(key, value),
+      keys: (): readonly string[] => active().keys(),
+      getStorageForWorkspace: (workspacePath: string) =>
+        stores.get(workspacePath),
+      getAllWorkspacePaths: () => [...stores.keys()],
+    };
+  }
+
+  function config(overrides: Partial<PluginConfigState>): PluginConfigState {
+    return {
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+      lastUpdated: undefined,
+      ...overrides,
+    };
+  }
+
+  interface ScopedHarness {
+    service: PluginLoaderService;
+    logger: MockLogger;
+    rootA: string;
+    rootB: string;
+  }
+
+  function makeScopedHarness(): ScopedHarness {
+    const pluginsBasePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-scoped-plugins-'),
+    );
+    const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-scoped-wsA-'));
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-scoped-wsB-'));
+    created.push(pluginsBasePath, rootA, rootB);
+
+    // One workspace-scoped harness plugin per folder, so `{ws}/.ptah/plugins`
+    // is a real difference between them and not just a config difference.
+    for (const [root, id] of [
+      [rootA, 'ptah-harness-only-a'],
+      [rootB, 'ptah-harness-only-b'],
+    ] as const) {
+      fs.mkdirSync(path.join(root, '.ptah', 'plugins', id), {
+        recursive: true,
+      });
+    }
+
+    const logger = createMockLogger();
+    const externalStore = new ExternalPluginStateStore();
+    externalStore.initialize(pluginsBasePath);
+    const service = new PluginLoaderService(
+      logger as unknown as Logger,
+      externalStore,
+      // The provider reports A: A is the ACTIVE folder throughout.
+      createWorkspaceProvider(rootA) as never,
+    );
+    service.initialize(
+      pluginsBasePath,
+      createWorkspaceAwareStorage(
+        {
+          [rootA]: config({ disabledSkillIds: ['a-only-skill'] }),
+          [rootB]: config({ disabledSkillIds: ['b-only-skill'] }),
+        },
+        rootA,
+      ) as unknown as IStateStorage,
+    );
+
+    return { service, logger, rootA, rootB };
+  }
+
+  it("[346/4] returns B's persisted config while A is active, and A's when asked for A", () => {
+    const h = makeScopedHarness();
+
+    expect(
+      h.service.getWorkspacePluginConfig(h.rootB).disabledSkillIds,
+    ).toEqual(['b-only-skill']);
+    expect(h.service.getDisabledSkillIds(h.rootB)).toEqual(['b-only-skill']);
+    expect(
+      h.service.getWorkspacePluginConfig(h.rootA).disabledSkillIds,
+    ).toEqual(['a-only-skill']);
+  });
+
+  it('[346/4] a no-argument call still answers for the ACTIVE workspace, exactly as before', () => {
+    const h = makeScopedHarness();
+
+    // The whole point of the argument being optional: every user-facing caller
+    // means "the folder the user is looking at" and must be unaffected.
+    expect(h.service.getWorkspacePluginConfig().disabledSkillIds).toEqual([
+      'a-only-skill',
+    ]);
+    expect(h.service.getDisabledSkillIds()).toEqual(['a-only-skill']);
+  });
+
+  it('[346/4] an unregistered root reads as the default empty config, never as the active one', () => {
+    const h = makeScopedHarness();
+    const stranger = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-scoped-none-'),
+    );
+    created.push(stranger);
+
+    const answer = h.service.getWorkspacePluginConfig(stranger);
+
+    expect(answer).toEqual({
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+      disabledAgentIds: [],
+      lastUpdated: undefined,
+    });
+    // The failure this pins: answering with A's config under B's name is worse
+    // than answering with nothing, because the caller cannot tell.
+    expect(answer.disabledSkillIds).not.toContain('a-only-skill');
+  });
+
+  it("[346/4] resolveCurrentPluginPaths(rootB) scans B's {ws}/.ptah/plugins, not the active folder's", () => {
+    const h = makeScopedHarness();
+
+    expect(h.service.resolveCurrentPluginPaths(h.rootB)).toEqual([
+      path.join(h.rootB, '.ptah', 'plugins', 'ptah-harness-only-b'),
+    ]);
+    expect(h.service.resolveCurrentPluginPaths(h.rootA)).toEqual([
+      path.join(h.rootA, '.ptah', 'plugins', 'ptah-harness-only-a'),
+    ]);
+    // And with no argument, the active folder — unchanged behaviour.
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.rootA, '.ptah', 'plugins', 'ptah-harness-only-a'),
+    ]);
+  });
+
+  it('[346/4] a single-scope storage answers for every root, so a one-workspace host is untouched', () => {
+    const h = track(
+      makeHarness({
+        openWorkspace: true,
+        workspaceHarnessDirs: ['ptah-harness-solo'],
+        disabledSkillIds: ['only-one-config'],
+      }),
+    );
+    const root = h.workspaceRoot as string;
+
+    // `createStateStorage` is a plain `IStateStorage`: no
+    // `getStorageForWorkspace`, so the probe says "one scope" and the injected
+    // storage IS the answer. The CLI and the VS Code extension are this case.
+    expect(h.service.getDisabledSkillIds(root)).toEqual(['only-one-config']);
+    expect(h.service.getDisabledSkillIds()).toEqual(['only-one-config']);
+    expect(h.service.resolveCurrentPluginPaths(root)).toEqual([
+      wsPlugin(h, 'ptah-harness-solo'),
+    ]);
   });
 });

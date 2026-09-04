@@ -91,6 +91,7 @@ import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
           <ptah-awaiting-background-indicator
             [taskCount]="awaitingTab.pendingBackgroundTasks?.length ?? 0"
             [tasks]="awaitingTab.pendingBackgroundTasks ?? []"
+            [crons]="awaitingTab.pendingSessionCrons ?? []"
           />
         </div>
       }
@@ -114,7 +115,11 @@ export class TabBarComponent {
     const activeId = this.activeTabId();
     if (!activeId) return null;
     const tab = this.tabs().find((t) => t.id === activeId);
-    return tab?.status === 'awaiting-background' ? tab : null;
+    // Both are "agent idle, session live": background work in flight, or a
+    // session cron that will wake the session (TASK_2026_360).
+    return tab?.status === 'awaiting-background' || tab?.status === 'sleeping'
+      ? tab
+      : null;
   });
 
   protected readonly ChevronLeftIcon = ChevronLeft;

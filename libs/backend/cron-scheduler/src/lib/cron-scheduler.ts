@@ -80,10 +80,24 @@ export class CronScheduler {
    *
    * Order matters:
    *   1. Apply concurrency cap to the runner.
-   *   2. Run cold-start catchup BEFORE arming new timers so missed slots
-   *      from the previous boot don't race the next-fire scheduling.
-   *   3. Arm timers for all enabled jobs.
+   *   2. START cold-start catchup but do NOT await it. `replayMissed` walks
+   *      every overdue job and forwards each missed slot to `JobRunner.run`
+   *      serially; for an LLM-backed job that duration is set by a remote
+   *      endpoint, i.e. effectively unbounded. Awaiting it here gated Electron
+   *      window creation on that work (`main.ts` -> `wireRuntime` ->
+   *      `bootHeavyServices` -> `startThothCron` -> `start`), so a large or slow
+   *      backlog could leave the app running with no window at all.
+   *   3. Arm timers for all enabled jobs — this now happens immediately, while
+   *      catchup is still in flight.
    *   4. Subscribe the catchup coordinator to power events.
+   *
+   * Because catchup is no longer awaited, a replayed slot can race the next
+   * scheduled fire of the same job. That race is safe and is already accepted
+   * on the resume path, which has been fire-and-forget since it shipped
+   * ({@link CatchupCoordinator.attach}). `job_runs` carries
+   * UNIQUE(job_id, scheduled_for), so whichever side reaches a given slot first
+   * claims it and the other is a silent no-op — the database, not the call
+   * order, is the arbiter of at-most-once.
    */
   async start(options: CronSchedulerOptions): Promise<void> {
     if (this.started) return;
@@ -94,13 +108,13 @@ export class CronScheduler {
     }
     this.runner.setMaxConcurrent(options.maxConcurrentJobs);
 
-    try {
-      await this.catchup.replayMissed(options, () => DEFAULT_CATCHUP_POLICY);
-    } catch (err) {
-      this.logger.error('[cron-scheduler] cold-start catchup failed', {
-        err: (err as Error).message,
+    void this.catchup
+      .replayMissed(options, () => DEFAULT_CATCHUP_POLICY)
+      .catch((err: unknown) => {
+        this.logger.error('[cron-scheduler] cold-start catchup failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
       });
-    }
 
     const enabled = this.jobs.list({ enabledOnly: true });
     for (const job of enabled) this.armTimer(job);

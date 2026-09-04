@@ -106,8 +106,18 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     languages: string[];
   } | null>(null);
 
+  /**
+   * The surface's streaming state slot.
+   *
+   * `equal: () => false` is load-bearing, not a micro-optimisation escape
+   * hatch. `StreamingAccumulatorCore` mutates this object IN PLACE and hands
+   * the SAME reference back through the adapter's `setState`, so the default
+   * reference equality would swallow every write and the transcript would only
+   * appear once the view component was re-created.
+   */
   private readonly _streamingState = signal<StreamingState>(
     createEmptyStreamingState(),
+    { equal: () => false },
   );
   private readonly _isStreaming = signal(false);
   private readonly _currentOperationId = signal<string | null>(null);

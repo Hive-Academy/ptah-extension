@@ -143,6 +143,7 @@ function fakePromotedRow(id: string, pinned = false): SkillCandidateRow {
     rejectedReason: null,
     pinned,
     residency: 'resident',
+    workspaceRoot: null,
     ...unjudgedVerdictFields(),
     ...unmeasuredGateFields(),
   };
@@ -575,6 +576,7 @@ describe('SkillCuratorService', () => {
       rejectedReason: null,
       pinned: false,
       residency: 'resident',
+      workspaceRoot: null,
     } as SkillCandidateRow;
 
     const clustering = {
@@ -664,6 +666,7 @@ describe('SkillCuratorService', () => {
       rejectedReason: null,
       pinned: false,
       residency: 'resident',
+      workspaceRoot: null,
     } as SkillCandidateRow;
 
     const clustering = {
@@ -753,6 +756,7 @@ describe('SkillCuratorService', () => {
       rejectedReason: null,
       pinned: false,
       residency: 'resident',
+      workspaceRoot: null,
     } as SkillCandidateRow;
 
     const clustering = {
@@ -851,6 +855,7 @@ describe('SkillCuratorService', () => {
       rejectedReason: null,
       pinned: false,
       residency: 'resident',
+      workspaceRoot: null,
     } as SkillCandidateRow;
 
     const clustering = {
@@ -1039,6 +1044,7 @@ describe('SkillCuratorService', () => {
         rejectedReason: null,
         pinned: false,
         residency: 'resident',
+        workspaceRoot: null,
       })) as SkillCandidateRow[];
 
       const clustering = {

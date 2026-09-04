@@ -125,6 +125,11 @@ describe('probeStackToolchain', () => {
     expect(result.installed).toBe(false);
   });
 
+  // The probe's own ceiling is DEFAULT_PROBE_TIMEOUT_MS (5000), which is also
+  // Jest's default per-test timeout. A real `dotnet --version` that takes its
+  // full budget therefore killed the test before the probe could report
+  // not-installed — the ubuntu CI runner failed here while Windows passed. The
+  // deadline of a test must outlast the deadline of the code it drives.
   it.each(['dotnet', 'python'] as const)(
     'never throws probing the real %s toolchain, installed or not',
     async (id) => {
@@ -133,5 +138,6 @@ describe('probeStackToolchain', () => {
       expect(typeof result.installed).toBe('boolean');
       expect(typeof result.satisfiesMin).toBe('boolean');
     },
+    20000,
   );
 });

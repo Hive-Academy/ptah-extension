@@ -71,6 +71,17 @@ export class SubagentStateStore {
   private readonly pendingTeammateNames = new Map<string, string>();
 
   /**
+   * SDK task_id values captured from SDKTaskStartedMessage BEFORE the SubagentStart
+   * hook registers the record. Keyed by the Task tool_use id (toolCallId).
+   * Consumed at register() time and merged onto the SubagentRecord as `taskId`.
+   * Entries older than TTL_MS are evicted by cleanupExpired().
+   */
+  private readonly pendingTaskIds = new Map<
+    string,
+    { taskId: string; at: number }
+  >();
+
+  /**
    * Parent session IDs currently inside endSession()/disposeAllSessions()
    * teardown. While a session is in this set, 'completed' transitions for its
    * already-interrupted records are ignored — the SDK's graceful interrupt
@@ -137,6 +148,7 @@ export class SubagentStateStore {
     this.clearedToolCallIds.clear();
     this.pendingBackgroundToolCallIds.clear();
     this.pendingTeammateNames.clear();
+    this.pendingTaskIds.clear();
     this.teardownSessionIds.clear();
     this.injectionAttempts.clear();
   }
@@ -249,6 +261,24 @@ export class SubagentStateStore {
     return this.pendingTeammateNames.get(toolCallId);
   }
 
+  /** Record an SDK task_id for a not-yet-registered toolCallId. */
+  markPendingTaskId(toolCallId: string, taskId: string): void {
+    this.pendingTaskIds.set(toolCallId, { taskId, at: Date.now() });
+  }
+
+  /**
+   * Consume a pending task_id — returns the id if one was pre-marked, and
+   * atomically removes it. Returns undefined when none was recorded.
+   */
+  consumePendingTaskId(toolCallId: string): string | undefined {
+    const entry = this.pendingTaskIds.get(toolCallId);
+    if (entry !== undefined) {
+      this.pendingTaskIds.delete(toolCallId);
+      return entry.taskId;
+    }
+    return undefined;
+  }
+
   /** Remember that a toolCallId was injected into context and removed. */
   markInjected(toolCallId: string): void {
     this.clearedToolCallIds.set(toolCallId, Date.now());
@@ -321,7 +351,18 @@ export class SubagentStateStore {
       this.clearedToolCallIds.delete(toolCallId);
     }
 
-    const totalRemoved = toRemove.length + clearedToRemove.length;
+    const pendingIdsToRemove: string[] = [];
+    for (const [toolCallId, entry] of this.pendingTaskIds) {
+      if (now - entry.at > TTL_MS) {
+        pendingIdsToRemove.push(toolCallId);
+      }
+    }
+    for (const toolCallId of pendingIdsToRemove) {
+      this.pendingTaskIds.delete(toolCallId);
+    }
+
+    const totalRemoved =
+      toRemove.length + clearedToRemove.length + pendingIdsToRemove.length;
     if (totalRemoved === 0) {
       return;
     }
@@ -331,8 +372,10 @@ export class SubagentStateStore {
       {
         registryRemoved: toRemove.length,
         clearedIdsRemoved: clearedToRemove.length,
+        pendingIdsRemoved: pendingIdsToRemove.length,
         remainingRegistry: this.registry.size,
         remainingClearedIds: this.clearedToolCallIds.size,
+        remainingPendingIds: this.pendingTaskIds.size,
       },
     );
   }

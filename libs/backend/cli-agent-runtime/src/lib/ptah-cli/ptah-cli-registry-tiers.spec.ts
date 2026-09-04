@@ -25,6 +25,7 @@ import type { AnthropicProvider } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
 import type { PtahCliConfig } from '@ptah-extension/shared';
 import { PtahCliRegistry } from './ptah-cli-registry';
+import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
 // ---------------------------------------------------------------------------
 // Narrow mock — only the method resolveEffectiveTiers() touches
@@ -68,6 +69,7 @@ function makeRegistry(providerModels: MockProviderModels): PtahCliRegistry {
     null as never, // spawnOptionsService
     null as never, // modelResolver
     null as never, // configManager
+    createFakeSdkProcessSpawner(), // processSpawner
   );
 }
 

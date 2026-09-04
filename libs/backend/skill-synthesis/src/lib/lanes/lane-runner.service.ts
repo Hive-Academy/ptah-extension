@@ -39,13 +39,14 @@
  * If you ever find yourself needing to "clean up" the env here, the answer is
  * no.
  *
- * ## The four failure modes (plan §3.4)
+ * ## The five failure modes (plan §3.4, plus the quota gate)
  *
  * | kind                            | how it is produced here                                              |
  * | ------------------------------- | -------------------------------------------------------------------- |
  * | `auth-unresolvable`             | forwarded verbatim from the resolver; the run never starts (Q2)      |
- * | `structured-output-unsupported` | the ladder below exhausted BOTH attempts without parseable JSON      |
- * | `tool-use-unsupported`          | reported as a DEGRADATION on a successful run, never as a failure    |
+ * | `quota-exhausted`               | likewise: the resolved provider is rate-limited, so nothing is sent  |
+ * | `structured-output-unsupported` | the ladder below exhausted BOTH attempts without parseable JSON, OR the first execution ended in a non-`error_max_turns` SDK error subtype |
+ * | `tool-use-unsupported`          | a DEGRADATION on a run that still answered; a FAILURE when the run ended `error_max_turns` with no JSON to show for it |
  * | `timeout`                       | our own timer fired; `abort()` + `close()`, backoff by attempt count |
  *
  * ## At most TWO executions per `run()`, always
@@ -59,10 +60,12 @@
  * ## The queue write, and the two kinds that earn one
  *
  * `SkillLaneFailure` is DATA — every caller gets it back and may act on it. On
- * top of that, a caller that hands over its `queueItemId` gets the two TRANSPORT
- * failures written straight through to `SkillQueueStore.requeue`: `timeout` and
- * `auth-unresolvable` both mean "nothing ran, try later", and both need the row
- * back at `queued` behind a backoff before the next tick can see it.
+ * top of that, a caller that hands over its `queueItemId` gets the TRANSPORT
+ * failures written straight through to `SkillQueueStore.requeue`: `timeout`,
+ * `auth-unresolvable` and `quota-exhausted` all mean "nothing ran, try later",
+ * and all need the row back at `queued` behind a backoff before the next tick
+ * can see it. Membership is `isTransportLaneFailure`, shared with the drain so
+ * the two seams cannot disagree about which kinds those are.
  *
  * `requeue`, never `markUnscored`: `unscored` is the JUDGE's verdict ("we ran and
  * we do not know"), and spending it on an endpoint that never answered would make
@@ -87,6 +90,11 @@ import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
+import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
 } from '../di/tokens';
@@ -98,11 +106,12 @@ import type {
 import type { SkillQueueStore } from '../queue/skill-queue.store';
 import type { LaneResolverService } from './lane-resolver.service';
 import { extractJsonObject } from './lane-json';
-import type {
-  ResolvedSkillLane,
-  SkillLaneFailure,
-  SkillLaneFailureKind,
-  SkillLaneId,
+import {
+  isTransportLaneFailure,
+  type ResolvedSkillLane,
+  type SkillLaneFailure,
+  type SkillLaneFailureKind,
+  type SkillLaneId,
 } from './lane.types';
 
 /**
@@ -129,6 +138,56 @@ export const LANE_MAX_RETRY_BACKOFF_MS = 6 * 60 * 60_000;
 export const LANE_MAX_EXECUTIONS_PER_RUN = 2;
 
 /**
+ * Turns a `toolUse: 'required'` lane gets when its caller names no number.
+ *
+ * A turn is ONE model round. The default used to be `1`, which is not a small
+ * budget for a retrieval lane — it is an impossible one: the one-shot exposes
+ * the full tool preset, so a model that answers by issuing a single tool call
+ * has already spent its only turn and the SDK ends the run as
+ * `error_max_turns`. That is what the R6 guard below then read as "this
+ * endpoint cannot drive tools" and collapsed the caller's pass budget over,
+ * every single time, on a lane whose whole purpose is multi-step retrieval.
+ *
+ * `8` is a budget, not a target: a lane that answers on turn 2 stops on turn 2,
+ * and the per-lane `timeoutMs` plus `LANE_MAX_EXECUTIONS_PER_RUN` remain the
+ * hard bounds on what one `run()` can spend. A `toolUse: 'none'` lane is still
+ * forced to 1 — it has nothing to spend extra turns on.
+ */
+export const LANE_TOOL_USE_DEFAULT_MAX_TURNS = 8;
+
+/**
+ * The concurrency lane every skill-synthesis one-shot is charged to.
+ *
+ * ONE lane for all four `SkillLane`s, and the singular is the point: they are
+ * alternative routes for a single background pipeline, so the consumer's
+ * per-lane ceiling should bound the pipeline, not each route. Naming it at all
+ * is what separates this library from the memory curator, which runs on its own
+ * budget, its own cadence and its own provider and has no reason to wait behind
+ * a judge call (TASK_2026_352).
+ *
+ * The string is matched case-insensitively by the consumer; a near-miss would
+ * silently mint a second lane with its own ceiling, which is why it is a
+ * constant rather than a literal at the call site.
+ */
+export const SKILL_SYNTHESIS_QUERY_LANE = 'skill-synthesis';
+
+/**
+ * Result subtypes that leave the structured-output ladder eligible for its one
+ * re-run: the SDK finished normally (`success`) or reported no subtype at all.
+ *
+ * Everything else is an `SDKResultError` — the run ENDED, it did not answer.
+ * Such a result carries no `structured_output` and no JSON by construction, so
+ * the ladder used to read it as "the endpoint ignored `outputFormat`" and buy a
+ * second full-timeout execution to be told the same thing. The second call is
+ * what timed out in the field. Diagnosing the subtype is the difference between
+ * a capability the endpoint lacks and a run that never got to use it.
+ */
+const LADDER_ELIGIBLE_SUBTYPES: ReadonlySet<string | null> = new Set([
+  null,
+  'success',
+]);
+
+/**
  * A capability the endpoint turned out not to have. Both members are also
  * `SkillLaneFailureKind`s: the same condition is a DEGRADATION when the run
  * still produced something usable and a FAILURE when it did not.
@@ -145,7 +204,10 @@ export interface LaneRunRequest {
   readonly systemPromptAppend?: string;
   /** Defaults to the home directory, matching today's one-shot callers. */
   readonly cwd?: string;
-  /** Ignored (forced to 1) on a lane declaring `toolUse: 'none'`. */
+  /**
+   * Ignored (forced to 1) on a lane declaring `toolUse: 'none'`. Absent on a
+   * tool-use lane ⇒ {@link LANE_TOOL_USE_DEFAULT_MAX_TURNS}.
+   */
   readonly maxTurns?: number;
   /**
    * Requesting JSON at all. Presence — not the lane's `structuredOutput` — is
@@ -160,7 +222,16 @@ export interface LaneRunRequest {
    * Drives the timeout backoff only.
    */
   readonly attempt?: number;
+  /**
+   * An EXPLICIT override of the MCP wiring. Absent — which is what every lane
+   * caller in this library passes — means "derive it from the host's
+   * `IMcpServerStatus`", not "false". The old `?? false` default is why every
+   * background lane on a host with a listening MCP server ran with
+   * `mcpServers: {}` and could not call a single Ptah tool.
+   */
   readonly mcpServerRunning?: boolean;
+  /** Only read when {@link mcpServerRunning} is supplied explicitly. */
+  readonly mcpPort?: number;
   /**
    * The `skill_synthesis_queue` row this run belongs to, when there is one.
    * Supplying it opts the run into the `requeue` write on the two transport
@@ -234,6 +305,7 @@ interface CallOptions {
   readonly cwd: string;
   readonly maxTurns: number;
   readonly mcpServerRunning: boolean;
+  readonly mcpPort?: number;
   readonly outputFormat?: {
     readonly type: 'json_schema';
     readonly schema: Record<string, unknown>;
@@ -262,6 +334,19 @@ export class LaneRunnerService {
      */
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, { isOptional: true })
     private readonly queue: SkillQueueStore | null = null,
+    /**
+     * The host's MCP server status, when it has one. Optional AND LAST: the CLI
+     * starts no MCP server at all, and the four sibling specs construct this
+     * service positionally, so a new parameter anywhere else would be a
+     * compile break for a value those specs do not care about.
+     *
+     * The port, not a boolean: the server binds an OS-assigned port whenever
+     * the configured one is taken, so a lane told only "running" would be
+     * pointed at `PTAH_MCP_PORT` — the wrong number on exactly the hosts that
+     * needed the fallback.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   async run(req: LaneRunRequest): Promise<LaneRunResult> {
@@ -302,7 +387,7 @@ export class LaneRunnerService {
     // it: a lane that declares no tool use never gets a multi-turn budget.
     const toolUseAllowed = cfg.toolUse !== 'none';
     const maxTurns = toolUseAllowed
-      ? Math.max(1, Math.floor(req.maxTurns ?? 1))
+      ? Math.max(1, Math.floor(req.maxTurns ?? LANE_TOOL_USE_DEFAULT_MAX_TURNS))
       : 1;
     let passesAllowed = toolUseAllowed
       ? Math.max(1, Math.floor(cfg.maxPasses))
@@ -316,12 +401,21 @@ export class LaneRunnerService {
      */
     let degradedReason: LaneDegradedReason | null = null;
 
+    // DERIVED, not defaulted. A caller that names the flag is overriding on
+    // purpose and keeps its answer (including `false`); every lane caller in
+    // this library names nothing and gets the host's real state.
+    const mcp =
+      req.mcpServerRunning === undefined
+        ? resolveMcpSessionWiring(this.mcpServerStatus)
+        : { mcpServerRunning: req.mcpServerRunning, mcpPort: req.mcpPort };
+
     const base: CallOptions = {
       prompt,
       systemPromptAppend: req.systemPromptAppend,
       cwd: req.cwd ?? os.homedir(),
       maxTurns,
-      mcpServerRunning: req.mcpServerRunning ?? false,
+      mcpServerRunning: mcp.mcpServerRunning,
+      mcpPort: mcp.mcpPort,
       signal: req.signal,
     };
 
@@ -347,15 +441,23 @@ export class LaneRunnerService {
     text = first.text;
     this.recordUsage(first.usage);
 
-    // R6: a first pass that ran out of turns means the endpoint could not drive
-    // the retrieval loop. Collapse the CALLER's pass budget and say so — once.
-    // We do not re-run here; re-running is what "loops to timeout" means.
+    // R6: a first pass that spent its WHOLE turn budget without finishing means
+    // the endpoint could not drive the retrieval loop inside it. Collapse the
+    // CALLER's pass budget and say so — once. We do not re-run here; re-running
+    // is what "loops to timeout" means.
+    //
+    // The budget this is now measured against is `maxTurns` — which is
+    // `LANE_TOOL_USE_DEFAULT_MAX_TURNS` unless the caller named a number — and
+    // NOT the `1` it used to be. Under the old default the branch fired for
+    // every model that answered with a single tool call, i.e. for every model
+    // doing exactly what a retrieval lane asks of it, so the collapse said
+    // nothing about the endpoint's capability.
     if (toolUseAllowed && first.subtype === 'error_max_turns') {
       passesAllowed = 1;
       degradedReason = 'tool-use-unsupported';
       this.logger.warn(
         '[skill-synthesis] lane exhausted its turns on pass 1; collapsing to a single pass',
-        { lane: req.laneId, model: lane.model },
+        { lane: req.laneId, model: lane.model, maxTurns },
       );
     }
 
@@ -367,10 +469,33 @@ export class LaneRunnerService {
     // `read.value === null` — is the gate: an endpoint that honoured the schema
     // and legitimately answered `null` has not failed at anything, and re-running
     // it would spend a second call to be told `null` again.
+    //
+    // And only a first execution that actually ENDED IN AN ANSWER. An
+    // `SDKResultError` subtype carries no structured output and no JSON because
+    // the run stopped, not because the endpoint cannot honour a schema — so
+    // re-running it buys a second timeout-length execution to learn nothing.
+    // That second call is the one that timed out in the field.
+    const ladderEligible = LADDER_ELIGIBLE_SUBTYPES.has(first.subtype);
+    if (wantsJson && !read.resolved && sendSchema && !ladderEligible) {
+      const kind: LaneDegradedReason =
+        first.subtype === 'error_max_turns'
+          ? 'tool-use-unsupported'
+          : 'structured-output-unsupported';
+      this.logger.warn(
+        '[skill-synthesis] lane ended without an answer; not retrying without outputFormat',
+        { lane: req.laneId, model: lane.model, subtype: first.subtype },
+      );
+      return this.fail(req, {
+        kind,
+        reason: `Lane ${req.laneId}: the SDK ended the run with ${first.subtype}`,
+        retryAfterMs: LANE_DEGRADED_RETRY_MS,
+      });
+    }
+
     if (wantsJson && !read.resolved && sendSchema) {
       this.logger.warn(
         '[skill-synthesis] lane ignored outputFormat; retrying once without it',
-        { lane: req.laneId, model: lane.model },
+        { lane: req.laneId, model: lane.model, subtype: first.subtype },
       );
       const second = await this.callOnce(lane, {
         ...base,
@@ -443,7 +568,15 @@ export class LaneRunnerService {
         prompt: opts.prompt,
         systemPromptAppend: opts.systemPromptAppend,
         mcpServerRunning: opts.mcpServerRunning,
+        mcpPort: opts.mcpPort,
         maxTurns: opts.maxTurns,
+        // Every lane in this library shares ONE concurrency slot, deliberately.
+        // The four lanes are alternative routes for the same background
+        // pipeline, not independent consumers, so giving each its own slot
+        // would let a single drain tick hold the whole host-wide budget. What
+        // the name buys is separation from the MEMORY CURATOR, which is the
+        // unrelated pipeline this used to serialise against.
+        lane: SKILL_SYNTHESIS_QUERY_LANE,
         abortController: controller,
         // R2: BY REFERENCE. Do not spread, clone, parse or filter this.
         auth: lane.auth,
@@ -520,8 +653,7 @@ export class LaneRunnerService {
    * a row and its candidate end up disagreeing.
    */
   private fail(req: LaneRunRequest, failure: SkillLaneFailure): LaneRunResult {
-    const shouldRequeue =
-      failure.kind === 'timeout' || failure.kind === 'auth-unresolvable';
+    const shouldRequeue = isTransportLaneFailure(failure.kind);
     if (req.queueItemId && this.queue && shouldRequeue) {
       // A row this worker no longer holds returns `false` — expected after a
       // reap, and not something to fail the run over.

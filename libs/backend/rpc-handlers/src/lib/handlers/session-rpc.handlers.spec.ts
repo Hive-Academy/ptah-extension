@@ -90,25 +90,34 @@ import type {
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import { SdkError } from '@ptah-extension/agent-sdk';
-import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
+import type {
+  CliSessionReference,
+  SessionId,
+  SessionTurnState,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
+import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.registry';
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
 // ---------------------------------------------------------------------------
 
 type MockMetadataStore = jest.Mocked<
-  Pick<SessionMetadataStore, 'get' | 'getForWorkspace' | 'delete' | 'rename'>
+  Pick<
+    SessionMetadataStore,
+    'get' | 'getForWorkspace' | 'delete' | 'rename' | 'getCliSessionsForRestore'
+  >
 >;
 
 function createMockMetadataStore(): MockMetadataStore {
   return {
     get: jest.fn(),
+    getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
     getForWorkspace: jest.fn().mockResolvedValue([]),
     delete: jest.fn().mockResolvedValue(undefined),
     rename: jest.fn().mockResolvedValue(undefined),
@@ -151,13 +160,41 @@ function createMockChatSession(): MockChatSession {
   };
 }
 
-type MockStreamBroadcaster = {
-  isStreaming: jest.Mock<boolean, [string]>;
+type MockTurnState = {
+  get: jest.Mock<SessionTurnState | undefined, [string]>;
 };
 
-function createMockStreamBroadcaster(): MockStreamBroadcaster {
+function createMockTurnState(): MockTurnState {
   return {
-    isStreaming: jest.fn<boolean, [string]>().mockReturnValue(false),
+    get: jest
+      .fn<SessionTurnState | undefined, [string]>()
+      .mockReturnValue(undefined),
+  };
+}
+
+type MockMcpStatus = {
+  get: jest.Mock<SessionMcpStatusRecord | null, [string]>;
+};
+
+function createMockMcpStatus(): MockMcpStatus {
+  return {
+    get: jest
+      .fn<SessionMcpStatusRecord | null, [string]>()
+      .mockReturnValue(null),
+  };
+}
+
+function makeTurnState(
+  overrides: Partial<SessionTurnState> = {},
+): SessionTurnState {
+  return {
+    phase: 'idle',
+    revision: 3,
+    backgroundTasks: [],
+    sessionCrons: [],
+    terminalReason: 'completed',
+    timestamp: 1_700_000_000_000,
+    ...overrides,
   };
 }
 
@@ -220,7 +257,8 @@ interface Harness {
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
-  streamBroadcaster: MockStreamBroadcaster;
+  turnState: MockTurnState;
+  mcpStatus: MockMcpStatus;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -234,7 +272,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
-  const streamBroadcaster = createMockStreamBroadcaster();
+  const turnState = createMockTurnState();
+  const mcpStatus = createMockMcpStatus();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -245,7 +284,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
-    streamBroadcaster as never,
+    turnState as never,
+    mcpStatus as never,
   );
 
   return {
@@ -258,7 +298,8 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sentry,
     sdkAdapter,
     chatSession,
-    streamBroadcaster,
+    turnState,
+    mcpStatus,
   };
 }
 
@@ -1128,6 +1169,9 @@ describe('SessionRpcHandlers', () => {
       } as CliSessionReference;
       const codex = { cli: 'codex' } as CliSessionReference;
 
+      // `get` still backs the authorization check; the refs themselves come
+      // through `getCliSessionsForRestore`, which rehydrates per-agent output
+      // onto them (TASK_2026_323 B5).
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
           sessionId: VALID_SESSION_ID,
@@ -1135,6 +1179,11 @@ describe('SessionRpcHandlers', () => {
           cliSessions: [realCli, mcpSpawned, codex],
         }) as never,
       );
+      h.metadataStore.getCliSessionsForRestore.mockResolvedValue([
+        realCli,
+        mcpSpawned,
+        codex,
+      ]);
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(
@@ -1143,12 +1192,17 @@ describe('SessionRpcHandlers', () => {
         { sessionId: VALID_SESSION_ID },
       );
 
+      expect(h.metadataStore.getCliSessionsForRestore).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+      );
       expect(result.cliSessions).toEqual([realCli, mcpSpawned, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {
       const h = makeHarness();
-      h.metadataStore.get.mockRejectedValue(new Error('store boom'));
+      h.metadataStore.getCliSessionsForRestore.mockRejectedValue(
+        new Error('store boom'),
+      );
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(
@@ -1869,44 +1923,138 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:status', () => {
-    it('reports active + streaming when both sources are true', async () => {
+    it('reports active + streaming with the turnState when the registry says generating', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(true);
-      h.streamBroadcaster.isStreaming.mockReturnValue(true);
+      const state = makeTurnState({
+        phase: 'generating',
+        terminalReason: null,
+      });
+      h.turnState.get.mockReturnValue(state);
       h.handlers.register();
 
-      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
-        h,
-        'session:status',
-        { sessionId: VALID_SESSION_ID },
-      );
+      const result = await call<{
+        isActive: boolean;
+        isStreaming: boolean;
+        turnState?: SessionTurnState;
+      }>(h, 'session:status', { sessionId: VALID_SESSION_ID });
 
-      expect(result).toEqual({ isActive: true, isStreaming: true });
+      expect(result).toEqual({
+        isActive: true,
+        isStreaming: true,
+        turnState: state,
+      });
       expect(h.sdkAdapter.isSessionActive).toHaveBeenCalled();
-      expect(h.streamBroadcaster.isStreaming).toHaveBeenCalledWith(
-        VALID_SESSION_ID,
-      );
+      expect(h.turnState.get).toHaveBeenCalledWith(VALID_SESSION_ID);
     });
 
-    it('reports active + idle when the session is alive but not streaming', async () => {
+    it.each(['idle', 'awaiting-background', 'sleeping', 'failed'] as const)(
+      'reports active + not streaming with the turnState for phase %s',
+      async (phase) => {
+        const h = makeHarness();
+        h.sdkAdapter.isSessionActive.mockReturnValue(true);
+        const state = makeTurnState({ phase });
+        h.turnState.get.mockReturnValue(state);
+        h.handlers.register();
+
+        const result = await call<{
+          isActive: boolean;
+          isStreaming: boolean;
+          turnState?: SessionTurnState;
+        }>(h, 'session:status', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toEqual({
+          isActive: true,
+          isStreaming: false,
+          turnState: state,
+        });
+      },
+    );
+
+    it('omits turnState when the registry does not know the session', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(true);
-      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.turnState.get.mockReturnValue(undefined);
       h.handlers.register();
 
-      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
-        h,
-        'session:status',
-        { sessionId: VALID_SESSION_ID },
-      );
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
 
       expect(result).toEqual({ isActive: true, isStreaming: false });
+      expect('turnState' in result).toBe(false);
+    });
+
+    // TASK_2026_375 B4.3 — a cold-loaded webview missed the
+    // `session:mcpStatus` push, so this read is how a restored tab recovers
+    // the chip.
+    it('returns the recorded MCP servers and notices', async () => {
+      const h = makeHarness();
+      const record: SessionMcpStatusRecord = {
+        servers: [{ name: 'smithery', status: 'needs-auth' }],
+        notices: [
+          {
+            code: 'claude-ai-connectors-disabled',
+            message: 'claude.ai connectors are disabled …',
+          },
+        ],
+        updatedAt: 1,
+      };
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(record);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toEqual({
+        isActive: true,
+        isStreaming: false,
+        mcpServers: record.servers,
+        notices: record.notices,
+      });
+      expect(h.mcpStatus.get).toHaveBeenCalledWith(VALID_SESSION_ID);
+    });
+
+    it('OMITS both MCP fields when nothing was recorded — absent is not empty', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue(null);
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect('mcpServers' in result).toBe(false);
+      expect('notices' in result).toBe(false);
+    });
+
+    it('returns an EMPTY server list verbatim — that is a real answer', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.turnState.get.mockReturnValue(undefined);
+      h.mcpStatus.get.mockReturnValue({
+        servers: [],
+        notices: [],
+        updatedAt: 1,
+      });
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(h, 'session:status', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result).toMatchObject({ mcpServers: [], notices: [] });
     });
 
     it('reports inactive when the session is not in the lifecycle registry', async () => {
       const h = makeHarness();
       h.sdkAdapter.isSessionActive.mockReturnValue(false);
-      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.turnState.get.mockReturnValue(undefined);
       h.handlers.register();
 
       const result = await call<{ isActive: boolean; isStreaming: boolean }>(
@@ -1951,6 +2099,91 @@ describe('SessionRpcHandlers', () => {
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/workspace-not-authorized/);
       expect(h.historyReader.readSessionHistory).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:list while the backend is still warming (TASK_2026_331 B1.T5)
+  //
+  // The session import moved behind the window, so the renderer's first
+  // `session:list` — issued during `ChatLifecycleService.bootstrap()` — now
+  // routinely lands BEFORE the import has finished. That is safe only because
+  // of two facts about this handler, and both are pinned here so a later batch
+  // cannot quietly change them:
+  //
+  //   1. It is NOT SQLite-backed. It reads `SessionMetadataStore`, which is
+  //      backed by `PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE`. So it must NOT
+  //      grow a SQLite readiness guard: an empty store is a legitimate,
+  //      successful answer.
+  //   2. It does not swallow failures into an empty list. A throw is re-thrown
+  //      as `Failed to list sessions: <message>`. Any future deferral that
+  //      relies on "a silent empty result" would be relying on behaviour this
+  //      handler has never had.
+  //
+  // The user-visible effect of the deferral is therefore a SHORT list that
+  // GROWS, never an error.
+  // -------------------------------------------------------------------------
+
+  describe('session:list during the deferred session import', () => {
+    it('returns an empty, successful result for an empty store — it does not throw', async () => {
+      const h = makeHarness();
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({
+        sessions: [],
+        total: 0,
+        hasMore: false,
+      });
+    });
+
+    it('grows as the import writes rows, with no contract change in between', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      const first = await call<{ sessions: unknown[]; total: number }>(
+        h,
+        'session:list',
+        { workspacePath: WORKSPACE },
+      );
+      expect(first.total).toBe(0);
+
+      h.metadataStore.getForWorkspace.mockResolvedValue([
+        makeMetadata({ sessionId: uuidForRow(0) }),
+        makeMetadata({ sessionId: uuidForRow(1) }),
+      ] as never);
+      const second = await call<{ sessions: unknown[]; total: number }>(
+        h,
+        'session:list',
+        { workspacePath: WORKSPACE },
+      );
+
+      expect(second.total).toBe(2);
+      expect(second.sessions).toHaveLength(2);
+    });
+
+    it('still surfaces a store failure as `Failed to list sessions:`', async () => {
+      const h = makeHarness();
+      h.metadataStore.getForWorkspace.mockRejectedValue(
+        new Error('storage unavailable'),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain(
+        'Failed to list sessions: storage unavailable',
+      );
+      expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
 });

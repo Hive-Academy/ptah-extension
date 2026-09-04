@@ -7,7 +7,7 @@
  * State shape:
  * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
  * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
- * which forced every writer to clone the Map â€” and silently broke `computed()`
+ * which forced every writer to clone the Map — and silently broke `computed()`
  * propagation when a writer forgot to clone, since reference equality held.
  * Array + computed byId is the idiomatic Angular pattern: writes are clearly
  * immutable (`[...list, x]` / `list.filter(...)`), reads stay O(1) via byId.
@@ -32,6 +32,12 @@ import type {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
+import {
+  MAX_FRONTEND_BUFFER,
+  capBuffer,
+  capSegments,
+  capStreamEventsInPlace,
+} from './agent-output-retention';
 
 /**
  * TODO: remove once the shared agent lifecycle events (AgentStartEvent,
@@ -52,9 +58,6 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   const s = (src ?? {}) as WorkflowRunFields;
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
-
-/** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
-const MAX_FRONTEND_BUFFER = 50 * 1024;
 
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 3;
@@ -279,7 +282,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /**
    * Tracks agent descriptions (tasks) that have been resumed.
-   * Used by inline-agent-bubble to upgrade 'interrupted' â†’ 'resumed' visuals.
+   * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
    */
   private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
@@ -343,12 +346,26 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
-  readonly agents = computed(() => {
-    return [...this._agents()].sort((a, b) => b.startedAt - a.startedAt);
-  });
+  /**
+   * All agents, newest first.
+   *
+   * The ORDER is an invariant of `_agents` itself — every insertion goes
+   * through {@link insertAgentSorted} and every other writer either replaces an
+   * entry in place or filters, both order-preserving. So this recomputes to a
+   * copy and nothing else.
+   *
+   * It used to `[...list].sort(...)` here. That ran on every output delta,
+   * because a delta replaces one agent object and so invalidates this computed
+   * — and it cascades into `activeTabAgents`, `pendingPermissions`,
+   * `activeTabPendingPermissions` and every template bound to them. Sorting is
+   * a function of membership and `startedAt`, neither of which a delta touches,
+   * so the work was pure waste. The copy remains: callers receive a mutable
+   * `MonitoredAgent[]` and must not be handed the backing array.
+   */
+  readonly agents = computed(() => [...this._agents()]);
 
   /**
-   * Public byId index â€” exposed alongside `agents` for callers that need O(1)
+   * Public byId index — exposed alongside `agents` for callers that need O(1)
    * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
    */
   readonly agentsById = computed(() => this._byId());
@@ -446,7 +463,7 @@ export class AgentMonitorStore implements OnDestroy {
     equal: (a, b) => a === b,
   });
 
-  /** Agents that currently have a pending permission request (global â€” all tabs).
+  /** Agents that currently have a pending permission request (global — all tabs).
    * Permissions are global because the user should always see them regardless of active tab. */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0),
@@ -460,15 +477,24 @@ export class AgentMonitorStore implements OnDestroy {
   readonly panelOpen = this._panelOpen.asReadonly();
 
   /**
-   * Monotonic "open the panel" request counter. Bumped by {@link requestPanelOpen}.
-   * The global-mode panel reads `panelOpen()` directly, but the embedded panel
-   * in `ChatViewComponent` drives its own local open signal — it watches THIS
-   * counter so a deep-tree caller (the "Workflow launched" chip) can force the
-   * panel open reliably even after the user manually closed it (a plain
-   * `panelOpen` set would not re-notify when it is already `true`).
+   * Latest "open the panel" request. `seq` is monotonic and bumped by
+   * {@link requestPanelOpen}. The global-mode panel reads `panelOpen()`
+   * directly, but the embedded panel in `ChatViewComponent` drives its own
+   * local open signal — it watches THIS so a deep-tree caller (the "Workflow
+   * launched" chip) can force the panel open reliably even after the user
+   * manually closed it (a plain `panelOpen` set would not re-notify when it
+   * is already `true`).
+   *
+   * `tabId` is the surface the request came from. It used to be a bare
+   * counter, and every embedded panel reacted to it — so one chip opened the
+   * Agents sidebar in every open canvas tile. `null` means the request came
+   * from the main panel (no SESSION_CONTEXT), which is itself a scope.
    */
-  private readonly _panelOpenRequests = signal(0);
-  readonly panelOpenRequests = this._panelOpenRequests.asReadonly();
+  private readonly _panelOpenRequest = signal<{
+    readonly seq: number;
+    readonly tabId: string | null;
+  }>({ seq: 0, tabId: null });
+  readonly panelOpenRequest = this._panelOpenRequest.asReadonly();
 
   ngOnDestroy(): void {
     this.stopTick();
@@ -515,14 +541,16 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Force the monitor panel open from anywhere (global OR embedded mode).
    * Sets `panelOpen` for global consumers, clears the "explicitly closed"
-   * latch, and bumps `panelOpenRequests` so the embedded `ChatViewComponent`
-   * panel re-opens even if it was previously dismissed. Used by the
-   * "Workflow launched" chat chip.
+   * latch, and publishes a new {@link panelOpenRequest} so the embedded
+   * `ChatViewComponent` panel of `tabId` re-opens even if it was previously
+   * dismissed. Used by the "Workflow launched" chat chip.
+   *
+   * @param tabId the requesting surface's tab id, or `null` from the main panel
    */
-  requestPanelOpen(): void {
+  requestPanelOpen(tabId: string | null = null): void {
     this._userExplicitlyClosed = false;
     this._panelOpen.set(true);
-    this._panelOpenRequests.update((n) => n + 1);
+    this._panelOpenRequest.update((r) => ({ seq: r.seq + 1, tabId }));
   }
 
   closePanel(): void {
@@ -650,10 +678,10 @@ export class AgentMonitorStore implements OnDestroy {
           workflowRunId: wf.workflowRunId,
           workflowName: wf.workflowName,
         };
-        return [
-          ...list.filter((a) => a.agentId !== oldCard.agentId),
+        return insertAgentSorted(
+          list.filter((a) => a.agentId !== oldCard.agentId),
           replacement,
-        ];
+        );
       }
 
       const order = this._expandOrder++;
@@ -680,7 +708,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
       };
-      return this.enforceMaxExpanded([...list, fresh]);
+      return this.enforceMaxExpanded(insertAgentSorted(list, fresh));
     });
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
@@ -750,6 +778,12 @@ export class AgentMonitorStore implements OnDestroy {
         } else {
           updated.segments = [...existing, ...incoming];
         }
+        // The copy above is unavoidable (the array identity is what tells the
+        // card's `@for` to re-diff), but the cap is what stops it from being a
+        // copy of an unbounded array on every token. `capSegments` folds the
+        // prose it drops and marks what it could not fold — this used to be a
+        // bare `slice(-MAX)` that silently deleted a long agent's opening plan.
+        updated.segments = capSegments(updated.segments);
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
         // Append in place — streamEvents shares its reference across deltas, so
@@ -758,6 +792,7 @@ export class AgentMonitorStore implements OnDestroy {
         for (const ev of delta.streamEvents) {
           updated.streamEvents.push(ev);
         }
+        capStreamEventsInPlace(updated.streamEvents);
         updated.streamRevision = agent.streamRevision + 1;
       }
 
@@ -861,7 +896,7 @@ export class AgentMonitorStore implements OnDestroy {
       }
       if (foundIndex === -1) {
         console.warn(
-          '[AgentMonitorStore] Permission buffered â€” agent not yet spawned:',
+          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
           request.agentId,
         );
         const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
@@ -940,7 +975,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Find an existing agent card that the new agent should replace.
    *
    * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
-   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume â€”
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
    *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
    *   ID is reused). Only matches non-running agents.
    *
@@ -1011,7 +1046,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Load CLI sessions from a saved session's metadata.
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
-   * Agents from other sessions are preserved â€” activeTabAgents handles display filtering.
+   * Agents from other sessions are preserved — activeTabAgents handles display filtering.
    * Auto-opens the panel if sessions are loaded.
    */
   loadCliSessions(
@@ -1034,26 +1069,36 @@ export class AgentMonitorStore implements OnDestroy {
         if (existingIds.has(ref.agentId)) continue;
 
         const ts = new Date(ref.startedAt).getTime();
-        next = [
-          ...next,
-          {
-            agentId: ref.agentId,
-            cli: ref.cli,
-            task: ref.task,
-            status: ref.status,
-            startedAt: Number.isNaN(ts) ? Date.now() : ts,
-            stdout: ref.stdout ?? '',
-            stderr: '',
-            expanded: false,
-            segments: ref.segments ? [...ref.segments] : [],
-            streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
-            streamRevision: 0,
-            cliSessionId: ref.cliSessionId,
-            parentSessionId,
-            ptahCliId: ref.ptahCliId,
-            permissionQueue: [],
-          },
-        ];
+        const restoredEvents = ref.streamEvents ? [...ref.streamEvents] : [];
+        // A resumed session's persisted events come from the backend's 50 000
+        // budget, so they must meet the live card's cap on the way in.
+        capStreamEventsInPlace(restoredEvents);
+        // Same treatment on the way back in as on the live path: a resumed
+        // card was where the old bare `slice` did its permanent damage, since
+        // the persisted record is the last copy of the dropped segments.
+        const restoredSegments = ref.segments
+          ? capSegments([...ref.segments])
+          : [];
+        next = insertAgentSorted(next, {
+          agentId: ref.agentId,
+          cli: ref.cli,
+          task: ref.task,
+          status: ref.status,
+          startedAt: Number.isNaN(ts) ? Date.now() : ts,
+          // Persisted stdout is kept to 100 KB by the backend, twice the live
+          // card's budget. Capping it here rather than on the next delta means
+          // a restored card states its truncation from the moment it appears.
+          stdout: capBuffer(ref.stdout ?? '', MAX_FRONTEND_BUFFER),
+          stderr: '',
+          expanded: false,
+          segments: restoredSegments,
+          streamEvents: restoredEvents,
+          streamRevision: 0,
+          cliSessionId: ref.cliSessionId,
+          parentSessionId,
+          ptahCliId: ref.ptahCliId,
+          permissionQueue: [],
+        });
         existingIds.add(ref.agentId);
       }
       return next;
@@ -1115,6 +1160,21 @@ export class AgentMonitorStore implements OnDestroy {
         return a;
       });
       return changed ? next : list;
+    });
+    // SDK subagent records are stamped from the same stream and so carry the
+    // same placeholder until `init` resolves it. They were never rekeyed, so a
+    // subagent spawned in the first turn stayed owned by the tab id and the
+    // tile's panel — scoped by `claudeSessionId` — never showed it.
+    this._subagents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [key, rec] of map) {
+        if (rec.parentSessionId === tabId) {
+          changed = true;
+          next.set(key, { ...rec, parentSessionId: realSessionId });
+        }
+      }
+      return changed ? next : map;
     });
   }
 
@@ -1201,7 +1261,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
@@ -1233,7 +1293,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
@@ -1265,7 +1325,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
-        agentId: existing?.agentId,
+        agentId: event.agentId ?? existing?.agentId,
         teammateName: existing?.teammateName,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
@@ -1583,8 +1643,23 @@ export class AgentMonitorStore implements OnDestroy {
       });
       return false;
     }
+    // `backgrounded: false` is the SDK saying the toolUseId matched no
+    // FOREGROUND task — the agent already finished, or it is already in the
+    // background. That is a refusal, not a success: clearing the error channel
+    // here made a no-op indistinguishable from a completed switch, and the
+    // button simply did nothing.
+    const backgrounded = result.data?.backgrounded ?? true;
+    if (!backgrounded) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: 'No running foreground task matched this agent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
     this._subagentRpcError.set(null);
-    return result.data?.backgrounded ?? true;
+    return true;
   }
 
   private findParentToolUseIdByTaskId(taskId: string): string | undefined {
@@ -1604,9 +1679,25 @@ export class AgentMonitorStore implements OnDestroy {
   }
 }
 
-function capBuffer(str: string, max: number): string {
-  if (str.length <= max) return str;
-  const excess = str.length - max;
-  const idx = str.indexOf('\n', excess);
-  return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
+/**
+ * Insert an agent so `_agents` stays ordered newest-first by `startedAt`.
+ *
+ * This is what lets {@link AgentMonitorStore.agents} drop its per-delta sort.
+ * The new entry goes AFTER every agent with a `startedAt` greater than or equal
+ * to its own, which reproduces exactly what a stable `sort` of the old
+ * append-then-sort code produced for ties (equal timestamps kept insertion
+ * order) — tests that spawn several agents in the same millisecond depend on
+ * that.
+ */
+function insertAgentSorted(
+  list: readonly MonitoredAgent[],
+  agent: MonitoredAgent,
+): MonitoredAgent[] {
+  let index = 0;
+  while (index < list.length && list[index].startedAt >= agent.startedAt) {
+    index++;
+  }
+  const next = [...list];
+  next.splice(index, 0, agent);
+  return next;
 }

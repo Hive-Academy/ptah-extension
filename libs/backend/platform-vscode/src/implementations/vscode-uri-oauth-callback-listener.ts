@@ -52,10 +52,7 @@ export class VscodeUriOAuthCallbackListener
    * waiter under `expectedState`.
    */
   async start(expectedState: string): Promise<OAuthCallbackHandle> {
-    const base = vscode.Uri.parse(
-      `${vscode.env.uriScheme}://${this.authority}/${CALLBACK_PATH}`,
-    );
-    const redirectUri = (await vscode.env.asExternalUri(base)).toString();
+    const redirectUri = await this.resolveRedirectUri();
 
     let resolveCode: (code: string) => void;
     let rejectCode: (err: Error) => void;
@@ -94,10 +91,31 @@ export class VscodeUriOAuthCallbackListener
     return { redirectUri, waitForCode, close };
   }
 
+  /**
+   * The deep link the next `start()` will advertise, resolved through the same
+   * `asExternalUri` rewrite so a Remote-SSH / Codespaces user is shown the URL
+   * the authorization server will actually be sent. Registers no waiter.
+   */
+  async describeRedirectUri(): Promise<string> {
+    return this.resolveRedirectUri();
+  }
+
   /** Tear down the shared URI handler and abandon any pending waiters. */
   dispose(): void {
     this.registration.dispose();
     this.waiters.clear();
+  }
+
+  /**
+   * Build the `vscode://…/oauth-callback` deep link and resolve it through
+   * `asExternalUri`. The single owner of the redirect URI shape — `start()` and
+   * `describeRedirectUri()` must never be able to disagree about it.
+   */
+  private async resolveRedirectUri(): Promise<string> {
+    const base = vscode.Uri.parse(
+      `${vscode.env.uriScheme}://${this.authority}/${CALLBACK_PATH}`,
+    );
+    return (await vscode.env.asExternalUri(base)).toString();
   }
 
   /**

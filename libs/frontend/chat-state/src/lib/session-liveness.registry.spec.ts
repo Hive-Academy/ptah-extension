@@ -99,6 +99,64 @@ describe('SessionLivenessRegistry', () => {
     });
   });
 
+  describe('rekey() — placeholder tab id folded into the real session id', () => {
+    it('moves status + workspace onto the real id and drops the placeholder', () => {
+      svc.markStreaming('tab-1', '/ws/a');
+      svc.rekey('tab-1', 'real-1');
+      expect(svc.statuses().has('tab-1')).toBe(false);
+      expect(svc.statuses().get('real-1')).toBe('streaming');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(true);
+    });
+
+    it('a terminal mark under the real id clears the workspace dot lit under the placeholder', () => {
+      svc.markStreaming('tab-1', '/ws/a');
+      svc.rekey('tab-1', 'real-1');
+      svc.markIdle('real-1');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(false);
+      expect(svc.status('tab-1')()).toBe('idle');
+    });
+
+    it('a later chunk under the placeholder marks the real entry, not a new one', () => {
+      svc.rekey('tab-1', 'real-1');
+      svc.markStreaming('tab-1', '/ws/a');
+      expect(svc.statuses().has('tab-1')).toBe(false);
+      expect(svc.statuses().get('real-1')).toBe('streaming');
+      svc.markIdle('real-1');
+      expect(svc.liveWorkspaces().size).toBe(0);
+    });
+
+    it('keeps the real id values when both entries already exist', () => {
+      svc.markStreaming('tab-1', '/ws/a');
+      svc.markIdle('real-1', '/ws/b');
+      svc.rekey('tab-1', 'real-1');
+      expect(svc.statuses().get('real-1')).toBe('idle');
+      expect(svc.liveWorkspaces().size).toBe(0);
+    });
+
+    it('clear() under either id removes the entry and the alias', () => {
+      svc.markStreaming('tab-1', '/ws/a');
+      svc.rekey('tab-1', 'real-1');
+      svc.clear('tab-1');
+      expect(svc.statuses().size).toBe(0);
+      svc.markStreaming('tab-1');
+      expect(svc.statuses().get('tab-1')).toBe('streaming');
+      expect(svc.statuses().has('real-1')).toBe(false);
+    });
+
+    it('is a no-op for a self-alias, an empty id, or a repeat', () => {
+      svc.markStreaming('tab-1', '/ws/a');
+      const before = svc.statuses();
+      svc.rekey('tab-1', 'tab-1');
+      svc.rekey('', 'real-1');
+      svc.rekey('tab-1', '');
+      expect(svc.statuses()).toBe(before);
+      svc.rekey('tab-1', 'real-1');
+      const after = svc.statuses();
+      svc.rekey('tab-1', 'real-1');
+      expect(svc.statuses()).toBe(after);
+    });
+  });
+
   describe('liveWorkspaces()', () => {
     it('records workspacePath on mark and reports a streaming workspace', () => {
       svc.markStreaming('s1', '/ws/a');

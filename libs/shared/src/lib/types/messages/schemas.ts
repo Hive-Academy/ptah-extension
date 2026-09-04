@@ -222,3 +222,37 @@ export const StrictChatSessionSchema = z
     totalTokensOutput: z.number().nonnegative().optional(),
   })
   .strict();
+
+/**
+ * Backend boundary schema for the `session:mcpStatus` payload
+ * (TASK_2026_375 B4.1).
+ *
+ * `status` stays a bare non-empty string: the value set belongs to the CLI, not
+ * to Ptah, and rejecting an unseen status would hide the whole server list. The
+ * named values live in `SessionMcpServerStatus`.
+ *
+ * The webview does NOT use this schema — it parses with
+ * `parseSessionMcpStatusPayload`, because the Zod runtime is deliberately kept
+ * out of the initial bundle (TASK_2026_187 Unit 10).
+ */
+export const SessionMcpStatusPayloadSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    servers: z.array(
+      z
+        .object({
+          name: z.string().min(1),
+          status: z.string().min(1),
+        })
+        .strict(),
+    ),
+    notices: z.array(
+      z
+        .object({
+          code: z.literal('claude-ai-connectors-disabled'),
+          message: z.string().min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();

@@ -10,6 +10,10 @@
 
 import * as os from 'os';
 import { join } from 'path';
+import {
+  USER_LAYER_AGENTS_DIR_NAME,
+  userLayerAgentDirName,
+} from '@ptah-extension/shared';
 import type {
   HarnessSourceLayout,
   HarnessSourceState,
@@ -25,10 +29,22 @@ import { McpIntentStore, type HarnessMcpIntent } from './mcp-intent-store';
  * the original defect: harness skills were absent from the desired state and
  * every one of their copies looked stale.
  */
+/**
+ * Every method takes the same optional `workspaceRoot`: the root the reconciler
+ * is building a desired state FOR, which is not always the folder the host has
+ * active (TASK_2026_346). A reader wired to a single-workspace host has one
+ * answer and may ignore the argument; a reader over a multi-root host must
+ * answer for the root it was given, or the two folders overwrite each other's
+ * harness on every switch.
+ *
+ * Optional, not required, so a reader assembled by hand — every spec, and the
+ * `plugin-gate` suite's `readerFactory` — stays assignable with zero-argument
+ * methods.
+ */
 export interface HarnessPluginConfigReader {
-  resolveCurrentPluginPaths(): string[];
-  getDisabledSkillIds(): string[];
-  getWorkspacePluginConfig(): {
+  resolveCurrentPluginPaths(workspaceRoot?: string): string[];
+  getDisabledSkillIds(workspaceRoot?: string): string[];
+  getWorkspacePluginConfig(workspaceRoot?: string): {
     disabledPluginIds?: string[];
     disabledAgentIds?: string[];
   };
@@ -42,6 +58,10 @@ export interface HarnessPluginConfigReader {
  * from `overlayPluginPaths`), and `~/.ptah/skills` covers the synthesized-skill
  * root the earliest `SkillJunctionService` linked directly. Both are needed for
  * `ClaudeTarget` to recognise its own leftovers; see `HarnessSourceLayout`.
+ *
+ * `agentsRoot` here is the BASE — the directory that holds one subdirectory per
+ * workspace. {@link scopeAgentsRoot} turns it into the root a pass reads, and
+ * `PluginConfigSourceResolver.resolve` is the one caller that does so.
  */
 export function defaultHarnessSourceLayout(
   homeDir: string = os.homedir(),
@@ -51,8 +71,28 @@ export function defaultHarnessSourceLayout(
   return {
     skillsRoot: join(userRoot, 'skills'),
     commandsRoot: join(userRoot, 'commands'),
-    agentsRoot: join(userRoot, 'agents'),
+    agentsRoot: join(userRoot, USER_LAYER_AGENTS_DIR_NAME),
     legacyLinkRoots: [join(ptahRoot, 'plugins'), join(ptahRoot, 'skills')],
+  };
+}
+
+/**
+ * Point a layout's `agentsRoot` at ONE workspace's clones.
+ *
+ * With no root the base is returned unchanged. No path that builds a desired
+ * state reaches that case — `HarnessReconcilerService` resolves the root at its
+ * entry point and passes it from `reconcile` (both modes) and from `verify` —
+ * and the base holds only subdirectories, so a pass that somehow read it would
+ * see no agents rather than another workspace's.
+ */
+export function scopeAgentsRoot(
+  layout: HarnessSourceLayout,
+  workspaceRoot: string | undefined,
+): HarnessSourceLayout {
+  if (workspaceRoot === undefined) return layout;
+  return {
+    ...layout,
+    agentsRoot: join(layout.agentsRoot, userLayerAgentDirName(workspaceRoot)),
   };
 }
 
@@ -78,10 +118,35 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     private readonly mcpIntents: McpIntentStore = new McpIntentStore(),
   ) {}
 
-  resolve(): HarnessSourceState {
+  /**
+   * @param workspaceRoot Forwarded VERBATIM to all three reader calls, so the
+   *   answer describes the root being reconciled rather than the folder the
+   *   host has active. The three go together on purpose: a config read for
+   *   root A beside an overlay resolved for root B is a state no workspace ever
+   *   had, and the builder cannot tell the halves apart.
+   *
+   *   Nothing is inferred here when it is absent. Answering an unscoped reader
+   *   with an EMPTY state was considered and rejected — an empty overlay drops
+   *   every overlay-only skill (skills.sh roots, workspace-scoped
+   *   `ptah-harness-*`) out of the desired state, and skills are
+   *   manifest-owned, so the "safe" fallback would REAP them. Forwarding a root
+   *   a reader ignores leaves that reader exactly as it was, which is the only
+   *   fallback here that removes nothing.
+   */
+  resolve(workspaceRoot?: string): HarnessSourceState {
     const mcpIntents = this.readMcpIntents();
+    // Scoped once, here, so the read-failure path below and the success path
+    // cannot describe two different agent directories. The scope is a pure
+    // function of the root and reads nothing, so it cannot itself fail.
+    const layout = scopeAgentsRoot(this.layout, workspaceRoot);
+    // Every `return empty` below is a READ FAILURE, not an observation that the
+    // user has nothing enabled. It therefore deliberately omits
+    // `overlayPluginPathsKnown`, which is what tells the manifest builder to
+    // filter nothing: an empty overlay presented as authoritative would assert
+    // "every plugin is disabled here" and reap every skill copy in the
+    // workspace. Adding the flag to this literal is the whole failure mode.
     const empty: HarnessSourceState = {
-      layout: this.layout,
+      layout,
       mcpIntents,
       overlayPluginPaths: [],
       disabledSkillIds: [],
@@ -101,12 +166,15 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       // One read, two fields. Two calls would let a loader that recomputes
       // between them hand the builder a plugin denylist and an agent denylist
       // from different snapshots of the same config.
-      const config = reader.getWorkspacePluginConfig();
+      const config = reader.getWorkspacePluginConfig(workspaceRoot);
       return {
-        layout: this.layout,
+        layout,
         mcpIntents,
-        overlayPluginPaths: reader.resolveCurrentPluginPaths(),
-        disabledSkillIds: reader.getDisabledSkillIds(),
+        overlayPluginPaths: reader.resolveCurrentPluginPaths(workspaceRoot),
+        // The one path that actually asked the plugin loader and got an answer,
+        // so the one path entitled to say the overlay is authoritative.
+        overlayPluginPathsKnown: true,
+        disabledSkillIds: reader.getDisabledSkillIds(workspaceRoot),
         disabledPluginIds: config.disabledPluginIds ?? [],
         disabledAgentIds: config.disabledAgentIds ?? [],
       };

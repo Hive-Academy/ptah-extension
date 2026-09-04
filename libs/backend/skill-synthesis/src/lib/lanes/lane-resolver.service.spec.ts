@@ -19,8 +19,15 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { JUDGE_DEFAULT_MODEL_ID } from '../types';
-import { LANE_AUTH_RETRY_MS, SKILL_LANE_IDS } from './lane.types';
-import { PROVIDER_AUTH_ERROR_NAME } from './lane-auth-resolver.port';
+import {
+  LANE_AUTH_RETRY_MS,
+  LANE_QUOTA_RETRY_MS,
+  SKILL_LANE_IDS,
+} from './lane.types';
+import {
+  PROVIDER_AUTH_ERROR_NAME,
+  PROVIDER_QUOTA_ERROR_NAME,
+} from './lane-auth-resolver.port';
 import { SKILL_LANE_DEFAULTS, SKILL_LANE_KEYS } from './skill-lane-config';
 import { LaneResolverService, resolveLaneModel } from './lane-resolver.service';
 
@@ -48,6 +55,21 @@ function makeWorkspace(
 function providerAuthError(message: string): Error {
   const err = new Error(message);
   err.name = PROVIDER_AUTH_ERROR_NAME;
+  return err;
+}
+
+/**
+ * The shape `ProviderAuthResolver` throws for a cooling-down provider. Built
+ * structurally rather than imported: this library keeps zero direct SDK imports
+ * and matches on `name`, so the spec must exercise the same channel the
+ * production code reads.
+ */
+function providerQuotaError(
+  message: string,
+  extra: { retryAfterMs?: number; providerId?: string } = {},
+): Error {
+  const err = Object.assign(new Error(message), extra);
+  err.name = PROVIDER_QUOTA_ERROR_NAME;
   return err;
 }
 
@@ -271,6 +293,131 @@ describe('LaneResolverService.resolve — auth-unresolvable stalls (Q2)', () => 
       { resolve: jest.fn().mockRejectedValue(bug) },
     );
     await expect(svc.resolve('judge')).rejects.toThrow(bug);
+  });
+});
+
+/**
+ * The quota twin of the block above (TASK_2026_306 defect B).
+ *
+ * Same seam, different fault. The three things that must NOT be inherited from
+ * the auth branch: the kind is `quota-exhausted` and not `timeout`, the backoff
+ * comes off the ERROR so an honoured `retry-after` survives, and the reason
+ * must never say "timed out" — that misclassification is the defect.
+ */
+describe('LaneResolverService.resolve — quota-exhausted stalls', () => {
+  it('returns a quota failure instead of falling back to the active provider', async () => {
+    const resolve = jest.fn().mockRejectedValue(
+      providerQuotaError(
+        'Provider quota exhausted; retrying in about 15 min.',
+        {
+          retryAfterMs: LANE_QUOTA_RETRY_MS,
+          providerId: 'resolved-id',
+        },
+      ),
+    );
+    const ws = makeWorkspace({
+      [SKILL_LANE_KEYS.archaeologist.provider]: 'configured-id',
+    });
+
+    const out = await new LaneResolverService(logger, ws, {
+      resolve,
+    }).resolve('archaeologist');
+
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.failure.kind).toBe('quota-exhausted');
+    expect(out.failure.kind).not.toBe('timeout');
+    expect(out.failure.reason).toBe(
+      'Lane archaeologist: Provider quota exhausted; retrying in about 15 min.',
+    );
+    expect(out.failure.reason).not.toMatch(/timed out/i);
+    expect(out.failure.retryAfterMs).toBe(LANE_QUOTA_RETRY_MS);
+  });
+
+  it('gates an INHERITING lane, which is the captured scenario', async () => {
+    // `provider: ''` is every lane's default. The resolver resolves `''` to the
+    // ACTIVE provider and throws when that one is cooling down, so the lane
+    // never learns a provider id — which is why the failure must not depend on
+    // `config.provider` being non-empty.
+    const resolve = jest.fn().mockRejectedValue(
+      providerQuotaError(
+        'Provider quota exhausted; retrying in about 15 min.',
+        {
+          retryAfterMs: LANE_QUOTA_RETRY_MS,
+          providerId: 'the-active-one',
+        },
+      ),
+    );
+
+    const out = await new LaneResolverService(logger, makeWorkspace(), {
+      resolve,
+    }).resolve('synthesis');
+
+    expect(resolve).toHaveBeenCalledWith('', 'lane');
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.failure.kind).toBe('quota-exhausted');
+    // The log takes the RESOLVED id off the error, because `config.provider` is
+    // `''` here and would be useless to debug against.
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('rate-limited'),
+      expect.objectContaining({ providerId: 'the-active-one' }),
+    );
+  });
+
+  it('prefers the retry-after the error carries over the constant', async () => {
+    const resolve = jest
+      .fn()
+      .mockRejectedValue(
+        providerQuotaError('Provider quota exhausted.', {
+          retryAfterMs: 90_000,
+        }),
+      );
+
+    const out = await new LaneResolverService(logger, makeWorkspace(), {
+      resolve,
+    }).resolve('judge');
+
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.failure.retryAfterMs).toBe(90_000);
+    expect(out.failure.retryAfterMs).not.toBe(LANE_QUOTA_RETRY_MS);
+  });
+
+  it('falls back to the 15-minute constant when the error carries no usable delay', async () => {
+    // Every rate-limit line in the captured run was bare, so this is the normal
+    // case rather than the edge.
+    const out = await new LaneResolverService(logger, makeWorkspace(), {
+      resolve: jest.fn().mockRejectedValue(providerQuotaError('no header')),
+    }).resolve('judge');
+
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.failure.retryAfterMs).toBe(LANE_QUOTA_RETRY_MS);
+  });
+
+  it('backs off for 15 minutes by default — deliberately shorter than the auth stall', () => {
+    // Quota refills on a clock; a misconfigured provider does not.
+    expect(LANE_QUOTA_RETRY_MS).toBe(15 * 60_000);
+    expect(LANE_QUOTA_RETRY_MS).toBeLessThan(LANE_AUTH_RETRY_MS);
+  });
+
+  it('carries no auth on the quota path — there is nothing to ride', async () => {
+    const out = await new LaneResolverService(logger, makeWorkspace(), {
+      resolve: jest.fn().mockRejectedValue(providerQuotaError('cooling down')),
+    }).resolve('judge');
+    expect(out).not.toHaveProperty('lane');
+  });
+
+  it('still rethrows an error that is neither name', async () => {
+    // The rethrow guard is load-bearing and must survive gaining a second
+    // recognised name.
+    const bug = new RangeError('index out of bounds');
+    await expect(
+      new LaneResolverService(logger, makeWorkspace(), {
+        resolve: jest.fn().mockRejectedValue(bug),
+      }).resolve('judge'),
+    ).rejects.toThrow(bug);
   });
 });
 

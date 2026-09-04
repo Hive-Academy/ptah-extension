@@ -491,3 +491,146 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Watchdog hold per registered subagent (TASK_2026_363)
+// ---------------------------------------------------------------------------
+//
+// The SDK forwards subagent activity to the parent stream only as COMPLETE
+// messages, so a subagent composing one long message is silent on the parent
+// stream for its whole generation and the watchdog aborted the session 180 s
+// after the subagent's last transcript record. The hooks hold the watchdog
+// from SubagentStart to SubagentStop, keyed by agent_id, so a stop for an
+// unknown id never drops the session's idle hold.
+
+describe('SubagentHookHandler — watchdog hold per registered subagent (TASK_2026_363)', () => {
+  type HookFn = (
+    input: HookInput,
+    toolUseId: string | undefined,
+    options: { signal: AbortSignal },
+  ) => Promise<HookJSONOutput>;
+
+  function makeHold(): { hold: jest.Mock; release: jest.Mock } {
+    return { hold: jest.fn(), release: jest.fn() };
+  }
+
+  /** Both callbacks from ONE createHooks call, so they share the held set. */
+  function makeHookPair(activityHold?: {
+    hold: jest.Mock;
+    release: jest.Mock;
+  }): {
+    start: HookFn;
+    stop: HookFn;
+  } {
+    const logger = makeLogger();
+    const handler = new SubagentHookHandler(
+      logger,
+      makeRegistry(null),
+      new SubagentStopCallbackRegistry(logger),
+    );
+    const hooks = handler.createHooks(
+      '/workspace',
+      'parent-sess',
+      activityHold,
+    );
+    const start = hooks.SubagentStart?.[0]?.hooks?.[0];
+    const stop = hooks.SubagentStop?.[0]?.hooks?.[0];
+    expect(typeof start).toBe('function');
+    expect(typeof stop).toBe('function');
+    return { start: start as HookFn, stop: stop as HookFn };
+  }
+
+  function stopInput(over: Record<string, unknown> = {}): HookInput {
+    return {
+      hook_event_name: 'SubagentStop',
+      session_id: 'parent-sess',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      stop_hook_active: false,
+      ...over,
+    } as unknown as HookInput;
+  }
+
+  const opts = { signal: new AbortController().signal };
+
+  it('SubagentStart holds the watchdog', async () => {
+    const hold = makeHold();
+    const { start } = makeHookPair(hold);
+
+    await start(startInput(), 'tu-1', opts);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+    expect(hold.release).not.toHaveBeenCalled();
+  });
+
+  it('SubagentStop releases the hold taken by the matching SubagentStart', async () => {
+    const hold = makeHold();
+    const { start, stop } = makeHookPair(hold);
+
+    await start(startInput(), 'tu-1', opts);
+    await stop(stopInput(), 'tu-1', opts);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+    expect(hold.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('SubagentStop without a matching SubagentStart does NOT release (would drop the idle hold)', async () => {
+    const hold = makeHold();
+    const { stop } = makeHookPair(hold);
+
+    await stop(stopInput({ agent_id: 'agent-never-started' }), 'tu-9', opts);
+
+    expect(hold.release).not.toHaveBeenCalled();
+    expect(hold.hold).not.toHaveBeenCalled();
+  });
+
+  it('a second SubagentStop for the same agent_id releases only once', async () => {
+    const hold = makeHold();
+    const { start, stop } = makeHookPair(hold);
+
+    await start(startInput(), 'tu-1', opts);
+    await stop(stopInput(), 'tu-1', opts);
+    await stop(stopInput(), 'tu-1', opts);
+
+    expect(hold.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate SubagentStart for the same agent_id holds once', async () => {
+    const hold = makeHold();
+    const { start } = makeHookPair(hold);
+
+    await start(startInput(), 'tu-1', opts);
+    await start(startInput(), 'tu-1', opts);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds even when the registry registration is dropped (no toolUseId)', async () => {
+    const hold = makeHold();
+    const { start } = makeHookPair(hold);
+
+    await start(startInput(), undefined, opts);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+  });
+
+  it('an empty agent_id takes no hold', async () => {
+    const hold = makeHold();
+    const { start } = makeHookPair(hold);
+
+    await start(startInput({ agent_id: '' }), 'tu-1', opts);
+
+    expect(hold.hold).not.toHaveBeenCalled();
+  });
+
+  it('no activityHold passed → hooks still run, return continue:true and do not throw', async () => {
+    const { start, stop } = makeHookPair(undefined);
+
+    await expect(start(startInput(), 'tu-1', opts)).resolves.toEqual({
+      continue: true,
+    });
+    await expect(stop(stopInput(), 'tu-1', opts)).resolves.toEqual({
+      continue: true,
+    });
+  });
+});

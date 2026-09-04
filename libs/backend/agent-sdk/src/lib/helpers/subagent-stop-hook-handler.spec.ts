@@ -4,6 +4,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
+import { SessionTurnStateRegistry } from './session-turn-state.registry';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -71,6 +72,36 @@ describe('SubagentStopHookHandler', () => {
         ]),
       }),
     );
+  });
+
+  it('forwards the SDK toolUseID as toolCallId, and omits it when absent or blank', async () => {
+    const logger = makeLogger();
+    const events = new SdkAdapterEvents(logger);
+    const captured: Array<{ toolCallId?: string }> = [];
+    events.onSubagentEnded((event) => {
+      captured.push(event);
+    });
+    const handler = new SubagentStopHookHandler(logger, events);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    const input = {
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-abc',
+      agent_type: 'subagent',
+    } as unknown as HookInput;
+    const options = { signal: new AbortController().signal };
+
+    await fn(input, 'toolu_abc', options);
+    await fn(input, undefined, options);
+    await fn(input, '', options);
+
+    expect(captured).toHaveLength(3);
+    // This is the ONLY carrier of the agentId <-> toolCallId pairing at
+    // SubagentStop: the SubagentHookHandler twin on the same hook has already
+    // deleted the registry record by marking the agent completed.
+    expect(captured[0].toolCallId).toBe('toolu_abc');
+    expect('toolCallId' in captured[1]).toBe(false);
+    expect('toolCallId' in captured[2]).toBe(false);
   });
 
   it('null fallback: lastAssistantMessage defaults to null when SDK omits', async () => {
@@ -329,5 +360,76 @@ describe('SubagentStopHookHandler', () => {
     });
 
     expect(result).toEqual({ continue: true });
+  });
+});
+
+describe('SubagentStopHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', () => {
+  const T1 = {
+    id: 't1',
+    type: 'subagent',
+    status: 'running',
+    description: 'a',
+  };
+  const T2 = {
+    id: 't2',
+    type: 'subagent',
+    status: 'running',
+    description: 'b',
+  };
+
+  function settledAwaiting(turnState: SessionTurnStateRegistry): void {
+    turnState.markGenerating('sess-1');
+    turnState.recordStop('sess-1', {
+      backgroundTasks: [T1, T2],
+      sessionCrons: [],
+      terminalReason: 'completed',
+    });
+    turnState.settleTurn('sess-1');
+  }
+
+  async function fire(
+    handler: SubagentStopHookHandler,
+    backgroundTasks: unknown[],
+  ): Promise<void> {
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+    await fn(
+      {
+        hook_event_name: 'SubagentStop',
+        session_id: 'sess-1',
+        cwd: '/workspace',
+        agent_id: 'agent-abc',
+        agent_type: 'subagent',
+        background_tasks: backgroundTasks,
+      } as unknown as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+  }
+
+  it('replaces the remaining background tasks while awaiting-background', async () => {
+    const logger = makeLogger();
+    const turnState = new SessionTurnStateRegistry();
+    settledAwaiting(turnState);
+    const handler = new SubagentStopHookHandler(logger, undefined, turnState);
+
+    await fire(handler, [T2]);
+    expect(turnState.get('sess-1')).toMatchObject({
+      phase: 'awaiting-background',
+      backgroundTasks: [T2],
+    });
+
+    await fire(handler, []);
+    expect(turnState.get('sess-1')?.phase).toBe('idle');
+  });
+
+  it('never touches a generating turn (a foreground subagent finishing mid-turn)', async () => {
+    const logger = makeLogger();
+    const turnState = new SessionTurnStateRegistry();
+    const generating = turnState.markGenerating('sess-1');
+    const handler = new SubagentStopHookHandler(logger, undefined, turnState);
+
+    await fire(handler, []);
+
+    expect(turnState.get('sess-1')).toBe(generating);
   });
 });

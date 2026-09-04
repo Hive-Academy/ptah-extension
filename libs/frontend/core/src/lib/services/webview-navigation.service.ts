@@ -43,7 +43,24 @@ export class WebviewNavigationService {
   readonly navigationState = this._navigationState.asReadonly();
   readonly navigationHistory = this._navigationHistory.asReadonly();
   readonly navigationErrors = this._navigationErrors.asReadonly();
-  readonly currentView = computed(() => this._navigationState().currentView);
+  /**
+   * The live view, read from `AppStateManager` — the one place that actually
+   * decides what `AppShellComponent` renders.
+   *
+   * This used to read a private mirror inside `_navigationState`, updated only
+   * by this service's own `navigateToView`. Everything that sets the view
+   * directly — every tab in the Electron navbar, the `switchView` message from
+   * the extension host — left the mirror stale, and `navigateToView` short
+   * circuits when the target equals `currentView()`. So after visiting the
+   * harness builder once and returning via the navbar's "Setup" tab, the
+   * mirror still said `harness-builder` and "Resume New Project" became a
+   * button that reported success and navigated nowhere (TASK_2026_317).
+   *
+   * `_navigationState.currentView` is still written for the `previousView` /
+   * timing bookkeeping `navigationState` exposes; it is simply no longer
+   * consulted to decide where we are.
+   */
+  readonly currentView = computed(() => this.appState.currentView());
   readonly previousView = computed(() => this._navigationState().previousView);
   readonly isNavigating = computed(() => this._navigationState().isNavigating);
   readonly canNavigate = computed(
@@ -99,10 +116,13 @@ export class WebviewNavigationService {
   }
 
   private updateNavigationState(view: ViewType): void {
-    const currentState = this._navigationState();
+    // `previousView` is where we ACTUALLY were, which is app state — not this
+    // service's own last hop. Reading the mirror here made `navigateBack()`
+    // return to a view the user had already left by another route.
+    const departingView = this.currentView();
     this._navigationState.set({
       currentView: view,
-      previousView: currentState.currentView,
+      previousView: departingView,
       navigationMethod: 'signal',
       lastNavigationTime: Date.now(),
       isNavigating: false,

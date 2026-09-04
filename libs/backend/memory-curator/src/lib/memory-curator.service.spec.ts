@@ -12,6 +12,9 @@ import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryStore } from './memory.store';
 import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
+import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
+import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
+import { CURATOR_QUEUE_WAIT_CEILING_MS } from './curator-llm/curator-job-queue';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 
 interface RecordingTracer extends ITracer {
@@ -43,7 +46,10 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
+function buildService(opts?: {
+  llm?: ICuratorLLM;
+  logger?: Logger;
+}): MemoryCuratorService {
   const registry = {
     register: jest.fn(() => () => {
       /* noop */
@@ -65,11 +71,11 @@ function buildService(opts?: { llm?: ICuratorLLM }): MemoryCuratorService {
   const llm =
     opts?.llm ??
     ({
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM);
   return new MemoryCuratorService(
-    makeLogger(),
+    opts?.logger ?? makeLogger(),
     registry,
     store,
     scorer,
@@ -119,6 +125,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     const info = svc.lastRunInfo();
     expect(info.at).not.toBeNull();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -190,10 +197,10 @@ describe('MemoryCuratorService — event ring buffer', () => {
 
 describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', () => {
   it('concurrent curate calls for the same (workspaceRoot, sessionId) share a single llm.extract invocation', async () => {
-    const resolvers: ((value: unknown[]) => void)[] = [];
+    const resolvers: ((value: unknown) => void)[] = [];
     const extract = jest.fn(
       () =>
-        new Promise<unknown[]>((resolve) => {
+        new Promise<unknown>((resolve) => {
           resolvers.push(resolve);
         }),
     );
@@ -212,14 +219,23 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       workspaceRoot: '/ws',
       transcript: 't',
     });
+    // One tick: a pass is admitted by `CuratorJobQueue` (TASK_2026_376 F4), so
+    // it starts on the next microtask rather than inside the `curate` call.
+    // What is pinned here is unchanged — two concurrent calls, ONE extract.
+    await Promise.resolve();
     expect(extract).toHaveBeenCalledTimes(1);
-    resolvers[0]([]);
+    resolvers[0]({ status: 'extracted', drafts: [] });
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
   });
 
-  it('different sessions run in parallel', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+  // Renamed for accuracy in TASK_2026_376 F4: two sessions are now QUEUED
+  // rather than run at once. The property this pins is the one it always
+  // pinned — distinct sessions are not coalesced into one extract.
+  it('different sessions each get their own extract', async () => {
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -233,7 +249,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
   });
 
   it('in-flight map clears after run completes so a follow-up call runs fresh', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -247,7 +265,9 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
 
 describe('MemoryCuratorService — placeholder skip event', () => {
   it('curate() with empty transcript pushes curator-skipped-no-data and bypasses llm.extract', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const resolve = jest.fn().mockResolvedValue([]);
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const registry = {
@@ -273,7 +293,13 @@ describe('MemoryCuratorService — placeholder skip event', () => {
       llm,
     );
     const stats = await svc.curate({ sessionId: 'sess-skip' });
-    expect(stats).toEqual({ extracted: 0, merged: 0, created: 0, skipped: 0 });
+    expect(stats).toEqual({
+      outcome: 'ran',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
     expect(extract).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
     const events = svc.recentEvents(5);
@@ -283,7 +309,9 @@ describe('MemoryCuratorService — placeholder skip event', () => {
   });
 
   it('curate() with whitespace-only transcript still skips (treated as placeholder)', async () => {
-    const extract = jest.fn().mockResolvedValue([]);
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const llm = {
       extract,
       resolve: jest.fn().mockResolvedValue([]),
@@ -327,7 +355,10 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
         'libs/backend/agent-sdk/src/lib/curator-llm-adapter/index.ts',
       ] as const,
     };
-    const extract = jest.fn().mockResolvedValue([populatedDraft]);
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [populatedDraft],
+    });
     const resolve = jest
       .fn()
       .mockResolvedValue([{ ...populatedDraft, mergeTargetId: null }]);
@@ -403,7 +434,9 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
       files: [] as const,
     };
     const llm = {
-      extract: jest.fn().mockResolvedValue([draft]),
+      extract: jest
+        .fn()
+        .mockResolvedValue({ status: 'extracted', drafts: [draft] }),
       resolve: jest.fn().mockResolvedValue([{ ...draft, mergeTargetId: null }]),
     } as unknown as ICuratorLLM;
     const registry = {
@@ -555,6 +588,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -567,6 +601,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(typeof evt?.error).toBe('string');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -600,7 +635,12 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
       concepts: ['x'] as const,
       files: [] as const,
     };
-    const extract = jest.fn().mockResolvedValue([draft, { ...draft }]);
+    // Two DISTINCT drafts: the windowed extractor unions on
+    // `(subject, content)`, so two identical drafts would arrive as one.
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [draft, { ...draft, content: 'c2' }],
+    });
     const resolve = jest.fn().mockRejectedValue(new Error('transport down'));
     const llm = { extract, resolve } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
@@ -611,6 +651,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -626,6 +667,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(evt?.error).toContain('transport down');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -655,7 +697,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       read: jest.fn().mockResolvedValue(''),
     } as unknown as ITranscriptReader;
     const llm = {
-      extract: jest.fn().mockResolvedValue([]),
+      extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM;
     const svc = new MemoryCuratorService(
@@ -680,6 +722,7 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
       transcript: 'real transcript content',
     });
     expect(stats).toEqual({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -718,7 +761,7 @@ describe('MemoryCuratorService — in-flight coalescing (TASK_2026_295)', () => 
       extract: jest.fn(async (transcript: string) => {
         transcripts.push(transcript);
         await gate;
-        return [];
+        return { status: 'extracted', drafts: [] };
       }),
       resolve: jest.fn(async () => []),
     } as unknown as ICuratorLLM;
@@ -828,7 +871,7 @@ describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
       extract: jest.fn(async (transcript: string) => {
         transcripts.push(transcript);
         await gate;
-        return [];
+        return { status: 'extracted', drafts: [] };
       }),
       resolve: jest.fn(async () => []),
     } as unknown as ICuratorLLM;
@@ -1004,5 +1047,774 @@ describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
     expect(transcripts).toEqual(['ws-a run', 'ws-b run', 'other session run']);
     expect(cA).toEqual(statsA);
     expect(cB).toEqual(statsB);
+  });
+});
+
+/**
+ * TASK_2026_352 — the prompt cap lives at the pipeline's chokepoint.
+ *
+ * The fault it closes was a CALL SITE that forgot: the memory boot scan read a
+ * whole session with no `tailBytes` and skipped `composeTranscript`, the only
+ * clamp on the live path, producing a 170 655-character prompt
+ * (`tmp/logs/log.log:1017`). A cap on any one caller would have left the next
+ * one free to repeat it, so these tests assert on what the LLM RECEIVES.
+ */
+describe('MemoryCuratorService — the chunked curation budget (TASK_2026_367)', () => {
+  function makeLlmSpy(drafts: readonly unknown[] = []): {
+    llm: ICuratorLLM;
+    extract: jest.Mock;
+    resolve: jest.Mock;
+  } {
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts });
+    const resolve = jest.fn().mockResolvedValue([]);
+    return {
+      extract,
+      resolve,
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    };
+  }
+
+  /** A transcript of `records` blocks of `size` characters each. */
+  function transcriptOf(records: number, size: number): string {
+    return Array.from(
+      { length: records },
+      (_, i) => `USER: turn ${i} ${'x'.repeat(size)}`,
+    ).join('\n\n');
+  }
+
+  it('a transcript under the cap costs exactly one extract and one resolve', async () => {
+    const draft = {
+      kind: 'fact' as const,
+      subject: 's',
+      content: 'c',
+      salienceHint: 0.5,
+    };
+    const spy = makeLlmSpy([draft]);
+    const svc = buildService({ llm: spy.llm });
+
+    await svc.curate({
+      sessionId: 's1',
+      transcript: 'USER: hello\n\nASSISTANT: hi',
+    });
+
+    expect(spy.extract).toHaveBeenCalledTimes(1);
+    expect(spy.resolve).toHaveBeenCalledTimes(1);
+    expect(spy.extract.mock.calls[0][0]).toBe('USER: hello\n\nASSISTANT: hi');
+  });
+
+  it('never hands extract() more than one window, on any call', async () => {
+    const spy = makeLlmSpy();
+    const svc = buildService({ llm: spy.llm });
+    const transcript = transcriptOf(268, 640);
+
+    expect(transcript.length).toBeGreaterThan(170_000);
+
+    await svc.curate({ sessionId: 's1', transcript });
+
+    expect(spy.extract.mock.calls.length).toBeGreaterThan(1);
+    for (const call of spy.extract.mock.calls) {
+      expect((call[0] as string).length).toBeLessThanOrEqual(
+        CURATOR_TRANSCRIPT_MAX_CHARS,
+      );
+    }
+  });
+
+  it('a 400 KB transcript costs at most 8 extracts and exactly one resolve, and the resolve receives every window union', async () => {
+    let window = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      window++;
+      return Promise.resolve({
+        status: 'extracted',
+        drafts: [
+          {
+            kind: 'fact',
+            subject: `s${window}`,
+            content: 'c',
+            salienceHint: 1,
+          },
+          // Repeated verbatim by every window — the union must keep one.
+          { kind: 'fact', subject: 'shared', content: 'same', salienceHint: 1 },
+        ],
+      });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-400k',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(extract.mock.calls.length).toBeGreaterThan(1);
+    expect(extract.mock.calls.length).toBeLessThanOrEqual(CURATOR_MAX_WINDOWS);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const sent = resolve.mock.calls[0][0] as { subject: string }[];
+    expect(sent).toHaveLength(extract.mock.calls.length + 1);
+    expect(sent.filter((d) => d.subject === 'shared')).toHaveLength(1);
+  });
+
+  it('an extract rejection on window 3 records a curator error and issues no resolve', async () => {
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 3) return Promise.reject(new Error('window 3 exploded'));
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    const stats = await svc.curate({
+      sessionId: 's-boom',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(extract).toHaveBeenCalledTimes(3);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(stats.extracted).toBe(0);
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toContain('memory extraction failed');
+    expect(evt?.error).toContain('window 3 exploded');
+  });
+
+  it('an abort signalled after window 2 stops the loop', async () => {
+    const controller = new AbortController();
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 2) controller.abort();
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-abort',
+      transcript: transcriptOf(400, 1_000),
+      signal: controller.signal,
+    });
+
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(resolve).not.toHaveBeenCalled();
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toContain('aborted after 2');
+  });
+
+  it('a stalled window stops the loop and takes the stall path', async () => {
+    let call = 0;
+    const extract = jest.fn().mockImplementation(() => {
+      call++;
+      if (call === 2) {
+        return Promise.resolve({
+          status: 'stalled',
+          reason: 'provider-cooling-down',
+          providerId: 'p1',
+        });
+      }
+      return Promise.resolve({ status: 'extracted', drafts: [] });
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const svc = buildService({
+      llm: { extract, resolve } as unknown as ICuratorLLM,
+    });
+
+    const stats = await svc.curate({
+      sessionId: 's-stall',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('warns only when a transcript exceeds even the chunked budget', async () => {
+    const spy = makeLlmSpy();
+    const logger = makeLogger() as unknown as { warn: jest.Mock };
+    const svc = buildService({ llm: spy.llm, logger: logger as never });
+
+    await svc.curate({
+      sessionId: 's-loud',
+      transcript: transcriptOf(400, 1_000),
+    });
+
+    const call = logger.warn.mock.calls.find((c) =>
+      String(c[0]).includes('exceeded the chunked curation budget'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toMatchObject({
+      sessionId: 's-loud',
+      cap: CURATOR_TRANSCRIPT_MAX_CHARS * CURATOR_MAX_WINDOWS,
+    });
+    expect(
+      (call?.[1] as { droppedChars: number }).droppedChars,
+    ).toBeGreaterThan(130_000);
+  });
+
+  it('says nothing when the whole transcript fit', async () => {
+    const spy = makeLlmSpy();
+    const logger = makeLogger() as unknown as { warn: jest.Mock };
+    const svc = buildService({ llm: spy.llm, logger: logger as never });
+
+    await svc.curate({ sessionId: 's-quiet', transcript: 'USER: short' });
+
+    expect(
+      logger.warn.mock.calls.filter((c) =>
+        String(c[0]).includes('exceeded the chunked curation budget'),
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+/**
+ * TASK_2026_374 defect 1 — a MANUAL `/compact` plans ONE window.
+ *
+ * Measured before the fix: a 372-event session split into eight windows spent
+ * sequentially at 24-37 s each, roughly four minutes of background provider
+ * work on the same account and quota as the compaction the user was waiting
+ * for. Automatic threshold compaction keeps the full budget — nobody is waiting
+ * on it, and the coverage the chunked budget buys is the whole point of it.
+ */
+describe('MemoryCuratorService — manual PreCompact window budget', () => {
+  type PreCompactData = Parameters<
+    Parameters<ICompactionCallbackRegistry['register']>[0]
+  >[0];
+
+  /** A transcript of `records` blocks of `size` characters each. */
+  function transcriptOf(records: number, size: number): string {
+    return Array.from(
+      { length: records },
+      (_, i) => `USER: turn ${i} ${'x'.repeat(size)}`,
+    ).join('\n\n');
+  }
+
+  function buildHarness(transcript: string): {
+    fire: (trigger: 'manual' | 'auto') => Promise<void>;
+    extract: jest.Mock;
+    resolve: jest.Mock;
+    logger: { info: jest.Mock; warn: jest.Mock };
+  } {
+    let handler: ((data: PreCompactData) => void) | null = null;
+    const registry = {
+      register: jest.fn((cb: (data: PreCompactData) => void) => {
+        handler = cb;
+        return () => {
+          /* noop */
+        };
+      }),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(transcript),
+    } as unknown as ITranscriptReader;
+    // One draft per window: `doCurate` short-circuits before `resolve` when
+    // the union is empty, so an empty extraction could not tell "one window"
+    // from "eight windows" by the resolve count.
+    const extract = jest.fn().mockResolvedValue({
+      status: 'extracted',
+      drafts: [{ kind: 'fact', subject: 's', content: 'c', salienceHint: 0.5 }],
+    });
+    const resolve = jest.fn().mockResolvedValue([]);
+    const logger = makeLogger();
+    const svc = new MemoryCuratorService(
+      logger,
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      { extract, resolve } as unknown as ICuratorLLM,
+    );
+    svc.start();
+
+    return {
+      extract,
+      resolve,
+      logger: logger as unknown as { info: jest.Mock; warn: jest.Mock },
+      fire: async (trigger) => {
+        if (!handler)
+          throw new Error('curator did not subscribe to PreCompact');
+        handler({
+          sessionId: 's-compact',
+          trigger,
+          timestamp: Date.now(),
+          preTokens: 333_538,
+          cwd: '/ws',
+        });
+        await svc.drain();
+      },
+    };
+  }
+
+  it('plans exactly one window on a transcript that would otherwise plan eight', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('manual');
+
+    expect(h.extract).toHaveBeenCalledTimes(1);
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the full eight-window budget on an automatic trigger', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('auto');
+
+    expect(h.extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+    expect(h.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs the narrowed clamp at info, keeping the warn for the rare case', async () => {
+    const h = buildHarness(transcriptOf(400, 1_000));
+
+    await h.fire('manual');
+
+    expect(
+      h.logger.warn.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('exceeded the chunked curation budget'),
+      ),
+    ).toHaveLength(0);
+    const narrowed = h.logger.info.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('clamped to the narrowed curation budget'),
+    );
+    expect(narrowed).toBeDefined();
+    expect(narrowed?.[1]).toMatchObject({
+      sessionId: 's-compact',
+      budgetWindows: 1,
+      cap: CURATOR_TRANSCRIPT_MAX_CHARS,
+    });
+  });
+
+  it('leaves a short manual compaction at its unchanged one-window cost', async () => {
+    const h = buildHarness('USER: hello\n\nASSISTANT: hi');
+
+    await h.fire('manual');
+
+    expect(h.extract).toHaveBeenCalledTimes(1);
+    expect(h.extract.mock.calls[0][0]).toBe('USER: hello\n\nASSISTANT: hi');
+    expect(
+      h.logger.info.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('clamped to the narrowed curation budget'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('cannot be widened past CURATOR_MAX_WINDOWS by a call site', async () => {
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    const svc = buildService({
+      llm: {
+        extract,
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM,
+    });
+
+    await svc.curate({
+      sessionId: 's-greedy',
+      transcript: transcriptOf(400, 1_000),
+      maxWindows: 64,
+    });
+
+    expect(extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+  });
+});
+
+/**
+ * TASK_2026_376 F4 — a curation window must not be lost to the internal-query
+ * concurrency gate.
+ *
+ * The fake gate below is the real one narrowed to what this test needs: one
+ * lane, a ceiling of one, FIFO admission, and a wait ceiling after which the
+ * waiter is rejected with the error `InternalQueryQueueTimeoutError` wrapped in
+ * the `CuratorLlmQueryError` the curator adapter throws. Every millisecond
+ * figure is scaled down from production (60 000 ms budget, 24-37 s windows) so
+ * the ratio that produces the defect is preserved and the test stays fast.
+ */
+class FakeLaneGate {
+  private busy = false;
+  private readonly waiters: Array<() => void> = [];
+  /** Waiters rejected for exceeding the wait ceiling. The number under test. */
+  timeouts = 0;
+
+  constructor(private readonly queueTimeoutMs: number) {}
+
+  acquire(): Promise<() => void> {
+    if (!this.busy) {
+      this.busy = true;
+      return Promise.resolve(() => this.release());
+    }
+    return new Promise<() => void>((resolve, reject) => {
+      let settled = false;
+      const admit = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.busy = true;
+        resolve(() => this.release());
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const index = this.waiters.indexOf(admit);
+        if (index >= 0) this.waiters.splice(index, 1);
+        this.timeouts++;
+        reject(queueSlotTimeoutError(this.queueTimeoutMs));
+      }, this.queueTimeoutMs);
+      this.waiters.push(admit);
+    });
+  }
+
+  private release(): void {
+    this.busy = false;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+}
+
+function queueSlotTimeoutError(ms: number): Error {
+  const inner = new Error(
+    `Internal query waited longer than ${ms}ms for a concurrency slot.`,
+  );
+  inner.name = 'InternalQueryQueueTimeoutError';
+  const wrapped = new Error(
+    'The memory curator could not complete its language-model query.',
+    { cause: inner },
+  );
+  wrapped.name = 'CuratorLlmQueryError';
+  return wrapped;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** An `ICuratorLLM` whose every call must win a slot in `gate` first. */
+function makeGatedLlm(
+  gate: FakeLaneGate,
+  queryMs: number,
+): { llm: ICuratorLLM; extractCalls: string[] } {
+  const extractCalls: string[] = [];
+  const llm: ICuratorLLM = {
+    extract: async (transcript: string) => {
+      const release = await gate.acquire();
+      try {
+        extractCalls.push(transcript.slice(0, 12));
+        await sleep(queryMs);
+        return {
+          status: 'extracted',
+          drafts: [
+            {
+              kind: 'fact',
+              subject: transcript.slice(0, 12),
+              content: 'durable fact',
+              salienceHint: 0.5,
+            },
+          ],
+        };
+      } finally {
+        release();
+      }
+    },
+    resolve: async (drafts) => {
+      const release = await gate.acquire();
+      try {
+        await sleep(queryMs);
+        return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+      } finally {
+        release();
+      }
+    },
+  };
+  return { llm, extractCalls };
+}
+
+/** Long enough to plan several windows (`CURATOR_WINDOW_MAX_CHARS` is 32 KB). */
+function multiWindowTranscript(marker: string): string {
+  return Array.from(
+    { length: 100 },
+    (_, i) => `${marker} USER: turn ${i} ${'x'.repeat(1_000)}`,
+  ).join('\n\n');
+}
+
+describe('MemoryCuratorService — concurrency-slot loss (TASK_2026_376 F4)', () => {
+  it('a sibling window is not lost when a predecessor outlives the wait ceiling', async () => {
+    // One query (40 ms) outlives the wait ceiling (15 ms), which is the
+    // production ratio that dropped two sessions.
+    const gate = new FakeLaneGate(15);
+    const { llm, extractCalls } = makeGatedLlm(gate, 40);
+    const svc = buildService({ llm });
+
+    const [multi, sibling] = await Promise.all([
+      svc.curate({
+        sessionId: 'multi-window',
+        transcript: multiWindowTranscript('A'),
+      }),
+      svc.curate({ sessionId: 'sibling', transcript: 'B USER: short session' }),
+    ]);
+
+    // The transcript really did cost more than one window — otherwise this
+    // test would pass for the wrong reason.
+    expect(
+      extractCalls.filter((t) => t.startsWith('A')).length,
+    ).toBeGreaterThan(1);
+    expect(gate.timeouts).toBe(0);
+    expect(multi).toMatchObject({ outcome: 'ran' });
+    expect(multi.extracted).toBeGreaterThan(0);
+    expect(sibling).toMatchObject({ outcome: 'ran' });
+    expect(sibling.extracted).toBeGreaterThan(0);
+  });
+
+  it('defers instead of reporting a run when the slot is never won', async () => {
+    const events: MemoryCuratorEvent[] = [];
+    const llm = {
+      extract: jest.fn().mockRejectedValue(queueSlotTimeoutError(60_000)),
+      resolve: jest.fn(),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    svc.onEvent((e) => events.push(e));
+
+    const stats = await svc.curate({
+      sessionId: 'congested',
+      transcript: 'USER: something worth curating',
+    });
+
+    // `'stalled'` is what makes `MemoryTriggerService` leave the observation
+    // rows unprocessed, so the next drain curates this session again.
+    expect(stats.outcome).toBe('stalled');
+    expect(stats.extracted).toBe(0);
+    expect(events.map((e) => e.kind)).toContain('rate-limited');
+    expect(events.map((e) => e.kind)).not.toContain('curator-run');
+    // A deferred pass is not a run, so it must not become "last run".
+    expect(svc.lastRunInfo().stats).toBeNull();
+  });
+
+  it('still reports a dispatched failure as a run', async () => {
+    const llm = {
+      extract: jest.fn().mockRejectedValue(new Error('provider returned 500')),
+      resolve: jest.fn(),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+
+    const stats = await svc.curate({
+      sessionId: 'broken',
+      transcript: 'USER: something worth curating',
+    });
+
+    expect(stats.outcome).toBe('ran');
+  });
+});
+
+/**
+ * TASK_2026_376 R1 — the three ways a pass must now decline to consume its
+ * input, and the fan-out id it must refuse outright.
+ */
+describe('MemoryCuratorService — a pass that never read its input reports STALLED', () => {
+  type CompactionCallback = Parameters<
+    ICompactionCallbackRegistry['register']
+  >[0];
+
+  function buildParts(llm: ICuratorLLM): {
+    svc: MemoryCuratorService;
+    logger: Logger;
+    transcriptReader: ITranscriptReader;
+    store: MemoryStore;
+    callbacks: CompactionCallback[];
+  } {
+    const callbacks: CompactionCallback[] = [];
+    const registry = {
+      register: jest.fn((cb: CompactionCallback) => {
+        callbacks.push(cb);
+        return () => {
+          /* noop */
+        };
+      }),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue('a real transcript'),
+    } as unknown as ITranscriptReader;
+    const logger = makeLogger();
+    const svc = new MemoryCuratorService(
+      logger,
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+    );
+    return { svc, logger, transcriptReader, store, callbacks };
+  }
+
+  function llmReturning(extraction: unknown): ICuratorLLM {
+    return {
+      extract: jest.fn().mockResolvedValue(extraction),
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+  }
+
+  it('maps a NO-OUTPUT extraction to stalled, so the observations survive', async () => {
+    // The pass reached the model, spent its turns on tool calls and never wrote
+    // its JSON. Reporting `'ran'` here is what told `MemoryTriggerService` to
+    // mark the drained observation rows processed for a curation that produced
+    // nothing — the same data loss F4 had just closed, on a different path.
+    const { svc } = buildParts(
+      llmReturning({
+        status: 'no-output',
+        usedTools: true,
+        toolNames: ['mcp__ptah__ptah_memory_search'],
+      }),
+    );
+
+    const stats = await svc.curate({
+      sessionId: 'tool-only-session',
+      transcript: 'a real transcript worth curating',
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(stats.extracted).toBe(0);
+    // A stalled pass is not a run: it must not overwrite the last real one.
+    expect(svc.lastRunInfo().at).toBeNull();
+    const kinds = svc.recentEvents(20).map((e) => e.kind);
+    expect(kinds).toContain('rate-limited');
+    expect(kinds).not.toContain('curator-run');
+  });
+
+  it('records WHY it deferred, so a quiet curator can be diagnosed', async () => {
+    const { svc } = buildParts(
+      llmReturning({ status: 'no-output', usedTools: false, toolNames: [] }),
+    );
+    await svc.curate({ sessionId: 's1', transcript: 'a real transcript' });
+    const event = svc.recentEvents(20).find((e) => e.kind === 'rate-limited');
+    expect(event?.stats).toMatchObject({
+      source: 'curator-llm',
+      reason: 'no-output',
+      usedTools: false,
+    });
+  });
+
+  it('does not run the pipeline at all for a caller that already aborted', async () => {
+    const llm = llmReturning({ status: 'extracted', drafts: [] });
+    const { svc } = buildParts(llm);
+    const controller = new AbortController();
+    controller.abort();
+
+    const stats = await svc.curate({
+      sessionId: 'withdrawn',
+      transcript: 'a real transcript',
+      signal: controller.signal,
+    });
+
+    expect(stats.outcome).toBe('stalled');
+    expect(llm.extract).not.toHaveBeenCalled();
+  });
+
+  it('refuses a PreCompact fan-out for an internal one-shot query id', async () => {
+    // `internal-query-<epoch>` names no session and has no transcript on disk.
+    // With `maxTurns: 6` the curator's OWN query can now cross a compaction
+    // boundary, so this id can be fanned back into the service that produced it
+    // (TASK_2026_376 R1, logic finding 4).
+    const { svc, transcriptReader, callbacks } = buildParts(
+      llmReturning({ status: 'extracted', drafts: [] }),
+    );
+    svc.start();
+    expect(callbacks).toHaveLength(1);
+
+    callbacks[0]({
+      sessionId: 'internal-query-1757000000000',
+      trigger: 'auto',
+      timestamp: Date.now(),
+      preTokens: 100_000,
+      cwd: 'D:/ws',
+    });
+    await Promise.resolve();
+
+    expect(transcriptReader.read).not.toHaveBeenCalled();
+    expect(svc.recentEvents(20)).toHaveLength(0);
+  });
+
+  it('still curates a real session id through the same fan-out', async () => {
+    const { svc, transcriptReader, callbacks } = buildParts(
+      llmReturning({ status: 'extracted', drafts: [] }),
+    );
+    svc.start();
+
+    callbacks[0]({
+      sessionId: '50653b50-a03b-45a5-937b-b4944ab2e9f1',
+      trigger: 'auto',
+      timestamp: Date.now(),
+      preTokens: 100_000,
+      cwd: 'D:/ws',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(transcriptReader.read).toHaveBeenCalled();
+  });
+
+  it('defers a pass that waits past the job-queue ceiling instead of hanging', async () => {
+    // The `memory:runNow` RPC calls `curate()` with no signal, so before the
+    // ceiling a user-triggered pass could sit behind background passes with no
+    // bound and nothing to cancel it (TASK_2026_376 R1, logic finding 3).
+    jest.useFakeTimers();
+    try {
+      let releaseFirst!: () => void;
+      const firstPass = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const llm = {
+        extract: jest.fn(async () => {
+          await firstPass;
+          return { status: 'extracted', drafts: [] };
+        }),
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM;
+      const { svc } = buildParts(llm);
+
+      const blocking = svc.curate({
+        sessionId: 'background-pass',
+        transcript: 'a real transcript',
+      });
+      const queued = svc.curate({
+        sessionId: 'user-triggered-pass',
+        transcript: 'a real transcript',
+      });
+
+      await Promise.resolve();
+      jest.advanceTimersByTime(CURATOR_QUEUE_WAIT_CEILING_MS + 1);
+
+      const queuedStats = await queued;
+      expect(queuedStats.outcome).toBe('stalled');
+      // The chain is intact: the blocking pass still owns its slot and still
+      // finishes normally.
+      expect(llm.extract).toHaveBeenCalledTimes(1);
+      releaseFirst();
+      await expect(blocking).resolves.toMatchObject({ outcome: 'ran' });
+      // The abandoned pass is never dispatched, even once its turn arrives.
+      await Promise.resolve();
+      expect(llm.extract).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

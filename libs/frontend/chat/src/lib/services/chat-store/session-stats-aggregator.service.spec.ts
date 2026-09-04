@@ -1,5 +1,5 @@
 /**
- * SessionStatsAggregatorService specs â€” SESSION_STATS aggregation.
+ * SessionStatsAggregatorService specs — SESSION_STATS aggregation.
  *
  * Coverage:
  *   - findTabBySessionId resolves correct tab
@@ -17,7 +17,12 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ConversationRegistry,
+  SurfaceSessionStatsRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -63,11 +68,14 @@ describe('SessionStatsAggregatorService', () => {
   let setModelUsageListMock: jest.Mock;
   let setPreloadedStatsMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
+  let findAcrossWorkspacesMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
   let clearCompactionStateMock: jest.Mock;
   let sendQueuedMock: jest.Mock;
+  let surfacesForSessionMock: jest.Mock;
+  let surfaceStats: SurfaceSessionStatsRegistry;
   let warn: jest.SpyInstance;
 
   beforeEach(() => {
@@ -79,15 +87,18 @@ describe('SessionStatsAggregatorService', () => {
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
+    findAcrossWorkspacesMock = jest.fn(() => null);
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     streamHandleStatsMock = jest.fn().mockReturnValue(null);
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
     clearCompactionStateMock = jest.fn();
     sendQueuedMock = jest.fn();
+    surfacesForSessionMock = jest.fn(() => []);
     warn = jest.spyOn(console, 'warn').mockImplementation();
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
+      findTabBySessionIdAcrossWorkspaces: findAcrossWorkspacesMock,
       activeTab: activeTabMock,
       setLiveModelStatsAndUsageList: setLiveModelStatsAndUsageListMock,
       setModelUsageList: setModelUsageListMock,
@@ -109,7 +120,17 @@ describe('SessionStatsAggregatorService', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionStatsAggregatorService,
+        // Real registries — they are plain signal stores with no outbound deps,
+        // so stubbing them would only weaken the assertions.
+        SurfaceSessionStatsRegistry,
+        ConversationRegistry,
         { provide: TabManagerService, useValue: tabManagerMock },
+        {
+          provide: StreamRouter,
+          useValue: {
+            surfacesForSession: surfacesForSessionMock,
+          } as unknown as StreamRouter,
+        },
         { provide: StreamingHandlerService, useValue: streamingHandlerMock },
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
@@ -117,6 +138,7 @@ describe('SessionStatsAggregatorService', () => {
       ],
     });
     service = TestBed.inject(SessionStatsAggregatorService);
+    surfaceStats = TestBed.inject(SurfaceSessionStatsRegistry);
   });
 
   afterEach(() => {
@@ -146,6 +168,103 @@ describe('SessionStatsAggregatorService', () => {
     expect(streamHandleStatsMock).not.toHaveBeenCalled();
     expect(loadSessionsMock).not.toHaveBeenCalled();
     expect(clearCompactionStateMock).not.toHaveBeenCalled();
+  });
+
+  describe('background-workspace owner (user switched folders mid-stream)', () => {
+    const BG_SESSION = SessionId.create();
+
+    it('applies the stats to the background tab and delegates to streamingHandler instead of dropping', () => {
+      const bgTab = makeTab({ id: 'bg-tab', claudeSessionId: BG_SESSION });
+      findTabsBySessionIdMock.mockReturnValue([]);
+      findAcrossWorkspacesMock.mockReturnValue({
+        tab: bgTab,
+        workspacePath: 'D:\\projects\\other',
+      });
+
+      service.handleSessionStats({
+        ...baseStats,
+        sessionId: BG_SESSION,
+        modelUsage: [
+          {
+            model: 'claude-fable-5',
+            inputTokens: 570,
+            outputTokens: 2628,
+            contextWindow: 1_000_000,
+            costUSD: 1.26,
+            cacheReadInputTokens: 52_614,
+            lastTurnContextTokens: 54_291,
+          },
+        ],
+      });
+
+      expect(findAcrossWorkspacesMock).toHaveBeenCalledWith(BG_SESSION);
+      expect(clearCompactionStateMock).toHaveBeenCalledWith('bg-tab');
+      expect(setLiveModelStatsAndUsageListMock).toHaveBeenCalledWith(
+        'bg-tab',
+        expect.objectContaining({ model: 'claude-fable-5' }),
+        expect.any(Array),
+      );
+      expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('no tab bound to sessionId'),
+        expect.anything(),
+      );
+    });
+
+    it('prefers the active-workspace tabs and never consults the partition when one is bound', () => {
+      service.handleSessionStats(baseStats);
+      expect(findAcrossWorkspacesMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('records to the surface registry instead of dropping, when a surface owns the session', () => {
+    // New Project / harness builder / wizard-phase sessions have no tab BY
+    // DESIGN, so every turn of theirs used to log "dropping event" and vanish.
+    // The per-tab writes really are inapplicable — but the stats are good.
+    findTabsBySessionIdMock.mockReturnValue([]);
+    surfacesForSessionMock.mockReturnValue(['surface-1']);
+
+    service.handleSessionStats({
+      ...baseStats,
+      sessionId: SESS_UNKNOWN,
+      modelUsage: [
+        {
+          model: 'claude-opus-5',
+          inputTokens: 100,
+          outputTokens: 50,
+          contextWindow: 1_000_000,
+          costUSD: 0.5,
+          cacheReadInputTokens: 10,
+          lastTurnContextTokens: 160,
+        },
+      ],
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
+
+    const stats = surfaceStats.peek(SESS_UNKNOWN);
+    expect(stats?.totals.totalCost).toBeCloseTo(0.5);
+    expect(stats?.live).toEqual({
+      model: 'claude-opus-5',
+      contextUsed: 160,
+      contextWindow: 1_000_000,
+      contextPercent: 0,
+    });
+  });
+
+  it('still warns when neither a tab nor a surface owns the session', () => {
+    // Nothing routed the event anywhere — that is a real drop and a real bug.
+    findTabsBySessionIdMock.mockReturnValue([]);
+    surfacesForSessionMock.mockReturnValue([]);
+
+    service.handleSessionStats({ ...baseStats, sessionId: SESS_UNKNOWN });
+
+    expect(warn).toHaveBeenCalledWith(
+      '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
+      { sessionId: SESS_UNKNOWN },
+    );
+    expect(surfaceStats.peek(SESS_UNKNOWN)).toBeNull();
   });
 
   describe('primary-model selection', () => {
@@ -244,7 +363,7 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
       const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
-      // 23456 / 100000 * 1000 = 234.56 â†’ round = 235 / 10 = 23.5
+      // 23456 / 100000 * 1000 = 234.56 → round = 235 / 10 = 23.5
       expect((liveStats as { contextPercent: number }).contextPercent).toBe(
         23.5,
       );

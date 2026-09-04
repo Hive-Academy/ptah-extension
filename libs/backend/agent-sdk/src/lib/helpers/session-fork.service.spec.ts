@@ -485,6 +485,7 @@ describe('SessionForkService', () => {
       h.sessionLifecycle.find.mockImplementation((id: string) => {
         if (id === 'real-uuid-from-sdk') {
           return {
+            token: 'record-token-1',
             tabId: 'tab_1',
             realSessionId: 'real-uuid-from-sdk',
             query: fakeQuery,
@@ -493,6 +494,7 @@ describe('SessionForkService', () => {
             messageQueue: [],
             resolveNext: null,
             turnInFlight: false,
+            activityHold: null,
             currentModel: 'claude-sonnet-4-20250514',
             permissionLevel: 'ask',
             lastActivityAt: 0,

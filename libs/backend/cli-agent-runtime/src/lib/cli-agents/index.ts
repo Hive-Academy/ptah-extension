@@ -10,8 +10,14 @@ export { CliDetectionService } from './cli-detection.service';
 export {
   AgentProcessManager,
   AgentContinueError,
+  MIN_CONCURRENT_AGENTS,
+  MAX_CONCURRENT_AGENTS,
+  DEFAULT_CONCURRENT_AGENTS,
 } from './agent-process-manager.service';
-export type { AgentContinueErrorCode } from './agent-process-manager.service';
+export type {
+  AgentContinueErrorCode,
+  AgentReleaseReason,
+} from './agent-process-manager.service';
 export * from './cli-adapters';
 export {
   createHarnessCliDetector,

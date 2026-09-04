@@ -6,6 +6,10 @@
   "tags": ["scope:cli", "type:app"],
   "targets": {
     "build": {
+      "executor": "nx:noop",
+      "dependsOn": ["build-esbuild", "copy-wasm"]
+    },
+    "build-esbuild": {
       "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
@@ -109,6 +113,21 @@
         }
       }
     },
+    "copy-wasm": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-esbuild"],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-cli/wasm"],
+      "options": {
+        "command": "node scripts/copy-wasm.js dist/apps/ptah-cli"
+      }
+    },
+    "verify-packed-wasm": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["restore-cli-manifest"],
+      "options": {
+        "command": "node apps/ptah-cli/scripts/verify-packed-wasm.cjs"
+      }
+    },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
@@ -192,7 +211,7 @@
     },
     "publish:dry-run": {
       "executor": "nx:run-commands",
-      "dependsOn": ["restore-cli-manifest"],
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --dry-run --access public"
@@ -200,7 +219,7 @@
     },
     "publish": {
       "executor": "nx:run-commands",
-      "dependsOn": ["restore-cli-manifest"],
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --access public --provenance"

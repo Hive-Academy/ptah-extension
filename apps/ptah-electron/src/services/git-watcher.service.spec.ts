@@ -39,6 +39,7 @@ function makeLogger(): Logger {
 
 function makeGitInfo(): jest.Mocked<GitInfoService> {
   return {
+    invalidateReadCache: jest.fn(),
     getGitInfo: jest.fn(
       async (): Promise<GitInfoResult> =>
         ({
@@ -182,6 +183,32 @@ describe('GitWatcherService', () => {
       expect(gitCalls.length).toBeGreaterThanOrEqual(1);
       const payload = gitCalls[0][1] as GitStatusUpdatePayload;
       expect(payload.causes).toEqual(['workspace']);
+    });
+
+    // TASK_2026_343. `GitInfoService` caches the branch list, stash list, tags
+    // and remotes until something invalidates them, and its own invalidation
+    // only covers commands it ran itself. A `git checkout` in the integrated
+    // terminal reaches it through this watcher or not at all.
+    it('invalidates the GitInfoService read cache BEFORE fetching status', async () => {
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath =
+        'D:\\fake\\ws';
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+
+      (
+        svc as unknown as {
+          scheduleUpdate(ms: number, kind: GitChangeKind): void;
+        }
+      ).scheduleUpdate(500, 'refs');
+      jest.advanceTimersByTime(500);
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(gitInfo.invalidateReadCache).toHaveBeenCalledWith('D:\\fake\\ws');
+      expect(
+        gitInfo.invalidateReadCache.mock.invocationCallOrder[0],
+      ).toBeLessThan(gitInfo.getGitInfo.mock.invocationCallOrder[0]);
     });
 
     it('coalesces multiple .git/* kinds into a single broadcast carrying both causes', async () => {

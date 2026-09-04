@@ -12,9 +12,16 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
+  resolveAgentMirrorSource,
+  resolveHarnessWorkspaceRoot,
+  type AgentSyncGate,
   type HarnessPropagationService,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
+import {
+  summarizeHarnessHealth,
+  type HarnessHealth,
+} from '@ptah-extension/shared';
 import {
   AGENT_GENERATION_TOKENS,
   type MirrorSources,
@@ -31,7 +38,78 @@ import {
   type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
 
+import { createCoalescedJob, type CoalescedJob } from './coalesced-job';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
+
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
+
+/**
+ * How long the user-layer pass collects triggers before it runs
+ * (TASK_2026_345).
+ *
+ * A workspace switch fires up to four independent triggers — `activation`
+ * (the one-shot heavy boot), `workspace-folders-changed` (the propagation the
+ * folder listener issues), `content-download-complete`, and an `addFolder`
+ * immediately followed by a `switch`. They arrive within a few hundred
+ * milliseconds of each other and each asked for the same walk of
+ * `~/.ptah/user`, so one switch to `property-hub` ran the mirror twice and the
+ * catalog sync four times (`tmp/logs/log.log:1206-1223`).
+ *
+ * 300 ms is chosen to be comfortably wider than the gap between two triggers
+ * that share a cause (the folder listener and the boot's own pass are separated
+ * by a handful of `await`s on already-warm DI resolutions, measured in single
+ * milliseconds) and far narrower than the gap between two triggers with
+ * DIFFERENT causes — `content-download-complete` follows the network, and a
+ * user toggling a plugin is seconds away. It is not a rate limit: a trigger
+ * that arrives after a pass has drained always gets its own pass.
+ *
+ * The delay is paid on the post-window boot path, which is behind the visible
+ * window by construction (TASK_2026_331), and never on anything the renderer
+ * waits for.
+ */
+export const USER_LAYER_COALESCE_WINDOW_MS = 300;
+
+/**
+ * The raw workspace root a request carries, alongside the normalized key the
+ * batch is filed under.
+ *
+ * The key folds case and separators so two spellings of one directory join one
+ * pass; the payload keeps the ORIGINAL string, because that is what
+ * `path.join(root, '.claude', 'agents')` has to be given on a case-sensitive
+ * filesystem.
+ */
+interface UserLayerPassPayload {
+  workspaceRoot: string | undefined;
+}
+
+/**
+ * One coalescer per container.
+ *
+ * The container is the process-scope handle these free functions already share
+ * — `boot-heavy-services.ts`, the DI-registered `IUserLayerRefresher` and every
+ * RPC handler that propagates all hold the same one — so keying off it gives a
+ * single coalescer per app without a module-level singleton that would leak
+ * between test files.
+ */
+const coalescersByContainer = new WeakMap<
+  DependencyContainer,
+  CoalescedJob<UserLayerPassPayload>
+>();
+
+function userLayerJobFor(
+  container: DependencyContainer,
+): CoalescedJob<UserLayerPassPayload> {
+  const existing = coalescersByContainer.get(container);
+  if (existing !== undefined) return existing;
+
+  const created = createCoalescedJob<UserLayerPassPayload>({
+    windowMs: USER_LAYER_COALESCE_WINDOW_MS,
+    run: async ({ reasons, payload }) =>
+      runUserLayerPass(container, payload.workspaceRoot, reasons),
+  });
+  coalescersByContainer.set(container, created);
+  return created;
+}
 
 /** Phase 4.55: initialize plugin loader. Non-fatal on failure. */
 export function initPluginLoader(
@@ -103,10 +181,20 @@ function buildMirrorSources(
     harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
-    ...(workspaceRoot
-      ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-      : {}),
+    // The agent facet is scoped and gated in `harness-sync`, not here: all three
+    // hosts share that decision and the two rules behind it fail silently when
+    // one of them drifts (TASK_2026_365).
+    ...resolveAgentMirrorSource(workspaceRoot, resolveAgentSyncGate(container)),
   };
+}
+
+/** The consent gate, or `null` in a host that has not wired `harness-sync`. */
+function resolveAgentSyncGate(
+  container: DependencyContainer,
+): AgentSyncGate | null {
+  return container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    ? container.resolve<AgentSyncGate>(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    : null;
 }
 
 /**
@@ -133,9 +221,8 @@ export async function mirrorUserLayer(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
 
-    const result = await mirror.mirrorAll(
-      buildMirrorSources(container, workspaceRoot),
-    );
+    const sources = buildMirrorSources(container, workspaceRoot);
+    const result = await mirror.mirrorAll(sources);
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -146,7 +233,10 @@ export async function mirrorUserLayer(
       );
     }
 
-    return mirror.getUserLayerRoots();
+    // The SAME root the mirror just wrote under, taken from the sources rather
+    // than re-derived: the agent root is keyed by it, so a second derivation
+    // that disagreed would hand the caller a directory nothing was written to.
+    return mirror.getUserLayerRoots(sources.workspaceRoot);
   } catch (error) {
     console.warn(
       '[Ptah Electron] User-layer mirror failed (non-fatal):',
@@ -165,6 +255,7 @@ export async function mirrorUserLayer(
  */
 export async function syncSkillRegistryCatalog(
   container: DependencyContainer,
+  workspaceRoot?: string,
 ): Promise<void> {
   try {
     if (
@@ -177,7 +268,14 @@ export async function syncSkillRegistryCatalog(
     const catalog = container.resolve<SkillRegistryCatalogService>(
       SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
     );
-    const result = await catalog.sync();
+    // Resolved here, not passed raw: the agent clones the catalog lists live
+    // under a key derived from the harness root, so a sub-folder spelling would
+    // read an empty directory and drop every agent row.
+    const result = await catalog.sync(
+      workspaceRoot === undefined
+        ? undefined
+        : resolveHarnessWorkspaceRoot(workspaceRoot),
+    );
     console.log(
       `[Ptah Electron] Skill registry catalog synced (upserted: ${result.upserted}, linked: ${result.linked})`,
     );
@@ -237,24 +335,82 @@ export async function reconcileUserLayer(
       }
     }
 
-    // A reap DELETES a user-layer clone and an orphan re-flags one, so both
-    // change what the catalog should hold just as much as a fast-forward does.
-    // Leaving them out left reaped skills listed in the Library forever.
-    if (
-      sqliteOpen &&
-      (result.fastForwarded > 0 ||
-        result.diverged > 0 ||
-        result.reaped > 0 ||
-        result.orphaned > 0)
-    ) {
-      await syncSkillRegistryCatalog(container);
-    }
+    // The catalog sync used to live HERE, gated on
+    // `fastForwarded || diverged || reaped || orphaned`, while the heavy boot
+    // ALSO fired an unconditional one immediately after calling this function.
+    // Two call sites plus two passes per switch is where the four syncs of
+    // `tmp/logs/log.log:1206-1223` came from. It now runs exactly once per
+    // coalesced pass, in `runUserLayerPass` below, which is the only place that
+    // knows a pass has finished. Do not add a third call site here.
   } catch (error) {
     console.warn(
       '[Ptah Electron] User-layer reconcile failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+/**
+ * The whole user-layer pass, in the one order it is ever correct in.
+ *
+ * `mirrorUserLayer` is create-if-absent and picks up new slugs;
+ * `reconcileUserLayer` fast-forwards existing clones, flags divergence and
+ * reaps the ones whose upstream is gone; the catalog sync then writes what the
+ * two of them just settled into `skill_registry`.
+ *
+ * Private, and reached ONLY through {@link refreshUserLayer}'s coalescer —
+ * running two of these concurrently against the same tree is the interleaving
+ * defect this task closes, and a direct export would be a way to do it again.
+ *
+ * `sqliteOpen` is read HERE rather than passed in, because a pass can start a
+ * coalescing window before `bootThothRuntime` has opened the database and run
+ * after it has.
+ */
+async function runUserLayerPass(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  reasons: readonly string[],
+): Promise<void> {
+  console.log(`[Ptah Electron] User-layer pass (${reasons.join(' + ')})`);
+  await mirrorUserLayer(container, workspaceRoot);
+  const sqliteOpen = isSqliteOpen(container);
+  await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+  // The ONLY catalog sync. It is unconditional rather than gated on
+  // "something changed" — the gate used to live inside `reconcileUserLayer`
+  // and the heavy boot fired an ungated one right beside it anyway, so this is
+  // strictly less work than before (one per pass instead of two), and a pass
+  // that changed nothing costs one upsert sweep of already-current rows.
+  if (sqliteOpen) {
+    await syncSkillRegistryCatalog(container, workspaceRoot);
+  }
+}
+
+/**
+ * Run the user-layer pass for `workspaceRoot`, coalescing every trigger that
+ * asks for it inside one window into a single run (TASK_2026_345).
+ *
+ * This is the ONE entry point. `boot-heavy-services.ts` calls it for
+ * `activation` and again for `content-download-complete`; the DI-registered
+ * `IUserLayerRefresher` below calls it for every harness propagation. Because
+ * they share a coalescer keyed by the normalized root, a workspace switch that
+ * fires three of those within 300 ms performs ONE mirror, ONE reconcile and ONE
+ * catalog sync — and, just as importantly, can never perform two of them at the
+ * same time on the same tree.
+ *
+ * Never throws: the pass is non-fatal by contract, and a failed run is reported
+ * by the coalescer rather than propagated to the trigger that happened to be
+ * first.
+ */
+export function refreshUserLayer(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  reason: string,
+): Promise<void> {
+  return userLayerJobFor(container).request(
+    normalizeWorkspaceRoot(workspaceRoot),
+    reason,
+    { workspaceRoot },
+  );
 }
 
 /**
@@ -267,26 +423,16 @@ export async function reconcileUserLayer(
  * reconciler reads it. Without this port a repropagation event reconciled the
  * PREVIOUS state and logged a clean pass (TASK_2026_278 Batch 3).
  *
- * Both halves, in the activation order: `mirrorUserLayer` is create-if-absent
- * and picks up new slugs; `reconcileUserLayer` fast-forwards existing clones
- * and reaps the ones whose upstream is gone. An uninstall needs the second
- * half specifically — see `deactivateExternalPlugin` in `plugin-rpc.handlers`.
- *
- * `sqliteOpen` is derived from the container rather than passed in, because
- * this runs long after `wire-runtime` computed its copy and the connection can
- * have opened (or closed) since.
+ * The port carries no reason, so every propagation shares one label here. That
+ * is enough for the log to say a pass was propagation-driven; which propagation
+ * is already on the reconciler's own line.
  */
 export function createUserLayerRefresher(container: DependencyContainer): {
   refresh(workspaceRoot: string | undefined): Promise<void>;
 } {
   return {
-    async refresh(workspaceRoot: string | undefined): Promise<void> {
-      await mirrorUserLayer(container, workspaceRoot);
-      await reconcileUserLayer(
-        container,
-        workspaceRoot,
-        isSqliteOpen(container),
-      );
+    refresh(workspaceRoot: string | undefined): Promise<void> {
+      return refreshUserLayer(container, workspaceRoot, 'harness-propagation');
     },
   };
 }
@@ -333,6 +479,61 @@ export function readDormantSkillSlugs(
 }
 
 /**
+ * The claude target's slice, rendered so an ABSENT target cannot read as a
+ * healthy empty pass.
+ *
+ * `claude?.found ?? 0` collapsed three different facts to `0/0`: a host that
+ * never registered the claude target, a claude that is registered but not
+ * detected, and a claude with genuinely nothing desired. Only the last is a
+ * clean pass; the first two are wiring and environment problems that the `0/0`
+ * spelling actively hid.
+ */
+function formatClaudeSlice(health: HarnessHealth): string {
+  const claude = health.targets.find((target) => target.target === 'claude');
+  if (claude === undefined) return 'claude=not-registered';
+  if (!claude.detected) return 'claude=undetected';
+  return `claude=${claude.found}/${claude.expected}`;
+}
+
+/**
+ * The one health line both harness call sites print.
+ *
+ * Shared rather than duplicated because the two sites previously carried the
+ * SAME defect and were fixed together: each narrowed to the claude target and
+ * printed `found`/`expected` under bare field names, while the reconciler's own
+ * warn (`harness-reconciler.service.ts`) sums all six targets under those same
+ * names. `found=14/27` beside `found=106/119` from one pass is not a
+ * disagreement anybody can debug — the two numbers were never measuring the
+ * same thing.
+ *
+ * The AGGREGATE is now the headline, so this line and the reconciler's warn
+ * report the same scope, and it comes from `summarizeHarnessHealth` — the one
+ * definition of these totals that `harness doctor`, the Marketplace badge and
+ * the health push already share — rather than from a fourth summation written
+ * here. The claude slice is kept beside it and explicitly LABELLED, because it
+ * is the target this host cares about most and dropping it would trade one
+ * legibility problem for an information loss.
+ */
+function formatHarnessLine(
+  verb: 'reconciled' | 'propagated',
+  reason: string,
+  health: HarnessHealth | null,
+): string {
+  if (health === null) {
+    return `[Ptah Electron] Harness ${verb} (${reason}): no health report produced`;
+  }
+  const summary = summarizeHarnessHealth(health);
+  return (
+    `[Ptah Electron] Harness ${verb} (${reason}): sources=${summary.sources}, ` +
+    `detectedTargets=${summary.detectedTargets}/${health.targets.length}, ` +
+    `found=${summary.found}/${summary.expected} (all targets), ` +
+    `${formatClaudeSlice(health)}, ` +
+    `missing=${summary.missing}, foreign=${summary.foreign}, ` +
+    `writeFailed=${summary.writeFailed}`
+  );
+}
+
+/**
  * Reconcile the workspace harness: copy every enabled skill and command from
  * the user layer into `{ws}/.claude/{skills,commands}` (TASK_2026_278).
  *
@@ -343,12 +544,19 @@ export function readDormantSkillSlugs(
  *
  * Non-fatal by contract: a workspace that cannot be written must never block
  * boot. Failures land in the health report instead.
+ *
+ * `options.signal` is forwarded to the reconciler, which honours it only while
+ * HASHING — it is detached per target the moment that target is about to write
+ * (`abort/pass-abort.ts`). So an abort abandons a pass that is still reading and
+ * never one that is mid-copy; a target either finishes with its manifest or was
+ * never touched. `options` is optional and unchanged for callers that pass
+ * neither field.
  */
 export async function reconcileHarness(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
   reason: string,
-  options: { downloadPending?: boolean } = {},
+  options: { downloadPending?: boolean; signal?: AbortSignal } = {},
 ): Promise<void> {
   if (workspaceRoot === undefined) {
     return;
@@ -361,14 +569,9 @@ export async function reconcileHarness(
       mode: 'full',
       reason,
       ...(options.downloadPending === true ? { downloadPending: true } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     });
-    const claude = health.targets.find((target) => target.target === 'claude');
-    console.log(
-      `[Ptah Electron] Harness reconciled (${reason}): sources=${health.sources}, ` +
-        `found=${claude?.found ?? 0}/${claude?.expected ?? 0}, ` +
-        `foreign=${claude?.foreign.length ?? 0}, ` +
-        `writeFailed=${claude?.writeFailed.length ?? 0}`,
-    );
+    console.log(formatHarnessLine('reconciled', reason, health));
   } catch (error) {
     console.warn(
       '[Ptah Electron] Harness reconcile failed (non-fatal):',
@@ -410,11 +613,7 @@ export async function propagateHarness(
       HARNESS_SYNC_TOKENS.PROPAGATION,
     );
     const health = await propagation.propagate(workspaceRoot, reason);
-    const claude = health?.targets.find((target) => target.target === 'claude');
-    console.log(
-      `[Ptah Electron] Harness propagated (${reason}): sources=${health?.sources ?? 'unknown'}, ` +
-        `found=${claude?.found ?? 0}/${claude?.expected ?? 0}`,
-    );
+    console.log(formatHarnessLine('propagated', reason, health));
   } catch (error) {
     console.warn(
       '[Ptah Electron] Harness propagation failed (non-fatal):',

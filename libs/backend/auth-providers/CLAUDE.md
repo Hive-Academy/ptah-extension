@@ -220,6 +220,7 @@ design; the next provider activation retries.
 
 ## Guidelines
 
+- **Codex token staleness is JWT-`exp` based; `last_refresh` is the FALLBACK only (TASK_2026_342).** `CodexAuthService.isTokenStale` delegates to `isCodexAccessTokenStale` in `@ptah-extension/shared` — the ONE rule, shared with `CodexCliAdapter.ensureTokensFresh` in `cli-agent-runtime`, which is the only way those two can stop disagreeing about the same `~/.codex/auth.json`. The rule reads the access token's own `exp` claim (stale within a 5-minute skew) and falls back to the old `last_refresh > 50 min` heuristic only for opaque, non-JWT tokens. The heuristic alone was a false positive for every ChatGPT-subscription login: measured `last_refresh` 20h old against a token whose `exp` was ten days out, so `codexTokenStale: true` was reported on every status response for a whole session and the settings UI showed a permanent re-login warning. Do not reintroduce a local staleness constant here.
 - Depend on `agent-sdk` only via its public barrel — no deep imports.
 - No imports from `platform-{cli,electron,vscode}` adapter libs.
 - The provider registry lives in `@ptah-extension/shared` (moved there to break the cycle); import `ANTHROPIC_PROVIDERS`, `getAnthropicProvider`, etc. from there.

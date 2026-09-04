@@ -163,14 +163,14 @@ function makeEngine(): MockEngine {
     }),
   } as unknown as CliMessageTransport;
 
-  // Container resolution stub â€” only `auth login copilot` reaches it. The
+  // Container resolution stub — only `auth login copilot` reaches it. The
   // hook system in auth.ts substitutes `runHeadlessLogin` so the real
-  // SDK_TOKENS lookup never executes in the spec â€” but we still satisfy
+  // SDK_TOKENS lookup never executes in the spec — but we still satisfy
   // the typing surface.
   const container = {
     resolve: jest.fn(() => {
       throw new Error(
-        'container.resolve was hit â€” test should override runHeadlessLogin',
+        'container.resolve was hit — test should override runHeadlessLogin',
       );
     }),
     clearInstances: jest.fn(),
@@ -214,7 +214,7 @@ function buildHooks(extra: Partial<AuthExecuteHooks> = {}): {
 }
 
 // ---------------------------------------------------------------------------
-// Tests â€” `auth status`
+// Tests — `auth status`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth status', () => {
@@ -244,7 +244,7 @@ describe('ptah auth status', () => {
     );
 
     expect(exit).toBe(ExitCode.Success);
-    // Default (non-verbose) â€” one notification with nested health+apiKey.
+    // Default (non-verbose) — one notification with nested health+apiKey.
     const methods = formatterTrace.notifications.map((n) => n.method);
     expect(methods).toEqual(['auth.status']);
 
@@ -329,7 +329,7 @@ describe('ptah auth status', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests â€” `auth login`
+// Tests — `auth login`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth login copilot', () => {
@@ -398,7 +398,7 @@ describe('ptah auth login copilot', () => {
 });
 
 describe('ptah auth login codex', () => {
-  // Helper â€” produces a fake CodexChildLike whose stdout emits a single
+  // Helper — produces a fake CodexChildLike whose stdout emits a single
   // chunk and which exits with the supplied code on the next tick.
   function makeCodexChild(opts: {
     stdoutChunks?: string[];
@@ -754,7 +754,7 @@ describe('ptah auth login (validation)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests â€” `auth logout`
+// Tests — `auth logout`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth logout copilot', () => {
@@ -877,7 +877,7 @@ describe('ptah auth logout (validation)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests â€” `auth test <provider>`
+// Tests — `auth test <provider>`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth test', () => {

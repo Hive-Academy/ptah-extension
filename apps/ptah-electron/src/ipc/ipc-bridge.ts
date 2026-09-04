@@ -21,7 +21,10 @@
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  DEFAULT_CPU_PROFILE_DURATION_MS,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
@@ -31,6 +34,26 @@ import {
 import type { PtyManagerService } from '../services/pty-manager.service';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
+
+/**
+ * `diag:cpu-profile` duration bounds. The renderer supplies `durationMs`
+ * unvalidated, so the IPC handler clamps it before it reaches
+ * `CpuProfileCapture.captureFor`. A non-number falls back to the capture
+ * default; anything else is held to [1 s, 60 s] — short enough that the
+ * resulting `.cpuprofile` stays openable, long enough to span a stall.
+ */
+const MIN_CPU_PROFILE_DURATION_MS = 1_000;
+const MAX_CPU_PROFILE_DURATION_MS = 60_000;
+
+function clampCpuProfileDuration(durationMs: unknown): number {
+  if (typeof durationMs !== 'number' || Number.isNaN(durationMs)) {
+    return DEFAULT_CPU_PROFILE_DURATION_MS;
+  }
+  return Math.min(
+    Math.max(durationMs, MIN_CPU_PROFILE_DURATION_MS),
+    MAX_CPU_PROFILE_DURATION_MS,
+  );
+}
 
 const BATCHABLE_STREAM_TYPES: ReadonlySet<string> = new Set<string>([
   MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
@@ -46,6 +69,19 @@ const BATCHABLE_STREAM_TYPES: ReadonlySet<string> = new Set<string>([
 interface QueuedStreamEvent {
   readonly type: string;
   readonly payload?: unknown;
+}
+
+/**
+ * Best-effort `type` off an outbound message, for diagnostics only.
+ *
+ * Returns `undefined` rather than a placeholder: "this message carried no
+ * type" and "this message was typed X" are different facts, and the caller
+ * renders them differently.
+ */
+function messageTypeOf(message: unknown): string | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const type = (message as Record<string, unknown>)['type'];
+  return typeof type === 'string' ? type : undefined;
 }
 
 /**
@@ -79,6 +115,13 @@ export class IpcBridge {
   private readonly stateStorage: IStateStorage;
   private readonly streamQueue: QueuedStreamEvent[] = [];
   private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Flips the first time {@link getWindow} returns a window and never flips
+   * back. It is what separates "no renderer yet" (boot — expected) from "the
+   * renderer went away" (mid-session — worth a warning). See
+   * {@link resolveWindow}.
+   */
+  private hasHadWindow = false;
 
   constructor(
     private readonly container: DependencyContainer,
@@ -100,6 +143,7 @@ export class IpcBridge {
     this.setupRpcHandler();
     this.setupStateHandlers();
     this.setupTerminalHandlers();
+    this.setupDiagnosticsHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
 
@@ -118,15 +162,74 @@ export class IpcBridge {
       return;
     }
     this.flushStreamQueue();
-    const win = this.getWindow();
+    const win = this.resolveWindow(messageTypeOf(message));
     if (!win) {
-      console.warn('[IpcBridge] Cannot send to renderer: no window available');
       return;
     }
     if (win.webContents.isDestroyed?.() === true) {
       return;
     }
     win.webContents.send('to-renderer', message);
+  }
+
+  /**
+   * Resolve the renderer window, reporting an undeliverable push honestly.
+   *
+   * ### Why boot-time pushes are DROPPED and not queued (B2, TASK_2026_315)
+   *
+   * Traced at a clean boot, exactly two messages reach this method before the
+   * `BrowserWindow` exists — `main.ts` runs `wireRuntime` at `:127` and only
+   * creates the window inside `registerPostWindow` at `:145`:
+   *
+   *  1. `skillSynthesis:event` (the `boot-scan` stats event) — from
+   *     `SkillTriggerService.runBootScan` via `SkillSynthesisService.pushEvent`.
+   *  2. `harness:healthChanged` — from `HarnessHealthRpcService.pushIfChanged`,
+   *     on the `reason: activation` reconcile pass.
+   *
+   * Both are EDGE-TRIGGERED notifications sitting on top of PULL-backed state,
+   * and both consumers cold-pull when no push has reached them:
+   * `HarnessCardComponent.ngOnInit` calls `HarnessHealthStore.refresh()`
+   * whenever `health()` is still null, and `SkillSynthesisLiveService` feeds an
+   * activity feed whose entire meaning is "while you were watching" — there was
+   * nobody watching. Nothing downstream loses state it depended on.
+   *
+   * Queueing was the cheap option — `enqueueStreamEvent` above already buffers
+   * one class of message — and it is the wrong one, for two reasons:
+   *
+   *  - The activation `harness:healthChanged` snapshot is superseded within
+   *    milliseconds by the `content-download-complete` pass, and again by the
+   *    renderer's own pull. A replay racing that pull would overwrite fresher
+   *    state with staler state — strictly worse than the drop.
+   *  - `IpcBridge` outlives a renderer reload (`SETUP_WIZARD_COMPLETE` below
+   *    reloads the window deliberately), so a replay buffer would re-deliver
+   *    boot events to a renderer that has already moved past them.
+   *
+   * So the drop stays, and only its reporting changes. Before the first window
+   * a push has no subscriber and that is normal: debug, not warn. After a
+   * window has existed, losing one is not normal and still warns. Either way
+   * the message TYPE is named — the bare warning this replaces carried no type,
+   * which is why identifying those two events needed a stack trace at all.
+   */
+  private resolveWindow(
+    messageType: string | undefined,
+  ): ElectronWindowHandle | null {
+    const win = this.getWindow();
+    if (win) {
+      this.hasHadWindow = true;
+      return win;
+    }
+    if (this.hasHadWindow) {
+      console.warn(
+        '[IpcBridge] Cannot send to renderer: the window is gone',
+        messageType ?? '(untyped message)',
+      );
+    } else {
+      console.debug(
+        '[IpcBridge] Push dropped, no renderer yet (pull-backed, deliberately not queued):',
+        messageType ?? '(untyped message)',
+      );
+    }
+    return null;
   }
 
   private extractStreamEvent(message: unknown): QueuedStreamEvent | null {
@@ -153,11 +256,10 @@ export class IpcBridge {
     }
     if (this.streamQueue.length === 0) return;
     const events = this.streamQueue.splice(0, this.streamQueue.length);
-    const win = this.getWindow();
+    const win = this.resolveWindow(
+      events.length === 1 ? events[0].type : MESSAGE_TYPES.BATCH,
+    );
     if (!win) {
-      console.warn(
-        '[IpcBridge] Cannot flush stream queue: no window available',
-      );
       return;
     }
     if (win.webContents.isDestroyed?.() === true) {
@@ -465,6 +567,34 @@ export class IpcBridge {
   }
 
   /**
+   * `diag:cpu-profile` — capture a CPU profile of the main process.
+   *
+   * A DIRECT `ipcMain.handle`, deliberately not an `rpc:` method. The whole
+   * point of this channel is to work when the app is wedged, and every RPC
+   * method runs through `RpcHandler.handleMessage` on the main-process event
+   * loop — the exact resource a hang has taken away. Electron delivers `invoke`
+   * on the same loop, so this is not magic; it is simply the shortest path,
+   * with no handler registry, no capability gate and no queue in front of it.
+   *
+   * `CpuProfileCapture` is resolved lazily per call rather than in the
+   * constructor: this bridge is built during bootstrap, and paying for an
+   * inspector-capable singleton on every launch to serve a channel almost
+   * nobody invokes is the wrong trade.
+   */
+  private setupDiagnosticsHandlers(): void {
+    ipcMain.handle(
+      'diag:cpu-profile',
+      async (_event, durationMs?: number): Promise<string> => {
+        const capture = this.container.resolve<{
+          captureFor(durationMs?: number): Promise<string>;
+        }>(TOKENS.CPU_PROFILE_CAPTURE);
+        return await capture.captureFor(clampCpuProfileDuration(durationMs));
+      },
+    );
+    console.log('[IpcBridge] Diagnostics IPC handlers initialized');
+  }
+
+  /**
    * Cleanup IPC listeners. Call on app shutdown.
    */
   dispose(): void {
@@ -474,6 +604,8 @@ export class IpcBridge {
     ipcMain.removeAllListeners('set-state');
     ipcMain.removeAllListeners('terminal:data-in');
     ipcMain.removeAllListeners('terminal:resize');
+    // `handle` channels need removeHandler, not removeAllListeners.
+    ipcMain.removeHandler('diag:cpu-profile');
     this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }

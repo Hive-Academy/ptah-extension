@@ -216,6 +216,90 @@ describe('WebviewNavigationService', () => {
     expect(service.navigationHistory().length).toBeLessThanOrEqual(50);
   });
 
+  // ── single source of truth for "where am I" (TASK_2026_317) ───────────────
+  //
+  // Plenty of callers set the view straight on AppStateManager — every tab in
+  // the Electron navbar, and the extension host's `switchView` message. This
+  // service used to keep its own mirror of the current view and short-circuit
+  // `navigateToView` against it, so once those two disagreed a navigation
+  // button reported success and went nowhere. "Resume New Project" was that
+  // button: visit the harness builder once, come back via the Setup tab, and
+  // the mirror still said `harness-builder`.
+
+  it('currentView() tracks a view set directly on AppStateManager', () => {
+    appState.setCurrentView('setup-hub');
+    expect(service.currentView()).toBe('setup-hub');
+  });
+
+  it('navigateToView() still navigates after app state moved underneath it', async () => {
+    // 1. Go to the builder through this service (the mirror now says so too).
+    await service.navigateToView('harness-builder');
+    expect(appState.currentView()).toBe('harness-builder');
+
+    // 2. Leave via a navbar tab, which bypasses this service entirely.
+    appState.setCurrentView('setup-hub');
+
+    // 3. "Resume New Project" — must actually go back to the builder.
+    const result = await service.navigateToView('harness-builder');
+
+    expect(result).toBe(true);
+    expect(appState.currentView()).toBe('harness-builder');
+    expect(service.currentView()).toBe('harness-builder');
+  });
+
+  it('canNavigateToView() reflects app state set elsewhere', () => {
+    appState.setCurrentView('setup-hub');
+    expect(service.canNavigateToView('setup-hub')).toBe(false);
+    expect(service.canNavigateToView('harness-builder')).toBe(true);
+  });
+
+  it('previousView() is where the user actually was, not this service’s last hop', async () => {
+    await service.navigateToView('harness-builder');
+    appState.setCurrentView('setup-hub'); // navbar tab
+    await service.navigateToView('harness-builder');
+
+    expect(service.previousView()).toBe('setup-hub');
+  });
+
+  // Every card on the Setup Hub navigates through this service, and every one
+  // of them was reachable from the navbar's Setup tab — so the stale mirror
+  // broke all four the same way, not just Resume New Project. Table-driven so
+  // a fifth card cannot be added without landing here.
+  describe.each([
+    ['Workspace Analysis', 'setup-wizard'],
+    ['AI Team Builder', 'harness-builder'],
+    ['Resume New Project', 'harness-builder'],
+    ['Convene a Tribunal', 'tribunal'],
+  ] as const)('Setup Hub card: %s → %s', (_card, target) => {
+    it('navigates on the second visit, after returning via the navbar Setup tab', async () => {
+      await service.navigateToView(target);
+      expect(appState.currentView()).toBe(target);
+
+      // The navbar tab — `appState.setCurrentView` with no navigation service.
+      appState.setCurrentView('setup-hub');
+      expect(service.currentView()).toBe('setup-hub');
+
+      const result = await service.navigateToView(target);
+
+      expect(result).toBe(true);
+      expect(appState.currentView()).toBe(target);
+    });
+
+    it('navigates again after the extension host switched the view', async () => {
+      await service.navigateToView(target);
+      // `MESSAGE_TYPES.SWITCH_VIEW` → AppStateManager.handleMessage, which
+      // also bypasses this service entirely.
+      appState.handleMessage({
+        type: 'switchView',
+        payload: { view: 'setup-hub' },
+      });
+      expect(service.currentView()).toBe('setup-hub');
+
+      await expect(service.navigateToView(target)).resolves.toBe(true);
+      expect(appState.currentView()).toBe(target);
+    });
+  });
+
   // ── error handling in updateNavigationState ────────────────────────────────
 
   it('navigateToView() returns false and records error when updateNavigationState throws', async () => {

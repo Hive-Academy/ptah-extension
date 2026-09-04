@@ -19,20 +19,57 @@ export interface WorkflowRunInfo {
   readonly name?: string;
 }
 
+/**
+ * What the spawning `Task` tool_use block knew about a `run_in_background: true`
+ * agent, held until its placeholder tool_result arrives.
+ *
+ * The tool_use block is the ONLY place `subagent_type` and `description` appear.
+ * The tool_result that triggers `background_agent_started` carries neither, and
+ * the `SubagentRegistryService` record may not exist yet (the `SubagentStart`
+ * hook can fire after the placeholder). Without this, every background chip
+ * rendered as "unknown" with no description.
+ */
+export interface BackgroundTaskInfo {
+  readonly agentType?: string;
+  readonly agentDescription?: string;
+}
+
 export interface TransformerState {
   getMessageId(contextKey: string): string | undefined;
   getCurrentModel(contextKey: string): string | undefined;
   getToolCallId(contextKey: string, blockIndex: number): string | undefined;
+  /**
+   * True when the context's active message was SYNTHESIZED by the transformer
+   * because a `content_block_start` arrived before any `message_start` (D-5c).
+   *
+   * A real `message_start` that follows describes the SAME message. Without
+   * this flag it would open a second envelope under a new id and clear the
+   * block-index → tool-call-id map, orphaning every later `input_json_delta`
+   * from the `tool_start` already emitted. Cleared with the message id.
+   */
+  isMessageSynthesized(contextKey: string): boolean;
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
+  /** What the spawning tool_use block knew; undefined when not a tracked spawn. */
+  getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined;
   getTaskParentToolUseId(taskId: string): string | undefined;
   isTaskStartedEmitted(toolUseId: string): boolean;
+  /**
+   * True for a task whose `task_started` was rejected as non-agent (see
+   * `isAgentTaskType`). Keyed by task id because the later lifecycle messages
+   * (`task_progress` / `task_updated` / `task_notification`) carry the task id
+   * and would otherwise upsert a phantom agent into the monitor store.
+   */
+  isNonAgentTask(taskId: string): boolean;
   hasActiveSkillToolUseId(toolUseId: string): boolean;
   activeSkillToolUseIdsCount(): number;
   snapshotActiveSkillToolUseIds(): string[];
   getWorkflowRun(toolUseId: string): WorkflowRunInfo | undefined;
 
   setMessageId(contextKey: string, messageId: string): void;
+  /** Clears the message id AND the synthesized mark for `contextKey`. */
   clearMessageId(contextKey: string): void;
+  markMessageSynthesized(contextKey: string): void;
+  clearMessageSynthesized(contextKey: string): void;
   setCurrentModel(contextKey: string, model: string): void;
   clearCurrentModel(contextKey: string): void;
   setToolCallId(
@@ -41,10 +78,15 @@ export interface TransformerState {
     toolUseId: string,
   ): void;
   clearToolCallIdsForContext(contextKey: string): void;
-  addBackgroundTaskToolUseId(toolUseId: string): void;
+  addBackgroundTaskToolUseId(
+    toolUseId: string,
+    info?: BackgroundTaskInfo,
+  ): void;
   removeBackgroundTaskToolUseId(toolUseId: string): void;
   setTaskParent(taskId: string, parentToolUseId: string): void;
+  /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */
   clearTaskParent(taskId: string): void;
+  markNonAgentTask(taskId: string): void;
   markTaskStartedEmitted(toolUseId: string): void;
   addActiveSkillToolUseId(toolUseId: string): void;
   clearActiveSkillToolUseIds(): void;

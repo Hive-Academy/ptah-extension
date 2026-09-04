@@ -8,6 +8,7 @@
 import type { SessionId } from '../branded.types';
 import type { PermissionLevel } from '../model-autopilot.types';
 import type { EffortLevel } from '../ai-provider.types';
+import type { ModelPricing } from '../../utils/pricing.utils';
 
 /** Parameters for config:model-switch RPC method */
 export interface ConfigModelSwitchParams {
@@ -83,4 +84,24 @@ export interface SdkModelInfo {
 /** Response from config:models-list RPC method */
 export interface ConfigModelsListResult {
   models: SdkModelInfo[];
+}
+
+/**
+ * Response from `config:pricing-get`.
+ *
+ * The extension host's runtime pricing map, verbatim. `pricing.utils` keeps
+ * that map in a module-level `let`, and the webview bundle gets its OWN
+ * instance of the module — so the OpenRouter catalog every backend lookup
+ * enjoys was invisible to the renderer, whose map never held anything but the
+ * handful of bundled entries. This is how the renderer catches up.
+ */
+export interface ConfigPricingGetResult {
+  /** Model id (and lowercase / prefix-stripped aliases) → pricing entry. */
+  pricing: Record<string, ModelPricing>;
+  /**
+   * True when the OpenRouter catalog has been fetched and merged. False means
+   * this is the bundled table only — the renderer still hydrates (a partial
+   * map beats none) but a caller may choose to retry later.
+   */
+  hydrated: boolean;
 }

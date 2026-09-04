@@ -65,12 +65,15 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
   });
 
   it('is the highest bundled version', () => {
-    // Bumped to 39 when TASK_2026_296 appended 0039_reap_orphaned_queue_rows
-    // (38 for TASK_2026_277's 0038_gateway_message_turn_state; 37, 36, 35, 34,
-    // 33 and 32 before that, for TASK_2026_180's phases 4, 3, 0, 2, 1 and 0).
-    // This assertion tracks the current highest version and moves forward with
-    // every appended migration (see 0027 → 0028 precedent).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(39);
+    // Bumped to 41 when TASK_2026_331 B4 appended
+    // 0041_skill_md_migration_state (40 for TASK_2026_322's
+    // 0040_skill_candidate_workspace_root; 39 for TASK_2026_296's
+    // 0039_reap_orphaned_queue_rows; 38 for TASK_2026_277's
+    // 0038_gateway_message_turn_state; 37, 36, 35, 34, 33 and 32 before that,
+    // for TASK_2026_180's phases 4, 3, 0, 2, 1 and 0). This assertion tracks
+    // the current highest version and moves forward with every appended
+    // migration (see 0027 → 0028 precedent).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(41);
   });
 });
 

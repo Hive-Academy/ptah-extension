@@ -209,7 +209,7 @@ export class SourceControlFileComponent {
 
   protected readonly statusColor = computed(() => {
     const file = this.file();
-    if (file.status === '??' && file.isDirectory) return 'text-amber-500';
+    if (file.status === '??' && file.isDirectory) return 'text-warning';
     switch (file.status) {
       case 'M':
         return 'text-warning';

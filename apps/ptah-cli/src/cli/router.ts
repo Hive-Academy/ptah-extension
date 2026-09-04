@@ -1567,7 +1567,7 @@ export function buildRouter(): Command {
   const skill = program
     .command('skill')
     .description(
-      'manage skills.sh skills (search / installed / install / remove / popular / recommended / create)',
+      'manage skills.sh skills (search / installed / install / remove / popular / recommended / create) and the per-workspace selection (select / selection)',
     );
 
   skill
@@ -1655,6 +1655,36 @@ export function buildRouter(): Command {
     .action(async (opts: { fromSpec: string }) => {
       const exit = await skillCmd.execute(
         { subcommand: 'create', fromSpec: opts.fromSpec },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // The slug list is `[slug...]` rather than `<slug...>` so `--all` parses on
+  // its own; `select` with neither is rejected in the command, where the
+  // message can say what BOTH forms are.
+  skill
+    .command('select [slug...]')
+    .description(
+      'record which skills this workspace propagates via harness:set-skill-selection (pass slugs, or --all)',
+    )
+    .option('--all', 'propagate everything the user layer offers')
+    .action(async (slugs: string[] | undefined, opts: { all?: boolean }) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'select', slugs, all: opts.all },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('selection')
+    .description(
+      'emit the current mode, allowlist and candidates via harness:get-skill-selection',
+    )
+    .action(async () => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'selection' },
         resolveGlobals(program),
       );
       process.exitCode = exit;

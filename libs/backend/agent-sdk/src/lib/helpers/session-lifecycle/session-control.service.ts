@@ -1,15 +1,15 @@
 /**
- * SessionControl â€” owner of the lifecycle-control methods that act on a
+ * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model.
  *
  * Extracted from `SessionLifecycleManager` (originally lines
- * 395â€“451, 462â€“556, 563â€“610, 1110â€“1149, 1162â€“1207). The cleanup-call order
- * inside `endSession` is spec-asserted (cleanupPendingPermissions â†’
- * markAllInterrupted â†’ interrupt â†’ abort â†’ registry removal) and is
+ * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
+ * inside `endSession` is spec-asserted (cleanupPendingPermissions →
+ * markAllInterrupted → interrupt → abort → registry removal) and is
  * preserved byte-identically.
  *
- * Plain class â€” NOT @injectable, NOT registered with tsyringe. Constructed
+ * Plain class — NOT @injectable, NOT registered with tsyringe. Constructed
  * eagerly by the facade.
  */
 
@@ -24,12 +24,17 @@ import type {
 
 import { SdkError } from '../../errors';
 import type { IModelResolver } from '../../auth-env.port';
-import type { SessionRegistry } from './session-registry.service';
+import type {
+  SessionRecord,
+  SessionRegistry,
+} from './session-registry.service';
 import {
   PERMISSION_MODE_MAP,
   LEVEL_FROM_SDK_MODE,
 } from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
+
+export type EndSessionOutcome = 'ended' | 'already-ended';
 
 export class SessionControl {
   constructor(
@@ -45,7 +50,7 @@ export class SessionControl {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use â€” the user's follow-up message
+   * The session remains active for continued use — the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -112,55 +117,132 @@ export class SessionControl {
    * This method is the ONLY reliable way to detect interrupted subagents. All running
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
-  async endSession(sessionId: SessionId): Promise<void> {
+  async endSession(sessionId: SessionId): Promise<EndSessionOutcome> {
     const rec = this.registry.find(sessionId as string);
     if (!rec) {
-      this.logger.warn(
-        `[SessionLifecycle] Cannot end session - not found: ${sessionId}`,
+      this.logger.info(
+        `[SessionLifecycle] Session already ended, nothing to interrupt`,
       );
-      return;
+      return 'already-ended';
     }
 
+    await this.endRecord(rec, sessionId);
+    return 'ended';
+  }
+
+  /**
+   * End the session ONLY if the record registered under `sessionId` is still
+   * the one identified by `token`.
+   *
+   * The find-compare-teardown is atomic here on purpose. A caller that read the
+   * token, then called `endSession` separately, would still lose the race this
+   * exists to close: `executeSlashCommandQuery` ends the old record and
+   * registers a NEW one under the SAME id, so a late teardown from the old
+   * record's owner would abort the new record's AbortController and the fresh
+   * SDK query would start already aborted.
+   *
+   * @returns true when this call performed the teardown; false when nothing was
+   *   registered or a different record now owns the id (no side effects).
+   */
+  async endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean> {
+    const rec = this.registry.find(sessionId as string);
+    if (!rec || rec.token !== token) {
+      return false;
+    }
+
+    await this.endRecord(rec, sessionId);
+    return true;
+  }
+
+  /**
+   * The teardown itself, shared by both public entry points so the
+   * spec-asserted call order (cleanupPendingPermissions → markAllInterrupted →
+   * interrupt → abort → registry removal) has exactly one definition.
+   *
+   * The removal is unconditional (see `deregister` below): it happens on the
+   * throwing path too, so a caller that awaited a rejected teardown can still
+   * rely on the id being free. The SessionEnd notification is NOT — it stays
+   * after the try/finally, so a failed teardown rethrows without announcing a
+   * clean session end.
+   */
+  private async endRecord(
+    rec: SessionRecord,
+    sessionId: SessionId,
+  ): Promise<void> {
     this.logger.info(`[SessionLifecycle] Ending session: ${sessionId}`);
-    this.permissionHandler.cleanupPendingPermissions(rec.tabId);
     const registrySessionId = rec.realSessionId ?? rec.tabId;
     const workspaceRoot = rec.config.projectPath ?? '';
 
-    this.subagentRegistry.beginSessionTeardown(registrySessionId);
-    try {
-      this.subagentRegistry.markAllInterrupted(registrySessionId);
-
-      this.logger.info(
-        `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
-      );
-      if (rec.query) {
-        try {
-          let timedOut = false;
-          await Promise.race([
-            rec.query.interrupt(),
-            new Promise<void>((resolve) =>
-              setTimeout(() => {
-                timedOut = true;
-                resolve();
-              }, 5000),
-            ),
-          ]);
-          this.logger.info(
-            `[SessionLifecycle] Interrupt ${
-              timedOut ? 'timed out (5s)' : 'completed'
-            } for session: ${sessionId}`,
-          );
-        } catch (err) {
-          this.logger.warn(
-            `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
-            err instanceof Error ? err : new Error(String(err)),
-          );
-        }
-      }
+    /**
+     * Abort + deregister, at most once.
+     *
+     * Called at its normal place below AND from the outer `finally`, because
+     * everything before it can throw synchronously —
+     * `cleanupPendingPermissions`, `beginSessionTeardown` and
+     * `markAllInterrupted` all used to sit outside any `try`. A throw there left
+     * the record REGISTERED while the caller saw a rejection, and the next
+     * teardown of the same id (`executeSlashCommandQuery` always runs one)
+     * would find a live `rec` and pay a second full interrupt race.
+     *
+     * The guard is not defensive vagueness: `registry.remove` deletes by
+     * `rec.tabId` with no identity check, so calling it twice is only harmless
+     * while no NEW record has taken that key. Running it once removes the
+     * question.
+     */
+    let deregistered = false;
+    const deregister = (): void => {
+      if (deregistered) return;
+      deregistered = true;
       rec.abortController.abort();
       this.registry.remove(rec);
+    };
+
+    try {
+      this.permissionHandler.cleanupPendingPermissions(rec.tabId);
+      this.subagentRegistry.beginSessionTeardown(registrySessionId);
+      try {
+        this.subagentRegistry.markAllInterrupted(registrySessionId);
+
+        this.logger.info(
+          `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
+        );
+        if (rec.query) {
+          try {
+            let timedOut = false;
+            await Promise.race([
+              rec.query.interrupt(),
+              new Promise<void>((resolve) =>
+                setTimeout(() => {
+                  timedOut = true;
+                  resolve();
+                }, 5000),
+              ),
+            ]);
+            this.logger.info(
+              `[SessionLifecycle] Interrupt ${
+                timedOut ? 'timed out (5s)' : 'completed'
+              } for session: ${sessionId}`,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
+              err instanceof Error ? err : new Error(String(err)),
+            );
+          }
+        }
+        deregister();
+      } finally {
+        this.subagentRegistry.endSessionTeardown(registrySessionId);
+      }
     } finally {
-      this.subagentRegistry.endSessionTeardown(registrySessionId);
+      // No-op on the happy path — `deregister` already ran inside the try, and
+      // this is the only other call site. It does work exactly when an earlier
+      // step threw, which is the whole point: the record must not survive a
+      // failed teardown.
+      deregister();
     }
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
@@ -171,7 +253,7 @@ export class SessionControl {
       });
     } else {
       this.logger.debug(
-        `[SessionLifecycle] Skipping session-end notification â€” no workspaceRoot for session: ${sessionId}`,
+        `[SessionLifecycle] Skipping session-end notification — no workspaceRoot for session: ${sessionId}`,
       );
     }
   }
@@ -304,7 +386,7 @@ export class SessionControl {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set
@@ -321,7 +403,7 @@ export class SessionControl {
     const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
       this.logger.info(
-        `[SessionLifecycle] Model resolved: '${model}' â†’ '${resolvedModel}'`,
+        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
       );
     }
 

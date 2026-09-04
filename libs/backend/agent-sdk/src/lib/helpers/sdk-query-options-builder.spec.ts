@@ -339,6 +339,112 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
+// build() — activityHold reaches the subagent hooks (TASK_2026_363).
+// The subagent hooks hold the watchdog for every registered subagent; the
+// builder is the only place that can hand the hold to them.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent hooks (TASK_2026_363)', () => {
+  function makeBuilderWithSubagentSpy(): {
+    builder: SdkQueryOptionsBuilder;
+    createHooksSpy: jest.Mock;
+  } {
+    const noopHooks = () => ({ createHooks: jest.fn().mockReturnValue({}) });
+    const createHooksSpy = jest
+      .fn()
+      .mockReturnValue({} as Partial<Record<HookEvent, HookCallbackMatcher[]>>);
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      { createHooks: createHooksSpy },
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+      },
+      noopHooks(),
+      noopHooks(),
+      {} as AuthEnv,
+      {
+        resolveModelId: jest
+          .fn()
+          .mockImplementation((m: string) => m || 'claude-sonnet-4'),
+      },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+      noopHooks(),
+    );
+    return { builder, createHooksSpy };
+  }
+
+  async function buildWithHold(activityHold?: {
+    hold: jest.Mock;
+    release: jest.Mock;
+  }): Promise<jest.Mock> {
+    const { builder, createHooksSpy } = makeBuilderWithSubagentSpy();
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    await builder.build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4',
+        projectPath: 'D:/tmp/ws',
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
+      sessionId: 'sess-1',
+      activityHold,
+    });
+    return createHooksSpy;
+  }
+
+  it('passes activityHold as the third argument to subagentHookHandler.createHooks', async () => {
+    const activityHold = { hold: jest.fn(), release: jest.fn() };
+
+    const createHooksSpy = await buildWithHold(activityHold);
+
+    expect(createHooksSpy).toHaveBeenCalledTimes(1);
+    expect(createHooksSpy).toHaveBeenCalledWith(
+      'D:/tmp/ws',
+      'sess-1',
+      activityHold,
+    );
+  });
+
+  it('passes undefined when the caller has no watchdog', async () => {
+    const createHooksSpy = await buildWithHold(undefined);
+
+    expect(createHooksSpy).toHaveBeenCalledWith(
+      'D:/tmp/ws',
+      'sess-1',
+      undefined,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // build() — CLAUDE_CODE_MAX_CONTEXT_TOKENS override for proxied providers.
 // The SDK only auto-detects the context window for first-party Anthropic; behind
 // a translation proxy it defaults to 200k, mis-timing auto-compaction. We pin the
@@ -508,7 +614,6 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       authEnv,
       modelService,
       injector,
-      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
@@ -1061,6 +1166,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       VALID_TAB_UUID,
       undefined,
       VALID_TAB_UUID,
+      undefined,
     );
   });
 
@@ -1085,6 +1191,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       undefined,
       undefined,
       LEGACY_TAB_ID,
+      undefined,
     );
 
     // The malformed id is logged at warn-level for observability.
@@ -1097,6 +1204,139 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     );
     expect(warnedAboutRouting).toBe(true);
     expect(warnedAboutTabId).toBe(true);
+  });
+
+  it('passes the session-id resolver through to createCallback', async () => {
+    const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+    const sessionIdResolver = () => VALID_SESSION_UUID;
+
+    await builder.build({
+      userMessageStream: (async function* () {
+        // Intentionally empty.
+      })(),
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4',
+        projectPath: 'D:/tmp/ws',
+        tabId: VALID_TAB_UUID,
+      } as AISessionConfig,
+      sessionIdResolver,
+    });
+
+    expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      VALID_TAB_UUID,
+      undefined,
+      VALID_TAB_UUID,
+      undefined,
+      VALID_TAB_UUID,
+      sessionIdResolver,
+    );
+  });
+
+  // A turn parked on `canUseTool` emits zero SDK messages, so the no-activity
+  // watchdog read a user reading an AskUserQuestion card as a wedged provider
+  // and aborted the session at 180s — inside the 5-minute window the prompt
+  // itself advertises. Wrapping the gate in hold/release is what stops the
+  // user's own deliberation being charged to the provider (TASK_2026_317).
+  describe('activityHold wrapping of canUseTool', () => {
+    function makeHoldSpy(): {
+      hold: jest.Mock;
+      release: jest.Mock;
+      order: string[];
+    } {
+      const order: string[] = [];
+      return {
+        hold: jest.fn(() => void order.push('hold')),
+        release: jest.fn(() => void order.push('release')),
+        order,
+      };
+    }
+
+    async function buildWithHold(
+      activityHold: { hold: jest.Mock; release: jest.Mock },
+      gate: jest.Mock,
+    ) {
+      const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+      permissionHandler.createCallback.mockReturnValue(gate);
+      return builder.build({
+        userMessageStream: (async function* () {
+          // Intentionally empty.
+        })(),
+        abortController: new AbortController(),
+        sessionConfig: {
+          model: 'claude-sonnet-4',
+          projectPath: 'D:/tmp/ws',
+          tabId: VALID_TAB_UUID,
+        } as AISessionConfig,
+        activityHold,
+      });
+    }
+
+    it('holds for the whole tool call and releases once it settles', async () => {
+      const activityHold = makeHoldSpy();
+      let unblock: (() => void) | undefined;
+      const gate = jest.fn(
+        async () =>
+          new Promise((resolve) => {
+            unblock = () => resolve({ behavior: 'allow' });
+          }),
+      );
+
+      const config = await buildWithHold(activityHold, gate);
+      const inFlight = (
+        config.options.canUseTool as unknown as (
+          ...a: unknown[]
+        ) => Promise<unknown>
+      )('AskUserQuestion', {}, { toolUseID: 't1' });
+
+      await Promise.resolve();
+      expect(activityHold.hold).toHaveBeenCalledTimes(1);
+      expect(activityHold.release).not.toHaveBeenCalled();
+
+      unblock?.();
+      await inFlight;
+      expect(activityHold.release).toHaveBeenCalledTimes(1);
+      expect(activityHold.order).toEqual(['hold', 'release']);
+    });
+
+    it('releases even when the gate rejects, so a throwing prompt cannot wedge the watchdog off', async () => {
+      const activityHold = makeHoldSpy();
+      const gate = jest.fn(async () => {
+        throw new Error('gate exploded');
+      });
+
+      const config = await buildWithHold(activityHold, gate);
+      await expect(
+        (
+          config.options.canUseTool as unknown as (
+            ...a: unknown[]
+          ) => Promise<unknown>
+        )('Bash', {}, { toolUseID: 't2' }),
+      ).rejects.toThrow('gate exploded');
+
+      expect(activityHold.hold).toHaveBeenCalledTimes(1);
+      expect(activityHold.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the callback untouched when no hold is supplied', async () => {
+      const gate = jest.fn(async () => ({ behavior: 'allow' }));
+      const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+      permissionHandler.createCallback.mockReturnValue(gate);
+
+      const config = await builder.build({
+        userMessageStream: (async function* () {
+          // Intentionally empty.
+        })(),
+        abortController: new AbortController(),
+        sessionConfig: {
+          model: 'claude-sonnet-4',
+          projectPath: 'D:/tmp/ws',
+          tabId: VALID_TAB_UUID,
+        } as AISessionConfig,
+      });
+
+      expect(config.options.canUseTool).toBe(gate);
+    });
   });
 });
 
@@ -1352,6 +1592,13 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     );
     expect(merged.PostToolUse).toHaveLength(1);
     expect(merged.UserPromptSubmit).toHaveLength(1);
+  });
+
+  it('omits PreToolUse from the merged hook list', () => {
+    const { builder } = makeBuilderWithSpies();
+    const merged = builder.createHooks('D:/tmp/ws', 'sess-abc');
+
+    expect(merged).not.toHaveProperty('PreToolUse');
   });
 
   it('passes an absent sessionId through untouched — it does not invent an empty string', () => {

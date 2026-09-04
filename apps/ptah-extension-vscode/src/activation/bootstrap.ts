@@ -4,9 +4,11 @@ import {
   type LicenseService,
   type LicenseStatus,
   type RpcVerificationResult,
+  type DiagnosticsHandle,
   TOKENS,
   SentryService,
   PREVIOUS_USER_CONTEXT_KEY,
+  armDiagnostics,
 } from '@ptah-extension/vscode-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
@@ -22,6 +24,7 @@ import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
 import type { CommandManager } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
 import { registerSetupAgentsCommand } from '../commands/setup-agents-command';
+import { registerCaptureCpuProfileCommand } from '../commands/capture-cpu-profile-command';
 import { createVscodeRpcHostProfile } from '../rpc-host-profile';
 
 export interface BootstrapResult {
@@ -30,6 +33,8 @@ export interface BootstrapResult {
   authInitialized: boolean;
   /** RPC registration verification result. */
   rpcVerification?: RpcVerificationResult;
+  /** Event-loop monitor + CPU profile capture; disposed in `deactivate()`. */
+  diagnostics: DiagnosticsHandle;
 }
 
 /**
@@ -129,11 +134,22 @@ export async function bootstrapVscode(
     valid: licenseStatus.valid,
   });
   const rootContainer = DIContainer.getContainer();
-  registerSetupAgentsCommand(
-    rootContainer,
-    DIContainer.resolve<CommandManager>(TOKENS.COMMAND_MANAGER),
-    logger,
+
+  // Armed as early as the logger allows. The extension host is shared with
+  // every other extension in the window, so a block here is not only Ptah's
+  // problem — and `wireRuntimeVscode` / `registerPostInit` still lie ahead.
+  // `context.logUri` is the directory VS Code already reserves for this
+  // extension's logs, which is where a user asked for a profile would look.
+  const diagnostics = armDiagnostics({
+    container: rootContainer,
+    logsPath: context.logUri.fsPath,
+  });
+
+  const commandManager = DIContainer.resolve<CommandManager>(
+    TOKENS.COMMAND_MANAGER,
   );
+  registerSetupAgentsCommand(rootContainer, commandManager, logger);
+  registerCaptureCpuProfileCommand(commandManager, diagnostics, logger);
   const rpcVerification = registerRpcSurface(
     rootContainer,
     createVscodeRpcHostProfile(logger),
@@ -171,5 +187,6 @@ export async function bootstrapVscode(
     licenseStatus,
     authInitialized,
     rpcVerification,
+    diagnostics,
   };
 }

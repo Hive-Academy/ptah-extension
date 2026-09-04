@@ -105,6 +105,18 @@ export const MESSAGE_TYPES = {
   REFRESH: 'refresh',
   SWITCH_VIEW: 'switchView',
   WORKSPACE_CHANGED: 'workspaceChanged',
+  /**
+   * Backend → Frontend: the post-window boot changed state
+   * (TASK_2026_331 B2A).
+   *
+   * The one new message type in the whole boot-performance task. It exists so a
+   * surface that received an `RpcReadinessError` can drop its pending retry
+   * timer and re-issue the call the instant the backend is ready, instead of
+   * waiting out a delay that has already stopped being true.
+   *
+   * Edge-triggered: one message per transition, not one per boot step.
+   */
+  BOOT_READINESS_CHANGED: 'boot:readinessChanged',
   RPC_REQUEST: 'rpc:request',
   RPC_CALL: 'rpc:call',
   RPC_RESPONSE: 'rpc:response',
@@ -123,6 +135,19 @@ export const MESSAGE_TYPES = {
   SESSION_TURN_FAILED: 'session:turnFailed',
   /** Backend → Frontend: SDK SubagentStop hook fired — a backgrounded subagent finished. */
   SESSION_SUBAGENT_ENDED: 'session:subagentEnded',
+  /**
+   * Backend → Frontend: the MCP servers the CLI reported for this session, plus
+   * any informational notice it wrote to stderr at session start
+   * (TASK_2026_375 B4).
+   *
+   * NOT turn state. `agent-sdk/CLAUDE.md` forbids a `MESSAGE_TYPES` push for
+   * turn state because of the three-channel ordering race; this is exempt for a
+   * structural reason, not by exception. MCP status arrives ONCE per session at
+   * the SDK `init` message, never changes mid-turn, and nothing in the chunk
+   * stream depends on its arrival order — so the direct channel `session:stats`
+   * already uses is the right one.
+   */
+  SESSION_MCP_STATUS: 'session:mcpStatus',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */

@@ -108,6 +108,44 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private initialized = false;
 
+  /**
+   * The in-flight `initialize()` pass, or `null` when none is running.
+   *
+   * `initialized` is a LATCH, not a flight marker: it is only assigned after
+   * `configureAuthentication` and `findExecutable()` have both returned, so
+   * the whole expensive window used to be re-entrant. Four call sites can
+   * re-enter it — the config-change and auth-file watchers, `reset()`, and
+   * host activation — and the boot OAuth token refresh writes `~/.codex/auth.json`
+   * while the first pass is still running, so the adapter raced itself on
+   * every cold start with an expired token.
+   *
+   * Same shape as `AuthManager.configureAuthentication`: hold the promise,
+   * hand it to the second caller, clear it in a `finally` so a FAILED init
+   * does not latch permanently.
+   *
+   * The `finally` clears the slot ONLY when it still holds its own pass
+   * (TASK_2026_308 F3-2). Without that identity check the invariant "a pass
+   * only ever clears itself" is not local to `initialize` — it holds only
+   * because promise reactions run FIFO, so no later writer can have replaced
+   * the slot before this pass's `finally` runs. That is a true statement about
+   * the JS scheduler, not about this class, and it stops being load-bearing
+   * the moment any other code path writes the slot. Checking identity costs
+   * one comparison and makes the invariant provable from this method alone.
+   */
+  private initInFlight: Promise<boolean> | null = null;
+
+  /**
+   * The tail of the reset chain, or `null` when no reset is running.
+   *
+   * Resets are SERIALISED rather than de-duplicated (TASK_2026_308 F3-3).
+   * `doReset` promises every caller a genuinely fresh pass — one that starts
+   * after that caller asked for it — so handing a second caller the reset
+   * already in flight would break the same contract by a different route.
+   * Each `reset()` therefore queues behind the previous one and then runs its
+   * own dispose + initialize pair.
+   */
+  private resetChain: Promise<void> | null = null;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -227,6 +265,61 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       return;
     }
+
+    // TASK_2026_315 (A1) — ZERO FOLDERS OPEN IS NOT A PROVIDER CHANGE.
+    //
+    // `resolveActiveAuth()` reads the workspace scope. With no folder open
+    // there is no scope to read, so it falls through to the GLOBAL default
+    // provider — a value nobody chose for this moment. That fallback differs
+    // from the workspace-scoped provider that was active, which defeats the
+    // equality early-return in `reconfigureAuthIfChanged`, runs a full
+    // reconfigure, burns an OAuth token refresh, and binds a translation proxy
+    // on 127.0.0.1 that no session can ever reach. What binds it is the
+    // process-global `OAuthProxyStrategy` singleton, which is a DIFFERENT
+    // registry from `ProviderProxyPool` — so the `disposeForScope(path)` that
+    // `workspace:removeFolder` runs alongside this was never wired to reach it
+    // under any key, and the socket outlives the workspace for the session.
+    //
+    // CHOSEN: freeze. Skip the reconfigure and leave `lastConfiguredAuth`
+    // exactly where it is. That field records WHICH PROVIDER THE AUTH ENV IS
+    // CURRENTLY CONFIGURED FOR, not which workspace is open — and freezing is
+    // what keeps that invariant true, because closing a folder changes nothing
+    // about the env. Consequences, deliberately:
+    //   (a) Re-adding a folder fires this handler again with a real scope. Same
+    //       provider → the equality early-return is CORRECT, the env already
+    //       holds those credentials. Different provider → a reconfigure runs,
+    //       identical to any other switch. Nothing is deferred or lost.
+    //   (b) The `cliDetector` / `modelService` caches are deliberately NOT
+    //       cleared here. They are keyed to the provider the env still holds,
+    //       so on the way to zero folders they are still accurate; the re-add
+    //       path clears them itself, below, whenever the provider actually
+    //       changes.
+    //   (c) Same rule in shape as the sibling subscriber in the Electron host's
+    //       `wire-runtime.ts` (`const active = ...; if (active) { ... }`):
+    //       workspace-derived work is skipped when there is no workspace. It
+    //       asks for a ROOT because it needs a path to boot services for; this
+    //       asks for a COUNT because it only needs "is there any scope at all".
+    //
+    // REJECTED: tear the previous auth down (`clearAuthentication()` plus
+    // `lastConfiguredAuth = null`). It buys nothing and costs three things.
+    // It makes `lastConfiguredAuth` lie in the other direction — null while the
+    // env still holds live credentials — so re-adding the SAME folder would
+    // force a pointless reconfigure and the very OAuth refresh this guard
+    // exists to avoid, merely deferred. It leaves the adapter unauthenticated
+    // while sessions started under the closed folder are still resumable, which
+    // is exactly the unhealthy state the `onAuthFileChanged` recovery above
+    // exists to climb out of. And it would be a HALF teardown: the leaked
+    // socket belongs to the `OAuthProxyStrategy` singleton behind the
+    // `IAuthEnvProvider` port, which exposes no proxy-teardown call and must
+    // not grow one for this lib's benefit (hexagonal — `agent-sdk` gets ports
+    // only). The fix is to never start one here, not to chase it afterwards.
+    if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+      this.logger.debug(
+        '[SdkAgentAdapter] Workspace change with no folders open — keeping the current auth configuration',
+      );
+      return;
+    }
+
     this.reconfigureAuthIfChanged().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
@@ -247,14 +340,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.logger.info(
       `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
     );
-    // The supported-model list and CLI detection are provider-specific and
-    // cached. A bare auth reconfigure (unlike the full config-change reset)
-    // would leave them populated with the PREVIOUS workspace's provider data,
-    // so `config:models-list` returns that provider's models and a send/resume
-    // can pick a model the newly-active provider rejects (ModelNotAvailable).
-    // Clear them so the new workspace's provider re-resolves its own models.
+    // CLI detection is provider-specific and cached under nothing, so it is
+    // dropped wholesale.
+    //
+    // The model service is NOT. Its catalogs are keyed per auth identity
+    // (`authMethod` + `providerId` + the AuthEnv keys that change the answer),
+    // which is a strictly stronger guarantee than clearing: the new provider
+    // cannot read the old one's list because it cannot reach that key. Calling
+    // the blanket `clearCache()` here bought nothing and cost a full
+    // multi-second SDK-bridge spawn on every switch BACK to a provider whose
+    // catalog was still cached — alternating A/B/A paid three spawns for two
+    // providers (judge round 1, TASK_2026_353). `invalidateForAuthChange()`
+    // drops only the genuinely auth-scoped part, the unkeyed `/v1/models`
+    // response.
     this.cliDetector.clearCache();
-    this.modelService.clearCache();
+    this.modelService.invalidateForAuthChange();
     const result = await this.authManager.configureAuthentication(
       active.authMethod,
     );
@@ -267,6 +367,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   async initialize(): Promise<boolean> {
+    if (this.initInFlight) {
+      this.logger.debug(
+        '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
+      );
+      return this.initInFlight;
+    }
+
+    const pass = (this.initInFlight = this.doInitialize());
+    try {
+      return await pass;
+    } finally {
+      // Clear only OUR pass. See the field's note: without this the "a pass
+      // only clears itself" invariant is a property of microtask ordering
+      // rather than of this method.
+      if (this.initInFlight === pass) {
+        this.initInFlight = null;
+      }
+    }
+  }
+
+  /**
+   * The real initialization pass, guarded by the in-flight mutex above.
+   *
+   * The guard de-duplicates CONCURRENT callers only; it never memoizes a
+   * result, so every sequential call runs a real pass. `reset()` additionally
+   * drains any in-flight pass before disposing, so it can never be answered by
+   * the guard.
+   */
+  private async doInitialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -453,8 +582,54 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.modelService.getApiModelsNormalized();
   }
 
+  /**
+   * Tear the adapter down and bring it back up.
+   *
+   * SERIALISED, not de-duplicated (TASK_2026_308 F3-3). `doReset` waits out any
+   * in-flight init so a reset can never be ANSWERED by the `initialize` guard,
+   * but that is only half the contract when resets themselves overlap: two
+   * concurrent resets used to await the SAME settled pass, both call
+   * `dispose()`, and the second's `initialize()` was then answered by the guard
+   * still holding the FIRST reset's fresh pass — the exact outcome the contract
+   * forbids, reached from the other side. Joining the in-flight reset would not
+   * fix it either: a caller that arrives after the running reset has already
+   * disposed would be answered with a pass that predates its own call.
+   *
+   * So each call queues behind the previous one and runs its own dispose +
+   * initialize pair. Every caller gets a pass that started after it asked, and
+   * the double `dispose()` is gone because the two are now ordered rather than
+   * concurrent.
+   */
   async reset(): Promise<void> {
+    const previous = this.resetChain;
+    const pass = (this.resetChain = (async () => {
+      // A failed reset must not wedge the chain shut for the ones behind it.
+      if (previous) {
+        await previous.catch(() => undefined);
+      }
+      await this.doReset();
+    })());
+    try {
+      await pass;
+    } finally {
+      // Clear only when we are still the tail — a reset queued behind us owns
+      // the slot now, and nulling it would let a third caller start a reset
+      // concurrent with the one still running.
+      if (this.resetChain === pass) {
+        this.resetChain = null;
+      }
+    }
+  }
+
+  private async doReset(): Promise<void> {
     this.logger.info('[SdkAgentAdapter] Resetting adapter...');
+    // A reset must produce a genuinely fresh pass, so it must never be
+    // ANSWERED by the in-flight guard. Let a running pass settle first (its
+    // result is discarded), then dispose and initialize from a clean slate.
+    const running = this.initInFlight;
+    if (running) {
+      await running.catch(() => false);
+    }
     this.dispose();
     await this.initialize();
   }
@@ -667,6 +842,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   isSessionActive(sessionId: SessionId): boolean {
     return this.sessionLifecycle.find(sessionId as string) !== undefined;
+  }
+
+  /**
+   * Opaque identity of the record currently registered under this id, or null.
+   * A re-registration under the same id (slash-command re-query) mints a new
+   * token, which is what lets a holder of the old one detect the swap.
+   */
+  getSessionToken(sessionId: SessionId): string | null {
+    return this.sessionLifecycle.getSessionToken(sessionId);
+  }
+
+  /**
+   * End the session only if `token` still identifies the registered record.
+   * Atomic inside the lifecycle layer — see
+   * `SessionControl.endSessionIfTokenMatches`.
+   */
+  async endSessionIfTokenMatches(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<boolean> {
+    // Same pre-teardown flush `endSession` does, gated on the same token so a
+    // losing caller does not publish activity for a session that stays alive.
+    // This read is NOT the compare that matters — the decision to tear down is
+    // re-made atomically inside SessionControl, so a token that flips in
+    // between costs at most one early activity flush and never a teardown.
+    if (this.sessionLifecycle.getSessionToken(sessionId) === token) {
+      this.flushPendingUserActivityFor(sessionId);
+    }
+    return this.sessionLifecycle.endSessionIfTokenMatches(sessionId, token);
   }
 
   private createSessionIdCallback(

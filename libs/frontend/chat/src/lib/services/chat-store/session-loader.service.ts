@@ -85,6 +85,19 @@ export class SessionLoaderService {
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   /**
+   * Timeout for `chat:resume`, well above the 30 s RPC default.
+   *
+   * The handler reads the whole JSONL transcript TWICE (events + legacy
+   * messages) and rehydrates every persisted agent's output. Measured on
+   * 2026-09-04: a 2.5 MB transcript with 11 restored agents took under a
+   * second warm, and a cold read during app start ran past 31 s — long enough
+   * for the default to fire. A timeout is not a soft failure here: the reply
+   * carries the transcript, the resumable subagents AND the CLI agent cards,
+   * so dropping it empties the Agents panel with nothing on screen to say why.
+   */
+  private static readonly RESUME_TIMEOUT_MS = 120_000;
+
+  /**
    * Maximum workspace entries in sessionCache.
    * LRU eviction: oldest by Map insertion order, but never evict the currentWorkspacePath.
    */
@@ -567,12 +580,16 @@ export class SessionLoaderService {
       this.sessionManager.setSessionId(sessionId);
       this.sessionManager.setStatus('resuming');
       this.streamingHandler.cleanupSessionDeduplication(sessionId);
-      const resumeResult = await this.claudeRpcService.call('chat:resume', {
-        sessionId,
-        tabId: activeTabId,
-        workspacePath,
-        ...(opts?.activate === true ? { activate: true } : {}),
-      });
+      const resumeResult = await this.claudeRpcService.call(
+        'chat:resume',
+        {
+          sessionId,
+          tabId: activeTabId,
+          workspacePath,
+          ...(opts?.activate === true ? { activate: true } : {}),
+        },
+        { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
+      );
       if (opts?.activate === true && resumeResult.data?.activated === true) {
         this.tabManager.markSessionActive(activeTabId);
       }
@@ -582,6 +599,13 @@ export class SessionLoaderService {
       const stats = resumeResult.data?.stats;
       const resumableSubagents = resumeResult.data?.resumableSubagents;
       const cliSessions = resumeResult.data?.cliSessions;
+      // BEFORE the transcript replay, not after it. The agent cards do not
+      // depend on a single event below, and this is the ONLY path that
+      // restores them on a reopen — `restoreCliSessionsForSession` refuses to
+      // fetch twice per session per app run. Anything that throws while
+      // replaying 250+ events (or a transcript that yields none at all, the
+      // third branch below) therefore cost the whole Agents panel silently.
+      this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
         this.tabManager.applyLoadedSessionStats(
           activeTabId,
@@ -642,7 +666,6 @@ export class SessionLoaderService {
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
-        this.applyCliSessions(cliSessions, sessionId);
       } else if (resumeResult.success && messages && messages.length > 0) {
         const executionMessages = messages.map((msg) => ({
           id: msg.id,
@@ -656,7 +679,6 @@ export class SessionLoaderService {
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
-        this.applyCliSessions(cliSessions, sessionId);
       } else {
         this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
@@ -729,6 +751,19 @@ export class SessionLoaderService {
       const cliSessions = result.data?.cliSessions;
       if (result.success && cliSessions && cliSessions.length > 0) {
         this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        return;
+      }
+      if (!result.success) {
+        // A failed RPC RESOLVES here — `ClaudeRpcService.call` reports a
+        // timeout or a handler error as `{ success: false }` and never throws.
+        // Keeping the guard set on that path retired the session's only
+        // retryable restore for the rest of the app run, so the panel stayed
+        // empty however many times the user reopened the session.
+        this._cliSessionsRestored.delete(sessionId);
+        console.warn(
+          '[SessionLoaderService] session:cli-sessions failed; will retry',
+          { sessionId, error: result.error },
+        );
       }
     } catch (error) {
       this._cliSessionsRestored.delete(sessionId);
@@ -790,11 +825,22 @@ export class SessionLoaderService {
     try {
       this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
-      const result = await this.claudeRpcService.call('chat:resume', {
-        sessionId,
-        tabId,
-        workspacePath,
-      });
+      const result = await this.claudeRpcService.call(
+        'chat:resume',
+        {
+          sessionId,
+          tabId,
+          workspacePath,
+        },
+        { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
+      );
+      if (!result.success) {
+        console.warn(
+          '[SessionLoaderService] chat:resume failed for a restored session; agent cards and resumable subagents were not recovered',
+          { sessionId, error: result.error },
+        );
+        return;
+      }
 
       const resumableSubagents = result.data?.resumableSubagents;
       if (resumableSubagents && resumableSubagents.length > 0) {

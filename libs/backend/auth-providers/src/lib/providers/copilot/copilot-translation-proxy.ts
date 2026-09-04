@@ -35,6 +35,15 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The registry id, taken from the provider entry rather than re-typed, so the
+   * quota gate keys on the same string `ProviderAuthResolver` resolves. The
+   * config's `name` above is a log label and would key nothing.
+   */
+  protected getProviderId(): string {
+    return COPILOT_PROVIDER_ENTRY.id;
+  }
+
+  /**
    * Get the Copilot API base URL from the current auth state.
    * Falls back to the default endpoint if no auth state or no override.
    */
@@ -92,7 +101,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
    * Copilot uses Chat Completions (/chat/completions) for all models.
    *
    * The Copilot API at api.githubcopilot.com does not reliably support the
-   * Responses API (/responses) for all GPT-5+ models â€” sending unsupported
+   * Responses API (/responses) for all GPT-5+ models — sending unsupported
    * models there results in "model_not_supported" errors. Chat Completions
    * is the known-working endpoint for all Copilot models.
    */
@@ -158,7 +167,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
     }));
   }
 
-  /** Convert model ID slug to display name: "gpt-5.3-codex" â†’ "GPT 5.3 Codex" */
+  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
   private formatModelName(id: string): string {
     return id
       .split('-')

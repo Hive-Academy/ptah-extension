@@ -33,6 +33,8 @@ import {
   AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
+  MIN_CONCURRENT_AGENTS,
+  MAX_CONCURRENT_AGENTS,
 } from '@ptah-extension/cli-agent-runtime';
 import {
   SDK_TOKENS,
@@ -245,7 +247,10 @@ export class AgentRpcHandlers {
         if (params.maxConcurrentAgents !== undefined) {
           await this.setAgentCfg(
             'maxConcurrentAgents',
-            Math.max(1, Math.min(10, params.maxConcurrentAgents)),
+            Math.max(
+              MIN_CONCURRENT_AGENTS,
+              Math.min(MAX_CONCURRENT_AGENTS, params.maxConcurrentAgents),
+            ),
           );
         }
         if (params.codexModel !== undefined) {

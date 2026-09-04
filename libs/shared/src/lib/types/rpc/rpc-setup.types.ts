@@ -30,7 +30,17 @@ export interface SetupWizardLaunchResponse {
 export interface WizardDeepAnalyzeParams {
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;
+  /** Continue an unfinished version-3 analysis run. */
+  resume?: boolean;
 }
+
+/** All valid status values for a v3 multi-phase analysis step. */
+export type MultiPhaseAnalysisPhaseStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
 
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
@@ -43,13 +53,22 @@ export interface MultiPhaseAnalysisResponse {
   isMultiPhase: true;
   /** Manifest with phase statuses */
   manifest: {
+    version: 3;
+    runId: string;
     slug: string;
     analyzedAt: string;
+    updatedAt: string;
+    lifecycle: 'running' | 'paused' | 'completed' | 'failed';
     model: string;
     totalDurationMs: number;
     phases: Record<
       string,
-      { status: string; file: string; durationMs: number; error?: string }
+      {
+        status: MultiPhaseAnalysisPhaseStatus;
+        file: string;
+        durationMs: number;
+        error?: string;
+      }
     >;
   };
   /** Phase file contents (markdown) keyed by phase ID */
@@ -117,6 +136,38 @@ export interface WizardSubmitSelectionParams {
   model?: string;
   /** Multi-phase analysis directory path (alternative to analysisData for v2 pipeline) */
   analysisDir?: string;
+  /** Continue a persisted generation run instead of starting a new run. */
+  resume?: boolean;
+}
+
+/** Parameters for the read-only resumable-run discovery RPC method. */
+export type WizardGetResumableRunParams = Record<string, never>;
+
+/** A checkpoint agent record returned to the UI for generation recovery. */
+export interface ResumableGenerationAgent {
+  agentId: string;
+  filePath: string;
+  status: 'pending' | 'running' | 'written' | 'unchanged' | 'failed';
+  rejectedSections: number;
+  tailoredSections: number;
+  error?: string;
+}
+
+/** Read-only DTO for a persisted generation checkpoint. */
+export interface ResumableGenerationRun {
+  runId: string;
+  /** `null` when the checkpoint carries no analysis directory. */
+  analysisDirectory: string | null;
+  outputDirectory: string;
+  lifecycle: 'running' | 'paused' | 'completed' | 'timed-out' | 'failed';
+  selectedAgentIds: string[];
+  agents: ResumableGenerationAgent[];
+}
+
+/** Response from resumable analysis/generation discovery. */
+export interface WizardGetResumableRunResponse {
+  analysis: MultiPhaseAnalysisResponse | null;
+  generation: ResumableGenerationRun | null;
 }
 
 /** Response from wizard:submit-selection RPC method */

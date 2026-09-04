@@ -16,9 +16,11 @@ import {
   ConversationRegistry,
   SessionLivenessRegistry,
   SurfaceId,
+  SurfaceSessionStatsRegistry,
   TabId,
   TabSessionBinding,
   type ClaudeSessionId,
+  type SurfaceSessionStats,
 } from '@ptah-extension/chat-state';
 import {
   StreamRouter,
@@ -33,7 +35,20 @@ export type HarnessWorkflowMode = 'new-project' | 'configure-harness';
 /** One turn the user contributed, rendered right-aligned in the transcript. */
 export interface HarnessUserBubble {
   text: string;
+  /**
+   * When the user sent this turn (epoch ms).
+   *
+   * The transcript is ONE timeline, and this is what places a bubble in it. The
+   * surface's execution tree accumulates across the whole workflow, so a view
+   * that renders "all bubbles, then all nodes" puts every follow-up above every
+   * earlier agent reply — the ordering bug this field exists to prevent. Merged
+   * against `ExecutionNode.startTime`, which comes off the same wall clock.
+   */
+  at: number;
 }
+
+/** A bubble as it survives a reload — `at` is absent in pre-timeline records. */
+type PersistedBubble = { readonly text: string; readonly at?: number };
 
 /**
  * `localStorage` key for the in-flight workflow. Versioned in the key itself
@@ -48,7 +63,7 @@ interface PersistedWorkflow {
   /** Resolved agent session; null until the backend reports one. */
   readonly sessionId: string | null;
   readonly workspaceRoot: string;
-  readonly bubbles: readonly HarnessUserBubble[];
+  readonly bubbles: readonly PersistedBubble[];
 }
 
 function isPersistedWorkflow(value: unknown): value is PersistedWorkflow {
@@ -64,12 +79,15 @@ function isPersistedWorkflow(value: unknown): value is PersistedWorkflow {
     return false;
   const bubbles = record['bubbles'];
   if (!Array.isArray(bubbles)) return false;
-  return bubbles.every(
-    (bubble) =>
-      typeof bubble === 'object' &&
-      bubble !== null &&
-      typeof (bubble as Record<string, unknown>)['text'] === 'string',
-  );
+  return bubbles.every((bubble) => {
+    if (typeof bubble !== 'object' || bubble === null) return false;
+    const entry = bubble as Record<string, unknown>;
+    if (typeof entry['text'] !== 'string') return false;
+    // `at` is deliberately optional: records written before the transcript
+    // became one timeline have no timestamp, and rejecting them here would
+    // discard a live workflow on the first reload after an upgrade.
+    return entry['at'] === undefined || typeof entry['at'] === 'number';
+  });
 }
 
 /**
@@ -102,6 +120,7 @@ export class HarnessWorkflowService {
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly surfaceStats = inject(SurfaceSessionStatsRegistry);
   private readonly permissionHandler = inject(PermissionHandlerService);
 
   private readonly _correlationId = signal<TabId | null>(null);
@@ -157,6 +176,20 @@ export class HarnessWorkflowService {
     const record = this.conversationRegistry.getRecord(convId);
     if (!record || record.sessions.length === 0) return null;
     return record.sessions[record.sessions.length - 1];
+  });
+
+  /**
+   * Cost / token / context-fill totals for this workflow's session, or null
+   * before the first turn completes.
+   *
+   * Session-keyed rather than surface-keyed on purpose: a reload mints a fresh
+   * `SurfaceId` but rebinds the SAME session, so a surface-keyed record would
+   * reset the totals every time the user reloaded mid-run.
+   */
+  readonly sessionStats = computed<SurfaceSessionStats | null>(() => {
+    const sessionId = this.sessionId();
+    if (!sessionId) return null;
+    return this.surfaceStats.stats(sessionId as string)();
   });
 
   readonly isProcessing = computed(() => {
@@ -218,14 +251,21 @@ export class HarnessWorkflowService {
     this._error.set(null);
   }
 
-  /** Append a user turn to the transcript. */
+  /** Append a user turn to the transcript, stamped with its place in time. */
   addUserBubble(text: string): void {
-    this._userBubbles.update((bubbles) => [...bubbles, { text }]);
+    const at = Date.now();
+    this._userBubbles.update((bubbles) => [...bubbles, { text, at }]);
   }
 
-  /** Replace the transcript, e.g. with the intake summary as the first turn. */
-  setUserBubbles(bubbles: readonly HarnessUserBubble[]): void {
-    this._userBubbles.set([...bubbles]);
+  /**
+   * Replace the transcript, e.g. with the intake summary as the first turn.
+   * Callers may omit `at`; an unstamped bubble is taken as "now".
+   */
+  setUserBubbles(bubbles: readonly PersistedBubble[]): void {
+    const now = Date.now();
+    this._userBubbles.set(
+      bubbles.map((bubble) => ({ text: bubble.text, at: bubble.at ?? now })),
+    );
   }
 
   async startWorkflow(
@@ -337,22 +377,26 @@ export class HarnessWorkflowService {
       });
       if (!result.success || result.data?.success === false) {
         this.failTurn(
+          'chat:continue',
           result.data?.error ?? result.error ?? 'Failed to send the message.',
         );
       }
     } catch (error: unknown) {
-      this.failTurn(error instanceof Error ? error.message : String(error));
+      this.failTurn(
+        'chat:continue',
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
   /**
-   * A turn that never reached the agent. The workflow itself survives (the
+   * An RPC that never reached the agent. The workflow itself survives (the
    * session and transcript are still good), but `_started` must come back down
    * or `isProcessing()` would report a spinner forever on a session that has
    * no liveness entry yet.
    */
-  private failTurn(message: string): void {
-    console.error('[HarnessWorkflowService] chat:continue failed:', message);
+  private failTurn(method: string, message: string): void {
+    console.error(`[HarnessWorkflowService] ${method} failed:`, message);
     this._started.set(false);
     this._error.set(message);
   }
@@ -360,16 +404,38 @@ export class HarnessWorkflowService {
   /**
    * Stop the running agent, keeping the transcript, the surface and the claim.
    * This is the "Stop" button; "Start over" calls it and then {@link dispose}.
+   *
+   * Marking the session idle locally is not belt-and-braces — it is the ONLY
+   * thing that ends the spinner. `isProcessing()` reads
+   * `SessionLivenessRegistry` once a session id has resolved, and the registry
+   * is driven by `session:turnEnded`, which the SDK raises from its Stop hook.
+   * An interrupt tears the query down before that hook runs, so a successful
+   * abort emitted no turn-end at all: the backend stopped, the button stayed
+   * "Stop", and the composer stayed disabled forever. The chat path has always
+   * done the same thing by hand (`ConversationService.abortCurrentMessage`
+   * calls `tabManager.markTabIdle`) — this is the surface's equivalent.
+   *
+   * Only marked idle when the abort actually succeeded. A failed abort means
+   * the agent is very likely still running, and claiming otherwise would hand
+   * the user a composer that silently interleaves with a live turn.
    */
   async abort(): Promise<void> {
     const sessionId = this.sessionId();
     if (!sessionId) return;
     try {
-      await this.rpc.call('chat:abort', { sessionId });
+      const result = await this.rpc.call('chat:abort', { sessionId });
+      if (!result.success || result.data?.success === false) {
+        this.failTurn(
+          'chat:abort',
+          result.data?.error ?? result.error ?? 'Failed to stop the workflow.',
+        );
+        return;
+      }
       this._started.set(false);
+      this.liveness.markIdle(sessionId, this._workspaceRoot() ?? undefined);
     } catch (error: unknown) {
-      console.warn(
-        '[HarnessWorkflowService] chat:abort failed:',
+      this.failTurn(
+        'chat:abort',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -388,6 +454,13 @@ export class HarnessWorkflowService {
   dispose(): void {
     const correlationId = this._correlationId();
     const surfaceId = this._surfaceId();
+    // Read the session BEFORE the surface unbinds — `sessionId()` resolves
+    // through that binding, so after `onSurfaceClosed` there is nothing left to
+    // key the stats record by and it would leak for the app's lifetime.
+    const sessionId = this.sessionId();
+    if (sessionId) {
+      this.surfaceStats.clear(sessionId as string);
+    }
     if (correlationId) {
       this.claims.release(correlationId as string);
     }
@@ -487,7 +560,14 @@ export class HarnessWorkflowService {
     this._surfaceId.set(surfaceId);
     this._mode.set(record.mode);
     this._viewMode.set(record.mode);
-    this._userBubbles.set([...record.bubbles]);
+    // A pre-timeline record has no `at`. Zero keeps those bubbles above the
+    // replayed tree, which is exactly where the old two-list view drew them.
+    this._userBubbles.set(
+      record.bubbles.map((bubble) => ({
+        text: bubble.text,
+        at: bubble.at ?? 0,
+      })),
+    );
     this._started.set(false);
     this._resumedFromReload.set(true);
     this._error.set(null);

@@ -107,6 +107,7 @@ import type {
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
+import type { SessionMcpStatusPayload } from './session-mcp-status';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -121,6 +122,7 @@ import type {
   VecLoadDiagnosticWire,
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
+import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
@@ -308,8 +310,10 @@ export interface MessagePayloadMap {
   'session:turnEnded': SdkTurnEndedPayload;
   'session:turnFailed': SdkTurnFailedPayload;
   'session:subagentEnded': SdkSubagentEndedPayload;
+  'session:mcpStatus': SessionMcpStatusPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
+  'boot:readinessChanged': BootReadinessChangedPayload;
   'memory:observationCaptured': MemoryObservationCapturedPayload;
   'memory:corpusChanged': MemoryCorpusChangedPayload;
   'memory:extracted': MemoryExtractedPayload;

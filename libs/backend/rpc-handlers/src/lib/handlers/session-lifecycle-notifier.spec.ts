@@ -348,6 +348,60 @@ describe('SessionLifecycleNotifier', () => {
       expect(payload).toEqual(event);
     });
 
+    it('forwards the optional toolCallId from the validated payload', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded({
+        ...makeSubagentEndedEvent({ toolCallId: 'toolu_abc' }),
+        unknownKey: 'ignored',
+      } as unknown as SdkAdapterSubagentEndedEvent);
+
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload.toolCallId).toBe('toolu_abc');
+      // The broadcast payload IS `safeParse().data`: the schema now models
+      // `toolCallId`, so nothing is reattached by hand, and Zod's key
+      // stripping still applies to the whole object.
+      expect('unknownKey' in payload).toBe(false);
+    });
+
+    it('publishes no id for a blank toolCallId, and still delivers the payload', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded(makeSubagentEndedEvent({ toolCallId: '' }));
+
+      // `.catch(undefined)` on the schema field: an invalid correlation id is
+      // treated as absent, never as a reason to drop the terminal signal.
+      expect(calls).toHaveLength(1);
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload.toolCallId).toBeUndefined();
+      expect(payload.agentId).toBe('agent-1');
+    });
+
+    it('delivers the payload when toolCallId is a non-string', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded({
+        ...makeSubagentEndedEvent(),
+        toolCallId: 42,
+      } as unknown as SdkAdapterSubagentEndedEvent);
+
+      expect(calls).toHaveLength(1);
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload.toolCallId).toBeUndefined();
+    });
+
+    it('drops a malformed payload even when it carries a toolCallId', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      bus.emitSubagentEnded({
+        ...makeSubagentEndedEvent({ toolCallId: 'toolu_abc' }),
+        agentId: '',
+      });
+
+      expect(calls).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
     it('drops a malformed subagentEnded payload and logs a warning with structural context', () => {
       new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
       const bad = {

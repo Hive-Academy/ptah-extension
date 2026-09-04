@@ -27,6 +27,7 @@ interface FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
 }
 
@@ -46,11 +47,13 @@ function createFakeChild(): FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.stdin = { end: jest.fn(), write: jest.fn() };
   emitter.pid = FAKE_PID;
+  emitter.whenSpawned = Promise.resolve(FAKE_PID);
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -509,9 +512,10 @@ describe('OpencodeCliAdapter', () => {
       const parsed = JSON.parse(content as string) as {
         mcp: { ptah: { type: string; url: string; enabled: boolean } };
       };
+      // The URL carries the spawn's working directory (TASK_2026_364).
       expect(parsed.mcp.ptah).toEqual({
         type: 'remote',
-        url: 'http://localhost:51820',
+        url: 'http://localhost:51820/workspace/%2Fproj',
         enabled: true,
       });
 

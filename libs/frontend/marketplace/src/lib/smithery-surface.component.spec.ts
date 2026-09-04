@@ -560,4 +560,307 @@ describe('SmitherySurfaceComponent', () => {
       expect(component.detailError()).toBe('upstream 429');
     });
   });
+
+  /**
+   * Account row + Connections list (TASK_2026_375 B3.2).
+   *
+   * The user's complaint that started the task was that Smithery showed a
+   * server as "Installed" while the session reported it as `needs-auth`, with
+   * no way to see which account was in use. These cases pin the two answers:
+   * the namespace is named, and the installed badge reports the CONNECTION.
+   */
+  describe('account + connections', () => {
+    beforeEach(() => {
+      setResponder('mcpDirectory:getSmitheryKeyStatus', () =>
+        ok({ configured: true }),
+      );
+      setResponder('mcpDirectory:search', () => ok({ servers: [] }));
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({ servers: [] }),
+      );
+      setResponder('mcpDirectory:smitheryAccount', () =>
+        ok({ configured: true, namespaces: ['acme'], activeNamespace: 'acme' }),
+      );
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({ connections: [], namespace: 'acme' }),
+      );
+    });
+
+    it('names the active namespace in the Account row', async () => {
+      await createComponent();
+
+      expect(component.activeNamespace()).toBe('acme');
+      expect(hostElement.textContent).toContain('Smithery account');
+      expect(hostElement.textContent).toContain('acme');
+    });
+
+    it('says how many namespaces the key reaches when there is more than one', async () => {
+      setResponder('mcpDirectory:smitheryAccount', () =>
+        ok({
+          configured: true,
+          namespaces: ['acme', 'beta'],
+          activeNamespace: 'acme',
+        }),
+      );
+      await createComponent();
+
+      expect(hostElement.textContent).toContain('2 namespaces');
+    });
+
+    it('reports an account read failure without blanking the browse list', async () => {
+      setResponder('mcpDirectory:smitheryAccount', () =>
+        ok({
+          configured: true,
+          namespaces: [],
+          activeNamespace: null,
+          error: 'key revoked',
+        }),
+      );
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      await createComponent();
+
+      expect(component.accountError()).toBe('key revoked');
+      expect(component.displayServers().length).toBe(1);
+      expect(component.browseError()).toBeNull();
+    });
+
+    it('reveals the API-key form from the Account row and hides it again', async () => {
+      await createComponent();
+
+      expect(component.showKeyForm()).toBe(false);
+      expect(hostElement.querySelector('input[type="password"]')).toBeNull();
+
+      component.toggleKeyForm();
+      fixture.detectChanges();
+      expect(hostElement.querySelector('input[type="password"]')).toBeTruthy();
+
+      component.toggleKeyForm();
+      fixture.detectChanges();
+      expect(hostElement.querySelector('input[type="password"]')).toBeNull();
+    });
+
+    it('lists connections with a status badge and a Ptah-managed marker', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'auth_required',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+            {
+              connectionId: 'other',
+              name: 'Someone else',
+              server: 'other',
+              status: 'connected',
+              managedByPtah: false,
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      await createComponent();
+
+      expect(component.connections()).toHaveLength(2);
+      expect(hostElement.textContent).toContain('Connections');
+      expect(hostElement.textContent).toContain('Needs authorization');
+      expect(hostElement.textContent).toContain('Managed by Ptah');
+    });
+
+    it('authorizes a connection through openSmitherySetup and re-reads the list', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'auth_required',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      setResponder('mcpDirectory:openSmitherySetup', () =>
+        ok({ opened: true, setupUrl: 'https://smithery.example/setup/abc' }),
+      );
+      await createComponent();
+      const before = calls.filter(
+        (c) => c.method === 'mcpDirectory:listSmitheryConnections',
+      ).length;
+
+      await component.authorizeConnection(component.connections()[0]);
+
+      const opened = calls.filter(
+        (c) => c.method === 'mcpDirectory:openSmitherySetup',
+      );
+      expect(opened).toHaveLength(1);
+      expect(opened[0].params).toEqual({ serverKey: 'smithery_hubspot' });
+      expect(
+        calls.filter((c) => c.method === 'mcpDirectory:listSmitheryConnections')
+          .length,
+      ).toBeGreaterThan(before);
+      expect(component.connectionsError()).toBeNull();
+    });
+
+    it('surfaces a failed setup open in-view', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'auth_required',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      setResponder('mcpDirectory:openSmitherySetup', () =>
+        ok({ opened: false, error: 'no browser' }),
+      );
+      await createComponent();
+
+      await component.authorizeConnection(component.connections()[0]);
+
+      expect(component.connectionsError()).toBe('no browser');
+    });
+
+    it('removes a Ptah-managed connection through uninstallSmithery', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'connected',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      setResponder('mcpDirectory:uninstallSmithery', () =>
+        ok({ success: true }),
+      );
+      await createComponent();
+      const removedEvents: string[] = [];
+      component.serverUninstalled.subscribe((k) => removedEvents.push(k));
+
+      await component.removeConnection(component.connections()[0]);
+
+      const removed = calls.filter(
+        (c) => c.method === 'mcpDirectory:uninstallSmithery',
+      );
+      expect(removed).toHaveLength(1);
+      expect(removed[0].params).toEqual({ serverKey: 'smithery_hubspot' });
+      expect(removedEvents).toEqual(['smithery_hubspot']);
+    });
+
+    it('never offers Authorize or Remove for a connection Ptah does not manage', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'other',
+              name: 'Someone else',
+              server: 'other',
+              status: 'auth_required',
+              managedByPtah: false,
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      await createComponent();
+
+      await component.authorizeConnection(component.connections()[0]);
+      await component.removeConnection(component.connections()[0]);
+
+      expect(
+        calls.filter((c) => c.method === 'mcpDirectory:openSmitherySetup'),
+      ).toHaveLength(0);
+      expect(
+        calls.filter((c) => c.method === 'mcpDirectory:uninstallSmithery'),
+      ).toHaveLength(0);
+    });
+
+    it('renders a connection-list failure without failing the surface', async () => {
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        fail('smithery unreachable'),
+      );
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      await createComponent();
+
+      expect(component.connectionsError()).toBe('smithery unreachable');
+      expect(component.displayServers().length).toBe(1);
+      expect(component.browseError()).toBeNull();
+    });
+
+    it('badges an installed card by its CONNECTION status, not the manifest', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: 'hubspot' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            { qualifiedName: 'hubspot', serverKey: 'smithery_hubspot' },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'auth_required',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      await createComponent();
+
+      expect(component.isInstalled('hubspot')).toBe(true);
+      expect(component.installedBadge('hubspot')).toBe('needs-auth');
+    });
+
+    it('falls back to the Installed badge for a legacy record with no connection', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/legacy' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              qualifiedName: '@owner/legacy',
+              serverKey: 'smithery_owner_legacy',
+            },
+          ],
+        }),
+      );
+      await createComponent();
+
+      expect(component.connectionStatusOf('@owner/legacy')).toBeNull();
+      expect(component.installedBadge('@owner/legacy')).toBe('installed');
+    });
+  });
 });

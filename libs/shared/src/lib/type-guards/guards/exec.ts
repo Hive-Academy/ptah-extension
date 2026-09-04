@@ -1,3 +1,8 @@
+import type {
+  FlatStreamEventUnion,
+  TurnStateEvent,
+} from '../../types/execution/stream-background';
+
 /** Bash tool input — Tool: Bash (execute bash command). */
 export interface BashToolInput {
   /** The command to execute */
@@ -322,6 +327,29 @@ export function isTaskManagementTool(toolName: string): boolean {
   return TASK_MANAGEMENT_TOOL_NAMES.has(toolName);
 }
 /**
+ * `task_type` values on an SDK `task_started` system message that are NOT an
+ * agent run. The SDK drives background Bash commands through the very same
+ * task lifecycle it uses for subagents (`task_started` → `task_progress` →
+ * `task_updated` → `task_notification`), tagged `task_type: 'local_bash'` with
+ * `tool_use_id` set to the Bash tool_use id. Transforming those into `agent_*`
+ * events renders a shell command as a subagent bubble — complete with a
+ * "Message agent" affordance that has no agent behind it — and files it in the
+ * agent monitor panel.
+ *
+ * Deliberately a denylist, not an allowlist: `task_type` is an open string in
+ * the SDK typings, so an unrecognised value keeps its current agent rendering
+ * rather than silently vanishing from the transcript.
+ */
+const NON_AGENT_TASK_TYPES = new Set(['local_bash']);
+/**
+ * Checks whether an SDK `task_type` denotes an agent run (a subagent, or a
+ * `local_workflow` root). `undefined` counts as an agent — older SDK builds
+ * omit the field on subagent `task_started` messages.
+ */
+export function isAgentTaskType(taskType: string | undefined): boolean {
+  return taskType === undefined || !NON_AGENT_TASK_TYPES.has(taskType);
+}
+/**
  * Checks if a tool name is the SDK `Monitor` tool, which starts a background
  * event watch (each stdout line of its `command` becomes a chat event).
  */
@@ -370,4 +398,13 @@ export function isTodoWriteToolOutput(
     'message' in output &&
     'stats' in output
   );
+}
+/**
+ * Type guard for the in-stream turn state event. Routed to the turn-state
+ * applier before dedup and before the accumulator; never stored as a node.
+ */
+export function isTurnStateEvent(
+  event: FlatStreamEventUnion,
+): event is TurnStateEvent {
+  return event.eventType === 'turn_state';
 }

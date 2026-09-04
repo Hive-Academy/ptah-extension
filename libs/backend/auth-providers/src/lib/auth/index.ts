@@ -10,6 +10,14 @@ export type {
   AuthConfigureContext,
 } from './auth-strategy.types';
 export { ModelResolver } from './model-resolver';
+export { ProviderQuotaError } from './provider-quota.error';
+export {
+  ProviderQuotaStore,
+  providerQuotaStore,
+  parseRetryAfterMs,
+  PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+  type ProviderQuotaState,
+} from './provider-quota.store';
 export {
   ActiveProviderResolver,
   type ActiveAuth,

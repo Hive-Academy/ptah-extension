@@ -57,10 +57,129 @@ interface SessionsIndex {
 }
 
 /**
+ * Bytes read from the head of a session `.jsonl` when probing it for metadata.
+ *
+ * This is a BYTE bound, not a record bound: the prefix is cut wherever byte
+ * 8192 lands, which for a JSONL file is almost always mid-token. Anything
+ * reading this prefix must treat its trailing line as incomplete — see
+ * `splitCompleteRecords`.
+ */
+const METADATA_PREFIX_BYTES = 8192;
+
+/**
+ * U+FEFF, the UTF-8 byte-order mark.
+ *
+ * Built from its code point rather than written as a literal: a raw BOM in
+ * source is `no-irregular-whitespace`, and an escape is easy to mistake for a
+ * typo at a glance.
+ */
+const UTF8_BOM = String.fromCharCode(0xfeff);
+
+/**
+ * Decode a file prefix read from byte 0, dropping a leading UTF-8 BOM.
+ *
+ * `Buffer.toString('utf-8')` does not strip a BOM and `JSON.parse` throws on
+ * one, so a BOM makes the FIRST record of a session unparseable — and the
+ * first record is the system `init` line carrying the session id. The file
+ * still imports off its later records, but under the FILENAME instead of the
+ * id the SDK wrote, which is the one identity the rest of the system treats as
+ * canonical. A BOM can only legally sit at byte 0 and every read here starts
+ * there, so one strip at decode covers every caller.
+ */
+function decodePrefix(buffer: Buffer, bytesRead: number): string {
+  const text = buffer.toString('utf-8', 0, bytesRead);
+  return text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text;
+}
+
+/**
+ * Split a byte-bounded file prefix into the JSONL records that are certainly
+ * complete, dropping a trailing record that the byte bound cut in half.
+ *
+ * The tail is dropped only when the read actually hit the bound AND the
+ * content does not end on a newline. A short read means the whole file is in
+ * hand, so its final line is complete even without a trailing newline and must
+ * be kept.
+ */
+function splitCompleteRecords(content: string, bytesRead: number): string[] {
+  const lines = content.split('\n');
+  if (bytesRead >= METADATA_PREFIX_BYTES && !content.endsWith('\n')) {
+    lines.pop();
+  }
+  return lines.filter((line) => line.trim());
+}
+
+/**
+ * Options for a scan.
+ *
+ * The signal exists because this scan moved behind the window
+ * (TASK_2026_331 B1.T5): it can now still be running when the user quits, and
+ * an import that keeps writing metadata after the host's disposal chain has run
+ * is exactly the shutdown race the boot coordinator exists to prevent.
+ */
+export interface ScanAndImportOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * Collapse a workspace path to the key the in-flight map is keyed by.
+ *
+ * Three rules, applied in order: strip trailing separators, fold backslashes to
+ * forward slashes, lowercase. Deliberately a LOCAL reimplementation of
+ * `normalizeWorkspaceRoot` in
+ * `apps/ptah-electron/src/activation/boot-heavy-services.ts` — a backend lib
+ * must not import from an app, and this is three lines rather than a new shared
+ * module. The semantics must stay identical to that function's: the two callers
+ * this dedup exists for are the Electron boot (which keys its own one-shot latch
+ * with it) and the `workspace:switch` RPC, and the root the renderer echoes back
+ * differs from the startup root by separator and case on Windows. Two spellings
+ * of one directory must join one scan, not start two.
+ */
+function normalizeWorkspaceKey(workspacePath: string): string {
+  return workspacePath
+    .replace(/[\\/]+$/, '')
+    .replace(/\\/g, '/')
+    .toLowerCase();
+}
+
+/**
+ * Hand the event loop back.
+ *
+ * `setImmediate` rather than `await Promise.resolve()`: a resolved promise is a
+ * MICROtask, so a loop of them never lets an I/O callback or an IPC message run
+ * — the whole loop still executes in one turn. `setImmediate` is a macrotask
+ * queued behind pending I/O, which is what actually lets the renderer's RPCs be
+ * served while a long import is in progress.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+/**
  * Service to import existing Claude sessions
  */
 @injectable()
 export class SessionImporterService {
+  /**
+   * The scan currently running per normalized workspace root.
+   *
+   * This service is the ONE thing the two independent importers share
+   * (`SDK_TOKENS.SDK_SESSION_IMPORTER`, resolved by the Electron boot and by the
+   * `workspace:switch` RPC handler), which is why the concurrency state lives
+   * here rather than in either caller. The handler's own guards could only ever
+   * see the handler's own runs — the boot import stamped none of them — so the
+   * same root was scanned twice on every launch that switched into it
+   * (TASK_2026_331 B7).
+   *
+   * Deliberately NOT a "already imported" latch. The entry is cleared the
+   * instant the scan settles, so a genuine re-scan — switching away and back —
+   * still works. Whether a completed import is recent enough to skip is a
+   * different question with a different owner: the time-based guards in
+   * `WorkspaceRpcHandlers.deferSessionImport`.
+   */
+  private readonly scansInFlight = new Map<string, Promise<number>>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -68,20 +187,76 @@ export class SessionImporterService {
   ) {}
 
   /**
-   * Scan and import existing Claude sessions for a workspace
+   * Scan and import existing Claude sessions for a workspace.
    *
    * Optimization: Only reads file stats to find recent files, then only
    * parses the first few KB of the most recent files to extract metadata.
    *
+   * Yields to the event loop between sessions. This scan runs AFTER the window
+   * is open (TASK_2026_331), so holding the loop for its whole duration would
+   * freeze a window the user is already looking at — an import of 50 sessions
+   * is 50 file opens, 50 reads and 50 store writes.
+   *
+   * **A call for a root that is already being scanned JOINS that scan** and
+   * resolves with its count. It does not start a second one. Different roots run
+   * independently. A rejection reaches every joined caller, and clears the entry
+   * either way.
+   *
+   * **The FIRST caller's `limit` and `signal` govern the whole scan**, and that
+   * is the deliberate choice rather than an oversight. The alternatives are
+   * worse: honouring a joiner's abort would let one caller truncate another's
+   * import, and refusing to join callers whose options differ would reinstate
+   * the duplicate scan this dedup exists to remove — the two real call sites
+   * differ in exactly that way (the boot passes the shutdown signal, the RPC
+   * passes none) and both ask for the same 50. The only signal in play means
+   * "the host is quitting", so a joined caller receiving a truncated count is
+   * the correct answer to a question the process is no longer around to use.
+   * The reverse — a signalled caller joining an unsignalled scan and so not
+   * being able to cut it short — is bounded by the scan's own `setImmediate`
+   * yielding and by the boot coordinator's own drain deadline.
+   *
    * @param workspacePath - The workspace path to find sessions for
    * @param limit - Maximum number of sessions to import (default: 50)
+   * @param options - Optional abort signal, checked between sessions
    * @returns Number of sessions imported
    */
-  async scanAndImport(workspacePath: string, limit = 50): Promise<number> {
+  scanAndImport(
+    workspacePath: string,
+    limit = 50,
+    options?: ScanAndImportOptions,
+  ): Promise<number> {
+    const key = normalizeWorkspaceKey(workspacePath);
+    const joined = this.scansInFlight.get(key);
+    if (joined !== undefined) {
+      this.logger.debug(
+        '[SessionImporter] Joining the scan already in flight for this workspace',
+        { workspacePath },
+      );
+      return joined;
+    }
+
+    // Reserved synchronously. `runScan` is async, so it returns at its first
+    // await and the map is populated in the same turn as the call that started
+    // it — a second caller in the same tick cannot slip past into a second scan.
+    const scan = this.runScan(workspacePath, limit, options).finally(() => {
+      this.scansInFlight.delete(key);
+    });
+    this.scansInFlight.set(key, scan);
+    return scan;
+  }
+
+  private async runScan(
+    workspacePath: string,
+    limit: number,
+    options?: ScanAndImportOptions,
+  ): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,
       limit,
     });
+
+    const signal = options?.signal;
+    if (signal?.aborted === true) return 0;
 
     const sessionsDir = await this.findSessionsDirectory(workspacePath);
     if (!sessionsDir) {
@@ -94,6 +269,7 @@ export class SessionImporterService {
       sessionsDir,
       workspacePath,
       limit,
+      signal,
     );
     imported += indexImported;
     const remainingLimit = limit - imported;
@@ -102,11 +278,12 @@ export class SessionImporterService {
         sessionsDir,
         workspacePath,
         remainingLimit,
+        signal,
       );
       imported += fileImported;
     }
 
-    await this.pruneTitleOnlySessions(sessionsDir, workspacePath);
+    await this.pruneTitleOnlySessions(sessionsDir, workspacePath, signal);
 
     this.logger.info('[SessionImporter] Import complete', {
       imported,
@@ -130,11 +307,14 @@ export class SessionImporterService {
   private async pruneTitleOnlySessions(
     sessionsDir: string,
     workspacePath: string,
+    signal?: AbortSignal,
   ): Promise<number> {
     let pruned = 0;
     try {
       const stored = await this.metadataStore.getForWorkspace(workspacePath);
       for (const entry of stored) {
+        if (signal?.aborted === true) break;
+        await yieldToEventLoop();
         const filePath = path.join(sessionsDir, `${entry.sessionId}.jsonl`);
         try {
           await fs.promises.access(filePath);
@@ -170,14 +350,14 @@ export class SessionImporterService {
   private async isTitleOnlySidecar(filePath: string): Promise<boolean> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
+      const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
+      const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
       await fd.close();
 
       if (bytesRead === 0) return false;
 
-      const content = buffer.toString('utf-8', 0, bytesRead);
-      const lines = content.split('\n').filter((line) => line.trim());
+      const content = decodePrefix(buffer, bytesRead);
+      const lines = splitCompleteRecords(content, bytesRead);
 
       let sawAiTitle = false;
       for (const line of lines) {
@@ -208,6 +388,7 @@ export class SessionImporterService {
     sessionsDir: string,
     workspacePath: string,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<number> {
     const indexPath = path.join(sessionsDir, 'sessions-index.json');
 
@@ -251,6 +432,10 @@ export class SessionImporterService {
       let imported = 0;
 
       for (const entry of sortedEntries) {
+        if (signal?.aborted === true) break;
+        // One macrotask per session, so the renderer keeps being served while
+        // the import runs behind the already-open window.
+        await yieldToEventLoop();
         try {
           const sessionFilePath = path.join(
             sessionsDir,
@@ -347,11 +532,14 @@ export class SessionImporterService {
     sessionsDir: string,
     workspacePath: string,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<number> {
     const recentFiles = await this.getRecentSessionFiles(sessionsDir, limit);
 
     let imported = 0;
     for (const file of recentFiles) {
+      if (signal?.aborted === true) break;
+      await yieldToEventLoop();
       try {
         const sessionId = this.extractSessionIdFromFilename(file.filename);
         if (!sessionId) continue;
@@ -467,6 +655,13 @@ export class SessionImporterService {
    * Reads only the first few KB to find:
    * - Session ID from system init message
    * - Name from first user message (first 50 chars)
+   *
+   * Truncation is expected, not exceptional. The prefix is bounded by BYTES,
+   * so its last line is normally cut mid-token; `splitCompleteRecords` drops
+   * that tail and a per-record `try` tolerates any remaining bad line. A file
+   * whose complete records ALL fail to parse is genuinely corrupt and still
+   * yields `null` — the tolerance is for the known-truncated tail, not for
+   * everything.
    */
   private async extractMetadata(
     filePath: string,
@@ -475,21 +670,35 @@ export class SessionImporterService {
   ): Promise<SessionMetadata | null> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
+      const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
+      const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
       await fd.close();
 
       if (bytesRead === 0) return null;
 
-      const content = buffer.toString('utf-8', 0, bytesRead);
-      const lines = content.split('\n').filter((line) => line.trim());
+      const content = decodePrefix(buffer, bytesRead);
+      const lines = splitCompleteRecords(content, bytesRead);
 
       let sessionId: string | null = null;
       let sessionName: string | null = null;
       let sawSessionContent = false;
+      let parsedRecords = 0;
 
       for (const line of lines) {
-        const msg = JSON.parse(line);
+        let msg: {
+          type?: string;
+          subtype?: string;
+          session_id?: string;
+          message?: {
+            content?: string | Array<{ type: string; text?: string }>;
+          };
+        };
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        parsedRecords++;
         if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
           sessionId = msg.session_id;
         }
@@ -506,11 +715,69 @@ export class SessionImporterService {
         if (sessionId && sessionName) break;
       }
 
-      // Skip sidecar files that hold no conversation — e.g. the CLI's
-      // title-only `{"type":"ai-title",...}` files. They carry no system
-      // init or user turn, so importing them produces phantom
-      // "Session <date>" entries in the session list.
-      if (!sawSessionContent) return null;
+      // Complete records were present and none of them was JSON: the file is
+      // corrupt rather than merely truncated. Warn — a whole directory failing
+      // this way is exactly what stayed invisible behind `imported: 0`.
+      if (lines.length > 0 && parsedRecords === 0) {
+        this.logger.warn(
+          '[SessionImporter] No parseable records in session file prefix',
+          { filePath, completeLines: lines.length },
+        );
+        return null;
+      }
+
+      // Nothing here said "session". Three ways to arrive in that state, and
+      // they do NOT get the same answer:
+      //
+      //   1. Complete records were present and none was a system/user line
+      //      (`parsedRecords > 0`). That is a sidecar — the CLI's title-only
+      //      `{"type":"ai-title",...}` file. Skip it, or it imports as a
+      //      phantom "Session <date>" entry in the session list.
+      //   2. The WHOLE FILE is in hand and holds no non-whitespace byte at
+      //      all. There is nothing in this file to BE a session. Skip it —
+      //      this is TASK_2026_308 F3-1, the case that used to walk straight
+      //      into the filename fallback and out as the same phantom.
+      //   3. Anything else. The file must FALL THROUGH to the filename
+      //      fallback, because we have not proved it is empty. Discarding it
+      //      would trade a phantom for a lost session, which is the worse
+      //      failure by a wide margin.
+      //
+      // Case 2 is a CONJUNCTION, and both halves earn their place:
+      //
+      //   - Non-whitespace bytes, not `parsedRecords`, is the content signal.
+      //     `parsedRecords` counts parse SUCCESSES, so it cannot tell "there
+      //     is nothing in this file" from "I could not parse what is in this
+      //     file" — a BOM-prefixed, truncated or corrupt record all read as
+      //     zero — and only the first of those is evidence of absence.
+      //   - `bytesRead < METADATA_PREFIX_BYTES` is what makes the whitespace
+      //     conclusive. A SHORT read means the entire file is in the buffer.
+      //     Without it the guard would rest on "no producer writes 8 KB of
+      //     leading blank lines" — an assumption about producers stated
+      //     nowhere, and false for a file that is whitespace through byte 8192
+      //     and a real session afterwards. That file gets refused on a full
+      //     prefix we cannot see past, which is data loss.
+      //
+      // Together they read as: REFUSE ONLY WHEN WE HAVE SEEN THE WHOLE FILE
+      // AND THERE IS NOTHING IN IT. That is true by construction at any file
+      // size, which is the whole point — it is not a claim about what
+      // producers do.
+      //
+      // KNOWN AND ACCEPTED, out of scope: a whitespace-only file of EXACTLY
+      // 8192 bytes or larger still imports as a phantom. `bytesRead ===
+      // METADATA_PREFIX_BYTES` is indistinguishable from a truncated read, so
+      // no signal available here separates "8192 bytes of whitespace and
+      // nothing more" from "8192 bytes of whitespace and a session after it"
+      // without a second read. Do not add that read: a phantom is cosmetic, a
+      // dropped session is not, and it would cost a syscall on every import
+      // for a file shape nobody produces.
+      const wholeFileInHand = bytesRead < METADATA_PREFIX_BYTES;
+      const prefixHasContent = content.trim().length > 0;
+      if (
+        !sawSessionContent &&
+        (parsedRecords > 0 || (!prefixHasContent && wholeFileInHand))
+      ) {
+        return null;
+      }
 
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));
@@ -528,7 +795,9 @@ export class SessionImporterService {
         totalTokens: { input: 0, output: 0 },
       };
     } catch (error) {
-      this.logger.debug('[SessionImporter] Failed to extract metadata', {
+      // Only I/O now reaches here — per-record parse failures are handled
+      // above. A file we could open but not read is worth more than debug.
+      this.logger.warn('[SessionImporter] Failed to extract metadata', {
         filePath,
         error: error instanceof Error ? error.message : String(error),
       });

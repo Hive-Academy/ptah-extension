@@ -344,9 +344,21 @@ Example:
 
 ### 1.11 Diagnostics (`debug.*`, only with `--verbose`)
 
-| Method           | Trigger                | Key params                      |
-| ---------------- | ---------------------- | ------------------------------- |
-| `debug.di.phase` | Per DI bootstrap phase | `{ phase: string, ms: number }` |
+| Method           | Trigger                                     | Key params                                                        |
+| ---------------- | ------------------------------------------- | ----------------------------------------------------------------- |
+| `debug.di.phase` | Start and end of each DI bootstrap phase    | `{ phase: string, state: 'start' \| 'end', durationMs?: number }` |
+| `debug.perf.lag` | Event-loop delay over the warning threshold | `{ maxMs: number, p99Ms: number }`                                |
+
+> `debug.di.phase` fires **twice** per phase — once with `state: 'start'` (no
+> `durationMs`) and once with `state: 'end'` (with it). The previous version of
+> this table documented `{ phase, ms }`, which never matched the emitter at
+> `libs/backend/cli-engine/src/lib/container.ts`.
+
+> `debug.perf.lag` is sampled every 2 s by `EventLoopMonitor` and emitted only
+> for windows whose worst delay reached the threshold (250 ms by default,
+> `PTAH_LOOP_LAG_WARN_MS` to override). One event is a spike; a consecutive run
+> of them is a stall. Set `PTAH_PROFILE_ON_LAG_MS` to also write a
+> `.cpuprofile` to `~/.ptah/logs` when lag passes that value.
 
 > `debug.rpc.routing`, `debug.cli_agent.spawn` (Phase 2 / not yet implemented).
 

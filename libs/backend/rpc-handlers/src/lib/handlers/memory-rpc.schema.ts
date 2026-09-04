@@ -96,8 +96,24 @@ export const MemorySetTriggersParamsSchema = z.object({
 
 export const MemoryGetTriggersParamsSchema = z.object({}).strict().optional();
 
+/**
+ * `scope` on the read-scoped memory endpoints. Optional with a defined default
+ * of `'workspace'`, so callers that predate the field — `ptah memory stats`
+ * and the TUI Memory panel both send `{}` — keep working and get the
+ * workspace-scoped answer by explicit decision rather than by accident.
+ */
+export const MemoryQueryScopeSchema = z
+  .enum(['all', 'workspace'])
+  .default('workspace');
+
+export const MemoryStatsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  scope: MemoryQueryScopeSchema,
+});
+
 export const MemorySearchSymbolsParamsSchema = z.object({
   workspaceRoot: z.string().min(1).nullable().optional(),
+  scope: MemoryQueryScopeSchema,
   query: z.string().max(500).optional(),
   kinds: z.array(z.string().min(1).max(100)).max(50).optional(),
   limit: z.number().int().min(1).max(200).optional(),

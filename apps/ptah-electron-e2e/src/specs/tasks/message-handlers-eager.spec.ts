@@ -1,4 +1,5 @@
 import { test, expect } from '../../support/fixtures';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * R4 gate (TASK_2026_187 Batch 4) — sibling to
@@ -16,33 +17,78 @@ import { test, expect } from '../../support/fixtures';
  * against the real Electron renderer, with neither the tasks board nor the
  * harness builder ever having been opened.
  *
- * Neither test below needs the mount-race workaround Batch 3's
- * `thoth/message-handlers-eager.spec.ts` needed — both effects are direct,
- * immediate consequences of the push itself (an RPC call fired from inside
- * `handleMessage`, and a `navigateToView` call fired from inside
- * `handleMessage`), not something a later independent mount-time refresh
- * could race or clobber.
+ * The harness test needs no mount-race workaround Batch 3's
+ * `thoth/message-handlers-eager.spec.ts` needed — its effect is a direct,
+ * immediate consequence of the push itself (a `navigateToView` call fired
+ * from inside `handleMessage`), not something a later independent mount-time
+ * refresh could race or clobber.
+ *
+ * `TasksStore` used to be proved the same way — push with nothing mounted,
+ * watch a `tasks:board` RPC fire. It no longer can be, and the reason is a
+ * deliberate product change rather than a regression: `TasksStore` is now
+ * SURFACE-GATED (tasks-ui guideline 9). A push that arrives with no Tasks
+ * surface mounted is dropped on purpose, because a full `.ptah/specs` scan
+ * to repaint a board nobody is looking at is pure waste and the surface
+ * re-fetches on mount anyway. So the two tests below split that proof in
+ * half: the gate itself, and the registration behind it.
+ *
+ * The registration half survives the board being open, because opening the
+ * board cannot supply the registration. `MESSAGE_HANDLERS` is a root
+ * multi-provider read once by `MessageRouterService`'s constructor at
+ * bootstrap; `TasksViewComponent` registers no handler of its own and the
+ * lazy chunk cannot add one to an injector that is already built. If the
+ * narrow-barrel swap had dropped `TasksStore` from `app.config.ts`, no
+ * amount of opening the board would route a `tasks:changed` push to it.
  */
+
+/** How many `tasks:board` round trips the renderer has made so far. */
+async function boardCallCount(ui: UiDriver): Promise<number> {
+  return (await ui.getObservedCalls('tasks:board')).length;
+}
+
 test.describe('Tasks / Harness MESSAGE_HANDLERS — eager while unopened (R4, TASK_2026_187)', () => {
-  test('TasksStore: tasks:changed triggers a board refresh with the tasks board never opened', async ({
+  test('TasksStore: a tasks:changed push buys no board scan while the board has never been opened', async ({
     ui,
   }) => {
     // No ui.goto('tasks') anywhere in this test — 'chat' is the default view
-    // for the whole test; TasksViewComponent is never created.
+    // for the whole test; TasksViewComponent is never created, so nothing
+    // could render a board this push refreshed.
+    const before = await boardCallCount(ui);
+
+    await ui.pushEvent({ type: 'tasks:changed', payload: {} });
+
+    // A negative held over a window rather than checked once: the dropped
+    // path is synchronous, so a scan that was going to happen would already
+    // be on the wire well inside this.
+    await ui.page.waitForTimeout(1_500);
+    expect(await boardCallCount(ui)).toBe(before);
+  });
+
+  test('TasksStore: tasks:changed refreshes the open board, through a registration the lazy chunk never supplies', async ({
+    ui,
+  }) => {
+    await ui.goto('tasks');
+    await expect(ui.page.locator('ptah-tasks-view')).toBeVisible();
+
+    // The surface's own mount fetch. Waited out first so the assertion below
+    // is about the PUSH and not about this.
+    await ui.waitForObservedCall('tasks:board');
+    const afterMount = await boardCallCount(ui);
+
     await ui.pushEvent({
       type: 'tasks:changed',
       // No workspaceRoot — takes the unconditional "refresh active,
-      // best-effort" branch (tasks-store.service.ts:894-900), asserting
-      // message delivery itself rather than incidentally asserting
-      // workspace-matching logic.
+      // best-effort" branch of `handleMessage`, asserting message delivery
+      // itself rather than incidentally asserting workspace-matching logic.
       payload: {},
     });
 
-    // refreshActiveFromPush() -> fetchBoard() -> a real `tasks:board` RPC
-    // call. Firing with zero UI mounted is direct proof `TasksStore` is
-    // alive, registered through the narrow barrel, and processed the push.
-    const observed = await ui.waitForObservedCall('tasks:board');
-    expect(observed.method).toBe('tasks:board');
+    // handleMessage -> refreshActiveFromPush() -> a second, distinct
+    // `tasks:board` round trip. Only the bootstrap `MESSAGE_HANDLERS`
+    // registration can produce it — see the header.
+    await expect
+      .poll(() => boardCallCount(ui), { timeout: 10_000 })
+      .toBeGreaterThan(afterMount);
   });
 
   test('HarnessWorkflowMessageHandler: harness:open-workflow navigates to the harness builder with it never opened', async ({

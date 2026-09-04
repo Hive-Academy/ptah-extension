@@ -2,7 +2,8 @@
  * AgentProcessManager Unit Tests - SDK Execution Path
  *
  * Tests: SDK spawn path, output streaming, stop/abort, timeout, steer rejection,
- *        shutdownAll with mixed CLI/SDK agents, concurrent limit enforcement.
+ *        idle subprocess release, disposeAll with mixed CLI/SDK agents,
+ *        concurrent limit enforcement.
  */
 
 import 'reflect-metadata';
@@ -94,8 +95,13 @@ import {
   AgentContinueError,
 } from './agent-process-manager.service';
 import {
+  BUFFER_LOW_WATER_SIZE,
   COMPLETED_AGENT_TTL,
   DEFAULT_TIMEOUT,
+  MAX_BUFFER_SIZE,
+  MIN_SDK_IDLE_RELEASE_MS,
+  SDK_IDLE_RELEASE_MS,
+  countNewlines,
 } from './agent-process-manager-helpers';
 import { CliDetectionService } from './cli-detection.service';
 import type {
@@ -622,7 +628,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       // Wait for the microtask to process
       await Promise.resolve();
 
-      const info = await manager.stop(result.agentId);
+      // `stop()` on a finished agent is no longer a no-op — it reclaims the
+      // subprocess a continuation-capable handle may still be holding, and
+      // waits for the kill to settle (TASK_2026_323 B11). Pump the fake clock
+      // past that settle so the awaited call can resolve.
+      const pending = manager.stop(result.agentId);
+      jest.advanceTimersByTime(600);
+      const info = await pending;
       expect(info.status).toBe('completed');
     });
   });
@@ -757,7 +769,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('shutdownAll() with SDK agents', () => {
+  describe('disposeAll() with SDK agents', () => {
     it('should stop all running SDK agents', async () => {
       await manager.spawn({
         task: 'Task 1',
@@ -767,8 +779,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const abortSpy = jest.spyOn(sdkControls.abortController, 'abort');
 
-      // Trigger shutdownAll
-      const shutdownPromise = manager.shutdownAll();
+      const disposePromise = manager.disposeAll();
 
       // The abort should trigger the SDK to resolve
       sdkControls.resolve(1);
@@ -776,12 +787,11 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       jest.advanceTimersByTime(600);
       await Promise.resolve();
 
-      await shutdownPromise;
+      await disposePromise;
 
       expect(abortSpy).toHaveBeenCalled();
-      // Verify logger recorded shutdown
       expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('shut down'),
+        expect.stringContaining('agents disposed'),
       );
     });
   });
@@ -835,6 +845,42 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(result2.status).toBe('running');
       sdkControls2.resolve(0);
+    });
+  });
+
+  describe('getMaxConcurrentAgents()', () => {
+    const readConfiguredMax = (): number =>
+      (
+        manager as unknown as {
+          getMaxConcurrentAgents(): number;
+        }
+      ).getMaxConcurrentAgents();
+
+    it('clamps a configured value above the maximum down to 20', () => {
+      setupVscodeConfig({ maxConcurrentAgents: 200 });
+
+      expect(readConfiguredMax()).toBe(20);
+    });
+
+    it.each([0, -5])(
+      'clamps a configured %i up to the minimum of 1',
+      (configured) => {
+        setupVscodeConfig({ maxConcurrentAgents: configured });
+
+        expect(readConfiguredMax()).toBe(1);
+      },
+    );
+
+    it('preserves a configured value inside the supported range', () => {
+      setupVscodeConfig({ maxConcurrentAgents: 12 });
+
+      expect(readConfiguredMax()).toBe(12);
+    });
+
+    it('falls back to 5 for a non-finite configured value', () => {
+      setupVscodeConfig({ maxConcurrentAgents: Number.NaN });
+
+      expect(readConfiguredMax()).toBe(5);
     });
   });
 
@@ -1136,6 +1182,294 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   });
 
   /**
+   * TASK_2026_323 B11 — a finished agent must not keep its process.
+   *
+   * A continuation-capable handle deliberately outlives its turn: on the
+   * ptah-cli path `query()` is fed a prompt mailbox whose generator returns only
+   * once the mailbox is closed, and it closes only on abort. `handleExit` marked
+   * the agent completed and aborted nothing, and `scheduleCleanup` then deleted
+   * the last reference to that abort controller — so the subprocess lived until
+   * the host quit. Measured on the user's machine: 16 idle `claude.exe` at
+   * 90-180 MB each, three hours after their tasks finished, memory at 99%.
+   */
+  describe('idle subprocess release', () => {
+    let controls: MockSdkHandleControls;
+
+    const spawnContinuable = async (): Promise<string> => {
+      controls = createMockSdkHandle({ supportsContinuation: true });
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await manager.spawn({
+        task: 'Initial task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      return result.agentId;
+    };
+
+    const completeTurn1 = async (): Promise<void> => {
+      controls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+    };
+
+    /** Let the release's post-abort settle (killProcess' 500 ms wait) finish. */
+    const settleRelease = async (): Promise<void> => {
+      jest.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
+    it('aborts the handle exactly once after the idle window, keeping the record readable', async () => {
+      const agentId = await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      controls.emitOutput('work in progress\n');
+      await completeTurn1();
+
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      // Exactly once: the record is deliberately kept, so every later caller
+      // (TTL cleanup, stop, disposeAll) walks the same release path and must
+      // find it already done rather than issuing a second abort + tree-kill.
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+
+      // The record and its buffered output survive the process. This is what
+      // keeps `ptah_agent_read` answering until COMPLETED_AGENT_TTL — releasing
+      // the process must not look, to a reader, like the agent never ran.
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+      expect(manager.readOutput(agentId).stdout).toContain('work in progress');
+    });
+
+    it('rejects a continuation with `released` and names the resume path', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      const error = await manager
+        .continueConversation(agentId, 'follow up')
+        .then(
+          () => null,
+          (err: unknown) => err,
+        );
+
+      expect(error).toBeInstanceOf(AgentContinueError);
+      expect(error).toMatchObject({ code: 'released' });
+      // The caller's recovery is a session resume, so the message has to name
+      // the parameter that performs it — a bare "released" tells the agent
+      // holding this handle nothing it can act on.
+      expect((error as Error).message).toContain('resume_session_id');
+      expect(controls.continueCallCount()).toBe(0);
+    });
+
+    it('keeps the process alive for a follow-up sent inside the idle window', async () => {
+      const agentId = await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // Comfortably inside the window — `completeTurn1` has already burnt the
+      // 3.1 s graceful-exit delay off the clock the release timer runs on.
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS - 60_000);
+      await manager.continueConversation(agentId, 'quick follow-up');
+
+      // The continuation is the reason the process was held — arming a release
+      // and then letting it fire mid-turn would kill a live run.
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS * 2);
+      await Promise.resolve();
+
+      expect(abortSpy).not.toHaveBeenCalled();
+      expect(controls.continueCallCount()).toBe(1);
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+    });
+
+    it('re-arms the idle window when the continued turn ends', async () => {
+      const agentId = await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+      await manager.continueConversation(agentId, 'second turn');
+
+      controls.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('announces the release so the card stops offering a continuation', async () => {
+      const released: Array<{ agentId: string; reason: string }> = [];
+      const agentId = await spawnContinuable();
+      manager.events.on('agent:released', (payload) => released.push(payload));
+      await completeTurn1();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      expect(released).toEqual([
+        expect.objectContaining({ agentId, reason: 'idle' }),
+      ]);
+    });
+
+    it('honours a configured idle window', async () => {
+      setupVscodeConfig({ maxConcurrentAgents: 3, sdkIdleReleaseMs: 20_000 });
+      const agentId = await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // 3.1 s of the 20 s window is already gone (graceful-exit delay).
+      jest.advanceTimersByTime(10_000);
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(15_000);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+      expect(() => manager.getStatus(agentId)).not.toThrow();
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_326 — the manifest declares `"minimum": 10000` for
+    // `sdkIdleReleaseMs`, but that minimum is enforced only by the VS Code
+    // settings UI. A hand-edited settings.json, `~/.ptah/settings.json`, or the
+    // Electron/CLI stores all deliver the number unchecked.
+    // -----------------------------------------------------------------------
+
+    it('raises a configured window below the declared minimum to the floor', async () => {
+      setupVscodeConfig({ maxConcurrentAgents: 3, sdkIdleReleaseMs: 500 });
+      await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // 3.1 s of the window is already gone (graceful-exit delay). Past the
+      // configured 500 ms many times over, and still held — the floor, not the
+      // setting, is what the countdown is running on.
+      jest.advanceTimersByTime(6_000);
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      // Past MIN_SDK_IDLE_RELEASE_MS (3.1 s + 6 s + 1.5 s), and NOT anywhere
+      // near the five-minute default — a too-small value is clamped, not
+      // discarded.
+      jest.advanceTimersByTime(1_500);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a non-number', 'soon' as unknown as number],
+      ['zero', 0],
+      ['a negative number', -1],
+      ['NaN', Number.NaN],
+    ])('falls back to the default window for %s', async (_label, value) => {
+      setupVscodeConfig({
+        maxConcurrentAgents: 3,
+        sdkIdleReleaseMs: value,
+      });
+      await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      // Well past the floor: an unusable value is not a preference to clamp.
+      jest.advanceTimersByTime(MIN_SDK_IDLE_RELEASE_MS * 2);
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(SDK_IDLE_RELEASE_MS);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases at TTL for a handle that never supported continuation', async () => {
+      // No idle timer is armed for these — nothing about them is meant to
+      // outlive the turn — so the cleanup sweep is their only backstop, and
+      // deleting the record without aborting first is what made an orphan
+      // permanent: after the delete nothing holds the controller.
+      const abortSpy = jest.spyOn(sdkControls.abortController, 'abort');
+      const result = await manager.spawn({
+        task: 'One shot',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+
+      expect(abortSpy).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+      await settleRelease();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+      expect(() => manager.getStatus(result.agentId)).toThrow(/not found/i);
+    });
+
+    it('reclaims a completed agent on stop() without relabelling its status', async () => {
+      const agentId = await spawnContinuable();
+      const abortSpy = jest.spyOn(controls.abortController, 'abort');
+      await completeTurn1();
+
+      const stopped = await (async () => {
+        const pending = manager.stop(agentId);
+        await settleRelease();
+        return pending;
+      })();
+
+      expect(abortSpy).toHaveBeenCalledTimes(1);
+      // `ptah_agent_stop` on a finished agent is a memory request, not a
+      // cancellation — reporting `stopped` would relabel a successful run.
+      expect(stopped.status).toBe('completed');
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+    });
+
+    it('releases every agent on disposeAll, running or not', async () => {
+      const finishedId = await spawnContinuable();
+      const finishedControls = controls;
+      const finishedAbort = jest.spyOn(
+        finishedControls.abortController,
+        'abort',
+      );
+      await completeTurn1();
+
+      const runningControls = createMockSdkHandle({
+        supportsContinuation: true,
+      });
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(
+        runningControls.handle,
+      );
+      const running = await manager.spawn({
+        task: 'Still going',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const runningAbort = jest.spyOn(runningControls.abortController, 'abort');
+
+      const disposePromise = manager.disposeAll();
+      await settleRelease();
+      await disposePromise;
+
+      // The COMPLETED one is the whole point: the old shutdown filtered to
+      // `status === 'running'` and walked straight past every orphan.
+      expect(finishedAbort).toHaveBeenCalledTimes(1);
+      expect(runningAbort).toHaveBeenCalledTimes(1);
+      expect(() => manager.getStatus(finishedId)).toThrow(/not found/i);
+      expect(() => manager.getStatus(running.agentId)).toThrow(/not found/i);
+    });
+  });
+
+  /**
    * TASK_2026_295 — `''` is not a tab id.
    *
    * The loop matched `record.parentSessionId === tabId` with no guard, so one
@@ -1200,6 +1534,444 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(parentOf(matching)).toBe(realSessionId);
       expect(parentOf(other)).toBe('');
+    });
+  });
+
+  /**
+   * TASK_2026_323 B1 — the stdout buffer trim.
+   *
+   * The trim used to remove only the OVERFLOW, so a buffer that reached 1 MB
+   * stayed pinned at 1 MB: it dropped one line and copied the surviving
+   * megabyte on EVERY subsequent chunk. On the ptah-cli path a chunk is one
+   * token, which made a chatty agent copy a megabyte per token on the Electron
+   * main thread. The trim now cuts back to a low-water mark, so the copy is
+   * amortized.
+   */
+  describe('output buffer trimming (TASK_2026_323 B1)', () => {
+    /** Exactly 1 KB including the trailing newline, so line boundaries are exact. */
+    const LINE = `${'x'.repeat(1023)}\n`;
+
+    const spawnAgent = async (): Promise<string> => {
+      const result = await manager.spawn({
+        task: 'Chatty task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      return result.agentId;
+    };
+
+    it('cuts back to the low-water mark on the first trim, not to the cap', async () => {
+      const agentId = await spawnAgent();
+
+      // 1024 x 1 KB lands the buffer on exactly MAX_BUFFER_SIZE, which does not
+      // trim. Line 1025 is the first append that crosses it, so exactly one
+      // trim has run when the loop ends.
+      for (let i = 0; i < 1025; i++) {
+        sdkControls.emitOutput(LINE);
+      }
+
+      const output = manager.readOutput(agentId);
+
+      // This is the assertion the whole fix is about. The overflow-only trim
+      // left ~1 MB here — still saturated, so the next chunk copied it again.
+      expect(output.stdout.length).toBeLessThanOrEqual(BUFFER_LOW_WATER_SIZE);
+      expect(output.stdout.length).toBeGreaterThanOrEqual(
+        BUFFER_LOW_WATER_SIZE - LINE.length,
+      );
+      expect(output.truncated).toBe(true);
+    });
+
+    it('keeps a saturated buffer between the low-water mark and the cap', async () => {
+      const agentId = await spawnAgent();
+
+      // 2 MB — twice the cap, so the trim runs several times.
+      for (let i = 0; i < 2048; i++) {
+        sdkControls.emitOutput(LINE);
+      }
+
+      const output = manager.readOutput(agentId);
+
+      expect(output.stdout.length).toBeLessThanOrEqual(MAX_BUFFER_SIZE);
+      // A trim cuts to the low-water mark and then forward to the next line
+      // boundary, so it can undershoot by at most one line.
+      expect(output.stdout.length).toBeGreaterThanOrEqual(
+        BUFFER_LOW_WATER_SIZE - LINE.length,
+      );
+      expect(output.truncated).toBe(true);
+    });
+
+    it('counts lines exactly while the buffer is below the cap', async () => {
+      const agentId = await spawnAgent();
+
+      sdkControls.emitOutput('alpha\nbeta\n');
+      sdkControls.emitOutput('gamma\n');
+
+      const output = manager.readOutput(agentId);
+      expect(output.lineCount).toBe(3);
+      expect(output.truncated).toBe(false);
+    });
+
+    it('reports the lines still in the buffer after a trim, not the lines ever seen', async () => {
+      const agentId = await spawnAgent();
+      const linesEmitted = 2048;
+
+      for (let i = 0; i < linesEmitted; i++) {
+        sdkControls.emitOutput(LINE);
+      }
+
+      const output = manager.readOutput(agentId);
+
+      // The invariant that matters: the counter and the buffer agree.
+      expect(output.lineCount).toBe(countNewlines(output.stdout));
+      expect(output.lineCount).toBeGreaterThan(0);
+      expect(output.lineCount).toBeLessThan(linesEmitted);
+    });
+
+    // -----------------------------------------------------------------------
+    // TASK_2026_326 — `lineCount` describes the strings THIS CALL RETURNS.
+    // It used to be read straight off the buffer counters, so the two callers
+    // that surface it (`agent-tool.dispatcher`, the MCP formatter's `**Lines:**`
+    // row) printed the buffer's thousands next to a twenty-line tail.
+    // -----------------------------------------------------------------------
+
+    it('counts the tail it returns, not the buffer behind it', async () => {
+      const agentId = await spawnAgent();
+
+      for (let i = 0; i < 50; i++) {
+        sdkControls.emitOutput(`line ${i}\n`);
+      }
+
+      const tailed = manager.readOutput(agentId, 5);
+
+      // `tailLines` slices the trailing empty element `split('\n')` leaves
+      // behind, so a 5-line tail carries 4 newlines. The number reported has to
+      // agree with THAT, not with the 50 in the buffer.
+      expect(tailed.lineCount).toBe(countNewlines(tailed.stdout));
+      expect(tailed.lineCount).toBeLessThan(6);
+
+      // The full read still reports all 50 — the tail shrank the answer, not
+      // the buffer.
+      expect(manager.readOutput(agentId).lineCount).toBe(50);
+    });
+
+    it('counts what the adapter parsed out, not the raw bytes', async () => {
+      // A real adapter's `parseOutput` strips protocol framing; every dropped
+      // line was being counted as if the reader could see it.
+      (sdkAdapter.parseOutput as jest.Mock).mockImplementation((raw: string) =>
+        raw
+          .split('\n')
+          .filter((line) => !line.startsWith('#'))
+          .join('\n'),
+      );
+      const agentId = await spawnAgent();
+
+      sdkControls.emitOutput('#framing\nreal one\n#framing\nreal two\n');
+
+      const output = manager.readOutput(agentId);
+
+      expect(output.lineCount).toBe(countNewlines(output.stdout));
+      expect(output.lineCount).toBe(2);
+    });
+
+    describe('append cost past saturation', () => {
+      beforeEach(() => {
+        // The measurement below needs a real clock, and jest's modern fake
+        // timers fake `performance` alongside `setTimeout`.
+        jest.useFakeTimers({ doNotFake: ['performance'] });
+      });
+
+      it('stays cheap for many small chunks once the buffer is saturated', async () => {
+        const agentId = await spawnAgent();
+
+        // Saturate first, in 1 KB lines, so the measured loop starts at the cap.
+        for (let i = 0; i < 1024; i++) {
+          sdkControls.emitOutput(LINE);
+        }
+
+        const chunk = `${'y'.repeat(99)}\n`; // 100 B
+        const chunkCount = 10_000; // ~1 MB, so the trim runs ~4 times
+
+        const startedAt = performance.now();
+        for (let i = 0; i < chunkCount; i++) {
+          sdkControls.emitOutput(chunk);
+        }
+        const elapsedMs = performance.now() - startedAt;
+
+        // With the overflow-only trim this loop copied ~1 MB per chunk — 10 GB
+        // of string copying, tens of seconds. With the low-water trim it copies
+        // ~768 KB roughly four times. The bound is two orders of magnitude
+        // above the fixed cost and two below the broken one, so it separates
+        // the two without being a wall-clock coin flip.
+        expect(elapsedMs).toBeLessThan(500);
+        expect(manager.readOutput(agentId).stdout.length).toBeLessThanOrEqual(
+          MAX_BUFFER_SIZE,
+        );
+      });
+    });
+  });
+
+  /**
+   * TASK_2026_323 B9 — every per-agent timer must be unref'd.
+   *
+   * These are watchdogs and housekeeping ticks: they must fire IF the process
+   * is alive, and must never be the reason it stays alive. Ref'd, one spawned
+   * agent pinned the event loop for up to an hour and a completed one for a
+   * further thirty minutes. Same defect class as commit 5dc525f02.
+   */
+  describe("agent timers are unref'd (TASK_2026_323 B9)", () => {
+    interface TimerBearingAgent {
+      timeoutHandle: NodeJS.Timeout;
+      cleanupHandle?: NodeJS.Timeout;
+      exitEmitHandle?: NodeJS.Timeout;
+    }
+
+    const trackedAgent = (agentId: string): TimerBearingAgent => {
+      const agents = (
+        manager as unknown as { agents: Map<string, TimerBearingAgent> }
+      ).agents;
+      const tracked = agents.get(agentId);
+      if (!tracked) throw new Error(`No tracked agent for ${agentId}`);
+      return tracked;
+    };
+
+    const flushTimerFor = (agentId: string): NodeJS.Timeout | undefined =>
+      (
+        manager as unknown as { flushTimers: Map<string, NodeJS.Timeout> }
+      ).flushTimers.get(agentId);
+
+    it('does not hold the loop open with the spawn timeout or the output flush timer', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(trackedAgent(result.agentId).timeoutHandle.hasRef()).toBe(false);
+
+      sdkControls.emitOutput('some output\n');
+
+      const flushTimer = flushTimerFor(result.agentId);
+      expect(flushTimer).toBeDefined();
+      expect(flushTimer?.hasRef()).toBe(false);
+    });
+
+    it('does not hold the loop open with the deferred exit emit or the TTL cleanup timer', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const tracked = trackedAgent(result.agentId);
+      expect(tracked.exitEmitHandle).toBeDefined();
+      expect(tracked.exitEmitHandle?.hasRef()).toBe(false);
+      expect(tracked.cleanupHandle).toBeDefined();
+      expect(tracked.cleanupHandle?.hasRef()).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_326 — the post-abort settle wait is a timer too.
+   *
+   * `killProcess` tree-kills by PID when the handle exposes one. The ptah-cli
+   * handle does not: `query()` owns the `claude` child and reaps it from the
+   * same abort we fire, so there is nothing to kill and only the unwind to wait
+   * for. That wait used to be a bare `setTimeout(resolve, 500)` — the one timer
+   * in this file that skipped `unrefTimer`, on the exact path a host takes on
+   * its way out.
+   */
+  describe("killProcess settle wait is unref'd (TASK_2026_326)", () => {
+    it("arms no ref'd timer for a handle that exposes no PID", async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      // The shape this test is about: abort, no `getPid`.
+      expect(sdkControls.handle.getPid).toBeUndefined();
+
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+      try {
+        const stopPromise = manager.stop(result.agentId);
+        sdkControls.resolve(1);
+        jest.advanceTimersByTime(600);
+        await stopPromise;
+
+        const armed = setTimeoutSpy.mock.results
+          .map((r) => r.value as { hasRef?: () => boolean })
+          .filter((timer) => typeof timer?.hasRef === 'function');
+
+        // Guards against a vacuous pass: the stop path really does arm timers,
+        // so an empty `armed` would mean the assertion below checked nothing.
+        expect(armed.length).toBeGreaterThan(0);
+        expect(armed.filter((timer) => timer.hasRef?.() === true)).toEqual([]);
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
+    });
+
+    it('settles on the handle rather than waiting out the full ceiling', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      // The run is already over before the stop arrives, so `done` is the
+      // answer and no clock has to move for the kill to be considered settled.
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await expect(manager.stop(result.agentId)).resolves.toEqual(
+        expect.objectContaining({ agentId: result.agentId }),
+      );
+    });
+  });
+
+  /**
+   * TASK_2026_323 B10 — the spawn mutex must not serialize whole spawns.
+   *
+   * The lock is global to the host. It used to wrap the ENTIRE spawn: CLI
+   * detection, the working-directory `realpath`, the 1500 ms harness preflight
+   * and the SDK process launch. One slow spawn in session A therefore blocked
+   * sessions B and C from starting one at all. It now covers only the
+   * check-and-reserve against the concurrent cap.
+   *
+   * Two things have to hold at once, which is why both tests live here: spawns
+   * must OVERLAP, and the cap must still be EXACT.
+   */
+  describe('spawn concurrency (TASK_2026_323 B10)', () => {
+    /** Let queued microtasks and promise chains drain. */
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    };
+
+    describe('spawns overlap outside the lock', () => {
+      let overlapManager: AgentProcessManager;
+      let ensure: jest.Mock<Promise<void>, [string]>;
+      let releasePreflight: () => void;
+
+      beforeEach(() => {
+        // The overlap is observed across real microtask turns, and the manager
+        // under test arms real (unref'd) watchdog timers it never needs to fire.
+        jest.useRealTimers();
+
+        let resolveGate: () => void = () => {
+          /* replaced below */
+        };
+        const gate = new Promise<void>((resolve) => {
+          resolveGate = () => resolve();
+        });
+        releasePreflight = resolveGate;
+        ensure = jest.fn<Promise<void>, [string]>(() => gate);
+
+        // Each spawn needs its own handle: one shared handle would make the two
+        // agents indistinguishable in the manager's map.
+        (sdkAdapter.runSdk as jest.Mock).mockImplementation(() =>
+          Promise.resolve(createMockSdkHandle().handle),
+        );
+
+        setupVscodeConfig({ maxConcurrentAgents: 3 });
+
+        overlapManager = new AgentProcessManager(
+          logger,
+          cliDetection,
+          createMockSubagentRegistry() as unknown as ConstructorParameters<
+            typeof AgentProcessManager
+          >[2],
+          createMockWorkspaceProvider() as unknown as ConstructorParameters<
+            typeof AgentProcessManager
+          >[3],
+          createMockSentryService() as unknown as ConstructorParameters<
+            typeof AgentProcessManager
+          >[4],
+          {
+            effort: { get: jest.fn(() => '') },
+          } as unknown as ConstructorParameters<typeof AgentProcessManager>[5],
+          { ensure } as unknown as ConstructorParameters<
+            typeof AgentProcessManager
+          >[6],
+          { getPort: jest.fn(() => null) },
+        );
+      });
+
+      afterEach(async () => {
+        releasePreflight();
+        await flush();
+        jest.useFakeTimers();
+      });
+
+      it('runs the second session harness preflight while the first is still inside it', async () => {
+        const spawnA = overlapManager.spawn({
+          task: 'Session A task',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+        });
+        const spawnB = overlapManager.spawn({
+          task: 'Session B task',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+        });
+
+        await flush();
+
+        // The assertion the whole fix is about. The gate is still closed, so A
+        // is parked inside its preflight. Under the old shape B was still
+        // queued behind A on the global mutex and had not reached `ensure` at
+        // all, so this read 1.
+        expect(ensure).toHaveBeenCalledTimes(2);
+
+        releasePreflight();
+        const [resultA, resultB] = await Promise.all([spawnA, spawnB]);
+
+        expect(resultA.status).toBe('running');
+        expect(resultB.status).toBe('running');
+        expect(resultA.agentId).not.toBe(resultB.agentId);
+      });
+    });
+
+    describe('the cap stays exact under a burst', () => {
+      it.each([2, 3])(
+        'admits exactly %i spawns from a 10-way burst and rejects the rest',
+        async (max) => {
+          setupVscodeConfig({ maxConcurrentAgents: max });
+          (sdkAdapter.runSdk as jest.Mock).mockImplementation(() =>
+            Promise.resolve(createMockSdkHandle().handle),
+          );
+
+          const outcomes = await Promise.allSettled(
+            Array.from({ length: 10 }, (_, i) =>
+              manager.spawn({
+                task: `Burst task ${i}`,
+                cli: 'codex',
+                workingDirectory: '/workspace/root',
+              }),
+            ),
+          );
+
+          const admitted = outcomes.filter((o) => o.status === 'fulfilled');
+          const refused = outcomes.filter((o) => o.status === 'rejected');
+
+          // Shrinking the critical section must not widen the cap: the
+          // reservation is taken INSIDE the lock precisely so a burst cannot
+          // over-admit.
+          expect(admitted).toHaveLength(max);
+          expect(refused).toHaveLength(10 - max);
+          for (const outcome of refused) {
+            expect(
+              ((outcome as PromiseRejectedResult).reason as Error).message,
+            ).toContain('Maximum concurrent agent limit reached');
+          }
+        },
+      );
     });
   });
 });

@@ -43,6 +43,7 @@ import type {
   MemoryPurgeBySubjectPatternResult,
   MemoryPurgeJunkParams,
   MemoryPurgeJunkResult,
+  MemoryQueryScope,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
   MemoryRunNowParams,
@@ -68,6 +69,7 @@ import {
   MemoryRunNowParamsSchema,
   MemorySearchSymbolsParamsSchema,
   MemorySetTriggersParamsSchema,
+  MemoryStatsParamsSchema,
 } from './memory-rpc.schema';
 
 const WorkspaceRootSchema = z.string().min(1).optional();
@@ -139,6 +141,55 @@ export class MemoryRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
+
+  /**
+   * Resolve `(scope, workspaceRoot)` for a READ-scoped memory call into the
+   * store's tri-state.
+   *
+   *   - `scope: 'all'` → `undefined`, i.e. no predicate: every workspace.
+   *     `workspaceRoot` is ignored. This is the ONLY input that produces a
+   *     cross-workspace union, and it only happens when a caller asked for one.
+   *   - `scope: 'workspace'` (the default) then decides on `workspaceRoot`:
+   *       - explicit `string` → that workspace
+   *       - explicit `null`   → global / unscoped rows only. Preserved verbatim;
+   *         `null` is a genuinely different query from `undefined` in
+   *         `MemoryStore.stats` and the dashboard tile relies on it
+   *         (`thoth-status.service.ts:285`).
+   *       - omitted → the host's current workspace root, or `null` when no
+   *         folder is open.
+   *
+   * WHY `scope` EXISTS — the first revision of this fix did not have it and
+   * broke the Memory tab's shipped "All workspaces" toggle in both directions:
+   *
+   *   - `memory:searchSymbols` — the tab OMITS `workspaceRoot` for all-scope
+   *     (`memory-state.service.ts`), so resolving an omitted key to
+   *     `getWorkspaceRoot()` silently narrowed an all-workspaces search to one.
+   *   - `memory:stats` — the tab sends an explicit `null` for all-scope, so
+   *     preserving `null` verbatim silently turned the grand total into
+   *     "unscoped rows only", making `codeIndex` a hard `0`
+   *     (`code_symbols.workspace_root` is never NULL).
+   *
+   * Both were silent, and both existed because one field carried four meanings:
+   * absent = "no folder open" AND "all workspaces"; `null` = "global/unscoped"
+   * AND "all workspaces". `scope` splits the intent from the target, so this
+   * function only ever sees an unambiguous input.
+   *
+   * Reads are SCOPED rather than REFUSED. `memory:purgeBySubjectPattern`'s
+   * refusal is the precedent for DESTRUCTIVE calls (and `memory:purgeJunk`
+   * below follows it), but refusing here would break shipped callers that
+   * legitimately send neither field — `ptah memory stats`
+   * (`apps/ptah-cli/src/cli/commands/memory.ts:240`) and the TUI Memory panel
+   * (`apps/ptah-tui/src/components/thoth/MemoryPanel.tsx:97`) both send `{}`.
+   * The Zod default makes their workspace-scoped answer an explicit decision.
+   */
+  private resolveReadScope(
+    scope: MemoryQueryScope,
+    workspaceRoot: string | null | undefined,
+  ): string | null | undefined {
+    if (scope === 'all') return undefined;
+    if (workspaceRoot !== undefined) return workspaceRoot;
+    return this.workspaceProvider.getWorkspaceRoot() ?? null;
+  }
 
   register(): void {
     this.rpcHandler.registerMethod(
@@ -267,8 +318,26 @@ export class MemoryRpcHandlers {
       async (
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
-        const workspaceRoot = params?.workspaceRoot ?? undefined;
-        this.logger.info('[memory] stats', { workspaceRoot });
+        let validated: z.infer<typeof MemoryStatsParamsSchema>;
+        try {
+          validated = MemoryStatsParamsSchema.parse(params ?? {});
+        } catch (err: unknown) {
+          this.logger.warn('[memory] stats — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:stats',
+            'INVALID_PARAMS',
+          );
+        }
+        const workspaceRoot = this.resolveReadScope(
+          validated.scope,
+          validated.workspaceRoot,
+        );
+        this.logger.info('[memory] stats', {
+          scope: validated.scope,
+          workspaceRoot: workspaceRoot ?? null,
+        });
         const curated = this.store.stats(workspaceRoot);
         const codeIndex = this.codeSymbols.count(workspaceRoot);
         return {
@@ -300,7 +369,10 @@ export class MemoryRpcHandlers {
         }
         try {
           const result = this.codeSymbols.search({
-            workspaceRoot: validated.workspaceRoot ?? undefined,
+            workspaceRoot: this.resolveReadScope(
+              validated.scope,
+              validated.workspaceRoot,
+            ),
             query: validated.query,
             kinds: validated.kinds,
             limit: validated.limit,
@@ -386,12 +458,21 @@ export class MemoryRpcHandlers {
       async (
         params: MemoryPurgeJunkParams | undefined,
       ): Promise<MemoryPurgeJunkResult> => {
-        const workspaceRoot = params?.workspaceRoot ?? undefined;
-        if (
-          workspaceRoot !== undefined &&
-          workspaceRoot !== null &&
-          !isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)
-        ) {
+        // DESTRUCTIVE — follows the `memory:purgeBySubjectPattern` refusal
+        // precedent rather than the scoping used by the read paths above.
+        // Omitting the key used to mean "delete junk symbols in EVERY
+        // workspace", and because the authorization check below was itself
+        // skipped for null/undefined, that unscoped delete ran unauthorized.
+        // `code_symbols.workspace_root` is never NULL, so `null` has no
+        // legitimate target either.
+        const workspaceRoot = params?.workspaceRoot;
+        if (workspaceRoot === undefined || workspaceRoot === null) {
+          throw new RpcUserError(
+            'memory:purgeJunk requires an explicit workspaceRoot; cross-workspace purge is not permitted.',
+            'INVALID_PARAMS',
+          );
+        }
+        if (!isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)) {
           throw new RpcUserError(
             'Workspace not authorized',
             'UNAUTHORIZED_WORKSPACE',
@@ -401,7 +482,7 @@ export class MemoryRpcHandlers {
           const deleted = this.codeSymbols.purgeJunk(workspaceRoot);
           this.logger.info('[memory] purgeJunk complete', {
             deleted,
-            workspaceRoot: workspaceRoot ?? null,
+            workspaceRoot,
           });
           return { deleted };
         } catch (err) {
@@ -543,27 +624,48 @@ export class MemoryRpcHandlers {
             sessionId: validated.sessionId,
             workspaceRoot: validated.workspaceRoot,
           });
+          // `outcome` rides both the event and the response — TASK_2026_306
+          // Batch 10, F-1.
+          //
+          // This is the one curate call site a HUMAN drives and waits on. The
+          // four counts are all zero both when the pass ran and learned nothing
+          // and when the provider quota gate stopped it before dispatch, so
+          // reporting counts alone hands the user the exact "ran and found
+          // nothing" reading this batch exists to eliminate — at the surface
+          // where a wrong reading is most expensive, because the user is
+          // standing there deciding whether the feature works.
+          //
+          // `success` stays `true`: the RPC completed and the false branch
+          // below is reserved for a thrown failure. Conflating "the gate
+          // stopped a background pass" with "your request errored" would trade
+          // one ambiguity for another. `stats.outcome` is the discriminator,
+          // and `MemoryRunNowResult.stats` is already
+          // `Record<string, number | string | boolean | null>`, so carrying it
+          // needs no wire-contract change and no frontend change.
+          const runStats = {
+            outcome: stats.outcome,
+            extracted: stats.extracted,
+            merged: stats.merged,
+            created: stats.created,
+            skipped: stats.skipped,
+          };
+          if (stats.outcome === 'stalled') {
+            this.logger.info(
+              '[memory] runNow — pass stalled before dispatch; nothing was consumed',
+              { sessionId: validated.sessionId },
+            );
+          }
           this.curator.pushEvent({
             kind: 'manual-run',
             timestamp: Date.now(),
             sessionId: validated.sessionId,
-            stats: {
-              extracted: stats.extracted,
-              merged: stats.merged,
-              created: stats.created,
-              skipped: stats.skipped,
-            },
+            stats: runStats,
           });
           return {
             success: true,
             startedAt,
             completedAt: Date.now(),
-            stats: {
-              extracted: stats.extracted,
-              merged: stats.merged,
-              created: stats.created,
-              skipped: stats.skipped,
-            },
+            stats: runStats,
           };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);

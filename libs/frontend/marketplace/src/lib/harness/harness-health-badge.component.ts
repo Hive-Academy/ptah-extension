@@ -17,9 +17,11 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
 import { HarnessHealthStore } from './harness-health.store';
 import {
   harnessBadgeTone,
+  harnessBlockedPaths,
   type HarnessBadgeTone,
 } from './harness-health.model';
 import { HarnessTargetRowComponent } from './harness-target-row.component';
+import { HarnessBlockedPathsComponent } from './harness-blocked-paths.component';
 
 /** Per-tone classes for the badge trigger. Kept as whole strings so Tailwind can see them. */
 const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
@@ -55,6 +57,7 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
     LucideAngularModule,
     NativePopoverComponent,
     HarnessTargetRowComponent,
+    HarnessBlockedPathsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -156,6 +159,10 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
           </div>
         }
 
+        @if (blocked().count > 0) {
+          <ptah-harness-blocked-paths [blocked]="blocked()" />
+        }
+
         @if (collisionCount() > 0) {
           <p
             class="text-[11px] text-base-content-muted"
@@ -216,6 +223,22 @@ export class HarnessHealthBadgeComponent implements OnInit {
   });
 
   protected readonly collisionCount = computed(() => this.summary().collisions);
+
+  /**
+   * Desired paths an unowned file occupies, derived from the report the store
+   * already holds.
+   *
+   * Client-side on purpose: `blocked` is `missing ∩ foreign` over two fields
+   * the payload already carries, so a wire field would be a second producer of
+   * a set both sides can already agree on. Nothing here waits on a contract
+   * change, and `rpc.types.ts` is untouched.
+   *
+   * Rendered ABOVE the collisions note because it explains the amber badge the
+   * user just clicked, whereas a collision does not raise the badge at all.
+   */
+  protected readonly blocked = computed(() =>
+    harnessBlockedPaths(this.store.health()),
+  );
 
   /**
    * Why the harness is incomplete when the cause is the SOURCES rather than any

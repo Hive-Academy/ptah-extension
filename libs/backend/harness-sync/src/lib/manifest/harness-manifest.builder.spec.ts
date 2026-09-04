@@ -12,7 +12,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { HarnessManifestBuilder } from './harness-manifest.builder';
 import type { HarnessSourceState } from '../sources/harness-source.port';
-import { hashDirSync } from '../hash/content-hash';
+import { hashDir } from '../hash/content-hash';
 
 function writeSkill(
   skillsRoot: string,
@@ -69,7 +69,7 @@ describe('HarnessManifestBuilder', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('[E20] a slug that only differs by case across two overlay plugins is reported as a case-collision, and the earlier plugin wins the slot', () => {
+  it('[E20] a slug that only differs by case across two overlay plugins is reported as a case-collision, and the earlier plugin wins the slot', async () => {
     // Two directories differing only by case CANNOT coexist under the same
     // parent on default (case-insensitive) NTFS, so the collision is produced
     // across two DIFFERENT plugin directories instead — a realistic shape,
@@ -86,7 +86,7 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills).toHaveLength(1);
     expect(desired.skills[0]?.slug).toBe('Run-Tests');
@@ -101,7 +101,7 @@ describe('HarnessManifestBuilder', () => {
     });
   });
 
-  it('[E20] a slug that is a reserved Windows device name (with an extension-like suffix) is rejected and nothing is written for it', () => {
+  it('[E20] a slug that is a reserved Windows device name (with an extension-like suffix) is rejected and nothing is written for it', async () => {
     // `com1.backup` is creatable on this filesystem (verified empirically) —
     // its STEM is `com1`, which `isReservedSlug` rejects regardless of suffix.
     writeSkill(join(root, 'skills'), 'com1.backup');
@@ -114,7 +114,7 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills.map((s) => s.slug)).toEqual(['legit-skill']);
     expect(desired.collisions).toContainEqual(
@@ -122,7 +122,7 @@ describe('HarnessManifestBuilder', () => {
     );
   });
 
-  it('[14] a skill in disabledSkillIds never enters the desired state', () => {
+  it('[14] a skill in disabledSkillIds never enters the desired state', async () => {
     writeSkill(join(root, 'skills'), 'foo');
     writeSkill(join(root, 'skills'), 'bar');
 
@@ -133,12 +133,12 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills.map((s) => s.slug)).toEqual(['foo']);
   });
 
-  it('[14] a disabled plugin id contributes no overlay skills at all', () => {
+  it('[14] a disabled plugin id contributes no overlay skills at all', async () => {
     const pluginPath = join(root, 'plugins', 'ptah-harness-extra');
     writeSkill(join(pluginPath, 'skills'), 'only-in-plugin');
 
@@ -149,12 +149,12 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: ['ptah-harness-extra'],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills).toHaveLength(0);
   });
 
-  it('[15] a plugin skill whose slug already exists in the user layer is silently skipped, not reported as a collision (expected mirror case)', () => {
+  it('[15] a plugin skill whose slug already exists in the user layer is silently skipped, not reported as a collision (expected mirror case)', async () => {
     writeSkill(join(root, 'skills'), 'shared-skill', 'USER CONTENT');
     const pluginPath = join(root, 'plugins', 'ptah-harness-mirror');
     writeSkill(join(pluginPath, 'skills'), 'shared-skill', 'PLUGIN CONTENT');
@@ -166,18 +166,18 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills).toHaveLength(1);
     expect(desired.collisions).toHaveLength(0);
     // The user layer wins the claim, so its content hash (not the plugin's) is
     // what the target will end up copying.
     expect(desired.skills[0]?.contentHash).toBe(
-      hashDirSync(join(root, 'skills', 'shared-skill')),
+      await hashDir(join(root, 'skills', 'shared-skill')),
     );
   });
 
-  it('[286] an agent in disabledAgentIds never enters the desired state, and its siblings still do', () => {
+  it('[286] an agent in disabledAgentIds never enters the desired state, and its siblings still do', async () => {
     writeAgent(root, 'backend-developer');
     writeAgent(root, 'senior-tester');
 
@@ -186,16 +186,16 @@ describe('HarnessManifestBuilder', () => {
       disabledAgentIds: ['senior-tester'],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.agents.map((a) => a.slug)).toEqual(['backend-developer']);
   });
 
-  it('[286] agentSyncEnabled: false empties the agent facet entirely, and leaves skills and commands alone', () => {
+  it('[286] agentSyncEnabled: false empties the agent facet entirely, and leaves skills and commands alone', async () => {
     writeAgent(root, 'backend-developer');
     writeSkill(join(root, 'skills'), 'run-tests');
 
-    const desired = builder.build(emptyState(root), {
+    const desired = await builder.build(emptyState(root), {
       agentSyncEnabled: false,
     });
 
@@ -206,15 +206,15 @@ describe('HarnessManifestBuilder', () => {
     expect(desired.skills.map((s) => s.slug)).toEqual(['run-tests']);
   });
 
-  it('[286] an absent agentSyncEnabled option means enabled, so a caller with no opinion never triggers a reap', () => {
+  it('[286] an absent agentSyncEnabled option means enabled, so a caller with no opinion never triggers a reap', async () => {
     writeAgent(root, 'backend-developer');
 
-    const desired = builder.build(emptyState(root));
+    const desired = await builder.build(emptyState(root));
 
     expect(desired.agents.map((a) => a.slug)).toEqual(['backend-developer']);
   });
 
-  it('[E2] resolves to sources-missing with zero artifacts when the source roots do not exist', () => {
+  it('[E2] resolves to sources-missing with zero artifacts when the source roots do not exist', async () => {
     const state: HarnessSourceState = {
       layout: emptyLayout(join(root, 'never-created')),
       overlayPluginPaths: [],
@@ -222,14 +222,14 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state);
+    const desired = await builder.build(state);
 
     expect(desired.skills).toHaveLength(0);
     expect(desired.commands).toHaveLength(0);
     expect(desired.sources).toBe('sources-missing');
   });
 
-  it('[E3] resolves to pending-download instead of sources-missing when downloadPending is set', () => {
+  it('[E3] resolves to pending-download instead of sources-missing when downloadPending is set', async () => {
     const state: HarnessSourceState = {
       layout: emptyLayout(join(root, 'never-created')),
       overlayPluginPaths: [],
@@ -237,7 +237,7 @@ describe('HarnessManifestBuilder', () => {
       disabledPluginIds: [],
     };
 
-    const desired = builder.build(state, { downloadPending: true });
+    const desired = await builder.build(state, { downloadPending: true });
 
     expect(desired.sources).toBe('pending-download');
   });

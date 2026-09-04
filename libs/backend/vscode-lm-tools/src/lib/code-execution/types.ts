@@ -24,6 +24,10 @@ import type { MemoryNamespace } from './namespace-builders/memory-namespace.buil
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
+import type {
+  WebSearchFailureReason,
+  WebSearchProviderType,
+} from './services/web-search-provider.interface';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
@@ -56,14 +60,36 @@ export interface PtahAPI {
   webSearch?: {
     search(
       query: string,
-      options?: { maxResults?: number; timeout?: number },
+      options?: {
+        maxResults?: number;
+        timeout?: number;
+        /** Overrides the configured provider set for this one call. */
+        providers?: WebSearchProviderType[];
+      },
     ): Promise<{
       query: string;
       summary: string;
-      provider: string;
+      /** The providers actually attempted, in selection order. */
+      providers: WebSearchProviderType[];
+      /** 'ok' = every provider succeeded, 'partial' = at least one failed. */
+      status: 'ok' | 'partial';
       durationMs: number;
-      results: Array<{ title: string; url: string; snippet: string }>;
+      results: Array<{
+        title: string;
+        url: string;
+        snippet: string;
+        sources: WebSearchProviderType[];
+      }>;
       resultCount: number;
+      /** One entry per selected provider, ok and failed alike. */
+      outcomes: Array<{
+        provider: WebSearchProviderType;
+        status: 'ok' | 'failed';
+        durationMs: number;
+        resultCount: number;
+        reason?: WebSearchFailureReason;
+        message?: string;
+      }>;
     }>;
   };
   harness?: HarnessNamespace;
@@ -143,9 +169,9 @@ export interface SearchNamespace {
  * "unavailable" from "available with zero issues" (TASK_2026_299).
  */
 export interface DiagnosticsNamespace {
-  getErrors: () => Promise<DiagnosticsPayload>;
-  getWarnings: () => Promise<DiagnosticsPayload>;
-  getAll: () => Promise<DiagnosticsPayload>;
+  getErrors: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
+  getWarnings: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
+  getAll: (files?: readonly string[]) => Promise<DiagnosticsPayload>;
 }
 
 /**

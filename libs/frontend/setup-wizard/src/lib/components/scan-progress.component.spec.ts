@@ -47,6 +47,19 @@ const mockMultiPhase = {
   analysisDir: '/mock/.ptah/analysis/demo',
 } as unknown as MultiPhaseAnalysisResponse;
 
+const pausedAnalysis = {
+  isMultiPhase: true,
+  analysisDir: '/mock/.ptah/analysis/demo',
+  manifest: { lifecycle: 'paused' },
+} as unknown as MultiPhaseAnalysisResponse;
+
+/**
+ * Let the runner's async chain (resume discovery, then run start) settle
+ * without waiting on a deliberately-pending deepAnalyze promise.
+ */
+const flushTasks = (): Promise<void> =>
+  new Promise<void>((resolve) => setTimeout(resolve));
+
 const mockRecommendations: AgentRecommendation[] = [
   {
     agentId: 'frontend-developer',
@@ -99,6 +112,10 @@ describe('ScanProgressComponent', () => {
       deepAnalyze: jest.fn().mockResolvedValue(mockMultiPhase),
       recommendAgents: jest.fn().mockResolvedValue(mockRecommendations),
       cancelAnalysis: jest.fn().mockResolvedValue(undefined),
+      getResumableRun: jest
+        .fn()
+        .mockResolvedValue({ analysis: null, generation: null }),
+      resumeGeneration: jest.fn().mockResolvedValue({ success: true }),
     } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
@@ -185,7 +202,7 @@ describe('ScanProgressComponent', () => {
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('analysis');
     });
 
-    it('should set the analyzing status text while running', () => {
+    it('should set the analyzing status text while running', async () => {
       let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
@@ -194,6 +211,7 @@ describe('ScanProgressComponent', () => {
       );
 
       fixture.detectChanges();
+      await flushTasks();
 
       expect(component['statusText']()).toBe('Analyzing project structure...');
 
@@ -206,6 +224,7 @@ describe('ScanProgressComponent', () => {
       multiPhaseResult.set(mockMultiPhase);
 
       component['onRetry']();
+      await flushTasks();
       await fixture.whenStable();
 
       expect(mockRpcService.deepAnalyze).not.toHaveBeenCalled();
@@ -225,7 +244,9 @@ describe('ScanProgressComponent', () => {
       );
 
       fixture.detectChanges();
+      await flushTasks();
       component['onRetry']();
+      await flushTasks();
 
       expect(mockRpcService.deepAnalyze).toHaveBeenCalledTimes(1);
 
@@ -338,7 +359,7 @@ describe('ScanProgressComponent', () => {
       expect(mockStateService.reset).not.toHaveBeenCalled();
     });
 
-    it('should show the confirmation modal only while analyzing', () => {
+    it('should show the confirmation modal only while analyzing', async () => {
       let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
@@ -347,6 +368,7 @@ describe('ScanProgressComponent', () => {
       );
 
       fixture.detectChanges();
+      await flushTasks();
       const showSpy = jest
         .spyOn(component.confirmModal(), 'show')
         .mockImplementation(() => undefined);
@@ -444,6 +466,75 @@ describe('ScanProgressComponent', () => {
       expect(component['isPhaseCompleteOrCurrent']('quality-audit')).toBe(
         false,
       );
+    });
+  });
+
+  describe('Resume analysis offer', () => {
+    beforeEach(() => {
+      (mockRpcService.getResumableRun as jest.Mock).mockResolvedValue({
+        analysis: pausedAnalysis,
+        generation: null,
+      });
+    });
+
+    it('offers resume for an unfinished analysis instead of restarting it', async () => {
+      fixture.detectChanges();
+      await flushTasks();
+      fixture.detectChanges();
+
+      expect(mockRpcService.deepAnalyze).not.toHaveBeenCalled();
+      const card = fixture.nativeElement.querySelector(
+        '[data-testid="resume-analysis-card"]',
+      );
+      expect(card).toBeTruthy();
+      expect(card.textContent).toContain('Unfinished analysis found');
+
+      const buttonTexts = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).map((b) => ((b as HTMLButtonElement).textContent ?? '').trim());
+      expect(buttonTexts).toContain('Resume Analysis');
+      expect(buttonTexts).toContain('Start Fresh');
+    });
+
+    it('resume action continues the run through WizardRpcService', async () => {
+      fixture.detectChanges();
+      await flushTasks();
+      fixture.detectChanges();
+
+      const resumeButton = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).find((b) =>
+        ((b as HTMLButtonElement).textContent ?? '').includes(
+          'Resume Analysis',
+        ),
+      ) as HTMLButtonElement;
+      resumeButton.click();
+      await fixture.whenStable();
+
+      expect(mockRpcService.deepAnalyze).toHaveBeenCalledWith({
+        resume: true,
+      });
+      expect(mockStateService.setMultiPhaseResult).toHaveBeenCalledWith(
+        mockMultiPhase,
+      );
+    });
+
+    it('start-fresh action analyzes without the resume flag', async () => {
+      fixture.detectChanges();
+      await flushTasks();
+      fixture.detectChanges();
+
+      const freshButton = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).find((b) =>
+        ((b as HTMLButtonElement).textContent ?? '').includes('Start Fresh'),
+      ) as HTMLButtonElement;
+      freshButton.click();
+      await fixture.whenStable();
+
+      expect(mockRpcService.deepAnalyze).toHaveBeenCalledWith({
+        resume: false,
+      });
     });
   });
 

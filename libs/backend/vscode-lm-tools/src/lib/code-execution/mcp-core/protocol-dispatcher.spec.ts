@@ -28,6 +28,10 @@ import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
+import {
+  getCallerSessionId,
+  getCallerWorkspaceRoot,
+} from './mcp-request-context';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -210,6 +214,245 @@ describe('protocol-handlers › tools/list', () => {
     expect(names).toContain('ptah_workspace_analyze');
     expect(names).toContain('execute_code');
     expect(names).toContain('approval_prompt');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Harness tools
+//
+// Two invariants: all six harness methods are reachable as MCP tools (an agent
+// that finished a build had nowhere to send the result because proposeConfig
+// was reachable only from execute_code), and a degraded search is reported as a
+// TOOL ERROR rather than as data an agent could read as a valid empty answer.
+// ---------------------------------------------------------------------------
+
+describe('harness tools', () => {
+  function harnessDeps(harness: Record<string, unknown>) {
+    return buildDeps({ ptahAPI: buildPtahAPIStub({ harness }) });
+  }
+
+  function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    deps: ProtocolHandlerDependencies,
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: `call-${name}`,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+      deps,
+    );
+  }
+
+  function toolResult(res: MCPResponse): {
+    isError?: boolean;
+    text: string;
+  } {
+    const result = res.result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    return { isError: result.isError, text: result.content[0].text };
+  }
+
+  it('lists all six harness methods as tools', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'list-harness', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+
+    for (const tool of [
+      'ptah_harness_search_skills',
+      'ptah_harness_create_skill',
+      'ptah_harness_search_mcp_registry',
+      'ptah_harness_list_installed_mcp',
+      'ptah_harness_install_mcp_server',
+      'ptah_harness_propose_config',
+    ]) {
+      expect(names).toContain(tool);
+    }
+  });
+
+  it('flags a degraded skill search as a tool error instead of a clean empty list', async () => {
+    const deps = harnessDeps({
+      searchSkills: jest.fn(async () => ({
+        skills: [],
+        count: 0,
+        status: 'degraded',
+        sources: [
+          {
+            source: 'skills.sh',
+            status: 'failed',
+            count: 0,
+            error: 'upstream 503',
+          },
+        ],
+        offset: 0,
+        limit: 50,
+        hasMore: false,
+      })),
+    });
+
+    const { isError, text } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'threejs' }, deps),
+    );
+
+    expect(isError).toBe(true);
+    expect(JSON.parse(text)).toMatchObject({ status: 'degraded' });
+  });
+
+  it('returns a genuinely empty skill search as a normal success', async () => {
+    const deps = harnessDeps({
+      searchSkills: jest.fn(async () => ({
+        skills: [],
+        count: 0,
+        status: 'ok',
+        sources: [{ source: 'skills.sh', status: 'ok', count: 0 }],
+        offset: 0,
+        limit: 50,
+        hasMore: false,
+      })),
+    });
+
+    const { isError } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'threejs' }, deps),
+    );
+
+    expect(isError).toBeUndefined();
+  });
+
+  it('forwards the paging window to searchSkills', async () => {
+    const searchSkills = jest.fn(async () => ({
+      skills: [],
+      count: 0,
+      status: 'ok',
+      sources: [],
+      offset: 25,
+      limit: 5,
+      hasMore: false,
+    }));
+    await callTool(
+      'ptah_harness_search_skills',
+      { query: 'react', limit: 5, offset: 25 },
+      harnessDeps({ searchSkills }),
+    );
+    expect(searchSkills).toHaveBeenCalledWith('react', 5, 25);
+  });
+
+  it('forwards the scope to createSkill and rejects an unknown one', async () => {
+    const createSkill = jest.fn(async () => ({
+      skillId: 'house-style',
+      skillPath:
+        '/ws/.ptah/plugins/ptah-harness-house-style/skills/house-style/SKILL.md',
+      scope: 'workspace',
+      pluginId: 'ptah-harness-house-style',
+    }));
+    const deps = harnessDeps({ createSkill });
+
+    await callTool(
+      'ptah_harness_create_skill',
+      {
+        name: 'House Style',
+        description: 'd',
+        content: 'c',
+        scope: 'workspace',
+      },
+      deps,
+    );
+    expect(createSkill).toHaveBeenCalledWith(
+      'House Style',
+      'd',
+      'c',
+      undefined,
+      'workspace',
+    );
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_create_skill',
+        { name: 'x', description: 'd', content: 'c', scope: 'global' },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(createSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it('flags a degraded registry search as a tool error', async () => {
+    const deps = harnessDeps({
+      searchMcpRegistry: jest.fn(async () => ({
+        servers: [],
+        count: 0,
+        status: 'degraded',
+        sources: [
+          {
+            source: 'official',
+            status: 'failed',
+            count: 0,
+            error: 'registry 503',
+          },
+        ],
+      })),
+    });
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_search_mcp_registry',
+        { query: 'postgres' },
+        deps,
+      ),
+    );
+
+    expect(isError).toBe(true);
+  });
+
+  it('reports an absent harness namespace as an error, not as an empty result', async () => {
+    const { isError, text } = toolResult(
+      await callTool('ptah_harness_search_skills', { query: 'x' }, buildDeps()),
+    );
+
+    expect(isError).toBe(true);
+    expect(JSON.parse(text)).toMatchObject({ status: 'error', skills: [] });
+  });
+
+  it('routes propose_config to the namespace and echoes the completion flag', async () => {
+    const proposeConfig = jest.fn(async () => 'Configuration marked complete.');
+    const deps = harnessDeps({ proposeConfig });
+
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'My Harness' }, isConfigComplete: true },
+        deps,
+      ),
+    );
+
+    expect(isError).toBeUndefined();
+    expect(proposeConfig).toHaveBeenCalledWith({ name: 'My Harness' }, true);
+    expect(JSON.parse(text)).toMatchObject({
+      ok: true,
+      isConfigComplete: true,
+    });
+  });
+
+  it('rejects propose_config without an object configUpdates', async () => {
+    const proposeConfig = jest.fn();
+    const deps = harnessDeps({ proposeConfig });
+
+    const { isError } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: 'nope' },
+        deps,
+      ),
+    );
+
+    expect(isError).toBe(true);
+    expect(proposeConfig).not.toHaveBeenCalled();
   });
 });
 
@@ -649,6 +892,59 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
 
+  it('ptah_count_tokens reads a relative path as-is through the sandbox', async () => {
+    const read = jest.fn().mockResolvedValue('source');
+    const countTokens = jest.fn().mockResolvedValue(42);
+    const getInfo = jest.fn();
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        files: { read } as unknown as PtahAPI['files'],
+        context: { countTokens } as unknown as PtahAPI['context'],
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'ptah_count_tokens', arguments: { file: 'src/a.ts' } },
+      }),
+      deps,
+    );
+
+    expect(read).toHaveBeenCalledWith('src/a.ts');
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(countTokens).toHaveBeenCalledWith('source');
+  });
+
+  it('ptah_count_tokens rewrites an absolute in-workspace path to relative for the sandbox', async () => {
+    const read = jest.fn().mockResolvedValue('source');
+    const countTokens = jest.fn().mockResolvedValue(7);
+    const getInfo = jest.fn().mockResolvedValue({ path: 'D:/ws' });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        files: { read } as unknown as PtahAPI['files'],
+        context: { countTokens } as unknown as PtahAPI['context'],
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_count_tokens',
+          arguments: { file: 'D:/ws/src/a.ts' },
+        },
+      }),
+      deps,
+    );
+
+    expect(read).toHaveBeenCalledWith(path.join('src', 'a.ts'));
+  });
+
   it('invokes onToolResult callback with request id and result text on success', async () => {
     const onToolResult = jest.fn();
     const findFiles = jest.fn().mockResolvedValue(['x.ts']);
@@ -758,6 +1054,144 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// tools/call — ptah_web_search argument validation (F6 regression)
+//
+// The `providers` override is the re-assessment path. An invalid value must be
+// an MCP tool ERROR, never a silent fallback to a different provider set: a
+// discarded override is invisible to the agent, so the retry would run the very
+// provider that had just failed.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › ptah_web_search argument validation', () => {
+  function buildWebSearchDeps(): {
+    deps: ProtocolHandlerDependencies;
+    search: jest.Mock;
+  } {
+    const search = jest.fn().mockResolvedValue({
+      query: 'q',
+      summary: 's',
+      providers: ['serper'],
+      status: 'ok',
+      durationMs: 10,
+      results: [],
+      resultCount: 0,
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 10, resultCount: 0 },
+      ],
+    });
+    return {
+      search,
+      deps: buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          webSearch: { search } as unknown as PtahAPI['webSearch'],
+        }),
+      }),
+    };
+  }
+
+  function callWebSearch(
+    deps: ProtocolHandlerDependencies,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: 'ws-1',
+        method: 'tools/call',
+        params: { name: 'ptah_web_search', arguments: args },
+      }),
+      deps,
+    );
+  }
+
+  function asToolResult(res: MCPResponse): {
+    content: Array<{ text: string }>;
+    isError?: boolean;
+  } {
+    return res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+  }
+
+  it('forwards a valid providers override to webSearch.search', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, {
+      query: 'nx docs',
+      providers: ['serper', 'exa'],
+      maxResults: 3,
+    });
+
+    expect(asToolResult(res).isError).toBeUndefined();
+    expect(search).toHaveBeenCalledWith('nx docs', {
+      maxResults: 3,
+      timeout: undefined,
+      providers: ['serper', 'exa'],
+    });
+  });
+
+  it('rejects a string providers value instead of silently running tavily', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: 'serper' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/invalid ptah_web_search arguments/);
+    expect(result.content[0].text).toMatch(/providers/);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown provider name', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: ['bing'] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty providers array', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', providers: [] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('reports the singular "provider" key rather than dropping it', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { query: 'q', provider: 'serper' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/provider/);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing query', async () => {
+    const { deps, search } = buildWebSearchDeps();
+
+    const res = await callWebSearch(deps, { providers: ['serper'] });
+
+    expect(asToolResult(res).isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('reports an absent web search service as a tool error', async () => {
+    const deps = buildDeps();
+
+    const res = await callWebSearch(deps, { query: 'q' });
+
+    const result = asToolResult(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/Web search service not available/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tools/call — approval_prompt (Electron auto-allow branch)
 // ---------------------------------------------------------------------------
 
@@ -861,5 +1295,70 @@ describe('protocol-handlers › malformed message rejection', () => {
     expect(res.result).toBeUndefined();
     expect(res.error?.code).toBe(-32602);
     expect(res.error?.message).toMatch(/[Ii]nvalid params/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call — request-scoped caller identity (TASK_2026_364, Batch A)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › tools/call caller identity context', () => {
+  it('runs the tool inside a context carrying BOTH identity fields', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-1',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+        _callerSessionId: 'sess-A',
+        _callerWorkspaceRoot: 'D:\\projects\\ptah-extension',
+      }),
+      deps,
+    );
+
+    expect(res.error).toBeUndefined();
+    expect(seenSession).toBe('sess-A');
+    expect(seenWorkspace).toBe('D:\\projects\\ptah-extension');
+  });
+
+  it('leaves both identity fields undefined for an anonymous call', async () => {
+    let seenSession: string | undefined;
+    let seenWorkspace: string | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seenSession = getCallerSessionId();
+            seenWorkspace = getCallerWorkspaceRoot();
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'ctx-2',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check', arguments: {} },
+      }),
+      deps,
+    );
+
+    expect(seenSession).toBeUndefined();
+    expect(seenWorkspace).toBeUndefined();
   });
 });

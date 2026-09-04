@@ -8,6 +8,8 @@
  * @module @ptah-extension/agent-generation/types/multi-phase
  */
 
+import { z } from 'zod';
+
 /**
  * Identifier for each phase in the multi-phase analysis pipeline.
  */
@@ -17,13 +19,21 @@ export type MultiPhaseId =
   | 'quality-audit'
   | 'elevation-plan';
 
+/** Lifecycle status for an individual multi-phase analysis step. */
+export type AnalysisPhaseStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+
 /**
  * Result of a single phase execution.
  * Recorded in the manifest to track which phases completed successfully.
  */
 export interface PhaseResult {
-  /** Whether the phase completed, failed, or was skipped (e.g., due to cancellation) */
-  status: 'completed' | 'failed' | 'skipped';
+  /** Current or terminal status of the phase. */
+  status: AnalysisPhaseStatus;
   /** Output filename within the slug directory (e.g., '01-project-profile.md') */
   file: string;
   /** Execution duration in milliseconds */
@@ -37,12 +47,18 @@ export interface PhaseResult {
  * Tracks metadata and per-phase results for the entire pipeline run.
  */
 export interface MultiPhaseManifest {
-  /** Schema version - always 2 for multi-phase format (v1 is legacy single-file JSON) */
-  version: 2;
+  /** Schema version. Version 2 manifests are deliberately not resumable. */
+  version: 3;
+  /** Logical ID retained when a run is resumed. */
+  runId: string;
   /** URL-safe slug derived from project description */
   slug: string;
   /** ISO 8601 timestamp of when the analysis was started */
   analyzedAt: string;
+  /** ISO 8601 timestamp of the most recent durable checkpoint. */
+  updatedAt: string;
+  /** Durable lifecycle for the complete analysis run. */
+  lifecycle: 'running' | 'paused' | 'completed' | 'failed';
   /** Model used for LLM phases (e.g., 'claude-sonnet-4-5-20250929') */
   model: string;
   /** Total pipeline duration in milliseconds */
@@ -50,6 +66,40 @@ export interface MultiPhaseManifest {
   /** Per-phase execution results */
   phases: Record<MultiPhaseId, PhaseResult>;
 }
+
+const MultiPhaseIdSchema = z.enum([
+  'project-profile',
+  'architecture-assessment',
+  'quality-audit',
+  'elevation-plan',
+]);
+
+const PhaseResultSchema = z
+  .object({
+    status: z.enum(['pending', 'running', 'completed', 'failed', 'skipped']),
+    file: z.string(),
+    durationMs: z.number(),
+    error: z.string().optional(),
+  })
+  .refine(
+    (phase) =>
+      phase.status !== 'failed' ||
+      (phase.error !== undefined && phase.error.trim().length > 0),
+    { message: 'Failed phases require a non-empty error message.' },
+  );
+
+/** Validates the version-3 analysis manifest at its file-system boundary. */
+export const MultiPhaseManifestSchema = z.object({
+  version: z.literal(3),
+  runId: z.string(),
+  slug: z.string(),
+  analyzedAt: z.string(),
+  updatedAt: z.string(),
+  lifecycle: z.enum(['running', 'paused', 'completed', 'failed']),
+  model: z.string(),
+  totalDurationMs: z.number(),
+  phases: z.record(MultiPhaseIdSchema, PhaseResultSchema),
+});
 
 /**
  * Options for configuring a multi-phase analysis run.
@@ -65,6 +115,8 @@ export interface MultiPhaseAnalysisOptions {
   mcpPort?: number;
   /** Absolute paths to plugin directories (for SDK queries) */
   pluginPaths?: string[];
+  /** Continue an unfinished version-3 manifest instead of starting a new run. */
+  resume?: boolean;
 }
 
 /**

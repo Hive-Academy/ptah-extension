@@ -33,6 +33,7 @@ ptah-extension/
 │   ├── cli-engine/                    # In-process backend host for ptah-cli / ptah-tui
 │   ├── agent-generation/              # Setup-wizard generation pipeline
 │   ├── harness-sync/                  # ★ One reconciler: user layer → every AI tool's harness dirs
+│   │                                  #   (agents are keyed per workspace, TASK_2026_365)
 │   ├── workspace-intelligence/        # AST + symbol indexer + analysis
 │   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
@@ -130,6 +131,22 @@ nx serve ptah-license-server         # NestJS API
 nx graph                             # Visualize dep graph
 ```
 
+**Never run `nx test projA projB projC`.** Nx runs the target for the FIRST
+project only and hands the trailing names to Jest, where they become test-path
+filters. Measured 2026-08-25: `npx nx test @ptah-extension/thoth-shell
+@ptah-extension/markdown` printed `No tests found, exiting with code 0` and then
+`Successfully ran target test` — ZERO tests ran and the command exited 0. That is
+a confident green tick for work that was never tested. Use `run-many`:
+
+```bash
+npx nx run-many -t test -p projA projB projC
+```
+
+The project name is the one in `project.json`, which for a lib is the package
+alias (`@ptah-extension/thoth-shell`), not the folder name. A misspelled name is
+silently dropped from a `run-many` set, so read the `Running target test for N
+projects` header and check that N is the number you asked for.
+
 ## Coding Standards
 
 - **Type safety**: `catch (error: unknown)`, narrow with `instanceof Error` before `.message`. No `@ts-ignore` without `@ts-expect-error + reason`.
@@ -145,7 +162,7 @@ nx graph                             # Visualize dep graph
 ## Task Specs (`.ptah/specs/`)
 
 - **Carrier**: each `TASK_YYYY_NNN/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
-- **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `tasks.md`. Never put prose in the carrier.
+- **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `batches.md` (its former name `tasks.md` is still read, permanently). Never put prose in the carrier.
 - **`description` is ALWAYS a `>-` block scalar** — a plain YAML scalar ends at the first colon-space, so a description quoting code makes the whole carrier unparseable and the task vanishes from the board. Three carriers were dark for exactly this (repaired 2026-08-09). Same rule for `title` when it contains a colon.
 - **Status change**: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the whole carrier with `Write`.
 - **ID allocation**: folder scan of `.ptah/specs/TASK_*` — highest `NNN` for the current year + 1, zero-padded. NEVER derive the ID from `registry.md` (it is generated and can be stale).
@@ -160,6 +177,28 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - Plugins + templates download at runtime via `ContentDownloadService` from GitHub — **never** re-add them as VSIX assets.
 - Provider settings with trademarked keys moved to `~/.ptah/settings.json` (transparent via `IWorkspaceProvider.getConfiguration()`). Never re-add to `package.json contributes.configuration`.
 - **Once an extension ID fails marketplace validation, that ID is permanently burned.** Test throwaway IDs first.
+
+## Release Branches (`release/electron | landing | docs`)
+
+- **Never merge into a release branch, and never open a PR against one.** They
+  carry no work of their own — they are deploy triggers that mirror `main`.
+  Release with the **Sync Release Branch** workflow (`workflow_dispatch`), which
+  fast-forwards `release/<target>` to `main` and then dispatches its pipeline.
+- **Why the ban**: `main` ships files that `nx format:check` flags (there is no
+  format gate) and `.lintstagedrc.mjs` runs `nx format:write` on staged
+  `*.{ts,js,json,md}`. A _local_ merge into a release branch that hits conflicts
+  stages those files, so committing fires husky and reformats them — the merge
+  commit now differs from `main` in files nobody edited. The next merge then
+  conflicts on them, and hand-resolving mints content that exists nowhere in
+  `main` and never goes away. That is how `release/electron` still held the
+  pre-open-source premium gating in `gateway-chat-bridge.ts` months after `main`
+  deleted it (PR #443). A fast-forward has no merge commit, runs no hook, and
+  has nothing to resolve.
+- **A push made with `GITHUB_TOKEN` does not trigger other workflows**, so the
+  `on: push: release/*` deploy jobs do not fire from the sync. The sync workflow
+  dispatches them explicitly; that is deliberate, not a workaround to remove.
+- If the sync fails with "not an ancestor of main", the branch has drifted.
+  Port anything real onto `main` first — do **not** merge the branch back.
 
 ## Module Index
 

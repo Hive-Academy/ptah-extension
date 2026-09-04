@@ -253,3 +253,19 @@ export interface AdminLesson {
   /** ISO 8601. */
   updatedAt: string;
 }
+
+/**
+ * A live module plus its live lessons for the admin authoring outline.
+ *
+ * The intersection is deliberate: both the module and every lesson retain the
+ * exact projection returned by their write handlers, including live child
+ * counts and authoring-only video metadata.
+ */
+export type AdminCourseModuleWithLessons = AdminCourseModule & {
+  lessons: AdminLesson[];
+};
+
+/** `GET /v1/admin/courses/:id/modules`. */
+export interface AdminCourseOutline {
+  modules: AdminCourseModuleWithLessons[];
+}

@@ -58,6 +58,13 @@ interface RawCandidateRow {
   rejected_reason: string | null;
   pinned: number;
   residency: string;
+  // ── 0040 ──────────────────────────────────────────────────────────────────
+  // Same `SELECT *` trap as the two blocks below. `NULL` here means UNKNOWN
+  // origin and is INCLUDED by a workspace-scoped read; a column missing from
+  // this interface reads back `undefined`, becomes `null`, and every candidate
+  // silently reverts to appearing in every workspace — the defect `0040`
+  // exists to fix, looking exactly like the fix working.
+  workspace_root: string | null;
   // ── 0033 ──────────────────────────────────────────────────────────────────
   // Reads are `SELECT *`, so a column that is missing from this interface is
   // silently invisible to the store no matter what the DDL says. Adding a
@@ -195,8 +202,8 @@ export class SkillCandidateStore {
          id, name, description, body_path, source_session_ids,
          trajectory_hash, embedding_rowid, status,
          success_count, failure_count, created_at,
-         promoted_at, rejected_at, rejected_reason
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL)`,
+         promoted_at, rejected_at, rejected_reason, workspace_root
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL, ?)`,
     );
     stmt.run(
       id,
@@ -207,6 +214,10 @@ export class SkillCandidateStore {
       input.trajectoryHash,
       embeddingRowid,
       input.createdAt,
+      // `?? null`, never `?? ''`. A caller that did not supply a root does not
+      // know where the session ran; writing `''` would record the unrelated
+      // claim "deliberately cross-project". See `NewCandidateInput`.
+      input.workspaceRoot ?? null,
     );
 
     const row = this.findById(id as CandidateId);
@@ -232,6 +243,113 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
+  /**
+   * The newest still-`candidate` row drafted from a given session.
+   *
+   * `registerCandidate` dedupes on `trajectory_hash`, and that hash covers
+   * EVERY turn of the session — so a session that grows produces a different
+   * hash and a brand-new row for work that is the same work. That is how one
+   * session ended up with five rows and five `-N` suffixed slug directories on
+   * disk. This is the lookup that lets `analyzeSession` recognise "I have
+   * already drafted a candidate for this session" and supersede it instead.
+   *
+   * `json_each` over `source_session_ids` rather than a `LIKE '%id%'` scan:
+   * the column is a JSON array and a substring match would also hit a session
+   * id that merely CONTAINS this one.
+   *
+   * Restricted to `status='candidate'` by default and never widened by
+   * accident: a promoted row is a shipped skill and a rejected one is a
+   * decision already taken, and neither may be rewritten under a session that
+   * happens to have grown. `superseded` enforces the same rule from its side.
+   */
+  findLatestBySourceSession(
+    sessionId: string,
+    status: SkillStatus = 'candidate',
+  ): SkillCandidateRow | null {
+    if (!sessionId) return null;
+    const stmt = this.db.prepare(
+      `SELECT * FROM skill_candidates
+        WHERE status = ?
+          AND EXISTS (
+            SELECT 1 FROM json_each(skill_candidates.source_session_ids)
+            WHERE value = ?
+          )
+        ORDER BY created_at DESC
+        LIMIT 1`,
+    );
+    const raw = stmt.get(status, sessionId) as RawCandidateRow | undefined;
+    return raw ? this.toCandidateRow(raw) : null;
+  }
+
+  /**
+   * Replace the CONTENT of an existing candidate with a newer draft of the
+   * same work — the write half of the per-session supersession that stops a
+   * growing session minting a new row per re-analysis.
+   *
+   * `name` is deliberately NOT touched. It is the SKILL.md folder name and it
+   * carries a UNIQUE index; renaming it would leave the directory the row
+   * points at behind and mint the next one with a `-N` suffix, which is the
+   * defect this method exists to remove.
+   *
+   * The four columns are written as ONE fixed UPDATE, the same rule
+   * `recordJudgeVerdict` documents: a partial write would leave the previous
+   * draft's `trajectory_hash` beside this draft's body, and the hash is what
+   * every other dedupe path reads.
+   *
+   * Throws for a row that is not `status='candidate'`. A promoted skill has
+   * shipped and a rejected one has been decided; rewriting either under a
+   * session that grew would silently change an artifact nobody re-reviewed.
+   */
+  superseded(
+    id: CandidateId,
+    input: {
+      description: string;
+      bodyPath: string;
+      trajectoryHash: string;
+      embedding: Float32Array | null;
+    },
+  ): SkillCandidateRow {
+    const current = this.findById(id);
+    if (!current) {
+      throw new Error(`[skill-synthesis] superseded: ${id} not found`);
+    }
+    if (current.status !== 'candidate') {
+      throw new Error(
+        `[skill-synthesis] superseded: ${id} is '${current.status}', not 'candidate' — a decided row is never rewritten`,
+      );
+    }
+
+    let embeddingRowid = current.embeddingRowid;
+    if (input.embedding && this.vecStatus.available) {
+      embeddingRowid = this.insertEmbedding(input.embedding);
+    }
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates
+            SET description     = ?,
+                body_path       = ?,
+                trajectory_hash = ?,
+                embedding_rowid = ?
+          WHERE id = ?`,
+      )
+      .run(
+        input.description,
+        input.bodyPath,
+        input.trajectoryHash,
+        embeddingRowid,
+        id,
+      );
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(
+        `[skill-synthesis] superseded: row ${id} disappeared after update`,
+      );
+    }
+    return updated;
+  }
+
   findByName(name: string): SkillCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,
@@ -240,13 +358,53 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  listByStatus(status: SkillStatus): SkillCandidateRow[] {
+  /**
+   * ## `workspaceRoot` IS OPTIONAL, AND OMITTING IT IS NOT A DEFAULT — IT IS A
+   * ## SEPARATE, LOUDER READ.
+   *
+   * This mirrors `getWinRates` exactly; read its header for the full
+   * reasoning, because the same two rules apply here.
+   *
+   * The unscoped form is what almost every caller wants, and that is not an
+   * accident of history. Clustering, dedup, the residency budget, the
+   * promotion sweep and the phase-3 gates all read the candidate set ACROSS
+   * projects on purpose: a promoted skill is written to `~/.ptah/skills/` and
+   * propagated into every workspace, so scoping any of those reads would
+   * change what the subsystem does, not just what it shows.
+   *
+   * Exactly ONE caller passes a root — `SkillsSynthesisRpcHandlers`, backing
+   * the Skills tab's list. A candidate is unreviewed work from one session in
+   * one project, and the person who can judge it is the person working there.
+   * Widening the scoped form into the default would silently re-scope the
+   * other six.
+   *
+   * ## A `NULL` `workspace_root` IS INCLUDED IN A SCOPED READ
+   *
+   * `workspace_root` is three-valued — a real path is that workspace, `''` is
+   * DELIBERATELY cross-project, and `NULL` is UNKNOWN. Every candidate
+   * predating `0040` whose queue row the backfill could not resolve is `NULL`,
+   * and dropping those would make them invisible in every workspace forever:
+   * a display defect traded for silent data loss. `''` is NOT folded in — it
+   * is a known value meaning "not this workspace".
+   */
+  listByStatus(
+    status: SkillStatus,
+    workspaceRoot?: string,
+  ): SkillCandidateRow[] {
+    const scoped = workspaceRoot !== undefined;
     const stmt = this.db.prepare(
-      `SELECT * FROM skill_candidates
-       WHERE status = ?
-       ORDER BY created_at DESC`,
+      scoped
+        ? `SELECT * FROM skill_candidates
+            WHERE status = ?
+              AND (workspace_root = ? OR workspace_root IS NULL)
+            ORDER BY created_at DESC`
+        : `SELECT * FROM skill_candidates
+            WHERE status = ?
+            ORDER BY created_at DESC`,
     );
-    const rows = stmt.all(status) as RawCandidateRow[];
+    const rows = (
+      scoped ? stmt.all(status, workspaceRoot) : stmt.all(status)
+    ) as RawCandidateRow[];
     return rows.map((r) => this.toCandidateRow(r));
   }
 
@@ -1407,6 +1565,10 @@ export class SkillCandidateStore {
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
       residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce to `''` — `null` is "origin unknown" and `''` is
+      // "deliberately cross-project", and only the second is a claim.
+      workspaceRoot: raw.workspace_root ?? null,
       judgeStatus: this.toJudgeStatus(raw.judge_status),
       // `?? null` normalizes a driver's `undefined` for an absent column. It
       // does NOT coalesce a stored NULL to 0 — that would resurrect the exact

@@ -79,6 +79,13 @@ const maybe = opener ? it : it.skip;
 
 const SQL_0033 = MIGRATIONS.find((m) => m.version === 33)?.sql ?? '';
 const SQL_0036 = MIGRATIONS.find((m) => m.version === 36)?.sql ?? '';
+/**
+ * `skill_synthesis_queue`. Applied only because `0040`'s backfill JOINs it —
+ * this fixture inserts no queue row, so that UPDATE is a no-op here.
+ */
+const SQL_0032 = MIGRATIONS.find((m) => m.version === 32)?.sql ?? '';
+/** `workspace_root` on `skill_candidates` — `registerCandidate` writes it. */
+const SQL_0040 = MIGRATIONS.find((m) => m.version === 40)?.sql ?? '';
 
 // ── The real database ───────────────────────────────────────────────────────
 
@@ -115,6 +122,8 @@ function createDb(): TestDatabase {
   `);
   db.exec(SQL_0033);
   db.exec(SQL_0036);
+  db.exec(SQL_0032);
+  db.exec(SQL_0040);
   return db;
 }
 

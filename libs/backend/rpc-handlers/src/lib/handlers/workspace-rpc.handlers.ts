@@ -270,6 +270,25 @@ export class WorkspaceRpcHandlers {
           // Phase 3: tear down any per-workspace isolated provider proxies so a
           // removed/closed workspace does not leak its translation/OAuth proxy
           // servers. Never throws (disposeForScope swallows per-entry errors).
+          //
+          // TASK_2026_315 (A1) — this ORDER IS DELIBERATE, re-examined rather
+          // than left alone by omission. `removeFolder` above emits
+          // `onDidChangeWorkspaceFolders` synchronously and the leaked proxy in
+          // the captured log started between these two lines — but swapping
+          // them closes nothing, for two independent reasons. (1) The
+          // subscriber (`SdkAgentAdapter.handleWorkspaceChanged`) starts it
+          // from a fire-and-forget chain that can land after ANY point in this
+          // handler. (2) What starts is the process-global `OAuthProxyStrategy`
+          // singleton, never a `ProviderProxyPool` entry: that map is written
+          // only by `WorkspaceProviderProfileResolver.acquire()`, the opt-in
+          // per-workspace override path this adapter does not use. These are
+          // two disjoint registries, NOT one registry with a key the dispose
+          // fails to match — there is no "global" key to teach it about, and
+          // adding one would be the wrong fix. The right one is that no proxy
+          // starts on the way to zero folders at all; see the guard in
+          // `sdk-agent-adapter.ts`. Removing a NON-last folder still
+          // reconfigures, and any proxy starting then belongs to the workspace
+          // that REMAINS open, so disposing it here would be the bug.
           await this.providerProxyPool.disposeForScope(params.path);
 
           this.logger.info('[RPC] workspace:removeFolder', {
@@ -401,22 +420,32 @@ export class WorkspaceRpcHandlers {
    * - **in-flight** — skip when a previous scan for this path has not resolved
    *   yet, so rapid re-switches during a slow scan do not stack.
    *
-   * Both are per-process only: a fresh process re-imports on the first switch,
-   * and the separate boot-time import (app activation) is unaffected because
-   * it calls `scanAndImport` directly, not through this handler.
+   * All three are per-process and see only THIS handler's runs, so a fresh
+   * process re-imports on the first switch. They are a POLICY about how often a
+   * switch is worth paying for, not a concurrency mechanism — the guarantee that
+   * one root is never scanned twice at once belongs to
+   * `SessionImporterService.scanAndImport`, which keys an in-flight map by the
+   * normalized root and is the one object every importer shares. That is what
+   * closes the gap this docblock used to admit: the boot-time import (app
+   * activation) calls `scanAndImport` directly, stamps none of the maps below,
+   * and so was invisible to all three guards.
    */
   /**
    * Rebuild the `@`-mention file index for the newly-activated workspace, OFF
    * the `workspace:switch` critical path.
    *
-   * `WorkspaceFileIndexService` holds single-active-root state: it is built
-   * once at boot for the startup workspace and, before TASK_2026_200, was never
-   * rebuilt — so after any switch the picker listed the boot workspace's files
-   * forever. `ensureReadyFor(root)` is the service's explicit-root entry point;
-   * it is a cheap no-op when the requested root is already the indexed one
-   * (roots compare by `normalizeWorkspaceRoot`, so separator/drive-case
-   * variants do not force a redundant rebuild) and supersedes any in-flight
-   * build otherwise.
+   * `WorkspaceFileIndexService` caches one index PER OPEN FOLDER and serves
+   * queries from the active one. Before TASK_2026_200 it was built once at boot
+   * and never rebuilt, so after any switch the picker listed the boot
+   * workspace's files forever; before TASK_2026_344 it was rebuilt on every
+   * switch, so returning to an already-open folder re-walked its whole tree.
+   * `ensureReadyFor(root)` is the explicit-root entry point: free when that
+   * folder is already built (roots compare by `normalizeWorkspaceRoot`, so
+   * separator/drive-case variants are one folder), a walk when it is not.
+   *
+   * The `cached` flag below is why that distinction is visible in the log at
+   * all: "re-index complete in 9 s" and "re-index complete in 2 ms" are the same
+   * line otherwise, and the 9 s one was invisible as a REPEAT for weeks.
    *
    * Resolution is OPTIONAL by design. The CLI host has no picker surface and
    * does not register the index (`research-report.md` §3, §4.D); VS Code does
@@ -436,8 +465,12 @@ export class WorkspaceRpcHandlers {
       TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
     );
 
+    // Read BEFORE the call: `ensureReadyFor` activates the folder synchronously,
+    // so asking afterwards would report every switch as cached.
+    const cached = fileIndex.hasIndexFor(workspacePath);
     this.logger.info('[RPC] workspace:switch re-indexing files for workspace', {
       path: workspacePath,
+      cached,
     });
     const startedAt = Date.now();
     void fileIndex
@@ -447,6 +480,7 @@ export class WorkspaceRpcHandlers {
           path: workspacePath,
           durationMs: Date.now() - startedAt,
           fileCount: fileIndex.fileCount,
+          cached,
         });
       })
       .catch((err: unknown) => {
@@ -487,6 +521,11 @@ export class WorkspaceRpcHandlers {
       return;
     }
 
+    // Kept as a cheap local short-circuit, no longer as the defence. A second
+    // scan of the same root can no longer happen even if this misses: the
+    // service joins the in-flight one (TASK_2026_331 B7). What this still buys
+    // is skipping the log line and the promise plumbing for a switch that would
+    // resolve to a scan already under way.
     if (this.importsInFlight.has(key)) {
       this.logger.debug(
         '[RPC] workspace:switch skipping session import (already in flight)',

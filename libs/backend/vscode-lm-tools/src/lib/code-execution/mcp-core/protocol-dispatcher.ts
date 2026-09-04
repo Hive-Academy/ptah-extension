@@ -9,6 +9,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { performance } from 'node:perf_hooks';
+import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   CliType,
@@ -61,6 +63,7 @@ import {
   buildHarnessSearchMcpRegistryTool,
   buildHarnessListInstalledMcpTool,
   buildHarnessInstallMcpTool,
+  buildHarnessProposeConfigTool,
   buildAstAnalyzeTool,
   buildContextEnrichFileTool,
   buildGetDependentsTool,
@@ -152,7 +155,11 @@ export async function handleMCPRequest(
 ): Promise<MCPResponse> {
   const { logger } = deps;
 
-  logger.info(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
+  // `debug`, not `info` (TASK_2026_323). Every agent turn produces a burst of
+  // MCP requests, and at `info` this single line was the highest-volume writer
+  // in the log — which is precisely the log an operator has to read to find a
+  // stall. The interesting MCP signal is now the slow-tool warning below.
+  logger.debug(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
     id: request.id,
   });
 
@@ -166,7 +173,10 @@ export async function handleMCPRequest(
 
       case 'tools/call':
         return await runWithMcpRequestContext(
-          { callerSessionId: request._callerSessionId },
+          {
+            callerSessionId: request._callerSessionId,
+            callerWorkspaceRoot: request._callerWorkspaceRoot,
+          },
           () => handleToolsCall(request, deps),
         );
 
@@ -315,6 +325,7 @@ function handleToolsList(
           buildHarnessSearchMcpRegistryTool(),
           buildHarnessListInstalledMcpTool(),
           buildHarnessInstallMcpTool(),
+          buildHarnessProposeConfigTool(),
         ]
       : []),
     ...(!disabled.has('code')
@@ -367,6 +378,37 @@ const SQLITE_EAGER_TOOLS: readonly string[] = [
 ];
 
 /**
+ * `ptah_web_search` arguments, validated at this boundary.
+ *
+ * The `providers` override is the re-assessment path: after a `Provider status`
+ * section names a provider that failed, the agent retries with the ones that
+ * worked. An unvalidated override was worse than no override — a bare string
+ * such as `providers: 'serper'` passed the old length test, was then iterated
+ * character by character, emptied, and fell back to `['tavily']`, so the retry
+ * ran the very provider that had just failed and the outcome list named Tavily
+ * as though the agent had asked for it. The schema is `strict()` so a near-miss
+ * key (the singular `provider`) is reported instead of being dropped.
+ */
+const WebSearchArgsSchema = z
+  .object({
+    query: z.string().min(1),
+    providers: z
+      .array(z.enum(['tavily', 'serper', 'exa']))
+      .min(1)
+      .optional(),
+    maxResults: z.number().int().positive().optional(),
+    timeout: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/** Render a Zod failure as one readable line naming each offending field. */
+function describeZodIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+}
+
+/**
  * Stamp `_meta['anthropic/alwaysLoad'] = true` onto the runtime-aware eager
  * subset so the SDK loads them up front. Tools left untouched stay deferred.
  */
@@ -389,11 +431,79 @@ function markEagerTools(
   }
 }
 
+export const MCP_SLOW_TOOL_WARN_MS_ENV = 'PTAH_MCP_SLOW_WARN_MS';
+
+/**
+ * 2000 ms — the same bar as the slow-RPC warning, for the same reason.
+ *
+ * MCP tool calls are the other way work reaches the backend, and on the
+ * Electron host they are the more dangerous one: a Codex or Copilot agent
+ * calling `ptah_get_diagnostics` over the HTTP MCP server makes the ELECTRON
+ * MAIN THREAD run `ts.createProgram`, which is tens of seconds of fully
+ * synchronous work with the UI frozen behind it (TASK_2026_323, blocker B3).
+ * Nothing logged that cost before this warning existed.
+ */
+export const DEFAULT_MCP_SLOW_TOOL_WARN_MS = 2000;
+
+/**
+ * Resolved once at module load.
+ *
+ * The identical parse lives in `vscode-core`'s `diagnostics/env-thresholds.ts`,
+ * and importing it would be the DRY-correct move — except that pulling a VALUE
+ * out of the `@ptah-extension/vscode-core` barrel drags in `error-handling`,
+ * which does `import * as vscode from 'vscode'`. In the CLI and Electron hosts
+ * that is shimmed at build time, but in this lib's Jest environment it is a
+ * `.d.ts` that Node tries to execute, and `protocol-dispatcher.spec.ts` dies on
+ * `SyntaxError: Unexpected identifier 'module'`. Six lines duplicated across a
+ * boundary that cannot be crossed at runtime beats a barrel dependency that
+ * breaks the suite.
+ */
+const mcpSlowToolWarnMs = ((): number => {
+  const raw = process.env[MCP_SLOW_TOOL_WARN_MS_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_MCP_SLOW_TOOL_WARN_MS;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MCP_SLOW_TOOL_WARN_MS;
+})();
+
+/**
+ * Time every `tools/call` and warn on the slow ones.
+ *
+ * A wrapper rather than inline timing because {@link dispatchToolsCall} has a
+ * dozen return statements across three tool families; bracketing at the single
+ * entry point is the only way to be sure no path escapes measurement, and
+ * `finally` covers the throwing paths too.
+ */
+async function handleToolsCall(
+  request: MCPRequest,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  const toolName =
+    typeof (request.params as { name?: unknown } | undefined)?.name === 'string'
+      ? (request.params as { name: string }).name
+      : 'unknown';
+  const startedAt = performance.now();
+  try {
+    return await dispatchToolsCall(request, deps);
+  } finally {
+    const elapsedMs = performance.now() - startedAt;
+    if (elapsedMs >= mcpSlowToolWarnMs) {
+      deps.logger.warn('[MCP] slow tool', {
+        tool: toolName,
+        durationMs: Math.round(elapsedMs * 10) / 10,
+      });
+    }
+  }
+}
+
 /**
  * Handle tools/call request
  * Routes to individual ptah_* tools, execute_code, or approval_prompt
  */
-async function handleToolsCall(
+async function dispatchToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
@@ -507,14 +617,17 @@ async function handleIndividualTool(
       }
 
       case 'ptah_get_diagnostics': {
-        const { severity } = args as { severity?: 'error' | 'warning' | 'all' };
+        const { severity, files } = args as {
+          severity?: 'error' | 'warning' | 'all';
+          files?: string[];
+        };
         let result;
         if (severity === 'error') {
-          result = await ptahAPI.diagnostics.getErrors();
+          result = await ptahAPI.diagnostics.getErrors(files);
         } else if (severity === 'warning') {
-          result = await ptahAPI.diagnostics.getWarnings();
+          result = await ptahAPI.diagnostics.getWarnings(files);
         } else {
-          result = await ptahAPI.diagnostics.getAll();
+          result = await ptahAPI.diagnostics.getAll(files);
         }
         return createToolSuccessResponse(
           request,
@@ -562,7 +675,8 @@ async function handleIndividualTool(
 
       case 'ptah_count_tokens': {
         const { file } = args as { file: string };
-        const fileContent = await ptahAPI.files.read(file);
+        const readPath = await toWorkspaceReadPath(file.trim(), ptahAPI);
+        const fileContent = await ptahAPI.files.read(readPath);
         const tokenCount = await ptahAPI.context.countTokens(fileContent);
         return createToolSuccessResponse(
           request,
@@ -726,29 +840,35 @@ async function handleIndividualTool(
       }
 
       case 'ptah_web_search': {
-        const { query, maxResults, timeout } = args as {
-          query: string;
-          maxResults?: number;
-          timeout?: number;
-        };
         if (!deps.ptahAPI.webSearch) {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Web search service not available.',
-                },
-              ],
-              isError: true,
-            },
-          };
+          return toolErrorResponse(
+            request,
+            'Web search service not available.',
+          );
         }
+        const parsed = WebSearchArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          // Never fall back to a different provider set than the one asked
+          // for: a discarded override is invisible to the agent, an error is
+          // not.
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_web_search arguments — ${describeZodIssues(
+              parsed.error,
+            )}. "providers" must be an array of ${JSON.stringify([
+              'tavily',
+              'serper',
+              'exa',
+            ])}.`,
+          );
+        }
+        const { query, maxResults, timeout, providers } = parsed.data;
         const result = await deps.ptahAPI.webSearch.search(query, {
           maxResults,
           timeout,
+          providers,
         });
         return createToolSuccessResponse(
           request,
@@ -1150,43 +1270,61 @@ async function handleIndividualTool(
       }
       case 'ptah_harness_search_skills': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              skills: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { skills: [] });
         }
-        const { query: skillQuery } = args as { query?: string };
-        const skills = await ptahAPI.harness.searchSkills(skillQuery);
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify({ skills, count: skills.length }),
-          deps,
+        const {
+          query: skillQuery,
+          limit: skillLimit,
+          offset: skillOffset,
+        } = args as {
+          query?: string;
+          limit?: number;
+          offset?: number;
+        };
+        const skillsResult = await ptahAPI.harness.searchSkills(
+          skillQuery,
+          skillLimit,
+          skillOffset,
         );
+        // A degraded search is surfaced as a TOOL ERROR, not as data. An empty
+        // list that reads like a valid negative is the one failure mode this
+        // whole contract exists to prevent.
+        return skillsResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(skillsResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(skillsResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_create_skill': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({ error: 'Harness namespace not available' }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, {});
         }
         const {
           name: skillName,
           description: skillDescription,
           content: skillContent,
           allowedTools,
+          scope: skillScope,
         } = args as {
           name: string;
           description: string;
           content: string;
           allowedTools?: string[];
+          scope?: 'user' | 'workspace';
         };
+
+        if (
+          skillScope !== undefined &&
+          !['user', 'workspace'].includes(skillScope)
+        ) {
+          return toolErrorResponse(
+            request,
+            `Error: "scope" must be "user" or "workspace" (got ${JSON.stringify(skillScope)}).`,
+          );
+        }
 
         if (!skillName || !skillDescription || !skillContent) {
           return {
@@ -1209,6 +1347,7 @@ async function handleIndividualTool(
           skillDescription,
           skillContent,
           allowedTools,
+          skillScope,
         );
         return createToolSuccessResponse(
           request,
@@ -1219,14 +1358,7 @@ async function handleIndividualTool(
 
       case 'ptah_harness_search_mcp_registry': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const { query: registryQuery, limit: registryLimit } = args as {
           query: string;
@@ -1253,23 +1385,18 @@ async function handleIndividualTool(
           registryQuery,
           registryLimit,
         );
-        return createToolSuccessResponse(
-          request,
-          JSON.stringify(registryResult),
-          deps,
-        );
+        return registryResult.status === 'degraded'
+          ? toolErrorResponse(request, JSON.stringify(registryResult))
+          : createToolSuccessResponse(
+              request,
+              JSON.stringify(registryResult),
+              deps,
+            );
       }
 
       case 'ptah_harness_list_installed_mcp': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              servers: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { servers: [] });
         }
         const installedServers =
           await ptahAPI.harness.listInstalledMcpServers();
@@ -1285,14 +1412,7 @@ async function handleIndividualTool(
 
       case 'ptah_harness_install_mcp_server': {
         if (!ptahAPI.harness) {
-          return createToolSuccessResponse(
-            request,
-            JSON.stringify({
-              results: [],
-              error: 'Harness namespace not available',
-            }),
-            deps,
-          );
+          return harnessUnavailableResponse(request, { results: [] });
         }
         const {
           serverName: mcpServerName,
@@ -1343,6 +1463,45 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           JSON.stringify(installOutcome),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_propose_config': {
+        if (!ptahAPI.harness) {
+          return harnessUnavailableResponse(request, {});
+        }
+        const { configUpdates, isConfigComplete } = args as {
+          configUpdates?: unknown;
+          isConfigComplete?: boolean;
+        };
+
+        if (
+          configUpdates === null ||
+          typeof configUpdates !== 'object' ||
+          Array.isArray(configUpdates)
+        ) {
+          return toolErrorResponse(
+            request,
+            'Error: "configUpdates" is required and must be a partial harness config object.',
+          );
+        }
+
+        // Field-level shape is settled by zod inside the namespace; a rejection
+        // arrives here as a throw and is reported with the offending path.
+        const proposeAck = await ptahAPI.harness.proposeConfig(
+          configUpdates as Parameters<
+            NonNullable<typeof ptahAPI.harness>['proposeConfig']
+          >[0],
+          isConfigComplete,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            ok: true,
+            isConfigComplete: isConfigComplete ?? false,
+            message: proposeAck,
+          }),
           deps,
         );
       }
@@ -1562,6 +1721,48 @@ async function handleIndividualTool(
 /**
  * Build a JSON-RPC tool error for a missing/empty required string argument.
  */
+/**
+ * Report a tool failure as an MCP tool error.
+ *
+ * Per the MCP spec this is still a successful JSON-RPC response carrying
+ * `isError: true` — the distinction that matters is that the agent sees an
+ * error rather than data it could mistake for an answer.
+ */
+function toolErrorResponse(request: MCPRequest, text: string): MCPResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      content: [{ type: 'text', text }],
+      isError: true,
+    },
+  };
+}
+
+/**
+ * The harness namespace is absent on this host.
+ *
+ * Reported as an ERROR carrying an empty collection of the shape the caller
+ * expected, never as a successful empty result: "the harness tools are not
+ * wired here" and "there is nothing to find" are different answers and were
+ * previously indistinguishable.
+ */
+function harnessUnavailableResponse(
+  request: MCPRequest,
+  shape: Record<string, unknown>,
+): MCPResponse {
+  return toolErrorResponse(
+    request,
+    JSON.stringify({
+      ...shape,
+      count: 0,
+      status: 'error',
+      error:
+        'Harness namespace not available on this host — this is a tool failure, not an empty result.',
+    }),
+  );
+}
+
 function missingStringArgResponse(
   request: MCPRequest,
   field: string,
@@ -1762,6 +1963,33 @@ function createErrorResponse(
       ...(data && { data }),
     },
   };
+}
+
+/**
+ * Normalize a tool-supplied file path for the sandboxed `files.read` primitive,
+ * which accepts workspace-relative paths only. An absolute path inside the
+ * workspace is rewritten to its relative form; a relative path or any path that
+ * escapes the workspace is returned unchanged (and rejected by the sandbox if it
+ * escapes). Lets read-only tools accept either an absolute or relative path.
+ */
+async function toWorkspaceReadPath(
+  file: string,
+  ptahAPI: PtahAPI,
+): Promise<string> {
+  const isAbsolute =
+    file.startsWith('/') || /^[A-Za-z]:/.test(file) || file.startsWith('\\\\');
+  if (!isAbsolute) {
+    return file;
+  }
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
+  if (!workspaceRoot) {
+    return file;
+  }
+  const relative = path.relative(workspaceRoot, file);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    ? relative
+    : file;
 }
 
 /**

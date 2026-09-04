@@ -146,17 +146,22 @@ ptah-settings-export.json
 .agent-legacy/**
 .github/agents/**
 # ============================================
-# Claude Code configuration (local/developer-specific)
+# Claude Code configuration (local except shared project configuration)
 # ============================================
 .claude/*
 
-# Track the shareable video-director agent so the video pipeline travels with the
-# repo (everything else under .claude/ stays local). The video-showcase SKILL is
-# un-ignored further down, AFTER the broad `skills/` rule that would otherwise
-# re-ignore it (search "video-showcase skill").
+# Project-owned Claude assets are committed in full: agents, commands and
+# output-styles here; skills further down, AFTER the broad `skills/` rule that
+# would otherwise re-ignore the directory (the last matching rule wins).
+# Everything else under `.claude/` (settings.local.json, worktrees, …) stays local.
+# Known consequence (TASK_2026_361): harness-sync may report a committed skill
+# copy as foreign/blocked on a machine whose manifest does not own it.
 !.claude/agents/
-.claude/agents/*
-!.claude/agents/video-director.md
+!.claude/agents/**
+!.claude/commands/
+!.claude/commands/**
+!.claude/output-styles/
+!.claude/output-styles/**
 
 # ============================================
 # AI Coding Agent directories (tool-specific, not project config)
@@ -194,13 +199,12 @@ skills/
 !apps/ptah-extension-vscode/assets/plugins/**/skills/
 !apps/ptah-cli/src/skills/
 !apps/ptah-cli/src/skills/**
-# Shareable video-showcase skill — must sit AFTER the broad `skills/` rule above.
-# Re-include the skills dir, re-ignore its contents, then un-ignore only ours so
-# other local skills (impeccable, caveman, …) stay ignored.
+# Project-owned `.claude/skills` — must sit AFTER the broad `skills/` rule above,
+# because the last matching rule wins and `skills/` would re-ignore the directory.
 !.claude/skills/
-.claude/skills/*
-!.claude/skills/video-showcase/
-!.claude/skills/video-showcase/**
+!.claude/skills/**
+!.claude/workflows/
+!.claude/workflows/**
 skills-lock.json
 .remocn-fetch
 

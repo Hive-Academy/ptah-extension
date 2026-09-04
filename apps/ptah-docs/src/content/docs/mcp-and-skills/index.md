@@ -13,7 +13,7 @@ Ptah ships with a **built-in MCP server** exposing the `ptah_*` tool family: wor
 
 ### Skills — knowledge the model can invoke
 
-Skills are versioned, file-based prompt packages. Each has a `SKILL.md` that tells the orchestrator _when_ to invoke it and _what_ context it adds. Ptah auto-publishes plugin skills as symlinks under `<workspace>/.claude/skills/` so third-party AI clients (Copilot, Cursor, Codex CLI) can discover the same knowledge.
+Skills are versioned, file-based prompt packages. Each has a `SKILL.md` that tells the orchestrator _when_ to invoke it and _what_ context it adds. Ptah auto-publishes plugin skills as real file copies under the harness directory of every AI tool it detects — `.claude/skills/`, `.agents/skills/`, `.github/skills/`, and `.cursor/skills/` — so third-party AI clients (Claude Code, Copilot, Cursor, Codex CLI, Antigravity) discover the same knowledge.
 
 ## Why this matters
 

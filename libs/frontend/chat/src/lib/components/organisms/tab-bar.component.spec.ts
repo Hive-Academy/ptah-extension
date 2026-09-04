@@ -87,6 +87,7 @@ class TabItemStubComponent {
 class AwaitingBackgroundIndicatorStubComponent {
   @Input() taskCount = 0;
   @Input() tasks: unknown[] = [];
+  @Input() crons: unknown[] = [];
 }
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
@@ -244,6 +245,30 @@ describe('TabBarComponent', () => {
     );
     expect(slot).toBeTruthy();
     expect(slot.textContent).toContain('0 tasks');
+  });
+
+  it('renders the slot for a sleeping tab and hands it the session crons (TASK_2026_360)', () => {
+    tabsSignal.set([
+      makeTab({
+        id: 'a',
+        status: 'sleeping',
+        pendingBackgroundTasks: [],
+        pendingSessionCrons: [
+          { id: 'c1', schedule: '*/5 * * * *', recurring: true, prompt: 'p' },
+        ],
+      }),
+    ]);
+    activeTabIdSignal.set('a');
+    fixture.detectChanges();
+
+    const slot = fixture.nativeElement.querySelector(
+      '[data-test="tab-bar-awaiting-background-slot"]',
+    );
+    expect(slot).toBeTruthy();
+    const stub = fixture.debugElement.query(
+      (el) => el.name === 'ptah-awaiting-background-indicator',
+    );
+    expect(stub.componentInstance.crons).toHaveLength(1);
   });
 
   it('hides workflow-claimed tabs from the rendered tab list', () => {

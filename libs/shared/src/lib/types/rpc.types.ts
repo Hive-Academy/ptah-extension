@@ -110,6 +110,7 @@ import type {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  ConfigPricingGetResult,
 } from './rpc/rpc-config.types';
 
 import type {
@@ -184,6 +185,8 @@ import type {
   SetupWizardLaunchResponse,
   WizardDeepAnalyzeParams,
   WizardDeepAnalyzeResponse,
+  WizardGetResumableRunParams,
+  WizardGetResumableRunResponse,
   WizardRecommendAgentsParams,
   WizardRecommendAgentsResponse,
   WizardCancelAnalysisParams,
@@ -257,14 +260,26 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectorySmitheryAccountParams,
+  McpDirectorySmitheryAccountResult,
+  McpDirectoryListSmitheryConnectionsParams,
+  McpDirectoryListSmitheryConnectionsResult,
+  McpDirectorySmitheryConnectionStatusParams,
+  McpDirectorySmitheryConnectionStatusResult,
+  McpDirectoryOpenSmitherySetupParams,
+  McpDirectoryOpenSmitherySetupResult,
   McpDirectoryConnectOAuthParams,
   McpDirectoryConnectOAuthResult,
+  McpDirectoryProbeOAuthDiscoveryParams,
+  McpDirectoryProbeOAuthDiscoveryResult,
   McpDirectoryOAuthStatusParams,
   McpDirectoryOAuthStatusResult,
   McpDirectoryDisconnectOAuthParams,
   McpDirectoryDisconnectOAuthResult,
   McpDirectoryListOAuthConnectedParams,
   McpDirectoryListOAuthConnectedResult,
+  McpDirectoryGetOAuthRedirectUriParams,
+  McpDirectoryGetOAuthRedirectUriResult,
 } from './mcp-directory.types';
 
 import type {
@@ -456,12 +471,18 @@ import type {
 // `harness:` namespace with the setup builder above but not its types: these
 // describe propagation health, not a wizard step.
 import type {
+  HarnessGetSkillSelectionParams,
+  HarnessGetSkillSelectionResult,
   HarnessHealthParams,
   HarnessHealthResult,
   HarnessReconcileParams,
   HarnessReconcileResult,
   HarnessRemoveParams,
   HarnessRemoveResult,
+  HarnessRepairBlockedParams,
+  HarnessRepairBlockedResult,
+  HarnessSetSkillSelectionParams,
+  HarnessSetSkillSelectionResult,
 } from './harness-sync.types';
 
 import type {
@@ -509,6 +530,8 @@ import type {
   UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
+  UpdateMarkDownloadedParams,
+  UpdateMarkDownloadedResult,
 } from './rpc/rpc-update.types';
 
 import type {
@@ -706,6 +729,10 @@ export interface RpcMethodRegistry {
     params: ConfigEffortSetParams;
     result: ConfigEffortSetResult;
   };
+  'config:pricing-get': {
+    params: Record<string, never>;
+    result: ConfigPricingGetResult;
+  };
   'auth:getHealth': {
     params: AuthGetHealthParams;
     result: AuthGetHealthResponse;
@@ -757,6 +784,10 @@ export interface RpcMethodRegistry {
   'wizard:deep-analyze': {
     params: WizardDeepAnalyzeParams;
     result: WizardDeepAnalyzeResponse;
+  };
+  'wizard:get-resumable-run': {
+    params: WizardGetResumableRunParams;
+    result: WizardGetResumableRunResponse;
   };
   'wizard:recommend-agents': {
     params: WizardRecommendAgentsParams;
@@ -1216,9 +1247,29 @@ export interface RpcMethodRegistry {
     params: McpDirectoryListSmitheryInstalledParams;
     result: McpDirectoryListSmitheryInstalledResult;
   };
+  'mcpDirectory:smitheryAccount': {
+    params: McpDirectorySmitheryAccountParams;
+    result: McpDirectorySmitheryAccountResult;
+  };
+  'mcpDirectory:listSmitheryConnections': {
+    params: McpDirectoryListSmitheryConnectionsParams;
+    result: McpDirectoryListSmitheryConnectionsResult;
+  };
+  'mcpDirectory:smitheryConnectionStatus': {
+    params: McpDirectorySmitheryConnectionStatusParams;
+    result: McpDirectorySmitheryConnectionStatusResult;
+  };
+  'mcpDirectory:openSmitherySetup': {
+    params: McpDirectoryOpenSmitherySetupParams;
+    result: McpDirectoryOpenSmitherySetupResult;
+  };
   'mcpDirectory:connectOAuth': {
     params: McpDirectoryConnectOAuthParams;
     result: McpDirectoryConnectOAuthResult;
+  };
+  'mcpDirectory:probeOAuthDiscovery': {
+    params: McpDirectoryProbeOAuthDiscoveryParams;
+    result: McpDirectoryProbeOAuthDiscoveryResult;
   };
   'mcpDirectory:oauthStatus': {
     params: McpDirectoryOAuthStatusParams;
@@ -1231,6 +1282,10 @@ export interface RpcMethodRegistry {
   'mcpDirectory:listOAuthConnected': {
     params: McpDirectoryListOAuthConnectedParams;
     result: McpDirectoryListOAuthConnectedResult;
+  };
+  'mcpDirectory:getOAuthRedirectUri': {
+    params: McpDirectoryGetOAuthRedirectUriParams;
+    result: McpDirectoryGetOAuthRedirectUriResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1430,14 +1485,17 @@ export interface RpcMethodRegistry {
   };
   'webSearch:test': {
     params: Record<string, never>;
-    result: { success: boolean; provider: string; error?: string };
+    result: {
+      success: boolean;
+      results: Array<{ provider: string; success: boolean; error?: string }>;
+    };
   };
   'webSearch:getConfig': {
     params: Record<string, never>;
-    result: { provider: string; maxResults: number };
+    result: { providers: string[]; maxResults: number };
   };
   'webSearch:setConfig': {
-    params: { provider?: string; maxResults?: number };
+    params: { providers?: string[]; maxResults?: number };
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
@@ -1550,6 +1608,32 @@ export interface RpcMethodRegistry {
   'harness:remove': {
     params: HarnessRemoveParams;
     result: HarnessRemoveResult;
+  };
+  /**
+   * The consent-gated repair of a blocked path (TASK_2026_306 Batch 8).
+   *
+   * Per-path only. Nothing proves Ptah wrote the directories that occupy these
+   * paths, so the user's explicit selection IS the ownership claim and there is
+   * deliberately no bulk shape to weaken it.
+   */
+  'harness:repairBlocked': {
+    params: HarnessRepairBlockedParams;
+    result: HarnessRepairBlockedResult;
+  };
+  /**
+   * The per-workspace skill selection (TASK_2026_316 Batch 3).
+   *
+   * `get` is READ-ONLY — it resolves the gate and never persists the derived
+   * answer, so a surface that polls cannot record a decision for the user.
+   * `set` writes the choice and then propagates it.
+   */
+  'harness:get-skill-selection': {
+    params: HarnessGetSkillSelectionParams;
+    result: HarnessGetSkillSelectionResult;
+  };
+  'harness:set-skill-selection': {
+    params: HarnessSetSkillSelectionParams;
+    result: HarnessSetSkillSelectionResult;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -2007,6 +2091,10 @@ export interface RpcMethodRegistry {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
   };
+  'update:mark-downloaded': {
+    params: UpdateMarkDownloadedParams;
+    result: UpdateMarkDownloadedResult;
+  };
   'tasks:list': { params: TasksListParams; result: TasksListResult };
   'tasks:get': { params: TasksGetParams; result: TasksGetResult };
   'tasks:getArtifact': {
@@ -2162,6 +2250,13 @@ export interface SkillSynthesisCandidateSummary {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  /**
+   * The workspace this candidate was captured in, or `null` when its origin is
+   * unknown (captured before the column existed and not resolvable from the
+   * synthesis queue). `null` is NOT "cross-project" and must not be rendered as
+   * one — the honest label is "unknown project".
+   */
+  workspaceRoot: string | null;
   // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
   /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
   displayName: string | null;
@@ -2231,9 +2326,33 @@ export interface SkillSynthesisInvocationEntry {
   notes: string | null;
 }
 
+/**
+ * How wide the candidate list reaches across projects.
+ *
+ * `'workspace'` — the current workspace, PLUS every candidate whose origin is
+ * unknown (`workspaceRoot: null`: captured before the origin column existed).
+ * Unknown rows are included rather than hidden, because hiding them would make
+ * pre-existing candidates unreachable in every project.
+ *
+ * `'all'` — every candidate in `~/.ptah/state/ptah.sqlite`, which is shared by
+ * every workspace on the machine.
+ */
+export type SkillSynthesisCandidateScope = 'workspace' | 'all';
+
 export interface SkillSynthesisListCandidatesParams {
   status?: 'candidate' | 'promoted' | 'rejected' | 'all';
   limit?: number;
+  /**
+   * Defaults to `'workspace'`. The default is deliberately the NARROW one: a
+   * candidate is unreviewed work captured from one session in one project, and
+   * before this existed a freshly opened project's review queue was every
+   * other project's backlog.
+   *
+   * This scopes the LIST only. Promotion, clustering, dedup, the residency
+   * budget and the empirical gates all read the candidate set across projects
+   * on purpose — a promoted skill is propagated into every workspace.
+   */
+  scope?: SkillSynthesisCandidateScope;
 }
 export interface SkillSynthesisListCandidatesResult {
   candidates: SkillSynthesisCandidateSummary[];
@@ -3300,6 +3419,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'config:models-list': true,
   'config:effort-get': true,
   'config:effort-set': true,
+  'config:pricing-get': true,
   'auth:getHealth': true,
   'auth:saveSettings': true,
   'auth:testConnection': true,
@@ -3313,6 +3433,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
+  'wizard:get-resumable-run': true,
   'wizard:recommend-agents': true,
   'wizard:cancel-analysis': true,
   'wizard:submit-selection': true,
@@ -3406,10 +3527,16 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:installSmithery': true,
   'mcpDirectory:uninstallSmithery': true,
   'mcpDirectory:listSmitheryInstalled': true,
+  'mcpDirectory:smitheryAccount': true,
+  'mcpDirectory:listSmitheryConnections': true,
+  'mcpDirectory:smitheryConnectionStatus': true,
+  'mcpDirectory:openSmitherySetup': true,
   'mcpDirectory:connectOAuth': true,
+  'mcpDirectory:probeOAuthDiscovery': true,
   'mcpDirectory:oauthStatus': true,
   'mcpDirectory:disconnectOAuth': true,
   'mcpDirectory:listOAuthConnected': true,
+  'mcpDirectory:getOAuthRedirectUri': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
@@ -3484,6 +3611,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:health': true,
   'harness:reconcile': true,
   'harness:remove': true,
+  'harness:repairBlocked': true,
+  'harness:get-skill-selection': true,
+  'harness:set-skill-selection': true,
 
   'memory:list': true,
   'memory:search': true,
@@ -3629,6 +3759,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'update:get-state': true,
   'update:check-now': true,
+  'update:mark-downloaded': true,
 
   'tasks:list': true,
   'tasks:get': true,

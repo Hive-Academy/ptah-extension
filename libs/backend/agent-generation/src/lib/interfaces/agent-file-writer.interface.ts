@@ -8,7 +8,7 @@
  */
 
 import { Result } from '@ptah-extension/shared';
-import { GeneratedAgent } from '../types/core.types';
+import type { GeneratedAgent } from '../types/core.types';
 
 /**
  * Service for writing generated agents to the filesystem.
@@ -54,7 +54,11 @@ export interface IAgentFileWriterService {
    * console.log(`Agent successfully written to: ${filePath}`);
    * ```
    */
-  writeAgent(agent: GeneratedAgent): Promise<Result<string, Error>>;
+  writeAgent(
+    agent: GeneratedAgent,
+  ): Promise<
+    Result<{ filePath: string; status: 'written' | 'unchanged' }, Error>
+  >;
 
   /**
    * Write multiple agents atomically.
@@ -84,5 +88,9 @@ export interface IAgentFileWriterService {
    * filePaths.forEach(path => console.log(`- ${path}`));
    * ```
    */
-  writeAgentsBatch(agents: GeneratedAgent[]): Promise<Result<string[], Error>>;
+  writeAgentsBatch(
+    agents: GeneratedAgent[],
+  ): Promise<
+    Result<Array<{ filePath: string; status: 'written' | 'unchanged' }>, Error>
+  >;
 }
