@@ -72,6 +72,24 @@ export interface PtahConnector {
   /** Smithery registry qualified name. Required for the `smithery` kind. */
   readonly smitheryQualifiedName?: string;
   readonly docsUrl?: string;
+  /**
+   * The provider-side steps a user must complete before Connect can work.
+   * Required for `oauth-app`, where the user creates an app with the provider
+   * and pastes its client id and secret; absent for every other kind, which
+   * needs no provider-side setup.
+   *
+   * The surface renders these in order inside the Advanced disclosure. A step
+   * containing the token `{redirectUrl}` has it replaced with the host's real
+   * redirect URL, read from `mcpDirectory:getOAuthRedirectUri` — never a
+   * hardcoded one, because it differs per host (TASK_2026_373).
+   */
+  readonly setupSteps?: readonly string[];
+  /**
+   * Scopes to request when the authorization server does not advertise its
+   * own. Passed through to `connectOAuth`'s existing `scope` parameter, joined
+   * with spaces. Omit unless the provider documents that a client must ask.
+   */
+  readonly scopes?: readonly string[];
   /** ISO date (YYYY-MM-DD) the entry's URL was last probed. */
   readonly verifiedAt: string;
 }
