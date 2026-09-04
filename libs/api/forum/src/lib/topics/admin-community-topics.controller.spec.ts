@@ -5,7 +5,11 @@ import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ValidationPipe } from '@nestjs/common';
-import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import {
+  GUARDS_METADATA,
+  HTTP_CODE_METADATA,
+  PATH_METADATA,
+} from '@nestjs/common/constants';
 import type { Request } from 'express';
 import type { AuditLogService } from '@ptah-api/audit';
 import {
@@ -151,7 +155,12 @@ describe('AdminCommunityTopicsController', () => {
         },
       );
 
-      expect(throttled.sort()).toEqual(['moderate', 'remove', 'restore']);
+      expect(throttled.sort()).toEqual([
+        'create',
+        'moderate',
+        'remove',
+        'restore',
+      ]);
     });
   });
 
@@ -171,8 +180,18 @@ describe('AdminCommunityTopicsController', () => {
         'DELETE v1/admin/community/topics/:id',
         'GET v1/admin/community/topics',
         'PATCH v1/admin/community/topics/:id',
+        'POST v1/admin/community/topics',
         'POST v1/admin/community/topics/:id/restore',
       ]);
+    });
+
+    it('returns an explicit 201 for the root create route', () => {
+      const create = Object.getOwnPropertyDescriptor(
+        AdminCommunityTopicsController.prototype,
+        'create',
+      )?.value as object;
+
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, create)).toBe(201);
     });
   });
 
@@ -188,14 +207,15 @@ describe('AdminCommunityTopicsController', () => {
           .map((arg) => ({ handler, ...arg })),
     );
 
-    it('has exactly two: the list query and the moderate body', () => {
+    it('has exactly three: the list query and both write bodies', () => {
       expect(payloadParams.map((p) => p.handler).sort()).toEqual([
+        'create',
         'list',
         'moderate',
       ]);
     });
 
-    it('binds both, and neither is a named primitive (RISK-I)', () => {
+    it('binds all three, and none is a named primitive (RISK-I)', () => {
       for (const param of payloadParams) {
         expect({
           handler: param.handler,
@@ -217,6 +237,85 @@ describe('AdminCommunityTopicsController', () => {
     // anybody ever asks about — or can accuse an admin of something that rolled
     // back. Both directions are prevented by `WriteAuditLogParams.tx`, and this
     // is what proves the controller actually supplies it.
+    describe('admin topic creation', () => {
+      async function create(
+        harness: Harness,
+      ): Promise<{ id: string; slug: string }> {
+        harness.prisma.category.findUnique.mockResolvedValue({
+          id: 'staff-only',
+        });
+        harness.prisma.topic.findMany.mockResolvedValue([]);
+        harness.prisma.topic.create.mockResolvedValue({
+          id: 't-new',
+          slug: 'welcome-builders',
+        });
+        harness.prisma.post.create.mockResolvedValue({ id: 'p-new' });
+
+        return harness.controller.create(ADMIN_REQUEST, {
+          categoryId: 'staff-only',
+          title: 'Welcome builders',
+          body: 'Opening post',
+          pinned: true,
+          locked: false,
+        });
+      }
+
+      it('authors the topic and post #1 as the acting admin', async () => {
+        const harness = createHarness();
+
+        await expect(create(harness)).resolves.toEqual({
+          id: 't-new',
+          slug: 'welcome-builders',
+        });
+        expect(harness.prisma.topic.create.mock.calls[0][0].data).toMatchObject(
+          {
+            authorId: 'admin-user-1',
+            pinned: true,
+            locked: false,
+          },
+        );
+        expect(harness.prisma.post.create.mock.calls[0][0].data).toMatchObject({
+          topicId: 't-new',
+          postNumber: 1,
+          bodyMarkdown: 'Opening post',
+          authorId: 'admin-user-1',
+        });
+      });
+
+      it('writes community.topic.create inside the same transaction', async () => {
+        const harness = createHarness();
+
+        await create(harness);
+
+        expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(harness.audit.write.mock.calls[0][0]).toMatchObject({
+          action: 'community.topic.create',
+          targetType: 'Topic',
+          targetId: 't-new',
+          actorEmail: 'admin@example.com',
+          tx: harness.prisma,
+          metadata: {
+            categoryId: 'staff-only',
+            pinned: true,
+            locked: false,
+          },
+        });
+      });
+
+      it('refuses to create without an authenticated actor id', async () => {
+        const harness = createHarness();
+
+        await expect(
+          harness.controller.create(UNAUTHENTICATED_REQUEST, {
+            categoryId: 'staff-only',
+            title: 'Welcome builders',
+            body: 'Opening post',
+          }),
+        ).rejects.toMatchObject({ status: 500 });
+        expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+      });
+    });
+
     async function moderate(harness: Harness): Promise<void> {
       harness.prisma.topic.findFirst.mockResolvedValue({ id: 't-1' });
       harness.prisma.topic.update.mockResolvedValue({ id: 't-1' });

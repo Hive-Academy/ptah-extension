@@ -871,6 +871,108 @@ describe('listForAdmin', () => {
   });
 });
 
+describe('getOutlineForAdmin', () => {
+  it('returns the write projections for live modules and lessons, including a draft course', async () => {
+    const { prisma, service } = wire();
+    prisma.course.findFirst.mockResolvedValue(
+      courseRow({ id: 'course-1', published: false }),
+    );
+    prisma.courseModule.findMany.mockResolvedValue([
+      moduleRow(),
+      moduleRow({ id: 'module-2', slug: 'advanced', sortOrder: 200 }),
+    ]);
+    prisma.lesson.findMany.mockResolvedValue([
+      lessonRow(),
+      lessonRow({
+        id: 'lesson-2',
+        moduleId: 'module-1',
+        slug: 'second',
+        sortOrder: 200,
+      }),
+      lessonRow({
+        id: 'lesson-3',
+        moduleId: 'module-2',
+        slug: 'third',
+      }),
+    ]);
+    prisma.lessonComment.groupBy.mockResolvedValue([
+      { lessonId: 'lesson-1', _count: { _all: 2 } },
+      { lessonId: 'lesson-3', _count: { _all: 1 } },
+    ]);
+
+    const outline = await service.getOutlineForAdmin('course-1');
+
+    expect(outline.modules).toHaveLength(2);
+    expect(outline.modules[0]).toMatchObject({
+      id: 'module-1',
+      lessonCount: 2,
+      deletedAt: null,
+      lessons: [
+        { id: 'lesson-1', commentCount: 2, deletedAt: null },
+        { id: 'lesson-2', commentCount: 0, deletedAt: null },
+      ],
+    });
+    expect(outline.modules[1]).toMatchObject({
+      id: 'module-2',
+      lessonCount: 1,
+      lessons: [{ id: 'lesson-3', commentCount: 1 }],
+    });
+
+    const courseWhere = prisma.course.findFirst.mock.calls[0]?.[0]?.where;
+    expect(courseWhere).toEqual({ id: 'course-1', deletedAt: null });
+    expect(courseWhere).not.toHaveProperty('published');
+    expect(prisma.courseModule.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { courseId: 'course-1', deletedAt: null },
+    });
+    expect(prisma.lesson.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: {
+        moduleId: { in: ['module-1', 'module-2'] },
+        deletedAt: null,
+      },
+    });
+    expect(prisma.lessonComment.groupBy.mock.calls[0]?.[0]).toMatchObject({
+      by: ['lessonId'],
+      where: {
+        lessonId: { in: ['lesson-1', 'lesson-2', 'lesson-3'] },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+    expect(prisma.courseModule.findMany.mock.calls[0]?.[0]?.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { createdAt: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(prisma.lesson.findMany.mock.calls[0]?.[0]?.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { createdAt: 'asc' },
+      { id: 'asc' },
+    ]);
+  });
+
+  it.each(['missing', 'soft-deleted'])('%s course is a 404', async () => {
+    const { prisma, service } = wire();
+    prisma.course.findFirst.mockResolvedValue(null);
+
+    await expect(service.getOutlineForAdmin('gone')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(prisma.courseModule.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty outline without querying descendants when there are no modules', async () => {
+    const { prisma, service } = wire();
+    prisma.course.findFirst.mockResolvedValue(courseRow());
+    prisma.courseModule.findMany.mockResolvedValue([]);
+
+    await expect(service.getOutlineForAdmin('course-1')).resolves.toEqual({
+      modules: [],
+    });
+    expect(prisma.lesson.findMany).not.toHaveBeenCalled();
+    expect(prisma.lessonComment.groupBy).not.toHaveBeenCalled();
+  });
+});
+
 describe('anti-vacuity — the visibility model discriminates', () => {
   it('accepts and rejects', () => {
     const published: CourseShape = {
@@ -915,6 +1017,24 @@ function lessonRow(
     videoThumbnailUrl: null,
     videoMetadataFetchedAt: null,
     videoMetadataSource: null,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function moduleRow(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: 'module-1',
+    courseId: 'course-1',
+    slug: 'intro',
+    title: 'Intro',
+    description: null,
+    sortOrder: 100,
+    releaseAt: null,
     deletedAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),

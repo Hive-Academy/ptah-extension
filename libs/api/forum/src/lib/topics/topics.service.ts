@@ -9,7 +9,10 @@ import {
 import { Prisma, PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
 
-import { CategoriesService } from '../categories/categories.service';
+import {
+  type AuditHook,
+  CategoriesService,
+} from '../categories/categories.service';
 import { assertWithinEditWindow } from '../common/edit-window';
 import { buildSlug, slugify } from '../common/slug';
 import {
@@ -19,6 +22,7 @@ import {
 } from '../common/soft-delete';
 import { buildTopicCategoryVisibilityWhere } from '../common/visibility';
 
+import type { CreateAdminTopicDto } from './dto/create-admin-topic.dto';
 import type { CreateTopicDto } from './dto/create-topic.dto';
 import type { ModerateTopicDto } from './dto/moderate-topic.dto';
 import type { UpdateTopicDto } from './dto/update-topic.dto';
@@ -78,6 +82,17 @@ export interface CreatedTopic {
   readonly id: string;
   readonly slug: string;
   readonly firstPostId: string;
+}
+
+interface PersistTopicWithOpeningPostInput {
+  readonly categoryId: string;
+  readonly title: string;
+  readonly bodyMarkdown: string;
+  readonly authorId: string;
+  readonly now: Date;
+  readonly pinned?: boolean;
+  readonly locked?: boolean;
+  readonly audit?: AuditHook;
 }
 
 /**
@@ -149,75 +164,18 @@ export class TopicsService {
       input.categoryId,
     );
 
-    const stem = slugify(input.title);
-    const failed = new Set<string>();
+    const created = await this.persistTopicWithOpeningPost({
+      categoryId: category.id,
+      title: input.title,
+      bodyMarkdown: input.bodyMarkdown,
+      authorId: ctx.userId,
+      now,
+    });
 
-    for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
-      const existing = await this.prisma.topic.findMany({
-        where: { ...NOT_DELETED, slug: { startsWith: stem } },
-        select: { slug: true },
-      });
-
-      const taken = new Set<string>([
-        ...existing.map((row) => row.slug),
-        ...failed,
-      ]);
-      const slug = buildSlug(input.title, taken);
-
-      try {
-        const created = await this.prisma.$transaction(async (tx) => {
-          const topic = await tx.topic.create({
-            data: {
-              categoryId: category.id,
-              slug,
-              title: input.title,
-              authorId: ctx.userId,
-              // `lastPostedAt` has no default in the schema: it is the feed's
-              // sort key and a topic must be sortable from the instant it
-              // exists, so it is seeded to the creation instant here and bumped
-              // by every subsequent post write.
-              lastPostedAt: now,
-            },
-            select: { id: true, slug: true },
-          });
-
-          // POST #1 IS THE BODY (AD-9). `postNumber` is 1 by construction here
-          // — there is nothing to allocate, because the topic did not exist a
-          // statement ago and `@@unique([topicId, postNumber])` is trivially
-          // satisfied. Replies allocate theirs in `PostsService`.
-          const first = await tx.post.create({
-            data: {
-              topicId: topic.id,
-              parentId: null,
-              postNumber: 1,
-              bodyMarkdown: input.bodyMarkdown,
-              authorId: ctx.userId,
-            },
-            select: { id: true },
-          });
-
-          return { id: topic.id, slug: topic.slug, firstPostId: first.id };
-        });
-
-        this.logger.log(
-          `Topic created: id=${created.id} slug=${created.slug} category=${category.id}`,
-        );
-        return created;
-      } catch (error: unknown) {
-        if (this.isSlugCollision(error) && attempt < MAX_SLUG_ATTEMPTS) {
-          failed.add(slug);
-          continue;
-        }
-        throw this.mapPrismaError(error);
-      }
-    }
-
-    // Unreachable in practice: each attempt adds the failed slug to `failed`,
-    // so the candidate strictly advances. Typed rather than left to fall off
-    // the end of the function, and sanitized (NFR-S7).
-    throw new BadRequestException(
-      'Could not allocate a unique link for this title — please adjust the title and try again',
+    this.logger.log(
+      `Topic created: id=${created.id} slug=${created.slug} category=${category.id}`,
     );
+    return created;
   }
 
   /**
@@ -496,9 +454,120 @@ export class TopicsService {
     return { restored: true };
   }
 
+  /**
+   * Create an admin-authored topic without applying member category visibility.
+   * Topic, opening post and audit row commit or roll back together.
+   */
+  async createAsAdmin(
+    actorUserId: string,
+    input: CreateAdminTopicDto,
+    now: Date = new Date(),
+    audit?: AuditHook,
+  ): Promise<{ id: string; slug: string }> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: input.categoryId },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    const created = await this.persistTopicWithOpeningPost({
+      categoryId: category.id,
+      title: input.title,
+      bodyMarkdown: input.body,
+      authorId: actorUserId,
+      pinned: input.pinned ?? false,
+      locked: input.locked ?? false,
+      now,
+      audit,
+    });
+
+    this.logger.log(
+      `Admin topic created: id=${created.id} slug=${created.slug} category=${category.id} actor=${actorUserId}`,
+    );
+    return { id: created.id, slug: created.slug };
+  }
+
   /* ---------------------------------------------------------------------- */
   /* Internals                                                               */
   /* ---------------------------------------------------------------------- */
+
+  /**
+   * Persist a topic and post #1 through the one shared create path.
+   * Category authorization and lookup remain the caller's responsibility.
+   */
+  private async persistTopicWithOpeningPost(
+    input: PersistTopicWithOpeningPostInput,
+  ): Promise<CreatedTopic> {
+    const stem = slugify(input.title);
+    const failed = new Set<string>();
+
+    for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
+      const existing = await this.prisma.topic.findMany({
+        where: { ...NOT_DELETED, slug: { startsWith: stem } },
+        select: { slug: true },
+      });
+      const taken = new Set<string>([
+        ...existing.map((row) => row.slug),
+        ...failed,
+      ]);
+      const slug = buildSlug(input.title, taken);
+
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const topic = await tx.topic.create({
+            data: {
+              categoryId: input.categoryId,
+              slug,
+              title: input.title,
+              authorId: input.authorId,
+              ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+              ...(input.locked === undefined ? {} : { locked: input.locked }),
+              // `lastPostedAt` has no default in the schema: it is the feed's
+              // sort key and must exist from the instant the topic is created.
+              lastPostedAt: input.now,
+            },
+            select: { id: true, slug: true },
+          });
+
+          // POST #1 IS THE BODY (AD-9). It is created in the same transaction
+          // as the topic so a bodyless topic can never become visible.
+          const first = await tx.post.create({
+            data: {
+              topicId: topic.id,
+              parentId: null,
+              postNumber: 1,
+              bodyMarkdown: input.bodyMarkdown,
+              authorId: input.authorId,
+            },
+            select: { id: true },
+          });
+
+          await input.audit?.(tx, topic.id);
+          return { id: topic.id, slug: topic.slug, firstPostId: first.id };
+        });
+      } catch (error: unknown) {
+        if (this.isSlugCollision(error) && attempt < MAX_SLUG_ATTEMPTS) {
+          failed.add(slug);
+          continue;
+        }
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2003'
+        ) {
+          throw new NotFoundException('Category not found');
+        }
+        throw this.mapPrismaError(error);
+      }
+    }
+
+    // Unreachable in practice: each attempt adds the failed slug to `failed`,
+    // so the candidate strictly advances. The message is sanitized (NFR-S7).
+    throw new BadRequestException(
+      'Could not allocate a unique link for this title — please adjust the title and try again',
+    );
+  }
 
   /** A `P2002` naming `slug` — the one collision `create` retries rather than surfaces. */
   private isSlugCollision(error: unknown): boolean {
