@@ -162,6 +162,22 @@ describe('SessionLoaderService', () => {
       expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
     });
 
+    it('releases the guard when the fetch RESOLVES unsuccessfully', async () => {
+      // A timeout or handler error resolves with `success: false` — it does not
+      // throw — so the throw-only release left the session's agent cards
+      // unrecoverable for the rest of the app run.
+      rpcCall.mockResolvedValueOnce({
+        success: false,
+        error: 'RPC timeout: session:cli-sessions',
+      });
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).not.toHaveBeenCalled();
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+    });
+
     it('skips the fetch when the session was already hydrated by chat:resume', async () => {
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set('tab-1');
