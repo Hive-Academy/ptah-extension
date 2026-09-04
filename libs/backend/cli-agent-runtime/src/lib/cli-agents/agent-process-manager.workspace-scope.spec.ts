@@ -20,6 +20,23 @@ import type {
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
 
+// The roots below are synthetic Windows paths that exist on no machine.
+// `validateWorkingDirectory` skips `realpath` on win32 but calls it everywhere
+// else, so without this mock the whole file passes on a developer's Windows box
+// and fails on the ubuntu CI runner with ENOENT. Identity-resolve, so the
+// `startsWith` prefix check downstream still measures what it is here to
+// measure. Same mock, same reason, as `agent-process-manager.service.spec.ts`.
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      realpath: jest.fn((p: string) => Promise.resolve(p)),
+    },
+  };
+});
+
 const ROOT_A = 'D:\\projects\\workspace-a';
 const ROOT_B = 'D:\\projects\\workspace-b';
 
