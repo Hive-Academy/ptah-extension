@@ -143,3 +143,141 @@ describe('TabManagerService — cross-workspace routing (TASK_2026_154)', () => 
     });
   });
 });
+
+/**
+ * TASK_2026_360 — `applyTurnState` is workspace-aware. A backend turn state for
+ * a tab that lives in a BACKGROUND partition writes that partition and the
+ * global spinner set, and never touches the active workspace's tabs.
+ */
+describe('TabManagerService.applyTurnState on a background partition (TASK_2026_360)', () => {
+  let service: TabManagerService;
+
+  const task = {
+    id: 'bg-1',
+    type: 'subagent' as const,
+    status: 'running' as const,
+    description: 'still going',
+  };
+
+  function turnState(
+    phase:
+      | 'generating'
+      | 'awaiting-background'
+      | 'sleeping'
+      | 'idle'
+      | 'failed',
+    revision: number,
+  ) {
+    return {
+      phase,
+      revision,
+      backgroundTasks: phase === 'awaiting-background' ? [task] : [],
+      sessionCrons: [],
+      terminalReason: phase === 'generating' ? null : ('completed' as const),
+      timestamp: 1,
+    };
+  }
+
+  // The applier always passes the event's session id; a bound tab accepts
+  // only its own session (review F1).
+  const BG_SESSION = SessionId.create();
+
+  /** A streaming tab in WS_A, then WS_B goes active so it is backgrounded. */
+  function streamingTabInBackground(): string {
+    service.switchWorkspace(WS_A);
+    const tabId = service.createTab('a');
+    service.attachSession(tabId, BG_SESSION);
+    service.markStreaming(tabId);
+    service.markTabStreaming(tabId);
+    service.switchWorkspace(WS_B);
+    return tabId;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
+      refreshModels: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<ModelRefreshControl>;
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        TabWorkspacePartitionService,
+        ConversationRegistry,
+        TabSessionBinding,
+        ConfirmationDialogService,
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
+      ],
+    });
+    service = TestBed.inject(TabManagerService);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  it('writes status + snapshot into the partition and clears the global spinner set', () => {
+    const tabId = streamingTabInBackground();
+    expect(service.isTabStreaming(tabId)).toBe(true);
+
+    service.applyTurnState(
+      tabId,
+      turnState('awaiting-background', 1),
+      BG_SESSION,
+    );
+
+    const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+    expect(bg?.status).toBe('awaiting-background');
+    expect(bg?.pendingBackgroundTasks).toEqual([task]);
+    expect(bg?.lastTerminalReason).toBe('completed');
+    expect(bg?.lastTurnStateRevision).toBe(1);
+    expect(service.isTabStreaming(tabId)).toBe(false);
+    // The active workspace (WS_B) never saw the tab.
+    expect(service.tabs().some((t) => t.id === tabId)).toBe(false);
+  });
+
+  it('re-lights a backgrounded tab on generating (cron-woken turn)', () => {
+    const tabId = streamingTabInBackground();
+    service.applyTurnState(tabId, turnState('sleeping', 1), BG_SESSION);
+    expect(service.isTabStreaming(tabId)).toBe(false);
+
+    service.applyTurnState(tabId, turnState('generating', 2), BG_SESSION);
+
+    const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+    expect(bg?.status).toBe('streaming');
+    expect(service.isTabStreaming(tabId)).toBe(true);
+  });
+
+  // Re-expressed for the TASK_2026_371 terminal heal: the tab is BOUND to
+  // BG_SESSION, so a terminal phase at or below the recorded revision is now
+  // accepted. The revision guard is what decides a NON-terminal phase, and
+  // that is the replay window TASK_2026_360 review F1 closed.
+  it('honours the revision guard on a background tab', () => {
+    const tabId = streamingTabInBackground();
+    service.applyTurnState(tabId, turnState('sleeping', 5), BG_SESSION);
+
+    service.applyTurnState(tabId, turnState('generating', 4), BG_SESSION);
+
+    const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+    expect(bg?.status).toBe('sleeping');
+    expect(bg?.lastTurnStateRevision).toBe(5);
+    expect(service.isTabStreaming(tabId)).toBe(false);
+  });
+
+  // The other half of the same rule, on a background partition: the backend
+  // floor map evicted BG_SESSION, so its counter restarted and the terminal
+  // event lands below what the tab holds. Without the heal the tab would keep
+  // `streaming` for good (TASK_2026_371 D1).
+  it('heals a background tab on a terminal event below its recorded revision', () => {
+    const tabId = streamingTabInBackground();
+    service.applyTurnState(tabId, turnState('generating', 5), BG_SESSION);
+
+    service.applyTurnState(tabId, turnState('idle', 2), BG_SESSION);
+
+    const bg = service.getWorkspaceTabs(WS_A).find((t) => t.id === tabId);
+    expect(bg?.status).toBe('loaded');
+    // The watermark realigns DOWN onto the restarted backend counter.
+    expect(bg?.lastTurnStateRevision).toBe(2);
+    expect(service.isTabStreaming(tabId)).toBe(false);
+  });
+});

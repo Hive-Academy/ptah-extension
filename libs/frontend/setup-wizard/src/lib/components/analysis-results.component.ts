@@ -10,11 +10,13 @@ import {
   AlertTriangle,
   CheckCircle,
   LucideAngularModule,
+  RefreshCw,
   TriangleAlert,
   XCircle,
 } from 'lucide-angular';
 import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
@@ -50,6 +52,35 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
   template: `
     <div class="px-3 py-4">
       <h2 class="text-xl font-semibold mb-4">Analysis Complete</h2>
+
+      <!-- Resume offer for a persisted, unfinished generation run -->
+      @if (resumableGeneration(); as generationRun) {
+        <div
+          class="alert alert-info text-xs mb-4"
+          data-testid="resume-generation-banner"
+        >
+          <lucide-angular
+            [img]="RefreshCwIcon"
+            class="h-4 w-4 shrink-0"
+            aria-hidden="true"
+          />
+          <div class="flex-1">
+            <div class="font-semibold">Unfinished agent generation found</div>
+            <div class="opacity-80">
+              {{ generationRun.selectedAgentIds.length }} selected agents were
+              saved. Resume to continue where it stopped — files already written
+              are kept.
+            </div>
+          </div>
+          <button
+            class="btn btn-primary btn-sm"
+            aria-label="Resume generation"
+            (click)="onResumeGeneration()"
+          >
+            Resume Generation
+          </button>
+        </div>
+      }
 
       <!-- Multi-Phase Analysis Results (primary path) -->
       @if (multiPhaseResult(); as mp) {
@@ -202,10 +233,15 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 })
 export class AnalysisResultsComponent {
   private readonly wizardState = inject(SetupWizardStateService);
+  private readonly runner = inject(WizardAnalysisRunner);
   protected readonly TriangleAlertIcon = TriangleAlert;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly XCircleIcon = XCircle;
   protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly RefreshCwIcon = RefreshCw;
+
+  /** Persisted generation checkpoint discovered by the root-scoped runner. */
+  protected readonly resumableGeneration = this.runner.resumableGeneration;
 
   public readonly alertModal =
     viewChild.required<ConfirmationModalComponent>('alertModal');
@@ -308,6 +344,15 @@ For now, you can:
    */
   protected onManualAdjust(): void {
     this.alertModal().show();
+  }
+
+  /**
+   * Handle "Resume Generation" — the root-scoped runner seeds the progress
+   * items from the persisted checkpoint, moves to the generation step, and
+   * requests the resume through WizardRpcService.
+   */
+  protected onResumeGeneration(): void {
+    void this.runner.resumeGeneration();
   }
 
   /**

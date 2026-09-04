@@ -16,6 +16,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
+import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import {
   SDKMessage,
   isResultMessage,
@@ -52,6 +53,7 @@ export { isResultMessage as isSDKResultMessage };
 @injectable()
 export class SdkMessageTransformer implements TransformerState {
   private readonly currentMessageIdByContext: Map<string, string> = new Map();
+  private readonly synthesizedMessageContexts: Set<string> = new Set();
   private readonly currentModelByContext: Map<string, string> = new Map();
   private readonly toolCallIdByContextAndBlock: Map<string, string> = new Map();
   private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
@@ -82,6 +84,8 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly sessionLifecycle: SessionLifecycleManager,
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState: SessionTurnStateRegistry,
   ) {
     this.helpers = {
       logger: this.logger,
@@ -89,6 +93,7 @@ export class SdkMessageTransformer implements TransformerState {
       modelResolver: this.modelResolver,
       sessionLifecycle: this.sessionLifecycle,
       usageTracker: this.usageTracker,
+      turnState: this.turnState,
     };
     this.assistantTransformer = new AssistantMessageTransformer();
     this.userTransformer = new UserMessageTransformer();
@@ -105,6 +110,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.modelResolver,
       this.sessionLifecycle,
       this.usageTracker,
+      this.turnState,
     );
   }
 
@@ -296,6 +302,7 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
+    this.synthesizedMessageContexts.clear();
     this.currentModelByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
@@ -312,6 +319,10 @@ export class SdkMessageTransformer implements TransformerState {
 
   getCurrentModel(contextKey: string): string | undefined {
     return this.currentModelByContext.get(contextKey);
+  }
+
+  isMessageSynthesized(contextKey: string): boolean {
+    return this.synthesizedMessageContexts.has(contextKey);
   }
 
   getToolCallId(contextKey: string, blockIndex: number): string | undefined {
@@ -356,6 +367,15 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearMessageId(contextKey: string): void {
     this.currentMessageIdByContext.delete(contextKey);
+    this.synthesizedMessageContexts.delete(contextKey);
+  }
+
+  markMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.add(contextKey);
+  }
+
+  clearMessageSynthesized(contextKey: string): void {
+    this.synthesizedMessageContexts.delete(contextKey);
   }
 
   setCurrentModel(contextKey: string, model: string): void {

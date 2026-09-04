@@ -1,0 +1,401 @@
+<section class="flex flex-col gap-4">
+  <a
+    class="link link-hover flex w-fit items-center gap-1 text-sm opacity-70"
+    routerLink="/admin/builders/courses"
+  >
+    ← Back to courses
+  </a>
+
+  @if (loadError(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-ghost btn-sm" (click)="fetchCourse()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && course() === null) {
+    <div class="h-24 animate-pulse rounded-lg bg-base-200"></div>
+  } @else if (course(); as c) {
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-xl font-semibold">{{ c.title }}</h2>
+          @if (c.published) {
+            <ptah-status-badge
+              [variant]="'success'"
+              label="Published"
+              [showIcon]="false"
+            />
+          } @else {
+            <ptah-status-badge
+              [variant]="'ghost'"
+              label="Draft"
+              [showIcon]="false"
+            />
+          }
+          <ptah-status-badge
+            [variant]="'info'"
+            [label]="c.visibility"
+            [showIcon]="false"
+          />
+          @if (c.sequential) {
+            <span class="badge badge-outline badge-sm">Sequential</span>
+          }
+        </div>
+        <div class="font-mono text-xs opacity-60">{{ c.slug }}</div>
+        <p class="max-w-2xl text-sm opacity-70">{{ c.description }}</p>
+        <p class="text-xs opacity-60">
+          {{ c.moduleCount }} module(s), {{ c.lessonCount }} lesson(s) on the
+          server.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        [disabled]="reordering()"
+        (click)="openCreateModule()"
+      >
+        New Module
+      </button>
+    </header>
+
+    <!-- ---------------------------------------------------------------- -->
+    <!-- Modules                                                           -->
+    <!-- ---------------------------------------------------------------- -->
+
+    <div class="flex flex-col gap-2">
+      <h3 class="text-lg font-semibold">Modules</h3>
+
+      @if (modulesError(); as errMsg) {
+        <div class="alert alert-error" role="alert">
+          <span>{{ errMsg }}</span>
+        </div>
+      }
+
+      @if (modulesLoading() && modules().length === 0) {
+        <div class="flex flex-col gap-2">
+          @for (i of [1, 2]; track i) {
+            <div class="h-16 animate-pulse rounded-lg bg-base-200"></div>
+          }
+        </div>
+      } @else if (modules().length === 0) {
+        <ptah-empty-state
+          [icon]="GraduationCapIcon"
+          message="No modules yet."
+          hint="Add the first module, then its lessons."
+        >
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            (click)="openCreateModule()"
+          >
+            New Module
+          </button>
+        </ptah-empty-state>
+      } @else {
+        <ul class="flex flex-col gap-3">
+          @for (m of modules(); track m.id; let i = $index) {
+            <li class="rounded-lg border border-hairline p-3">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="flex items-start gap-2">
+                  <div class="flex flex-col">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      [attr.aria-label]="'Move ' + m.title + ' up'"
+                      [disabled]="!canMoveUp(i)"
+                      (click)="moveUp(i)"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      [attr.aria-label]="'Move ' + m.title + ' down'"
+                      [disabled]="!canMoveDown(i)"
+                      (click)="moveDown(i)"
+                    >
+                      ↓
+                    </button>
+                  </div>
+                  <div>
+                    <div class="font-medium">{{ m.title }}</div>
+                    <div class="font-mono text-xs opacity-60">{{ m.slug }}</div>
+                    <div class="mt-1 flex items-center gap-2 text-xs">
+                      @if (moduleLocked(m)) {
+                        <ptah-status-badge
+                          [variant]="'warning'"
+                          label="Locked"
+                          [showIcon]="false"
+                        />
+                      }
+                      <span class="opacity-70">{{ moduleReleaseLabel(m) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [disabled]="reordering()"
+                    (click)="openEditModule(m)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    [disabled]="reordering()"
+                    (click)="openDeleteModule(m)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-3 border-t border-hairline pt-3">
+                <ptah-admin-module-lessons
+                  [moduleId]="m.id"
+                  [moduleTitle]="m.title"
+                  [lessons]="m.lessons"
+                  [disabled]="reordering()"
+                  (lessonsChanged)="onLessonsChanged()"
+                />
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- ---------------------------------------------------------------- -->
+    <!-- Lesson metadata                                                   -->
+    <!-- ---------------------------------------------------------------- -->
+
+    @if (lessonCount() > 0) {
+      <div class="rounded-lg border border-hairline p-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-medium">Video metadata</h3>
+            <p class="text-xs opacity-70">
+              Re-fetches titles, durations and thumbnails for the
+              {{ lessonCount() }} lesson(s) in this course.
+            </p>
+            @if (refreshTruncated()) {
+              <!--
+                The endpoint takes 1–100 explicit ids, not a course. A partial
+                run reported as a whole one would leave an admin believing
+                stale videos were fixed.
+              -->
+              <p class="text-xs text-warning">
+                One request carries at most {{ refreshLimit }} lessons, so this
+                refreshes the first {{ refreshLimit }} of
+                {{ lessonCount() }} only. Refresh the rest from the individual
+                lesson rows.
+              </p>
+            }
+          </div>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            [disabled]="bulkBusy()"
+            (click)="refreshAllLessons()"
+          >
+            @if (bulkBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Refreshing…
+            } @else {
+              Refresh all lesson metadata
+            }
+          </button>
+        </div>
+        @if (bulkError(); as errMsg) {
+          <div class="alert alert-error mt-2 py-2 text-sm" role="alert">
+            <span>{{ errMsg }}</span>
+          </div>
+        }
+        @if (bulkNotice(); as notice) {
+          <div class="alert alert-info mt-2 py-2 text-sm" role="status">
+            <span>{{ notice }}</span>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ---------------------------------------------------------------- -->
+    <!-- Cohort schedule                                                   -->
+    <!-- ---------------------------------------------------------------- -->
+
+    @if (modules().length > 0) {
+      <div class="flex flex-col gap-3 rounded-lg border border-hairline p-3">
+        <div>
+          <h3 class="text-lg font-semibold">Cohort schedule</h3>
+          <!--
+            Load-bearing copy. The apply is a TOTAL re-schedule: it sets every
+            live module's release date from one start date and overwrites dates
+            an admin set by hand, and no column keeps the previous value. The
+            preview is the only place those dates can be checked first.
+          -->
+          <p class="max-w-2xl text-sm opacity-70">
+            Sets a release date on every module, one per weekday from the start
+            date. Weekends are skipped. This replaces any date you set by hand,
+            so preview it first — the previous dates are kept only in the audit
+            log.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="form-control">
+            <div class="label py-0">
+              <span class="label-text text-xs">Start date</span>
+            </div>
+            <input
+              id="schedule-start-date"
+              type="date"
+              class="input input-bordered input-sm"
+              [value]="scheduleStartDate()"
+              (input)="onStartDateInput($event)"
+              [disabled]="scheduleBusy()"
+            />
+          </label>
+          <label class="form-control">
+            <div class="label py-0">
+              <span class="label-text text-xs">Time of day</span>
+            </div>
+            <input
+              id="schedule-time-of-day"
+              type="time"
+              class="input input-bordered input-sm"
+              [value]="scheduleTimeOfDay()"
+              (input)="onTimeOfDayInput($event)"
+              [disabled]="scheduleBusy()"
+            />
+          </label>
+          <label class="form-control">
+            <div class="label py-0">
+              <span class="label-text text-xs">Time zone</span>
+            </div>
+            <input
+              id="schedule-time-zone"
+              type="text"
+              class="input input-bordered input-sm w-56 font-mono"
+              [value]="scheduleTimeZone()"
+              (input)="onTimeZoneInput($event)"
+              [disabled]="scheduleBusy()"
+              placeholder="e.g. Europe/Berlin"
+            />
+          </label>
+          <button
+            type="button"
+            class="btn btn-sm"
+            [disabled]="scheduleBusy() || !scheduleInputsValid()"
+            (click)="previewSchedule()"
+          >
+            @if (scheduleBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Working…
+            } @else {
+              Preview
+            }
+          </button>
+        </div>
+
+        @if (scheduleError(); as errMsg) {
+          <div class="alert alert-error py-2 text-sm" role="alert">
+            <span>{{ errMsg }}</span>
+          </div>
+        }
+        @if (scheduleNotice(); as notice) {
+          <div class="alert alert-success py-2 text-sm" role="status">
+            <span>{{ notice }}</span>
+          </div>
+        }
+
+        @if (schedulePreview(); as preview) {
+          <div class="overflow-x-auto rounded-lg border border-hairline">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Module</th>
+                  <th>Opens</th>
+                  <th>Currently</th>
+                  <th>Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (e of preview.entries; track e.moduleId) {
+                  <tr [class.font-medium]="e.changed">
+                    <td class="tabular-nums">
+                      {{ e.day }} <span class="opacity-60">{{ e.weekday }}</span>
+                    </td>
+                    <td>{{ e.title }}</td>
+                    <td class="tabular-nums">{{ e.localDate }}</td>
+                    <td class="text-xs opacity-70">
+                      {{ e.currentReleaseAt ?? 'Open now' }}
+                    </td>
+                    <td>
+                      @if (e.changed) {
+                        <ptah-status-badge
+                          [variant]="'warning'"
+                          label="Moves"
+                          [showIcon]="false"
+                        />
+                      } @else {
+                        <span class="text-xs opacity-50">—</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-sm opacity-70">
+              {{ preview.changedCount }} of {{ preview.moduleCount }} module(s)
+              would move. The last one opens on {{ preview.lastReleaseDate }}.
+            </p>
+            @if (!preview.applied) {
+              <button
+                type="button"
+                class="btn btn-warning btn-sm"
+                [disabled]="scheduleBusy() || preview.changedCount === 0"
+                (click)="applySchedule()"
+              >
+                Apply this schedule
+              </button>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+</section>
+
+@if (course(); as c) {
+  <ptah-admin-module-form-modal
+    [open]="formOpen()"
+    [courseId]="c.id"
+    [module]="formTarget()"
+    (closeModal)="onModuleFormClose()"
+    (saved)="onModuleSaved()"
+  />
+}
+
+@if (deleteTarget(); as target) {
+  <ptah-admin-confirm-delete-modal
+    [open]="deleteOpen()"
+    title="Delete Module"
+    [subject]="target.title"
+    [detail]="target.slug"
+    consequence="This hides the module and every lesson in it from members. It is a soft delete, and the lessons themselves are left untouched."
+    confirmLabel="Delete Module"
+    [deleting]="deleting()"
+    [errorMessage]="deleteError()"
+    (closeModal)="onDeleteClose()"
+    (confirmed)="onDeleteConfirmed()"
+  />
+}

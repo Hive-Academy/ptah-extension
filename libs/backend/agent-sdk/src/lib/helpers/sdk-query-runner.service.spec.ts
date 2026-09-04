@@ -19,7 +19,6 @@ import type { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
 import type { CompactionConfigProvider } from './compaction-config-provider';
-import type { CompactionHookHandler } from './compaction-hook-handler';
 import type { SdkModelService } from './sdk-model-service';
 import type { Query } from './session-lifecycle-manager';
 import type {
@@ -96,7 +95,6 @@ interface RunnerHarness {
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
   subagentHooks: { createHooks: jest.Mock };
-  compactionHooks: CompactionHookHandler;
   processSpawner: ReturnType<typeof createProcessSpawner>;
 }
 
@@ -122,9 +120,6 @@ function makeRunner(
       .fn()
       .mockReturnValue({ enabled: true, contextTokenThreshold: 100_000 }),
   } as unknown as CompactionConfigProvider;
-  const compactionHooks = {
-    createHooks: jest.fn().mockReturnValue({}),
-  } as unknown as CompactionHookHandler;
   const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
   // Mirrors the one branch of ModelResolver.resolve() these specs exercise: a
   // `claude-<tier>-*` id is remapped to the tier's env override when the
@@ -165,7 +160,6 @@ function makeRunner(
     moduleLoader as unknown as SdkModuleLoader,
     subagentHooks as unknown as SubagentHookHandler,
     compactionConfig,
-    compactionHooks,
     authEnv,
     modelService,
     platformInfo as unknown as IPlatformInfo,
@@ -179,7 +173,6 @@ function makeRunner(
     moduleLoader,
     queryFn,
     subagentHooks,
-    compactionHooks,
     processSpawner,
   };
 }
@@ -336,16 +329,11 @@ describe('SdkQueryRunner', () => {
 
       // TASK_2026_295: the subagent handler gates registration on a parent
       // session id. Passing only cwd left every subagent of a one-shot query
-      // unregistered — no steering, no stop, no resumption. It gets the same
-      // synthetic id the compaction handler already had.
+      // unregistered — no steering, no stop, no resumption.
       expect(h.subagentHooks.createHooks).toHaveBeenCalledWith(
         '/work',
         expect.stringMatching(/^internal-query-\d+$/),
       );
-      const subagentParentId = h.subagentHooks.createHooks.mock.calls[0][1];
-      const compactionSessionId = (h.compactionHooks.createHooks as jest.Mock)
-        .mock.calls[0][0];
-      expect(subagentParentId).toBe(compactionSessionId);
     });
 
     it('omits PostToolUse and UserPromptSubmit hooks so internal queries never feed the curators', async () => {
@@ -367,6 +355,44 @@ describe('SdkQueryRunner', () => {
       const hooks = (params.options.hooks ?? {}) as Record<string, unknown[]>;
       expect(hooks).not.toHaveProperty('PostToolUse');
       expect(hooks).not.toHaveProperty('UserPromptSubmit');
+    });
+  });
+
+  describe('runOneShot — compaction hooks never wired (TASK_2026_376 finding 4)', () => {
+    // `maxTurns` was the wrong axis (B6). The one-shot session id is
+    // synthetic BY CONSTRUCTION for every caller, whatever its turn budget,
+    // so it can never be resolved to a real transcript. A PreCompact firing
+    // on a multi-turn one-shot query (e.g. the memory curator's own
+    // CURATOR_MAX_TURNS = 6 run) would fan that synthetic id to
+    // CompactionCallbackRegistry, whose one subscriber (the memory curator)
+    // reads it as a real session id — TASK_2026_293's defect class. No hooks
+    // object carries a `PreCompact`/`PostCompact` matcher on this path at all.
+    it.each([
+      ['maxTurns: 1', { maxTurns: 1 }],
+      ['maxTurns: 6 (the curator budget)', { maxTurns: 6 }],
+      ['no maxTurns given (default 25)', {}],
+    ])('wires no compaction hooks — %s', async (_label, extra) => {
+      const h = makeRunner();
+
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: false,
+        ...extra,
+      });
+
+      expect(h.queryFn).toHaveBeenCalledTimes(1);
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      const hooks = (params.options.hooks ?? {}) as Record<string, unknown[]>;
+      expect(hooks).not.toHaveProperty('PreCompact');
+      expect(hooks).not.toHaveProperty('PostCompact');
+      // The subagent hook stays wired — TASK_2026_295 needs the parent id
+      // regardless of turn budget.
+      expect(h.subagentHooks.createHooks).toHaveBeenCalledTimes(1);
     });
   });
 

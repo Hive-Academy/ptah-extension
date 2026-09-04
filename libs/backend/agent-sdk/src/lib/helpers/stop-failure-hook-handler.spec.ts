@@ -4,6 +4,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
+import { SessionTurnStateRegistry } from './session-turn-state.registry';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -297,5 +298,56 @@ describe('StopFailureHookHandler', () => {
     });
 
     expect(result).toEqual({ continue: true });
+  });
+});
+
+describe('StopFailureHookHandler - SessionTurnStateRegistry snapshot (TASK_2026_360)', () => {
+  it('records the failure without changing the phase, so result settles to failed', async () => {
+    const logger = makeLogger();
+    const turnState = new SessionTurnStateRegistry();
+    const generating = turnState.markGenerating('sess-1');
+    const handler = new StopFailureHookHandler(logger, undefined, turnState);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    const result = await fn(
+      {
+        hook_event_name: 'StopFailure',
+        session_id: 'sess-1',
+        cwd: '/workspace',
+        error: 'rate_limit',
+        terminal_reason: 'model_error',
+      } as unknown as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({ continue: true });
+    expect(turnState.get('sess-1')).toBe(generating);
+    expect(turnState.settleTurn('sess-1')).toMatchObject({
+      phase: 'failed',
+      error: 'rate_limit',
+      terminalReason: 'model_error',
+    });
+  });
+
+  it('records nothing when the session id cannot be resolved', async () => {
+    const logger = makeLogger();
+    const turnState = new SessionTurnStateRegistry();
+    const handler = new StopFailureHookHandler(logger, undefined, turnState);
+    const fn = getHookCallback(handler, '', '/workspace');
+
+    await fn(
+      {
+        hook_event_name: 'StopFailure',
+        session_id: '',
+        cwd: '/workspace',
+        error: 'unknown',
+      } as unknown as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(turnState.get('')).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
   });
 });

@@ -39,6 +39,7 @@ interface FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
 }
 
@@ -65,10 +66,12 @@ function createFakeChild(): FakeChildControls {
     kill: jest.Mock;
     killed: boolean;
     pid: number;
+    whenSpawned: Promise<number | null>;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.pid = pid;
+  emitter.whenSpawned = Promise.resolve(pid);
   // RPC mode keeps stdin open and writable for the whole run.
   emitter.stdin = {
     end: jest.fn(),

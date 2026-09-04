@@ -35,9 +35,16 @@ export class SkillRegistryCatalogService {
     private readonly mirror: UserLayerMirrorService,
   ) {}
 
-  async sync(): Promise<CatalogSyncResult> {
-    const clones = await this.mirror.listClones();
-    const roots = this.mirror.getUserLayerRoots();
+  /**
+   * @param workspaceRoot The workspace whose AGENT clones to catalogue. Agent
+   *   clones are keyed by it (TASK_2026_365); skills and commands are
+   *   per-machine and are catalogued whatever it says. Must be the same root
+   *   `harness-sync` reconciles, or this reads a directory the mirror never
+   *   wrote to and every agent row disappears from the catalog.
+   */
+  async sync(workspaceRoot?: string): Promise<CatalogSyncResult> {
+    const clones = await this.mirror.listClones(workspaceRoot);
+    const roots = this.mirror.getUserLayerRoots(workspaceRoot);
     return this.syncFromClones(clones, roots);
   }
 

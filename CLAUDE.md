@@ -33,6 +33,7 @@ ptah-extension/
 │   ├── cli-engine/                    # In-process backend host for ptah-cli / ptah-tui
 │   ├── agent-generation/              # Setup-wizard generation pipeline
 │   ├── harness-sync/                  # ★ One reconciler: user layer → every AI tool's harness dirs
+│   │                                  #   (agents are keyed per workspace, TASK_2026_365)
 │   ├── workspace-intelligence/        # AST + symbol indexer + analysis
 │   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate

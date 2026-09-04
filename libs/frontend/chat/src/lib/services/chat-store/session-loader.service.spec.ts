@@ -1,5 +1,5 @@
 /**
- * SessionLoaderService specs â€” focuses on the pieces that can be tested as a
+ * SessionLoaderService specs — focuses on the pieces that can be tested as a
  * unit without the full RPC/state orchestration:
  *
  *   - removeSessionFromList: drops a session by id and decrements the counter
@@ -162,6 +162,22 @@ describe('SessionLoaderService', () => {
       expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
     });
 
+    it('releases the guard when the fetch RESOLVES unsuccessfully', async () => {
+      // A timeout or handler error resolves with `success: false` — it does not
+      // throw — so the throw-only release left the session's agent cards
+      // unrecoverable for the rest of the app run.
+      rpcCall.mockResolvedValueOnce({
+        success: false,
+        error: 'RPC timeout: session:cli-sessions',
+      });
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).not.toHaveBeenCalled();
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+    });
+
     it('skips the fetch when the session was already hydrated by chat:resume', async () => {
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set('tab-1');
@@ -287,7 +303,7 @@ describe('SessionLoaderService', () => {
     });
 
     it('removeResumableSubagent filters by toolCallId', async () => {
-      // Seed the signal indirectly â€” simulate backend providing resumable
+      // Seed the signal indirectly — simulate backend providing resumable
       // subagents through chat:resume.
       rpcCall.mockImplementation(
         (method: string): Promise<{ success: boolean; data?: unknown }> => {
@@ -353,7 +369,7 @@ describe('SessionLoaderService', () => {
     });
 
     it('restores from cache on a second visit without RPC', async () => {
-      // First visit â€” populates the cache via loadSessionsForWorkspace.
+      // First visit — populates the cache via loadSessionsForWorkspace.
       rpcCall.mockResolvedValue({
         success: true,
         data: {
@@ -405,7 +421,7 @@ describe('SessionLoaderService', () => {
 
       service.removeWorkspaceCache('D:/repo');
 
-      // Switch away and back â€” should trigger RPC again.
+      // Switch away and back — should trigger RPC again.
       service.switchWorkspace('D:/other');
       await Promise.resolve();
       rpcCall.mockClear();

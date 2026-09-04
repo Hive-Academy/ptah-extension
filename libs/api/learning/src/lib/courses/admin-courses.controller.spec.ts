@@ -125,6 +125,43 @@ function courseRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function moduleRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'module-1',
+    courseId: 'c-1',
+    slug: 'first-module',
+    title: 'First module',
+    description: null,
+    sortOrder: 100,
+    releaseAt: null,
+    deletedAt: null,
+    createdAt: new Date('2026-01-03T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function lessonRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'lesson-1',
+    moduleId: 'module-1',
+    slug: 'first-lesson',
+    title: 'First lesson',
+    bodyMarkdown: '# First lesson',
+    sortOrder: 100,
+    youtubeVideoId: null,
+    videoTitle: null,
+    videoDurationSeconds: null,
+    videoThumbnailUrl: null,
+    videoMetadataFetchedAt: null,
+    videoMetadataSource: null,
+    deletedAt: null,
+    createdAt: new Date('2026-01-05T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
 describe('AdminCoursesController', () => {
   describe('🔴 RISK-N / RI-1 — three disjoint literal depth-3 admin prefixes', () => {
     const prefixes = [
@@ -238,7 +275,7 @@ describe('AdminCoursesController', () => {
       );
     });
 
-    it('throttles every write and leaves the two reads on the global budget', () => {
+    it('throttles every write and leaves the three reads on the global budget', () => {
       const throttled = handlersOf(AdminCoursesController).filter((handler) => {
         const fn = Object.getOwnPropertyDescriptor(
           AdminCoursesController.prototype,
@@ -273,12 +310,115 @@ describe('AdminCoursesController', () => {
         'DELETE v1/admin/courses/:id',
         'GET v1/admin/courses',
         'GET v1/admin/courses/:id',
+        'GET v1/admin/courses/:id/modules',
         'PATCH v1/admin/courses/:id',
         'PATCH v1/admin/courses/reorder',
         'POST v1/admin/courses',
         'POST v1/admin/courses/:id/restore',
         'PUT v1/admin/courses/:id/published',
       ]);
+    });
+  });
+
+  describe('GET :id/modules - the admin authoring outline', () => {
+    it('includes drafts, excludes tombstones, and preserves deterministic order', async () => {
+      const harness = createHarness();
+      harness.prisma.course.findFirst.mockResolvedValue(
+        courseRow({ published: false }),
+      );
+      harness.prisma.courseModule.findMany.mockResolvedValue([
+        moduleRow(),
+        moduleRow({
+          id: 'module-2',
+          slug: 'second-module',
+          title: 'Second module',
+          sortOrder: 200,
+        }),
+      ]);
+      harness.prisma.lesson.findMany.mockResolvedValue([
+        lessonRow(),
+        lessonRow({
+          id: 'lesson-2',
+          moduleId: 'module-1',
+          slug: 'second-lesson',
+          title: 'Second lesson',
+          sortOrder: 200,
+        }),
+        lessonRow({
+          id: 'lesson-3',
+          moduleId: 'module-2',
+          slug: 'third-lesson',
+          title: 'Third lesson',
+          sortOrder: 100,
+        }),
+      ]);
+      harness.prisma.lessonComment.groupBy.mockResolvedValue([
+        { lessonId: 'lesson-1', _count: { _all: 1 } },
+      ]);
+
+      const outline = await harness.controller.getModules('c-1');
+
+      expect(outline.modules.map((module) => module.id)).toEqual([
+        'module-1',
+        'module-2',
+      ]);
+      expect(
+        outline.modules.map((module) =>
+          module.lessons.map((lesson) => lesson.id),
+        ),
+      ).toEqual([['lesson-1', 'lesson-2'], ['lesson-3']]);
+      expect(outline.modules[0]).toMatchObject({
+        lessonCount: 2,
+        deletedAt: null,
+        lessons: [
+          { id: 'lesson-1', commentCount: 1, deletedAt: null },
+          { id: 'lesson-2', commentCount: 0, deletedAt: null },
+        ],
+      });
+
+      const courseWhere = harness.prisma.course.findFirst.mock.calls[0][0]
+        .where as Record<string, unknown>;
+      expect(courseWhere).toEqual({ id: 'c-1', deletedAt: null });
+      expect(courseWhere).not.toHaveProperty('published');
+      expect(
+        harness.prisma.courseModule.findMany.mock.calls[0][0],
+      ).toMatchObject({ where: { courseId: 'c-1', deletedAt: null } });
+      expect(harness.prisma.lesson.findMany.mock.calls[0][0]).toMatchObject({
+        where: { deletedAt: null },
+      });
+      expect(
+        harness.prisma.lessonComment.groupBy.mock.calls[0][0],
+      ).toMatchObject({
+        by: ['lessonId'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      });
+      expect(
+        harness.prisma.courseModule.findMany.mock.calls[0][0].orderBy,
+      ).toEqual([{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]);
+      expect(harness.prisma.lesson.findMany.mock.calls[0][0].orderBy).toEqual([
+        { sortOrder: 'asc' },
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
+      expect(harness.audit.write).not.toHaveBeenCalled();
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it.each(['missing', 'soft-deleted'])('%s course returns 404', async () => {
+      const harness = createHarness();
+      harness.prisma.course.findFirst.mockResolvedValue(null);
+
+      await expect(harness.controller.getModules('gone')).rejects.toMatchObject(
+        {
+          status: 404,
+        },
+      );
+      expect(harness.prisma.course.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'gone',
+        deletedAt: null,
+      });
+      expect(harness.prisma.courseModule.findMany).not.toHaveBeenCalled();
     });
   });
 

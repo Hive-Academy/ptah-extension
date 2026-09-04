@@ -224,9 +224,13 @@ export async function execute(
         {
           kind: 'async-broadcast',
           run: () =>
+            // `analysisData` is deliberately NOT sent. It takes a
+            // `ProjectAnalysisResult`, and this phase holds a
+            // `MultiPhaseAnalysisResponse` — a different shape, which the
+            // backend now validates and drops (TASK_2026_361). `analysisDir`
+            // fully specifies the analysis for generation.
             callRpc<unknown>(ctx.transport, 'wizard:submit-selection', {
               selectedAgentIds,
-              analysisData: analysisResult,
               analysisDir: analysisResult.analysisDir,
             }),
           completionEvent: 'setup-wizard:generation-complete',

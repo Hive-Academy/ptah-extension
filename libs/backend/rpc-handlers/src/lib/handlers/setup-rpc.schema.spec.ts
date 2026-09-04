@@ -1,34 +1,106 @@
 /**
  * SetupRpcSchema — unit specs.
  *
- * Surface under test: `./setup-rpc.schema.ts`, which is intentionally an
- * empty-export module (see the file header there for rationale — the
- * setup handler reuses `ProjectAnalysisZodSchema` from
- * `@ptah-extension/agent-generation`; it does not define any inline
- * schemas of its own).
- *
- * This spec exists so:
- *   1. The "every handler has a paired schema spec" invariant holds across
- *      the rpc-handlers library.
- *   2. A future PR that accidentally adds a Zod schema to
- *      `setup-rpc.schema.ts` without wiring tests has a pre-existing
- *      file to extend.
- *   3. The empty-module contract is locked in — if someone deletes the
- *      file, the spec fails with a clear import-resolution error.
+ * Surface under test: `./setup-rpc.schema.ts`, the Zod boundary for the
+ * `wizard:` query/resume DTOs handled by `SetupRpcHandlers`
+ * (TASK_2026_361 Batch 3). `wizard:recommend-agents` is deliberately absent:
+ * its raw analysis input is validated by `ProjectAnalysisZodSchema` inside
+ * the handler.
  */
 
 import 'reflect-metadata';
 
-import * as setupRpcSchema from './setup-rpc.schema';
+import {
+  WizardDeepAnalyzeParamsSchema,
+  WizardGetResumableRunParamsSchema,
+  WizardInstallPackAgentsParamsSchema,
+  WizardListAnalysesParamsSchema,
+  WizardLoadAnalysisParamsSchema,
+} from './setup-rpc.schema';
 
 describe('setup-rpc.schema', () => {
-  it('is an intentionally empty module (no Zod schemas exported)', () => {
-    const ownKeys = Object.keys(setupRpcSchema);
-    expect(ownKeys).toEqual([]);
+  describe('WizardDeepAnalyzeParamsSchema', () => {
+    it('accepts an empty object (backend root, fresh run)', () => {
+      const result = WizardDeepAnalyzeParamsSchema.safeParse({});
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({});
+    });
+
+    it('accepts the typed resume flag alongside model and workspacePath', () => {
+      const result = WizardDeepAnalyzeParamsSchema.safeParse({
+        model: 'claude-sonnet-4-20250514',
+        resume: true,
+        workspacePath: '/ws',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data?.resume).toBe(true);
+    });
+
+    it('rejects a non-boolean resume flag', () => {
+      expect(
+        WizardDeepAnalyzeParamsSchema.safeParse({ resume: 'yes' }).success,
+      ).toBe(false);
+    });
+
+    it('rejects an empty model string', () => {
+      expect(
+        WizardDeepAnalyzeParamsSchema.safeParse({ model: '' }).success,
+      ).toBe(false);
+    });
   });
 
-  it('can be imported without side effects', () => {
-    expect(setupRpcSchema).toBeDefined();
-    expect(typeof setupRpcSchema).toBe('object');
+  describe('WizardGetResumableRunParamsSchema', () => {
+    it('accepts no parameters and drops unknown keys', () => {
+      const result = WizardGetResumableRunParamsSchema.safeParse({
+        unexpected: 1,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({});
+    });
+
+    it('rejects a non-object', () => {
+      expect(WizardGetResumableRunParamsSchema.safeParse('x').success).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('WizardListAnalysesParamsSchema', () => {
+    it('accepts an optional workspacePath', () => {
+      expect(WizardListAnalysesParamsSchema.safeParse({}).success).toBe(true);
+      expect(
+        WizardListAnalysesParamsSchema.safeParse({ workspacePath: '/ws' })
+          .success,
+      ).toBe(true);
+    });
+  });
+
+  describe('WizardLoadAnalysisParamsSchema', () => {
+    it('requires a non-empty filename', () => {
+      expect(WizardLoadAnalysisParamsSchema.safeParse({}).success).toBe(false);
+      expect(
+        WizardLoadAnalysisParamsSchema.safeParse({ filename: '' }).success,
+      ).toBe(false);
+      expect(
+        WizardLoadAnalysisParamsSchema.safeParse({ filename: 'slug' }).success,
+      ).toBe(true);
+    });
+  });
+
+  describe('WizardInstallPackAgentsParamsSchema', () => {
+    it('requires a source and at least one agent file', () => {
+      expect(
+        WizardInstallPackAgentsParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: [],
+        }).success,
+      ).toBe(false);
+      expect(
+        WizardInstallPackAgentsParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: ['a.md'],
+        }).success,
+      ).toBe(true);
+    });
   });
 });

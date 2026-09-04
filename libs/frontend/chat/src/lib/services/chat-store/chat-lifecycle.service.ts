@@ -6,10 +6,6 @@ import {
 } from '@ptah-extension/core';
 import { LicenseGetStatusResponse, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import {
-  SessionManager,
-  StreamingHandlerService,
-} from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
@@ -25,7 +21,8 @@ import { TabState } from '@ptah-extension/chat-types';
  * - License status fetch with 3-attempt linear backoff
  * - handleAgentSummaryChunk: route agent JSONL chunks to per-tab streaming state
  * - handleSessionIdResolved: replace placeholder tab IDs with real SDK UUIDs
- * - handleChatError: 3-tier tab routing, abort-finalize-before-clear, full state reset
+ * - handleChatError: 3-tier tab routing, error presentation + queue drop only
+ *   (the ordered `turn_state` owns finalization / status / spinner)
  *
  * All log strings preserved with `[ChatStore]` prefix to maintain debug
  * continuity with consumers and existing log analysis tooling.
@@ -36,9 +33,7 @@ export class ChatLifecycleService {
   private readonly authState = inject(AuthStateService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
-  private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
-  private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
   private readonly livenessReconciler = inject(
     SessionLivenessReconcilerService,
@@ -210,8 +205,8 @@ export class ChatLifecycleService {
    * Uses tabId for direct routing - no temp ID lookup needed.
    *
    * Flow:
-   * 1. User sends message â†’ backend creates stream with tabId
-   * 2. Backend SDK returns real UUID â†’ sends SESSION_ID_RESOLVED with tabId
+   * 1. User sends message → backend creates stream with tabId
+   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED with tabId
    * 3. This method finds tab directly by tabId and updates claudeSessionId
    * 4. Future resume attempts use valid UUID format
    */
@@ -266,7 +261,13 @@ export class ChatLifecycleService {
    * - tabId: Direct tab routing (preferred)
    * - sessionId: Real SDK UUID for reference and fallback
    *
-   * Resets streaming state and optionally displays error.
+   * Presentation only (TASK_2026_360, review F3): surfaces the error, drops
+   * the queued input (nothing may auto-send after a failed turn) and refreshes
+   * the sidebar. It does NOT finalize, write `status` or clear the spinner —
+   * the ordered `failed` / `idle` `turn_state` the broadcaster pushes into the
+   * chunk batch before CHAT_ERROR owns those. `SESSION_TURN_FAILED` is an
+   * unordered hook push and CHAT_ERROR trails the batch; either one finalizing
+   * here could cut off the last delta still sitting in the batch buffer.
    */
   handleChatError(data: {
     tabId?: string;
@@ -313,13 +314,8 @@ export class ChatLifecycleService {
       return;
     }
     for (const tab of targetTabs) {
-      if (tab.streamingState?.currentMessageId) {
-        this.streamingHandler.finalizeCurrentMessage(tab.id, true);
-      }
-      this.tabManager.applyErrorReset(tab.id);
-      this.tabManager.markTabIdle(tab.id);
+      this.tabManager.clearQueuedContentAndOptions(tab.id);
     }
-    this.sessionManager.setStatus('loaded');
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn('[ChatStore] Failed to refresh sessions after error:', err);
     });

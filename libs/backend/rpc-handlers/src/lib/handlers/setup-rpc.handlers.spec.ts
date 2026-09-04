@@ -341,6 +341,7 @@ describe('SetupRpcHandlers', () => {
           'setup-wizard:launch',
           'wizard:cancel-analysis',
           'wizard:deep-analyze',
+          'wizard:get-resumable-run',
           'wizard:install-pack-agents',
           'wizard:list-agent-packs',
           'wizard:list-analyses',
@@ -348,6 +349,261 @@ describe('SetupRpcHandlers', () => {
           'wizard:recommend-agents',
         ].sort(),
       );
+    });
+
+    it('exposes wizard:get-resumable-run in the static METHODS manifest', () => {
+      expect(SetupRpcHandlers.METHODS).toContain('wizard:get-resumable-run');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Zod boundary (TASK_2026_361)
+  // -------------------------------------------------------------------------
+
+  describe('Zod parameter validation', () => {
+    it('rejects wizard:load-analysis without a filename as INVALID_PARAMS', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:load-analysis', {});
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.container.resolve).not.toHaveBeenCalled();
+    });
+
+    it('rejects wizard:deep-analyze with a non-boolean resume flag as INVALID_PARAMS', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:deep-analyze', {
+        resume: 'yes',
+      });
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+    });
+
+    it('rejects wizard:install-pack-agents with an empty agentFiles list as INVALID_PARAMS', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:install-pack-agents', {
+        source: 'https://example.com/pack',
+        agentFiles: [],
+      });
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // wizard:get-resumable-run (TASK_2026_361)
+  // -------------------------------------------------------------------------
+
+  describe('wizard:get-resumable-run', () => {
+    const V3_MANIFEST = {
+      version: 3 as const,
+      runId: 'run-analysis-1',
+      slug: 'acme',
+      analyzedAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:10:00.000Z',
+      lifecycle: 'paused' as const,
+      model: 'sonnet',
+      totalDurationMs: 100,
+      phases: {
+        'project-profile': {
+          status: 'completed' as const,
+          file: '01-project-profile.md',
+          durationMs: 50,
+        },
+        'architecture-assessment': {
+          status: 'failed' as const,
+          file: '02-architecture-assessment.md',
+          durationMs: 50,
+          error: 'analysis_timeout',
+        },
+        'quality-audit': {
+          status: 'pending' as const,
+          file: '03-quality-audit.md',
+          durationMs: 0,
+        },
+        'elevation-plan': {
+          status: 'pending' as const,
+          file: '04-elevation-plan.md',
+          durationMs: 0,
+        },
+      },
+    };
+
+    const GENERATION = {
+      version: 1 as const,
+      runId: 'run-gen-1',
+      analysisDirectory: '/fake/workspace/.ptah/analysis/acme',
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:20:00.000Z',
+      lifecycle: 'timed-out' as const,
+      outputDirectory: '/fake/workspace/.claude/agents',
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      input: {},
+      agents: {
+        'agent-a': {
+          agentId: 'agent-a',
+          filePath: '/fake/workspace/.claude/agents/agent-a.md',
+          status: 'written' as const,
+          rejectedSections: 1,
+          tailoredSections: 2,
+        },
+        'agent-b': {
+          agentId: 'agent-b',
+          filePath: '/fake/workspace/.claude/agents/agent-b.md',
+          status: 'failed' as const,
+          rejectedSections: 0,
+          tailoredSections: 0,
+          error: 'not generated: generation_timeout',
+        },
+      },
+    };
+
+    function storageWith(run: unknown): {
+      findLatestResumableRun: jest.Mock;
+      readPhaseFile: jest.Mock;
+      toResponse: jest.Mock;
+    } {
+      return {
+        findLatestResumableRun: jest.fn().mockResolvedValue(run),
+        readPhaseFile: jest
+          .fn()
+          .mockImplementation(async (_dir: string, file: string) =>
+            file === '01-project-profile.md' ? '# Profile' : null,
+          ),
+        toResponse: jest.fn(
+          (
+            slugDir: string,
+            manifest: typeof V3_MANIFEST,
+            phaseContents: Record<string, string>,
+          ) => ({
+            isMultiPhase: true,
+            manifest,
+            phaseContents,
+            analysisDir: slugDir,
+          }),
+        ),
+      };
+    }
+
+    it('returns nulls when no workspace is open (no storage access)', async () => {
+      const h = makeHarness({ workspaceFolders: [] });
+      h.handlers.register();
+
+      const result = await call<{ analysis: unknown; generation: unknown }>(
+        h,
+        'wizard:get-resumable-run',
+      );
+      expect(result).toEqual({ analysis: null, generation: null });
+      expect(h.container.resolve).not.toHaveBeenCalled();
+    });
+
+    it('returns nulls when storage finds no resumable run', async () => {
+      const h = makeHarness();
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        storageWith(null),
+      );
+      h.handlers.register();
+
+      const result = await call<{ analysis: unknown; generation: unknown }>(
+        h,
+        'wizard:get-resumable-run',
+      );
+      expect(result).toEqual({ analysis: null, generation: null });
+    });
+
+    it('returns the paused analysis (completed phases only) and the generation DTO, read-only', async () => {
+      const h = makeHarness();
+      const storage = storageWith({
+        slugDir: '/fake/workspace/.ptah/analysis/acme',
+        manifest: V3_MANIFEST,
+        generation: GENERATION,
+      });
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        storage,
+      );
+      h.handlers.register();
+
+      const result = await call<{
+        analysis: {
+          manifest: { lifecycle: string };
+          phaseContents: Record<string, string>;
+          analysisDir: string;
+        } | null;
+        generation: {
+          runId: string;
+          analysisDirectory: string | null;
+          lifecycle: string;
+          selectedAgentIds: string[];
+          agents: Array<{ agentId: string; status: string; error?: string }>;
+        } | null;
+      }>(h, 'wizard:get-resumable-run');
+
+      expect(result.analysis?.manifest.lifecycle).toBe('paused');
+      expect(result.analysis?.analysisDir).toBe(
+        '/fake/workspace/.ptah/analysis/acme',
+      );
+      // Only the completed phase is read; the failed partial stays excluded.
+      expect(Object.keys(result.analysis?.phaseContents ?? {})).toEqual([
+        'project-profile',
+      ]);
+      expect(storage.readPhaseFile).toHaveBeenCalledTimes(1);
+
+      expect(result.generation).toEqual({
+        runId: 'run-gen-1',
+        analysisDirectory: '/fake/workspace/.ptah/analysis/acme',
+        outputDirectory: '/fake/workspace/.claude/agents',
+        lifecycle: 'timed-out',
+        selectedAgentIds: ['agent-a', 'agent-b'],
+        agents: [
+          {
+            agentId: 'agent-a',
+            filePath: '/fake/workspace/.claude/agents/agent-a.md',
+            status: 'written',
+            rejectedSections: 1,
+            tailoredSections: 2,
+          },
+          {
+            agentId: 'agent-b',
+            filePath: '/fake/workspace/.claude/agents/agent-b.md',
+            status: 'failed',
+            rejectedSections: 0,
+            tailoredSections: 0,
+            error: 'not generated: generation_timeout',
+          },
+        ],
+      });
+      // Read-only: nothing on disk is touched by discovery.
+      expect(storage).not.toHaveProperty('writeGenerationManifest');
+    });
+
+    it('maps a slug-less generation checkpoint with analysisDirectory: null', async () => {
+      const h = makeHarness();
+      const { analysisDirectory: _omitted, ...rootGeneration } = GENERATION;
+      void _omitted;
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        storageWith({
+          slugDir: null,
+          manifest: null,
+          generation: rootGeneration,
+        }),
+      );
+      h.handlers.register();
+
+      const result = await call<{
+        analysis: unknown;
+        generation: { analysisDirectory: string | null } | null;
+      }>(h, 'wizard:get-resumable-run');
+
+      expect(result.analysis).toBeNull();
+      expect(result.generation?.analysisDirectory).toBeNull();
     });
   });
 
@@ -813,9 +1069,12 @@ acme-platform/
 `;
 
     const MANIFEST = {
-      version: 2 as const,
+      version: 3 as const,
+      runId: 'run-1',
       slug: 'acme-platform',
       analyzedAt: '2026-05-08T00:00:00.000Z',
+      updatedAt: '2026-05-08T00:00:00.000Z',
+      lifecycle: 'completed' as const,
       model: 'sonnet',
       totalDurationMs: 1234,
       phases: {
@@ -919,7 +1178,8 @@ acme-platform/
         { analyzeWorkspace: analyzeMock },
       );
 
-      // Storage service — returns the per-phase fixture content.
+      // Storage service — returns the per-phase fixture content and builds
+      // the wire response exactly as the real `toResponse` does.
       h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
         getSlugDir: jest.fn().mockReturnValue('/fake/slug/dir'),
         readPhaseFile: jest
@@ -935,6 +1195,18 @@ acme-platform/
             const phaseId = phaseByFile[file];
             return phaseId ? (phaseContents[phaseId] ?? null) : null;
           }),
+        toResponse: jest.fn(
+          (
+            slugDir: string,
+            manifest: typeof MANIFEST,
+            contents: Record<string, string>,
+          ) => ({
+            isMultiPhase: true,
+            manifest,
+            phaseContents: contents,
+            analysisDir: slugDir,
+          }),
+        ),
       });
 
       // FileSystemProvider — only consulted by deriveWorkspaceFingerprint,
@@ -1287,6 +1559,48 @@ Score: 90 / 100
         'upsert:key-files',
         'response-returned',
       ]);
+    });
+
+    it('[resume-flag] forwards resume: true to MultiPhaseAnalysisService and answers with the storage response', async () => {
+      const upsert = jest
+        .fn()
+        .mockResolvedValue({ status: 'inserted', id: 'x' });
+      const { h, analyzeMock } = seedHarness({ writer: { upsert } });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:deep-analyze', {
+        resume: true,
+      });
+
+      expect(response.success).toBe(true);
+      const [, options] = analyzeMock.mock.calls[0] as [
+        string,
+        { resume?: boolean },
+      ];
+      expect(options.resume).toBe(true);
+      const data = response.data as {
+        manifest: { lifecycle: string; runId: string };
+        analysisDir: string;
+      };
+      expect(data.manifest.lifecycle).toBe('completed');
+      expect(data.manifest.runId).toBe('run-1');
+      expect(data.analysisDir).toBe('/fake/slug/dir');
+    });
+
+    it('[fresh-run-default] forwards resume: false when the flag is omitted', async () => {
+      const upsert = jest
+        .fn()
+        .mockResolvedValue({ status: 'inserted', id: 'x' });
+      const { h, analyzeMock } = seedHarness({ writer: { upsert } });
+      h.handlers.register();
+
+      await callRaw(h, 'wizard:deep-analyze', {});
+
+      const [, options] = analyzeMock.mock.calls[0] as [
+        string,
+        { resume?: boolean },
+      ];
+      expect(options.resume).toBe(false);
     });
 
     // -- Test 20 ----------------------------------------------------------

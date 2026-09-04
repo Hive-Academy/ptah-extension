@@ -68,6 +68,12 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export {
+  SessionTurnStateRegistry,
+  toTurnStateEvent,
+  type TurnStopSnapshot,
+  type TurnFailureSnapshot,
+} from './lib/helpers';
 export { SessionLifecycleManager } from './lib/helpers';
 export {
   CallbackRegistryBase,
@@ -90,6 +96,13 @@ export {
   SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedPayload,
   type SessionIdResolvedRegistryCallback,
+  SessionMcpStatusCallbackRegistry,
+  classifyCliNotice,
+  CLAUDE_AI_CONNECTORS_DISABLED_MARKER,
+  type SessionMcpStatusEvent,
+  type SessionMcpServersPayload,
+  type SessionCliNoticePayload,
+  type SessionMcpStatusRegistryCallback,
   SessionStartCallbackRegistry,
   type SessionStartCallback,
   type SessionStartPayload,

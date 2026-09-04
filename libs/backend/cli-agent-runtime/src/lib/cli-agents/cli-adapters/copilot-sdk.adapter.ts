@@ -58,6 +58,9 @@ import {
   killProcessTree,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { classifyCliStderr } from './cli-stderr-severity';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 /** Shell/command execution tool names across providers */
@@ -154,7 +157,17 @@ export class CopilotSdkAdapter implements CliAdapter {
    */
   readonly permissionBridge: CopilotPermissionBridge;
 
-  constructor(permissionBridge: CopilotPermissionBridge) {
+  /**
+   * @param spawner - Off-thread process spawner. Supplied by
+   *   `CliDetectionService` from `SDK_TOKENS.SDK_PROCESS_SPAWNER`. Without it
+   *   every spawn below runs `cross-spawn` inline, which on Windows is a
+   *   synchronous `CreateProcessW` that cost 300-900 ms of event-loop lag per
+   *   rival-CLI launch (TASK_2026_367).
+   */
+  constructor(
+    permissionBridge: CopilotPermissionBridge,
+    private readonly spawner?: IProcessSpawner,
+  ) {
     this.permissionBridge = permissionBridge;
   }
 
@@ -167,7 +180,12 @@ export class CopilotSdkAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'copilot', installed: false, supportsSteer: false };
       }
-      const version = await probeCliVersion(binaryPath);
+      const version = await probeCliVersion(
+        binaryPath,
+        undefined,
+        undefined,
+        this.spawner,
+      );
 
       return {
         cli: 'copilot',
@@ -261,11 +279,18 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     const onAbort = (): void => {
       const child = activeChild;
-      if (child?.pid && !child.killed) {
-        // Tree-kill the real process group — child.kill() alone would orphan
-        // descendants (and, for a .cmd shim, kill only cmd.exe).
-        void killProcessTree(child.pid);
-      }
+      if (!child) return;
+      // `pid` is known synchronously for an inline spawn and NOT for an
+      // off-thread one, where the child is created on a worker. `whenSpawned`
+      // is the one read that works for both; it settles to null if the child
+      // never started, so this can never hang (TASK_2026_367).
+      void child.whenSpawned.then((pid) => {
+        if (pid && !child.killed) {
+          // Tree-kill the real process group — child.kill() alone would orphan
+          // descendants (and, for a .cmd shim, kill only cmd.exe).
+          void killProcessTree(pid);
+        }
+      });
     };
     abortController.signal.addEventListener('abort', onAbort);
 
@@ -298,7 +323,10 @@ export class CopilotSdkAdapter implements CliAdapter {
           mcpServers: {
             ptah: {
               type: 'http',
-              url: `http://localhost:${options.mcpPort}`,
+              // Scoped to the spawn's working directory so the server
+              // attributes this agent's calls to the right workspace
+              // (TASK_2026_364).
+              url: ptahMcpServerUrl(options.mcpPort, options.workingDirectory),
             },
           },
         });
@@ -312,6 +340,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           cwd: options.workingDirectory,
           needsConsole: true,
           detached: true,
+          spawner: this.spawner,
         },
       );
       activeChild = child;
@@ -366,11 +395,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
             continue;
           }
-          const isError =
-            /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-              line,
-            );
-          segment.emit({ type: isError ? 'error' : 'info', content: line });
+          segment.emit({ type: classifyCliStderr(line), content: line });
         }
       });
 

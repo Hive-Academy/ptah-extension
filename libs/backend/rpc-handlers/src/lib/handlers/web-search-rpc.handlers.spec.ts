@@ -3,7 +3,7 @@
  *
  * Surface under test: six RPC methods covering web-search API-key management
  * (`getApiKeyStatus`, `setApiKey`, `deleteApiKey`), live-test smoke
- * (`test`), and provider/maxResults configuration (`getConfig`, `setConfig`).
+ * (`test`), and providers/maxResults configuration (`getConfig`, `setConfig`).
  *
  * Behavioural contracts locked in here:
  *
@@ -24,17 +24,13 @@
  *     rejects empty/whitespace-only inputs; `deleteApiKey` fires even when
  *     nothing is stored (idempotent delete).
  *
- *   - Live test path: when no key is configured, `test` returns a structured
- *     `{ success:false, error: 'No API key configured...' }` WITHOUT calling
- *     a provider. When a key exists, the handler constructs the matching
- *     adapter (via a mocked `@ptah-extension/vscode-lm-tools`) and races the
- *     search against a 10s timeout. Both success and timeout paths surface
- *     as structured responses, never as thrown errors.
+ *   - Live test path: every configured provider is tested independently in
+ *     parallel. Missing keys and adapter failures remain per-provider results,
+ *     while the aggregate succeeds when at least one provider passes.
  *
- *   - Config write: `setConfig` clamps `maxResults` to [1, 20], validates
- *     `provider` against the schema, and calls `setConfiguration('ptah',...)`
- *     on the workspace provider (both VS Code and Electron implementations
- *     expose this at runtime via the duck-type guard).
+ *   - Config migration/write: `getConfig` falls back to the legacy single
+ *     provider key, while `setConfig` writes the non-empty provider list and
+ *     clears that legacy key. `maxResults` remains clamped to [1, 20].
  *
  * Mocking posture:
  *   - Direct constructor injection (no tsyringe container).
@@ -392,21 +388,32 @@ describe('WebSearchRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('webSearch:test', () => {
-    it('returns success=false with guidance text when no API key is configured', async () => {
+    it('returns one failed result per configured provider when API keys are missing', async () => {
       const h = makeHarness({
-        config: { 'ptah.webSearch.provider': 'tavily' },
+        config: {
+          'ptah.webSearch.providers': ['tavily', 'serper'],
+        },
       });
       h.handlers.register();
 
       const result = await call<{
         success: boolean;
-        provider: string;
-        error?: string;
+        results: Array<{ provider: string; success: boolean; error?: string }>;
       }>(h, 'webSearch:test');
 
       expect(result.success).toBe(false);
-      expect(result.provider).toBe('tavily');
-      expect(result.error).toMatch(/no api key configured/i);
+      expect(result.results).toEqual([
+        expect.objectContaining({
+          provider: 'tavily',
+          success: false,
+          error: expect.stringMatching(/no api key configured/i),
+        }),
+        expect.objectContaining({
+          provider: 'serper',
+          success: false,
+          error: expect.stringMatching(/no api key configured/i),
+        }),
+      ]);
       // No search attempted without a key.
       expect(searchFn).not.toHaveBeenCalled();
     });
@@ -414,18 +421,18 @@ describe('WebSearchRpcHandlers', () => {
     it('constructs the matching adapter and reports success when the search resolves', async () => {
       const h = makeHarness({
         secrets: { [`${SECRET_KEY_PREFIX}.serper`]: 'serper-key' },
-        config: { 'ptah.webSearch.provider': 'serper' },
+        config: { 'ptah.webSearch.providers': ['serper'] },
       });
       searchFn.mockResolvedValue({ results: [] });
       h.handlers.register();
 
-      const result = await call<{ success: boolean; provider: string }>(
-        h,
-        'webSearch:test',
-      );
+      const result = await call<{
+        success: boolean;
+        results: Array<{ provider: string; success: boolean }>;
+      }>(h, 'webSearch:test');
 
       expect(result.success).toBe(true);
-      expect(result.provider).toBe('serper');
+      expect(result.results).toEqual([{ provider: 'serper', success: true }]);
       // Adapter picked the serper class path, not tavily / exa.
       expect(searchFn).toHaveBeenCalledWith('serper', 'test', 1);
     });
@@ -433,36 +440,75 @@ describe('WebSearchRpcHandlers', () => {
     it('surfaces an adapter failure as a structured response (not a throw)', async () => {
       const h = makeHarness({
         secrets: { [`${SECRET_KEY_PREFIX}.exa`]: 'exa-key' },
-        config: { 'ptah.webSearch.provider': 'exa' },
+        config: { 'ptah.webSearch.providers': ['exa'] },
       });
       searchFn.mockRejectedValue(new Error('401 unauthorized'));
       h.handlers.register();
 
       const result = await call<{
         success: boolean;
-        provider: string;
-        error?: string;
+        results: Array<{ provider: string; success: boolean; error?: string }>;
       }>(h, 'webSearch:test');
 
       expect(result.success).toBe(false);
-      expect(result.provider).toBe('exa');
-      expect(result.error).toMatch(/401 unauthorized/);
+      expect(result.results).toEqual([
+        {
+          provider: 'exa',
+          success: false,
+          error: '401 unauthorized',
+        },
+      ]);
+    });
+
+    it('reports partial provider success without failing the aggregate test', async () => {
+      const h = makeHarness({
+        secrets: {
+          [`${SECRET_KEY_PREFIX}.tavily`]: 'tavily-key',
+          [`${SECRET_KEY_PREFIX}.serper`]: 'serper-key',
+        },
+        config: { 'ptah.webSearch.providers': ['tavily', 'serper'] },
+      });
+      searchFn.mockImplementation((provider: string) => {
+        if (provider === 'tavily') {
+          return Promise.reject(new Error('tavily unavailable'));
+        }
+        return Promise.resolve({ results: [] });
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        success: boolean;
+        results: Array<{ provider: string; success: boolean; error?: string }>;
+      }>(h, 'webSearch:test');
+
+      expect(result.success).toBe(true);
+      expect(result.results).toEqual([
+        {
+          provider: 'tavily',
+          success: false,
+          error: 'tavily unavailable',
+        },
+        { provider: 'serper', success: true },
+      ]);
+      expect(searchFn).toHaveBeenCalledTimes(2);
     });
 
     it('falls back to the "tavily" default when no provider is configured', async () => {
       const h = makeHarness();
       h.handlers.register();
 
-      const result = await call<{ success: boolean; provider: string }>(
-        h,
-        'webSearch:test',
-      );
+      const result = await call<{
+        success: boolean;
+        results: Array<{ provider: string; success: boolean }>;
+      }>(h, 'webSearch:test');
 
       // Without a stored API key the handler early-returns, but we still
       // expect the default provider label in the response so the UI can say
       // "No API key configured for tavily" instead of "<undefined>".
-      expect(result.provider).toBe('tavily');
       expect(result.success).toBe(false);
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({ provider: 'tavily', success: false }),
+      );
     });
   });
 
@@ -471,35 +517,86 @@ describe('WebSearchRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('webSearch:getConfig', () => {
-    it('returns stored provider + maxResults from the workspace provider', async () => {
+    it('returns the stored providers + maxResults from the workspace provider', async () => {
       const h = makeHarness({
         config: {
-          'ptah.webSearch.provider': 'exa',
+          'ptah.webSearch.providers': ['exa', 'serper'],
           'ptah.webSearch.maxResults': 12,
         },
       });
       h.handlers.register();
 
-      const result = await call<{ provider: string; maxResults: number }>(
+      const result = await call<{ providers: string[]; maxResults: number }>(
         h,
         'webSearch:getConfig',
       );
 
-      expect(result.provider).toBe('exa');
+      expect(result.providers).toEqual(['exa', 'serper']);
       expect(result.maxResults).toBe(12);
+    });
+
+    it('falls back to the legacy single-provider key', async () => {
+      const h = makeHarness({
+        config: { 'ptah.webSearch.provider': 'serper' },
+      });
+      h.handlers.register();
+
+      const result = await call<{ providers: string[]; maxResults: number }>(
+        h,
+        'webSearch:getConfig',
+      );
+
+      expect(result.providers).toEqual(['serper']);
+    });
+
+    it('uses the legacy key when the configured provider list is empty', async () => {
+      const h = makeHarness({
+        config: {
+          'ptah.webSearch.providers': [],
+          'ptah.webSearch.provider': 'exa',
+        },
+      });
+      h.handlers.register();
+
+      const result = await call<{ providers: string[] }>(
+        h,
+        'webSearch:getConfig',
+      );
+
+      expect(result.providers).toEqual(['exa']);
+    });
+
+    it('filters invalid providers and logs a warning naming each one', async () => {
+      const h = makeHarness({
+        config: {
+          'ptah.webSearch.providers': ['tavily', 'google', 'serper'],
+        },
+      });
+      h.handlers.register();
+
+      const result = await call<{ providers: string[] }>(
+        h,
+        'webSearch:getConfig',
+      );
+
+      expect(result.providers).toEqual(['tavily', 'serper']);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('google'),
+        { provider: 'google' },
+      );
     });
 
     it('returns sensible defaults when nothing is configured', async () => {
       const h = makeHarness();
       h.handlers.register();
 
-      const result = await call<{ provider: string; maxResults: number }>(
+      const result = await call<{ providers: string[]; maxResults: number }>(
         h,
         'webSearch:getConfig',
       );
 
-      // Defaults live in the handler: tavily / 5.
-      expect(result.provider).toBe('tavily');
+      // Defaults live in the handler: [tavily] / 5.
+      expect(result.providers).toEqual(['tavily']);
       expect(result.maxResults).toBe(5);
     });
   });
@@ -509,7 +606,7 @@ describe('WebSearchRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('webSearch:setConfig', () => {
-    it('writes a valid provider to the workspace provider', async () => {
+    it('writes a non-empty provider list and clears the legacy key', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -517,32 +614,39 @@ describe('WebSearchRpcHandlers', () => {
         h,
         'webSearch:setConfig',
         {
-          provider: 'serper',
+          providers: ['serper', 'exa'],
         },
       );
 
       expect(result.success).toBe(true);
       expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
         'ptah',
+        'webSearch.providers',
+        ['serper', 'exa'],
+      );
+      expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
         'webSearch.provider',
-        'serper',
+        undefined,
       );
     });
 
-    it('rejects an unsupported provider before calling setConfiguration', async () => {
-      const h = makeHarness();
-      h.handlers.register();
+    it.each([[[]], [['tavily', 'google']]])(
+      'rejects invalid provider list %p before writing config',
+      async (providers) => {
+        const h = makeHarness();
+        h.handlers.register();
 
-      const response = await h.rpcHandler.handleMessage({
-        method: 'webSearch:setConfig',
-        params: { provider: 'google' },
-        correlationId: 'corr',
-      });
+        const response = await h.rpcHandler.handleMessage({
+          method: 'webSearch:setConfig',
+          params: { providers },
+          correlationId: 'corr',
+        });
 
-      expect(response.success).toBe(false);
-      expect(response.error).toMatch(/invalid web search provider/i);
-      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
-    });
+        expect(response.success).toBe(false);
+        expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      },
+    );
 
     it.each([
       [0, 1], // clamp up
@@ -564,19 +668,19 @@ describe('WebSearchRpcHandlers', () => {
       );
     });
 
-    it('writes both provider and maxResults when both are supplied', async () => {
+    it('writes both providers and maxResults when both are supplied', async () => {
       const h = makeHarness();
       h.handlers.register();
 
       await call(h, 'webSearch:setConfig', {
-        provider: 'tavily',
+        providers: ['tavily', 'exa'],
         maxResults: 7,
       });
 
       expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
         'ptah',
-        'webSearch.provider',
-        'tavily',
+        'webSearch.providers',
+        ['tavily', 'exa'],
       );
       expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
         'ptah',
@@ -630,7 +734,7 @@ describe('WebSearchRpcHandlers', () => {
 
       const response = await rpc.handleMessage({
         method: 'webSearch:setConfig',
-        params: { provider: 'tavily' },
+        params: { providers: ['tavily'] },
         correlationId: 'corr',
       });
 

@@ -70,6 +70,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
 const OPEN_FOLDER = '/c/projects/my-repo';
 const EVIL_PATH = '/tmp/evil-directory';
@@ -125,6 +126,11 @@ function makeService(
     } as never,
     // OutputStyleSessionActivationService — no style selected in these specs.
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
+    // SessionMcpStatusRegistry + its agent-sdk fan-out (TASK_2026_375 B4.3).
+    // The constructor subscribes to the fan-out, so `register` must exist; a
+    // real registry is cheap and keeps the stub honest.
+    new SessionMcpStatusRegistry(),
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 }
 

@@ -1,25 +1,18 @@
 /**
  * Agent File Writer Service Tests
  *
- * Test suite for AgentFileWriterService covering:
- * - Single agent writing (overwrite semantics)
- * - Batch agent writing
- * - Path traversal protection
- * - File system error handling
- * - Directory creation
- * - Edge cases (empty content, empty batch, etc.)
+ * Covers:
+ * - Single agent writing through the platform file-system port
+ * - `written` vs `unchanged` (equal bytes are never rewritten)
+ * - Batch writing with rollback of newly written files only
+ * - Path traversal protection and file-system error mapping
+ * - Explicit parent-directory creation before every write
  */
 
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import {
-  mkdir,
-  writeFile,
-  readFile,
-  copyFile,
-  unlink,
-  access,
-} from 'fs/promises';
+import { homedir } from 'os';
+import { dirname, join, normalize } from 'path';
 
 // Mock vscode-core to avoid VS Code dependency
 jest.mock('@ptah-extension/vscode-core', () => ({
@@ -29,36 +22,37 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   },
 }));
 
-// Mock fs/promises
-jest.mock('fs/promises');
-
+import {
+  createMockFileSystemProvider,
+  type MockFileSystemProvider,
+} from '@ptah-extension/platform-core/testing';
 import { AgentFileWriterService } from './file-writer.service';
 import { GeneratedAgent } from '../types/core.types';
 import { FileWriteError } from '../errors/file-write.error';
 
-const mockMkdir = mkdir as jest.MockedFunction<typeof mkdir>;
-const mockWriteFile = writeFile as jest.MockedFunction<typeof writeFile>;
-const mockReadFile = readFile as jest.MockedFunction<typeof readFile>;
-const mockCopyFile = copyFile as jest.MockedFunction<typeof copyFile>;
-const mockUnlink = unlink as jest.MockedFunction<typeof unlink>;
-const mockAccess = access as jest.MockedFunction<typeof access>;
-
-// Mock Logger interface
 interface MockLogger {
   debug: jest.Mock;
   info: jest.Mock;
   warn: jest.Mock;
   error: jest.Mock;
-  logWithContext: jest.Mock;
-  show: jest.Mock;
-  dispose: jest.Mock;
+}
+
+function errnoError(message: string, code: string): NodeJS.ErrnoException {
+  const error: NodeJS.ErrnoException = new Error(message);
+  error.code = code;
+  return error;
+}
+
+/** Where the service resolves a relative `.claude/...` path (homedir). */
+function absolutePathFor(relativePath: string): string {
+  return normalize(join(homedir(), relativePath));
 }
 
 describe('AgentFileWriterService', () => {
   let service: AgentFileWriterService;
+  let fs: MockFileSystemProvider;
   let mockLogger: MockLogger;
 
-  // Sample generated agent
   const sampleAgent: GeneratedAgent = {
     sourceTemplateId: 'backend-developer',
     sourceTemplateVersion: '1.0.0',
@@ -70,47 +64,35 @@ describe('AgentFileWriterService', () => {
   };
 
   beforeEach(() => {
-    // Reset mocks
     jest.clearAllMocks();
-
-    // Create mock logger
     mockLogger = {
-      debug: jest.fn() as any,
-      info: jest.fn() as any,
-      warn: jest.fn() as any,
-      error: jest.fn() as any,
-      logWithContext: jest.fn() as any,
-      show: jest.fn() as any,
-      dispose: jest.fn() as any,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
     };
-
-    // Create service instance
-    service = new AgentFileWriterService(mockLogger as any);
-
-    // Default mock behavior
-    mockMkdir.mockResolvedValue(undefined);
-    mockWriteFile.mockResolvedValue(undefined);
-    mockAccess.mockRejectedValue(new Error('File does not exist'));
+    fs = createMockFileSystemProvider();
+    service = new AgentFileWriterService(mockLogger as never, fs);
   });
 
   describe('writeAgent', () => {
-    it('should successfully write agent to file', async () => {
-      const agent = { ...sampleAgent };
-
-      const result = await service.writeAgent(agent);
+    it('writes a new file and reports status "written"', async () => {
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isOk()).toBe(true);
-      expect(result.value).toContain('backend-developer.md');
-      expect(mockMkdir).toHaveBeenCalledTimes(1);
-      expect(mockWriteFile).toHaveBeenCalledTimes(1);
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(result.value!.status).toBe('written');
+      expect(result.value!.filePath).toContain('backend-developer.md');
+      expect(fs.writeFile).toHaveBeenCalledTimes(1);
+      expect(fs.writeFile).toHaveBeenCalledWith(
         expect.stringContaining('backend-developer.md'),
-        agent.content,
-        'utf-8',
+        sampleAgent.content,
+      );
+      expect(await fs.readFile(absolutePathFor(sampleAgent.filePath))).toBe(
+        sampleAgent.content,
       );
     });
 
-    it('should create directory if it does not exist', async () => {
+    it('creates the parent directory through the port before writing', async () => {
       const agent = {
         ...sampleAgent,
         filePath: '.claude/commands/new-folder/command.md',
@@ -119,62 +101,83 @@ describe('AgentFileWriterService', () => {
       const result = await service.writeAgent(agent);
 
       expect(result.isOk()).toBe(true);
-      expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining('new-folder'),
-        { recursive: true },
+      expect(fs.createDirectory).toHaveBeenCalledWith(
+        dirname(absolutePathFor(agent.filePath)),
+      );
+      const createOrder = fs.createDirectory.mock.invocationCallOrder[0];
+      const writeOrder = fs.writeFile.mock.invocationCallOrder[0];
+      expect(createOrder).toBeLessThan(writeOrder);
+    });
+
+    it('reports "unchanged" and does not write when the bytes already match', async () => {
+      await fs.writeFile(
+        absolutePathFor(sampleAgent.filePath),
+        sampleAgent.content,
+      );
+      fs.writeFile.mockClear();
+
+      const result = await service.writeAgent({ ...sampleAgent });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.status).toBe('unchanged');
+      expect(fs.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('overwrites in place and reports "written" when the bytes differ', async () => {
+      await fs.writeFile(absolutePathFor(sampleAgent.filePath), 'old content');
+      fs.writeFile.mockClear();
+
+      const result = await service.writeAgent({ ...sampleAgent });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.status).toBe('written');
+      expect(fs.writeFile).toHaveBeenCalledTimes(1);
+      expect(fs.copy).not.toHaveBeenCalled();
+      expect(await fs.readFile(absolutePathFor(sampleAgent.filePath))).toBe(
+        sampleAgent.content,
       );
     });
 
-    it('should overwrite existing file without creating backup', async () => {
-      const agent = { ...sampleAgent };
-      mockAccess.mockResolvedValue(undefined); // File exists
-
-      const result = await service.writeAgent(agent);
-
-      expect(result.isOk()).toBe(true);
-      expect(mockCopyFile).not.toHaveBeenCalled();
-      expect(mockWriteFile).toHaveBeenCalledTimes(1);
-    });
-
-    it('should return error when agent content is empty', async () => {
-      const agent = { ...sampleAgent, content: '' };
-
-      const result = await service.writeAgent(agent);
+    it('returns an error when agent content is empty', async () => {
+      const result = await service.writeAgent({ ...sampleAgent, content: '' });
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
       expect(result.error?.message).toContain('Agent content cannot be empty');
-      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
-    it('should return error when agent content is only whitespace', async () => {
-      const agent = { ...sampleAgent, content: '   \n\t   ' };
-
-      const result = await service.writeAgent(agent);
+    it('returns an error when agent content is only whitespace', async () => {
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        content: '   \n\t   ',
+      });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Agent content cannot be empty');
     });
 
-    it('should return error on path traversal attempt', async () => {
-      const agent = { ...sampleAgent, filePath: '.claude/../../../etc/passwd' };
-
-      const result = await service.writeAgent(agent);
+    it('rejects a path traversal attempt', async () => {
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        filePath: '.claude/../../../etc/passwd',
+      });
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
       expect(result.error?.message).toContain('Path traversal detected');
-      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(fs.writeFile).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Path traversal attempt detected',
         expect.any(Object),
       );
     });
 
-    it('should return error when writing outside .claude directory', async () => {
-      const agent = { ...sampleAgent, filePath: 'outside/agents/backend.md' };
-
-      const result = await service.writeAgent(agent);
+    it('rejects a write outside the .claude directory', async () => {
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        filePath: 'outside/agents/backend.md',
+      });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
@@ -182,25 +185,23 @@ describe('AgentFileWriterService', () => {
       );
     });
 
-    it('should handle permission denied error', async () => {
-      const agent = { ...sampleAgent };
-      const error: NodeJS.ErrnoException = new Error('Permission denied');
-      error.code = 'EACCES';
-      mockWriteFile.mockRejectedValue(error);
+    it('maps EACCES to a permission-denied error', async () => {
+      fs.writeFile.mockRejectedValueOnce(
+        errnoError('Permission denied', 'EACCES'),
+      );
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Permission denied');
     });
 
-    it('should handle disk full error', async () => {
-      const agent = { ...sampleAgent };
-      const error: NodeJS.ErrnoException = new Error('No space left on device');
-      error.code = 'ENOSPC';
-      mockWriteFile.mockRejectedValue(error);
+    it('maps ENOSPC to a disk-full error', async () => {
+      fs.writeFile.mockRejectedValueOnce(
+        errnoError('No space left on device', 'ENOSPC'),
+      );
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Insufficient disk space');
@@ -208,161 +209,150 @@ describe('AgentFileWriterService', () => {
   });
 
   describe('writeAgentsBatch', () => {
-    it('should successfully write multiple agents', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/backend-developer.md' },
-        { ...sampleAgent, filePath: '.claude/agents/frontend-developer.md' },
-        { ...sampleAgent, filePath: '.claude/commands/orchestrate.md' },
-      ];
+    const agentA = { ...sampleAgent, filePath: '.claude/agents/agent-a.md' };
+    const agentB = {
+      ...sampleAgent,
+      content: '# B',
+      filePath: '.claude/agents/agent-b.md',
+    };
 
-      const result = await service.writeAgentsBatch(agents);
+    it('writes multiple agents and reports one result per agent', async () => {
+      const result = await service.writeAgentsBatch([agentA, agentB]);
 
       expect(result.isOk()).toBe(true);
-      expect(result.value).toHaveLength(3);
-      expect(mockWriteFile).toHaveBeenCalledTimes(3);
-      expect(mockMkdir).toHaveBeenCalledTimes(3);
+      expect(result.value).toHaveLength(2);
+      expect(result.value!.map((r) => r.status)).toEqual([
+        'written',
+        'written',
+      ]);
+      expect(fs.writeFile).toHaveBeenCalledTimes(2);
     });
 
-    it('should return empty array for empty agents array', async () => {
-      const agents: GeneratedAgent[] = [];
-
-      const result = await service.writeAgentsBatch(agents);
+    it('returns an empty array for an empty batch', async () => {
+      const result = await service.writeAgentsBatch([]);
 
       expect(result.isOk()).toBe(true);
       expect(result.value).toEqual([]);
-      expect(mockWriteFile).not.toHaveBeenCalled();
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'Empty agents array provided, returning empty result',
-      );
+      expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
-    it('should overwrite existing files without creating backups', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/agent1.md' },
-        { ...sampleAgent, filePath: '.claude/agents/agent2.md' },
-      ];
-      mockAccess.mockResolvedValue(undefined); // All files exist
+    it('distinguishes unchanged from written inside one batch', async () => {
+      await fs.writeFile(absolutePathFor(agentA.filePath), agentA.content);
+      fs.writeFile.mockClear();
 
-      const result = await service.writeAgentsBatch(agents);
+      const result = await service.writeAgentsBatch([agentA, agentB]);
 
       expect(result.isOk()).toBe(true);
-      expect(mockCopyFile).not.toHaveBeenCalled();
-      expect(mockWriteFile).toHaveBeenCalledTimes(2);
+      expect(result.value!.map((r) => r.status)).toEqual([
+        'unchanged',
+        'written',
+      ]);
+      expect(fs.writeFile).toHaveBeenCalledTimes(1);
     });
 
-    it('should clean up partial writes on failure', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/agent1.md' },
-        { ...sampleAgent, filePath: '.claude/agents/agent2.md' },
-        { ...sampleAgent, filePath: '.claude/agents/agent3.md' },
-      ];
+    it('rolls back files it newly wrote when a later write fails, and keeps unchanged ones', async () => {
+      const agentC = {
+        ...sampleAgent,
+        content: '# C',
+        filePath: '.claude/agents/agent-c.md',
+      };
+      await fs.writeFile(absolutePathFor(agentA.filePath), agentA.content);
+      fs.writeFile.mockClear();
+      fs.writeFile.mockImplementationOnce(async (path, content) => {
+        fs.__state.files.set(path, new TextEncoder().encode(content));
+      });
+      fs.writeFile.mockRejectedValueOnce(errnoError('Disk full', 'ENOSPC'));
 
-      // First write succeeds, second write fails
-      mockWriteFile
-        .mockResolvedValueOnce(undefined) // agent1 succeeds
-        .mockRejectedValueOnce(new Error('Write failed')); // agent2 fails
-
-      const result = await service.writeAgentsBatch(agents);
+      const result = await service.writeAgentsBatch([agentA, agentB, agentC]);
 
       expect(result.isErr()).toBe(true);
-      expect(mockUnlink).toHaveBeenCalledTimes(1); // Delete agent1 (partial write)
+      expect(result.error?.message).toContain('index 2');
+      expect(fs.delete).toHaveBeenCalledTimes(1);
+      expect(fs.delete).toHaveBeenCalledWith(absolutePathFor(agentB.filePath));
+      expect(await fs.exists(absolutePathFor(agentA.filePath))).toBe(true);
     });
 
-    it('should validate all agents before writing any', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/agent1.md' },
-        { ...sampleAgent, filePath: '.claude/agents/agent2.md', content: '' }, // Invalid
-        { ...sampleAgent, filePath: '.claude/agents/agent3.md' },
-      ];
-
-      const result = await service.writeAgentsBatch(agents);
+    it('validates every agent before writing any', async () => {
+      const result = await service.writeAgentsBatch([
+        agentA,
+        { ...agentB, content: '' },
+      ]);
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Agent content cannot be empty');
-      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
-    it('should reject batch with path traversal attempt', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/agent1.md' },
-        { ...sampleAgent, filePath: '.claude/../../../etc/passwd' }, // Invalid
-      ];
-
-      const result = await service.writeAgentsBatch(agents);
+    it('rejects a batch containing a path traversal attempt', async () => {
+      const result = await service.writeAgentsBatch([
+        agentA,
+        { ...agentB, filePath: '.claude/../../../etc/passwd' },
+      ]);
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Path traversal detected');
-      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
-    it('should create all directories before writing', async () => {
-      const agents: GeneratedAgent[] = [
-        { ...sampleAgent, filePath: '.claude/agents/backend-developer.md' },
-        { ...sampleAgent, filePath: '.claude/commands/orchestrate.md' },
-        { ...sampleAgent, filePath: '.claude/agents/subfolder/agent.md' },
-      ];
+    it('creates every directory before the first write', async () => {
+      const nested = {
+        ...agentB,
+        filePath: '.claude/commands/nested/deep/cmd.md',
+      };
 
-      const result = await service.writeAgentsBatch(agents);
+      const result = await service.writeAgentsBatch([agentA, nested]);
 
       expect(result.isOk()).toBe(true);
-      expect(mockMkdir).toHaveBeenCalledTimes(3);
-      expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining('agents'),
-        { recursive: true },
+      const lastCreate = Math.max(
+        ...fs.createDirectory.mock.invocationCallOrder,
       );
-      expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining('commands'),
-        { recursive: true },
-      );
-      expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining('subfolder'),
-        { recursive: true },
-      );
+      const firstWrite = Math.min(...fs.writeFile.mock.invocationCallOrder);
+      expect(lastCreate).toBeLessThan(firstWrite);
     });
   });
 
   describe('error handling', () => {
-    it('should handle directory creation failure', async () => {
-      const agent = { ...sampleAgent };
-      const error: NodeJS.ErrnoException = new Error('Permission denied');
-      error.code = 'EACCES';
-      mockMkdir.mockRejectedValue(error);
+    it('reports a directory creation failure', async () => {
+      fs.createDirectory.mockRejectedValueOnce(
+        errnoError('Permission denied', 'EACCES'),
+      );
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('Failed to create directory');
       expect(result.error?.message).toContain('Permission denied');
     });
 
-    it('should handle read-only file system error', async () => {
-      const agent = { ...sampleAgent };
-      const error: NodeJS.ErrnoException = new Error('Read-only file system');
-      error.code = 'EROFS';
-      mockWriteFile.mockRejectedValue(error);
+    it('maps EROFS to a read-only file system error', async () => {
+      fs.writeFile.mockRejectedValueOnce(
+        errnoError('Read-only file system', 'EROFS'),
+      );
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Read-only file system');
     });
 
-    it('should handle too many open files error', async () => {
-      const agent = { ...sampleAgent };
-      const error: NodeJS.ErrnoException = new Error('Too many open files');
-      error.code = 'EMFILE';
-      mockWriteFile.mockRejectedValue(error);
+    it('maps EMFILE to a too-many-open-files error', async () => {
+      fs.writeFile.mockRejectedValueOnce(
+        errnoError('Too many open files', 'EMFILE'),
+      );
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Too many open files');
     });
 
-    it('should reject path exceeding maximum length', async () => {
+    it('rejects a path exceeding the maximum length', async () => {
       const longPath = '.claude/agents/' + 'a'.repeat(300) + '.md';
-      const agent = { ...sampleAgent, filePath: longPath };
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        filePath: longPath,
+      });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('exceeds maximum length');
@@ -370,45 +360,36 @@ describe('AgentFileWriterService', () => {
   });
 
   describe('path security', () => {
-    it('should allow valid paths within .claude/agents/', async () => {
-      const agent = {
+    it('allows paths within .claude/agents/', async () => {
+      const result = await service.writeAgent({
         ...sampleAgent,
         filePath: '.claude/agents/backend-developer.md',
-      };
-
-      const result = await service.writeAgent(agent);
-
+      });
       expect(result.isOk()).toBe(true);
     });
 
-    it('should allow valid paths within .claude/commands/', async () => {
-      const agent = {
+    it('allows paths within .claude/commands/', async () => {
+      const result = await service.writeAgent({
         ...sampleAgent,
         filePath: '.claude/commands/orchestrate.md',
-      };
-
-      const result = await service.writeAgent(agent);
-
+      });
       expect(result.isOk()).toBe(true);
     });
 
-    it('should reject paths with parent directory references', async () => {
-      const agent = {
+    it('rejects paths with parent directory references', async () => {
+      const result = await service.writeAgent({
         ...sampleAgent,
         filePath: '.claude/agents/../../../passwd',
-      };
-
-      const result = await service.writeAgent(agent);
-
+      });
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Path traversal detected');
     });
 
-    it('should reject absolute paths outside .claude/', async () => {
-      const agent = { ...sampleAgent, filePath: '/etc/passwd' };
-
-      const result = await service.writeAgent(agent);
-
+    it('rejects absolute paths outside .claude/', async () => {
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        filePath: '/etc/passwd',
+      });
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
         'must be within .claude/ directory',
@@ -417,18 +398,15 @@ describe('AgentFileWriterService', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle Windows-style paths', async () => {
-      const agent = {
+    it('handles Windows-style paths', async () => {
+      const result = await service.writeAgent({
         ...sampleAgent,
         filePath: '.claude\\agents\\backend-developer.md',
-      };
-
-      const result = await service.writeAgent(agent);
-
+      });
       expect(result.isOk()).toBe(true);
     });
 
-    it('should handle deeply nested directories', async () => {
+    it('handles deeply nested directories', async () => {
       const agent = {
         ...sampleAgent,
         filePath: '.claude/agents/nested/deep/folder/agent.md',
@@ -437,13 +415,12 @@ describe('AgentFileWriterService', () => {
       const result = await service.writeAgent(agent);
 
       expect(result.isOk()).toBe(true);
-      expect(mockMkdir).toHaveBeenCalledWith(
+      expect(fs.createDirectory).toHaveBeenCalledWith(
         expect.stringContaining('nested'),
-        { recursive: true },
       );
     });
 
-    it('should handle content with special characters', async () => {
+    it('handles content with special characters', async () => {
       const agent = {
         ...sampleAgent,
         content: '# Agent\n\nContent with émojis 🚀 and spëcial çharacters',
@@ -452,24 +429,24 @@ describe('AgentFileWriterService', () => {
       const result = await service.writeAgent(agent);
 
       expect(result.isOk()).toBe(true);
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(fs.writeFile).toHaveBeenCalledWith(
         expect.any(String),
         agent.content,
-        'utf-8',
       );
     });
 
-    it('should handle large content (> 1MB)', async () => {
-      const largeContent = 'x'.repeat(2 * 1024 * 1024); // 2MB
-      const agent = { ...sampleAgent, content: largeContent };
+    it('handles large content (> 1MB)', async () => {
+      const largeContent = 'x'.repeat(2 * 1024 * 1024);
 
-      const result = await service.writeAgent(agent);
+      const result = await service.writeAgent({
+        ...sampleAgent,
+        content: largeContent,
+      });
 
       expect(result.isOk()).toBe(true);
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(fs.writeFile).toHaveBeenCalledWith(
         expect.any(String),
         largeContent,
-        'utf-8',
       );
     });
   });

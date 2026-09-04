@@ -20,6 +20,9 @@ import {
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
   SdkTerminalReason,
+  SessionTurnState,
+  SessionTurnPhase,
+  isTerminalTurnPhase,
   GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -956,6 +959,13 @@ export class TabManagerService {
       lastTerminalReason: undefined,
       pendingBackgroundTasks: [],
       pendingSessionCrons: [],
+      // The tab forgets the counter, not the backend. Revisions are monotonic
+      // per SESSION ID (TASK_2026_371), and the reset is what lets a brand-new
+      // conversation start clean anyway: a tab with no recorded revision
+      // accepts anything, so an id whose backend floor survived can never lock
+      // one out. Dropping the session id with it is what keeps that honest.
+      lastTurnStateRevision: undefined,
+      lastTurnStateSessionId: undefined,
     });
 
     this._closedTab.set({
@@ -1098,21 +1108,211 @@ export class TabManagerService {
   }
 
   /**
-   * Transition the tab into the `awaiting-background` status. Used by the
-   * Phase 3 turn-end pivot when the SDK `Stop` hook reports in-flight
-   * background tasks (subagents / shells / monitors / workflows). The agent
-   * itself is idle, but the tab should not render as `loaded` while
-   * background work continues.
+   * Apply a backend `turn_state` event to ONE tab (TASK_2026_360). This is the
+   * single writer of a live session's `status`, of the `_streamingTabIds`
+   * spinner set and of the Stop-hook snapshot fields. Every other status
+   * writer that used to derive "busy" from chunks, `session:turnEnded` or
+   * `session:stats` was deleted; the only remaining sibling is the optimistic
+   * `markStreaming` + `markTabStreaming` on send, which the next `generating`
+   * event confirms.
    *
-   * Scheduled on a microtask so this transition lands AFTER the
-   * `applyFinalizedTurn` microtask that flips status to `'loaded'` — the
-   * final assistant message is rendered as completed/aborted first, then
-   * the status pill flips to the awaiting-background indicator.
+   * | phase               | status              | spinner | snapshot fields                                 |
+   * | ------------------- | ------------------- | ------- | ----------------------------------------------- |
+   * | generating          | streaming (+live)   | add     | terminalReason cleared, backgroundTasks emptied |
+   * | awaiting-background | awaiting-background | delete  | tasks, crons, terminalReason from the event     |
+   * | sleeping            | sleeping            | delete  | same                                            |
+   * | idle                | loaded              | delete  | same                                            |
+   * | failed              | loaded              | delete  | same (error surface stays with turnFailed)      |
+   *
+   * ONE `updateTabInternal` write, so the partition routing (active signal vs
+   * background workspace) is decided once per event. An event whose
+   * `revision` is `<=` the tab's `lastTurnStateRevision` is a replay or a
+   * duplicate batch and is ignored so it cannot regress the tab. A tab with no
+   * recorded revision accepts any revision — a restored tab, a fresh
+   * conversation and a resumed session all start from `undefined`.
+   *
+   * The backend counter is monotonic per SESSION ID, not per SDK query
+   * (`SessionTurnStateRegistry`, TASK_2026_371): it survives the record
+   * teardown on every clean broadcast-loop exit, so a second query under the
+   * same id — an auto-resumed `chat:continue`, `chat:resume --activate`, a
+   * rewind — resumes the count instead of restarting it. That is what makes
+   * the per-session comparison below sound; when it restarted, a resumed
+   * turn's `generating` and terminal `idle` both lost to the previous query's
+   * stored value and the tab stayed `streaming` forever.
+   *
+   * `sessionId` is the session the event belongs to. The acceptance rule is
+   * `canApplyTurnState` (session ownership + session-scoped revision); the
+   * applier runs it BEFORE finalization and this method runs it again so no
+   * caller can bypass it.
    */
-  markTabAwaitingBackground(tabId: string): void {
-    queueMicrotask(() => {
-      this.updateTabInternal(tabId, { status: 'awaiting-background' });
+  applyTurnState(
+    tabId: string,
+    state: SessionTurnState,
+    sessionId?: string,
+  ): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    if (!this.acceptsTurnState(tab, sessionId, state.revision, state.phase)) {
+      return;
+    }
+
+    const updates: Partial<TabState> = {
+      lastTurnStateRevision: state.revision,
+      lastTurnStateSessionId: sessionId,
+    };
+    let streaming = false;
+    switch (state.phase) {
+      case 'generating':
+        updates.status = 'streaming';
+        // Sticky flag — see `markStreaming`.
+        updates.hasLiveSession = true;
+        updates.lastTerminalReason = undefined;
+        updates.pendingBackgroundTasks = [];
+        streaming = true;
+        break;
+      case 'awaiting-background':
+      case 'sleeping':
+        updates.status = state.phase;
+        break;
+      case 'idle':
+      case 'failed':
+        updates.status = 'loaded';
+        break;
+    }
+    if (!streaming) {
+      updates.pendingBackgroundTasks = state.backgroundTasks;
+      updates.pendingSessionCrons = state.sessionCrons;
+      updates.lastTerminalReason = state.terminalReason;
+    }
+
+    this._streamingTabIds.update((set) => {
+      if (set.has(tabId) === streaming) return set;
+      const next = new Set(set);
+      if (streaming) next.add(tabId);
+      else next.delete(tabId);
+      return next;
     });
+    if (!streaming) {
+      // The stream finished — drop the controller without aborting it, as
+      // `markTabIdle` does, so the Map does not grow for the life of the tab.
+      this.clearAbortController(tabId);
+    }
+    this.updateTabInternal(tabId, updates);
+  }
+
+  /**
+   * Read-only acceptance check for a backend `turn_state` (TASK_2026_360,
+   * review F1). `TurnStateApplier` calls it BEFORE finalization, hard-deny
+   * consumption and liveness, so a stale or foreign event has no side effect
+   * at all; `applyTurnState` applies the same rule.
+   *
+   * 1. Session ownership — the tab must be an unresolved placeholder
+   *    (`claudeSessionId` null; the event carries the tab id or nothing) or be
+   *    bound to exactly `sessionId`. An old broadcaster that captured a tab id
+   *    the tab has since re-used for another session fails here.
+   * 2. Revision — revisions are monotonic per SESSION ID and comparable only
+   *    within one, so they are compared only against a revision recorded under
+   *    the SAME session. A different session means a fresh counter when the tab
+   *    is bound to the incoming session (accept), and a stale broadcaster
+   *    otherwise (reject). A tab with no recorded revision accepts anything.
+   *
+   *    This rule assumes the backend never re-issues a revision under an id it
+   *    already used, which `SessionTurnStateRegistry` now guarantees by keeping
+   *    a per-session floor across `clear` (TASK_2026_371). Do NOT loosen it
+   *    into "a different session id means accept whatever arrives" — that is
+   *    the replay window review F1 (TASK_2026_360) closed.
+   * 3. The terminal heal — the one exception to rule 2, described below.
+   *
+   * ## The terminal heal (TASK_2026_371)
+   *
+   * WHY. The per-session floor that makes rule 2 sound lives in a BOUNDED map
+   * (`REVISION_FLOOR_MAP_LIMIT` in
+   * `libs/backend/agent-sdk/src/lib/helpers/session-turn-state.registry.ts`).
+   * An eviction inside a live process restarts the backend counter for a
+   * session whose tab is still open and still holds a high
+   * `lastTurnStateRevision`. Every event of the next turn then loses
+   * `revision > last`, and the tab keeps `streaming` forever.
+   *
+   * WHAT IT ACCEPTS. A TERMINAL phase, on a tab BOUND to exactly this session,
+   * whose revision is `<=` the last accepted revision for the SAME session. A
+   * backend saying the turn ended, against a tab that would otherwise hold
+   * `streaming` for good, means the tab is out of step — and holding
+   * `streaming` is the worse of the two errors.
+   *
+   * WHAT IT STILL REJECTS.
+   * - Any NON-terminal phase (`generating`) at or below `last`. The replay
+   *   window review F1 (TASK_2026_360) closed stays closed: a replayed
+   *   `generating` can never resurrect a spinner.
+   * - Any event failing session ownership (rule 1).
+   * - A placeholder tab (`claudeSessionId` null) at or below `last`, because
+   *   `rekey` carries the floors through the placeholder → real-id migration,
+   *   so a low revision there is a true replay.
+   * - Any event the caller marks as UNORDERED (`allowTerminalHeal: false`).
+   *   Only `SessionLivenessReconcilerService` does: its event is synthesized
+   *   from a `session:status` RPC, not pulled from the tab's chunk stream, so
+   *   it carries whatever revision the registry held when the RPC was ANSWERED.
+   *   A turn starting while that call is in flight lands it behind a live
+   *   `generating`, and healing it would finalize the in-flight message and
+   *   idle a tab mid-turn. A probe is never the right healer anyway: a stranded
+   *   tab is healed by the next real turn's terminal event, which is ordered.
+   *
+
+   * THE KNOWN COST. `applyTurnState` writes `lastTurnStateRevision =
+   * state.revision`, so a heal REALIGNS the watermark DOWN onto the restarted
+   * backend counter. That is deliberate — without it every later turn in the
+   * session would stick and heal again. The price is that a genuinely late
+   * duplicate terminal event, reordered behind a newer event from a concurrent
+   * broadcast loop on the same session id, can idle a streaming tab early; the
+   * live turn's own terminal event then corrects it. A permanently stuck tab
+   * that needs an app restart is strictly worse.
+   */
+  canApplyTurnState(
+    tabId: string,
+    sessionId: string | undefined,
+    revision: number,
+    phase: SessionTurnPhase,
+    allowTerminalHeal = true,
+  ): boolean {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    return tab
+      ? this.acceptsTurnState(
+          tab,
+          sessionId,
+          revision,
+          phase,
+          allowTerminalHeal,
+        )
+      : false;
+  }
+
+  private acceptsTurnState(
+    tab: TabState,
+    sessionId: string | undefined,
+    revision: number,
+    phase: SessionTurnPhase,
+    allowTerminalHeal = true,
+  ): boolean {
+    const bound = tab.claudeSessionId;
+    if (bound && bound !== sessionId) return false;
+
+    const last = tab.lastTurnStateRevision;
+    if (last === undefined) return true;
+    if (tab.lastTurnStateSessionId !== sessionId) {
+      // A placeholder tab has no binding to check against; the backend keeps
+      // the counter continuous across its placeholder → real-id rekey (it
+      // carries the floors too, TASK_2026_371), so the plain comparison below
+      // is right for it. A bound tab reaching here is bound to `sessionId`
+      // (ownership passed) and the recorded revision belongs to a DIFFERENT
+      // session, which says nothing about this one's counter.
+      if (bound) return true;
+    }
+    if (revision > last) return true;
+    // The terminal heal — see the doc block. `bound` is truthy only when
+    // ownership passed, so it is this session; and reaching here with a
+    // truthy `bound` means the recorded revision belongs to this session too.
+    // `allowTerminalHeal` is the caller's statement that this event is ORDERED
+    // against the tab's stream; an out-of-band probe passes `false`.
+    return allowTerminalHeal && Boolean(bound) && isTerminalTurnPhase(phase);
   }
 
   /**
@@ -1140,6 +1340,11 @@ export class TabManagerService {
       status: 'draft',
       isDirty: false,
       claudeSessionId: null,
+      // No session is bound yet, so there is nothing to compare a revision
+      // against; a tab with no recorded revision accepts anything, which is
+      // exactly right for a conversation whose id does not exist yet.
+      lastTurnStateRevision: undefined,
+      lastTurnStateSessionId: undefined,
     });
   }
 
@@ -1154,6 +1359,12 @@ export class TabManagerService {
       status: 'streaming',
       isDirty: false,
       hasLiveSession: true,
+      // New SDK session → a counter this tab has never seen. Forgetting the
+      // old one is safe in both directions: an unrecorded revision accepts
+      // anything, and the backend floor for the incoming id (if it ever had
+      // one) still rises monotonically. See `applyTurnState`.
+      lastTurnStateRevision: undefined,
+      lastTurnStateSessionId: undefined,
     });
   }
 
@@ -1330,11 +1541,27 @@ export class TabManagerService {
     // coherent microtask. queueMicrotask is zoneless-safe and runs before
     // the browser paints — every streaming-derived signal flips on one
     // boundary, after the DOM has committed the finalized messages.
+    //
+    // Two exceptions (TASK_2026_360). `TurnStateApplier` finalizes FIRST and
+    // then applies the backend phase synchronously, so by the time this
+    // microtask runs the status is already the backend's answer:
+    //  - `awaiting-background` / `sleeping` must not be overwritten with
+    //    `loaded`;
+    //  - a `generating` that landed in the same batch (a woken turn right
+    //    after the previous turn's terminal event) re-added the tab to the
+    //    spinner set — that new turn owns `streamingState` now, so nothing
+    //    here may be dropped.
     queueMicrotask(() => {
-      this.updateTabInternal(tabId, {
-        streamingState: null,
-        status: 'loaded',
-      });
+      if (this._streamingTabIds().has(tabId)) return;
+      const status = this.findTabByIdAcrossWorkspaces(tabId)?.tab.status;
+      const backendOwned =
+        status === 'awaiting-background' || status === 'sleeping';
+      this.updateTabInternal(
+        tabId,
+        backendOwned
+          ? { streamingState: null }
+          : { streamingState: null, status: 'loaded' },
+      );
     });
   }
 
@@ -1759,6 +1986,12 @@ export class TabManagerService {
       title: payload.title,
       name: payload.name,
       claudeSessionId: payload.sessionId,
+      // A resume installs a fresh SDK query. Its revisions do NOT restart —
+      // the backend floor is per session id (TASK_2026_371) — but this tab may
+      // be adopting a session it never streamed, so it starts with no recorded
+      // revision and accepts the first thing the resumed query emits.
+      lastTurnStateRevision: undefined,
+      lastTurnStateSessionId: undefined,
     });
   }
 
@@ -2067,6 +2300,10 @@ export class TabManagerService {
   /**
    * Mark a tab as streaming (shows spinner in tab bar).
    * This is VISUAL ONLY - does not affect tab.status or any state machine.
+   *
+   * Callers outside chat-state: the optimistic send path
+   * (`MessageSenderService`) only. Every stream-derived writer goes through
+   * `applyTurnState` (TASK_2026_360).
    */
   markTabStreaming(tabId: string): void {
     this._streamingTabIds.update((set) => new Set([...set, tabId]));

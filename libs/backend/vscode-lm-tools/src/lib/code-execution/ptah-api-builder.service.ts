@@ -90,7 +90,10 @@ import {
 } from './namespace-builders';
 import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
-import { getCallerSessionId } from './mcp-core/mcp-request-context';
+import {
+  getCallerSessionId,
+  getCallerWorkspaceRoot,
+} from './mcp-core/mcp-request-context';
 import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
 import {
   AgentProcessManager,
@@ -98,7 +101,6 @@ import {
   McpRegistryProvider,
   McpInstallService,
   SmitheryRegistrySource,
-  PulseMcpRegistrySource,
   SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
@@ -734,9 +736,6 @@ export class PtahAPIBuilder {
           mcpRegistry: new McpRegistryProvider(this.logger),
           skillsDirectory: this.skillsShApiClient,
           smitheryRegistry,
-          // PulseMCP needs no API key — always live in production so the harness
-          // builder also discovers trusted vendor/community servers.
-          pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
           // Same installer that backs the marketplace MCP directory and
           // harness:apply, so an agent-initiated install records the same
           // intent in ~/.ptah/mcp-installed.json and reaches the config files
@@ -823,16 +822,20 @@ export class PtahAPIBuilder {
    * "No workspace folder open" error instead of silently resolving under $HOME.
    *
    * Resolution order:
-   * 1. The workspace of the session that issued THIS MCP call, resolved from
+   * 1. The workspace root the caller DECLARED in its MCP URL
+   *    (`/workspace/{root}` — the only identity an external caller has;
+   *    TASK_2026_364 Batch C wired the tier Batch A left open here).
+   * 2. The workspace of the session that issued THIS MCP call, resolved from
    *    the request-scoped caller session id (concurrency-safe: bound to the
    *    exact caller, not whichever session is globally most-recently-active).
-   * 2. Most-recently-active SDK session's projectPath (used off the MCP call
+   * 3. Most-recently-active SDK session's projectPath (used off the MCP call
    *    path — e.g. stdio/CLI or internal calls — where no caller id exists).
-   * 3. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
+   * 4. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
    */
   private resolveSessionWorkspaceRoot(): string | undefined {
     const mgr = this.sdkSessionLifecycleManager;
     return resolveWorkspaceRootWithPrecedence({
+      getCallerWorkspaceRoot,
       getCallerSessionId,
       getSessionWorkspace: (id) => mgr?.getSessionWorkspace(id),
       getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),

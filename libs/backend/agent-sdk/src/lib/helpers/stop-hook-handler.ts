@@ -15,6 +15,7 @@ import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { StopCallbackRegistry } from './stop-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
+import type { SessionTurnStateRegistry } from './session-turn-state.registry';
 
 @injectable()
 export class StopHookHandler {
@@ -24,6 +25,8 @@ export class StopHookHandler {
     private readonly callbackRegistry: StopCallbackRegistry,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
+    @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
+    private readonly turnState?: SessionTurnStateRegistry,
   ) {}
 
   createHooks(
@@ -31,6 +34,7 @@ export class StopHookHandler {
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const sdkAdapterEvents = this.sdkAdapterEvents;
+    const turnState = this.turnState;
     return {
       Stop: [
         {
@@ -80,6 +84,14 @@ export class StopHookHandler {
                     timestamp: Date.now(),
                   });
                 }
+
+                // Snapshot only — the phase flips at the stream's `result`
+                // (TASK_2026_360 §2.1). Same resolved-id guard as above.
+                turnState?.recordStop(resolvedSessionId, {
+                  backgroundTasks,
+                  sessionCrons,
+                  terminalReason,
+                });
 
                 if (!sdkAdapterEvents) {
                   return { continue: true };

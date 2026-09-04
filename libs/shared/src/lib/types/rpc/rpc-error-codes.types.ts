@@ -15,4 +15,5 @@ export type RpcUserErrorCode =
   | 'INVALID_PARAMS'
   | 'TASK_NOT_FOUND'
   | 'SESSION_ENDED'
+  | 'SEND_TIMEOUT'
   | 'SESSION_ATTACHED_TO_GATEWAY';

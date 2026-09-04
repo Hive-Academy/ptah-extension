@@ -137,33 +137,158 @@ describe('mcp-response-formatter › formatAgentSteer', () => {
 });
 
 describe('mcp-response-formatter › formatWebSearch', () => {
-  it('renders query, provider and results table', () => {
+  it('renders query, providers, per-result sources and the results list', () => {
     const out = formatWebSearch({
       query: 'how to mock',
       summary: 'short answer',
-      provider: 'tavily',
+      providers: ['tavily', 'serper'],
+      status: 'ok',
       durationMs: 1230,
       resultCount: 2,
       results: [
-        { title: 'A', url: 'https://a', snippet: 's1' },
-        { title: 'B', url: 'https://b', snippet: 's2' },
+        {
+          title: 'A',
+          url: 'https://a',
+          snippet: 's1',
+          sources: ['tavily', 'serper'],
+        },
+        { title: 'B', url: 'https://b', snippet: 's2', sources: ['serper'] },
+      ],
+      outcomes: [
+        {
+          provider: 'tavily',
+          status: 'ok',
+          durationMs: 900,
+          resultCount: 1,
+        },
+        {
+          provider: 'serper',
+          status: 'ok',
+          durationMs: 1100,
+          resultCount: 2,
+        },
       ],
     });
     expect(out).toMatch(/Web Search Results/);
-    expect(out).toMatch(/tavily/);
+    expect(out).toMatch(/\*\*Providers:\*\* tavily, serper/);
     expect(out).toMatch(/short answer/);
     expect(out).toMatch(/\[A\]\(https:\/\/a\)/);
+    expect(out).toMatch(/sources: tavily, serper/);
     expect(out).toMatch(/1\.2s/);
+  });
+
+  it('renders the Provider status section even when every provider succeeded', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily'],
+      status: 'ok',
+      durationMs: 500,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        { provider: 'tavily', status: 'ok', durationMs: 500, resultCount: 0 },
+      ],
+    });
+    expect(out).toMatch(/Provider status/);
+    expect(out).toMatch(/\*\*tavily\*\* — ok \(0 results, 0\.5s\)/);
+  });
+
+  it('names the reason and message of every failed provider', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily', 'serper'],
+      status: 'partial',
+      durationMs: 500,
+      resultCount: 1,
+      results: [
+        { title: 'A', url: 'https://a', snippet: 's1', sources: ['tavily'] },
+      ],
+      outcomes: [
+        { provider: 'tavily', status: 'ok', durationMs: 400, resultCount: 1 },
+        {
+          provider: 'serper',
+          status: 'failed',
+          durationMs: 10,
+          resultCount: 0,
+          reason: 'missing-api-key',
+          message: 'No API key configured for serper.',
+        },
+      ],
+    });
+    expect(out).toMatch(/\*\*Status:\*\* partial/);
+    expect(out).toMatch(
+      /\*\*serper\*\* — failed \(0 results, 0\.0s\) — missing-api-key: No API key configured for serper\./,
+    );
+  });
+
+  // STYLE 5 regression — a failed outcome carries its timing and its result
+  // count, not only the reason. The duration separates a slow timeout from an
+  // instant refusal, which is what decides whether a retry is worth making.
+  it('renders the duration and result count of a failed provider', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['tavily', 'serper'],
+      status: 'partial',
+      durationMs: 30500,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        {
+          provider: 'tavily',
+          status: 'failed',
+          durationMs: 30000,
+          resultCount: 0,
+          reason: 'timeout',
+          message: 'Search timed out after 30s',
+        },
+        {
+          provider: 'serper',
+          status: 'failed',
+          durationMs: 20,
+          resultCount: 0,
+          reason: 'missing-api-key',
+          message: 'No API key configured for serper.',
+        },
+      ],
+    });
+    expect(out).toMatch(/\*\*tavily\*\* — failed \(0 results, 30\.0s\)/);
+    expect(out).toMatch(/\*\*serper\*\* — failed \(0 results, 0\.0s\)/);
+    expect(out).toMatch(/timeout: Search timed out after 30s/);
+  });
+
+  it('falls back to provider-error and Unknown error when a failure omits them', () => {
+    const out = formatWebSearch({
+      query: 'q',
+      summary: 'a',
+      providers: ['exa'],
+      status: 'partial',
+      durationMs: 100,
+      resultCount: 0,
+      results: [],
+      outcomes: [
+        { provider: 'exa', status: 'failed', durationMs: 100, resultCount: 0 },
+      ],
+    });
+    expect(out).toMatch(
+      /\*\*exa\*\* — failed \(0 results, 0\.1s\) — provider-error: Unknown error/,
+    );
   });
 
   it('omits summary and results sections when missing', () => {
     const out = formatWebSearch({
       query: 'q',
       summary: '',
-      provider: 'serper',
+      providers: ['serper'],
+      status: 'ok',
       durationMs: 500,
       resultCount: 0,
       results: [],
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 500, resultCount: 0 },
+      ],
     });
     expect(out).toMatch(/Web Search Results/);
     expect(out).not.toMatch(/Summary/);

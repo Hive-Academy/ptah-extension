@@ -11,8 +11,14 @@ import { TestBed } from '@angular/core/testing';
 import {
   StreamingState,
   createEmptyStreamingState,
+  type TabState,
 } from '@ptah-extension/chat-types';
-import { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import {
+  ExecutionChatMessage,
+  SessionId,
+  type SessionTurnPhase,
+  type SessionTurnState,
+} from '@ptah-extension/shared';
 
 // Production `TabManagerService.attachSession` and `applyResumingSession`
 // validate the incoming sessionId via `SessionId.from()` (UUID v4). Mint
@@ -52,6 +58,14 @@ describe('TabManagerService — intent-named mutators', () => {
       registerSessionForWorkspace: jest.fn(),
       unregisterSession: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      // `applyTurnState` / the `applyFinalizedTurn` microtask resolve the tab
+      // by id across workspaces; every tab in this spec is active.
+      findTabByIdAcrossWorkspaces: jest
+        .fn()
+        .mockImplementation((tabId: string, tabs: readonly TabState[]) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: '/ws' } : null;
+        }),
       getStorageKeyForWorkspace: jest.fn().mockReturnValue('ptah.tabs'),
       syncActiveWorkspaceState: jest.fn(),
       switchWorkspace: jest.fn().mockReturnValue(null),
@@ -91,15 +105,390 @@ describe('TabManagerService — intent-named mutators', () => {
       service.setStatus(id, 'switching');
       expect(service.tabs().find((t) => t.id === id)?.status).toBe('switching');
     });
+  });
 
-    it('markTabAwaitingBackground flips status to awaiting-background on microtask', async () => {
-      const id = service.createTab('awaiting');
-      service.markStreaming(id);
-      service.markTabAwaitingBackground(id);
-      await Promise.resolve();
-      expect(service.tabs().find((t) => t.id === id)?.status).toBe(
-        'awaiting-background',
+  describe('applyTurnState (TASK_2026_360)', () => {
+    const base = (
+      overrides: Partial<SessionTurnState> = {},
+    ): SessionTurnState => ({
+      phase: 'idle',
+      revision: 1,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'completed',
+      timestamp: 1,
+      ...overrides,
+    });
+    const tabOf = (id: string) => service.tabs().find((t) => t.id === id);
+    const task = {
+      id: 'bg-1',
+      type: 'subagent' as const,
+      status: 'running' as const,
+      description: 'd',
+    };
+    const cron = {
+      id: 'c-1',
+      schedule: '*/5 * * * *',
+      recurring: true,
+      prompt: 'p',
+    };
+
+    it('generating → streaming, spinner on, live session, terminal reason cleared, tasks emptied', () => {
+      const id = service.createTab('g');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [task],
+        pendingSessionCrons: [cron],
+        lastTerminalReason: 'completed',
+      });
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', terminalReason: null }),
       );
+
+      const tab = tabOf(id);
+      expect(tab?.status).toBe('streaming');
+      expect(tab?.hasLiveSession).toBe(true);
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tab?.lastTerminalReason).toBeUndefined();
+      expect(tab?.pendingBackgroundTasks).toEqual([]);
+      expect(tab?.lastTurnStateRevision).toBe(1);
+    });
+
+    it.each([
+      ['awaiting-background', 'awaiting-background'],
+      ['sleeping', 'sleeping'],
+      ['idle', 'loaded'],
+      ['failed', 'loaded'],
+    ] as const)(
+      '%s → status %s, spinner off, snapshot copied from the event',
+      (phase, status) => {
+        const id = service.createTab(phase);
+        service.markStreaming(id);
+        service.markTabStreaming(id);
+
+        service.applyTurnState(
+          id,
+          base({
+            phase,
+            backgroundTasks: [task],
+            sessionCrons: [cron],
+            terminalReason: 'aborted_streaming',
+          }),
+        );
+
+        const tab = tabOf(id);
+        expect(tab?.status).toBe(status);
+        expect(service.isTabStreaming(id)).toBe(false);
+        expect(tab?.pendingBackgroundTasks).toEqual([task]);
+        expect(tab?.pendingSessionCrons).toEqual([cron]);
+        expect(tab?.lastTerminalReason).toBe('aborted_streaming');
+      },
+    );
+
+    it('drops an event whose revision is <= the last applied one (replayed batch)', () => {
+      const id = service.createTab('rev');
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 3, terminalReason: null }),
+      );
+
+      service.applyTurnState(id, base({ phase: 'idle', revision: 3 }));
+      expect(tabOf(id)?.status).toBe('streaming');
+      service.applyTurnState(id, base({ phase: 'idle', revision: 2 }));
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(3);
+
+      service.applyTurnState(id, base({ phase: 'idle', revision: 4 }));
+      expect(tabOf(id)?.status).toBe('loaded');
+      expect(service.isTabStreaming(id)).toBe(false);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(4);
+    });
+
+    it('accepts any revision on a tab with none recorded (optimistic send, restore, resume)', () => {
+      const id = service.createTab('fresh');
+      service.markStreaming(id);
+      service.markTabStreaming(id);
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 1, terminalReason: null }),
+      );
+
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(1);
+    });
+
+    it('is a no-op for an unknown tab id', () => {
+      expect(() => service.applyTurnState('nope', base())).not.toThrow();
+    });
+
+    it('applyFinalizedTurn no longer overrides a status the applier wrote', async () => {
+      const id = service.createTab('fin');
+      service.markStreaming(id);
+      service.setStreamingState(id, createEmptyStreamingState());
+
+      // Same order as TurnStateApplier: finalize (queues the microtask), then
+      // the backend phase, synchronously.
+      service.applyFinalizedTurn(id, []);
+      service.applyTurnState(
+        id,
+        base({ phase: 'awaiting-background', backgroundTasks: [task] }),
+      );
+      await Promise.resolve();
+
+      expect(tabOf(id)?.status).toBe('awaiting-background');
+      expect(tabOf(id)?.streamingState).toBeNull();
+    });
+
+    it('applyFinalizedTurn still flips a plain streaming tab to loaded', async () => {
+      const id = service.createTab('fin2');
+      service.markStreaming(id);
+      service.setStreamingState(id, createEmptyStreamingState());
+
+      service.applyFinalizedTurn(id, []);
+      await Promise.resolve();
+
+      expect(tabOf(id)?.status).toBe('loaded');
+      expect(tabOf(id)?.streamingState).toBeNull();
+    });
+
+    it('records the session the revision came from and refuses a foreign session on a bound tab', () => {
+      const id = service.createTab('bound');
+      service.attachSession(id, SESS_123);
+
+      service.applyTurnState(
+        id,
+        base({ phase: 'generating', revision: 1, terminalReason: null }),
+        SESS_123,
+      );
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+
+      // The old broadcaster: higher revision, other session, same tab id.
+      service.applyTurnState(
+        id,
+        base({
+          phase: 'idle',
+          revision: 6,
+          terminalReason: 'aborted_streaming',
+        }),
+        SESS_XYZ,
+      );
+
+      expect(tabOf(id)?.status).toBe('streaming');
+      expect(service.isTabStreaming(id)).toBe(true);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(1);
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+    });
+  });
+
+  describe('canApplyTurnState (TASK_2026_360 review F1)', () => {
+    const tabOf = (id: string) => service.tabs().find((t) => t.id === id);
+    // The default phase is 'idle', which is TERMINAL, so a case that means to
+    // exercise the revision comparison alone must pass 'generating'
+    // explicitly (TASK_2026_371 terminal heal).
+    const state = (
+      sessionId: string | undefined,
+      revision: number,
+      phase: SessionTurnPhase = 'idle',
+    ): SessionTurnState & { sessionId: string | undefined } => ({
+      phase,
+      revision,
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: phase === 'generating' ? null : 'completed',
+      timestamp: 1,
+      sessionId,
+    });
+    const applied = (
+      id: string,
+      sessionId: string | undefined,
+      rev: number,
+      phase: SessionTurnPhase = 'idle',
+    ) => service.applyTurnState(id, state(sessionId, rev, phase), sessionId);
+
+    it('is false for an unknown tab', () => {
+      expect(service.canApplyTurnState('nope', SESS_123, 1, 'idle')).toBe(
+        false,
+      );
+    });
+
+    it('placeholder tab (claudeSessionId null): accepts any session when nothing was recorded', () => {
+      const id = service.createTab('ph');
+      expect(service.canApplyTurnState(id, undefined, 1, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, id, 1, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 7, 'idle')).toBe(true);
+    });
+
+    it('placeholder tab: the counter is continuous across the placeholder → real-id rekey', () => {
+      const id = service.createTab('ph2');
+      applied(id, id, 2);
+
+      // `bound` is null here, so the terminal heal NEVER applies: every
+      // assertion below is decided by `revision > last`, exactly as before
+      // (TASK_2026_371 — `rekey` carries the floors across the migration, so a
+      // low revision on a placeholder is a true replay).
+      expect(service.canApplyTurnState(id, id, 2, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, id, 3, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 1, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 3, 'idle')).toBe(true);
+    });
+
+    it('bound tab: rejects every event from another session, whatever its revision', () => {
+      const id = service.createTab('bound');
+      service.attachSession(id, SESS_123);
+
+      expect(service.canApplyTurnState(id, SESS_XYZ, 1, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_XYZ, 99, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, undefined, 99, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, SESS_123, 1, 'idle')).toBe(true);
+    });
+
+    it('bound tab: same session compares revisions monotonically', () => {
+      const id = service.createTab('mono');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 3);
+
+      // Re-expressed with 'generating' for the TASK_2026_371 terminal heal:
+      // the monotonic comparison is what decides a NON-terminal phase, and
+      // that is the replay window TASK_2026_360 review F1 closed.
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'generating')).toBe(
+        false,
+      );
+      expect(service.canApplyTurnState(id, SESS_123, 3, 'generating')).toBe(
+        false,
+      );
+      expect(service.canApplyTurnState(id, SESS_123, 4, 'generating')).toBe(
+        true,
+      );
+    });
+
+    it('bound tab: the terminal counterpart of the same revisions heals', () => {
+      const id = service.createTab('mono-terminal');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 3);
+
+      // Decided by the terminal heal, not by the comparison: the backend says
+      // the turn ended, and a tab that would otherwise hold `streaming`
+      // forever is the worse of the two errors (TASK_2026_371).
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 3, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 4, 'idle')).toBe(true);
+    });
+
+    it('bound tab: an UNORDERED terminal does not heal, it is compared', () => {
+      const id = service.createTab('mono-unordered');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 3);
+
+      // `allowTerminalHeal: false` is how the `session:status` reconciler
+      // marks an event that did not come from the tab's chunk stream. Healing
+      // it would idle a tab mid-turn, so it falls back to the comparison
+      // (TASK_2026_371).
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'idle', false)).toBe(
+        false,
+      );
+      expect(service.canApplyTurnState(id, SESS_123, 3, 'idle', false)).toBe(
+        false,
+      );
+      // Above the watermark it is accepted on the ordinary rule, heal or not.
+      expect(service.canApplyTurnState(id, SESS_123, 4, 'idle', false)).toBe(
+        true,
+      );
+    });
+
+    it('bound tab: a newly bound session restarts the counter', () => {
+      const id = service.createTab('restart');
+      applied(id, id, 5); // placeholder-era revision
+      service.attachSession(id, SESS_123);
+
+      expect(service.canApplyTurnState(id, SESS_123, 1, 'idle')).toBe(true);
+      applied(id, SESS_123, 1);
+      expect(tabOf(id)?.lastTurnStateSessionId).toBe(SESS_123);
+      // Re-expressed with 'generating' for the TASK_2026_371 terminal heal:
+      // the replayed revision 1 is rejected because the phase is NOT terminal.
+      expect(service.canApplyTurnState(id, SESS_123, 1, 'generating')).toBe(
+        false,
+      );
+      // Its terminal counterpart heals instead - the other half of the rule.
+      expect(service.canApplyTurnState(id, SESS_123, 1, 'idle')).toBe(true);
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'generating')).toBe(
+        true,
+      );
+      // The placeholder-era counter is no longer comparable. Decided by
+      // OWNERSHIP (rule 1), which the heal never reaches - unchanged.
+      expect(service.canApplyTurnState(id, id, 6, 'idle')).toBe(false);
+    });
+
+    // TASK_2026_371 F1. `SessionTurnStateRegistry.revisionFloors` is bounded
+    // by `REVISION_FLOOR_MAP_LIMIT`, so an eviction INSIDE a live process
+    // restarts the backend counter for a session whose tab is still open and
+    // still holds a high revision. Without the heal both events of the next
+    // turn lose `revision > last` and the tab keeps its spinner and Stop
+    // button for good, with the backend idle - defect D1, reproduced.
+    it('D1 under floor eviction: a bound tab heals on the restarted counter terminal event', () => {
+      const id = service.createTab('evicted');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 120);
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(120);
+
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'idle')).toBe(true);
+      applied(id, SESS_123, 2);
+
+      // The heal REALIGNS the watermark down onto the restarted counter, so
+      // the rest of that session's turn is accepted normally instead of
+      // sticking and healing again.
+      expect(tabOf(id)?.lastTurnStateRevision).toBe(2);
+      expect(tabOf(id)?.status).toBe('loaded');
+      expect(service.canApplyTurnState(id, SESS_123, 3, 'generating')).toBe(
+        true,
+      );
+    });
+
+    it('the same tab still REJECTS generating@2 - the TASK_2026_360 replay window stays closed', () => {
+      const id = service.createTab('no-spinner-replay');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 120);
+
+      // A replayed `generating` must never be able to resurrect a spinner.
+      expect(service.canApplyTurnState(id, SESS_123, 2, 'generating')).toBe(
+        false,
+      );
+    });
+
+    it('placeholder tab: a terminal event at or below the recorded revision is still rejected', () => {
+      const id = service.createTab('ph-no-heal');
+      applied(id, id, 5);
+      expect(tabOf(id)?.claudeSessionId).toBeFalsy();
+
+      // The heal is bound-tab only. `rekey` carries the floors through the
+      // placeholder -> real-id migration, so a low revision here is a true
+      // replay (TASK_2026_371).
+      expect(service.canApplyTurnState(id, id, 4, 'idle')).toBe(false);
+      expect(service.canApplyTurnState(id, id, 5, 'idle')).toBe(false);
+    });
+
+    it.each(['failed', 'sleeping', 'awaiting-background'] as const)(
+      'terminal phase %s heals a bound tab, so the predicate and the applier agree',
+      (phase) => {
+        const id = service.createTab(`terminal-${phase}`);
+        service.attachSession(id, SESS_123);
+        applied(id, SESS_123, 120);
+
+        expect(service.canApplyTurnState(id, SESS_123, 2, phase)).toBe(true);
+      },
+    );
+
+    it('resetTabToFresh clears both revision and session so the next query starts clean', () => {
+      const id = service.createTab('fresh');
+      service.attachSession(id, SESS_123);
+      applied(id, SESS_123, 4);
+
+      service.resetTabToFresh(id);
+
+      expect(tabOf(id)?.lastTurnStateRevision).toBeUndefined();
+      expect(tabOf(id)?.lastTurnStateSessionId).toBeUndefined();
     });
   });
 

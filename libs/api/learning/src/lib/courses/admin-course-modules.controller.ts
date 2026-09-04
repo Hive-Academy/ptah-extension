@@ -150,9 +150,10 @@ export class AdminCourseModulesController {
    *
    * 🔴 THE PREVIEW IS THE GUARD, NOT A CONVENIENCE. The failure this action is
    * designed against is *a mis-typed start date silently shifting ten
-   * member-visible dates*, and there is no admin course UI in `libs/web/admin` —
-   * this is driven by `curl`. The apply refuses to run unless the caller echoes
-   * back `confirmModuleCount` and `confirmLastReleaseDate`, and those two values
+   * member-visible dates*. The admin portal at
+   * `/admin/builders/courses/:id` previews the computed dates before confirming
+   * them. The apply refuses to run unless the caller echoes back
+   * `confirmModuleCount` and `confirmLastReleaseDate`, and those two values
    * cannot be produced without having read this response (or having done the
    * weekday arithmetic by hand). Apply-directly was rejected, and so was a
    * single route with a `dryRun` flag: a required flag makes the caller type a

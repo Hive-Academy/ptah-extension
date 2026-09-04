@@ -13,9 +13,21 @@ import {
   LucideAngularModule,
   MessageCircle,
   Sparkles,
+  XCircle,
   Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+
+/**
+ * One agent card on the completion screen, derived from the explicit
+ * terminal outcome the backend reported — never from streamed progress.
+ */
+interface AgentOutcomeTile {
+  id: string;
+  name: string;
+  status: 'written' | 'unchanged' | 'failed';
+  error?: string;
+}
 
 /**
  * CompletionComponent - Success screen with quick start guide and orchestration examples
@@ -48,26 +60,43 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
   template: `
     <div class="container mx-auto px-6 py-8">
       <div class="max-w-6xl mx-auto space-y-8">
-        <!-- Success Header -->
+        <!-- Outcome Header -->
         <div class="text-center">
           <div class="flex justify-center mb-4">
-            <div class="rounded-full bg-success/20 p-4">
-              <lucide-angular
-                [img]="CheckIcon"
-                class="h-12 w-12 text-success"
-              />
-            </div>
+            @if (hasFailures()) {
+              <div class="rounded-full bg-error/20 p-4">
+                <lucide-angular
+                  [img]="XCircleIcon"
+                  class="h-12 w-12 text-error"
+                />
+              </div>
+            } @else {
+              <div class="rounded-full bg-success/20 p-4">
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="h-12 w-12 text-success"
+                />
+              </div>
+            }
           </div>
-          <h1 class="text-2xl font-bold mb-3">Setup Complete!</h1>
-          <p class="text-base-content-muted max-w-xl mx-auto">
-            Your personalized agents have been generated. You're ready to start
-            using intelligent development workflows.
-          </p>
+          @if (hasFailures()) {
+            <h1 class="text-2xl font-bold mb-3">Setup Finished With Errors</h1>
+            <p class="text-base-content-muted max-w-xl mx-auto">
+              Some agents were not generated. Files written earlier are kept —
+              review the failures below.
+            </p>
+          } @else {
+            <h1 class="text-2xl font-bold mb-3">Setup Complete!</h1>
+            <p class="text-base-content-muted max-w-xl mx-auto">
+              Your personalized agents have been generated. You're ready to
+              start using intelligent development workflows.
+            </p>
+          }
         </div>
 
         <!-- Generated Agents Section -->
         <div>
-          <div class="flex items-center gap-3 mb-5">
+          <div class="flex items-center gap-3 mb-2">
             <lucide-angular [img]="FolderIcon" class="h-5 w-5" />
             <h2 class="text-base font-semibold">
               Generated Agents
@@ -81,33 +110,105 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             }
           </div>
 
+          <!-- Outcome counts (from the completion payload, not stream items) -->
+          @if (completion(); as data) {
+            <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+              <span
+                class="badge badge-outline badge-sm"
+                data-testid="written-count"
+              >
+                {{ data.writtenCount }} written
+              </span>
+              <span
+                class="badge badge-outline badge-sm"
+                data-testid="unchanged-count"
+              >
+                {{ data.unchangedCount }} already current
+              </span>
+              @if (data.failedCount > 0) {
+                <span
+                  class="badge badge-error badge-sm"
+                  data-testid="failed-count"
+                >
+                  {{ data.failedCount }} failed
+                </span>
+              }
+            </div>
+            <div
+              class="flex items-center gap-2 mb-4 text-xs text-base-content-muted"
+              data-testid="output-directory"
+            >
+              <lucide-angular [img]="FolderIcon" class="h-3.5 w-3.5 shrink-0" />
+              <code class="bg-base-300 px-1.5 py-0.5 rounded break-all">{{
+                data.outputDirectory
+              }}</code>
+            </div>
+          }
+
           <!-- Agent Tiles Grid -->
-          @if (agentFiles().length > 0) {
+          @if (agentTiles().length > 0) {
             <div
               class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
             >
-              @for (file of agentFiles(); track file.id) {
+              @for (tile of agentTiles(); track tile.id) {
                 <div
                   class="card bg-base-200/50 hover:bg-base-200 shadow-sm hover:shadow-md transition-all"
+                  [attr.data-status]="tile.status"
                 >
                   <div class="card-body p-5 text-center">
                     <div class="flex justify-center mb-3">
-                      <div class="rounded-full bg-success/20 p-2">
-                        <lucide-angular
-                          [img]="CheckIcon"
-                          class="h-4 w-4 text-success"
-                        />
-                      </div>
+                      @if (tile.status === 'failed') {
+                        <div class="rounded-full bg-error/20 p-2">
+                          <lucide-angular
+                            [img]="XCircleIcon"
+                            class="h-4 w-4 text-error"
+                          />
+                        </div>
+                      } @else {
+                        <div class="rounded-full bg-success/20 p-2">
+                          <lucide-angular
+                            [img]="CheckIcon"
+                            class="h-4 w-4 text-success"
+                          />
+                        </div>
+                      }
                     </div>
                     <h3
                       class="text-xs font-medium leading-snug opacity-90"
-                      [title]="file.name"
+                      [title]="tile.error ?? tile.name"
                     >
-                      {{ formatAgentName(file.name) }}
+                      {{ formatAgentName(tile.name) }}
                     </h3>
+                    @if (tile.status === 'unchanged') {
+                      <span class="badge badge-ghost badge-xs mx-auto">
+                        Already current
+                      </span>
+                    } @else if (tile.status === 'failed') {
+                      <span
+                        class="text-xs text-error leading-snug"
+                        [title]="tile.error"
+                      >
+                        {{ tile.error ?? 'Generation failed' }}
+                      </span>
+                    }
                   </div>
                 </div>
               }
+            </div>
+          }
+
+          <!-- Generation errors from the completion payload -->
+          @if (errors().length > 0) {
+            <div
+              class="alert alert-error text-xs mt-4"
+              data-testid="completion-errors"
+            >
+              <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
+              <ul class="list-disc list-inside space-y-1">
+                @for (error of errors(); track error) {
+                  <li>{{ error }}</li>
+                }
+              </ul>
             </div>
           }
         </div>
@@ -297,29 +398,59 @@ export class CompletionComponent {
   protected readonly InfoIcon = Info;
   protected readonly MessageCircleIcon = MessageCircle;
   protected readonly SparklesIcon = Sparkles;
+  protected readonly XCircleIcon = XCircle;
+
+  /** The completion payload with explicit terminal agent outcomes. */
+  protected readonly completion = this.wizardState.completionData;
 
   /**
-   * All completed generation items from skill generation progress.
+   * Agent cards derived from the explicit outcomes in the completion
+   * payload. Falls back to completed streamed items only when no payload
+   * ever arrived (a flow that never received a generation-complete event).
    */
-  private readonly completedItems = computed(() => {
+  protected readonly agentTiles = computed<AgentOutcomeTile[]>(() => {
+    const data = this.completion();
+    if (data && data.agents.length > 0) {
+      return data.agents.map((outcome) => {
+        const fileName = outcome.filePath.split(/[\\/]/).pop();
+        return {
+          id: outcome.agentId,
+          name: fileName && fileName.length > 0 ? fileName : outcome.agentId,
+          status: outcome.status,
+          error: outcome.error,
+        };
+      });
+    }
     return this.wizardState
       .skillGenerationProgress()
-      .filter((item) => item.status === 'complete');
+      .filter((item) => item.type === 'agent' && item.status === 'complete')
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        status: 'written' as const,
+      }));
   });
 
   /**
-   * Agent files that were generated.
-   */
-  protected readonly agentFiles = computed(() => {
-    return this.completedItems().filter((item) => item.type === 'agent');
-  });
-
-  /**
-   * Count of generated agents.
+   * Count of agents with a terminal outcome.
    */
   protected readonly agentCount = computed(() => {
-    return this.agentFiles().length;
+    return this.agentTiles().length;
   });
+
+  /**
+   * Whether the run reported any failure. Drives the header state.
+   */
+  protected readonly hasFailures = computed(() => {
+    const data = this.completion();
+    if (!data) return false;
+    return data.failedCount > 0 || !data.success;
+  });
+
+  /**
+   * Error messages from the completion payload.
+   */
+  protected readonly errors = computed(() => this.completion()?.errors ?? []);
 
   /**
    * Whether Enhanced Prompts was successfully generated.

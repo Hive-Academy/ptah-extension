@@ -6,6 +6,11 @@ export { ExternalMarketplacesComponent } from './lib/external-marketplaces.compo
 export { ExternalConsentDialogComponent } from './lib/external-consent-dialog.component';
 export { ExternalPluginRowComponent } from './lib/external-plugin-row.component';
 export { OAuthSurfaceComponent } from './lib/oauth-surface.component';
+export { ConnectorsSurfaceComponent } from './lib/connectors-surface.component';
+export type {
+  ConnectorStatus,
+  ConnectorLink,
+} from './lib/connectors-surface.component';
 export { MarketplaceStateService } from './lib/marketplace-state.service';
 export { HarnessHealthBadgeComponent } from './lib/harness/harness-health-badge.component';
 export { HarnessTargetRowComponent } from './lib/harness/harness-target-row.component';

@@ -41,6 +41,7 @@ import type {
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import type { ActivityHold } from './no-activity-watchdog';
 import { resolveHookSessionId } from './hook-session-resolver';
 import { SubagentStopCallbackRegistry } from './subagent-stop-callback-registry';
 
@@ -85,15 +86,27 @@ export class SubagentHookHandler {
    * prevent state corruption when multiple sessions run concurrently —
    * a singleton service would otherwise overwrite shared state.
    *
+   * `activityHold` is the session's no-activity watchdog. It is HELD for the
+   * lifetime of every subagent, keyed by `agent_id` in a closure-local set:
+   * the SDK forwards subagent activity to the parent stream only as COMPLETE
+   * messages, so a subagent composing one long message is silent on the
+   * parent stream for its whole generation and the watchdog aborted the
+   * session 180 s after the subagent's last transcript record. A stop for an
+   * `agent_id` that was never held NEVER releases — it would drop the
+   * session's idle hold (TASK_2026_363).
+   *
    * @param workspacePath - Workspace path for agent file detection
    * @param parentSessionId - Optional parent session ID for registry tracking
+   * @param activityHold - Optional watchdog hold, held per registered subagent
    * @returns Hooks configuration for SDK query options
    */
   createHooks(
     workspacePath: string,
     parentSessionId?: string,
+    activityHold?: ActivityHold,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const capturedParentSessionId = parentSessionId;
+    const heldAgentIds = new Set<string>();
     this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
       workspacePath,
       parentSessionId: capturedParentSessionId,
@@ -128,6 +141,22 @@ export class SubagentHookHandler {
                   },
                 );
                 return { continue: true };
+              }
+              // Independent of the registry outcome below: the hold guards the
+              // generation, not the steering record.
+              const startedAgentId = input.agent_id;
+              if (
+                activityHold &&
+                typeof startedAgentId === 'string' &&
+                startedAgentId.length > 0 &&
+                !heldAgentIds.has(startedAgentId)
+              ) {
+                heldAgentIds.add(startedAgentId);
+                activityHold.hold();
+                this.logger.debug(
+                  '[SubagentHookHandler] watchdog held for subagent',
+                  { agentId: startedAgentId, held: heldAgentIds.size },
+                );
               }
               return this.handleSubagentStart(
                 input,
@@ -166,6 +195,17 @@ export class SubagentHookHandler {
                   },
                 );
                 return { continue: true };
+              }
+              const stoppedAgentId = input.agent_id;
+              if (
+                typeof stoppedAgentId === 'string' &&
+                heldAgentIds.delete(stoppedAgentId)
+              ) {
+                activityHold?.release();
+                this.logger.debug(
+                  '[SubagentHookHandler] watchdog released for subagent',
+                  { agentId: stoppedAgentId, held: heldAgentIds.size },
+                );
               }
               return this.handleSubagentStop(
                 input,

@@ -1,5 +1,5 @@
 /**
- * MessageSenderService specs â€” mediator that routes send/continue based on
+ * MessageSenderService specs — mediator that routes send/continue based on
  * whether the target tab already has a claudeSessionId.
  *
  * Coverage focuses on:
@@ -15,7 +15,7 @@
  *   - tabId option scopes to a non-active tab (canvas tile isolation)
  *
  * The full continueConversation path involves SessionManager state machine +
- * backend resume semantics â€” out of scope for this unit spec; covered by the
+ * backend resume semantics — out of scope for this unit spec; covered by the
  * chat flow integration tests.
  */
 

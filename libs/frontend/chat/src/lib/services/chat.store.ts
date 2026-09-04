@@ -43,11 +43,11 @@ import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
  * readonly signals + 36 public methods) while achieving separation of concerns.
  *
  * Child Services:
- * - StreamingHandlerService â€” Execution tree building
- * - CompletionHandlerService â€” Chat completion handling and auto-send
- * - SessionLoaderService â€” Session loading, pagination, switching
- * - ConversationService â€” New/continue conversation, message sending, abort
- * - PermissionHandlerService â€” Permission request management and correlation
+ * - StreamingHandlerService — Execution tree building
+ * - CompletionHandlerService — Chat completion handling and auto-send
+ * - SessionLoaderService — Session loading, pagination, switching
+ * - ConversationService — New/continue conversation, message sending, abort
+ * - PermissionHandlerService — Permission request management and correlation
  * - CompactionLifecycleService — SDK session-compaction state machine
  * - MessageDispatchService — Send/queue routing + slash-command guard
  * - SessionStatsAggregatorService — SESSION_STATS aggregation
@@ -171,7 +171,7 @@ export class ChatStore {
 
   /**
    * Clear current session state.
-   * Only clears session state â€” UI components are responsible for creating tabs
+   * Only clears session state — UI components are responsible for creating tabs
    * before calling this (separation prevents duplicate tab creation bugs).
    */
   clearCurrentSession(): void {
@@ -341,9 +341,9 @@ export class ChatStore {
   /**
    * Process flat streaming event from SDK. Three-branch result dispatch
    * delegates to specialized sub-services:
-   * - compactionComplete â†’ CompactionLifecycleService.handleCompactionComplete
-   * - compactionSessionId (start) â†’ CompactionLifecycleService.handleCompactionStart
-   * - queuedContent â†’ MessageDispatchService.sendQueuedMessage
+   * - compactionComplete → CompactionLifecycleService.handleCompactionComplete
+   * - compactionSessionId (start) → CompactionLifecycleService.handleCompactionStart
+   * - queuedContent → MessageDispatchService.sendQueuedMessage
    *
    * tabId routes the event; sessionId stores the real SDK UUID.
    */

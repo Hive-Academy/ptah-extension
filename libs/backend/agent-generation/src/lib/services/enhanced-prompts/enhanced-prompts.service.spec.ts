@@ -81,6 +81,7 @@ interface Mocks {
   };
   internalQueryService: { execute: jest.Mock };
   modelSettings: { selectedModel: { get: jest.Mock } };
+  analysisStorage: { writeEnhancedPromptTrace: jest.Mock };
 }
 
 const testWorkspacePath = '/test/workspace';
@@ -130,6 +131,12 @@ function createMocks(): Mocks {
     modelSettings: {
       selectedModel: { get: jest.fn().mockReturnValue(undefined) },
     },
+    analysisStorage: {
+      writeEnhancedPromptTrace: jest.fn().mockResolvedValue({
+        markdownPath: '/test/workspace/.ptah/analysis/enhanced-prompt.md',
+        metadataPath: '/test/workspace/.ptah/analysis/enhanced-prompt.json',
+      }),
+    },
   };
 }
 
@@ -143,6 +150,7 @@ function createService(mocks: Mocks): EnhancedPromptsService {
       mocks.workspaceIntelligence,
       mocks.internalQueryService,
       mocks.modelSettings,
+      mocks.analysisStorage,
     ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>),
   );
 }
@@ -1342,5 +1350,202 @@ describe('EnhancedPromptsService', () => {
         jest.useRealTimers();
       }
     });
+  });
+});
+
+// =============================================================================
+// Enhanced-prompt trace (TASK_2026_361)
+// =============================================================================
+
+describe('EnhancedPromptsService — enhanced prompt trace', () => {
+  let mocks: Mocks;
+  let service: EnhancedPromptsService;
+  const input: PromptDesignerInput = {
+    workspacePath: testWorkspacePath,
+    projectType: 'app',
+    isMonorepo: false,
+    dependencies: [],
+    devDependencies: [],
+  };
+  const slugDir = '/test/workspace/.ptah/analysis/demo';
+
+  function primeSdk(): void {
+    mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
+      systemPrompt: 'sys',
+      userPrompt: 'user',
+      outputSchema: { type: 'object' },
+    });
+    mocks.internalQueryService.execute.mockResolvedValue({
+      stream: (async function* () {
+        /* empty */
+      })(),
+      close: jest.fn(),
+    });
+    mockProcess.mockResolvedValue({ structuredOutput: { ok: true } });
+    mocks.promptDesignerAgent.parseAndValidateOutput.mockResolvedValue(
+      fullOutput(),
+    );
+  }
+
+  function readerFor(
+    phases: Record<string, { status: string; file: string }>,
+    contents: Record<string, string | null>,
+  ) {
+    return {
+      findLatestMultiPhaseAnalysis: jest.fn(),
+      readPhaseFile: jest.fn(async (_dir: string, file: string) => {
+        if (file === 'manifest.json') return JSON.stringify({ phases });
+        return contents[file] ?? null;
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    mockProcess.mockReset();
+    mocks = createMocks();
+    service = createService(mocks);
+    primeSdk();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('writes the trace into the slug directory with only the completed phases it used, before saving state', async () => {
+    service.setAnalysisReader(
+      readerFor(
+        {
+          'project-profile': { status: 'completed', file: 'pp.md' },
+          'architecture-assessment': { status: 'failed', file: 'aa.md' },
+          'quality-audit': { status: 'completed', file: 'qa.md' },
+          'elevation-plan': { status: 'pending', file: 'ep.md' },
+        },
+        { 'pp.md': 'PROFILE', 'aa.md': 'FAILED TEXT', 'qa.md': 'QA' },
+      ),
+    );
+
+    const result = await service.runWizard(
+      testWorkspacePath,
+      undefined,
+      undefined,
+      input,
+      undefined,
+      slugDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(
+      mocks.analysisStorage.writeEnhancedPromptTrace,
+    ).toHaveBeenCalledTimes(1);
+    const [ws, dir, prompt, metadata] =
+      mocks.analysisStorage.writeEnhancedPromptTrace.mock.calls[0];
+    expect(ws).toBe(testWorkspacePath);
+    expect(dir).toBe(slugDir);
+    expect(prompt).toContain('## Project-Specific Guidance');
+    expect(prompt).toBe(result.state?.generatedPrompt);
+    expect(metadata).toEqual({
+      generatedAt: result.state?.generatedAt,
+      configHash: 'basehash:pt1234',
+      detectedStack: result.state?.detectedStack,
+      analysisDirectory: '.ptah/analysis/demo',
+      analysisPhaseIds: ['project-profile', 'quality-audit'],
+      promptLength: (result.state?.generatedPrompt ?? '').length,
+    });
+    const traceOrder =
+      mocks.analysisStorage.writeEnhancedPromptTrace.mock
+        .invocationCallOrder[0];
+    const saveOrder =
+      mocks.context.globalState.update.mock.invocationCallOrder[0];
+    expect(traceOrder).toBeLessThan(saveOrder);
+  });
+
+  it('uses the fallback root with a null analysis directory when no analysis exists', async () => {
+    const result = await service.runWizard(
+      testWorkspacePath,
+      undefined,
+      undefined,
+      input,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mocks.analysisStorage.writeEnhancedPromptTrace).toHaveBeenCalledWith(
+      testWorkspacePath,
+      null,
+      expect.any(String),
+      expect.objectContaining({
+        analysisDirectory: null,
+        analysisPhaseIds: [],
+      }),
+    );
+  });
+
+  it('returns failure and saves neither state nor cache when the trace write fails', async () => {
+    mocks.analysisStorage.writeEnhancedPromptTrace.mockRejectedValue(
+      new Error('EACCES'),
+    );
+
+    const result = await service.runWizard(
+      testWorkspacePath,
+      undefined,
+      undefined,
+      input,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('trace');
+    expect(result.error).toContain('EACCES');
+    expect(result.state).toBeUndefined();
+    expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+    expect(mocks.cacheService.set).not.toHaveBeenCalled();
+    expect(service.isGeneratingPrompt()).toBe(false);
+    expect(
+      await service.getEnhancedPromptContent(testWorkspacePath),
+    ).toBeNull();
+  });
+
+  it('regenerate traces into the latest slug directory', async () => {
+    const latestDir = '/test/workspace/.ptah/analysis/latest';
+    service.setAnalysisReader({
+      findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
+        slugDir: latestDir,
+        manifest: {
+          phases: { 'project-profile': { status: 'completed', file: 'pp.md' } },
+        },
+      }),
+      readPhaseFile: jest.fn(async (_dir: string, file: string) =>
+        file === 'manifest.json'
+          ? JSON.stringify({
+              phases: {
+                'project-profile': { status: 'completed', file: 'pp.md' },
+              },
+            })
+          : 'PROFILE',
+      ),
+    });
+    mocks.workspaceIntelligence.getProjectInfo.mockResolvedValue({
+      name: 'p',
+      type: 'app',
+      path: '/p',
+      dependencies: [],
+      devDependencies: [],
+      fileStatistics: {},
+      totalFiles: 0,
+    });
+    mocks.workspaceIntelligence.getCurrentWorkspaceInfo.mockResolvedValue(
+      undefined,
+    );
+
+    const result = await service.regenerate(testWorkspacePath);
+
+    expect(result.success).toBe(true);
+    expect(mocks.analysisStorage.writeEnhancedPromptTrace).toHaveBeenCalledWith(
+      testWorkspacePath,
+      latestDir,
+      expect.any(String),
+      expect.objectContaining({
+        analysisDirectory: '.ptah/analysis/latest',
+        analysisPhaseIds: ['project-profile'],
+      }),
+    );
   });
 });

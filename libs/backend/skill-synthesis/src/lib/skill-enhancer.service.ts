@@ -496,6 +496,7 @@ export class SkillEnhancerService {
             kind: proposal.kind,
             slug: proposal.slug,
             newBody: proposal.proposedBody,
+            workspaceRoot: this.resolveAgentScope(),
           });
 
     this.registry.markEnhanced(
@@ -632,6 +633,7 @@ export class SkillEnhancerService {
         kind,
         slug,
         historyTs,
+        workspaceRoot: this.resolveAgentScope(),
       });
       if (result.restored) {
         this.registry.markEnhanced(kind, slug, Date.now());
@@ -676,7 +678,7 @@ export class SkillEnhancerService {
   }
 
   private resolveBodyPath(kind: SkillRegistryKind, slug: string): string {
-    const roots = this.mirror.getUserLayerRoots();
+    const roots = this.mirror.getUserLayerRoots(this.resolveAgentScope());
     if (kind === 'skill') return join(roots.skills, slug, 'SKILL.md');
     if (kind === 'agent') return join(roots.agents, `${slug}.md`);
     return join(roots.commands, `${slug}.md`);
@@ -986,6 +988,24 @@ export class SkillEnhancerService {
       // fall through to homedir
     }
     return os.homedir();
+  }
+
+  /**
+   * The workspace whose AGENT clones this host addresses, or `undefined`.
+   *
+   * Separate from {@link resolveCwd} because that one falls back to the home
+   * directory, which is a usable cwd for an LLM call and a WRONG key for an
+   * agent clone directory (TASK_2026_365) — it would name a directory of its
+   * own that no mirror ever writes to. `undefined` reaches the unscoped base,
+   * which is where a host with no workspace open should look.
+   */
+  private resolveAgentScope(): string | undefined {
+    try {
+      const root = this.workspaceProvider.getWorkspaceRoot();
+      return root && root.length > 0 ? root : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private async readBody(filePath: string): Promise<string | null> {

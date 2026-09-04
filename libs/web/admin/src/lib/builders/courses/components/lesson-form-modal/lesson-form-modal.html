@@ -1,0 +1,186 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="lesson-form-title">
+    <div class="modal-box max-w-3xl">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="lesson-form-title" class="text-lg font-semibold">
+            {{ isEdit() ? 'Edit Lesson' : 'New Lesson' }}
+          </h3>
+          <p class="text-sm opacity-70">
+            The body is Markdown. It is stored as typed and rendered for members
+            only.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="saving()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm" role="alert">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Title</span>
+            <span class="label-text-alt opacity-60">3–200 characters</span>
+          </div>
+          <input
+            id="lesson-title"
+            type="text"
+            class="input input-bordered input-sm"
+            [value]="title()"
+            (input)="onTitleInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. Wiring the first endpoint"
+            maxlength="200"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Body (Markdown)</span>
+          </div>
+          <textarea
+            id="lesson-body"
+            class="textarea textarea-bordered textarea-sm font-mono"
+            rows="10"
+            [value]="bodyMarkdown()"
+            (input)="onBodyInput($event)"
+            [disabled]="saving()"
+            maxlength="50000"
+          ></textarea>
+        </label>
+
+        <fieldset class="rounded-lg border border-hairline p-3">
+          <legend class="px-1 text-sm font-medium">Video</legend>
+
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text">YouTube id or URL</span>
+              <span class="label-text-alt opacity-60">optional</span>
+            </div>
+            <input
+              id="lesson-video-id"
+              type="text"
+              class="input input-bordered input-sm font-mono"
+              [value]="videoIdOrUrl()"
+              (input)="onVideoIdInput($event)"
+              [disabled]="saving()"
+              placeholder="dQw4w9WgXcQ or a watch URL"
+              maxlength="2048"
+            />
+            @if (isEdit()) {
+              <div class="label">
+                <span class="label-text-alt opacity-60">
+                  Clearing this field removes the video and all of its metadata.
+                </span>
+              </div>
+            }
+          </label>
+
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text">Video title</span>
+            </div>
+            <input
+              id="lesson-video-title"
+              type="text"
+              class="input input-bordered input-sm"
+              [value]="videoTitle()"
+              (input)="onVideoTitleInput($event)"
+              [disabled]="saving()"
+              maxlength="500"
+            />
+          </label>
+
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text">Duration (seconds)</span>
+            </div>
+            <input
+              id="lesson-video-duration"
+              type="number"
+              min="0"
+              step="1"
+              class="input input-bordered input-sm"
+              [class.input-error]="!durationValid()"
+              [value]="videoDurationText()"
+              (input)="onVideoDurationInput($event)"
+              [disabled]="saving()"
+            />
+            <div class="label">
+              @if (!durationValid()) {
+                <span class="label-text-alt text-error">
+                  Whole seconds, zero or more.
+                </span>
+              } @else {
+                <span class="label-text-alt opacity-60">
+                  The length of the video, not a playback position. Completion
+                  is 90 % of it.
+                </span>
+              }
+            </div>
+          </label>
+
+          @if (manualCompletionOnly()) {
+            <!--
+              A real and easily missed state: a lesson can carry a video and
+              still be manual-completion-only, because completion is derived
+              from the persisted duration. Say it here rather than let an
+              admin discover it from member reports.
+            -->
+            <div class="alert alert-warning text-sm" role="note">
+              <span>
+                Without a duration this lesson is marked complete by hand, even
+                though it has a video. Add the duration, or refresh the metadata
+                after saving if the YouTube integration is on.
+              </span>
+            </div>
+          }
+        </fieldset>
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="saving()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Saving…
+            } @else {
+              {{ isEdit() ? 'Save Changes' : 'Create Lesson' }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="saving()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

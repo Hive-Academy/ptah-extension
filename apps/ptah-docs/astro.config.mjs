@@ -131,6 +131,7 @@ export default defineConfig({
           label: 'Marketplace',
           items: [
             { label: 'Overview', slug: 'marketplace' },
+            { label: 'Connectors', slug: 'marketplace/connectors' },
             { label: 'MCP Registry', slug: 'marketplace/mcp-registry' },
             { label: 'Connected Apps', slug: 'marketplace/connected-apps' },
             { label: 'Smithery', slug: 'marketplace/smithery' },

@@ -28,6 +28,8 @@ export interface ContentGenerationSdkConfig {
   enhancedPromptContent?: string;
   /** Absolute paths to plugin directories */
   pluginPaths?: string[];
+  /** Cancels remaining SDK work for this generation run. */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -99,6 +101,10 @@ export interface IContentGenerationService {
          * in the generation summary rather than treating it as a failure.
          */
         warnings: string[];
+        /** Number of LLM sections rejected by the output validator. */
+        rejectedSections: number;
+        /** Number of accepted, non-empty LLM section replacements. */
+        tailoredSections: number;
       },
       Error
     >

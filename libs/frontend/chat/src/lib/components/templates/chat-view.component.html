@@ -34,6 +34,16 @@
         </div>
       }
 
+      <!-- MCP chip. Its own row rather than inside the stats summary: the MCP
+           picture arrives at session init, before the first message, and the
+           stats bar only renders once messages exist. No wrapper — the chip
+           owns its own spacing and collapses to nothing when the session
+           reported no servers and no notice. -->
+      <ptah-mcp-status-chip
+        [sessionId]="resolvedSessionId()"
+        [tabId]="resolvedTabId()"
+      />
+
       <!-- Persistent background-agents tray. On the main panel it renders once
            and shows every session's agents; inside a canvas tile it renders
            scoped to that tile's own session (traySessionId). Lives under the

@@ -5,6 +5,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SdkInternalQueryCuratorLlm,
   CURATOR_DEFAULT_MODEL_TIER,
+  CURATOR_MAX_TURNS,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
@@ -93,15 +94,63 @@ async function* streamFrom(text: string): AsyncIterable<unknown> {
   yield { type: 'result' };
 }
 
+/** An assistant content block as the SDK streams it. */
+type AssistantBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; name: string };
+
+/**
+ * A stream built from arbitrary assistant blocks, so a run whose whole
+ * contribution was tool calls can be replayed. `streamFrom` cannot express
+ * that — it only ever yields one text block (TASK_2026_376 F8).
+ */
+function streamOfBlocks(
+  blocks: readonly AssistantBlock[],
+  resultSubtype?: string,
+): () => AsyncIterable<unknown> {
+  return async function* () {
+    yield { type: 'assistant', message: { content: blocks } };
+    yield resultSubtype
+      ? { type: 'result', subtype: resultSubtype }
+      : { type: 'result' };
+  };
+}
+
+/**
+ * A MULTI-TURN stream: one assistant message per entry, in order.
+ *
+ * `streamOfBlocks` cannot express this — it yields exactly one assistant
+ * message, which is all `maxTurns: 1` could ever produce. At six turns the run
+ * that matters is the one whose early messages are working notes and whose LAST
+ * message is the answer (TASK_2026_376 R1).
+ */
+function streamOfMessages(
+  messages: readonly (readonly AssistantBlock[])[],
+  resultSubtype?: string,
+): () => AsyncIterable<unknown> {
+  return async function* () {
+    for (const blocks of messages) {
+      yield { type: 'assistant', message: { content: blocks } };
+    }
+    yield resultSubtype
+      ? { type: 'result', subtype: resultSubtype }
+      : { type: 'result' };
+  };
+}
+
 interface ExecuteCapture {
   model?: string;
   cwd?: string;
   auth?: OneShotAuthOverride;
   authWasPresent?: boolean;
+  maxTurns?: number;
 }
 
 function makeInternalQuery(opts: {
   text?: string;
+  blocks?: readonly AssistantBlock[];
+  messages?: readonly (readonly AssistantBlock[])[];
+  resultSubtype?: string;
   throwOnExecute?: Error;
   capture?: ExecuteCapture;
 }): InternalQueryService {
@@ -110,15 +159,27 @@ function makeInternalQuery(opts: {
       async (config: {
         model: string;
         cwd: string;
+        maxTurns?: number;
         auth?: OneShotAuthOverride;
       }) => {
         if (opts.capture) {
           opts.capture.model = config.model;
           opts.capture.cwd = config.cwd;
+          opts.capture.maxTurns = config.maxTurns;
           opts.capture.auth = config.auth;
           opts.capture.authWasPresent = 'auth' in config;
         }
         if (opts.throwOnExecute) throw opts.throwOnExecute;
+        if (opts.messages) {
+          return {
+            stream: streamOfMessages(opts.messages, opts.resultSubtype)(),
+          };
+        }
+        if (opts.blocks) {
+          return {
+            stream: streamOfBlocks(opts.blocks, opts.resultSubtype)(),
+          };
+        }
         return { stream: streamFrom(opts.text ?? '') };
       },
     ),
@@ -613,9 +674,11 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
     );
   });
 
-  it('returns an EXTRACTED status with no drafts (does not throw) when model output is empty', async () => {
-    // `status: 'extracted'` even though the list is empty: the query ran and
-    // the model said nothing. Only the quota gate produces `'stalled'`.
+  it('returns NO-OUTPUT (does not throw) when model output is empty', async () => {
+    // A run that produced no text and called no tool is not an empty
+    // extraction: nothing came back to extract FROM. `'extracted'` here told
+    // the caller to consume the session's observations for a pass that never
+    // reported on them (TASK_2026_376 R1).
     const internalQuery = makeInternalQuery({ text: '' });
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
@@ -623,8 +686,9 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
       makeWorkspace(''),
     );
     await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
-      status: 'extracted',
-      drafts: [],
+      status: 'no-output',
+      usedTools: false,
+      toolNames: [],
     });
   });
 
@@ -639,5 +703,313 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
       status: 'extracted',
       drafts: [],
     });
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — the turn budget (TASK_2026_376 F8)', () => {
+  it('asks for more than one turn, so a tool_result can reach the model', () => {
+    // One turn is one API round-trip (`Options.maxTurns`,
+    // @anthropic-ai/claude-agent-sdk sdk.d.ts:1527-1530). A tool call needs a
+    // second round-trip to carry its result back, so 1 makes the MCP wiring
+    // this adapter attaches unreachable. Two is the floor.
+    expect(CURATOR_MAX_TURNS).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the budget BOUNDED and below the one-shot default of 25', () => {
+    // The bound is not decoration. `perLaneLimit` is 1 on the memory-curator
+    // lane and the queue budget is 60s, so turns spent here are turns the next
+    // curation window waits before it is dropped (TASK_2026_376 F4).
+    expect(Number.isInteger(CURATOR_MAX_TURNS)).toBe(true);
+    expect(CURATOR_MAX_TURNS).toBeLessThan(25);
+  });
+
+  it('sends CURATOR_MAX_TURNS into the internal query, not a hard-coded 1', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.maxTurns).toBe(CURATOR_MAX_TURNS);
+    expect(capture.maxTurns).not.toBe(1);
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — tool-only runs are not silent runs', () => {
+  const toolsOnly: readonly AssistantBlock[] = [
+    { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+  ];
+
+  it('records a tool-only extract pass DISTINCTLY from a pass that produced nothing', async () => {
+    // The defect: both reach the caller as `extracted: 0`. The contract cannot
+    // carry a third arm from inside this batch, so the log is the seam — and
+    // the two must not print the same line.
+    const toolLogger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      toolLogger,
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const silentLogger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      silentLogger,
+      makeInternalQuery({ blocks: [] }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const toolLines = [
+      ...(toolLogger.info as jest.Mock).mock.calls,
+      ...(toolLogger.warn as jest.Mock).mock.calls,
+    ];
+    const silentLines = [
+      ...(silentLogger.info as jest.Mock).mock.calls,
+      ...(silentLogger.warn as jest.Mock).mock.calls,
+    ];
+    expect(toolLines.length).toBeGreaterThan(0);
+    expect(silentLines.length).toBeGreaterThan(0);
+    expect(toolLines[0][0]).not.toEqual(silentLines[0][0]);
+  });
+
+  it('names the tools it used, so the pass can be told apart in a log', async () => {
+    const logger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      logger,
+      makeInternalQuery({
+        blocks: [
+          { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+          { type: 'tool_use', name: 'Read' },
+        ],
+      }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const call = (logger.info as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('through tools'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toEqual({
+      toolUses: 2,
+      toolNames: ['mcp__ptah__ptah_memory_search', 'Read'],
+    });
+  });
+
+  it('resolves NO-OUTPUT, never an empty extraction, after a tool-only pass', async () => {
+    // `{ status: 'extracted', drafts: [] }` is what the caller reads as "this
+    // pass ran and found nothing", and it consumes the session's queued
+    // observations on that reading. A run that spent its turns in tool calls and
+    // never wrote its answer has not earned that (TASK_2026_376 R1).
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'no-output',
+      usedTools: true,
+      toolNames: ['mcp__ptah__ptah_memory_search'],
+    });
+  });
+
+  it('resolves NO-OUTPUT with usedTools false when the run said nothing at all', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ blocks: [] }),
+      makeWorkspace(''),
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'no-output',
+      usedTools: false,
+      toolNames: [],
+    });
+  });
+
+  it('parses the JSON normally when a run BOTH called tools and answered', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        blocks: [
+          { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+          {
+            type: 'text',
+            text: '{"memories":[{"kind":"fact","subject":"ptah","content":"lanes exist","salienceHint":0.5}]}',
+          },
+        ],
+      }),
+      makeWorkspace(''),
+    );
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status).toBe('extracted');
+    expect(result.status === 'extracted' && result.drafts).toHaveLength(1);
+  });
+
+  it('warns when the run stopped at the turn ceiling', async () => {
+    // `error_max_turns` is a RESULT in this SDK, never a throw
+    // (sdk.d.ts:3402), so an exhausted budget is invisible unless it is read.
+    const logger = makeLogger();
+    await new SdkInternalQueryCuratorLlm(
+      logger,
+      makeInternalQuery({
+        blocks: toolsOnly,
+        resultSubtype: 'error_max_turns',
+      }),
+      makeWorkspace(''),
+    ).extract(EXTRACT_TRANSCRIPT);
+
+    const call = (logger.warn as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('turn ceiling'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toMatchObject({ maxTurns: CURATOR_MAX_TURNS });
+  });
+
+  it('stores drafts unmerged after a tool-only RESOLVE pass', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ blocks: toolsOnly }),
+      makeWorkspace(''),
+    );
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older note' },
+      ]),
+    ).resolves.toEqual([{ ...drafts[0], mergeTargetId: null }]);
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — a multi-turn run is read from its LAST message', () => {
+  // Both prompts tell the model that its FINAL message must contain only the
+  // JSON object. `extractJsonObject` reads from index 0 and takes the FIRST
+  // balanced `{...}`, so while the collector concatenated every assistant
+  // message the parser read the model's working notes instead of its answer
+  // (TASK_2026_376 R1, logic finding 1).
+  const REAL_ANSWER =
+    '{"memories":[{"kind":"fact","subject":"build","content":"nx run-many is the multi-project runner","salienceHint":0.7}]}';
+
+  it('ignores a DECOY json object in an earlier message and parses the last one', async () => {
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        messages: [
+          [
+            {
+              type: 'text',
+              text: 'Let me check what is already stored. Draft so far: {"memories": []}',
+            },
+            { type: 'tool_use', name: 'mcp__ptah__ptah_memory_search' },
+          ],
+          [{ type: 'text', text: REAL_ANSWER }],
+        ],
+      }),
+      makeWorkspace(''),
+    );
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status).toBe('extracted');
+    expect(result.status === 'extracted' && result.drafts).toMatchObject([
+      {
+        kind: 'fact',
+        subject: 'build',
+        content: 'nx run-many is the multi-project runner',
+        salienceHint: 0.7,
+      },
+    ]);
+  });
+
+  it('does not let an unparseable earlier message destroy a valid answer', async () => {
+    // Scenario B from the review: `I will search memory for {subject: X}` slices
+    // to `{subject: X}`, `JSON.parse` throws, and the whole pass returned zero
+    // drafts while reporting success.
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        messages: [
+          [
+            {
+              type: 'text',
+              text: 'I will search memory for {subject: X} first.',
+            },
+          ],
+          [{ type: 'text', text: REAL_ANSWER }],
+        ],
+      }),
+      makeWorkspace(''),
+    );
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result.status === 'extracted' && result.drafts).toHaveLength(1);
+  });
+
+  it('reports NO-OUTPUT when a run that answered earlier ends on tool calls', async () => {
+    // The last message carries no text, so there is no answer to read. Deferring
+    // costs a re-curation next drain; consuming the input would cost the
+    // session's memories permanently.
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        messages: [
+          [{ type: 'text', text: REAL_ANSWER }],
+          [{ type: 'tool_use', name: 'Read' }],
+        ],
+        resultSubtype: 'error_max_turns',
+      }),
+      makeWorkspace(''),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'no-output',
+      usedTools: true,
+      toolNames: ['Read'],
+    });
+  });
+
+  it('reads the LAST message on the resolve path too', async () => {
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({
+        messages: [
+          [
+            {
+              type: 'text',
+              text: 'Looking at the related notes: {"memories": []}',
+            },
+          ],
+          [
+            {
+              type: 'text',
+              text: '{"memories":[{"kind":"fact","subject":"ptah","content":"lanes exist","salienceHint":0.5,"mergeTargetId":"m1"}]}',
+            },
+          ],
+        ],
+      }),
+      makeWorkspace(''),
+    );
+
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older note' },
+      ]),
+    ).resolves.toMatchObject([{ ...drafts[0], mergeTargetId: 'm1' }]);
   });
 });

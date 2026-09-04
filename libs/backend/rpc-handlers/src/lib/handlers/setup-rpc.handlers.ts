@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
+import type { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -47,6 +48,9 @@ import type {
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
   AgentCategory,
+  WizardDeepAnalyzeParams,
+  WizardGetResumableRunParams,
+  WizardGetResumableRunResponse,
   WizardListAgentPacksParams,
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
@@ -56,6 +60,14 @@ import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import { toResumableGenerationRun } from './wizard-generation-checkpoint.service';
+import {
+  WizardDeepAnalyzeParamsSchema,
+  WizardGetResumableRunParamsSchema,
+  WizardInstallPackAgentsParamsSchema,
+  WizardListAnalysesParamsSchema,
+  WizardLoadAnalysisParamsSchema,
+} from './setup-rpc.schema';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -77,6 +89,7 @@ export class SetupRpcHandlers {
     'setup-status:get-status',
     'setup-wizard:launch',
     'wizard:deep-analyze',
+    'wizard:get-resumable-run',
     'wizard:recommend-agents',
     'wizard:cancel-analysis',
     'wizard:list-analyses',
@@ -149,6 +162,7 @@ export class SetupRpcHandlers {
     this.registerGetStatus();
     this.registerLaunchWizard();
     this.registerDeepAnalyze();
+    this.registerGetResumableRun();
     this.registerRecommendAgents();
     this.registerCancelAnalysis();
     this.registerListAnalyses();
@@ -157,18 +171,20 @@ export class SetupRpcHandlers {
     this.registerInstallPackAgents();
 
     this.logger.debug('Setup RPC handlers registered', {
-      methods: [
-        'setup-status:get-status',
-        'setup-wizard:launch',
-        'wizard:deep-analyze',
-        'wizard:recommend-agents',
-        'wizard:cancel-analysis',
-        'wizard:list-analyses',
-        'wizard:load-analysis',
-        'wizard:list-agent-packs',
-        'wizard:install-pack-agents',
-      ],
+      methods: [...SetupRpcHandlers.METHODS],
     });
+  }
+
+  /** Parse RPC params at the boundary; a schema failure is a typed user error. */
+  private parse<T>(schema: z.ZodType<T>, params: unknown): T {
+    const result = schema.safeParse(params ?? {});
+    if (!result.success) {
+      throw new RpcUserError(
+        'Invalid setup wizard request parameters.',
+        'INVALID_PARAMS',
+      );
+    }
+    return result.data;
   }
 
   /**
@@ -249,14 +265,21 @@ export class SetupRpcHandlers {
   }
 
   /**
-   * wizard:deep-analyze - Perform deep project analysis
+   * wizard:deep-analyze - Perform deep project analysis.
+   *
+   * With `resume: true` the service continues the workspace's unfinished
+   * version-3 manifest instead of starting a fresh run. The response is the
+   * same either way; a paused run comes back with `lifecycle: 'paused'`.
    */
   private registerDeepAnalyze(): void {
     this.rpcHandler.registerMethod<
-      { model?: string; workspacePath?: string },
+      WizardDeepAnalyzeParams & { workspacePath?: string },
       MultiPhaseAnalysisResponse
-    >('wizard:deep-analyze', async (params) => {
-      this.logger.debug('RPC: wizard:deep-analyze called');
+    >('wizard:deep-analyze', async (rawParams) => {
+      const params = this.parse(WizardDeepAnalyzeParamsSchema, rawParams);
+      this.logger.debug('RPC: wizard:deep-analyze called', {
+        resume: params.resume === true,
+      });
 
       const workspaceRoot =
         params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
@@ -309,6 +332,7 @@ export class SetupRpcHandlers {
             mcpServerRunning?: boolean;
             mcpPort?: number;
             pluginPaths?: string[];
+            resume?: boolean;
           },
         ) => Promise<Result<MultiPhaseManifest, Error>>;
       }>(
@@ -323,6 +347,7 @@ export class SetupRpcHandlers {
           mcpServerRunning,
           mcpPort,
           pluginPaths,
+          resume: params.resume === true,
         },
       );
 
@@ -342,21 +367,15 @@ export class SetupRpcHandlers {
 
       const slugDir = storageService.getSlugDir(workspaceRoot, manifest.slug);
 
-      const phaseContents: Record<string, string> = {};
-      for (const [phaseId, phaseResult] of Object.entries(manifest.phases)) {
-        if (phaseResult.status === 'completed') {
-          const content = await storageService.readPhaseFile(
-            slugDir,
-            phaseResult.file,
-          );
-          if (content) {
-            phaseContents[phaseId] = content;
-          }
-        }
-      }
+      const phaseContents = await this.readCompletedPhases(
+        storageService,
+        slugDir,
+        manifest,
+      );
 
-      this.logger.info('Multi-phase analysis completed successfully', {
+      this.logger.info('Multi-phase analysis settled', {
         slug: manifest.slug,
+        lifecycle: manifest.lifecycle,
         totalDurationMs: manifest.totalDurationMs,
         completedPhases: Object.entries(manifest.phases)
           .filter(([, r]) => r.status === 'completed')
@@ -373,21 +392,82 @@ export class SetupRpcHandlers {
         });
       }
 
-      const response: MultiPhaseAnalysisResponse = {
-        isMultiPhase: true,
-        manifest: {
-          slug: manifest.slug,
-          analyzedAt: manifest.analyzedAt,
-          model: manifest.model,
-          totalDurationMs: manifest.totalDurationMs,
-          phases: manifest.phases,
-        },
-        phaseContents,
-        analysisDir: slugDir,
+      return storageService.toResponse(slugDir, manifest, phaseContents);
+    });
+  }
+
+  /**
+   * wizard:get-resumable-run - Read-only discovery of an unfinished run.
+   *
+   * Returns the latest resumable analysis (as the same response
+   * `wizard:deep-analyze` gives) and, when present, its generation checkpoint
+   * DTO. Nothing on disk is changed; the UI decides whether to call
+   * `wizard:deep-analyze { resume: true }` or
+   * `wizard:submit-selection { resume: true }`.
+   */
+  private registerGetResumableRun(): void {
+    this.rpcHandler.registerMethod<
+      WizardGetResumableRunParams,
+      WizardGetResumableRunResponse
+    >('wizard:get-resumable-run', async (rawParams) => {
+      this.parse(WizardGetResumableRunParamsSchema, rawParams);
+      this.logger.debug('RPC: wizard:get-resumable-run called');
+      const none: WizardGetResumableRunResponse = {
+        analysis: null,
+        generation: null,
       };
 
-      return response;
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) return none;
+
+      const storageService = this.resolveService<AnalysisStorageService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        'AnalysisStorageService',
+      );
+      const run = await storageService.findLatestResumableRun(workspaceRoot);
+      if (!run) return none;
+
+      let analysis: MultiPhaseAnalysisResponse | null = null;
+      if (run.manifest && run.slugDir) {
+        const phaseContents = await this.readCompletedPhases(
+          storageService,
+          run.slugDir,
+          run.manifest,
+        );
+        analysis = storageService.toResponse(
+          run.slugDir,
+          run.manifest,
+          phaseContents,
+        );
+      }
+      const generation = run.generation
+        ? toResumableGenerationRun(run.generation)
+        : null;
+
+      this.logger.info('Resumable wizard run discovered', {
+        analysisLifecycle: run.manifest?.lifecycle ?? null,
+        generationLifecycle: generation?.lifecycle ?? null,
+      });
+      return { analysis, generation };
     });
+  }
+
+  /** Contents of every `completed` phase file; failed partials stay excluded. */
+  private async readCompletedPhases(
+    storageService: AnalysisStorageService,
+    slugDir: string,
+    manifest: MultiPhaseManifest,
+  ): Promise<Record<string, string>> {
+    const phaseContents: Record<string, string> = {};
+    for (const [phaseId, phaseResult] of Object.entries(manifest.phases)) {
+      if (phaseResult.status !== 'completed') continue;
+      const content = await storageService.readPhaseFile(
+        slugDir,
+        phaseResult.file,
+      );
+      if (content) phaseContents[phaseId] = content;
+    }
+    return phaseContents;
   }
 
   /**
@@ -674,7 +754,8 @@ export class SetupRpcHandlers {
     this.rpcHandler.registerMethod<
       { workspacePath?: string },
       { analyses: SavedAnalysisMetadata[] }
-    >('wizard:list-analyses', async (params) => {
+    >('wizard:list-analyses', async (rawParams) => {
+      const params = this.parse(WizardListAnalysesParamsSchema, rawParams);
       this.logger.debug('RPC: wizard:list-analyses called');
 
       const workspaceRoot =
@@ -709,7 +790,8 @@ export class SetupRpcHandlers {
     this.rpcHandler.registerMethod<
       { filename: string; workspacePath?: string },
       MultiPhaseAnalysisResponse
-    >('wizard:load-analysis', async (params) => {
+    >('wizard:load-analysis', async (rawParams) => {
+      const params = this.parse(WizardLoadAnalysisParamsSchema, rawParams);
       this.logger.debug('RPC: wizard:load-analysis called', {
         filename: params.filename,
       });
@@ -774,7 +856,8 @@ export class SetupRpcHandlers {
     this.rpcHandler.registerMethod<
       WizardInstallPackAgentsParams,
       WizardInstallPackAgentsResult
-    >('wizard:install-pack-agents', async (params) => {
+    >('wizard:install-pack-agents', async (rawParams) => {
+      const params = this.parse(WizardInstallPackAgentsParamsSchema, rawParams);
       this.logger.debug('RPC: wizard:install-pack-agents called', {
         source: params.source,
         agentFileCount: params.agentFiles.length,

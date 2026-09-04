@@ -103,6 +103,20 @@ describe('CommunityModeration', () => {
     return fixture;
   }
 
+  /**
+   * Expands the Categories section. Only for a fixture that HAS categories —
+   * with none the section opens itself, and clicking would close it.
+   */
+  function openCategories(
+    fixture: ComponentFixture<CommunityModeration>,
+  ): void {
+    const toggle: HTMLButtonElement = fixture.nativeElement.querySelector(
+      'button[aria-controls="community-categories"]',
+    );
+    toggle.click();
+    fixture.detectChanges();
+  }
+
   function button(
     fixture: ComponentFixture<CommunityModeration>,
     label: string,
@@ -112,6 +126,27 @@ describe('CommunityModeration', () => {
     ).find((b) => b.textContent?.trim() === label);
     if (!found) throw new Error(`No button labelled "${label}"`);
     return found;
+  }
+
+  /** Opens the New-thread drawer and fills a valid draft. */
+  function authorDraft(
+    fixture: ComponentFixture<CommunityModeration>,
+    title = 'Welcome to the forum',
+    body = '## Hello everyone',
+  ): void {
+    button(fixture, 'New thread').click();
+    fixture.detectChanges();
+
+    const titleField: HTMLInputElement =
+      fixture.nativeElement.querySelector('#thread-title');
+    titleField.value = title;
+    titleField.dispatchEvent(new Event('input'));
+
+    const bodyField: HTMLTextAreaElement =
+      fixture.nativeElement.querySelector('#thread-body');
+    bodyField.value = body;
+    bodyField.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
   }
 
   /* ---------------------------------------------------------------------- */
@@ -126,10 +161,14 @@ describe('CommunityModeration', () => {
     );
 
     expect(buildersContent).toBeDefined();
+    // 'Courses' was appended by TASK_2026_377 Batch 3 (the course authoring
+    // surface). This assertion is exact on purpose — a new entry in this group
+    // is a deliberate IA change and should have to be written down here.
     expect(buildersContent?.items.map((item) => item.label)).toEqual([
       'Packs',
       'Sessions',
       'Community',
+      'Courses',
     ]);
     expect(
       buildersContent?.items.find((item) => item.label === 'Community')?.route,
@@ -398,6 +437,54 @@ describe('CommunityModeration', () => {
     topicsRequest().flush(paged([topic({ locked: true })]));
   });
 
+  it('keeps the FAILED subset of a bulk run selected, and names the count', () => {
+    // ⚠️ Clearing the selection up front made a partial failure unrecoverable:
+    // the operator was told "one or more updates failed" with nothing selected
+    // and no way to know which rows to pick again out of a page of fifty.
+    const fixture = open([
+      topic({ id: 'top_1' }),
+      topic({ id: 'top_2', slug: 'second', title: 'Second' }),
+    ]);
+
+    const checkboxes = Array.from<HTMLInputElement>(
+      fixture.nativeElement.querySelectorAll('input[aria-label^="Select "]'),
+    );
+    checkboxes[0].click();
+    checkboxes[1].click();
+    fixture.detectChanges();
+
+    button(fixture, 'Lock').click();
+
+    const patches = httpMock.match(
+      (r) => r.method === 'PATCH' && r.url.startsWith(TOPICS_URL),
+    );
+    patches
+      .find((patch) => patch.request.url === `${TOPICS_URL}/top_1`)
+      ?.flush({ id: 'top_1', changed: ['locked'] });
+    patches
+      .find((patch) => patch.request.url === `${TOPICS_URL}/top_2`)
+      ?.flush(null, { status: 500, statusText: 'Server Error' });
+
+    topicsRequest().flush(
+      paged([
+        topic({ id: 'top_1', locked: true }),
+        topic({ id: 'top_2', slug: 'second', title: 'Second' }),
+      ]),
+    );
+    fixture.detectChanges();
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain('1 thread could not be updated');
+    expect(text).not.toContain('Http failure response');
+
+    // Exactly the failed row survives the run, so the retry is one more click.
+    expect(
+      Array.from<HTMLInputElement>(
+        fixture.nativeElement.querySelectorAll('input[aria-label^="Select "]'),
+      ).map((box) => box.checked),
+    ).toEqual([false, true]);
+  });
+
   /* ---------------------------------------------------------------------- */
   /* Drawer                                                                  */
   /* ---------------------------------------------------------------------- */
@@ -453,6 +540,35 @@ describe('CommunityModeration', () => {
     expect(fixture.nativeElement.textContent).toContain('Still moderating');
   });
 
+  it('a FAILED category read is NOT an empty forum — it says so and retries', () => {
+    // ⚠️ The two states were indistinguishable: a 500 set an empty list and no
+    // error, so the screen asserted "the forum has no categories yet" about
+    // data nobody read, and disabled the one write that needs a category.
+    const fixture = TestBed.createComponent(CommunityModeration);
+    fixture.detectChanges();
+    httpMock
+      .expectOne(CATEGORIES_URL)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    topicsRequest().flush(paged([]));
+    fixture.detectChanges();
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain('We could not load the categories.');
+    expect(text).not.toContain('The forum has no categories yet');
+    expect(text).not.toContain('Http failure response');
+
+    // Authoring stays reachable: the categories may well exist.
+    expect(button(fixture, 'New thread').disabled).toBe(false);
+
+    button(fixture, 'Retry the categories').click();
+    httpMock.expectOne(CATEGORIES_URL).flush({ categories: [category()] });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'We could not load the categories.',
+    );
+  });
+
   it('never surfaces a raw HTTP error message to an operator', () => {
     const fixture = TestBed.createComponent(CommunityModeration);
     fixture.detectChanges();
@@ -497,5 +613,181 @@ describe('CommunityModeration', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-markdown-block'),
     ).toBeNull();
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* Categories — the write surface whose absence produced "0 threads"       */
+  /* ---------------------------------------------------------------------- */
+
+  it('names the REAL cause when the forum has no categories at all', () => {
+    // ⚠️ "No threads match these filters" is a LIE on an empty forum.
+    // `Topic.categoryId` is a required foreign key, so with no category nothing
+    // can be posted and no filter change will ever produce a row.
+    const fixture = open([], []);
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain(
+      'The forum has no categories yet, so it cannot hold a thread.',
+    );
+    expect(text).not.toContain('No threads match these filters.');
+
+    // The section that fixes it opens itself rather than staying collapsed.
+    expect(
+      fixture.nativeElement.querySelector('#community-categories'),
+    ).not.toBeNull();
+
+    // And authoring is refused until a category exists to post into.
+    expect(button(fixture, 'New thread').disabled).toBe(true);
+  });
+
+  it('CREATES a category and refreshes the list so every control sees it', () => {
+    const fixture = open([], [category()]);
+    openCategories(fixture);
+
+    const name: HTMLInputElement =
+      fixture.nativeElement.querySelector('#category-name');
+    name.value = 'Announcements';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    // The slug is SUGGESTED from the name; the field stays editable.
+    expect(
+      (
+        fixture.nativeElement.querySelector(
+          '#category-slug',
+        ) as HTMLInputElement
+      ).value,
+    ).toBe('announcements');
+
+    button(fixture, 'Create category').click();
+
+    const post = httpMock.expectOne(CATEGORIES_URL);
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({
+      slug: 'announcements',
+      name: 'Announcements',
+      description: null,
+      visibility: 'member',
+      cohortKeys: [],
+    });
+    post.flush(
+      category({ id: 'cat_2', slug: 'announcements', name: 'Announcements' }),
+    );
+
+    // ⚠️ THE REFRESH IS THE POINT. The category filter, every row's move
+    // control and the new-thread select all read the same signal, so a create
+    // that appended locally would leave two of the three blind to it.
+    httpMock.expectOne(CATEGORIES_URL).flush({
+      categories: [
+        category(),
+        category({ id: 'cat_2', slug: 'announcements', name: 'Announcements' }),
+      ],
+    });
+    fixture.detectChanges();
+
+    const options = Array.from<HTMLOptionElement>(
+      fixture.nativeElement.querySelectorAll('#moderation-category option'),
+    ).map((option) => option.textContent?.trim());
+    expect(options).toContain('Announcements');
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* New thread                                                              */
+  /* ---------------------------------------------------------------------- */
+
+  it('AUTHORS a thread with the exact body shape, then reloads the queue', () => {
+    // ⚠️ The response is `{ id, slug }` and nothing else — the slug is
+    // server-allocated (R1.2.2) — so the queue is re-read rather than patched.
+    const fixture = open([], [category({ id: 'cat_1' })]);
+
+    button(fixture, 'New thread').click();
+    fixture.detectChanges();
+
+    const title: HTMLInputElement =
+      fixture.nativeElement.querySelector('#thread-title');
+    title.value = '  Welcome to the forum  ';
+    title.dispatchEvent(new Event('input'));
+
+    const body: HTMLTextAreaElement =
+      fixture.nativeElement.querySelector('#thread-body');
+    body.value = '## Hello everyone';
+    body.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    button(fixture, 'Post thread').click();
+
+    const post = httpMock.expectOne(TOPICS_URL);
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({
+      categoryId: 'cat_1',
+      title: 'Welcome to the forum',
+      body: '## Hello everyone',
+      pinned: false,
+      locked: false,
+    });
+    post.flush({ id: 'top_9', slug: 'welcome-to-the-forum' });
+
+    topicsRequest().flush(
+      paged([topic({ id: 'top_9', title: 'Welcome to the forum' })]),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Welcome to the forum');
+    // Nothing else opens on success — the form closes and the queue is the view.
+    expect(fixture.nativeElement.querySelector('#thread-title')).toBeNull();
+  });
+
+  it('surfaces the SERVER SENTENCE on a 400 refusal of a thread', () => {
+    // ⚠️ A 400 here is a refusal the API COMPOSED from what the caller sent —
+    // "Category not found" names the fix. Masking it left the admin a generic
+    // sentence and no field to correct.
+    const fixture = open([], [category({ id: 'cat_1' })]);
+    authorDraft(fixture);
+    button(fixture, 'Post thread').click();
+
+    httpMock.expectOne(TOPICS_URL).flush(
+      {
+        statusCode: 400,
+        message: 'Category not found',
+        error: 'Bad Request',
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    fixture.detectChanges();
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain('Category not found');
+    expect(text).not.toContain('We could not create the thread.');
+    expect(text).not.toContain('Http failure response');
+  });
+
+  it('still MASKS a 500 on the same write, because nobody wrote that body', () => {
+    const fixture = open([], [category({ id: 'cat_1' })]);
+    authorDraft(fixture);
+    button(fixture, 'Post thread').click();
+
+    httpMock
+      .expectOne(TOPICS_URL)
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain('We could not create the thread.');
+    expect(text).not.toContain('Http failure response');
+  });
+
+  it('an OVER-LONG title never reaches the server', () => {
+    // `CreateAdminTopicDto.title` is `@MaxLength(200)`, and a ValidationPipe
+    // rejection answers 400 with `message: string[]` — a shape the screen masks
+    // on purpose. The client guard is what keeps that 400 from happening.
+    const fixture = open([], [category({ id: 'cat_1' })]);
+    authorDraft(fixture, 'x'.repeat(201));
+    button(fixture, 'Post thread').click();
+    fixture.detectChanges();
+
+    httpMock.expectNone(TOPICS_URL);
+    expect(fixture.nativeElement.textContent).toContain(
+      'A title is at most 200 characters.',
+    );
   });
 });

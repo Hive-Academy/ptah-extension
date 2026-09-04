@@ -16,6 +16,7 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { SessionLivenessReconcilerService } from './chat-store/session-liveness-reconciler.service';
 import { FilePickerService } from './file-picker.service';
 
 /**
@@ -49,6 +50,9 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly tabManager = inject(TabManagerService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly livenessReconciler = inject(
+    SessionLivenessReconcilerService,
+  );
   private readonly filePicker = inject(FilePickerService);
   private readonly agentDiscovery = inject(AgentDiscoveryFacade);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
@@ -156,6 +160,17 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     this.agentDiscovery.clearCache();
     this.commandDiscovery.clearCache();
     this.appState.switchWorkspace(newPath);
+    // The new workspace's tabs were restored with every in-flight status
+    // coerced to `loaded`; ask the backend for each session's real turn state
+    // so a turn that ran on while the workspace was backgrounded shows as
+    // streaming / sleeping again, and an idle one shows no stop button
+    // (TASK_2026_360). Detached, like the bootstrap call.
+    this.livenessReconciler.reconcileRestoredTabs().catch((err) => {
+      console.warn(
+        '[WorkspaceCoordinator] Failed to reconcile session liveness after switch:',
+        err,
+      );
+    });
 
     try {
       const services = await this.resolveEditorServices();

@@ -61,7 +61,7 @@ import { SessionId } from '@ptah-extension/shared';
           <span
             class="text-[10px] font-mono text-accent truncate"
             [title]="
-              effectiveModelDisplay() + ' â†’ ' + effectiveModelProviderHint()
+              effectiveModelDisplay() + ' → ' + effectiveModelProviderHint()
             "
             >{{ effectiveModelProviderHint() }}</span
           >

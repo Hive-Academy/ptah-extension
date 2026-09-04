@@ -251,7 +251,7 @@ export interface HarnessSkillResult {
 export interface HarnessMcpServerResult {
   name: string;
   description?: string;
-  source: 'official' | 'smithery' | 'pulsemcp';
+  source: 'official' | 'smithery';
 }
 
 /**
@@ -275,7 +275,6 @@ export interface HarnessNamespaceDependencies {
   mcpRegistry: HarnessMcpRegistrySource;
   skillsDirectory?: HarnessSkillsDirectory;
   smitheryRegistry?: HarnessMcpRegistrySource;
-  pulseMcpRegistry?: HarnessMcpRegistrySource;
   /**
    * Optional — when absent, installMcpServer degrades to a clear error instead
    * of crashing the namespace.
@@ -396,7 +395,6 @@ export function buildHarnessNamespace(
     mcpRegistry,
     skillsDirectory,
     smitheryRegistry,
-    pulseMcpRegistry,
     mcpInstaller,
     getWorkspaceRoot,
     broadcast,
@@ -687,7 +685,7 @@ export function buildHarnessNamespace(
        * Ask each source for a full window, then merge — `limit` describes the
        * MERGED set, which is what the parameter name promises. Concatenating
        * per-source windows instead meant a caller asking for 20 got 20 official
-       * rows and never saw PulseMCP at all, so raising the limit made the
+       * rows and never saw Smithery at all, so raising the limit made the
        * results worse.
        */
       const consult = async (
@@ -737,15 +735,14 @@ export function buildHarnessNamespace(
       };
 
       // The official source used to be awaited unguarded, so a registry outage
-      // took the other two down with it.
-      const [official, smithery, pulse] = await Promise.all([
+      // took Smithery down with it.
+      const [official, smithery] = await Promise.all([
         consult('official', mcpRegistry),
         consult('smithery', smitheryRegistry),
-        consult('pulsemcp', pulseMcpRegistry),
       ]);
 
       const servers = interleaveUnique(
-        [official.servers, smithery.servers, pulse.servers],
+        [official.servers, smithery.servers],
         effectiveLimit,
       );
 
@@ -757,11 +754,10 @@ export function buildHarnessNamespace(
         );
       }
 
-      const sources = [official.report, smithery.report, pulse.report].map(
-        (report) =>
-          report.status === 'ok'
-            ? { ...report, count: contributed.get(report.source) ?? 0 }
-            : report,
+      const sources = [official.report, smithery.report].map((report) =>
+        report.status === 'ok'
+          ? { ...report, count: contributed.get(report.source) ?? 0 }
+          : report,
       );
 
       return {

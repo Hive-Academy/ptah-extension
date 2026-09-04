@@ -29,6 +29,7 @@ import type {
 import { blankToUndefined } from '@ptah-extension/shared';
 
 import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
+import type { ActivityHold } from '../no-activity-watchdog';
 
 /**
  * A single session record held in the dual-index registry.
@@ -84,6 +85,15 @@ export interface SessionRecord {
    * a tool call in one workspace's session never sees another workspace's level.
    */
   permissionLevel: PermissionLevel;
+  /**
+   * The session's `NoActivityWatchdog`, seen through its hold/release half.
+   * The turn state owns exactly one hold on it: count 1 while no turn is in
+   * flight, 0 while one is. Idle between turns is silence Ptah chose, not a
+   * hung provider — without the hold the watchdog fired exactly 180 s after
+   * every `result` and marked every running subagent interrupted
+   * (TASK_2026_363). Null until `SessionQueryExecutor` builds the watchdog.
+   */
+  activityHold: ActivityHold | null;
   lastActivityAt: number;
 }
 
@@ -146,6 +156,7 @@ export class SessionRegistry {
       turnInFlight: false,
       currentModel: config.model || '',
       permissionLevel: 'ask',
+      activityHold: null,
       lastActivityAt: this._now(),
     };
     this.byTabId.set(tabId, rec);
@@ -328,8 +339,15 @@ export class SessionRegistry {
    * Mark a turn as started. Called by the streaming pump immediately before it
    * yields a user message, so the pump's own drain loop stops after exactly one
    * message and holds the rest (TASK_2026_294).
+   *
+   * Releases the idle hold on the watchdog on the false→true transition only,
+   * so the hold count owned by the turn state is 1 while no turn is in flight
+   * and 0 while one is (TASK_2026_363).
    */
   markTurnStarted(rec: SessionRecord): void {
+    if (!rec.turnInFlight) {
+      rec.activityHold?.release();
+    }
     rec.turnInFlight = true;
     rec.lastActivityAt = this._now();
   }
@@ -343,11 +361,20 @@ export class SessionRegistry {
    * no separate clear. A turn that emits neither is bounded by
    * `NoActivityWatchdog`, which aborts the controller and ends the pump loop.
    *
+   * Re-takes the idle hold on the watchdog on the true→false transition only.
+   * The guard is load-bearing: this is called from the `result` branch, the
+   * interrupt path and the adapter, and a double call must not stack holds.
+   * Invariant: the hold count owned by the turn state is 1 while no turn is in
+   * flight, 0 while one is (TASK_2026_363).
+   *
    * @returns true when a live record was found and cleared.
    */
   markTurnEnded(idOrTabId: string): boolean {
     const rec = this.find(idOrTabId);
     if (!rec) return false;
+    if (rec.turnInFlight) {
+      rec.activityHold?.hold();
+    }
     rec.turnInFlight = false;
     if (rec.resolveNext) {
       const wake = rec.resolveNext;

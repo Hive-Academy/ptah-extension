@@ -142,7 +142,7 @@ export async function bootThothRuntime(
     console.error(
       '\n' +
         'â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n' +
-        'â•‘  [Ptah] PERSISTENCE OFFLINE â€” Memory / Skills / Cron / Gateway   â•‘\n' +
+        'â•‘  [Ptah] PERSISTENCE OFFLINE — Memory / Skills / Cron / Gateway   â•‘\n' +
         'â•‘  features will report PERSISTENCE_UNAVAILABLE until this is      â•‘\n' +
         'â•‘  resolved. The rest of the app will continue to boot.            â•‘\n' +
         (isAbiMismatch

@@ -29,6 +29,13 @@ export interface MCPRequest {
 
   /** Caller's SDK session ID extracted from MCP URL path (e.g., /session/{tabId}) */
   _callerSessionId?: string;
+
+  /**
+   * Caller's declared workspace root extracted from the MCP URL path
+   * (e.g., /workspace/{encodeURIComponent(root)}). Set for external callers
+   * whose `.mcp.json` entry carries a workspace-scoped URL.
+   */
+  _callerWorkspaceRoot?: string;
 }
 
 /**

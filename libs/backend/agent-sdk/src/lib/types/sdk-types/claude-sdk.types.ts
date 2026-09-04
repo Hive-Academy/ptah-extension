@@ -201,11 +201,16 @@ export interface TextBlock {
   text: string;
 }
 
+export interface ToolUseCaller {
+  type: string;
+}
+
 export interface ToolUseBlock {
   type: 'tool_use';
   id: string;
   name: string;
   input: Record<string, unknown>;
+  caller?: ToolUseCaller;
 }
 
 export interface ToolResultBlock {
@@ -218,6 +223,7 @@ export interface ToolResultBlock {
 export interface ThinkingBlock {
   type: 'thinking';
   thinking: string;
+  signature?: string;
 }
 
 export type ContentBlock =

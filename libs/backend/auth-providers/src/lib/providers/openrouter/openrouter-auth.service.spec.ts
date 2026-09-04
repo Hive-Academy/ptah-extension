@@ -14,7 +14,7 @@
  *
  * NOTE: OpenRouterAuthService has NO outbound HTTP. Model-list fetching and
  * status-code handling (401/403/5xx) live in the translation proxy layer, not
- * in this auth service â€” the batch brief's mention of model-list parsing and
+ * in this auth service — the batch brief's mention of model-list parsing and
  * 401/403/5xx distinction does not apply to code that does not exist here.
  * See `openrouter-translation-proxy.ts` for that surface; it should have its
  * own dedicated spec. This file stays faithful to the service under test.
@@ -203,7 +203,7 @@ describe('OpenRouterAuthService', () => {
       expect(secondHeaders['Authorization']).toBe('Bearer sk-or-v1-NEW');
     });
 
-    it('transitions from authenticated â†’ unauthenticated when the key is deleted', async () => {
+    it('transitions from authenticated → unauthenticated when the key is deleted', async () => {
       authSecrets = createMockAuthSecretsService({
         providerKeys: { [PROVIDER_ID]: 'sk-or-v1-present' },
       });

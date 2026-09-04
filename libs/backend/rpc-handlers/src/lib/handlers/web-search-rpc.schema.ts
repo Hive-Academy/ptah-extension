@@ -37,4 +37,7 @@ export const VALID_PROVIDERS: ReadonlySet<string> = new Set([
  */
 export const WebSearchProviderSchema = z.enum(['tavily', 'serper', 'exa']);
 
+/** Non-empty ordered selection of supported web search providers. */
+export const WebSearchProvidersSchema = z.array(WebSearchProviderSchema).min(1);
+
 export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;

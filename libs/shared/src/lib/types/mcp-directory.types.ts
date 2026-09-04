@@ -192,7 +192,7 @@ export interface McpRegistryEntry {
 }
 
 /** Provenance discriminator for an MCP registry entry / query. */
-export type McpRegistrySourceKind = 'official' | 'smithery' | 'pulsemcp';
+export type McpRegistrySourceKind = 'official' | 'smithery';
 
 /** Paginated list response from the registry */
 export interface McpRegistryListResponse {
@@ -272,6 +272,17 @@ export interface SmitheryInstalledRecord {
   /** Optional saved Smithery profile id (non-secret). */
   profile?: string;
   /**
+   * Smithery namespace that owns the connection (Connections API).
+   *
+   * A record that carries BOTH `namespace` and `connectionId` is a
+   * Connections-API record: the session reaches it through the one namespace
+   * endpoint `https://mcp.smithery.run/<namespace>`. A record without them is
+   * a legacy record and keeps the per-server URL until the user reconnects.
+   */
+  namespace?: string;
+  /** Connection id inside {@link SmitheryInstalledRecord.namespace}. */
+  connectionId?: string;
+  /**
    * Whether an encrypted per-server config blob exists in the secret store for
    * this record. The config values themselves are NOT in this manifest.
    */
@@ -279,6 +290,21 @@ export interface SmitheryInstalledRecord {
   /** ISO timestamp of installation. */
   installedAt: string;
 }
+
+/**
+ * Connection state reported by the Smithery Connections API.
+ *
+ * The wire carries these as `status.state` on a connection object. `'unknown'`
+ * is Ptah's own value for "no connection record was read" (legacy install, API
+ * error, or a state Smithery added after this build).
+ */
+export type SmitheryConnectionStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'auth_required'
+  | 'input_required'
+  | 'error'
+  | 'unknown';
 
 /**
  * On-disk manifest of Smithery-installed servers
@@ -314,6 +340,23 @@ export interface McpDirectoryInstallSmitheryResult {
   success: boolean;
   /** The serverKey the record was stored under (echoed for the caller). */
   serverKey?: string;
+  /**
+   * Connection state right after the install. `'unknown'` means the record was
+   * written but the Connections API could not be reached — `error` says why and
+   * the install is NOT lost.
+   */
+  status?: SmitheryConnectionStatus;
+  /**
+   * Browser URL the user must open to finish the upstream authorization.
+   * Present when `status` is `'auth_required'` or `'input_required'`.
+   *
+   * SECURITY: treat as a one-time credential. Never log it.
+   */
+  setupUrl?: string;
+  /** Smithery namespace the connection was created in. */
+  namespace?: string;
+  /** Connection id inside {@link McpDirectoryInstallSmitheryResult.namespace}. */
+  connectionId?: string;
   error?: string;
 }
 
@@ -339,6 +382,93 @@ export type McpDirectoryListSmitheryInstalledParams = Record<string, never>;
  */
 export interface McpDirectoryListSmitheryInstalledResult {
   servers: SmitheryInstalledRecord[];
+}
+
+/** Params for mcpDirectory:smitheryAccount (no params needed). */
+export type McpDirectorySmitheryAccountParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:smitheryAccount.
+ *
+ * SECURITY: reports namespace NAMES only. The API key never crosses this
+ * boundary.
+ */
+export interface McpDirectorySmitheryAccountResult {
+  /** Whether a Smithery API key is stored. */
+  configured: boolean;
+  /** Namespace names the key can reach, in the order the API returned them. */
+  namespaces: string[];
+  /** The namespace Ptah installs into — the first entry, or null. */
+  activeNamespace: string | null;
+  error?: string;
+}
+
+/**
+ * One connection in the active Smithery namespace, as shown by the Marketplace
+ * surfaces.
+ */
+export interface SmitheryConnectionSummary {
+  /** Connection id inside the namespace. */
+  connectionId: string;
+  /** Human-readable name reported by Smithery. */
+  name: string;
+  /** Smithery registry qualified name, when it can be determined. */
+  server?: string;
+  status: SmitheryConnectionStatus;
+  iconUrl?: string;
+  /** ISO timestamp reported by Smithery. */
+  createdAt?: string;
+  /** True when a Ptah install record points at this connection id. */
+  managedByPtah: boolean;
+  /** The Ptah serverKey, when `managedByPtah` is true. */
+  serverKey?: string;
+}
+
+/** Params for mcpDirectory:listSmitheryConnections (no params needed). */
+export type McpDirectoryListSmitheryConnectionsParams = Record<string, never>;
+
+/** Result for mcpDirectory:listSmitheryConnections. */
+export interface McpDirectoryListSmitheryConnectionsResult {
+  connections: SmitheryConnectionSummary[];
+  /** The namespace the list came from, or null when none could be resolved. */
+  namespace: string | null;
+  error?: string;
+}
+
+/** Params for mcpDirectory:smitheryConnectionStatus. */
+export interface McpDirectorySmitheryConnectionStatusParams {
+  /** The serverKey of the Ptah install record to report on. */
+  serverKey: string;
+}
+
+/**
+ * Result for mcpDirectory:smitheryConnectionStatus.
+ *
+ * SECURITY: `setupUrl` is a one-time credential. Never log it.
+ */
+export interface McpDirectorySmitheryConnectionStatusResult {
+  status: SmitheryConnectionStatus;
+  setupUrl?: string;
+  error?: string;
+}
+
+/** Params for mcpDirectory:openSmitherySetup. */
+export interface McpDirectoryOpenSmitherySetupParams {
+  /** The serverKey of the Ptah install record to authorize. */
+  serverKey: string;
+}
+
+/**
+ * Result for mcpDirectory:openSmitherySetup.
+ *
+ * The handler re-creates the connection to obtain a FRESH `setupUrl` and opens
+ * it through `IUserInteraction.openExternal`. `opened` is false when there is
+ * no setup step to run (already connected) or the API call failed.
+ */
+export interface McpDirectoryOpenSmitherySetupResult {
+  opened: boolean;
+  setupUrl?: string;
+  error?: string;
 }
 
 /**
@@ -404,12 +534,68 @@ export interface McpDirectoryConnectOAuthParams {
   clientSecret?: string;
 }
 
+/**
+ * Why a connectOAuth attempt failed.
+ *
+ * `'no-oauth-discovery'` means the server published no authorization-server
+ * metadata — in practice it wants an API key, not OAuth, and the UI says so.
+ * Absent on success and on unclassified failures.
+ */
+export type McpOAuthFailureReason = 'no-oauth-discovery' | 'other';
+
 /** Result for mcpDirectory:connectOAuth. */
 export interface McpDirectoryConnectOAuthResult {
   success: boolean;
   /** The serverKey the connection was stored under (echoed for the caller). */
   serverKey?: string;
   /** Sanitized error message on failure (never carries a token). */
+  error?: string;
+  /** Present only when `success` is false. */
+  reason?: McpOAuthFailureReason;
+}
+
+/**
+ * Params for mcpDirectory:probeOAuthDiscovery — the advisory pre-submit probe.
+ *
+ * The probe runs the discovery fetches only. It never opens a browser and never
+ * registers a client, so it is safe to call while the user is still typing.
+ */
+export interface McpDirectoryProbeOAuthDiscoveryParams {
+  /** The remote MCP server URL to probe. */
+  serverUrl: string;
+}
+
+/** Result for mcpDirectory:probeOAuthDiscovery. */
+export interface McpDirectoryProbeOAuthDiscoveryResult {
+  /** True when authorization and token endpoints were discovered. */
+  supported: boolean;
+  /**
+   * Present only when `supported` is true. False means the authorization
+   * server publishes no `registration_endpoint` (RFC 7591), so the user must
+   * create an app with the provider, register Ptah's redirect URL there, and
+   * supply the client ID (HubSpot is the canonical example).
+   */
+  dynamicRegistration?: boolean;
+  /** Present only when `supported` is false. */
+  reason?: McpOAuthFailureReason;
+}
+
+/** Params for mcpDirectory:getOAuthRedirectUri (no params needed). */
+export type McpDirectoryGetOAuthRedirectUriParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:getOAuthRedirectUri.
+ *
+ * The redirect URL the host will hand to an authorization server on the next
+ * connect. Shown in the UI so the user can register it with a provider that
+ * does not support dynamic client registration. Host-dependent: the VS Code
+ * URI handler yields a `vscode://…/oauth-callback` deep link; Electron and CLI
+ * yield the fixed loopback `http://127.0.0.1:<port>/callback`.
+ */
+export interface McpDirectoryGetOAuthRedirectUriResult {
+  /** Null when the host cannot run an interactive OAuth flow. */
+  redirectUri: string | null;
+  /** Sanitized error message when `redirectUri` is null. */
   error?: string;
 }
 

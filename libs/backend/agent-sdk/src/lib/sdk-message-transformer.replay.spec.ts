@@ -27,6 +27,7 @@ import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import { SdkMessageTransformer } from './sdk-message-transformer';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
+import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c';
 
@@ -71,6 +72,7 @@ function build(): {
       modelResolver,
       lifecycle,
       new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
     ),
   };
 }

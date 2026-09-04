@@ -22,7 +22,6 @@
  * nothing.
  */
 
-import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -41,6 +40,8 @@ import {
 } from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
+  resolveAgentMirrorSource,
+  type AgentSyncGate,
   type HarnessPropagationService,
   type IUserLayerRefresher,
 } from '@ptah-extension/harness-sync';
@@ -74,10 +75,20 @@ function buildMirrorSources(
     harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
-    ...(workspaceRoot
-      ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
-      : {}),
+    // The agent facet is scoped and gated in `harness-sync`, not here: all three
+    // hosts share that decision and the two rules behind it fail silently when
+    // one of them drifts (TASK_2026_365).
+    ...resolveAgentMirrorSource(workspaceRoot, resolveAgentSyncGate(container)),
   };
+}
+
+/** The consent gate, or `null` in a host that has not wired `harness-sync`. */
+function resolveAgentSyncGate(
+  container: DependencyContainer,
+): AgentSyncGate | null {
+  return container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    ? container.resolve<AgentSyncGate>(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)
+    : null;
 }
 
 export function createCliUserLayerRefresher(

@@ -21,6 +21,7 @@
  */
 
 import { inject, injectable } from 'tsyringe';
+import { relative } from 'path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
@@ -40,6 +41,7 @@ import type {
   StreamEvent,
 } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
+import type { AnalysisStorageService } from '../analysis-storage.service';
 import type { PromptDesignerAgent } from '../prompt-designer/prompt-designer-agent';
 import type { PromptCacheService } from '../prompt-designer/prompt-cache.service';
 import type {
@@ -57,8 +59,23 @@ import {
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
+  type EnhancedPromptTraceMetadata,
 } from '../../types/enhanced-prompts.types';
 import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
+
+/** What multi-phase enrichment actually used, recorded in the trace. */
+export interface MultiPhaseEnrichment {
+  /** Absolute slug directory whose completed phases were used, or null. */
+  analysisDirectory: string | null;
+  /** IDs of the `completed` phases whose content entered the prompt input. */
+  phaseIds: string[];
+}
+
+/** Trace target for one enhanced-prompt trace write. */
+type EnhancedPromptTraceWriter = Pick<
+  AnalysisStorageService,
+  'writeEnhancedPromptTrace'
+>;
 
 /**
  * SDK configuration for internal query execution
@@ -204,6 +221,8 @@ export class EnhancedPromptsService {
     private readonly internalQueryService: InternalQueryService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
+    private readonly traceWriter: EnhancedPromptTraceWriter,
   ) {
     this.stateStore = new EnhancedPromptsStateStore(this.context);
     this.cacheService.onInvalidation((event) => {
@@ -413,7 +432,7 @@ export class EnhancedPromptsService {
         });
         input = this.buildDesignerInput(workspacePath, analysis, config);
       }
-      await this.enrichWithMultiPhaseAnalysis(
+      const enrichment = await this.enrichWithMultiPhaseAnalysis(
         input,
         workspacePath,
         analysisDir,
@@ -457,6 +476,42 @@ export class EnhancedPromptsService {
         configHash,
         workspacePath,
       };
+
+      // The on-disk trace is the audit trail; global state is the runtime
+      // cache. Write the trace FIRST — a failed trace means no success, no
+      // state update and no cache entry.
+      const traceMetadata: EnhancedPromptTraceMetadata = {
+        generatedAt: newState.generatedAt as string,
+        configHash: configHash ?? '',
+        detectedStack,
+        analysisDirectory: enrichment.analysisDirectory
+          ? relative(workspacePath, enrichment.analysisDirectory).replace(
+              /\\/g,
+              '/',
+            )
+          : null,
+        analysisPhaseIds: enrichment.phaseIds,
+        promptLength: generatedPrompt.length,
+      };
+      try {
+        await this.traceWriter.writeEnhancedPromptTrace(
+          workspacePath,
+          enrichment.analysisDirectory,
+          generatedPrompt,
+          traceMetadata,
+        );
+      } catch (traceError: unknown) {
+        const message =
+          traceError instanceof Error ? traceError.message : String(traceError);
+        this.logger.error(
+          `${SERVICE_TAG} Enhanced prompt trace write failed; state not saved (retry the wizard)`,
+          { workspacePath, error: message },
+        );
+        return {
+          success: false,
+          error: `Failed to persist the enhanced prompt trace: ${message}`,
+        };
+      }
 
       await this.stateStore.save(workspacePath, newState);
       if (configHash) {
@@ -851,14 +906,19 @@ export class EnhancedPromptsService {
    * @param input - PromptDesignerInput to enrich (mutated in place)
    * @param workspacePath - Workspace path to search for analysis data
    * @param explicitAnalysisDir - Optional explicit analysis directory path (from wizard state)
+   * @returns The analysis directory and the completed phase IDs actually used
    */
   private async enrichWithMultiPhaseAnalysis(
     input: PromptDesignerInput,
     workspacePath: string,
     explicitAnalysisDir?: string,
-  ): Promise<void> {
+  ): Promise<MultiPhaseEnrichment> {
+    const none: MultiPhaseEnrichment = {
+      analysisDirectory: null,
+      phaseIds: [],
+    };
     if (!this.analysisReader) {
-      return;
+      return none;
     }
 
     try {
@@ -877,7 +937,7 @@ export class EnhancedPromptsService {
             `${SERVICE_TAG} No manifest found in explicit analysis dir`,
             { explicitAnalysisDir },
           );
-          return;
+          return none;
         }
         slugDir = explicitAnalysisDir;
         manifest = JSON.parse(manifestContent);
@@ -885,7 +945,7 @@ export class EnhancedPromptsService {
         const multiPhase =
           await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
         if (!multiPhase) {
-          return;
+          return none;
         }
         slugDir = multiPhase.slugDir;
         manifest = multiPhase.manifest;
@@ -910,6 +970,7 @@ export class EnhancedPromptsService {
       ];
 
       const sections: string[] = [];
+      const phaseIds: string[] = [];
 
       for (const phase of phaseFiles) {
         const phaseEntry = manifest.phases?.[phase.key];
@@ -926,6 +987,7 @@ export class EnhancedPromptsService {
           sections.push(
             `## ${phase.label}\n${content.substring(0, phase.limit)}`,
           );
+          phaseIds.push(phase.key);
         }
       }
 
@@ -944,10 +1006,12 @@ export class EnhancedPromptsService {
           },
         );
       }
-    } catch (error) {
+      return { analysisDirectory: slugDir, phaseIds };
+    } catch (error: unknown) {
       this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`, {
         error: error instanceof Error ? error.message : String(error),
       });
+      return none;
     }
   }
 

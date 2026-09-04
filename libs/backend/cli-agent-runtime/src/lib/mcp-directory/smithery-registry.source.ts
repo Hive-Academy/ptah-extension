@@ -74,10 +74,16 @@ const SmitheryDetailSchema = z
     verified: z.boolean().optional(),
     homepage: z.string().nullish(),
     bySmithery: z.boolean().optional(),
+    // `.nullish()`, not `.optional()`: the registry sends `security: null` for
+    // a server it has not scanned, and `.optional()` accepts only `undefined`.
+    // A null there failed the parse, and `mapDetailEntry` drops the WHOLE entry
+    // on a parse failure — so an unscanned server had no connections, no
+    // configSchema and no install path, for a field nothing gates on.
+    // Measured 2026-09-04 on `registry.smithery.ai/servers/hubspot`.
     security: z
       .object({ scanPassed: z.boolean().optional() })
       .passthrough()
-      .optional(),
+      .nullish(),
     connections: z.array(SmitheryConnectionSchema).optional(),
   })
   .passthrough();

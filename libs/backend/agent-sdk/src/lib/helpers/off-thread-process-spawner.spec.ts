@@ -1,6 +1,14 @@
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { Worker } from 'node:worker_threads';
+
+import crossSpawn from 'cross-spawn';
+
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -287,6 +295,220 @@ describe('OffThreadProcessSpawner', () => {
 
       const error = await waitForError(child);
       expect((error as Error & { code?: string }).code).toBe('ENOENT');
+    });
+  });
+
+  describe('spawnProcess - the IProcessSpawner port', () => {
+    /**
+     * Every `spawn` message the host posted to a worker, in order.
+     *
+     * `jest.spyOn` keeps the real implementation, so the child still runs; this
+     * only reads what crossed the port. It is how the three Windows-specific
+     * fields are asserted at all: `detached`, `windowsHide` and
+     * `windowsVerbatimArguments` have no effect a spec can read back off a
+     * child process.
+     */
+    let postSpy: jest.SpyInstance;
+
+    function spawnMessages(): Array<Record<string, unknown>> {
+      return postSpy.mock.calls
+        .map((call) => call[0] as Record<string, unknown>)
+        .filter((message) => message?.['type'] === 'spawn');
+    }
+
+    beforeEach(() => {
+      postSpy = jest.spyOn(Worker.prototype, 'postMessage');
+    });
+
+    afterEach(() => {
+      postSpy.mockRestore();
+    });
+
+    function readAllFrom(
+      stream: NodeJS.ReadableStream | null,
+    ): Promise<string> {
+      if (!stream) return Promise.resolve('');
+      return new Promise<string>((resolve, reject) => {
+        let text = '';
+        stream.setEncoding('utf8');
+        stream.on('data', (chunk: string) => {
+          text += chunk;
+        });
+        stream.on('end', () => resolve(text));
+        stream.on('error', reject);
+      });
+    }
+
+    function waitForClose(
+      target: SpawnedProcessHandle,
+    ): Promise<number | null> {
+      return new Promise((resolve) => {
+        target.once('close', (code) => resolve(code));
+      });
+    }
+
+    it('resolves whenSpawned with the CHILD process pid', async () => {
+      // A tree kill needs the real pid, and off-thread it is not known when the
+      // handle is returned. Comparing against what the child printed proves the
+      // pid crossing the port is the CHILD's, not the worker's or the host's.
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write(String(process.pid))'],
+        env: process.env,
+      });
+
+      const output = readAllFrom(child.stdout);
+      await waitForClose(child);
+
+      const pid = await child.whenSpawned;
+      expect(pid).toBe(Number(await output));
+      expect(child.pid).toBe(pid);
+    });
+
+    it('delivers stderr as a readable stream, separate from stdout', async () => {
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: [
+          '-e',
+          "process.stderr.write('to-stderr'); process.stdout.write('to-stdout')",
+        ],
+        env: process.env,
+      });
+
+      const [out, err] = await Promise.all([
+        readAllFrom(child.stdout),
+        readAllFrom(child.stderr),
+        waitForClose(child),
+      ]);
+
+      expect(out).toBe('to-stdout');
+      expect(err).toBe('to-stderr');
+      expect(spawnMessages()[0]?.['stderrMode']).toBe('stream');
+    });
+
+    it('emits close only after stdout has drained', async () => {
+      // The rival-CLI adapters parse their last JSONL line inside `close`, so
+      // an exit that outran the pipe would silently drop the result line.
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('x'.repeat(100000))"],
+        env: process.env,
+      });
+
+      let drained = false;
+      const output = readAllFrom(child.stdout).then((text) => {
+        drained = true;
+        return text;
+      });
+      const closed = waitForClose(child).then(() => drained);
+
+      await expect(closed).resolves.toBe(true);
+      await expect(output).resolves.toHaveLength(100000);
+    });
+
+    it('forwards detached to the worker and hides the console by default', async () => {
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        detached: true,
+      });
+
+      await waitForClose(child);
+
+      const message = spawnMessages()[0];
+      expect(message?.['detached']).toBe(true);
+      expect(message?.['windowsHide']).toBe(true);
+    });
+
+    it('gives the child its own console when needsConsole is set', async () => {
+      // ConPTY's AttachConsole() fails without a console, which is what breaks
+      // shell execution inside the rival CLIs on Windows.
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        needsConsole: true,
+      });
+
+      await waitForClose(child);
+
+      expect(spawnMessages()[0]?.['windowsHide']).toBe(false);
+    });
+
+    describe('Windows .cmd wrappers', () => {
+      // An npm-installed CLI on Windows is a `.cmd` wrapper that a bare
+      // `child_process.spawn` refuses with EINVAL. `cross-spawn`'s parser runs
+      // on the HOST and only the resolved command reaches the worker, which
+      // still spawns with plain `node:child_process`.
+      const itWin = process.platform === 'win32' ? it : it.skip;
+      let wrapperDir = '';
+      let wrapper = '';
+
+      beforeAll(() => {
+        if (process.platform !== 'win32') return;
+        wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-spawn-'));
+        wrapper = path.join(wrapperDir, 'ptah-probe.cmd');
+        fs.writeFileSync(
+          wrapper,
+          '@echo off\r\necho cmd-wrapper-ok %*\r\n',
+          'utf8',
+        );
+      });
+
+      afterAll(() => {
+        if (wrapperDir) {
+          fs.rmSync(wrapperDir, { recursive: true, force: true });
+        }
+      });
+
+      itWin(
+        'runs a .cmd wrapper and matches inline cross-spawn byte for byte',
+        async () => {
+          // The no-regression assertion: whatever `cross-spawn` produces on
+          // this box for this wrapper, the off-thread path produces too —
+          // argument quoting included, which is where a hand-rolled `.cmd`
+          // rewrite would differ.
+          const child = spawner.spawnProcess({
+            command: wrapper,
+            args: ['first', 'second'],
+            env: process.env,
+          });
+
+          const output = readAllFrom(child.stdout);
+          await waitForClose(child);
+
+          const inline = crossSpawn(wrapper, ['first', 'second'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          const inlineOutput = await readAllFrom(inline.stdout);
+
+          const text = await output;
+          expect(text).toContain('cmd-wrapper-ok');
+          expect(text).toBe(inlineOutput);
+        },
+      );
+
+      itWin(
+        'sends cmd.exe and windowsVerbatimArguments to the worker',
+        async () => {
+          const child = spawner.spawnProcess({
+            command: wrapper,
+            args: ['first'],
+            env: process.env,
+          });
+
+          await waitForClose(child);
+
+          const message = spawnMessages()[0];
+          expect(String(message?.['command']).toLowerCase()).toContain(
+            'cmd.exe',
+          );
+          expect(message?.['windowsVerbatimArguments']).toBe(true);
+          // The wrapper is no longer the command; it lives inside /c's argument.
+          expect(JSON.stringify(message?.['args'])).toContain('ptah-probe.cmd');
+        },
+      );
     });
   });
 

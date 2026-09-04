@@ -1005,3 +1005,96 @@ describe('SessionRegistry', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Turn state owns the idle watchdog hold (TASK_2026_363)
+// ---------------------------------------------------------------------------
+//
+// The record carries the session's `NoActivityWatchdog` as `activityHold`.
+// The turn state owns exactly one hold on it: count 1 while no turn is in
+// flight, 0 while one is. Both transitions are guarded, because
+// `markTurnEnded` is called from the `result` branch, the interrupt path and
+// the adapter, and a double call must not stack holds.
+
+describe('SessionRegistry — turn state owns the idle watchdog hold (TASK_2026_363)', () => {
+  function makeHold(): { hold: jest.Mock; release: jest.Mock } {
+    return { hold: jest.fn(), release: jest.fn() };
+  }
+
+  function registerWithHold(tabId: string) {
+    const { registry } = makeRegistry();
+    const rec = registry.register(tabId, makeConfig(), new AbortController());
+    const hold = makeHold();
+    rec.activityHold = hold;
+    return { registry, rec, hold };
+  }
+
+  it('register() initialises activityHold to null', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_hold_null',
+      makeConfig(),
+      new AbortController(),
+    );
+    expect(rec.activityHold).toBeNull();
+  });
+
+  it('markTurnStarted releases exactly once per false→true transition', () => {
+    const { registry, rec, hold } = registerWithHold('tab_start');
+
+    registry.markTurnStarted(rec);
+    registry.markTurnStarted(rec);
+
+    expect(hold.release).toHaveBeenCalledTimes(1);
+    expect(hold.hold).not.toHaveBeenCalled();
+    expect(rec.turnInFlight).toBe(true);
+  });
+
+  it('markTurnEnded holds exactly once per true→false transition', () => {
+    const { registry, rec, hold } = registerWithHold('tab_end');
+    registry.markTurnStarted(rec);
+
+    expect(registry.markTurnEnded('tab_end')).toBe(true);
+    expect(registry.markTurnEnded('tab_end')).toBe(true);
+
+    expect(hold.hold).toHaveBeenCalledTimes(1);
+    expect(rec.turnInFlight).toBe(false);
+  });
+
+  it('markTurnEnded before any turn started takes no hold (the idle hold is already owned)', () => {
+    const { registry, hold } = registerWithHold('tab_end_idle');
+
+    registry.markTurnEnded('tab_end_idle');
+
+    expect(hold.hold).not.toHaveBeenCalled();
+    expect(hold.release).not.toHaveBeenCalled();
+  });
+
+  it('two full turns stay balanced: one release and one hold per turn', () => {
+    const { registry, rec, hold } = registerWithHold('tab_two_turns');
+
+    registry.markTurnStarted(rec);
+    registry.markTurnEnded('tab_two_turns');
+    registry.markTurnStarted(rec);
+    registry.markTurnEnded('tab_two_turns');
+
+    expect(hold.release).toHaveBeenCalledTimes(2);
+    expect(hold.hold).toHaveBeenCalledTimes(2);
+  });
+
+  it('activityHold === null is safe for both transitions', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register(
+      'tab_no_hold',
+      makeConfig(),
+      new AbortController(),
+    );
+    expect(rec.activityHold).toBeNull();
+
+    expect(() => {
+      registry.markTurnStarted(rec);
+      registry.markTurnEnded('tab_no_hold');
+    }).not.toThrow();
+    expect(rec.turnInFlight).toBe(false);
+  });
+});

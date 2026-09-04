@@ -154,12 +154,16 @@ export type { AdminSessionRequest } from './lib/admin/admin-session-request.cont
 export type { AdminLiveSession } from './lib/admin/admin-live.contract';
 export type {
   AdminCategory,
+  AdminCreateTopicRequest,
+  AdminCreatedTopic,
   AdminTopicSummary,
   AdminPost,
 } from './lib/admin/admin-topic.contract';
 export type {
   AdminCourse,
   AdminCourseModule,
+  AdminCourseModuleWithLessons,
+  AdminCourseOutline,
   AdminLesson,
   AdminModuleSchedule,
   AdminModuleScheduleEntry,

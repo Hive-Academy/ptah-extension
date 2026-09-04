@@ -21,6 +21,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface McpRequestContext {
   /** tabId or realSessionId of the session that issued this tool call. */
   readonly callerSessionId?: string;
+  /**
+   * Workspace root the caller DECLARED via the `/workspace/{root}` URL segment
+   * (decoded to `request._callerWorkspaceRoot` by the HTTP handler). This is
+   * the identity channel for external callers (Claude Code, Codex, Cursor
+   * reading `{ws}/.mcp.json`) that have no Ptah session id and would otherwise
+   * be anonymous by construction.
+   */
+  readonly callerWorkspaceRoot?: string;
 }
 
 const storage = new AsyncLocalStorage<McpRequestContext>();
@@ -44,4 +52,32 @@ export function runWithMcpRequestContext<T>(
  */
 export function getCallerSessionId(): string | undefined {
   return storage.getStore()?.callerSessionId;
+}
+
+/**
+ * The workspace root the in-flight MCP tool call declared in its URL, or
+ * `undefined` when the caller declared none (bare URL) or when not running
+ * inside `runWithMcpRequestContext`.
+ */
+export function getCallerWorkspaceRoot(): string | undefined {
+  return storage.getStore()?.callerWorkspaceRoot;
+}
+
+/**
+ * Whether an MCP tool call is currently in flight.
+ *
+ * `getCallerSessionId()` and `getCallerWorkspaceRoot()` both return `undefined`
+ * for two very different callers: an ANONYMOUS MCP call (a `tools/call` whose
+ * URL carried neither `/workspace/{root}` nor `/session/{id}`) and a call that
+ * is not MCP at all (webview RPC, a file watcher, the indexer warm-up, the
+ * stdio/CLI path). Only the first is ambiguous about which workspace it means;
+ * the second legitimately has no caller identity and must keep resolving
+ * through the platform provider.
+ *
+ * The AsyncLocalStorage store itself is the discriminator: every `tools/call`
+ * runs inside `runWithMcpRequestContext`, which binds a store even when both
+ * fields are absent, and nothing else binds one (TASK_2026_364 Batch D).
+ */
+export function isMcpRequestInFlight(): boolean {
+  return storage.getStore() !== undefined;
 }
