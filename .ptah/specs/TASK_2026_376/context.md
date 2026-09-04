@@ -368,6 +368,38 @@ other's work.
   `background_agent_started` push in `assistant-message.transformer.ts`,
   recording that the order is load-bearing and why reversing it recreates F2.
 
+### Verification performed, and the one gate still open
+
+After the review fixes landed (`d5dca6ca7`):
+
+```
+nx run-many -t test      — 6 projects, all green
+nx run-many -t typecheck — 7 projects, all green
+nx run-many -t lint      — 6 projects, 0 errors, 17 warnings (all pre-existing
+                           categories: max-lines, non-null assertion, empty
+                           function — none introduced by this task)
+nx build ptah-extension-webview — bundle generated
+ptah-electron main bundle + validate-deps — built and passed in the pre-commit hook
+```
+
+**The task stays at `in_review`, not `done`, and the reason is specific.**
+Every one of these defects was found by WATCHING A LIVE SESSION, not by a
+failing test. The suites now prove the new logic behaves as written; they do not
+prove the observed symptoms are gone. Four behaviours still need one real
+session to confirm:
+
+1. The `[BackgroundAgentStore] background_agent event missing agentId` warning
+   stops, or the agent still reaches a terminal state when it appears.
+2. A background subagent's card tracks its real state instead of showing
+   `completed` while the agent keeps working.
+3. No empty `Assistant response` bubbles appear.
+4. A multi-window curation completes without a `extracted: 0` on a window that
+   timed out against its own sibling.
+
+That session needs a background subagent and a compaction — the shape of the
+original capture. Until someone runs it, this task is code-complete and
+unverified in the product.
+
 ### F7 is closed as NOT A DEFECT
 
 B4's read-only trace overturned the finding, and the correction was verified
