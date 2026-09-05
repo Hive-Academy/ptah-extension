@@ -28,6 +28,30 @@ export {
 export type { IBackupService, BackupKind } from './lib/backup.service';
 export { SqliteBackupService } from './lib/backup.service';
 
+export {
+  SqliteIntegrityService,
+  DB_INTEGRITY_CHECK_INTERVAL_MS,
+  INTEGRITY_WORKER_BUDGET_MS,
+} from './lib/integrity/integrity-check.service';
+export { IntegrityCheckStateStore } from './lib/integrity/integrity-check-state.store';
+export type { IntegrityCheckState } from './lib/integrity/integrity-check-state.store';
+export type {
+  IIntegrityWorkerProcess,
+  IIntegrityWorkerProcessFactory,
+} from './lib/integrity/worker-process.port';
+export type {
+  IntegrityVerdict,
+  IntegrityCheckRequest,
+  IntegrityCheckResponse,
+  IntegrityErrorResponse,
+  IntegrityWorkerInbound,
+  IntegrityWorkerOutbound,
+} from './lib/integrity/integrity-worker-protocol';
+export {
+  classifyQuickCheck,
+  isIntegrityCheckRequest,
+} from './lib/integrity/integrity-worker-protocol';
+
 export { VecStatusService } from './lib/vec-status.service';
 export type {
   VecStatusSnapshot,

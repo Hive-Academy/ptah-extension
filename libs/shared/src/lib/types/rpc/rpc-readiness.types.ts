@@ -80,16 +80,87 @@ export interface RpcReadinessError {
 }
 
 /**
- * Backend to renderer push when {@link BackendReadiness} transitions.
+ * Coarse label for the stage the post-window boot has reached.
  *
- * Carries the state alone. A caller that wants to know WHAT became available
- * re-issues the call it was retrying — the readiness vocabulary is deliberately
+ * **Display-only.** `phase` exists so a boot screen can name what is happening
+ * instead of showing a bare spinner. It is NOT a subsystem contract: no caller
+ * may infer from `phase === 'database'` that SQLite is open, or from
+ * `phase === 'index'` that the harness finished. The only value a caller may
+ * act on is {@link BackendReadiness}; a caller that wants to know WHAT became
+ * available re-issues the call it was retrying.
+ *
+ * The ordering below is the order the Electron host happens to emit today. A
+ * host may skip a phase, and a renderer must degrade gracefully on a phase it
+ * does not recognise rather than gating on one it expects.
+ *
+ * - `starting` — the boot began; nothing heavy has run yet.
+ * - `database` — opening SQLite and running migrations.
+ * - `harness` — reconciling the user layer into the AI tools' harness dirs.
+ * - `sessions` — importing session metadata.
+ * - `index` — workspace indexing / symbol work.
+ * - `settled` — the boot finished. Pairs with a terminal {@link BackendReadiness}.
+ */
+export type BootPhase =
+  | 'starting'
+  | 'database'
+  | 'harness'
+  | 'sessions'
+  | 'index'
+  | 'settled';
+
+/** Every legal {@link BootPhase} value, for runtime narrowing. */
+export const BOOT_PHASE_VALUES = [
+  'starting',
+  'database',
+  'harness',
+  'sessions',
+  'index',
+  'settled',
+] as const satisfies readonly BootPhase[];
+
+/** True when `value` is a {@link BootPhase} literal. */
+export function isBootPhase(value: unknown): value is BootPhase {
+  return (
+    typeof value === 'string' &&
+    (BOOT_PHASE_VALUES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Backend to renderer push when the boot's observable state changes.
+ *
+ * `readiness` is the only field with consumer semantics. It stays deliberately
  * coarse, because a per-subsystem contract would have to be kept in step with
  * every subsystem the boot ever gains.
+ *
+ * `phase` and `detail` are **display-only labels**. They exist so a boot screen
+ * can say something truthful while `readiness` is still `warming`; nothing may
+ * branch on them beyond choosing what text to paint. Adding a phase is
+ * therefore not a breaking protocol change.
+ *
+ * The message stays **edge-triggered**: one message per transition, emitted when
+ * `readiness` or `phase` changes — never a progress tick and never one per boot
+ * step. A surface holding an `RpcReadinessError` can drop its retry timer on the
+ * `readiness` transition exactly as before.
  */
 export interface BootReadinessChangedPayload {
   readonly readiness: BackendReadiness;
+  readonly phase: BootPhase;
+  /** Human-facing, display-only, e.g. "Opening a 1.0 GB database". */
+  readonly detail?: string;
+  /** Epoch ms of boot start, so the renderer can show elapsed time. */
+  readonly startedAt: number;
 }
+
+/**
+ * Result of the `boot:getReadiness` pull.
+ *
+ * The same shape as the push, deliberately: a renderer that missed the push
+ * (Angular installs its message listener after `did-finish-load`, and a
+ * renderer reload gets no replay) reads exactly what a listener would have
+ * received, so one consumer path handles both.
+ */
+export type BootGetReadinessResult = BootReadinessChangedPayload;
 
 /** True when `value` is a {@link BackendReadiness} literal. */
 export function isBackendReadiness(value: unknown): value is BackendReadiness {
