@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_381
-status: in_progress
+status: in_review
 type: REFACTORING
 title: >-
   Bound renderer memory: virtualize the chat transcript and cap the

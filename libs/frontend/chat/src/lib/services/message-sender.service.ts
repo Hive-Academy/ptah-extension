@@ -298,8 +298,13 @@ export class MessageSenderService {
       this.validator.sanitize(content),
     );
     const targetTabId = options?.tabId;
+    // Across workspaces, not `tabs()`: an explicit tabId can name a canvas tile
+    // or a tab parked in a background workspace, and the active-workspace
+    // lookup silently fell through to `activeTab()` — so the send was judged
+    // against, and its bubble appended to, the WRONG transcript
+    // (TASK_2026_382 W4).
     const targetTab = targetTabId
-      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
+      ? (this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab ??
         this.tabManager.activeTab())
       : this.tabManager.activeTab();
 
@@ -349,8 +354,10 @@ export class MessageSenderService {
         activeTabId = this.tabManager.createTab();
         this.tabManager.switchTab(activeTabId);
       }
+      // Workspace-aware for the same reason as `continueConversation` below
+      // (TASK_2026_382 W4).
       const activeTab =
-        this.tabManager.tabs().find((t) => t.id === activeTabId) ??
+        this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
       const sessionId =
         this.headSessionForTab(activeTab?.id) ?? this.generateId();
@@ -590,8 +597,12 @@ export class MessageSenderService {
         return this.startNewConversation(content, options);
       }
 
+      // Workspace-aware (TASK_2026_382 W4). `setMessages` below writes the
+      // resolved tab's message array back onto `activeTabId`; resolving against
+      // the active-workspace `tabs()` only meant a background tab had the
+      // ACTIVE tab's transcript stamped over it.
       const activeTab =
-        this.tabManager.tabs().find((t) => t.id === activeTabId) ??
+        this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
       this.sessionManager.setStatus('resuming');
       this.tabManager.markResuming(activeTabId);

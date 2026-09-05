@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_382
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Mid-stream sends bypass the queue: reconcile the busy predicate with

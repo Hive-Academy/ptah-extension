@@ -74,7 +74,10 @@ describe('MessageSenderService', () => {
     detachSessionAndMarkLoaded: jest.Mock;
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
+    findTabByIdAcrossWorkspaces: jest.Mock;
   };
+  /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
+  let backgroundTabsSignal: ReturnType<typeof signal<TabState[]>>;
   let sessionManager: jest.Mocked<
     Pick<
       SessionManager,
@@ -93,8 +96,17 @@ describe('MessageSenderService', () => {
   beforeEach(() => {
     tabsSignal = signal<TabState[]>([makeTab({ id: 'tab-1' })]);
     activeTabIdSignal = signal<string | null>('tab-1');
+    backgroundTabsSignal = signal<TabState[]>([]);
 
     const applyPatch = (tabId: string, patch: Partial<TabState>): void => {
+      if (backgroundTabsSignal().some((t) => t.id === tabId)) {
+        backgroundTabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
+          ),
+        );
+        return;
+      }
       tabsSignal.update((tabs) =>
         tabs.map((t) =>
           t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
@@ -149,6 +161,14 @@ describe('MessageSenderService', () => {
       setMessages: jest.fn((tabId: string, messages: ExecutionChatMessage[]) =>
         applyPatch(tabId, { messages }),
       ),
+      // Mirrors production: resolves the ACTIVE workspace and every background
+      // partition, unlike `tabs()`.
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const tab =
+          tabsSignal().find((t) => t.id === tabId) ??
+          backgroundTabsSignal().find((t) => t.id === tabId);
+        return tab ? { tab, workspacePath: 'D:/repo' } : null;
+      }),
     };
 
     sessionManager = {
@@ -286,6 +306,64 @@ describe('MessageSenderService', () => {
       expect(rpcCall.mock.calls.some((c) => c[0] === 'chat:continue')).toBe(
         true,
       );
+    });
+
+    it('appends the bubble to a BACKGROUND-workspace tab, not the active one (TASK_2026_382 W4)', async () => {
+      const activeMsg = {
+        id: 'active-msg',
+        role: 'user',
+        rawContent: 'active transcript',
+        timestamp: 1,
+      } as unknown as ExecutionChatMessage;
+      const bgMsg = {
+        id: 'bg-msg',
+        role: 'user',
+        rawContent: 'background transcript',
+        timestamp: 1,
+      } as unknown as ExecutionChatMessage;
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'sess-ACTIVE',
+          messages: [activeMsg],
+        }),
+      ]);
+      // Lives in another workspace, so `tabs()` cannot see it.
+      backgroundTabsSignal.set([
+        makeTab({
+          id: 'tab-bg',
+          claudeSessionId: 'sess-BG',
+          messages: [bgMsg],
+        }),
+      ]);
+      rpcCall.mockImplementation(
+        (method: string): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('hello background', { tabId: 'tab-bg' });
+
+      // The background tab's OWN session was continued…
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[1]).toEqual(
+        expect.objectContaining({ sessionId: 'sess-BG', tabId: 'tab-bg' }),
+      );
+
+      // …and the bubble was appended to the BACKGROUND tab's transcript, on top
+      // of its own history. Before the fix this wrote the ACTIVE tab's messages
+      // (`active-msg`) over the background tab.
+      const setMessagesCall = tabManager.setMessages.mock.calls.at(-1);
+      expect(setMessagesCall?.[0]).toBe('tab-bg');
+      const written = setMessagesCall?.[1] as ExecutionChatMessage[];
+      expect(written.map((m) => m.id)).toContain('bg-msg');
+      expect(written.map((m) => m.id)).not.toContain('active-msg');
+      expect(written.at(-1)?.rawContent).toBe('hello background');
     });
   });
 

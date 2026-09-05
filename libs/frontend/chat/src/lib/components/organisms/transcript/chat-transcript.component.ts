@@ -34,6 +34,59 @@ const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
 
 /**
+ * When a message entered the transcript.
+ *
+ * `msg.timestamp` alone is NOT usable as a sort key for a streaming bubble:
+ * `streamingMessages` builds those with no timestamp, so
+ * `createExecutionChatMessage` mints a fresh `Date.now()` on every recompute
+ * and the key moves under a burst of deltas. `ExecutionNode.startTime` is
+ * copied from the ROOT `message_start` event (`message-node.fn.ts`), and a
+ * finalized assistant message keeps the same tree
+ * (`message-finalization.service.ts`), so streaming and finalized assistant
+ * messages compare on one stable clock. User bubbles carry
+ * `streamingState: null` and fall back to their own timestamp, minted once at
+ * creation and then carried in the array.
+ */
+function transcriptOrderKey(msg: ExecutionChatMessage): number {
+  return msg.streamingState?.startTime ?? msg.timestamp;
+}
+
+/**
+ * Merge finalized and streaming messages in TIME order rather than in
+ * lifecycle order (TASK_2026_382 D1).
+ *
+ * Concatenating `[...finalized, ...streaming]` put every finalized message
+ * above every live tree — so a user message sent while a stream was still on
+ * screen rendered ABOVE the bubble it was answering. Ordering by time is
+ * correct whichever dispatch window is open.
+ *
+ * Both inputs are already ascending in their own key, so this is a linear
+ * two-way merge, not a sort: cheaper, and STABLE by construction — equal keys
+ * keep finalized-before-streaming, and neither list is reordered internally
+ * even if a producer ever hands over an unsorted one.
+ */
+function mergeByTime(
+  finalized: readonly ExecutionChatMessage[],
+  streaming: readonly ExecutionChatMessage[],
+): readonly ExecutionChatMessage[] {
+  const merged: ExecutionChatMessage[] = new Array(
+    finalized.length + streaming.length,
+  );
+  let f = 0;
+  let s = 0;
+  let out = 0;
+  while (f < finalized.length && s < streaming.length) {
+    merged[out++] =
+      transcriptOrderKey(finalized[f]) <= transcriptOrderKey(streaming[s])
+        ? finalized[f++]
+        : streaming[s++];
+  }
+  while (f < finalized.length) merged[out++] = finalized[f++];
+  while (s < streaming.length) merged[out++] = streaming[s++];
+  return merged;
+}
+
+/**
  * Frozen view snapshot consumed by the template. When the transcript is hidden
  * (`!active()`), the gated `vm` computed returns the last snapshot taken while
  * active, so streaming writes to `TabManagerService.tabs()` neither rebuild the
@@ -313,7 +366,7 @@ export class ChatTranscriptComponent {
       return this._allMessagesCache;
     }
     const next =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+      streaming.length === 0 ? finalized : mergeByTime(finalized, streaming);
     this._allMessagesFinalizedRef = finalized;
     this._allMessagesStreamingRef = streaming;
     this._allMessagesCache = next;

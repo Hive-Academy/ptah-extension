@@ -59,11 +59,19 @@ export class MessageDispatchService {
       return;
     }
     const targetTabId = options?.tabId;
+    // `tabs()` is the ACTIVE-WORKSPACE signal. An explicit `tabId` can name a
+    // canvas tile or a tab parked in a background workspace, and `find` on
+    // `tabs()` misses it — the predicate then silently read ANOTHER tab's
+    // status while `MessageSenderService.send` appended the bubble to the
+    // active tab, i.e. the wrong transcript (TASK_2026_382 W4). Resolve across
+    // workspaces so the tab we judge is the tab we send to.
     const targetTab = targetTabId
-      ? this.tabManager.tabs().find((t) => t.id === targetTabId)
+      ? (this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab ?? null)
       : null;
     const resolvedTabId = targetTabId ?? this.tabManager.activeTabId();
     const status = targetTab?.status ?? this.tabManager.activeTabStatus();
+    /** The tab the bubble will actually land on — see `isStreaming` below. */
+    const dispatchTab = targetTab ?? this.tabManager.activeTab();
     // Treat a tab as busy when it is actively generating — including the
     // self-heal case where the SDK paused/resumed and `status` reverted to
     // `loaded`/`awaiting-background` while `_streamingTabIds` (isTabStreaming)
@@ -71,9 +79,60 @@ export class MessageDispatchService {
     // fresh AbortController and KILL the in-flight stream. Queue instead — the
     // queue drains on the real turn-end (when the controller is already
     // cleared, so no abort).
+    //
+    // `streamingState != null` is the THIRD condition and the one the user can
+    // see: the live bubble in the transcript is rendered from `streamingState`
+    // (`chat-transcript.component.ts` `_streamingState` / `streamingMessages`),
+    // not from the root-turn phase these other two read. A writer that clears
+    // the turn flags without settling the tree opens a window where the
+    // transcript shows a streaming bubble while the predicate says idle, so the
+    // follow-up takes `send()`, appends its bubble ABOVE the live one and fires
+    // `chat:continue` mid-turn (TASK_2026_382).
+    //
+    // It is QUALIFIED on `awaiting-background` / `sleeping`, and that exclusion
+    // is load-bearing — do not widen this back to an unconditional check.
+    // Those two are not accidental windows: `chat-types.ts:443-448` defines
+    // both as "agent itself is idle, USER INPUT REMAINS ENABLED", with
+    // background tasks or session crons still running. A subagent's next
+    // `message_start` builds a fresh `streamingState` there, so the field is
+    // non-null while sending is correct by design.
+    //
+    // Queuing in that state STRANDS the message, because neither drain fires:
+    //   - `streaming-handler.service.ts:305-317` needs a `message_complete`
+    //     with NO `parentToolUseId` and `stopReason !== 'tool_use'` — a ROOT
+    //     turn end. The root turn already ended; subagent completions all carry
+    //     `parentToolUseId`.
+    //   - `handleSessionStats` (`streaming-handler.service.ts:475-493`) returns
+    //     `null` whenever `streamingState` is present — it stashes
+    //     `pendingStats` and defers to finalization.
+    // The only other drain is the user-abort path
+    // (`conversation.service.ts:213-218`). So the message would sit in
+    // `queuedContent` indefinitely: "renders in the wrong place" traded for
+    // "never sends", which is strictly worse. D1's time-ordered transcript is
+    // what puts the bubble in the right place in this window; this predicate
+    // covers genuine streaming windows only.
+    //
+    // The rest of the `SessionStatus` union needs no exclusion: `streaming` /
+    // `resuming` are already caught above; `fresh` / `draft` / `loaded` claim
+    // no live tree, so a tree present under them IS the accidental window this
+    // exists for; `switching` is a momentary UI transition during which a live
+    // tree still ends with a root `message_complete`, so the queue drains.
+    //
+    // This is NOT the deleted TASK_2026_360 self-heal. That heuristic lived in
+    // the streaming WRITE path and re-derived "the agent is busy" from event
+    // content, re-lighting the spinner with nothing left to clear it. This is
+    // the DISPATCH path reading tab state that already exists, it writes
+    // nothing, and its only effect is to queue instead of send. The backend
+    // `turn_state` stream remains the sole authority over `status` and the
+    // spinner set.
+    const hasUnsettledTree =
+      dispatchTab?.streamingState != null &&
+      status !== 'awaiting-background' &&
+      status !== 'sleeping';
     const isStreaming =
       status === 'streaming' ||
       status === 'resuming' ||
+      hasUnsettledTree ||
       (resolvedTabId != null && this.tabManager.isTabStreaming(resolvedTabId));
 
     if (isStreaming) {

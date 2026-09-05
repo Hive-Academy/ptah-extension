@@ -95,21 +95,25 @@ class EmptyStateStub {
 function makeMessage(
   id: string,
   role: 'user' | 'assistant' = 'assistant',
+  timestamp = 0,
+  streamingState: ExecutionNode | null = null,
 ): ExecutionChatMessage {
   return {
     id,
     role,
     rawContent: 'content',
-    timestamp: 0,
+    timestamp,
+    streamingState,
   } as unknown as ExecutionChatMessage;
 }
 
-function makeTree(id: string): ExecutionNode {
+function makeTree(id: string, startTime?: number): ExecutionNode {
   return {
     id,
     type: 'text',
     status: 'completed',
     content: 'tree content',
+    ...(startTime === undefined ? {} : { startTime }),
   } as unknown as ExecutionNode;
 }
 
@@ -639,5 +643,74 @@ describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () =
 
     expect(h.bubbleCount()).toBe(40);
     expect(h.placeholders()).toHaveLength(0);
+  });
+});
+
+describe('ChatTranscriptComponent — transcript ordering (TASK_2026_382 D1)', () => {
+  let rafSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+  });
+
+  afterEach(() => {
+    rafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('sorts a user message sent DURING a live stream below the streaming bubble', () => {
+    const h = makeHarness();
+    // The defect window: the send path thought the tab was idle, so the user
+    // bubble landed in `messages` while the tree was still streaming.
+    h.messagesSig.set([
+      makeMessage('assistant-earlier', 'assistant', 0, makeTree('t0', 0)),
+      makeMessage('user-sent-mid-stream', 'user', 5_000),
+    ]);
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([makeTree('live-tree', 1_000)]);
+    h.fixture.detectChanges();
+
+    expect(h.component.allMessages().map((m) => m.id)).toEqual([
+      'assistant-earlier',
+      'live-tree',
+      'user-sent-mid-stream',
+    ]);
+  });
+
+  it('keeps lifecycle order when the keys tie, so equal-timestamp turns do not shuffle', () => {
+    const h = makeHarness();
+    h.messagesSig.set([makeMessage('finalized', 'assistant', 1_000)]);
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([makeTree('streaming', 1_000)]);
+    h.fixture.detectChanges();
+
+    expect(h.component.allMessages().map((m) => m.id)).toEqual([
+      'finalized',
+      'streaming',
+    ]);
+  });
+
+  it('does not reallocate the merged array while its two inputs are unchanged', () => {
+    const h = makeHarness();
+    h.messagesSig.set([makeMessage('m1', 'assistant', 0, makeTree('m1', 0))]);
+    h.streamingStateSig.set({ pendingStats: null });
+    const tree = makeTree('live', 1_000);
+    // Same tree ARRAY identity on every call — what the incremental builder
+    // returns for a delta that moves no root digest.
+    const trees = [tree];
+    h.buildTreeMock.mockReturnValue(trees);
+    h.fixture.detectChanges();
+
+    const first = h.component.allMessages();
+    const second = h.component.allMessages();
+
+    expect(second).toBe(first);
+    expect(first.map((m) => m.id)).toEqual(['m1', 'live']);
   });
 });
