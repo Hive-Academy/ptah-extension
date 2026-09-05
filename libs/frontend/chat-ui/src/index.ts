@@ -39,7 +39,6 @@ export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.comp
 export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
-export { AgentSelectorComponent } from './lib/molecules/chat-input/agent-selector.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
 export { CompactSessionHeaderComponent } from './lib/molecules/compact-session/compact-session-header.component';

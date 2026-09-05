@@ -29,7 +29,7 @@ export type { SuggestionItem } from './suggestion-option.component';
  * - Options receive isActive as INPUT (not via Highlightable interface)
  * - Filter input INSIDE dropdown - focus stays on filter input
  * - Supports file and command types via discriminated union
- * - Agents handled by dedicated AgentSelectorComponent
+ * - Agents are not offered here: the model picks its own sub-agents
  *
  * KEYBOARD NAVIGATION:
  * - KeyboardNavigationService manages activeIndex signal
