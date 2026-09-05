@@ -26,6 +26,8 @@ import {
 } from '@ptah-extension/shared';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { filterCompactionNoise } from './transcript-filter.utils';
+import { TranscriptRenderWindow } from './transcript-render-window';
+import { TranscriptSlotDirective } from './transcript-slot.directive';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
@@ -75,7 +77,12 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
  */
 @Component({
   selector: 'ptah-chat-transcript',
-  imports: [MessageBubbleComponent, ChatEmptyStateComponent],
+  imports: [
+    MessageBubbleComponent,
+    ChatEmptyStateComponent,
+    TranscriptSlotDirective,
+  ],
+  providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +100,13 @@ export class ChatTranscriptComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+
+  /**
+   * Mount decision for each message. Component-scoped (see `providers`), fed
+   * from the gated `vm()` so the freeze discipline extends to it. Template
+   * reads `isMounted()` / `placeholderHeight()`.
+   */
+  protected readonly renderWindow = inject(TranscriptRenderWindow);
 
   /** Frontend UUID of the tab whose transcript is rendered. */
   readonly tabId = input.required<string>();
@@ -400,8 +414,26 @@ export class ChatTranscriptComponent {
         this.wasStreaming = isStreaming;
       });
     });
+    // Feed the render window. Reads the GATED `vm` and `active` only, so a
+    // hidden transcript neither re-derives its tail nor processes callbacks —
+    // the same freeze the view model applies to the DOM.
+    effect(() => {
+      const view = this.vm();
+      const isActive = this.active();
+      untracked(() => {
+        this.renderWindow.setActive(isActive);
+        this.renderWindow.syncMessages(
+          view.messages.map((m) => m.id),
+          view.finalizedCount,
+        );
+      });
+    });
     afterNextRender(
       () => {
+        // Attach FIRST: an unattached render window mounts only its tail, and
+        // that is indistinguishable from data loss. The resize observer only
+        // costs a pinned transcript its auto-follow.
+        this.renderWindow.attach(this.scrollContainer()?.nativeElement ?? null);
         this.setupResizeObserver();
       },
       { injector: this.injector },

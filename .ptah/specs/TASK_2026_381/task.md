@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_381
-status: backlog
+status: in_progress
 type: REFACTORING
 title: >-
   Bound renderer memory: virtualize the chat transcript and cap the
   streamingState retained on finalized messages
 depends_on: []
-created: "2026-09-06T02:00:00.000Z"
-updated: "2026-09-06T02:00:00.000Z"
+created: '2026-09-06T02:00:00.000Z'
+updated: '2026-09-06T02:00:00.000Z'
 description: >-
   A single Electron window with one live session holds 2474 MB private in the
   renderer process. The transcript renders every message through one unbounded

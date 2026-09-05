@@ -67,6 +67,57 @@ export interface MessageTokenUsage {
 }
 
 /**
+ * Payloads a retention pass is allowed to bound on an ExecutionNode.
+ *
+ * `content` is deliberately absent: for `text` and `thinking` nodes it is the
+ * assistant's prose, which is the thing the transcript exists to show.
+ */
+export type NodeRetentionField = 'toolInput' | 'toolOutput';
+
+/**
+ * NodeRetentionNotice - "this node's tool payload was bounded, and here is what
+ * went".
+ *
+ * **Written by** `capFinalizedTree` in
+ * `libs/frontend/chat-streaming/src/lib/execution-tree-retention.ts`.
+ * **Read by** `ToolInputDisplayComponent` and `ToolOutputDisplayComponent` in
+ * `libs/frontend/chat-ui/src/lib/molecules/tool-execution/`.
+ *
+ * It exists as a typed field rather than an in-band string marker (the shape
+ * `agent-output-retention.ts` is forced into for a flat `string`) so that two
+ * properties come for free: the marker cannot be eaten by a later trim, and
+ * re-applying the pass accumulates counts by READING A NUMBER instead of
+ * re-parsing its own prose. An in-band marker is written into the payload as
+ * well, so a user who copies the tool output out of the transcript takes the
+ * fact with them.
+ *
+ * Optional, and absent on every node written before this field existed — a
+ * restored `localStorage` tab or a `chat:resume` replay reads `undefined` and
+ * renders exactly as it always did.
+ */
+export interface NodeRetentionNotice {
+  /**
+   * Total characters dropped from this node, CUMULATIVE over every application
+   * of the pass. Never derived by re-parsing an in-band marker.
+   */
+  readonly droppedChars: number;
+  /**
+   * Which payloads were bounded. Emitted in the fixed order
+   * `['toolInput', 'toolOutput']` so the field is deterministic.
+   */
+  readonly capped: readonly NodeRetentionField[];
+  /**
+   * True when the payload could not be turned into text at all (a cycle, a
+   * `BigInt`, a throwing getter) and nothing was preserved. The notice is
+   * emitted either way — a cap the user cannot see is indistinguishable from
+   * data corruption.
+   */
+  readonly foldFailed: boolean;
+  /** Why the fold failed, when it did. Absent on a successful fold. */
+  readonly reason?: string;
+}
+
+/**
  * ExecutionNode - The core recursive data structure
  *
  * This interface enables true nested UI rendering where agents display
@@ -160,6 +211,12 @@ export interface ExecutionNode {
   readonly isHighlighted?: boolean;
   /** Whether this is a background agent (continues executing independently of main turn) */
   readonly isBackground?: boolean;
+  /**
+   * Present only when this node's `toolInput` / `toolOutput` were bounded by
+   * the finalized-tree retention pass. See {@link NodeRetentionNotice} for who
+   * writes it and who reads it.
+   */
+  readonly retention?: NodeRetentionNotice;
 }
 
 /**

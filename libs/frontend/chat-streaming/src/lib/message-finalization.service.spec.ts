@@ -90,7 +90,9 @@ describe('MessageFinalizationService', () => {
     setMessages: jest.Mock;
   };
   let sessionManager: jest.Mocked<Pick<SessionManager, 'setStatus'>>;
-  let treeBuilder: jest.Mocked<Pick<ExecutionTreeBuilderService, 'buildTree'>>;
+  let treeBuilder: jest.Mocked<
+    Pick<ExecutionTreeBuilderService, 'buildTree' | 'clearForTab'>
+  >;
   let batchedUpdate: jest.Mocked<Pick<BatchedUpdateService, 'flushSync'>>;
 
   beforeEach(() => {
@@ -114,9 +116,15 @@ describe('MessageFinalizationService', () => {
       setStatus: jest.fn(),
     } as jest.Mocked<Pick<SessionManager, 'setStatus'>>;
 
+    // `clearForTab` is part of the double because finalizing a turn now
+    // releases the builder's memo for that tab — the memo would otherwise keep
+    // the PRE-cap nodes alive past the cap that just bounded them.
     treeBuilder = {
       buildTree: jest.fn(() => []),
-    } as unknown as jest.Mocked<Pick<ExecutionTreeBuilderService, 'buildTree'>>;
+      clearForTab: jest.fn(),
+    } as unknown as jest.Mocked<
+      Pick<ExecutionTreeBuilderService, 'buildTree' | 'clearForTab'>
+    >;
 
     batchedUpdate = {
       flushSync: jest.fn(),

@@ -63,6 +63,19 @@ import {
         }
       </div>
     }
+    <!--
+      Deliberately OUTSIDE the guard above: a fold that preserved nothing
+      leaves no toolOutput at all, and that is exactly the case the marker
+      exists for. Real text in the document flow, so a screen reader reads it
+      in place — not a title attribute and not a decorative icon.
+    -->
+    @if (outputRetentionMessage(); as retentionMessage) {
+      <div
+        class="mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] leading-snug text-base-content-muted"
+      >
+        {{ retentionMessage }}
+      </div>
+    }
     @if (node().error) {
       <ptah-error-alert [errorMessage]="node().error!" />
     }
@@ -71,6 +84,36 @@ import {
 })
 export class ToolOutputDisplayComponent {
   readonly node = input.required<ExecutionNode>();
+
+  /**
+   * Computed: the truncation notice for this node's OUTPUT, or null.
+   *
+   * Reads `ExecutionNode.retention`, written by `capFinalizedTree` in
+   * `@ptah-extension/chat-streaming`. The typed field is the only legal route
+   * across that boundary — chat-ui is `type:ui` and cannot import a predicate
+   * from a `type:feature` lib.
+   *
+   * The copy names the recovery honestly: the bytes are in the session's SDK
+   * transcript and come back when the session is reopened, and that reload is
+   * itself partial. There is no per-message re-fetch to promise.
+   */
+  readonly outputRetentionMessage = computed((): string | null => {
+    const retention = this.node().retention;
+    if (!retention?.capped.includes('toolOutput')) return null;
+
+    const recovery =
+      "The full text is in this session's transcript on disk — reopen the " +
+      'session to reload it (a reload drops anything before the last compaction).';
+
+    if (retention.foldFailed) {
+      const reason = retention.reason ?? 'it could not be converted to text';
+      return `Output could not be preserved (${reason}). ${recovery}`;
+    }
+    return (
+      `Output truncated — ${retention.droppedChars.toLocaleString()} ` +
+      `characters were dropped from this tool call to bound the transcript. ${recovery}`
+    );
+  });
 
   /**
    * Computed: Get typed TodoWrite input using type guard

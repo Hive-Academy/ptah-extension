@@ -9,13 +9,13 @@ processes with one session running.
 
 Taken with `Get-CimInstance Win32_Process -Filter "Name='Ptah.exe'"`.
 
-| Process | Working set | Private |
-| --- | --- | --- |
-| renderer, one window (PID 4176) | 2529 MB | **2474 MB** |
-| main (PID 26772) | 1119 MB | 1366 MB |
-| utility — `ptah-embedder-worker` (PID 41772) | 412 MB | 452 MB |
-| GPU (PID 18932) | 170 MB | 306 MB |
-| network service (PID 13636) | 57 MB | 14 MB |
+| Process                                      | Working set | Private     |
+| -------------------------------------------- | ----------- | ----------- |
+| renderer, one window (PID 4176)              | 2529 MB     | **2474 MB** |
+| main (PID 26772)                             | 1119 MB     | 1366 MB     |
+| utility — `ptah-embedder-worker` (PID 41772) | 412 MB      | 452 MB      |
+| GPU (PID 18932)                              | 170 MB      | 306 MB      |
+| network service (PID 13636)                  | 57 MB       | 14 MB       |
 
 The row shown in "Efficiency mode" in the user's screenshot is the renderer.
 Chromium applies EcoQoS to a renderer whose window is in the background. The
@@ -25,28 +25,51 @@ Database measurements, read-only against
 `C:\Users\abdal\.ptah\state\ptah.sqlite` (1049841664 bytes) using
 `node --experimental-sqlite` and the `dbstat` virtual table:
 
-| Table | Bytes | Rows |
-| --- | --- | --- |
-| `observation_queue` | 885768192 | 163793 (161383 processed) |
-| `memory_chunks_vec_vector_chunks00` | 45678592 | 29410 |
-| `memories` | 31248384 | 28067 |
-| `code_symbols_vec_vector_chunks00` | 15753216 | 10202 |
+| Table                               | Bytes     | Rows                      |
+| ----------------------------------- | --------- | ------------------------- |
+| `observation_queue`                 | 885768192 | 163793 (161383 processed) |
+| `memory_chunks_vec_vector_chunks00` | 45678592  | 29410                     |
+| `memories`                          | 31248384  | 28067                     |
+| `code_symbols_vec_vector_chunks00`  | 15753216  | 10202                     |
 
 `observation_queue` is 84 % of the database. Oldest row 2026-06-01. This is
-**out of scope here** — see *Scope boundary* below.
+**out of scope here** — see _Scope boundary_ below.
 
 ## Root causes, ranked
 
-### 1. The transcript is not virtualized (renderer)
+### 1. Every message mounts a component instance (renderer)
 
-`ChatTranscriptComponent` renders every message of a tab through a single
-`@for` block. Its own header states this at
-`libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts:62`
-and again at `:270`. There is no `cdkVirtualFor` and no windowing.
+> **Corrected 2026-09-06.** The first version of this section said the
+> transcript has "no windowing" and cited
+> `chat-transcript.component.ts:62` and `:270`. That was wrong, and the
+> correction changes the fix. Both citations are inaccurate, and windowing of a
+> kind already ships. The text below is the verified statement.
 
-Consequence: every message in the tab holds a live DOM subtree, its parsed
-markdown output and its highlighted code blocks, for the whole life of the
-window.
+The transcript **already windows at the paint layer**.
+`chat-transcript.component.css:39-42` applies `content-visibility: auto` with
+`contain-intrinsic-size: auto 120px`, and `message-bubble.component.css:11-12`
+does the same per bubble. `chat-transcript.component.ts:128-134` documents the
+choice, and `:436-441` records that an autosize virtual-scroll estimator was
+tried in this component and **removed**, because the scroll position oscillated.
+
+`content-visibility` skips layout and paint. It does not free component
+instances, DOM nodes, event bindings or parsed markdown. So the defect is not
+"windowing is missing" — it is that **nothing ever unmounts**. Every message of
+the tab holds a live `<ptah-message-bubble>` and its whole recursive execution
+tree for the life of the window.
+
+Two consequences follow, and both were missed by the original reading:
+
+- Auto-collapse buys nothing. `message-bubble.component.html:91-99` collapses
+  with a CSS grid `0fr`/`1fr` transition, deliberately **not** an `@if`
+  (`message-bubble.component.ts:154-162`). A collapsed old message still
+  instantiates everything.
+- Tool payload **DOM** is already free. `tool-call-item.component.ts:75,116`
+  does gate on `@if (!isCollapsed())`. So cause 2 below is about retained JS
+  strings, not about rendered nodes. The two causes are independent.
+
+The fix is therefore unmounting, and the existing CSS layer must be **kept**,
+not replaced.
 
 ### 2. Finalized messages retain their full execution tree (renderer)
 
