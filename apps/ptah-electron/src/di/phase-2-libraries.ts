@@ -95,6 +95,7 @@ import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
 import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-embedder-worker-factory';
+import { ElectronIntegrityWorkerFactory } from '../services/platform/electron-integrity-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -305,6 +306,25 @@ export function registerPhase2Libraries(
     // this factory (VS Code / CLI) the embedder degrades to unavailable.
     container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
       useValue: new ElectronEmbedderWorkerFactory(workerEntry, modelCacheDir),
+    });
+
+    // Integrity worker: the `quick_check` pragma that used to run inside
+    // `openAndMigrate` (20-26 s cold on a 1 GB database, gating every renderer
+    // IPC reply) now runs in its own utilityProcess, on a cadence
+    // `SqliteIntegrityService` owns (TASK_2026_380). Registered BEFORE
+    // `registerPersistenceSqliteServices` so the service resolves a factory
+    // rather than its optional `null`. Path is derived from `__dirname` exactly
+    // as the embedder path above; `build-integrity-worker` puts
+    // `integrity-worker.mjs` beside `embedder-worker.mjs`.
+    const integrityWorkerEntry = path.join(
+      dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+      'integrity-worker.mjs',
+    );
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PATH, {
+      useValue: integrityWorkerEntry,
+    });
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PROCESS_FACTORY, {
+      useValue: new ElectronIntegrityWorkerFactory(integrityWorkerEntry),
     });
 
     registerPersistenceSqliteServices(container, logger);

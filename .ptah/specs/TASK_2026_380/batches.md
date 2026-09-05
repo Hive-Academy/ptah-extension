@@ -1,6 +1,7 @@
 # Batches - TASK_2026_380
 
-Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 0/5
+Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 1/5
+Tasks complete: 6/16 | Commits: `0c7e4d05c` (Batch 1)
 
 **Repository root for every path in this file (a git worktree on branch
 `electron-cold-start-380`):**
@@ -76,19 +77,19 @@ Assumptions:
   `markerOutcome` token that will name the true cause on the next launch either
   way. No scope change.
 
-| Risk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Severity | Mitigation                                                                                                                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`apps/ptah-electron/project.json` has THREE more worker-build call sites the plan does not name** — `build-dev.commands` (`:222-223`) and `serve`'s watch `commands` (`:273-274`) each list `build-embedder-worker` and `build-voice-worker` explicitly, in addition to `build.dependsOn` (`:187-191`). Adding only `build.dependsOn` leaves `electron:serve` and every dev build without `integrity-worker.mjs`, so the factory finds no file and the check silently never runs in development. | HIGH     | Task 2.2 must add `build-integrity-worker` to **all four** lists and say so in its report. Batch 2 verification runs `nx build ptah-electron` **and** asserts `dist/apps/ptah-electron/integrity-worker.mjs` exists.                                                        |
-| Executors edit the main checkout instead of the worktree, because every path in `implementation-plan.md` is written against `D:/projects/ptah-extension/`.                                                                                                                                                                                                                                                                                                                                         | HIGH     | The path-translation rule at the top of this file is repeated in every batch prompt. Batch verification runs `git status --short` from the worktree and rejects a batch whose files are not dirty there.                                                                    |
-| A new RPC namespace missing from `ALLOWED_METHOD_PREFIXES` throws at **registration**, i.e. crashes the app at boot rather than failing a test.                                                                                                                                                                                                                                                                                                                                                    | HIGH     | Task 3.3 is the dual-registration task and lands `'boot:'` in `rpc-handler.ts`, the `RpcMethodRegistry` + `RPC_METHOD_ENTRIES` entries, and the `manifest.ts` partition entry **in one task**. `rpc-allowlist.spec.ts` is the gate; Batch 3 does not close until it passes. |
-| Migration `0042` written into the developer's real `~/.ptah/state/ptah.sqlite` leaves an older installed build unable to open it.                                                                                                                                                                                                                                                                                                                                                                  | HIGH     | Every harness or manual run in Batches 1-5 sets `PTAH_DB_PATH` to a **temp copy**. Named in Task 1.1's acceptance criteria and in Batch 5's.                                                                                                                                |
-| `SkillTriggerService`'s 17-argument constructor is built positionally by two specs; a new parameter breaks both.                                                                                                                                                                                                                                                                                                                                                                                   | MEDIUM   | Task 1.4 adds fields and methods only, **no constructor parameter**. Batch 1 verification runs the existing `skill-trigger.service.spec.ts` and `skill-trigger.integration.spec.ts` unchanged.                                                                              |
-| Five shared files are touched by two components each (`boot-heavy-services.ts`, `message-constants.ts`, `core/services/index.ts`, `app.config.ts`, `chat-ui/src/index.ts`). Splitting a pair across batches or lanes produces a merge conflict on every hunk.                                                                                                                                                                                                                                      | MEDIUM   | The batching below keeps each pair inside one batch **and** one task owner: 8 + 14c in Task 1.6; 10 + 14b in Batch 3; 12 + 13 + 14d + 14e in Batch 4.                                                                                                                       |
-| Components 6 and 9 both touch `platform-core` (different files: `file-settings-keys.ts` vs `di/tokens.ts` + `index.ts`) and this is one worktree.                                                                                                                                                                                                                                                                                                                                                  | MEDIUM   | 6 is in Batch 1, 9 in Batch 3. Sequential batches, so they never run concurrently. Within Batch 1, only lane S touches `platform-core`.                                                                                                                                     |
-| The boot screen dismisses at `phase === 'harness'`; a host that never emits `harness` would leave the user behind the screen.                                                                                                                                                                                                                                                                                                                                                                      | MEDIUM   | `BootStatusService` defaults to `ready` (Task 4.1), so the screen renders only after a `warming` push actually arrives, and `failed` routes to the existing error branch. Task 4.2's spec covers the unknown-phase degrade.                                                 |
-| The dispatch timer or the worker keeps the process alive on quit.                                                                                                                                                                                                                                                                                                                                                                                                                                  | MEDIUM   | Task 2.3's boot dispatch is `unref`'d; Task 1.3's service kills the worker after a bounded budget. Both asserted by call-count specs.                                                                                                                                       |
-| `INDEXING_PROGRESS` fires per file; thousands of events could evict every other subsystem from a 50-slot ring.                                                                                                                                                                                                                                                                                                                                                                                     | LOW      | Task 4.3 implements the 750 ms latest-wins coalescing and the two specs that pin it (100 messages 10 ms apart → one slot; two 2 s apart → two slots).                                                                                                                       |
-| `chat-ui` gaining a dependency for the ticker animation.                                                                                                                                                                                                                                                                                                                                                                                                                                           | LOW      | CSS-only transition. Task 4.4 adds no package; Batch 4 review checks `chat-ui`'s externals are unchanged.                                                                                                                                                                   |
+| Risk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`apps/ptah-electron/project.json` has THREE more worker-build call sites the plan does not name** — `build-dev.commands` (`:222-223`) and `serve`'s watch `commands` (`:273-274`) each list `build-embedder-worker` and `build-voice-worker` explicitly, in addition to `build.dependsOn` (`:187-191`). Adding only `build.dependsOn` leaves `electron:serve` and every dev build without `integrity-worker.mjs`, so the factory finds no file and the check silently never runs in development. | HIGH     | Task 2.2 must add `build-integrity-worker` to **all four** lists and say so in its report. Batch 2 verification runs `nx build ptah-electron` **and** asserts `dist/apps/ptah-electron/integrity-worker.mjs` exists.                                                                                                                                                                                                                                                                         |
+| Executors edit the main checkout instead of the worktree, because every path in `implementation-plan.md` is written against `D:/projects/ptah-extension/`.                                                                                                                                                                                                                                                                                                                                         | HIGH     | The path-translation rule at the top of this file is repeated in every batch prompt. Batch verification runs `git status --short` from the worktree and rejects a batch whose files are not dirty there.                                                                                                                                                                                                                                                                                     |
+| A new RPC namespace missing from `ALLOWED_METHOD_PREFIXES` throws at **registration**, i.e. crashes the app at boot rather than failing a test.                                                                                                                                                                                                                                                                                                                                                    | HIGH     | Task 3.3 is the dual-registration task and lands `'boot:'` in `rpc-handler.ts`, the `RpcMethodRegistry` + `RPC_METHOD_ENTRIES` entries, and the `manifest.ts` partition entry **in one task**. `rpc-allowlist.spec.ts` is the gate; Batch 3 does not close until it passes. **MATERIALISED in Batch 1** — lane C added the shared registry entry alone, `rpc-allowlist.spec.ts` failed twice, and the hunk was reverted and moved wholesale into Task 3.2. The mitigation worked as written. |
+| Migration `0042` written into the developer's real `~/.ptah/state/ptah.sqlite` leaves an older installed build unable to open it.                                                                                                                                                                                                                                                                                                                                                                  | HIGH     | Every harness or manual run in Batches 1-5 sets `PTAH_DB_PATH` to a **temp copy**. Named in Task 1.1's acceptance criteria and in Batch 5's.                                                                                                                                                                                                                                                                                                                                                 |
+| `SkillTriggerService`'s 17-argument constructor is built positionally by two specs; a new parameter breaks both.                                                                                                                                                                                                                                                                                                                                                                                   | MEDIUM   | Task 1.4 adds fields and methods only, **no constructor parameter**. Batch 1 verification runs the existing `skill-trigger.service.spec.ts` and `skill-trigger.integration.spec.ts` unchanged.                                                                                                                                                                                                                                                                                               |
+| Five shared files are touched by two components each (`boot-heavy-services.ts`, `message-constants.ts`, `core/services/index.ts`, `app.config.ts`, `chat-ui/src/index.ts`). Splitting a pair across batches or lanes produces a merge conflict on every hunk.                                                                                                                                                                                                                                      | MEDIUM   | The batching below keeps each pair inside one batch **and** one task owner: 8 + 14c in Task 1.6; 10 + 14b in Batch 3; 12 + 13 + 14d + 14e in Batch 4.                                                                                                                                                                                                                                                                                                                                        |
+| Components 6 and 9 both touch `platform-core` (different files: `file-settings-keys.ts` vs `di/tokens.ts` + `index.ts`) and this is one worktree.                                                                                                                                                                                                                                                                                                                                                  | MEDIUM   | 6 is in Batch 1, 9 in Batch 3. Sequential batches, so they never run concurrently. Within Batch 1, only lane S touches `platform-core`.                                                                                                                                                                                                                                                                                                                                                      |
+| The boot screen dismisses at `phase === 'harness'`; a host that never emits `harness` would leave the user behind the screen.                                                                                                                                                                                                                                                                                                                                                                      | MEDIUM   | `BootStatusService` defaults to `ready` (Task 4.1), so the screen renders only after a `warming` push actually arrives, and `failed` routes to the existing error branch. Task 4.2's spec covers the unknown-phase degrade.                                                                                                                                                                                                                                                                  |
+| The dispatch timer or the worker keeps the process alive on quit.                                                                                                                                                                                                                                                                                                                                                                                                                                  | MEDIUM   | Task 2.3's boot dispatch is `unref`'d; Task 1.3's service kills the worker after a bounded budget. Both asserted by call-count specs.                                                                                                                                                                                                                                                                                                                                                        |
+| `INDEXING_PROGRESS` fires per file; thousands of events could evict every other subsystem from a 50-slot ring.                                                                                                                                                                                                                                                                                                                                                                                     | LOW      | Task 4.3 implements the 750 ms latest-wins coalescing and the two specs that pin it (100 messages 10 ms apart → one slot; two 2 s apart → two slots).                                                                                                                                                                                                                                                                                                                                        |
+| `chat-ui` gaining a dependency for the ticker animation.                                                                                                                                                                                                                                                                                                                                                                                                                                           | LOW      | CSS-only transition. Task 4.4 adds no package; Batch 4 review checks `chat-ui`'s externals are unchanged.                                                                                                                                                                                                                                                                                                                                                                                    |
 
 Edge cases:
 
@@ -118,7 +119,37 @@ Edge cases:
 
 ---
 
-## Batch 1: Foundations — persistence state, skill deferral, wire contracts — IN_PROGRESS
+## Batch 1: Foundations — persistence state, skill deferral, wire contracts — COMPLETE
+
+- **Commit: `0c7e4d05c`** — `perf(persistence-sqlite): batch 1 - move integrity
+state off the boot path`
+- Reviews: code-logic-reviewer **APPROVED** 8/10 (two moderate observability
+  notes, no change required); code-style-reviewer **APPROVED** 8/10. Reports:
+  `code-logic-review.md`, `code-style-review.md`,
+  `batch-1-lane-{P,S,C}-report.md`.
+- Verification: `nx run-many -t test` green for the four projects
+  (`platform-core`'s `file-settings-manager.bench.spec.ts` failed once under
+  4-project parallel load and passes solo — it is a wall-clock bench, unrelated to
+  this batch); `lint:all` 0 errors; `typecheck:all` reports 39 errors, **all** in
+  `libs/api/*` (`PrismaService` has no models because the generated Prisma client
+  is absent in this fresh worktree) — pre-existing and environmental, not caused
+  by this batch.
+
+**Deviations recorded from the lane reports (carried into the plan record):**
+
+- **Task 1.6 partially deferred — see the note on Task 3.2.** The
+  `libs/shared/src/lib/types/rpc.types.ts` hunk did not ship in this batch.
+- Lane P: six migration ratchet specs updated 41 → 42; the five `runBootChecks`
+  specs in `sqlite-connection.service.spec.ts` were **replaced** by one pragma-list
+  assertion (the old expectations described deleted behaviour); added
+  `integrity-worker-protocol.spec.ts`; the kill budget is a module constant
+  `INTEGRITY_WORKER_BUDGET_MS` (5 min) rather than a setting;
+  `IntegrityCheckStateStore` is injected by class token.
+- Lane S: two source branches share the `'unreadable'` `markerOutcome` token.
+- Lane C: `isActivityEventPayload` **admits an empty `summary`**, on the rule that
+  the renderer falls back to the `source` label. **Task 4.4 must keep that
+  fallback** — it is now the only thing standing between a badly-formatted emitter
+  and a blank header line.
 
 - Components: 1, 2, 3 (lane P) · 6, 7 (lane S) · 8, 14c (lane C)
 - Recommended executor: `backend-developer` — one per lane (three sub-agents), or
@@ -134,7 +165,7 @@ Edge cases:
   at once.
 - Tasks: 6 | Depends on: none
 
-### Task 1.1: Migration `0042` + `IntegrityCheckStateStore` (component 1) — PENDING
+### Task 1.1: Migration `0042` + `IntegrityCheckStateStore` (component 1) — COMPLETE
 
 - Lane: P
 - Files:
@@ -163,7 +194,7 @@ Edge cases:
   connection and asserts read-degrades-to-`null` and write-swallows. Any manual
   run against a real database uses a temp copy via `PTAH_DB_PATH`.
 
-### Task 1.2: Integrity worker entry, protocol and port (component 2) — PENDING
+### Task 1.2: Integrity worker entry, protocol and port (component 2) — COMPLETE
 
 - Lane: P | Depends on: Task 1.1
 - Files:
@@ -189,7 +220,7 @@ Edge cases:
   pure and unit-tested; the entry itself is exercised end to end by Task 1.3's
   spec through a fake factory.
 
-### Task 1.3: `SqliteIntegrityService` + deletion of `runBootChecks` (component 3) — PENDING
+### Task 1.3: `SqliteIntegrityService` + deletion of `runBootChecks` (component 3) — COMPLETE
 
 - Lane: P | Depends on: Task 1.1, Task 1.2
 - Files:
@@ -224,7 +255,7 @@ Edge cases:
   `dispatchIfDue()` calls produce one spawn; an `unavailable` verdict writes zero
   records; a clean verdict writes exactly one.
 
-### Task 1.4: Skill boot-scan deferral + settings keys (component 6) — PENDING
+### Task 1.4: Skill boot-scan deferral + settings keys (component 6) — COMPLETE
 
 - Lane: S
 - Files:
@@ -266,7 +297,7 @@ Edge cases:
   trigger specs pass unchanged. `file-settings-keys.spec.ts`'s
   `DEFAULTS ⊆ KEYS` parity rule still passes.
 
-### Task 1.5: SKILL.md rescan policy + marker diagnostics (component 7) — PENDING
+### Task 1.5: SKILL.md rescan policy + marker diagnostics (component 7) — COMPLETE
 
 - Lane: S | Depends on: nothing (may run before or after Task 1.4; different files)
 - Files:
@@ -292,13 +323,23 @@ Edge cases:
   **and** whether `readdirSync`/`readFileSync` ran; plus a case where the store's
   `write` throws asserting `markerWritten === false` with `errors: []`.
 
-### Task 1.6: Boot readiness widening + activity wire contract (components 8 + 14c) — PENDING
+### Task 1.6: Boot readiness widening + activity wire contract (components 8 + 14c) — COMPLETE (one hunk deferred to Task 3.2)
 
 - Lane: C
 - Files:
   - MODIFY `…/libs/shared/src/lib/types/rpc/rpc-readiness.types.ts`
   - MODIFY `…/libs/shared/src/lib/types/rpc/rpc-readiness.types.spec.ts`
-  - MODIFY `…/libs/shared/src/lib/types/rpc/rpc.types.ts` (registry entry + `RPC_METHOD_ENTRIES`)
+  - ~~MODIFY `…/libs/shared/src/lib/types/rpc/rpc.types.ts` (registry entry +
+    `RPC_METHOD_ENTRIES`)~~ — **DEFERRED to Task 3.2 and reverted out of the Batch 1
+    commit.** With the two hunks present and no handler, manifest entry or
+    `'boot:'` prefix yet, `rpc-allowlist.spec.ts` failed twice (the manifest had no
+    owner for `boot:getReadiness`; the prefix was missing) and
+    `register-rpc-surface.ts:140-142` asserts the same partition at dev boot — so
+    the half-registration is a boot crash, not a red test. The exact two hunks
+    (`'boot:getReadiness'` in `RpcMethodRegistry` and `RPC_METHOD_ENTRIES`, plus the
+    `BootGetReadinessResult` import) are recorded verbatim under "Deferred to
+    Batch 3" in `batch-1-lane-C-report.md`. **Confirmed:** the four-site
+    registration is atomic, exactly as the plan's dual-registration rule says.
   - CREATE `…/libs/shared/src/lib/types/rpc/rpc-activity.types.ts`
   - CREATE `…/libs/shared/src/lib/types/rpc/rpc-activity.types.spec.ts`
   - MODIFY `…/libs/shared/src/lib/types/messages/message-constants.ts` (**both** the
@@ -328,8 +369,9 @@ Edge cases:
   `ActivitySource = 'boot' | 'memory' | 'indexing' | 'skills' | 'cron' | 'harness' | 'sessions' | 'embedder' | 'vec' | 'database'`,
   `ActivityLevel = 'info' | 'warn'` (**no `'error'`** — a ticker must not become
   the de-facto error surface), `ActivityEventPayload`, `ACTIVITY_SOURCE_VALUES`,
-  `isActivitySource`, `isActivityEventPayload`. Add the `boot:getReadiness`
-  method to `RpcMethodRegistry` **and** `RPC_METHOD_ENTRIES`.
+  `isActivitySource`, `isActivityEventPayload`. ~~Add the `boot:getReadiness`
+  method to `RpcMethodRegistry` **and** `RPC_METHOD_ENTRIES`.~~ — moved to
+  Task 3.2. As shipped, `isActivityEventPayload` admits an empty `summary`.
 - Acceptance: `isBootPhase` accepts every member and rejects a near-miss;
   `BOOT_PHASE_VALUES` and the union agree by `satisfies`;
   `isActivityEventPayload` accepts a minimal valid payload and rejects an unknown
@@ -357,7 +399,7 @@ npm run lint:all
 
 ---
 
-## Batch 2: Integrity worker hosts, build targets and scheduling — PENDING
+## Batch 2: Integrity worker hosts, build targets and scheduling — IN_PROGRESS
 
 - Components: 4, 5
 - Recommended executor: `backend-developer` (the two factory classes, the DI
@@ -470,7 +512,13 @@ nx build ptah-cli
 
 ---
 
-## Batch 3: Boot readiness port, RPC, Electron activation and the activity emitter — PENDING
+## Batch 3: Boot readiness port, RPC, Electron activation and the activity emitter — IN_PROGRESS
+
+> **Running concurrently with Batch 2, by orchestrator decision.** Tasks 3.1-3.3
+> share no file with Batch 2 and are started in parallel. **Task 3.4 is HELD**
+> until Batch 2 is verified and committed, because it edits
+> `start-thoth-cron.ts` (Task 2.3) and `boot-heavy-services.ts` (Task 3.3). Do not
+> release 3.4 before both of those are on disk and reviewed.
 
 - Components: 9, 10, 11, 14b
 - Recommended executor: `backend-developer` (Electron main-process activation is
@@ -521,7 +569,18 @@ nx build ptah-cli
 ### Task 3.2: `boot:getReadiness` RPC — the four-site registration (component 11) — PENDING
 
 - Depends on: Task 3.1
+- **Scope widened by a Batch 1 deferral — this is now the FULL four-site
+  registration.** Task 1.6 shipped the readiness and activity types but its
+  `rpc.types.ts` hunk was reverted, because a shared registry entry without a
+  handler, a manifest owner and the `'boot:'` prefix fails `rpc-allowlist.spec.ts`
+  and crashes dev boot at `register-rpc-surface.ts:140-142`. Re-apply the two
+  hunks recorded under "Deferred to Batch 3" in `batch-1-lane-C-report.md`
+  (`'boot:getReadiness'` in `RpcMethodRegistry` and in `RPC_METHOD_ENTRIES`, plus
+  the `BootGetReadinessResult` import) **in this task, together with everything
+  below**. All four sites land in one commit or none of them do.
 - Files:
+  - MODIFY `…/libs/shared/src/lib/types/rpc/rpc.types.ts` (**deferred from Task
+    1.6** — registry entry + `RPC_METHOD_ENTRIES`)
   - MODIFY `…/libs/backend/vscode-core/src/messaging/rpc-handler.ts` (add `'boot:'`
     to `ALLOWED_METHOD_PREFIXES` at `:44`)
   - CREATE `…/libs/backend/rpc-handlers/src/lib/handlers/boot-rpc.handlers.ts`

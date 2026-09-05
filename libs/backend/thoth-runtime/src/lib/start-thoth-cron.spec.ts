@@ -441,6 +441,217 @@ describe('startThothCron', () => {
     });
   });
 
+  /**
+   * TASK_2026_380 component 5 — the integrity scheduling seam.
+   *
+   * The boot dispatch is asserted through a `setTimeout` SPY rather than Jest's
+   * fake timers so every assertion is a call count or an argument, never a
+   * timing: the delay is read off the spy's arguments and the callback is
+   * invoked by hand.
+   */
+  describe('database integrity check job', () => {
+    type CapturedTimer = {
+      readonly fire: () => void;
+      readonly delayMs: number;
+      readonly unref: jest.Mock;
+    };
+
+    function captureTimers(): CapturedTimer[] {
+      const captured: CapturedTimer[] = [];
+      jest.spyOn(global, 'setTimeout').mockImplementation(((
+        fn: () => void,
+        ms: number,
+      ) => {
+        const unref = jest.fn();
+        captured.push({ fire: fn, delayMs: ms, unref });
+        return { unref } as unknown as NodeJS.Timeout;
+      }) as unknown as typeof setTimeout);
+      return captured;
+    }
+
+    function makeIntegrityContainer(opts: { withService?: boolean } = {}) {
+      const handlers = new Map<string, JobHandler>();
+      const handlerRegistry = {
+        has: (name: string) => handlers.has(name),
+        register: jest.fn((name: string, fn: JobHandler) => {
+          handlers.set(name, fn);
+        }),
+      };
+      const jobStore = { upsert: jest.fn() };
+      const integrity = {
+        isDue: jest.fn(() => true),
+        dispatchIfDue: jest.fn().mockResolvedValue(undefined),
+      };
+      const entries: Entry[] = [
+        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
+        [CRON_TOKENS.CRON_JOB_STORE, jobStore],
+        [CRON_TOKENS.CRON_HANDLER_REGISTRY, handlerRegistry],
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+      ];
+      if (opts.withService !== false) {
+        entries.push([PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE, integrity]);
+      }
+      return {
+        container: makeContainer(entries),
+        handlers,
+        handlerRegistry,
+        jobStore,
+        integrity,
+      };
+    }
+
+    it('upserts @ptah/db-integrity-check at 03:30 UTC', async () => {
+      captureTimers();
+      const { container, jobStore } = makeIntegrityContainer();
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(jobStore.upsert).toHaveBeenCalledWith({
+        id: '@ptah/db-integrity-check',
+        name: 'Database Integrity Check',
+        // Not `0 3` (the daily backup) and not `0 4` (the weekly drain): a
+        // whole-file read must not share a tick with a whole-file write.
+        cronExpr: '30 3 * * *',
+        timezone: 'UTC',
+        prompt: 'handler:db:integrity',
+        enabled: true,
+      });
+    });
+
+    it('registers the handler once across two startThothCron calls', async () => {
+      captureTimers();
+      const { container, handlerRegistry, jobStore } = makeIntegrityContainer();
+      const refs = refsWithSqlite();
+
+      await startThothCron(container, refs);
+      await startThothCron(container, refs);
+
+      // `HandlerRegistry.register` throws on a duplicate name, so the `has()`
+      // guard is what makes a re-activation safe.
+      expect(
+        handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'db:integrity',
+        ),
+      ).toHaveLength(1);
+      // `upsert` is idempotent by definition and is deliberately NOT guarded.
+      expect(
+        jobStore.upsert.mock.calls.filter(
+          (call) =>
+            (call[0] as { id: string }).id === '@ptah/db-integrity-check',
+        ),
+      ).toHaveLength(2);
+    });
+
+    it("arms exactly one unref'd boot dispatch at 60 s, across two calls", async () => {
+      const timers = captureTimers();
+      const { container, integrity } = makeIntegrityContainer();
+      const refs = refsWithSqlite();
+
+      await startThothCron(container, refs);
+      await startThothCron(container, refs);
+
+      expect(timers).toHaveLength(1);
+      expect(timers[0].delayMs).toBe(60_000);
+      // An integrity check must never be the reason a host refuses to quit.
+      expect(timers[0].unref).toHaveBeenCalledTimes(1);
+      // Nothing dispatches until the timer fires.
+      expect(integrity.dispatchIfDue).not.toHaveBeenCalled();
+
+      timers[0].fire();
+
+      expect(integrity.dispatchIfDue).toHaveBeenCalledTimes(1);
+    });
+
+    it('swallows a boot-dispatch resolve failure instead of throwing on the timer', async () => {
+      const timers = captureTimers();
+      const { container } = makeIntegrityContainer();
+      // A container that answers `isRegistered` but throws on `resolve` is the
+      // shape a torn-down host takes; the timer fires on its own stack, where a
+      // throw has nowhere to go.
+      const resolve = container.resolve as unknown as (
+        token: unknown,
+      ) => unknown;
+      jest.spyOn(container, 'resolve').mockImplementation(((token: unknown) => {
+        if (token === PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE) {
+          throw new Error('container disposed');
+        }
+        return resolve(token);
+      }) as never);
+
+      await startThothCron(container, refsWithSqlite());
+
+      expect(() => timers[0].fire()).not.toThrow();
+    });
+
+    it('dispatches without awaiting when the cron handler runs', async () => {
+      captureTimers();
+      const { container, handlers, integrity } = makeIntegrityContainer();
+      // A dispatch that never settles: the handler must still return. The check
+      // costs 20-26 s cold, so holding a cron job slot open for it would
+      // reintroduce exactly the blocking this task removed.
+      integrity.dispatchIfDue.mockReturnValue(
+        new Promise<void>(() => undefined),
+      );
+      await startThothCron(container, refsWithSqlite());
+
+      const handler = handlers.get('db:integrity') as JobHandler;
+
+      await expect(
+        handler({
+          job: { id: '@ptah/db-integrity-check' } as never,
+          scheduledFor: 0,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({
+        summary: 'integrity check dispatched (runs out of process)',
+      });
+      expect(integrity.dispatchIfDue).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a not-due tick as a skipped OUTCOME and dispatches nothing', async () => {
+      captureTimers();
+      const { container, handlers, integrity } = makeIntegrityContainer();
+      integrity.isDue.mockReturnValue(false);
+      await startThothCron(container, refsWithSqlite());
+
+      const handler = handlers.get('db:integrity') as JobHandler;
+
+      await expect(
+        handler({
+          job: { id: '@ptah/db-integrity-check' } as never,
+          scheduledFor: 0,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({ outcome: 'skipped', reason: 'not-due' });
+      expect(integrity.dispatchIfDue).not.toHaveBeenCalled();
+    });
+
+    it('registers nothing and throws nothing without SqliteIntegrityService', async () => {
+      const timers = captureTimers();
+      const { container, handlerRegistry, jobStore } = makeIntegrityContainer({
+        withService: false,
+      });
+
+      await expect(
+        startThothCron(container, refsWithSqlite()),
+      ).resolves.toBeUndefined();
+
+      expect(
+        handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'db:integrity',
+        ),
+      ).toHaveLength(0);
+      expect(
+        jobStore.upsert.mock.calls.map(
+          (call) => (call[0] as { id: string }).id,
+        ),
+      ).toEqual(['@ptah/daily-backup']);
+      // No service means no boot timer either — nothing to unref, nothing to
+      // keep an exiting host alive.
+      expect(timers).toHaveLength(0);
+    });
+  });
+
   it('nulls the scheduler ref when start() throws', async () => {
     const refs = refsWithSqlite();
     const container = makeContainer([

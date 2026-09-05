@@ -5,6 +5,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   type IBackupService,
+  type SqliteIntegrityService,
 } from '@ptah-extension/persistence-sqlite';
 import {
   CRON_TOKENS,
@@ -148,6 +149,103 @@ function registerSkillDrainJobs(
   );
 }
 
+/** Cron handler name for the out-of-process database integrity check. */
+const INTEGRITY_HANDLER_NAME = 'db:integrity';
+
+/**
+ * 03:30 UTC daily. Deliberately NOT `0 3` (the daily backup above) and not
+ * `0 4` (the weekly skills drain): the integrity check reads the whole database
+ * file, and on a gigabyte database that read must not contend with the backup's
+ * full-file WRITE on the same tick.
+ */
+const INTEGRITY_CRON_EXPR = '30 3 * * *';
+
+/**
+ * How long after `startThothCron` the one boot dispatch fires.
+ *
+ * Sixty seconds, so the dispatch cannot land inside the window the deferred
+ * boot work is clearing — the whole point of TASK_2026_380 is that nothing
+ * expensive runs while the user is waiting for a usable window. This is a
+ * constant, not a setting: there is no user question here.
+ */
+const INTEGRITY_BOOT_DISPATCH_DELAY_MS = 60_000;
+
+/**
+ * Register the integrity-check handler, upsert its nightly job, and arm the one
+ * delayed boot dispatch.
+ *
+ * This block is the SECOND SEAM in this file, for the same reason as the drain
+ * block above: `persistence-sqlite` must never import `cron-scheduler`, so
+ * `thoth-runtime` is the only place where "a check is due" and "something runs
+ * on a schedule" are allowed to meet. `SqliteIntegrityService` owns the
+ * due-decision, the single-flight guard and the worker budget; this function
+ * owns nothing but *when to ask*.
+ *
+ * THE DISPATCH IS NEVER AWAITED. Neither here nor in the handler: the check
+ * costs 20-26 s cold on a gigabyte file, and holding a cron job slot (or the
+ * boot timer's tick) open for it would reintroduce the blocking this task
+ * removed. `dispatchIfDue()` never throws and never rejects, so a bare `void`
+ * is safe — there is nothing to catch.
+ *
+ * Non-fatal by construction: a host that registers no
+ * `SQLITE_INTEGRITY_SERVICE` gets no job and no timer.
+ */
+function registerIntegrityCheckJob(
+  container: DependencyContainer,
+  jobStore: IJobStore,
+  handlerRegistry: IHandlerRegistry,
+  logPrefix: string,
+): void {
+  if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE)) {
+    return;
+  }
+  // `register` THROWS on a duplicate name and a host may call `startThothCron`
+  // more than once, so both the handler AND the one-shot boot timer live behind
+  // this guard — a second call must not arm a second dispatch.
+  if (!handlerRegistry.has(INTEGRITY_HANDLER_NAME)) {
+    handlerRegistry.register(INTEGRITY_HANDLER_NAME, async () => {
+      const integrity = container.resolve<SqliteIntegrityService>(
+        PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+      );
+      if (!integrity.isDue()) {
+        return { outcome: 'skipped' as const, reason: 'not-due' };
+      }
+      void integrity.dispatchIfDue();
+      return { summary: 'integrity check dispatched (runs out of process)' };
+    });
+
+    const bootTimer = setTimeout(() => {
+      try {
+        const integrity = container.resolve<SqliteIntegrityService>(
+          PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+        );
+        void integrity.dispatchIfDue();
+      } catch (bootErr: unknown) {
+        console.warn(
+          `${logPrefix} Integrity boot dispatch skipped (non-fatal):`,
+          bootErr instanceof Error ? bootErr.message : String(bootErr),
+        );
+      }
+    }, INTEGRITY_BOOT_DISPATCH_DELAY_MS);
+    // Guarded shape because `unref` exists on Node's `Timeout` but not on the
+    // DOM's numeric handle. An integrity check must never be the reason a host
+    // refuses to quit.
+    (bootTimer as { unref?: () => void }).unref?.();
+  }
+
+  jobStore.upsert({
+    id: '@ptah/db-integrity-check',
+    name: 'Database Integrity Check',
+    cronExpr: INTEGRITY_CRON_EXPR,
+    timezone: 'UTC',
+    prompt: `handler:${INTEGRITY_HANDLER_NAME}`,
+    enabled: true,
+  });
+  console.log(
+    `${logPrefix} Database integrity cron job registered (@ptah/db-integrity-check)`,
+  );
+}
+
 /**
  * Start the Thoth cron scheduler and register the built-in daily SQLite
  * backup job. Mutates `refs.cronScheduler` in place so the host keeps a
@@ -283,6 +381,23 @@ export async function startThothCron(
           console.warn(
             `${logPrefix} Skill drain cron registration failed (non-fatal):`,
             drainErr instanceof Error ? drainErr.message : String(drainErr),
+          );
+        }
+        try {
+          registerIntegrityCheckJob(
+            container,
+            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+            container.resolve<IHandlerRegistry>(
+              CRON_TOKENS.CRON_HANDLER_REGISTRY,
+            ),
+            logPrefix,
+          );
+        } catch (integrityErr: unknown) {
+          console.warn(
+            `${logPrefix} Database integrity cron registration failed (non-fatal):`,
+            integrityErr instanceof Error
+              ? integrityErr.message
+              : String(integrityErr),
           );
         }
       }

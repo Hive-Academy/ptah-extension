@@ -115,3 +115,106 @@ Score 8/10 — `ACTIVITY_EVENT: 'activity:event'` matches the `namespace:event` 
 - Confidence: HIGH
 - Key concern: none blocking; the only items worth a second look are the un-exported `SkillMdMigrationMarkerOutcome` and the precedent-setting `require('better-sqlite3')` in a production worker file, both minor and both already reasoned about in the lane reports.
 - What a 10/10 version would do differently: export `SkillMdMigrationMarkerOutcome` from the skill-synthesis barrel in the same commit that introduced it; add a one-line cross-reference in `persistence-sqlite/CLAUDE.md` documenting the worker's `require('better-sqlite3')` exception so it reads as a stated policy rather than something the next reviewer has to re-derive from a code comment.
+
+## Batch 2
+
+## Summary
+
+| Metric          | Value                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| Overall score   | 8/10                                                                                             |
+| Assessment      | APPROVED                                                                                         |
+| Blocking issues | 0                                                                                                |
+| Serious issues  | 0                                                                                                |
+| Minor issues    | 2                                                                                                |
+| Files reviewed  | 10 (2 created + spec, 1 created CLI factory, 2 new tsconfigs, 4 modified — the exact scope list) |
+
+Scope confirmed against `batch-2-report.md` and `git status`: two other agents (Batch 1, already committed at `0c7e4d05c`; Batch 3, in flight) have dirty files in this same worktree. Every file below was checked with `git diff -- <path>` individually; nothing outside the assigned list was read as a diff, only as a comparison template (`electron-embedder-worker-factory.ts`, `cli-embedder-worker-factory.ts`, `electron-power-monitor.spec.ts`, `agent-process-manager.service.ts`).
+
+## Five style questions
+
+### 1. What breaks in six months?
+
+Nothing in the reviewed files depends on an assumption likely to flip soon. The one candidate: `registerIntegrityCheckJob`'s per-process boot-timer guard lives inside `!handlerRegistry.has(INTEGRITY_HANDLER_NAME)` (`libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts:184-224`) — correct today because `startThothCron` is only ever re-entered on the same `HandlerRegistry` instance. If a future host ever swapped the registry between calls (a scenario `registerSkillDrainJobs` above it does not need to guard against either, since it has no one-shot timer), the "one boot dispatch" guarantee this batch's tests pin (`start-thoth-cron.spec.ts:481-499`) would silently double-fire. Not a defect now — the same shape the file already uses for the drain block — but the constraint is implicit in the guard's placement, not stated as an invariant of `HandlerRegistry` itself.
+
+### 2. What would a new team member misread?
+
+`CliIntegrityWorkerFactory`/`ElectronIntegrityWorkerFactory` registered in `register-thoth-libraries.ts:82-99` with no CLI dispatch site anywhere in the codebase looks, on a `grep`-only read, like dead wiring or a half-finished feature. The comment at the registration site (`register-thoth-libraries.ts:83-91`) heads this off in full caps precisely because the report anticipated it, and it is accurate: `startThothCron` (the only caller of `registerIntegrityCheckJob`) is invoked from `thoth-runtime` hosts, never from `cli-engine` (confirmed: no `startThothCron` call exists under `apps/ptah-cli` or `libs/backend/cli-engine`). A reader who trusts the comment is fine; a reader who doesn't and searches for a call site will find none, which is the intended, documented state, not a gap in the search.
+
+### 3. What does this cost to maintain?
+
+Two brand-new esbuild targets and four list edits across two `project.json` files (`apps/ptah-electron/project.json:161-184,216,249`, `apps/ptah-cli/project.json:155-179,197`) are pure structural copies of `build-embedder-worker`'s shape with only the required substitutions (`main`, `outputFileName` already `integrity-worker.mjs`/reused, `tsConfig`). Same for the two new `tsconfig.integrity-worker.json` files, which are byte-for-byte the `tsconfig.embedder-worker.json` shape repointed at a different `include`. This is the cheapest kind of duplication the repo has: four near-identical JSON blocks that will need a fifth near-identical block the next time a worker is added, but nothing here invents a new mechanism to maintain — it is the established "one esbuild target + one tsconfig per worker" pattern, unchanged.
+
+### 4. Where is this inconsistent with the rest of the repository?
+
+Nowhere material found. The Electron factory's constructor takes one argument (`workerPath` only) versus the embedder factory's two (`workerPath`, `modelCacheDir`) — a deliberate divergence, stated in the class doc comment (`electron-integrity-worker-factory.ts:10-14`) and consistent with the port contract (no `init` message exists for this worker). The CLI factory's `kill()` calls `void this.worker.terminate()` (`cli-integrity-worker-factory.ts:51`) — same as `CliEmbedderWorkerFactory`'s own `kill()`, confirmed by the report's citation of `cli-embedder-worker-factory.ts:14-40`.
+
+### 5. What would you have done differently, and why is that better rather than merely other?
+
+I would have added one line to `IIntegrityWorkerProcessFactory`'s doc comment (or a comment at the CLI registration site pointing back at it) stating that a port with "exactly one implementation per host, and the CLI legitimately never dispatches" is now a second instance of that shape (the first being the pre-existing embedder/voice worker ports, which DO get dispatched from the CLI). Without that cross-reference, the next person adding a fourth host-scoped worker has to re-derive from scratch whether "registered but never dispatched" is an acceptable steady state for their case or a smell — this batch's A-2 comment answers it locally but doesn't generalize the answer for the next reader who isn't looking at this exact file.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Minor issues
+
+- `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts:184-224` — the one-boot-timer-per-process guarantee depends on the boot-timer arm sitting inside the same `!handlerRegistry.has(...)` branch as handler registration, with no comment stating that as an explicit coupling (the comment at `:189-191` explains why the guard exists, not that the timer specifically depends on sharing it). A future edit that splits handler registration from timer arming (e.g., to re-arm the timer without re-registering the handler) could reintroduce a double-dispatch with no test catching it until `start-thoth-cron.spec.ts:481-499`'s two-call assertion is itself re-read for why it still passes.
+- `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts:83-91` — the A-2 comment is accurate and load-bearing but exists only at this one call site. `IIntegrityWorkerProcessFactory`'s own doc comment (in `persistence-sqlite`, out of scope for this diff) does not mention that the CLI registers-but-never-dispatches; a reader who finds the port definition first, rather than the registration site, has no forward pointer to this fact.
+
+## File-by-file
+
+### `apps/ptah-electron/src/services/platform/electron-integrity-worker-factory.ts` + `.spec.ts`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor specific to this file. Faithful structural copy of `electron-embedder-worker-factory.ts:8-63` (`electron-integrity-worker-factory.ts:16-64`): same `import electron, { type UtilityProcess } from 'electron'; const { utilityProcess } = electron;` idiom, same private wrapper class shape, same `message`/`exit` overload signature. The one intentional deviation — no `init` postMessage, one-argument constructor — is documented in the class doc comment and mechanically necessary given the port has no init message type. The spec (`electron-integrity-worker-factory.spec.ts`) uses a local `jest.mock('electron', ...)` rather than extending the shared `apps/ptah-electron/__mocks__/electron.ts`; this matches the established local precedent in the same directory (`electron-power-monitor.spec.ts:6-12` does the same for `powerMonitor`, which the shared mock also omits) rather than deviating from it — judged against the sibling spec, not against a hypothetical shared-mock-first policy the repo does not enforce. 6 assertions are call-count/argument based (fork args, no-init, message/exit mapping, per-call child), none timing-based.
+
+### `libs/backend/cli-engine/src/lib/thoth/cli-integrity-worker-factory.ts`
+
+Score 9/10 — matches `cli-embedder-worker-factory.ts`'s `node:worker_threads` transport, the `type: 'module'` cast-not-any-not-ts-ignore seam (`cli-integrity-worker-factory.ts:61-66`), and `terminate()` on `kill()`. No spec file for this factory exists in the diff or report (the Electron sibling has one); the report does not call this out as a deviation and the acceptance criteria named the Electron spec only — a coverage gap worth naming but not treated as a finding since it was not in the assigned scope's contract.
+
+### `apps/ptah-electron/src/di/phase-2-libraries.ts`, `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts`
+
+Score 8/10 — both registrations land before `registerPersistenceSqliteServices` exactly as required (`phase-2-libraries.ts:311-326`, `register-thoth-libraries.ts:92-97`), both derive the worker path the same way their embedder sibling does (`dirnameGlobal ?? path.join(os.homedir(), '.ptah')` in Electron; `path.join(__dirname, ...)` in CLI), both use `useValue` for the path and the factory instance consistent with the embedder registration pattern. Deducted one point for the A-2 comment's isolation, noted above as a minor.
+
+### `apps/ptah-electron/project.json`, `apps/ptah-cli/project.json`, `apps/ptah-electron/tsconfig.integrity-worker.json`, `apps/ptah-cli/tsconfig.integrity-worker.json`
+
+Score 9/10 — all four list edits verified in the diff at the exact positions the report claims (`build.dependsOn`, `build-dev.commands`, `serve:watch.commands` in Electron; `restore-cli-manifest.dependsOn` in CLI). Both new `build-integrity-worker` targets carry the same option set as `build-embedder-worker` with only `main`/`outputFileName`/`tsConfig` changed, and the Electron/CLI difference in `dependsOn`/`outputs` shape mirrors the same difference already present between the two apps' embedder targets. Both tsconfigs are the embedder tsconfig's `extends`/`include`/`exclude` shape repointed at `integrity/`. The CLI tsconfig was not in the task's named file list but is justified in the report (deviation 1) by the same paths-map divergence that already justifies the CLI keeping its own `tsconfig.embedder-worker.json` — a defensible, well-reasoned addition, not scope creep.
+
+### `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts` (307 → 422 lines) + `.spec.ts` (457 → 656 lines)
+
+Score 8/10 — `registerIntegrityCheckJob` (`:151-236`) is a nameable, self-contained addition matching `registerSkillDrainJobs`'s existing idiom one function above it: module-level constants for the cron expression/handler name/delay, a `has()`-guarded `register`, an unguarded idempotent `upsert`, and a non-fatal `try/catch` at the call site (`:386-403`) inside the same `CRON_JOB_STORE && CRON_HANDLER_REGISTRY` guard the drain block uses. `(bootTimer as { unref?: () => void }).unref?.()` (`:225`) matches the repo-wide guarded-cast idiom verified independently across 15+ call sites (e.g. `agent-process-manager.service.ts:1321-1322`, `memory-trigger.service.ts:890`, `gateway-chat-bridge.ts:599`) — not a one-off invention. `catch (bootErr: unknown)` and `catch (integrityErr: unknown)` both narrow with `instanceof Error` before `.message`. No `@ts-ignore`, no dead code, no feature flag. The seven new specs assert call counts and arguments throughout (`toHaveBeenCalledWith`, `mock.calls.filter(...).toHaveLength(...)`), and the boot-dispatch timing is captured via a `jest.spyOn(global, 'setTimeout')` mock rather than fake timers, so no test asserts a wall-clock duration — matching the brief's requirement exactly. Deducted one point for the coupling noted in Minor issues (guard sharing between handler registration and timer arming is correct but implicit).
+
+## Pattern compliance
+
+| Repository rule or nearby convention                                 | Status           | Evidence                                                                                                                                |
+| -------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `electron` import confined to `apps/ptah-electron`                   | PASS             | Only `electron-integrity-worker-factory.ts:16` imports `electron`; `cli-integrity-worker-factory.ts` imports `node:worker_threads` only |
+| `node:worker_threads` confined to `cli-engine`                       | PASS             | `cli-integrity-worker-factory.ts:20`; no `worker_threads` import added under `apps/ptah-electron`                                       |
+| Nothing new imported into `persistence-sqlite`                       | PASS             | `git diff` shows zero changes under `libs/backend/persistence-sqlite` in this batch (Batch 1 already committed)                         |
+| `thoth-runtime` imports no `electron`, no renderer type              | PASS             | `start-thoth-cron.ts` diff adds only a `type SqliteIntegrityService` import from `persistence-sqlite`                                   |
+| `persistence-sqlite` never imports `cron-scheduler`                  | PASS (unchanged) | No such import in the diff; the seam stays in `thoth-runtime` as documented at `start-thoth-cron.ts:161-166`                            |
+| Worker factory naming `{platform}-{capability}.ts`                   | PASS             | `electron-integrity-worker-factory.ts`, `cli-integrity-worker-factory.ts`                                                               |
+| `catch (error: unknown)` + `instanceof Error` narrowing              | PASS             | `start-thoth-cron.ts:214-218,398-402`                                                                                                   |
+| No `@ts-ignore`                                                      | PASS             | none found; `cli-integrity-worker-factory.ts:66` uses an explicit typed cast instead                                                    |
+| `useValue` registration before dependent service registration        | PASS             | `phase-2-libraries.ts:317-326`, `register-thoth-libraries.ts:92-97`, both before `registerPersistenceSqliteServices`                    |
+| `unref` guarded-cast idiom matches repo precedent                    | PASS             | `start-thoth-cron.ts:225` vs. `agent-process-manager.service.ts:1321-1322` and 13+ other sites                                          |
+| Job registration idempotency: `register` guarded, `upsert` unguarded | PASS             | `start-thoth-cron.ts:184-224`, mirroring `registerSkillDrainJobs`'s existing shape                                                      |
+| esbuild worker target option parity with `build-embedder-worker`     | PASS             | `apps/ptah-electron/project.json:161-184`, `apps/ptah-cli/project.json:155-179`                                                         |
+| File size ceiling (700 lines, soft)                                  | PASS             | `start-thoth-cron.ts` at 422 lines, well under                                                                                          |
+
+## Maintenance debt
+
+- Introduced: two new host-adapter files (thin, templated, low-risk); two new esbuild targets and their JSON list wiring (four list-edit sites now need to stay in sync for any fifth worker); one new cron job + handler in an already-established registration idiom.
+- Retired: nothing — this is additive wiring for Batch 1's already-landed service.
+- Net: small positive addition to maintenance surface, proportionate to the feature; no shortcuts taken to reduce it (no shared factory abstraction was invented prematurely — two workers is not yet evidence for one).
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: the boot-timer-arms-inside-the-registration-guard coupling in `start-thoth-cron.ts:184-224` is correct but implicit; a future refactor of `registerIntegrityCheckJob` that separates those two concerns without re-reading the guarantee could silently double-arm the timer.
+- What a 10/10 version would do differently: add a one-line comment at `start-thoth-cron.ts:189` stating explicitly that the boot timer's one-per-process guarantee depends on being armed inside the same guard as handler registration, not just alongside it; add a matching forward-pointer in `IIntegrityWorkerProcessFactory`'s own doc comment (or its file header) noting that the CLI legitimately registers a factory it never dispatches, so the fact is discoverable from the port definition and not only from the one registration call site.
