@@ -103,21 +103,38 @@ export class MessageFinalizationService {
     const newMessages: ExecutionChatMessage[] = [];
 
     if (finalTree.length === 0) {
-      if (existingIds.has(messageId)) {
-        this.tabManager.clearStreamingForLoaded(targetTabId);
+      // Nothing renderable reached a root message. This used to mint an
+      // assistant message with `streamingState: null` anyway, and that is
+      // exactly the empty "Assistant response" bubble: a background subagent
+      // keeps streaming after its parent turn ended, its nested messages are
+      // orphans in the next streaming state (their owning tool_start was
+      // finalized with the previous turn), and every settled background task
+      // then fired a terminal turn_state that finalized those orphans as an
+      // empty root message carrying the subagent's 2-5 token usage. A message
+      // with nothing to show is not a message. The turn's stats are still
+      // real, so they fold onto the last assistant message when there is one.
+      const last = existingMessages[existingMessages.length - 1];
+      if (
+        pendingStats &&
+        last?.role === 'assistant' &&
+        !existingIds.has(messageId)
+      ) {
+        this.tabManager.applyFinalizedTurn(targetTabId, [
+          ...existingMessages.slice(0, -1),
+          {
+            ...last,
+            tokens: finalTokens,
+            cost: finalCost,
+            duration: finalDuration,
+          },
+        ]);
+        if (this.tabManager.activeTabId() === targetTabId) {
+          this.sessionManager.setStatus('loaded');
+        }
         return;
       }
-      newMessages.push(
-        createExecutionChatMessage({
-          id: messageId,
-          role: 'assistant',
-          streamingState: null,
-          sessionId: targetTab?.claudeSessionId ?? undefined,
-          tokens: finalTokens,
-          cost: finalCost,
-          duration: finalDuration,
-        }),
-      );
+      this.tabManager.clearStreamingForLoaded(targetTabId);
+      return;
     } else {
       const lastIdx = finalTree.length - 1;
       for (let i = 0; i < finalTree.length; i++) {

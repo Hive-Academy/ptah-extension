@@ -276,6 +276,63 @@ describe('MessageFinalizationService', () => {
       expect(sessionManager.setStatus).toHaveBeenCalledWith('loaded');
     });
 
+    it('does not mint an empty assistant message when the tree has no root', () => {
+      // An orphaned subagent message (its owning tool_start was finalized with
+      // the previous turn) leaves `currentMessageId` set and the tree empty.
+      treeBuilder.buildTree.mockReturnValue([]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          streamingState: makeStreamingState({
+            currentMessageId: 'msg-orphan',
+          }),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
+      expect(tabManager.clearStreamingForLoaded).toHaveBeenCalledWith('tab-1');
+    });
+
+    it('folds pending stats onto the last assistant message when the tree has no root', () => {
+      treeBuilder.buildTree.mockReturnValue([]);
+      const previous = {
+        id: 'prev',
+        role: 'assistant',
+        cost: 0.01,
+      } as ExecutionChatMessage;
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [previous],
+          streamingState: makeStreamingState({
+            currentMessageId: 'msg-orphan',
+            pendingStats: {
+              tokens: { input: 2, output: 3 },
+              cost: 0.5,
+              duration: 42,
+            },
+          }),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(tabManager.applyFinalizedTurn).toHaveBeenCalledTimes(1);
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].id).toBe('prev');
+      expect(msgs[0].tokens).toEqual({ input: 2, output: 3 });
+      expect(msgs[0].cost).toBe(0.5);
+      expect(msgs[0].duration).toBe(42);
+    });
+
     it('clears streaming state without duplicating when the message is already finalized', () => {
       const finalNode = makeNode({ id: 'msg-1' });
       treeBuilder.buildTree.mockReturnValue([finalNode]);
