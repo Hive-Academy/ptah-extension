@@ -503,3 +503,141 @@ describe('ChatTranscriptComponent — render window', () => {
     expect(h.bubbleCount()).toBe(MESSAGE_COUNT);
   });
 });
+
+/**
+ * Gate A of the TASK_2026_381 measurement harness, implemented in Jest rather
+ * than as the planned Electron e2e spec (see test-report.md).
+ *
+ * The claim under test is "cause #1 is bounded": the number of MOUNTED message
+ * bubbles does not grow with the number of messages in the transcript. The
+ * assertion is a ceiling derived from the window constants — never a
+ * wall-clock or a byte threshold — so it is identical on every machine.
+ *
+ * The paired Gate B (a finalized message serializes below a stated ceiling)
+ * already exists as
+ * `chat-streaming/src/lib/message-finalization.retention.spec.ts`
+ * "keeps the finalized message under a stated serialized ceiling".
+ */
+describe('ChatTranscriptComponent — Gate A: mounted bubbles are bounded', () => {
+  /** How many contiguous slots the simulated viewport reports as intersecting. */
+  const VIEWPORT_SLOTS = 12;
+  /** The ceiling the mechanism guarantees, from the window constants alone. */
+  const MOUNTED_CEILING = ALWAYS_MOUNTED_TAIL + VIEWPORT_SLOTS;
+
+  let rafSpy: jest.SpyInstance;
+  const globalWithIo = globalThis as unknown as {
+    IntersectionObserver?: unknown;
+  };
+
+  beforeEach(() => {
+    FakeIntersectionObserver.instances = [];
+    globalWithIo.IntersectionObserver = FakeIntersectionObserver;
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+  });
+
+  afterEach(() => {
+    delete globalWithIo.IntersectionObserver;
+    FakeIntersectionObserver.instances = [];
+    rafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  /**
+   * Seed `total` finalized messages, attach the window, then report exactly one
+   * viewport-sized run of intersecting slots in the MIDDLE of the transcript —
+   * the steady state of a user who has scrolled up. Everything else, including
+   * the run's neighbours, is reported out of the window.
+   */
+  function mountedAt(total: number): {
+    mounted: number;
+    slots: number;
+    placeholders: number;
+  } {
+    // Callable twice inside one test (the "does not grow with N" case), so the
+    // module has to be torn down before each harness.
+    TestBed.resetTestingModule();
+    FakeIntersectionObserver.instances = [];
+
+    const h = makeHarness();
+    h.messagesSig.set(
+      Array.from({ length: total }, (_, i) => makeMessage(`m${i}`)),
+    );
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([]);
+    h.fixture.detectChanges();
+
+    const container: HTMLElement = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    );
+    h.fixture.debugElement.injector
+      .get(TranscriptRenderWindow)
+      .attach(container);
+    h.fixture.detectChanges();
+
+    const observer = FakeIntersectionObserver.instances[0];
+    const slots = h.slots();
+    const firstVisible = Math.floor(total / 2);
+    observer.emit(
+      slots.map((slot, i) => ({
+        target: slot,
+        isIntersecting: i >= firstVisible && i < firstVisible + VIEWPORT_SLOTS,
+        boundingClientRect: { height: 200 },
+      })),
+    );
+    h.fixture.detectChanges();
+
+    return {
+      mounted: h.bubbleCount(),
+      slots: slots.length,
+      placeholders: h.placeholders().length,
+    };
+  }
+
+  it.each([50, 200, 1000])(
+    'mounts at most the tail plus the viewport with %i messages',
+    (total) => {
+      const result = mountedAt(total);
+
+      // One slot per message: the scroll container keeps its real extent.
+      expect(result.slots).toBe(total);
+      expect(result.mounted).toBe(MOUNTED_CEILING);
+      expect(result.placeholders).toBe(total - MOUNTED_CEILING);
+    },
+  );
+
+  it('mounts the same number at 1000 messages as at 50 — it does not grow with N', () => {
+    // This is the whole claim of cause #1 in one assertion. Before the render
+    // window, mounted === total at every N.
+    expect(mountedAt(1000).mounted).toBe(mountedAt(50).mounted);
+  });
+
+  it('mounts everything when the platform has no IntersectionObserver', () => {
+    // The documented failure mode is today's behaviour, not a missing message.
+    delete globalWithIo.IntersectionObserver;
+
+    const h = makeHarness();
+    h.messagesSig.set(
+      Array.from({ length: 40 }, (_, i) => makeMessage(`m${i}`)),
+    );
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([]);
+    h.fixture.detectChanges();
+
+    const container: HTMLElement = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    );
+    h.fixture.debugElement.injector
+      .get(TranscriptRenderWindow)
+      .attach(container);
+    h.fixture.detectChanges();
+
+    expect(h.bubbleCount()).toBe(40);
+    expect(h.placeholders()).toHaveLength(0);
+  });
+});
