@@ -358,6 +358,9 @@ export class SkillPromotionService {
     try {
       return this.workspace?.getWorkspaceRoot() ?? '';
     } catch {
+      // degradation-audit: optional-capability - An open workspace is optional
+      // in headless hosts; empty string asks the adapter to reconcile known
+      // scope.
       return '';
     }
   }

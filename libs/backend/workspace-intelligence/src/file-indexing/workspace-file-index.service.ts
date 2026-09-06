@@ -516,6 +516,9 @@ export class WorkspaceFileIndexService {
     try {
       open = this.workspaceProvider.getWorkspaceFolders() ?? [];
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - cannot read the current
+      // open-folder list; treated as "no information" so the cache is kept
+      // rather than wrongly evicted, and the failure is logged below at warn.
       this.logger.warn(
         '[WorkspaceFileIndex] could not read workspace folders (keeping cached indexes)',
         error,

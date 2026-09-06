@@ -102,6 +102,10 @@ async function writeFileAtomicInternal(
     renamed = true;
   } finally {
     if (!renamed) {
+      // degradation-audit: optional-capability - best-effort cleanup of the
+      // leftover temp file after a failed atomic write; the write failure
+      // itself already propagates via the try block above, so a delete failure
+      // here is not new information for the caller.
       await unlink(tempPath).catch(() => undefined);
     }
   }

@@ -336,6 +336,10 @@ export class McpOAuthService {
         },
         body: body.toString(),
       });
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, a failed refresh request yields the documented null so the
+      // caller re-prompts for authorization; the failure is logged above, not
+      // hidden.
     } catch (error: unknown) {
       this.logger?.warn('MCP OAuth: refresh request failed', {
         serverKey,

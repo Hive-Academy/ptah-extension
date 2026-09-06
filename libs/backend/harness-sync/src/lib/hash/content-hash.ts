@@ -123,6 +123,9 @@ export async function hashFile(filePath: string): Promise<string | null> {
   try {
     return sha256(await readFile(filePath));
   } catch {
+    // degradation-audit: optional-capability - hashing is a
+    // presence/readability probe, and null means no comparable file content was
+    // available.
     return null;
   }
 }
@@ -219,6 +222,8 @@ async function classifyEntry(
     if (stat.isDirectory()) return 'directory';
     return stat.isFile() ? 'file' : 'skip';
   } catch {
+    // degradation-audit: optional-capability - an entry whose filesystem type
+    // cannot be probed is skipped so links or unusual nodes are never followed.
     return 'skip';
   }
 }
@@ -295,6 +300,9 @@ export async function hashDir(
   try {
     stat = await lstat(dir);
   } catch {
+    // degradation-audit: optional-capability - directory hashing is a presence
+    // probe, and null distinguishes an unavailable directory from a readable
+    // empty one.
     return null;
   }
   if (!stat.isDirectory()) return null;

@@ -80,6 +80,9 @@ export function summarizeToolInput(
   try {
     const str = JSON.stringify(input);
     return str.length > 150 ? str.substring(0, 147) + '...' : str;
+    // degradation-audit: optional-capability - this is a display-only summary
+    // for structured segments; an unstringifiable input just means no summary
+    // is shown, per the doc comment's "or undefined if empty" contract.
   } catch {
     return undefined;
   }

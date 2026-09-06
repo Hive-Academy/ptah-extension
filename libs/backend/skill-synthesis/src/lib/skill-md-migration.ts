@@ -263,6 +263,8 @@ function readMarkerOutcome(
   try {
     state = marker.read(skillsRoot);
   } catch (err: unknown) {
+    // degradation-audit: optional-capability - A marker read is only an
+    // optimization; unreadable deliberately forces the migration walk.
     // The store is expected to swallow its own failures, but a port cannot
     // enforce that. A throwing marker must never cost the migration.
     logger.debug(
@@ -305,6 +307,8 @@ function writeMarker(
     });
     return true;
   } catch (err: unknown) {
+    // degradation-audit: optional-capability - Persisting the scan marker is
+    // cache bookkeeping; false requests another walk next launch.
     // Non-fatal by construction: the walk already ran and already did the work.
     // Losing the marker costs one more walk next launch, nothing else.
     logger.warn(

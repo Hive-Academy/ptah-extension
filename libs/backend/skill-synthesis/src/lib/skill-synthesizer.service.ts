@@ -179,6 +179,8 @@ export class SkillSynthesizerService {
         outputSchema: SYNTHESIZED_SKILL_JSON_SCHEMA,
       });
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - LLM synthesis is optional;
+      // null lets the caller retain its deterministic template draft.
       this.logger.warn('[skill-synthesis] synthesizer: lane call threw', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -296,6 +298,8 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
           try {
             return JSON.parse(slice);
           } catch {
+            // degradation-audit: optional-capability - Embedded JSON recovery
+            // is heuristic; malformed text has no structured candidate.
             return null;
           }
         }

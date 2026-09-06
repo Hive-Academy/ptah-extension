@@ -154,6 +154,9 @@ export class McpInstallService {
     if (facet === undefined) return null;
     try {
       return facet.configPath(workspaceRoot ?? '');
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, an unresolvable config path is the documented null return, not
+      // a hidden failure.
     } catch {
       return null;
     }

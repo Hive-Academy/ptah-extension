@@ -328,6 +328,10 @@ export class PromptCacheService {
       const depInfo = extractDependencyInfo(result.value);
       return depInfo ? computeHash(depInfo) : null;
     } catch {
+      // degradation-audit: optional-capability - doc comment above documents
+      // null as "package.json not found"; callers treat a null hash as a
+      // cache-validity mismatch, which forces regeneration instead of serving a
+      // stale cache entry.
       return null;
     }
   }

@@ -261,6 +261,8 @@ export function readJudgeVerdictObject(
     const parsed: unknown = JSON.parse(match[0]);
     return isPlainObject(parsed) ? parsed : null;
   } catch {
+    // degradation-audit: optional-capability - Parsing embedded JSON is a
+    // heuristic fallback; null records that no judge object was recoverable.
     return null;
   }
 }

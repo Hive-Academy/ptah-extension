@@ -50,6 +50,9 @@ export function createHarnessCliDetector(
         return results.some(
           (result) => result.cli === target && result.installed,
         );
+        // degradation-audit: optional-capability - per the doc comment on this
+        // factory, a null or throwing reader means "nothing installed", which
+        // the reconciler reports as target-absent rather than an error.
       } catch {
         return false;
       }

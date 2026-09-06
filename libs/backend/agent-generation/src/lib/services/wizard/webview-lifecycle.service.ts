@@ -317,6 +317,9 @@ export class WizardWebviewLifecycleService {
     try {
       return this.webviewManager.hasWebview(viewType);
     } catch {
+      // degradation-audit: optional-capability - an "is it open" probe; a
+      // lookup failure means no panel exists for this view type, the same as
+      // the normal not-found case.
       return false;
     }
   }
@@ -331,6 +334,9 @@ export class WizardWebviewLifecycleService {
     try {
       return this.webviewManager.getWebviewPanel(viewType);
     } catch {
+      // degradation-audit: optional-capability - doc comment above documents
+      // "undefined otherwise"; a lookup failure means no open panel for this
+      // view type, same as the normal not-found case.
       return undefined;
     }
   }

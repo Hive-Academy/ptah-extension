@@ -117,6 +117,9 @@ function runProbe(
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       });
     } catch {
+      // degradation-audit: optional-capability - toolchain install probe;
+      // cross-spawn can throw synchronously on a malformed binary name, treated
+      // the same as "binary not found" so the toolchain reports not-installed.
       // cross-spawn can throw synchronously on a malformed binary name.
       resolve({ ok: false, text: '' });
       return;

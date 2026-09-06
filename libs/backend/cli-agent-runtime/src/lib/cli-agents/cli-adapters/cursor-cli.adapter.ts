@@ -181,6 +181,10 @@ function resolveCursorApiKey(): string | undefined {
     const cursor = provider?.['cursor'] as Record<string, unknown> | undefined;
     const key = cursor?.['apiKey'];
     return typeof key === 'string' && key.trim() ? key.trim() : undefined;
+    // degradation-audit: optional-capability - `~/.ptah/settings.json` may not
+    // exist yet, or may lack a cursor provider key; that is the ordinary "not
+    // configured" state, so a read/parse failure yields the same undefined as a
+    // key that was never set.
   } catch {
     return undefined;
   }
@@ -270,6 +274,9 @@ export class CursorCliAdapter implements CliAdapter {
 
     const onAbort = (): void => {
       if (activeRun) {
+        // degradation-audit: optional-capability - abort is best-effort
+        // cancellation cleanup; the run is being torn down regardless, so a
+        // failed cancel request has nothing left for the caller to act on.
         void activeRun.cancel().catch(() => {
           /* non-fatal */
         });

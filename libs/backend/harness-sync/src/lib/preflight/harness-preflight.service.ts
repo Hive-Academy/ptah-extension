@@ -144,6 +144,9 @@ export class HarnessPreflightService {
     try {
       workspaceRoot = resolveHarnessWorkspaceRoot(cwd);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - preflight root discovery is
+      // advisory, and an unresolved session cwd means the bounded check is
+      // skipped.
       this.logger.debug('[harness-sync] Preflight could not resolve a root', {
         cwd,
         error: error instanceof Error ? error.message : String(error),
@@ -234,6 +237,9 @@ export class HarnessPreflightService {
     try {
       ready = await gate.awaitContentReady(remainingMs);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - waiting for an in-flight
+      // content download is an optional retry, so failure keeps the original
+      // pending report.
       this.logger.debug('[harness-sync] Content gate failed (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -340,6 +346,9 @@ export class HarnessPreflightService {
     try {
       return this.deps.readTimeoutMs?.();
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the host-supplied timeout
+      // setting is optional, and undefined selects the documented default
+      // budget.
       this.logger.debug(
         '[harness-sync] Preflight timeout config read failed; using the default budget',
         {

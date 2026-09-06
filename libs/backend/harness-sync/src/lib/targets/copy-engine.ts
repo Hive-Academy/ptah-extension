@@ -172,6 +172,9 @@ export async function hashTransformedDir(
   try {
     stat = await lstat(sourceDir);
   } catch {
+    // degradation-audit: optional-capability - this hash is only an adoption
+    // probe, and null preserves an unowned target when the source cannot be
+    // compared.
     return null;
   }
   if (!stat.isDirectory()) return null;
@@ -199,6 +202,9 @@ async function hashTransformedFile(
   try {
     content = await readFile(absolute, 'utf-8');
   } catch {
+    // degradation-audit: optional-capability - unreadable transformed content
+    // gets a non-matching sentinel so an unowned target cannot be adopted
+    // accidentally.
     return 'unreadable';
   }
   const isTopLevel = !relative.includes('/');

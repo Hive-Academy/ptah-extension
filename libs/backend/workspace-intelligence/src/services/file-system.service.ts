@@ -100,6 +100,9 @@ export class FileSystemService {
     try {
       return await this.fsProvider.exists(path);
     } catch {
+      // degradation-audit: optional-capability - existence probe; a provider
+      // error is treated the same as "does not exist" for this is-it-there
+      // check.
       return false;
     }
   }

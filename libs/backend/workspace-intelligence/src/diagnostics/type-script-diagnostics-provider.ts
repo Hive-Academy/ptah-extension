@@ -158,6 +158,9 @@ function resolveTypescriptModulePath(
   try {
     return require.resolve('typescript');
   } catch {
+    // degradation-audit: optional-capability - probe for this bundle's own
+    // typescript module; failure means no compiler is available anywhere,
+    // reported upstream as unavailable rather than thrown.
     return undefined;
   }
 }
@@ -252,6 +255,9 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     // after the budget already answered has no handler attached and surfaces as
     // an unhandled rejection. Attaching one here does not consume it: real
     // awaiters of `run` still receive the rejection.
+    // degradation-audit: optional-capability - this catch only silences an
+    // unhandled-rejection warning; the compile's real failure still reaches
+    // every real awaiter of `run` through Promise.race above.
     void run.catch(() => undefined);
 
     let timer: NodeJS.Timeout | undefined;
@@ -524,6 +530,10 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     try {
       entries = await this.fs.readDirectory(dir);
     } catch {
+      // degradation-audit: optional-capability - a directory that cannot be
+      // read during the upward config walk is treated as owning no tsconfig;
+      // resolveOwningConfigs keeps walking up, and finding none anywhere is
+      // reported as unavailable, never a false clean.
       // A directory that cannot be read owns no config we can compile. The walk
       // continues upward; an empty result at every level is reported as
       // `unavailable`, never as a clean check.

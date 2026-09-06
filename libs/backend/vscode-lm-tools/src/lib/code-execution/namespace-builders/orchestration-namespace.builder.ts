@@ -106,6 +106,10 @@ export function buildOrchestrationNamespace(
       const content = await fs.promises.readFile(getStatePath(taskId), 'utf8');
       return JSON.parse(content) as OrchestrationState;
     } catch {
+      // degradation-audit: optional-capability - a missing
+      // .orchestration-state.json means the task has no saved orchestration
+      // state yet (a brand-new task); null is the correct "no state" answer,
+      // not a hidden error.
       return null;
     }
   };
@@ -187,6 +191,10 @@ export function buildOrchestrationNamespace(
         await fs.promises.stat(path.join(taskFolder, doc));
         return true;
       } catch {
+        // degradation-audit: optional-capability - this is a plain existence
+        // probe; fs.stat throwing ENOENT for a spec document that has not been
+        // written yet IS the "not satisfied" answer this function exists to
+        // give.
         return false;
       }
     };

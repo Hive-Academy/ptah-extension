@@ -174,6 +174,9 @@ export class UserLayerOrphanReaper {
     try {
       names = await this.fs.listSubdirectories(skillsRoot);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means the skills root
+      // does not exist yet, which is normal before the first mirror; a real
+      // error still falls through to the warn + errors counter below.
       if (!this.fs.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn('[UserLayerMirror] reap failed to read skills root', {
@@ -231,6 +234,10 @@ export class UserLayerOrphanReaper {
     try {
       files = await this.fs.listMarkdownFiles(rootDir);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means this clone root
+      // (commands/agents) does not exist yet, which is normal before the first
+      // mirror; a real error still falls through to the warn + errors counter
+      // below.
       if (!this.fs.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn('[UserLayerMirror] reap failed to read clone root', {
@@ -317,6 +324,10 @@ export class UserLayerOrphanReaper {
       const liveHash = await computeSourceHash(clonePath);
       return liveHash !== sidecar.sourceHash;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - per the doc comment above, a
+      // hash that cannot be computed is treated as "yes, there is local work",
+      // which keeps the clone instead of reaping it; the warn below still
+      // surfaces the underlying read failure.
       this.logger.warn(
         '[UserLayerMirror] could not hash clone before reaping; keeping it',
         {

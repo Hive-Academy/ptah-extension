@@ -573,7 +573,10 @@ export class OpencodeCliAdapter implements CliAdapter {
     try {
       event = JSON.parse(trimmed) as OpencodeEvent;
     } catch {
-      // Not a complete JSON object (partial line / non-JSON banner) — skip.
+      // degradation-audit: optional-capability - not a complete JSON object
+      // (partial line / non-JSON banner); opencode's stream-json output is
+      // interleaved with plain text, so skipping the line is the documented
+      // defensive behaviour, not a hidden parse bug.
       return;
     }
 

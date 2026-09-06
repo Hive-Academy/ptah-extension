@@ -355,6 +355,10 @@ export class GeneratedSectionValidator {
     try {
       return await this.fileSystem.exists(`${root}/${relative}`);
     } catch {
+      // degradation-audit: optional-capability - this is a best-effort "does
+      // this path exist" probe (doc comment above says "Never throws"); a probe
+      // failure is treated the same as "not found", which correctly flags the
+      // citation as unknown rather than crashing validation.
       return false;
     }
   }
