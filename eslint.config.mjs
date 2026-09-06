@@ -289,6 +289,12 @@ export default [
         },
       ],
       '@typescript-eslint/no-empty-function': ['warn'],
+      // TASK_2026_383 component 4 evidence: only 9 empty catches repo-wide,
+      // 7 of them in specs and the 2 production ones inside detector
+      // fixtures in workspace-intelligence's own error-handling-rules.ts.
+      // Nearly free, nearly pointless as a standalone gate — the real
+      // inventory is tools/degradation-audit's ratchet below, not this rule.
+      'no-empty': ['error', { allowEmptyCatch: false }],
     },
   },
   {
@@ -297,6 +303,19 @@ export default [
       'no-restricted-syntax': ['error', ...MESSAGE_LITERAL_SELECTORS],
     },
   },
+  // `@typescript-eslint/no-floating-promises` was evaluated here and
+  // rejected — see `implementation-plan.md` component 4's "Rejected
+  // alternatives" and TASK_2026_383 batch-3-report.md for the measurement.
+  // `projectService: true` scoped to `apps/ptah-electron/src/**`,
+  // `libs/backend/thoth-runtime/src/**`, `libs/backend/persistence-sqlite/src/**`
+  // took ~70s to type-check ptah-electron's `src/` alone (measured
+  // 2026-09-06) AND failed outright on every `*.spec.ts` in that tree
+  // ("was not found by the project service") because
+  // `apps/ptah-electron/tsconfig.json` references only `tsconfig.app.json`,
+  // never `tsconfig.spec.json`. The plan's own contingency for this exact
+  // outcome is the AST selector in `tools/degradation-audit` instead — see
+  // the `floating-promise` pattern there, scoped to the same three
+  // directories without needing type information or a project rebuild.
   {
     /**
      * File-size ceiling (TASK_2026_268). `skill-synthesis.service.ts` grew

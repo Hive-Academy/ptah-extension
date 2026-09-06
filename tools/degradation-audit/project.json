@@ -1,0 +1,30 @@
+{
+  "name": "degradation-audit",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/degradation-audit",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/check-degradation.ts",
+        "{projectRoot}/baseline.json",
+        "{workspaceRoot}/libs/**/src/**/*.ts",
+        "{workspaceRoot}/apps/**/src/**/*.ts"
+      ],
+      "options": {
+        "command": "npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "self-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node tools/degradation-audit/run-self-test.js",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  }
+}

@@ -110,6 +110,15 @@ jobs:
           npx nx run di-lint:self-test
           npx nx run di-lint:lint
 
+      # Degradation-audit ratchet (TASK_2026_383 Batch 3) — per-directory
+      # inventory of silently swallowed catch/`.catch()` sites. Also runs its
+      # own meta self-test against a planted fixture first, same discipline as
+      # di-lint above: a broken detector must not silently pass.
+      - name: degradation-audit (swallowed-failure ratchet + self-test)
+        run: |
+          npx nx run degradation-audit:self-test
+          npx nx run degradation-audit:lint
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below
