@@ -37,9 +37,15 @@
  * ## Usage
  *
  *   node apps/ptah-electron-e2e/scripts/measure-boot-rpcs.mjs [--ws=<path>] \
- *        [--db=<path>] [--seconds=90]
+ *        [--db=<path>] [--seconds=90] [--keep-db]
  *
  * Requires a build: `npx nx build-dev ptah-electron && npx nx copy-renderer-dev ptah-electron`.
+ *
+ * `--keep-db` skips the temp-dir cleanup (userData + database copy) on EITHER
+ * exit path -- the early failure right after launch and the normal
+ * end-of-run close -- and prints the retained paths instead of silently
+ * deleting them, so a run kept for post-mortem inspection is never orphaned
+ * without a trace (TASK_2026_383 Batch 4, Task 4.4 / PC-9).
  */
 
 import * as fs from 'fs';
@@ -59,7 +65,27 @@ function arg(name, fallback) {
 const WORKSPACE = path.resolve(arg('ws', REPO_ROOT));
 const SECONDS = Number(arg('seconds', '90'));
 const DB_SOURCE = arg('db', '');
+const KEEP_DB = process.argv.includes('--keep-db');
 const ENTRY = path.join(REPO_ROOT, 'dist', 'apps', 'ptah-electron', 'main.mjs');
+
+/**
+ * Remove the run's temp dirs, or print and keep them under `--keep-db`.
+ *
+ * Called from BOTH `app.close()` exit paths (PC-9): the early-failure path
+ * right after `app.evaluate(INSTALL_PROBE)` throws, and the normal
+ * end-of-run path. Neither replaces the other, so this must not assume it
+ * runs exactly once.
+ */
+function cleanupOrKeep(db, userDataDir) {
+  if (KEEP_DB) {
+    console.log('\n[probe] --keep-db set; retaining run artifacts:');
+    console.log(`  database:   ${db.target}`);
+    console.log(`  userData:   ${userDataDir}`);
+    return;
+  }
+  fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
+  fs.rm(db.dir, { recursive: true, force: true }, () => undefined);
+}
 
 /**
  * A private database for this run.
@@ -213,6 +239,7 @@ async function main() {
         '[probe] captured before this point and names the reason.',
     );
     await app.close().catch(() => undefined);
+    cleanupOrKeep(db, userDataDir);
     process.exit(1);
   }
 
@@ -238,8 +265,7 @@ async function main() {
 
   report(collected, stdout, t0);
 
-  fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
-  fs.rm(db.dir, { recursive: true, force: true }, () => undefined);
+  cleanupOrKeep(db, userDataDir);
 }
 
 /**
