@@ -1,9 +1,10 @@
 # Batches - TASK_2026_380
 
-Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 4/5
-Implementation tasks complete: 16/16 — all 14 components have landed. Batch 5
-(verification) is the only batch open. | Commits: `0c7e4d05c` (Batch 1),
-`ee6ad1d8a` (Batch 2), `4a00d8c74` (Batch 3), `156637eb2` (Batch 4)
+Total tasks: 14 components in 18 tasks | Batches: 5 | **Complete: 5/5**
+Tasks complete: 18/18 | Commits: `0c7e4d05c` (Batch 1), `ee6ad1d8a` (Batch 2),
+`4a00d8c74` (Batch 3), `156637eb2` (Batch 4), `5d0f0356b` (Batch 5) — five
+commits on `electron-cold-start-380` on top of `7619bebd2`, all verified present
+in `git log`. `task.md` status is `done`.
 
 **Repository root for every path in this file (a git worktree on branch
 `electron-cold-start-380`):**
@@ -1023,9 +1024,34 @@ npm run lint:all
 
 ---
 
-## Batch 5: Acceptance measurement and final review — IN_PROGRESS
+## Batch 5: Acceptance measurement and final review — COMPLETE
 
-> Task 5.1 is with **senior-tester** (cold-cache measurement + the two deferred
+- **Commit: `5d0f0356b`** — `test(electron): batch 5 - cold-start acceptance
+measurement`
+- Reports: `test-report.md`, plus the whole-task passes appended to
+  `code-logic-review.md` and `code-style-review.md`.
+- Reviews: whole-task code-logic-reviewer **APPROVED WITH NOTES** 7/10 — its one
+  new finding (the integrity worker was absent from `BootRefs` and `shutdown.ts`
+  and had no `AbortSignal`, so it could outlive the host on quit) was **FIXED in
+  this batch**: `dispatchIfDue({ signal })`, `dispose()`, `refs.integrityService`,
+  `nonFatal` in `disposeBeforePersistence`, `startThothCron({ signal })`, and a
+  guarded resolve in the `db:integrity` handler. Whole-task code-style-reviewer
+  **APPROVED WITH NOTES** 8/10 — its seven-file documentation backlog was applied
+  (nine `CLAUDE.md` files; the `PLATFORM_TOKENS` count corrected to 27 as counted
+  in `tokens.ts`).
+- **Blocking Finding F-1, found only because the measurement was run:** the ESM
+  worker bundle had no `createRequire` banner, so `better-sqlite3` never loaded
+  and **every** integrity check degraded to `unavailable` — the fail-safe behaved
+  exactly as designed and hid a dead feature. Fixed in this batch: an inline
+  `banner.js` on both `build-integrity-worker` targets, an 8-spec gate at
+  `apps/ptah-electron/src/config/integrity-worker-bundle.spec.ts`, and
+  `npx nx reset` after the `project.json` edit.
+- Final verification: `run-many -t test` green for `persistence-sqlite`,
+  `thoth-runtime`, `ptah-electron`; typecheck green for 5 projects; `lint:all`
+  green across 72 projects; `nx build ptah-electron` green with `createRequire`
+  present in the worker bundle.
+
+> Historical note — Task 5.1 was with **senior-tester** (cold-cache measurement + the two deferred
 > `webview-e2e-harness` cases + the A-1 live check). Task 5.2's whole-task
 > reviews run **in parallel** by orchestrator judgement — all four
 > implementation commits are on disk, so the reviewers do not need the
@@ -1042,7 +1068,7 @@ npm run lint:all
   scope decision (whether any readiness guard ships at all).
 - Tasks: 2 | Depends on: Batches 1-4
 
-### Task 5.1: Cold-cache boot measurement — IN_PROGRESS
+### Task 5.1: Cold-cache boot measurement — COMPLETE
 
 - File: `…/.ptah/specs/TASK_2026_380/test-report.md` (CREATE)
 - Plan reference: implementation-plan.md:1762-1772
@@ -1072,7 +1098,7 @@ npm run lint:all
   read-only connection opens against the same WAL database, and that a forced
   open failure produces `unavailable` with no record written.
 
-### Task 5.2: Final reviews — IN_PROGRESS
+### Task 5.2: Final reviews — COMPLETE
 
 - Running in parallel with Task 5.1 (orchestrator judgement — the code is fully
   committed, so the reviews do not depend on the measurement).
@@ -1096,4 +1122,85 @@ nx build ptah-cli
 - Both `run-many` headers report 8 and 5 projects respectively.
 - `dist/apps/ptah-electron/integrity-worker.mjs` exists.
 - `test-report.md` records all four acceptance criteria with measured numbers.
-- Commit: `test(ptah-electron): batch 5 - cold-start acceptance measurement`
+- Commit: `test(electron): batch 5 - cold-start acceptance measurement`
+
+---
+
+## Completion
+
+**Status: every batch COMPLETE, every commit verified in `git log`.**
+
+| Batch | Name                                                            | Commit      |
+| ----- | --------------------------------------------------------------- | ----------- |
+| 1     | Foundations — persistence state, skill deferral, wire contracts | `0c7e4d05c` |
+| 2     | Integrity worker hosts, build targets and scheduling            | `ee6ad1d8a` |
+| 3     | Boot readiness port, RPC, Electron activation, activity emitter | `4a00d8c74` |
+| 4     | Renderer — boot status, boot screen, activity service, ticker   | `156637eb2` |
+| 5     | Acceptance measurement and final review                         | `5d0f0356b` |
+
+### Measured before / after (`test-report.md`, cold-cache boot against a 1.06 GB temp copy)
+
+| Acceptance criterion                                           | Before                            | After                                                                                                                                            | Verdict |
+| -------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `openAndMigrate()` under 3 s                                   | ~26 s                             | **14–32 ms**                                                                                                                                     | PASS    |
+| No lag warning above 500 ms before the first answered RPC      | 25.8 s                            | **none**                                                                                                                                         | PASS    |
+| No skill boot-scan enqueue in the first 5 minutes              | ~90 s of stalls from ~45 enqueues | **zero enqueues in the boot window**                                                                                                             | PASS    |
+| Ticker narrates the phases and settles into its collapsed form | no such surface                   | **proven by two new Playwright cases** — `scenarios/boot/boot-progress.e2e.spec.ts` and `scenarios/thoth/activity-ticker.e2e.spec.ts`, 2 passing | PASS    |
+
+The two `webview-e2e-harness` cases deferred out of Batch 4 were written and run
+here, so nothing from that deferral is outstanding.
+
+### Validation-risk resolutions
+
+| Validation risk / assumption                                                               | Resolution                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A-1** — a read-only connection can open the WAL database while the main process holds it | **PROVEN LIVE**: `integrity check passed {durationMs: 1983, pageCount: 259535, foreignKeyViolations: 0}`, with the `db_integrity_check_state` row read back read-only while the app held the WAL. |
+| **A-2** — `cli-engine` calls `startThothCron`                                              | **REFUTED at decomposition.** The CLI ships the factory as the host answer to the port and has no dispatch site; recorded at the registration site, per the plan's own instruction.               |
+| **A-3** — `rpc.types.ts` line anchors were second-hand                                     | Closed by Task 3.2 reading the file; `rpc-allowlist.spec.ts` green.                                                                                                                               |
+| **A-4** — `skippedByMarker` reading in `context.md`                                        | Root cause 4 confirmed not a defect; `markerOutcome` shipped so the next such question costs one log line.                                                                                        |
+| Four worker-build lists, not one                                                           | Closed in Batch 2 — all four edited; the third target's real name is `serve:watch`.                                                                                                               |
+| Half-registered RPC namespace crashes at boot                                              | Materialised in Batch 1 exactly as predicted, contained by reverting the hunk into Task 3.2's atomic four-site registration.                                                                      |
+| Migration `0042` written into a real database                                              | Every run used `PTAH_DB_PATH` against a temp copy; the user's real database was never written.                                                                                                    |
+| Worker or timer outliving the host                                                         | Found by the whole-task logic review and fixed in Batch 5 (`AbortSignal`, `dispose()`, `shutdown.ts` wiring).                                                                                     |
+| An unbounded `INDEXING_PROGRESS` stream evicting the ring                                  | 750 ms latest-wins coalescing, pinned by two specs.                                                                                                                                               |
+
+### Follow-ups — recorded, deliberately NOT done in this task
+
+1. **Pre-migration backup and the daily backup still copy the ~1 GB file on the
+   main thread** (`migration-runner.ts:88-99`) — measured 27 s with 3.2 s lag
+   spikes on the first boot that applies `0042`. This is the same fault class this
+   task fixed, one layer over; the worker built here makes it a small change.
+2. ~15 s of sub-second jank after first paint from CLI/SDK detection
+   (`agent:listCliModels` at 6 s and friends).
+3. User-defined cron jobs emit no activity event — needs an event surface on
+   `CronScheduler`.
+4. No integration spec that `PLATFORM_TOKENS.BOOT_READINESS` resolves to the
+   Electron adapter after a real DI bootstrap.
+5. `withActivityEmit` could take an exhaustive switch.
+6. `measure-boot-rpcs.mjs` wants a `--keep-db` flag.
+7. `memory-curator`'s `bootScanDelayMs` / `IdleBackoffMs` and three
+   `skillSynthesis.*` keys are still absent from `FILE_BASED_SETTINGS_KEYS` — the
+   silently-write-dropped bug this task fixed only for its own two keys.
+8. `SkillMdMigrationMarkerOutcome` is not exported from the skill-synthesis barrel.
+9. **Process lesson, not code:** the tester's fix agent force-killed the user's
+   running Ptah desktop app with `taskkill /F /IM electron.exe`. The real database
+   was untouched, but a probe must kill **by PID**, never by image name — an image
+   name matches every Electron app on the machine, including the user's own
+   running work.
+
+### Next action: orchestrator selects QA
+
+All applicable QA already ran inside the batches: senior-tester (acceptance
+measurement + two Playwright cases), whole-task code-logic-reviewer and
+whole-task code-style-reviewer, each with its findings fixed and re-verified
+before its commit.
+
+- **Recommended: skip further QA and open the pull request** — the acceptance
+  criteria are measured rather than asserted, the two review passes are whole-task
+  rather than per-batch, and the one surface without a rendered check (the boot
+  screen and header ticker) is now covered by Playwright.
+- Alternative if a rendered-taste pass is wanted: **visual-reviewer** on the
+  running Electron build, for the boot screen's typography and the ticker's
+  contrast in both themes. It would review taste, not correctness.
+- Alternative: **modernization-detector**, to fold the nine follow-ups above into
+  `future-enhancements.md` before they scatter.
