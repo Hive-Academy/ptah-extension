@@ -210,6 +210,7 @@ function registerIntegrityCheckJob(
   handlerRegistry: IHandlerRegistry,
   logPrefix: string,
   emit: ActivityEmitter,
+  signal: AbortSignal | undefined,
 ): void {
   if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE)) {
     return;
@@ -221,34 +222,65 @@ function registerIntegrityCheckJob(
     handlerRegistry.register(
       INTEGRITY_HANDLER_NAME,
       withActivityEmit(emit, INTEGRITY_HANDLER_NAME, async () => {
-        const integrity = container.resolve<SqliteIntegrityService>(
-          PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
-        );
+        // Same guard shape as the boot timer three lines down: `isRegistered`
+        // was true when this handler was REGISTERED, and the resolve happens
+        // hours later — a container that has since been disposed throws, and a
+        // cron run has nowhere to put that. A skipped run with a reason token
+        // is the honest answer.
+        let integrity: SqliteIntegrityService;
+        try {
+          integrity = container.resolve<SqliteIntegrityService>(
+            PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+          );
+        } catch (resolveErr: unknown) {
+          console.warn(
+            `${logPrefix} Integrity check skipped (non-fatal):`,
+            resolveErr instanceof Error
+              ? resolveErr.message
+              : String(resolveErr),
+          );
+          return {
+            outcome: 'skipped' as const,
+            reason: 'integrity-service-unavailable',
+          };
+        }
         if (!integrity.isDue()) {
           return { outcome: 'skipped' as const, reason: 'not-due' };
         }
+        // No `signal` here on purpose: the boot signal belongs to the 60 s boot
+        // window, and this run fires at 03:30. The cron runner owns this run's
+        // lifetime.
         void integrity.dispatchIfDue();
         return { summary: 'integrity check dispatched (runs out of process)' };
       }),
     );
 
-    const bootTimer = setTimeout(() => {
-      try {
-        const integrity = container.resolve<SqliteIntegrityService>(
-          PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
-        );
-        void integrity.dispatchIfDue();
-      } catch (bootErr: unknown) {
-        console.warn(
-          `${logPrefix} Integrity boot dispatch skipped (non-fatal):`,
-          bootErr instanceof Error ? bootErr.message : String(bootErr),
-        );
-      }
-    }, INTEGRITY_BOOT_DISPATCH_DELAY_MS);
-    // Guarded shape because `unref` exists on Node's `Timeout` but not on the
-    // DOM's numeric handle. An integrity check must never be the reason a host
-    // refuses to quit.
-    (bootTimer as { unref?: () => void }).unref?.();
+    // An already-aborted boot arms nothing. The host is quitting, so a timer
+    // whose only job is to start a gigabyte read in sixty seconds has nothing
+    // left to be right about.
+    if (signal?.aborted !== true) {
+      const bootTimer = setTimeout(() => {
+        try {
+          const integrity = container.resolve<SqliteIntegrityService>(
+            PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+          );
+          // The boot signal reaches the CHILD PROCESS through here: a quit
+          // during the check kills the worker and writes no record, rather than
+          // leaving it reading the database behind a dying parent
+          // (TASK_2026_380 whole-task logic review).
+          void integrity.dispatchIfDue({ signal });
+        } catch (bootErr: unknown) {
+          console.warn(
+            `${logPrefix} Integrity boot dispatch skipped (non-fatal):`,
+            bootErr instanceof Error ? bootErr.message : String(bootErr),
+          );
+        }
+      }, INTEGRITY_BOOT_DISPATCH_DELAY_MS);
+      // Guarded shape because `unref` exists on Node's `Timeout` but not on the
+      // DOM's numeric handle. An integrity check must never be the reason a host
+      // refuses to quit.
+      (bootTimer as { unref?: () => void }).unref?.();
+    }
   }
 
   jobStore.upsert({
@@ -425,6 +457,7 @@ export async function startThothCron(
             ),
             logPrefix,
             emitActivity,
+            options.signal,
           );
         } catch (integrityErr: unknown) {
           console.warn(

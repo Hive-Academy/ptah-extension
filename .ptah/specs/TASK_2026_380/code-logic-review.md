@@ -1367,3 +1367,200 @@ guard against the loading/error branch overlap (F-2).
   branch in `app.html`; full-shape guards (or targeted type coercion) on the
   nine partially-validated activity mappers, matching the pattern
   `mapActivityEvent` already demonstrates in the same file.
+
+## Whole-task pass (Batch 5)
+
+Scope: the seams between the four committed batches
+(`0c7e4d05c`/`ee6ad1d8a`/`4a00d8c74`/`156637eb2`) on top of `7619bebd2`,
+re-read against the boot path end to end, shutdown, the shared-database
+contract, the readiness-provider registration race, activity fan-in, and the
+settings round-trip. Per-file/per-batch logic was not re-litigated except
+where a seam crosses batch boundaries or where a prior batch review recorded
+an open item. Every file cited below was read in full at its current
+(post-`156637eb2`) content, not from the diff hunks alone.
+
+### Verified: the four Batch 4 fixes named in the brief are in `156637eb2`
+
+- **Watchdog re-pull, monotonic rule**: `boot-status.service.ts:130,196-207`
+  (`startWatchdog`/`stopWatchdog`, armed only while `warming`, `unref`-free
+  but bounded by `stopWatchdog` on any terminal snapshot) plus the monotonic
+  guard in `pullReadiness` (`:172-177`) via `isAtLeastAsAdvanced` (`:220-231`).
+  A push is exempted from the monotonic rule (`handleMessage:151-156`,
+  `adopt:186-194`), matching the doc comment's "a push is always
+  authoritative" rule. Confirmed present, confirmed reasoned correctly: the
+  watchdog is Electron-only (`startWatchdog:197`, `!this.isElectron` guard)
+  and stops the instant a terminal snapshot lands.
+- **Exclusive error → loading → shell chain**: `app.html:15,34,54` — one
+  `@if`/`@else if`/`@else if` chain, error first, with the review comment at
+  the top of the file (`:1-11`) explicitly naming the F-2 defect it replaces.
+  Confirmed mutually exclusive: the three branches can no longer render
+  together.
+- **`Number.isFinite`/`typeof` guards in the mappers**:
+  `back-office-activity.service.ts:278,286,332,347,352,387,403,423` — every
+  numeric/string field the F-3/F-4 findings named now has an explicit
+  `Number.isFinite`/`typeof` check before use. Confirmed present in all the
+  cited mapper functions.
+- **Boot-gated canvas skeleton**: `app-shell.component.html:688`
+  (`@else if (bootStatus.isBooting())`), and the equivalent session-list
+  skeleton at `:349` (`@if (bootStatus.isBooting())`). Confirmed: the
+  skeleton now only shows during an active boot, not on every falsy
+  `orchestraCanvasComponent`.
+
+All four are real fixes, not partial patches — each closes the specific
+scenario its Batch 4 finding described, not merely a symptom of it.
+
+### New finding — the integrity worker is the one boot-path resource with no shutdown entry
+
+This task adds exactly one new class of long-lived-during-boot resource that
+none of the four batches ever wires into the disposal chain: the integrity
+worker child process owned by `SqliteIntegrityService`
+(`libs/backend/persistence-sqlite/src/lib/integrity/integrity-check.service.ts`).
+
+- `dispatchIfDue()` takes no `AbortSignal` parameter anywhere in its
+  signature (confirmed: `grep -n "signal" integrity-check.service.ts` finds
+  no match) and neither of its two Electron callers — the 60 s boot timer
+  and the `db:integrity` cron handler, both `void`-fired
+  (`start-thoth-cron.ts:213,222`) — ever passes `coordinator.abortSignal`
+  into it, unlike `refreshUserLayer`/`reconcileHarness`/`scanAndImport`
+  in the same file, which all thread `signal` through
+  (`boot-heavy-services.ts:159-163,197,233-238,257-260,346-352`).
+  `coordinator.abort()` therefore has no effect on an in-flight
+  `dispatchIfDue()` call.
+- `apps/ptah-electron/src/activation/shutdown.ts` has zero references to
+  "integrity" (confirmed by grep across the file) and `BootRefs`
+  (`boot-coordinator.ts:97-134`) has no field for the worker or the
+  `SqliteIntegrityService` instance itself — the one resource this task adds
+  is invisible to the exhaustive `nonFatal(...)` LIFO chain that
+  `disposeBeforePersistence`/`disposeAfterPersistence` walk for every other
+  handle (git watcher, cron scheduler, memory curator, symbol watcher,
+  the CLI registry, the agent process manager, diagnostics — every one has an
+  entry; the integrity worker has none).
+- This directly contradicts `apps/ptah-electron/CLAUDE.md`'s own stated rule:
+  "New long-lived resources must add a field to `BootRefs`
+  (`src/activation/boot-coordinator.ts`) and a `nonFatal(...)` line in the
+  right half of the chain."
+- Consequence, traced end to end: a quit that lands while a worker-spawned
+  check is in flight does not signal the worker to stop, and
+  `disposeAfterPersistence` closes the host's write connection
+  (`shutdown.ts:221`, `refs.sqliteConnection?.close()`) without regard to
+  whether `SqliteIntegrityService.record()` is about to call
+  `IntegrityCheckStateStore.write()` against it. The store's own `write()`
+  swallows a failure into a `logger.warn` and drops the record
+  (`integrity-check-state.store.ts:117-135`), so this is **not** a
+  corruption path — it degrades to "one lost verdict, retried next window",
+  consistent with the store's documented contract. The residual risk is
+  narrower than data loss: an unkilled child process outliving the parent on
+  a platform where Electron's `utilityProcess` lifecycle does not itself
+  guarantee termination on `app.quit()` — a claim no batch, and no test in
+  this repository, verifies either way.
+- Severity: **Moderate**, not blocking — no corruption path, the existing
+  worst case (a lost verdict) is the store's own designed degrade, and the
+  5-minute budget timer (Batch 1, unref'd) already bounds how long a wedged
+  worker can matter to the process's own liveness. But it is a real,
+  concrete violation of this repository's own disposal convention, introduced
+  by this task and uncaught by any of the four per-batch reviews because none
+  of them had the shutdown chain in its file list at the same time as the
+  worker factory.
+- Recommendation: add `integrityService: SqliteIntegrityService | null` (or
+  the worker handle directly) to `BootRefs`, thread `coordinator.abortSignal`
+  into `dispatchIfDue()`, and add one `nonFatal('Integrity check abort', …)`
+  line to `disposeBeforePersistence` — cheap, and brings this resource to
+  parity with every sibling in the same file. File as a follow-up task rather
+  than blocking this one, since the current behavior is a silent degrade, not
+  a crash or a corruption path.
+
+### Re-verified: seams named in the brief that are sound
+
+- **End-to-end phase ordering**: `boot-heavy-services.ts:154` sets
+  `'database'` as the first phase label, before `bootThothRuntime` is
+  awaited; `'starting'` (the coordinator's initial phase,
+  `boot-coordinator.ts:209`) and `'database'` are both in
+  `PRE_SHELL_PHASES` (`boot-status.service.ts:66`), so a renderer that pulls
+  before any `setPhase` call has landed still reports `isBlockingBoot() ===
+true` off the initial snapshot — there is no window in which the boot
+  screen fails to show because a pull outran `setPhase('database')`. The
+  `harness` phase anchor sits strictly after `markPersistenceSettled`
+  (`boot-heavy-services.ts:170-173`), preserving the one ordering invariant
+  Batch 3's review already pinned. No regression found.
+- **Ticker fan-in / `ACTIVITY_SOURCE_VALUES`**: every `emitActivity(...)`
+  call site in `boot-heavy-services.ts` (`'harness'` x2, `'sessions'` x1) and
+  the one call site inside `withActivityEmit` (`activity-emitter.ts:123,129`,
+  hardcoded `'cron'`) use literals that are members of
+  `ACTIVITY_SOURCE_VALUES` (`rpc-activity.types.ts:44-55`). Because
+  `withActivityEmit` hardcodes its own source rather than accepting one per
+  call, a typo at a cron call site cannot silently produce an invalid
+  source — the free-text argument at each site is only `handlerName`
+  (`kind`), which `isActivityEventPayload` does not restrict to an enum. No
+  defect found; this closes the specific risk the brief named.
+- **Settings round-trip**: `skillSynthesis.triggers.bootScanDelayMs` and
+  `.bootScanIdleBackoffMs` are present in both
+  `FILE_BASED_SETTINGS_KEYS`/`FILE_BASED_SETTINGS_DEFAULTS`
+  (`file-settings-keys.ts:351-352,608-609`) and
+  `SKILL_TRIGGER_SETTINGS_KEYS`/`SKILL_TRIGGER_DEFAULTS`
+  (`skill-trigger-config.ts:19,25,47,49`), with matching 300000 ms defaults
+  on both sides. Already verified for `0`-value semantics in the Batch 1
+  review; no new gap found at the cross-batch seam.
+- **Two hosts, one database**: the migration-0042 forward-only warning is
+  unchanged and still holds (`persistence-sqlite/CLAUDE.md`'s existing
+  warning, not modified by this task). The single-row UPSERT in
+  `integrity-check-state.store.ts:66-74` uses `ON CONFLICT(id) DO UPDATE`,
+  which SQLite resolves atomically at the statement level — two hosts
+  racing a write each resolve to a consistent last-write-wins outcome, not a
+  torn or duplicated row. No new race found beyond what Batch 1 already
+  named as deferred to live verification (A-1: can a read-only connection
+  open the WAL file while the host holds it open).
+- **Readiness-provider registration race**: unchanged from Batch 3's
+  finding — the ordering (`register-platform-agnostic.ts` registers the null
+  default, `bootstrap.ts:361` overrides it with the Electron adapter) is
+  correct by inspection and precedented, but still has no integration test
+  exercising the actual tsyringe override on a live container. Whole-task
+  reading of `bootstrap.ts` and `register-platform-agnostic.ts` found nothing
+  that changed this between batches; the residual risk is exactly what Batch
+  3 already recorded, not worsened or improved by Batch 4's renderer wiring.
+
+### Follow-up items (separate tasks, not blockers for this one)
+
+1. Wire `SqliteIntegrityService`'s worker lifecycle into `BootRefs` and
+   `shutdown.ts`, and thread `coordinator.abortSignal` into `dispatchIfDue()`
+   — closes the gap found in this pass.
+2. Add an integration-level spec (e.g. extending
+   `wire-runtime.boot-order.spec.ts`) that resolves
+   `PLATFORM_TOKENS.BOOT_READINESS` after the real Electron DI bootstrap
+   sequence and asserts it is the Electron adapter, not
+   `NullBootReadinessProvider` — Batch 3's already-recorded open item.
+3. Add a try/catch around the `db:integrity` cron handler body's
+   `container.resolve` call to match the boot timer's own guard three lines
+   away (`start-thoth-cron.ts:206-215` vs. `:217-228`) — Batch 2's
+   already-recorded open item, still unresolved as of `HEAD`.
+4. Confirm on a live packaged build (the senior-tester's cold-boot
+   measurement currently in progress covers this) that: (a) a read-only
+   `better-sqlite3` connection can open the WAL file while the host holds
+   it open (A-1), and (b) `utilityProcess.fork`'d `integrity-worker.mjs`
+   loads ABI-143 `better-sqlite3` at runtime — both are unverified by any
+   unit test in any batch and were explicitly deferred to this measurement.
+5. Harden `withActivityEmit`'s outcome branch (string-literal comparison
+   against `'skipped'`) into an exhaustive switch — Batch 3's already-
+   recorded minor item.
+
+### Verdict
+
+- Overall score: **7/10**
+- Assessment: **APPROVED WITH NOTES**
+- The four batches compose correctly at every seam the brief asked about:
+  boot-phase ordering, the readiness pull/push race, activity-source
+  validity, and the settings round-trip all hold up under a fresh,
+  whole-task read. The four Batch 4 fixes are genuinely in `156637eb2`, not
+  just claimed. The one new defect this pass found — the integrity worker's
+  absence from `BootRefs`/`shutdown.ts` — is real, is a direct violation of
+  this repository's own stated disposal convention, and was reachable only
+  by reading the boot-heavy-services, thoth-runtime, and shutdown files
+  together, which no single per-batch review had in its file list at once.
+  It is a Moderate finding (no corruption path, a designed degrade already
+  absorbs the failure mode) rather than a blocker, so it does not change the
+  APPROVED verdict, but it should not go unfixed indefinitely.
+- Confidence: **HIGH** for everything read directly in this pass (boot
+  ordering, shutdown chain, activity sources, settings keys, the four
+  Batch 4 fixes). **MEDIUM** for the two items this pass could not verify
+  without running the app — the tsyringe override and the packaged
+  ABI-143/WAL-readonly behavior — both already flagged by Batches 2/3 and
+  explicitly reserved for the concurrent live cold-boot measurement.

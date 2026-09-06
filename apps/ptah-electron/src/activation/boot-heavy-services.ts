@@ -5,6 +5,10 @@ import {
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  PERSISTENCE_TOKENS,
+  type SqliteIntegrityService,
+} from '@ptah-extension/persistence-sqlite';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
   bootThothRuntime,
@@ -406,8 +410,23 @@ export function createHeavyServicesBooter(
     coordinator.setPhase('index', 'Starting background services');
     await startThothCron(container, thoth, {
       logPrefix: '[Ptah Electron]',
+      // The cron start is what arms the 60 s integrity boot dispatch, and that
+      // dispatch spawns a child process. Without the signal a quit inside that
+      // window left the worker reading the database behind a dying parent.
+      signal,
     });
     refs.cronScheduler = thoth.cronScheduler;
+    // Captured eagerly, exactly like `cliRegistry`: `will-quit` must dispose an
+    // instance it already holds rather than force a first-time lazy build of
+    // the dependency graph mid-teardown. Null in a host with no integrity
+    // registration, which the disposal chain tolerates.
+    refs.integrityService = container.isRegistered(
+      PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+    )
+      ? container.resolve<SqliteIntegrityService>(
+          PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+        )
+      : null;
   };
 
   return {

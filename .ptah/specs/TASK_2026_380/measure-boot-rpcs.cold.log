@@ -1,0 +1,53 @@
+[probe] copying C:\Users\abdal\AppData\Local\Temp\ptah-380-copy\ptah.sqlite -> C:\Users\abdal\AppData\Local\Temp\ptah-bootprobe-16kejQ\probe.sqlite
+[probe] workspace: D:\projects\ptah-extension
+[probe] database:  C:\Users\abdal\AppData\Local\Temp\ptah-bootprobe-16kejQ\probe.sqlite (copy)
+[probe] observing for 120s
+
+
+================ BOOT MARKERS ================
+  window (Startup config registered) 5416 ms
+  openAndMigrate() started           5506 ms
+  SQLite open + migrated             5538 ms
+
+  READINESS WINDOW: 122 ms (window open -> SQLite usable)
+
+================ RPC TRAFFIC (33) ================
+    8432 ms              config:autopilot-get               ok enabled,permissionLevel
+    8433 ms              config:models-list                 ok models
+    8437 ms              config:pricing-get                 ok pricing,hydrated
+    8438 ms              config:effort-get                  ok effort
+    8439 ms              ptahCli:list                       ok agents
+    8440 ms              auth:getAuthStatus                 ok hasApiKey,hasOpenRouterKey,hasAnyProviderKey,authMethod,anthropicProviderId,availableProviders
+    8442 ms              license:getStatus                  ok valid,tier,isPremium,isCommunity,daysRemaining,plan
+    8700 ms              workspace:getInfo                  ok folders,root,activeFolder,name
+    8701 ms              update:get-state                   ok state
+    8701 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+    8968 ms              session:list                       ok sessions,total,hasMore
+    8969 ms              workspace:switch                   ok success,path,name,encodedPath
+    8970 ms              plugins:get-config                 ok enabledPluginIds,disabledSkillIds,disabledPluginIds,disabledAgentIds,lastUpdated
+    8970 ms              plugins:list-available             ok plugins
+    8997 ms              autocomplete:agents                ok success,agents
+    8999 ms              session:list                       ok sessions,total,hasMore
+    9630 ms              auth:getAuthStatus                 ok hasApiKey,hasOpenRouterKey,hasAnyProviderKey,authMethod,anthropicProviderId,availableProviders
+    9631 ms              editor:getFileTree                 ok success,tree
+    9632 ms              git:info                           ok isGitRepo,branch,files
+    9682 ms              git:branches                       ok current,local,remote
+    9691 ms              git:stashList                      ok count,entries
+    9702 ms              git:lastCommit                     ok hash,shortHash,subject,body,author,authorEmail
+    9743 ms              auth:getScope                      ok authMethodScope,providerScope,activePath,runtime
+    9744 ms              auth:getScope                      ok authMethodScope,providerScope,activePath,runtime
+    9745 ms              config:models-list                 ok models
+    9746 ms              config:effort-get                  ok effort
+   11446 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   13250 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   14887 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   17342 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   20007 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   21071 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   22889 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+
+================ VERDICT ================
+  NO RPC arrived before SQLite was open.
+  A readiness guard would never fire on this path.
+
+  full trace: D:\projects\ptah-extension\.claude-worktrees\electron-cold-start-380\tmp\boot-probe.json

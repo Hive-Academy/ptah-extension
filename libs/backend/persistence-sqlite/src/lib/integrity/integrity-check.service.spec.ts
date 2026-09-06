@@ -416,6 +416,130 @@ describe('SqliteIntegrityService.dispatchIfDue — never throws', () => {
   });
 });
 
+// ── cancellation: the AbortSignal and dispose() ─────────────────────────────
+//
+// Both are the same mechanism seen from two sides — the boot signal the host
+// threads in, and the synchronous teardown call. Every assertion here is still
+// a call count: spawns, kills and records.
+
+describe('SqliteIntegrityService.dispatchIfDue — an ALREADY-aborted signal', () => {
+  it('spawns nothing and writes nothing', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const harness = makeHarness({ state: null });
+
+    await expect(
+      harness.service.dispatchIfDue({ signal: controller.signal }),
+    ).resolves.toBeUndefined();
+
+    expect(harness.spawnCount()).toBe(0);
+    expect(harness.writes).toHaveLength(0);
+  });
+
+  it('leaves the single-flight flag clear, so a later dispatch still spawns', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const harness = makeHarness({
+      state: null,
+      onSpawn: (w) => queueMicrotask(() => w.emitMessage(CLEAN_RESPONSE)),
+    });
+
+    await harness.service.dispatchIfDue({ signal: controller.signal });
+    await harness.service.dispatchIfDue();
+
+    expect(harness.spawnCount()).toBe(1);
+  });
+});
+
+describe('SqliteIntegrityService — abort MID-FLIGHT', () => {
+  it('kills the worker once, records nothing, and releases the flag', async () => {
+    // The worker is scripted never to reply, so the abort is the only way this
+    // dispatch can settle — no timing assumption, and no budget timer needed.
+    const controller = new AbortController();
+    const harness = makeHarness({ state: null });
+
+    const pending = harness.service.dispatchIfDue({
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+    await pending;
+
+    expect(harness.workers[0].killCount).toBe(1);
+    expect(harness.writes).toHaveLength(0);
+
+    // The flag is released, not stuck: a later dispatch spawns a SECOND worker.
+    // The spawn is synchronous inside the dispatch, so the count can be read
+    // before this second run is itself aborted and awaited.
+    const second = harness.service.dispatchIfDue();
+    expect(harness.spawnCount()).toBe(2);
+    harness.service.dispose();
+    await second;
+  });
+
+  it('a late reply after the abort still writes no record', async () => {
+    const controller = new AbortController();
+    const harness = makeHarness({ state: null });
+
+    const pending = harness.service.dispatchIfDue({
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+    await pending;
+
+    harness.workers[0].emitMessage(CLEAN_RESPONSE);
+    await Promise.resolve();
+
+    expect(harness.writes).toHaveLength(0);
+  });
+
+  it('dispose() aborts the in-flight run the same way', async () => {
+    const harness = makeHarness({ state: null });
+
+    const pending = harness.service.dispatchIfDue();
+    await Promise.resolve();
+    harness.service.dispose();
+    await pending;
+
+    expect(harness.workers[0].killCount).toBe(1);
+    expect(harness.writes).toHaveLength(0);
+  });
+});
+
+describe('SqliteIntegrityService.dispose', () => {
+  it('is a no-op with nothing in flight, and does not throw', () => {
+    const harness = makeHarness({ state: null });
+    expect(() => harness.service.dispose()).not.toThrow();
+    expect(harness.spawnCount()).toBe(0);
+  });
+
+  it('does not throw when called twice after an in-flight abort', async () => {
+    const harness = makeHarness({ state: null });
+
+    const pending = harness.service.dispatchIfDue();
+    await Promise.resolve();
+    harness.service.dispose();
+    expect(() => harness.service.dispose()).not.toThrow();
+    await pending;
+
+    expect(harness.workers[0].killCount).toBe(1);
+  });
+
+  it('does not throw after a completed check', async () => {
+    const harness = makeHarness({
+      state: null,
+      onSpawn: (w) => queueMicrotask(() => w.emitMessage(CLEAN_RESPONSE)),
+    });
+    await harness.service.dispatchIfDue();
+
+    expect(() => harness.service.dispose()).not.toThrow();
+    // The completed run's worker was killed exactly once — dispose did not
+    // reach a settled run and kill it again.
+    expect(harness.workers[0].killCount).toBe(1);
+  });
+});
+
 describe('SqliteIntegrityService — the worker is killed', () => {
   it('kills the worker once after a completed check', async () => {
     const harness = makeHarness({

@@ -12,9 +12,17 @@
  * it was wrapped in try/catch and never marked the connection unavailable, so
  * it gated nothing and moving it out of band is behaviour-preserving.
  *
- * PUBLIC SURFACE IS EXACTLY `isDue(now?)` AND `dispatchIfDue()`. Nothing else
- * is exported from the class, because every other question — when to call,
- * from which host, on what cadence — belongs to the caller.
+ * PUBLIC SURFACE IS EXACTLY `isDue(now?)`, `dispatchIfDue(options?)` AND
+ * `dispose()`. Nothing else is exported from the class, because every other
+ * question — when to call, from which host, on what cadence — belongs to the
+ * caller.
+ *
+ * THE WORKER IS A HOST-LIFETIME RESOURCE, so it is cancellable two ways: an
+ * `AbortSignal` handed to `dispatchIfDue` (the boot signal, so a quit during the
+ * 60 s boot window kills the child), and the synchronous `dispose()` the host's
+ * teardown chain calls. Both do the same thing — kill the worker, write NO
+ * record, release the single-flight flag — because an interrupted check is
+ * inconclusive, exactly like a worker that exited before replying.
  *
  * `dispatchIfDue()` NEVER THROWS AND NEVER REJECTS. It is called from a boot
  * timer and from a cron handler, neither of which has anywhere to put an error,
@@ -71,6 +79,14 @@ export class SqliteIntegrityService {
   private dispatching = false;
   /** The "no worker factory in this host" line is worth saying exactly once. */
   private noFactoryLogged = false;
+  /**
+   * Kills the worker of the run that is in flight, or `null` when none is.
+   *
+   * Set inside {@link runWorker} and cleared the moment that run settles, so
+   * both {@link dispose} and an `AbortSignal` reach exactly the run they meant
+   * to and never a stale one.
+   */
+  private abortInFlight: (() => void) | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -108,10 +124,23 @@ export class SqliteIntegrityService {
 
   /**
    * Run a check if one is due. Resolves when the attempt is over; resolves
-   * immediately when nothing is due, when one is already in flight, or when
-   * this host has no worker factory. Never throws, never rejects.
+   * immediately when nothing is due, when one is already in flight, when this
+   * host has no worker factory, or when `signal` is ALREADY aborted. Never
+   * throws, never rejects.
+   *
+   * `signal` is the caller's lifetime, not a deadline — the boot signal in the
+   * Electron host, so a quit during the 60 s boot window kills the child instead
+   * of leaving it reading a gigabyte file behind a dying parent. An abort in
+   * flight writes NO record: an interrupted check is inconclusive, so the next
+   * window asks again.
    */
-  async dispatchIfDue(): Promise<void> {
+  async dispatchIfDue(options?: { signal?: AbortSignal }): Promise<void> {
+    if (options?.signal?.aborted) {
+      this.logger.debug(
+        '[persistence-sqlite] integrity dispatch skipped; already aborted',
+      );
+      return;
+    }
     if (this.dispatching) return;
 
     const factory = this.factory;
@@ -138,8 +167,16 @@ export class SqliteIntegrityService {
 
     this.dispatching = true;
     try {
-      const response = await this.runWorker(factory);
-      this.record(response);
+      const outcome = await this.runWorker(factory, options?.signal);
+      if (outcome.aborted) {
+        // Not `record(null)`: that path WARNS about a worker that failed to
+        // answer, and an abort is not a failure — the host asked us to stop.
+        this.logger.debug(
+          '[persistence-sqlite] integrity check aborted; nothing recorded',
+        );
+      } else {
+        this.record(outcome.response);
+      }
     } catch (error: unknown) {
       this.logger.warn('[persistence-sqlite] integrity check dispatch failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -150,21 +187,61 @@ export class SqliteIntegrityService {
   }
 
   /**
-   * Spawn, ask, and settle exactly once — on the reply, on an early exit, or
-   * on the budget expiring. The worker is killed on every one of those three
-   * paths, so it cannot outlive the host.
+   * Abort an in-flight dispatch, synchronously. Idempotent, never throws.
+   *
+   * The host's teardown chain calls this — it is a `nonFatal(...)` line in
+   * `disposeBeforePersistence`, ahead of `SQLite close`, because a completing
+   * check WRITES its verdict through {@link IntegrityCheckStateStore}. Killing
+   * the worker first means there is no verdict to write, which is the point:
+   * the check stays due and the next launch re-runs it.
+   *
+   * A no-op when nothing is in flight, and safe to call twice — the run's own
+   * `settled` latch absorbs the second call.
+   */
+  dispose(): void {
+    const abort = this.abortInFlight;
+    if (!abort) return;
+    try {
+      abort();
+    } catch (error: unknown) {
+      this.logger.debug('[persistence-sqlite] integrity dispose failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Spawn, ask, and settle exactly once — on the reply, on an early exit, on
+   * the budget expiring, or on an abort. The worker is killed on every one of
+   * those four paths, so it cannot outlive the host.
+   *
+   * Resolves `{ aborted: true }` for the abort path so the caller can tell
+   * "stopped on request" from "asked and got no answer"; only the latter is
+   * worth a warning.
    */
   private runWorker(
     factory: IIntegrityWorkerProcessFactory,
-  ): Promise<IntegrityWorkerOutbound | null> {
-    return new Promise<IntegrityWorkerOutbound | null>((resolve) => {
+    signal: AbortSignal | undefined,
+  ): Promise<{
+    aborted: boolean;
+    response: IntegrityWorkerOutbound | null;
+  }> {
+    return new Promise<{
+      aborted: boolean;
+      response: IntegrityWorkerOutbound | null;
+    }>((resolve) => {
       let settled = false;
       let worker: IIntegrityWorkerProcess | null = null;
       let budgetTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const settle = (result: IntegrityWorkerOutbound | null): void => {
+      const settle = (
+        result: IntegrityWorkerOutbound | null,
+        aborted = false,
+      ): void => {
         if (settled) return;
         settled = true;
+        this.abortInFlight = null;
+        signal?.removeEventListener('abort', onAbort);
         if (budgetTimer) {
           clearTimeout(budgetTimer);
           budgetTimer = null;
@@ -177,8 +254,17 @@ export class SqliteIntegrityService {
             { error: error instanceof Error ? error.message : String(error) },
           );
         }
-        resolve(result);
+        resolve({ aborted, response: result });
       };
+
+      // Named rather than inline so `removeEventListener` above can name the
+      // same function; an anonymous listener would outlive every settled run.
+      function onAbort(): void {
+        settle(null, true);
+      }
+
+      this.abortInFlight = onAbort;
+      signal?.addEventListener('abort', onAbort, { once: true });
 
       try {
         worker = factory.spawn();

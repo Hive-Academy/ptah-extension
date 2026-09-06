@@ -1,8 +1,9 @@
 # Batches - TASK_2026_380
 
-Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 3/5
-Tasks complete: 13/16 (+4 IMPLEMENTED, commit pending) | Commits: `0c7e4d05c`
-(Batch 1), `ee6ad1d8a` (Batch 2), `4a00d8c74` (Batch 3)
+Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 4/5
+Implementation tasks complete: 16/16 — all 14 components have landed. Batch 5
+(verification) is the only batch open. | Commits: `0c7e4d05c` (Batch 1),
+`ee6ad1d8a` (Batch 2), `4a00d8c74` (Batch 3), `156637eb2` (Batch 4)
 
 **Repository root for every path in this file (a git worktree on branch
 `electron-cold-start-380`):**
@@ -781,11 +782,40 @@ nx build ptah-electron
 
 ---
 
-## Batch 4: Renderer — boot status, boot screen, activity service and ticker — IMPLEMENTED
+## Batch 4: Renderer — boot status, boot screen, activity service and ticker — COMPLETE
 
-> **Files verified on disk; commit is HELD pending the code-logic verdict.**
-> code-style-reviewer **APPROVED** 8/10. Report: `batch-4-report.md`.
->
+- **Commit: `156637eb2`** — `feat(chat-ui): batch 4 - staged boot screen and
+back-office activity ticker`
+- Reviews: code-logic-reviewer **APPROVED WITH NOTES** 7/10 (2 serious, 3
+  moderate) → **all five fixed by the executor and re-verified before the
+  commit**; code-style-reviewer **APPROVED** 8/10.
+- Re-verification after the fixes: `run-many -t test` green for 4 projects
+  (656 / 119 / 944 + 2 skipped / 147); targeted typecheck green for 4 projects;
+  `nx build ptah-extension-webview` green; `core`, `chat` and
+  `ptah-extension-webview` lint 0 errors; coverage 93 / 84 / 92 / 94; the husky
+  hook passed.
+
+**Review findings fixed before commit:**
+
+- **F-1 (serious)** — `BootStatusService` gained a `warming`-only 2 s re-pull
+  watchdog with a monotonic pull-vs-push rule, so a lost final push can no longer
+  strand the user behind the boot screen. This is the failure the plan's pull RPC
+  argument implies but did not close.
+- **F-2 (serious)** — `app.html` is now one exclusive
+  error → loading → shell `@else if` chain, pinned by a source-sweep spec, rather
+  than three independent `@if` branches that could render together.
+- **F-3 / F-4 (moderate)** — the mappers guard `timestamp`, `detail` and stats
+  types with `Number.isFinite` / `typeof` and fall back to a generic summary
+  instead of rendering `NaN`.
+- **F-5 (moderate)** — the canvas skeleton is boot-gated, and the original spinner
+  is restored for the non-boot fallback, so a non-boot load no longer shows a
+  skeleton that will never fill.
+
+**Note deliberately left open:** `elapsedMs` stays on the service — the plan
+requires it for the boot screen's elapsed-time line.
+
+**Earlier record (pre-fix verification and deviations):**
+
 > Verification: `run-many -t test` green for `@ptah-extension/core` (639),
 > `chat-ui` (119), `chat` (944 + 2 skipped), `ptah-extension-webview` (142);
 > targeted typecheck green for 4 projects; `nx build ptah-extension-webview`
@@ -820,7 +850,7 @@ nx build ptah-electron
   because the ticker binds the service's signals.
 - Tasks: 4 | Depends on: Batch 1 (lane C), Batch 3
 
-### Task 4.1: `BootStatusService` (component 12) — IMPLEMENTED
+### Task 4.1: `BootStatusService` (component 12) — COMPLETE
 
 - Files:
   - CREATE `…/libs/frontend/core/src/lib/services/boot-status.service.ts`
@@ -850,7 +880,7 @@ nx build ptah-electron
   `isBooting`; a malformed push is ignored; a rejected pull leaves the default; a
   batched push (through the router's `MESSAGE_TYPES.BATCH` unwrap) still lands.
 
-### Task 4.2: `BackOfficeActivityService` (component 14d) — IMPLEMENTED
+### Task 4.2: `BackOfficeActivityService` (component 14d) — COMPLETE
 
 - Depends on: Task 4.1 (shares `core/services/index.ts` and `app.config.ts`)
 - Files:
@@ -891,7 +921,7 @@ nx build ptah-electron
   changes nothing; a `settled` boot phase produces no item; a batched message
   lands.
 
-### Task 4.3: Boot screen + panel skeletons (component 13) — IMPLEMENTED (e2e harness case deferred to Task 5.1)
+### Task 4.3: Boot screen + panel skeletons (component 13) — COMPLETE (e2e harness case deferred to Task 5.1)
 
 - Depends on: Task 4.1
 - Files:
@@ -932,7 +962,7 @@ nx build ptah-electron
   bridge and asserts the boot screen renders, then posts `harness` and asserts
   the shell appears.
 
-### Task 4.4: `ptah-activity-ticker` + shell wiring (component 14e) — IMPLEMENTED (e2e harness case deferred to Task 5.1)
+### Task 4.4: `ptah-activity-ticker` + shell wiring (component 14e) — COMPLETE (e2e harness case deferred to Task 5.1)
 
 - Depends on: Task 4.2, Task 4.3
 - Files:
@@ -993,7 +1023,14 @@ npm run lint:all
 
 ---
 
-## Batch 5: Acceptance measurement and final review — PENDING
+## Batch 5: Acceptance measurement and final review — IN_PROGRESS
+
+> Task 5.1 is with **senior-tester** (cold-cache measurement + the two deferred
+> `webview-e2e-harness` cases + the A-1 live check). Task 5.2's whole-task
+> reviews run **in parallel** by orchestrator judgement — all four
+> implementation commits are on disk, so the reviewers do not need the
+> measurement to read the code. If Task 5.1's measurement fails an acceptance
+> criterion, the reviews stand but the batch does not close.
 
 - Components: none (verification only)
 - Recommended executor: `senior-tester`
@@ -1005,7 +1042,7 @@ npm run lint:all
   scope decision (whether any readiness guard ships at all).
 - Tasks: 2 | Depends on: Batches 1-4
 
-### Task 5.1: Cold-cache boot measurement — PENDING
+### Task 5.1: Cold-cache boot measurement — IN_PROGRESS
 
 - File: `…/.ptah/specs/TASK_2026_380/test-report.md` (CREATE)
 - Plan reference: implementation-plan.md:1762-1772
@@ -1035,9 +1072,10 @@ npm run lint:all
   read-only connection opens against the same WAL database, and that a forced
   open failure produces `unavailable` with no record written.
 
-### Task 5.2: Final reviews — PENDING
+### Task 5.2: Final reviews — IN_PROGRESS
 
-- Depends on: Task 5.1
+- Running in parallel with Task 5.1 (orchestrator judgement — the code is fully
+  committed, so the reviews do not depend on the measurement).
 - Reviewers, in order: **code-logic-reviewer** (whole-task pass: boot-path failure
   containment, the four degrade rules, the coalescing), then
   **code-style-reviewer** (hexagonal boundaries, the three new ports/namespaces,

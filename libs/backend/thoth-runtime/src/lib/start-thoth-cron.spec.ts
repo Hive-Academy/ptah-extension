@@ -628,6 +628,79 @@ describe('startThothCron', () => {
       expect(integrity.dispatchIfDue).not.toHaveBeenCalled();
     });
 
+    it('threads the boot signal into the boot dispatch', async () => {
+      // The signal reaches the CHILD PROCESS through this argument: a quit
+      // while the check is running kills the worker instead of leaving it
+      // reading the database behind a dying parent.
+      const timers = captureTimers();
+      const { container, integrity } = makeIntegrityContainer();
+      const controller = new AbortController();
+
+      await startThothCron(container, refsWithSqlite(), {
+        signal: controller.signal,
+      });
+      timers[0].fire();
+
+      expect(integrity.dispatchIfDue).toHaveBeenCalledWith({
+        signal: controller.signal,
+      });
+    });
+
+    it('arms no boot timer at all when the signal is ALREADY aborted', async () => {
+      const timers = captureTimers();
+      const { container, handlerRegistry, integrity } =
+        makeIntegrityContainer();
+      const controller = new AbortController();
+      controller.abort();
+
+      await startThothCron(container, refsWithSqlite(), {
+        signal: controller.signal,
+      });
+
+      expect(timers).toHaveLength(0);
+      expect(integrity.dispatchIfDue).not.toHaveBeenCalled();
+      // The handler is still registered — the job is a nightly schedule and
+      // outlives this boot; only the boot-window dispatch is abandoned.
+      expect(
+        handlerRegistry.register.mock.calls.filter(
+          (call) => call[0] === 'db:integrity',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('reports a resolve failure in the HANDLER as a skipped outcome', async () => {
+      // Same shape as the boot timer's guard: `isRegistered` was true at
+      // registration and the resolve happens hours later, so a torn-down
+      // container must produce a skipped run, not a thrown one.
+      captureTimers();
+      const { container, handlers, integrity } = makeIntegrityContainer();
+      await startThothCron(container, refsWithSqlite());
+
+      const passthrough = container.resolve as unknown as (
+        token: unknown,
+      ) => unknown;
+      jest.spyOn(container, 'resolve').mockImplementation(((token: unknown) => {
+        if (token === PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE) {
+          throw new Error('container disposed');
+        }
+        return passthrough(token);
+      }) as never);
+
+      const handler = handlers.get('db:integrity') as JobHandler;
+
+      await expect(
+        handler({
+          job: { id: '@ptah/db-integrity-check' } as never,
+          scheduledFor: 0,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({
+        outcome: 'skipped',
+        reason: 'integrity-service-unavailable',
+      });
+      expect(integrity.dispatchIfDue).not.toHaveBeenCalled();
+    });
+
     it('registers nothing and throws nothing without SqliteIntegrityService', async () => {
       const timers = captureTimers();
       const { container, handlerRegistry, jobStore } = makeIntegrityContainer({

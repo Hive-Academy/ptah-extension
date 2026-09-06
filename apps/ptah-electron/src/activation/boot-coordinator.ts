@@ -127,6 +127,16 @@ export interface BootRefs extends ThothRuntimeRefs {
   /** Per-workspace isolated provider-proxy pool; shutdown-wide backstop. */
   providerProxyPool: { disposeAll: () => Promise<void> } | null;
   /**
+   * Out-of-process database integrity check. `dispose()` kills a worker that is
+   * mid-`quick_check`, and it must run BEFORE `SQLite close` because a check
+   * that completes writes its verdict through the shared connection.
+   *
+   * Resolved eagerly by the heavy boot for the same reason as
+   * {@link cliRegistry}, and structural rather than the concrete
+   * `SqliteIntegrityService` so this file keeps importing nothing at runtime.
+   */
+  integrityService: { dispose: () => void } | null;
+  /**
    * Window-bounds persistence storage. Not a disposable — `app.on('activate')`
    * needs it to recreate the window on macOS.
    */
@@ -154,6 +164,7 @@ export function createEmptyBootRefs(): BootRefs {
     cliRegistry: null,
     agentProcessManager: null,
     providerProxyPool: null,
+    integrityService: null,
     resolvedStateStorage: null,
   };
 }

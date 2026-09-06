@@ -1,0 +1,54 @@
+[probe] copying C:\Users\abdal\AppData\Local\Temp\ptah-380-copy\ptah.sqlite -> C:\Users\abdal\AppData\Local\Temp\ptah-bootprobe-1qepMb\probe.sqlite
+[probe] workspace: D:\projects\ptah-extension
+[probe] database:  C:\Users\abdal\AppData\Local\Temp\ptah-bootprobe-1qepMb\probe.sqlite (copy)
+[probe] observing for 120s
+
+
+================ BOOT MARKERS ================
+  window (Startup config registered) 4567 ms
+  openAndMigrate() started           4642 ms
+  SQLite open + migrated             4657 ms
+
+  READINESS WINDOW: 90 ms (window open -> SQLite usable)
+
+================ RPC TRAFFIC (34) ================
+    7520 ms              config:autopilot-get               ok enabled,permissionLevel
+    7522 ms              config:models-list                 ok models
+    7532 ms              config:pricing-get                 ok pricing,hydrated
+    7533 ms              config:effort-get                  ok effort
+    7534 ms              ptahCli:list                       ok agents
+    7534 ms              auth:getAuthStatus                 ok hasApiKey,hasOpenRouterKey,hasAnyProviderKey,authMethod,anthropicProviderId,availableProviders
+    7536 ms              license:getStatus                  ok valid,tier,isPremium,isCommunity,daysRemaining,plan
+    7805 ms              workspace:getInfo                  ok folders,root,activeFolder,name
+    7805 ms              update:get-state                   ok state
+    7806 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+    8186 ms              session:list                       ok sessions,total,hasMore
+    8187 ms              workspace:switch                   ok success,path,name,encodedPath
+    8189 ms              plugins:get-config                 ok enabledPluginIds,disabledSkillIds,disabledPluginIds,disabledAgentIds,lastUpdated
+    8190 ms              plugins:list-available             ok plugins
+    8206 ms              autocomplete:agents                ok success,agents
+    8208 ms              session:list                       ok sessions,total,hasMore
+    8567 ms              auth:getAuthStatus                 ok hasApiKey,hasOpenRouterKey,hasAnyProviderKey,authMethod,anthropicProviderId,availableProviders
+    8568 ms              editor:getFileTree                 ok success,tree
+    8568 ms              git:info                           ok isGitRepo,branch,files
+    8921 ms              git:branches                       ok current,local,remote
+    8961 ms              git:stashList                      ok count,entries
+    8971 ms              git:lastCommit                     ok hash,shortHash,subject,body,author,authorEmail
+    8986 ms              auth:getScope                      ok authMethodScope,providerScope,activePath,runtime
+    8989 ms              auth:getScope                      ok authMethodScope,providerScope,activePath,runtime
+    9005 ms              config:models-list                 ok models
+    9007 ms              config:effort-get                  ok effort
+   10851 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   12349 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   13990 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   16002 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   18198 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   20190 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   22589 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+   23893 ms              boot:getReadiness                  ok readiness,phase,detail,startedAt
+
+================ VERDICT ================
+  NO RPC arrived before SQLite was open.
+  A readiness guard would never fire on this path.
+
+  full trace: D:\projects\ptah-extension\.claude-worktrees\electron-cold-start-380\tmp\boot-probe.json

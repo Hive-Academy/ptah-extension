@@ -885,3 +885,224 @@ correctly wired. Deducted one point for the `app.html` formatting minor
   which phases they choose to show; reformat `app.html:6-23`'s nested
   `@if`/`@else` onto one branch per line to match the rest of the file's
   control-flow style.
+
+## Whole-task pass (Batch 5)
+
+Scope: commits `0c7e4d05c`, `ee6ad1d8a`, `4a00d8c74`, `156637eb2` on top of
+`7619bebd2` (109 files, +14525/-346, per `git diff 7619bebd2..HEAD --stat`).
+Uncommitted `.claude/**`, `.codex/**` and the task-spec docs themselves are not
+in scope. This pass re-reads for cross-batch consistency and doc debt only;
+it does not re-litigate any per-file finding already made in Batches 1-4
+above.
+
+### 1. Hexagonal boundaries across the whole diff
+
+- `persistence-sqlite`: zero new imports from another backend lib beyond the
+  pre-existing `vscode-core` exception noted in Batch 1 — confirmed by
+  `git diff 7619bebd2..HEAD --stat -- libs/backend/persistence-sqlite` showing
+  no touched file outside `integrity/`, `migrations/`, `di/`, and the
+  connection service itself. PASS.
+- `platform-core` gained exactly one port (`IBootReadinessProvider`,
+  `libs/backend/platform-core/src/interfaces/boot-readiness.interface.ts`) and
+  one token (`BOOT_READINESS`, `libs/backend/platform-core/src/di/tokens.ts:121`),
+  and the interface's only import is `import type { BootReadinessChangedPayload } from '@ptah-extension/shared'` (`boot-readiness.interface.ts:20`) — type-only, matching
+  every other `platform-core` port. PASS.
+- `thoth-runtime` imports no `electron`/renderer type: confirmed by grep — the
+  diff's only new import into `start-thoth-cron.ts`/`activity-emitter.ts` is
+  `type SqliteIntegrityService` (persistence-sqlite) and `type JobHandler`
+  (cron-scheduler, an already-declared dependency per its own `CLAUDE.md:45`).
+  PASS.
+- `apps/ptah-electron` importing `createActivityEmitter`/`withActivityEmit`
+  from `thoth-runtime` is the correct direction (app → lib), matching how the
+  same app already imports `bootThothRuntime`/`startThothCron` from the same
+  barrel. PASS.
+- `chat-ui` importing `type ActivityItem` from `core`
+  (`libs/frontend/chat-ui/src/lib/molecules/activity-ticker/activity-ticker.component.ts:13`)
+  is `type:feature` → `type:core`, permitted by `eslint.config.mjs:227-236`
+  and one-directional (`type:core` cannot depend back on `type:feature`,
+  `:249-252`) — re-verified independently of Batch 4's own citation. PASS.
+- `skill-synthesis` never imports `cron-scheduler`: re-confirmed by grep
+  across the full diff, not just the Batch 1 files — no such import exists
+  anywhere in `libs/backend/skill-synthesis` after this task. PASS.
+- `npx eslint` run against one file per touched lib
+  (`libs/backend/platform-core/src/interfaces/boot-readiness.interface.ts`,
+  `libs/backend/thoth-runtime/src/lib/activity-emitter.ts`,
+  `libs/frontend/chat-ui/src/lib/molecules/activity-ticker/activity-ticker.component.ts`,
+  `apps/ptah-electron/src/activation/boot-coordinator.ts`,
+  `libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts`) —
+  all five returned clean, `@nx/enforce-module-boundaries` silent on every
+  one. PASS.
+
+### 2. Three new ports/namespaces — naming and registration
+
+- `IIntegrityWorkerProcessFactory` (local to `persistence-sqlite`,
+  `libs/backend/persistence-sqlite/src/lib/integrity/worker-process.port.ts`):
+  `I`-prefixed, registered via the two host adapters
+  (`electron-integrity-worker-factory.ts`, `cli-integrity-worker-factory.ts`)
+  before `registerPersistenceSqliteServices` in both hosts. Naming and
+  registration both PASS; Batch 1/2 already covered the file-level detail.
+- `IBootReadinessProvider` (`platform-core`): `I`-prefixed, one method,
+  `BOOT_READINESS` token grouped with `SESSION_ATTACHMENT_GUARD`'s shape.
+  Registered in `vscode-core`'s `register-platform-agnostic.ts` (null adapter)
+  and `apps/ptah-electron`'s DI wiring (real adapter). PASS.
+- `boot:` RPC namespace: dual-registered — `libs/shared/src/lib/types/rpc.types.ts`
+  (compile-time, the three hunks deferred from Batch 1 and re-applied
+  verbatim in Batch 3) AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:90`
+  (`ALLOWED_METHOD_PREFIXES`, runtime guard). Both present — PASS on the rule
+  the root `CLAUDE.md` states as blocking (`RPC dual-registration`).
+
+**Documentation this task owes** — none of the following are wrong, all are
+silently out of date after this diff. Each is a doc-only edit for whoever
+takes the docs commit:
+
+| File                                               | What to add/change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `libs/backend/platform-core/CLAUDE.md:51,61-80`    | The token table lists 16 ports and the header at `:51` says "(16 ports)". Actual count in `src/di/tokens.ts` is 29 (confirmed by counting `Symbol.for(` occurrences), and `BOOT_READINESS` — the one this task added — is not in the table. This table has been stale since well before this task (12 tokens including `SESSION_ATTACHMENT_GUARD`, `MASTER_KEY_PROVIDER`, `TRACER`, `APP_UPDATER` etc. are already missing); this task adds a 13th gap. Fix: reconcile the table against `tokens.ts` and add the `BOOT_READINESS` \| `IBootReadinessProvider` row.                                                                                                                                       |
+| `libs/backend/persistence-sqlite/CLAUDE.md`        | Zero occurrences of "integrity" anywhere in the file (confirmed by grep). The new `src/lib/integrity/` folder (worker, store, service, protocol, port — 8 files) and its two new host tokens are entirely undocumented. Fix: add a Key Files/Public API entry for the integrity subsystem, matching the shape the doc already uses for other sub-features.                                                                                                                                                                                                                                                                                                                                               |
+| `libs/backend/thoth-runtime/CLAUDE.md:19-32`       | Public API block lists `bootThothRuntime`/`startThothCron` and the vec-diagnostic helpers but not `createActivityEmitter`/`withActivityEmit` (both now barrel-exported per `src/index.ts`'s diff). The Purpose line (`:9`) also doesn't mention the new integrity cron job alongside "the cron scheduler with its built-in daily backup job." Fix: add the two activity-emitter exports to the Public API block, and note the integrity-check job in the Purpose/Guidelines section.                                                                                                                                                                                                                     |
+| `apps/ptah-electron/CLAUDE.md:43-46`               | Build & Run section names `build-embedder-worker` in the `nx build` dependency chain but not the new `build-integrity-worker` target (confirmed present in `apps/ptah-electron/project.json`'s diff). `boot-readiness-broadcaster.ts` and the widened `bootstrapElectron` signature (`Pick<BootCoordinator, 'snapshot'>` second parameter, `bootstrap.ts:129`) are also absent from the activation bullet list at `:21-29`, which otherwise itemizes every activation file down to `boot-coordinator.ts` and `boot-heavy-services.ts`. Fix: add `build-integrity-worker` to the build chain sentence, and a bullet for `boot-readiness-broadcaster.ts` beside the existing `boot-coordinator.ts` bullet. |
+| `libs/frontend/core/CLAUDE.md` (Key Files, `:27`+) | Section exists but lists no files — grep for `boot-status`/`back-office-activity` returns nothing in the whole doc. Both new services (`boot-status.service.ts`, `back-office-activity.service.ts`) are `MessageHandler`-registered, spec'd services exactly of the kind this section is meant to index. Fix: add both under Key Files, following the existing service-listing convention for `vec-embedder-recovery.service.ts` and its neighbours.                                                                                                                                                                                                                                                     |
+| `libs/shared/CLAUDE.md:28`                         | The RPC namespace list ("`src/lib/types/rpc/` — one file per RPC namespace (agents, auth, chat, config, editor, error-codes, git, harness, indexing, memory, misc, persistence, providers, session, setup, terminal)") has no `readiness` (pre-existing gap, `rpc-readiness.types.ts` already existed before this task) and no `activity` (new in this task — `rpc-activity.types.ts` is a wholly new file). Fix: append `readiness, activity` to the parenthetical list.                                                                                                                                                                                                                                |
+| `libs/backend/skill-synthesis/CLAUDE.md`           | Not required by this task's contract, but worth a line for a future reader: the file already documents a boot-related deferral mechanism (`skillSynthesis.drain.bootDeferralMs`, `:86`) that is a _different_ feature from this task's `scheduleBootScan`/`lastActivityAt` arm-on-boot addition to `skill-trigger.service.ts` (Batch 1). Both are named "boot" and live in the same lib; the doc currently only covers the older one. Recommend one clause distinguishing "drain's boot-deferral gate" from "trigger's boot-scan arm" so the two are not conflated by a reader who finds one bullet and assumes it is the whole boot story.                                                              |
+| `libs/backend/rpc-handlers/CLAUDE.md:27-29`        | Handler-class inventory (Tier 1/Tier 2/Other, "≈30") does not list `BootRpcHandlers`, though it is barrel-exported (`src/index.ts`, `handlers/index.ts`) and manifest-registered. Fix: add `BootRpcHandlers` to the Tier 1 list (it has the same shape as `AutocompleteRpcHandlers`/`LlmRpcHandlers` — no privileged capability).                                                                                                                                                                                                                                                                                                                                                                        |
+
+None of these are blocking — every doc gap is additive/stale, not
+contradicted by the code — but seven files is a real backlog for a task that
+touched this many new seams, and the `platform-core` and `skill-synthesis`
+files were already drifting before this task widened the gap further.
+
+### 3. Barrel hygiene
+
+Re-checked every touched `index.ts` against `git diff 7619bebd2..HEAD` (not
+just the files individually reviewed per-batch): `libs/backend/platform-core/src/index.ts`,
+`libs/backend/rpc-handlers/src/index.ts` + `handlers/index.ts`,
+`libs/backend/thoth-runtime/src/index.ts`, `libs/frontend/chat-ui/src/index.ts`,
+`libs/shared/src/index.ts`, `libs/backend/persistence-sqlite/src/index.ts`.
+Every addition uses `export type` for type-only symbols
+(`IBootReadinessProvider`, `type ActivityEmitter`, the chat-ui types) and
+plain `export` for classes/functions (`BootRpcHandlers`, `createActivityEmitter`,
+`withActivityEmit`, `SkeletonBlockComponent`, `ActivityTickerComponent`,
+`BootProgressComponent`). Nothing lib-private leaks (no internal helper,
+no test-only export). No cross-lib re-export was introduced. PASS, no
+findings.
+
+### 4. File sizes after the task
+
+| File                                                                     | Before  | After                                                                                                | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `libs/backend/persistence-sqlite/src/lib/sqlite-connection.service.ts`   | 839     | 797                                                                                                  | Shrank (integrity boot-check extracted out); no action.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger.service.ts` | ~922    | 1018                                                                                                 | Past 700, past 1000's "deliberate look" threshold is not yet crossed. Batch 1's review already compared it to the 1275-line `memory-trigger.service.ts` sibling doing the same shape of work and found it proportionate. Re-confirmed at 1018 lines now — no facade split warranted; the added surface (`scheduleBootScan`, `readBootScanDelayMs`, `readBootScanIdleBackoffMs`, `readPositiveMs`) is one cohesive concern (boot-scan arm/defer), not a second responsibility bolted onto the class. |
+| `apps/ptah-electron/src/activation/boot-coordinator.ts`                  | ~454    | 569                                                                                                  | Under the 700 soft ceiling. No action.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts`                 | 307     | 456 (task prompt cited 422; current on-disk count is 456 after Batch 3's activity-emitter threading) | Under the 700 soft ceiling either way. No action.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `libs/frontend/core/src/lib/services/back-office-activity.service.ts`    | 0 (new) | 488                                                                                                  | New file, under the ceiling. No action.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `libs/shared/src/lib/types/rpc.types.ts`                                 | 3841    | 3848                                                                                                 | This file was already 3841 lines before this task (a pre-existing barrel/registry file the root `CLAUDE.md`'s "contract barrel... can be long and correct" exception explicitly anticipates) and gained 15 lines for the `boot:` entry. Not a size concern introduced by this task; flagging only because the task's own scope list named it.                                                                                                                                                       |
+
+No file in this diff crosses 700 lines newly, and none of the pre-existing
+large files (`skill-trigger.service.ts`, `rpc.types.ts`) grew by more than the
+feature's proportionate share. No facade split is owed.
+
+### 5. Duplication across batches
+
+- `boot-readiness-broadcaster.ts` (`apps/ptah-electron/src/activation/`) vs
+  `activity-emitter.ts` (`libs/backend/thoth-runtime/src/lib/`): both
+  independently implement the identical lazy-`isRegistered`-resolve,
+  duck-typed `{ broadcastMessage }`, double-`catch`-and-swallow shape around
+  two different payload types. Already identified and reasoned about in
+  Batch 3's review (Minor issues, Question 3) with the correct verdict:
+  thin evidence (two sites) for an abstraction, tolerate the second copy per
+  the repo's own `integrity-worker.ts`/`embedder-worker.ts` precedent of
+  accepting a "faithful copy" over a premature shared helper. Re-confirmed at
+  the whole-task level; no new instance of the pattern appeared in Batch 4.
+  One recommendation, not a defect: if a third lazy-broadcast site appears,
+  extract a generic `broadcastLazily<T>(container, messageType, payload)` into
+  `vscode-core` (which both existing sites already depend on) rather than
+  writing a third copy.
+- The two `Pick<BootCoordinator, 'snapshot'>` typings
+  (`apps/ptah-electron/src/services/platform/electron-boot-readiness.ts:27-29`
+  and `apps/ptah-electron/src/activation/bootstrap.ts:129`) are structurally
+  identical narrowings written independently at two call sites, flagged
+  already in Batch 3 (Question 1) as coupled-by-convention rather than by the
+  type system. No third instance found elsewhere in the diff. Not worth a
+  shared type alias for two sites; worth revisiting if a third narrowing of
+  the same shape appears.
+- The `isElectron` snapshot idiom (`signal(this.vscodeService.isElectron)`
+  read once at construction, not reactively) appears in two independent
+  files: `apps/ptah-extension-webview/src/app/app.ts:56` (pre-existing,
+  cited as the precedent) and the new
+  `libs/frontend/core/src/lib/services/boot-status.service.ts:110-113`
+  (this task, explicitly copying the cited idiom via comment). This is
+  correct reuse-by-citation, not independent reinvention — the second site
+  names its source. No finding; the mechanism is simple enough (one line)
+  that a shared helper would cost more than it saves for two call sites.
+- Skeleton markup: `SkeletonBlockComponent` genuinely removed a two-site
+  duplication (`plugin-status-widget.component.ts`, `setup-status-widget.component.ts`)
+  rather than adding a third copy — confirmed in Batch 4's own review. No
+  further duplication found across the four batches beyond what Batches 1-4
+  already named.
+
+### 6. Comment/doc quality
+
+- Headers stating measurements: `libs/backend/persistence-sqlite/src/lib/migrations/0042_db_integrity_check_state.ts`'s
+  header and `libs/backend/skill-synthesis/src/lib/skill-md-migration.ts`'s
+  existing 388ms/9.2MB figures (unchanged by this task, cited correctly where
+  referenced) — both already verified per-batch. Cross-batch scan found no
+  invented number and no `// removed` marker or dead-code comment anywhere in
+  the diff (grepped for `// removed`, `// TODO: remove`, `// deprecated` across
+  all 109 changed files — none found in the new/modified hunks).
+- No compatibility shims: confirmed — `boot-coordinator.ts`'s local
+  `BootReadiness` type was fully replaced by `BackendReadiness` with no alias
+  left behind (re-verified: `grep -n "BootReadiness"` inside
+  `boot-coordinator.ts` finds only `BackendReadiness`/`BootReadinessChangedPayload`
+  identifiers, no bare `BootReadiness` type declaration).
+- The two rewritten doc comments (`libs/shared/src/lib/types/messages/message-constants.ts`,
+  `libs/shared/src/lib/types/rpc/rpc-readiness.types.ts`) agree with the
+  widened `BootReadinessChangedPayload` type: both state the same
+  edge-triggered, display-only contract in the same words ("fires once per
+  phase transition", "display-only, not authoritative") — no drift between
+  the two comments describing one type.
+
+### 7. Commit messages
+
+```
+0c7e4d05c perf(persistence-sqlite): batch 1 - move integrity state off the boot path
+ee6ad1d8a perf(thoth-runtime): batch 2 - run the database integrity check out of process
+4a00d8c74 feat(electron): batch 3 - broadcast boot readiness and back-office activity
+156637eb2 feat(chat-ui): batch 4 - staged boot screen and back-office activity ticker
+```
+
+All four are conventional (`type(scope): subject`), correctly scoped to the
+lib/app each batch mostly touches, and each subject states the _why_
+(performance motive for 1/2, user-visible feature for 3/4) rather than
+restating the diff. Consistent with the repository's own commit history
+style. No finding.
+
+## Summary
+
+| Metric          | Value                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overall score   | 8/10                                                                                                                                                    |
+| Assessment      | APPROVED WITH NOTES                                                                                                                                     |
+| Blocking issues | 0                                                                                                                                                       |
+| Serious issues  | 0                                                                                                                                                       |
+| Minor issues    | 1 (new: 7-file documentation backlog) — plus the carry-forward minors already recorded in Batches 1-4, none of which this pass found reason to escalate |
+| Files reviewed  | 109 (full diff stat) + 7 CLAUDE.md files checked for staleness                                                                                          |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: no blocking or serious cross-batch issue. The one new,
+  task-level finding is a seven-file documentation backlog (`platform-core`,
+  `persistence-sqlite`, `thoth-runtime`, `apps/ptah-electron`, `frontend/core`,
+  `shared`, `rpc-handlers` CLAUDE.md files) — each file is silently
+  out-of-date rather than wrong, and two of the seven (`platform-core`,
+  `skill-synthesis`) were already drifting before this task. This is a
+  documentation debt to pay in the same or a following commit, not a reason
+  to send code back.
+- What a 10/10 version would do differently: land the seven CLAUDE.md updates
+  listed in section 2 above in the same PR as the code that made them stale,
+  rather than as a follow-up; and, per Batches 1-4's own "10/10" notes,
+  export `SkillMdMigrationMarkerOutcome` from the skill-synthesis barrel,
+  alphabetize the `boot` entry in `rpc-handlers/src/lib/host-profile/manifest.ts`,
+  and hoist the two independently-typed `BootPhase → string` label maps into
+  one shared `Record<BootPhase, string>`.

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_380
-status: in_progress
+status: done
 type: REFACTORING
 title: 'Unfreeze Electron cold start: move SQLite quick_check off boot, defer skill boot scan, and show staged boot readiness in the renderer'
 depends_on: []

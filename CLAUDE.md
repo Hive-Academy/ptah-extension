@@ -24,7 +24,7 @@ ptah-extension/
 │                                      # ptah-landing-page | ptah-license-server
 │
 ├── libs/backend/                      # 29 runtime-agnostic libs (DI: tsyringe)
-│   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
+│   ├── platform-core/                 # ★ Port interfaces + 27 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
 │   ├── auth-providers/                # Auth strategies + provider trees (one-way → agent-sdk)
@@ -220,7 +220,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 
 ### Backend Libs
 
-- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 22 PLATFORM_TOKENS
+- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 27 PLATFORM_TOKENS
 - [platform-cli](./libs/backend/platform-cli/CLAUDE.md) — CLI adapters
 - [platform-electron](./libs/backend/platform-electron/CLAUDE.md) — Electron adapters
 - [platform-vscode](./libs/backend/platform-vscode/CLAUDE.md) — VS Code adapters

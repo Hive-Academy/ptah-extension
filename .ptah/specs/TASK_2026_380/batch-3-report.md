@@ -206,3 +206,70 @@ reads a red run-many as a regression from this batch.
 `back-office-activity.service.ts`, `activity-ticker/`, `boot-progress/`, …).
    Those are Batch 4's, not mine. My changes are confined to the files listed
    above.
+
+---
+
+## Shutdown wiring (Batch 5 logic follow-through)
+
+Closes the whole-task logic finding ("the integrity worker is the one boot-path
+resource with no shutdown entry", `code-logic-review.md:1412-1470`) and
+follow-up 3 (`:1531-1534`).
+
+**Files**
+
+- MODIFIED `libs/backend/persistence-sqlite/src/lib/integrity/integrity-check.service.ts`
+  — `dispatchIfDue(options?: { signal?: AbortSignal })`: an already-aborted
+  signal logs at `debug` and returns without spawning; an abort in flight kills
+  the worker, writes NO record (the abort path is distinguished from "asked and
+  got no answer", which still warns) and releases the single-flight flag. New
+  synchronous `dispose()` does the same through a stored `abortInFlight`
+  callback — idempotent, never throws, no-op when nothing is in flight.
+- MODIFIED `.../integrity-check.service.spec.ts` — call-count cases for a
+  pre-aborted signal (zero spawns), abort mid-flight (one `kill`, zero records,
+  flag released so the next dispatch spawns again), a late reply after an abort
+  (still zero records), and `dispose()` called twice / with nothing in flight.
+- MODIFIED `libs/backend/thoth-runtime/src/lib/types.ts` — `signal?: AbortSignal`
+  on `StartThothCronOptions`, documented as the boot window's lifetime only.
+- MODIFIED `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts` — the 60 s
+  boot dispatch now calls `dispatchIfDue({ signal })` and the timer is not armed
+  at all when the signal is already aborted; the `db:integrity` handler's
+  `container.resolve` is wrapped in the boot timer's own try/catch shape and
+  returns `{ outcome: 'skipped', reason: 'integrity-service-unavailable' }`. The
+  cron dispatch deliberately does not take the boot signal (it fires at 03:30).
+- MODIFIED `.../start-thoth-cron.spec.ts` — signal threaded into the boot
+  dispatch, an aborted signal arms no timer and dispatches nothing (handler
+  still registered), and the handler's skipped outcome on a resolve failure.
+- MODIFIED `apps/ptah-electron/src/activation/boot-coordinator.ts` —
+  `integrityService: { dispose: () => void } | null` on `BootRefs` and in
+  `createEmptyBootRefs()`, structural so the file still imports nothing at
+  runtime.
+- MODIFIED `apps/ptah-electron/src/activation/boot-heavy-services.ts` — passes
+  `signal` into `startThothCron`, then captures `refs.integrityService` eagerly
+  (guarded by `container.isRegistered`) while the container is healthy, per the
+  `cliRegistry` precedent.
+- MODIFIED `apps/ptah-electron/src/activation/shutdown.ts` — one
+  `nonFatal('Integrity check abort', () => refs.integrityService?.dispose())`
+  in `disposeBeforePersistence`, between `UpdateManager dispose` and
+  `Git watcher stop`: LIFO (captured last in the heavy boot) and before
+  `SQLite close`, because a completing check writes its verdict through that
+  connection. Synchronous, so `requiresDeferredDisposal` is unchanged.
+- MODIFIED `apps/ptah-electron/src/main.quit-path.spec.ts` —
+  `EXPECTED_LIFO_ORDER` gains `integrityService`, the fixture gains the handle,
+  plus a standalone "aborts the integrity check BEFORE SQLite is closed" case
+  and a null-handle case.
+
+**Verification**
+
+- `npx jest --config libs/backend/persistence-sqlite/jest.config.ts --rootDir libs/backend/persistence-sqlite integrity` — 4 suites, 61 tests passed.
+- `npx jest --config libs/backend/thoth-runtime/jest.config.ts --rootDir libs/backend/thoth-runtime start-thoth-cron` — 1 suite, 25 tests passed.
+- `npx jest --config apps/ptah-electron/jest.config.ts --rootDir apps/ptah-electron src/activation src/main` — 13 suites, 183 tests passed (`src/main` added because `main.quit-path.spec.ts` pins the disposal order and sits outside `src/activation`).
+- `npx eslint` on all nine touched files — clean.
+- `npx tsc -p apps/ptah-electron/tsconfig.app.json --noEmit` — clean. No `nx build` / `run-many`: a dev build was running on this machine.
+
+**Not done**: `boot-order.spec.ts` and `wire-runtime.boot-order.spec.ts`
+enumerate no `BootRefs` fields (only `boot-coordinator.spec.ts` calls
+`createEmptyBootRefs`, and it asserts no field list), so neither needed a
+change. The per-lib `CLAUDE.md` public-API lines for `persistence-sqlite`
+(`dispatchIfDue()` → `dispatchIfDue(options?)` + `dispose()`) and
+`thoth-runtime` (`startThothCron`'s `signal`) are now slightly stale — left
+alone deliberately, another agent is editing those files.
