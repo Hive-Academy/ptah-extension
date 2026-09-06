@@ -57,6 +57,5 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'workspaceLifecycle',
   'fileSystemAccess',
   'editorHost',
-  'pty',
   'appUpdater',
 ] as const;

@@ -64,10 +64,6 @@ test.describe('Editor — Monaco panel', () => {
     await expect(
       page.locator('[data-testid="editor-file-node"]', { hasText: 'main.ts' }),
     ).toBeVisible();
-
-    await expect(
-      page.locator('[data-testid="editor-terminal-toggle"]'),
-    ).toBeVisible();
   });
 
   test('open a file into Monaco', async ({ ui }) => {

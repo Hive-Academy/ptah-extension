@@ -92,12 +92,6 @@ export const PLATFORM_TOKENS = {
   FILE_DIALOG: Symbol.for('FileDialog'),
 
   /**
-   * IPtyHost — spawn/kill pseudo-terminals for the `terminal:*` RPC methods.
-   * Registered only by hosts whose profile sets `pty: true` (Electron today).
-   */
-  PTY_HOST: Symbol.for('PlatformPtyHost'),
-
-  /**
    * IAppUpdater — read/trigger the desktop update lifecycle for `update:*`.
    * Registered only by hosts whose profile sets `appUpdater: true`.
    */

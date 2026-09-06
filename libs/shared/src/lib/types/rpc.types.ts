@@ -17,7 +17,6 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
-export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
@@ -320,13 +319,6 @@ import type {
   GitLastCommitParams,
   GitLastCommitResult,
 } from './rpc/rpc-git.types';
-
-import type {
-  TerminalCreateParams,
-  TerminalCreateResult,
-  TerminalKillParams,
-  TerminalKillResult,
-} from './rpc/rpc-terminal.types';
 
 import type {
   EditorRevertFilesParams,
@@ -1497,11 +1489,6 @@ export interface RpcMethodRegistry {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
   };
-  'terminal:create': {
-    params: TerminalCreateParams;
-    result: TerminalCreateResult;
-  };
-  'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
   'harness:initialize': {
     params: HarnessInitializeParams;
     result: HarnessInitializeResponse;
@@ -3555,8 +3542,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
-  'terminal:create': true,
-  'terminal:kill': true,
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,

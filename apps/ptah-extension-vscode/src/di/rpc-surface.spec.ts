@@ -163,8 +163,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:unpin',
   'skillSynthesis:updateSettings',
   'skillSynthesis:updateSuggestion',
-  'terminal:create',
-  'terminal:kill',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',

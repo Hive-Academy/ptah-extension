@@ -25,7 +25,7 @@ The foundation layer of the monorepo. Pure TypeScript types, branded IDs, messag
 
 - `src/lib/types/execution/` — `agent`, `factories`, `guards`, `node`, `schemas`, `stream`, `stream-background` (the execution tree / streaming model).
 - `src/lib/types/messages/` — `envelope`, `message-type`, `message-constants`, `payload-map`, `schemas`, `helpers`, plus per-surface payload modules (`agent`, `chat`, `gateway`, `session`, `system`, `workspace`).
-- `src/lib/types/rpc/` — one file per RPC namespace (agents, auth, chat, config, editor, error-codes, git, harness, indexing, memory, misc, persistence, providers, session, setup, terminal). **`rpc-error-codes.types.ts` is the single source of truth for error codes across backend + frontend.**
+- `src/lib/types/rpc/` — one file per RPC namespace (agents, auth, chat, config, editor, error-codes, git, harness, indexing, memory, misc, persistence, providers, session, setup). **`rpc-error-codes.types.ts` is the single source of truth for error codes across backend + frontend.**
 - `src/lib/types/wizard/` — `analysis`, `conventions`, `phase`, `recommendations`, `steps`.
 
 ### Type guards (`src/lib/type-guards/guards`)

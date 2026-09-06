@@ -2,8 +2,8 @@
  * Editor Library - Services-only entry point
  *
  * Lightweight barrel that exports only services (no components with heavy deps
- * like xterm.js or Monaco). Use this import path when you need editor services
- * without pulling xterm/monaco into the bundle:
+ * like Monaco). Use this import path when you need editor services without
+ * pulling monaco into the bundle:
  *
  *   import { EditorService } from '@ptah-extension/editor/services';
  *
@@ -21,7 +21,5 @@ export {
 export { provideEditorInternalState } from './lib/services/editor-internal-state.provider';
 export { GitStatusService } from './lib/services/git-status.service';
 export { GitBranchesService } from './lib/services/git-branches.service';
-export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
-export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';
 export type { FileTreeNode } from './lib/models/file-tree.model';

@@ -68,7 +68,6 @@ export const ALLOWED_METHOD_PREFIXES = [
   'skillsSh:', // Skills.sh marketplace (search, install, recommend)
   'settings:', // Settings export/import (Electron desktop)
   'git:', // Git info and worktree management
-  'terminal:', // Terminal PTY session management
   'webSearch:', // Web search provider configuration (API key status)
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)

@@ -5,8 +5,7 @@
  *   - Phase 4.1: the RPC handler classes Electron shares with every other host,
  *                plus GitInfoService.
  *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
- *                two host services they depend on (PtyManagerService behind
- *                PLATFORM_TOKENS.PTY_HOST, UpdateManager behind
+ *                host service they depend on (UpdateManager behind
  *                PLATFORM_TOKENS.APP_UPDATER). EditorRpcHandlers is the only
  *                handler class still declared in this app (TASK_2026_173).
  */
@@ -51,7 +50,6 @@ import {
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
-  TerminalRpcHandlers,
   UpdateRpcHandlers,
   registerHarnessServices,
   registerChatServices,
@@ -60,9 +58,6 @@ import {
 import { EditorRpcHandlers } from '../services/rpc/handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
-
-import { PtyManagerService } from '../services/pty-manager.service';
-import { ELECTRON_TOKENS } from './electron-tokens';
 
 /**
  * Phase 4: Register all RPC handler classes with the container.
@@ -171,16 +166,6 @@ export function registerPhase4Handlers(
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
-  const ptyManagerService = new PtyManagerService(logger);
-  container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
-    useValue: ptyManagerService,
-  });
-  // Alias: the RPC handler depends on the port, IpcBridge on the concrete class.
-  // Same instance — a second PtyManagerService would own a separate session map.
-  container.register(PLATFORM_TOKENS.PTY_HOST, {
-    useToken: ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
-  });
-  container.registerSingleton(TerminalRpcHandlers);
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   // Alias, NOT a second registerSingleton — see Risk R1. post-window starts the
   // instance behind UPDATE_MANAGER_TOKEN and main.ts disposes it; a second
@@ -200,7 +185,6 @@ export function registerPhase4Handlers(
       'CommandRpcHandlers',
       'AgentRpcHandlers',
       'SkillsShRpcHandlers',
-      'TerminalRpcHandlers',
       'UpdateRpcHandlers',
     ],
   });

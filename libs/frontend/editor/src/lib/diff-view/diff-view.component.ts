@@ -487,7 +487,7 @@ const APPLY_FAILED_MESSAGE =
         nearest ancestor that establishes a stacking context, and this component
         sits inside two of them — the editor panel's own isolation:isolate
         wrapper (editor-panel.component.ts, added so Monaco could not swallow
-        the terminal resize handle) and the gridstack tile that hosts the panel
+        a resize handle underneath) and the gridstack tile that hosts the panel
         in the Electron layout. No number written here can climb out of either,
         so the canvas panel painted over the dialog and its empty-state text
         took the clicks on both buttons: a destructive-action confirmation that

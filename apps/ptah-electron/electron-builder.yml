@@ -15,8 +15,8 @@ asar: true
 compression: normal
 
 # npmRebuild: false — do NOT let electron-builder rebuild ALL native deps from
-# source (that fails: npm tarballs omit git submodules such as node-pty's winpty).
-# node-pty/sharp ship ABI-stable N-API prebuilts and need no rebuild. better-sqlite3
+# source (that fails: npm tarballs omit git submodules some native deps need).
+# sharp ships ABI-stable N-API prebuilts and needs no rebuild. better-sqlite3
 # is the exception: it has no Electron-40 prebuilt, so scripts/rebuild-native.js
 # compiles it from source (@electron/rebuild) before packaging, and
 # scripts/verify-packed-native.js asserts the packed binary's ABI afterward.
@@ -121,8 +121,6 @@ mac:
     - '!**/node_modules/@github/copilot/ripgrep/bin/linux-*/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-win32/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-linux/**'
-    - '!**/node_modules/node-pty/prebuilds/win32-*/**'
-    - '!**/node_modules/node-pty/prebuilds/linux-*/**'
     - '!**/node_modules/@img/sharp-win32-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
     - '!**/node_modules/@img/sharp-libvips-win32-*/**'
@@ -141,8 +139,6 @@ win:
     - '!**/node_modules/@github/copilot/ripgrep/bin/linux-*/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-darwin/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-linux/**'
-    - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
-    - '!**/node_modules/node-pty/prebuilds/linux-*/**'
     - '!**/node_modules/@img/sharp-darwin-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
     - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
@@ -163,8 +159,6 @@ linux:
     - '!**/node_modules/@github/copilot/ripgrep/bin/win32-*/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-darwin/**'
     - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-win32/**'
-    - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
-    - '!**/node_modules/node-pty/prebuilds/win32-*/**'
     - '!**/node_modules/@img/sharp-darwin-*/**'
     - '!**/node_modules/@img/sharp-win32-*/**'
     - '!**/node_modules/@img/sharp-libvips-darwin-*/**'

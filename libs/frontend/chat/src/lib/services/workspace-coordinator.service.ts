@@ -33,12 +33,11 @@ interface WorkspaceAwareService {
  * SessionLoaderService (session cache), FilePickerService (`@` picker file
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
  * command caches), EditorService (editor), GitStatusService /
- * GitBranchesService (git state), TerminalService (terminal state),
- * AppStateManager (which view/layout surface is on screen) and
- * ConfirmationDialogService.
+ * GitBranchesService (git state), AppStateManager (which view/layout surface is
+ * on screen) and ConfirmationDialogService.
  *
- * Editor services (EditorService, GitStatusService, GitBranchesService,
- * TerminalService) are resolved dynamically via Injector to avoid static
+ * Editor services (EditorService, GitStatusService, GitBranchesService) are
+ * resolved dynamically via Injector to avoid static
  * imports of the lazy-loaded editor library. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
@@ -106,7 +105,6 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
         this.injector.get(editorModule.EditorService),
         this.injector.get(editorModule.GitStatusService),
         this.injector.get(editorModule.GitBranchesService),
-        this.injector.get(editorModule.TerminalService),
       ];
       return this.editorServices;
     } catch (error) {

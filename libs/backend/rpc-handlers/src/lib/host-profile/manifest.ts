@@ -61,7 +61,6 @@ import {
   SkillsSynthesisRpcHandlers,
   SubagentRpcHandlers,
   TasksRpcHandlers,
-  TerminalRpcHandlers,
   UpdateRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
@@ -351,12 +350,6 @@ export const RPC_HANDLER_MANIFEST = [
     methods: WorkspaceRpcHandlers.METHODS,
     requires: ['workspaceLifecycle'],
     handler: WorkspaceRpcHandlers,
-  },
-  {
-    key: 'terminal',
-    methods: TerminalRpcHandlers.METHODS,
-    requires: ['pty'],
-    handler: TerminalRpcHandlers,
   },
   {
     key: 'update',

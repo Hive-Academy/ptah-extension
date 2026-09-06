@@ -36,7 +36,6 @@ export function createElectronRpcHostProfile(
       editorRevert: true,
       editorHost: true,
       commandExecution: true,
-      pty: true,
       appUpdater: true,
     }),
     hostHandlers: {

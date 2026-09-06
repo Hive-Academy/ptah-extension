@@ -16,7 +16,6 @@ import {
   Pencil,
   Trash2,
   Copy,
-  Terminal,
 } from 'lucide-angular';
 import type { FileTreeNode } from '../models/file-tree.model';
 
@@ -119,7 +118,6 @@ export class FileTreeContextMenuComponent {
   readonly PencilIcon = Pencil;
   readonly Trash2Icon = Trash2;
   readonly CopyIcon = Copy;
-  readonly TerminalIcon = Terminal;
 
   constructor() {
     afterNextRender(() => {

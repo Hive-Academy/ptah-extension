@@ -4,13 +4,13 @@ import type { Locator, Page } from '@playwright/test';
 import { prewarmEditor } from './_harness/prewarm';
 
 /**
- * SHOWCASE — "A real editor, built in" (Monaco + terminal tour).
+ * SHOWCASE — "A real editor, built in" (Monaco tour).
  *
  * Shows Ptah's integrated editor surface as a marketing beat: the file-tree
- * explorer, a real file opened into Monaco, smooth code scrolling, and the
- * integrated xterm.js terminal panel. This is a SCENE, not a test — it asserts
- * almost nothing, runs NO agents, and is tuned for camera: eased pointer
- * travel, lower-third captions, spotlights, and generous dwell.
+ * explorer, a real file opened into Monaco, and smooth code scrolling. This
+ * is a SCENE, not a test — it asserts almost nothing, runs NO agents, and is
+ * tuned for camera: eased pointer travel, lower-third captions, spotlights,
+ * and generous dwell.
  *
  * AUDIO-FIRST: the voiceover script lives in `scripts/editor-tour.json` and is
  * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
@@ -19,9 +19,9 @@ import { prewarmEditor } from './_harness/prewarm';
  * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
  * onto each subject as the VO names it.
  *
- * Strictly NON-DESTRUCTIVE: it toggles the panel, expands the tree, OPENS and
- * SCROLLS a file, and reveals (but does not type into) the terminal. It never
- * edits, saves, or runs a command — opening and scrolling only.
+ * Strictly NON-DESTRUCTIVE: it toggles the panel, expands the tree, and OPENS
+ * and SCROLLS a file. It never edits, saves, or runs a command — opening and
+ * scrolling only.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -130,10 +130,7 @@ async function monacoMounted(page: Page): Promise<boolean> {
   return isVisible(monacoInstance);
 }
 
-test('SHOWCASE — editor tour (Monaco + terminal)', async ({
-  page,
-  director,
-}) => {
+test('SHOWCASE — editor tour (Monaco)', async ({ page, director }) => {
   // PRE-WARM (kept — trimmed lead-in, before the first beat): the editor panel's
   // Monaco host is the worst mid-scene stall (~31s first-mount). Force it to
   // mount now — open the panel, open a leaf file, then close the panel — so the
@@ -217,43 +214,5 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     });
   }
 
-  // Reveal the integrated terminal (xterm.js) via the toolbar toggle.
-  const terminalToggle = page
-    .locator('[data-testid="editor-terminal-toggle"]')
-    .first();
-  if (await isVisible(terminalToggle)) {
-    await director.say(8, {
-      target: terminalToggle,
-      during: async () => {
-        await director.spotlight(terminalToggle, 1200);
-        await director.click(terminalToggle);
-        await director.hold(900);
-      },
-    });
-
-    const terminalPanel = page.locator('ptah-terminal-panel').first();
-    if (await isVisible(terminalPanel)) {
-      // Open a fresh terminal tab so xterm renders (non-destructive — we never
-      // type a command into it).
-      const newTerminal = page
-        .getByRole('button', { name: 'New Terminal' })
-        .or(page.locator('[aria-label="New Terminal"]'))
-        .or(page.locator('[title="New Terminal"]'))
-        .first();
-      if (await isVisible(newTerminal)) {
-        await director.click(newTerminal);
-        await director.hold(1200);
-      }
-
-      await director.say(9, {
-        target: terminalPanel,
-        during: async () => {
-          await director.hover(terminalPanel, 600);
-          await director.spotlight(terminalPanel, 2000);
-        },
-      });
-    }
-  }
-
-  await director.say(10, { breathMs: 950 });
+  await director.say(8, { breathMs: 950 });
 });

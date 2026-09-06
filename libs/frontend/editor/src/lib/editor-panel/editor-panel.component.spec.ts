@@ -174,14 +174,6 @@ class StubSidebarComponent {
 class StubGitStatusBarComponent {}
 
 @Component({
-  selector: 'ptah-terminal-panel',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class StubTerminalPanelComponent {}
-
-@Component({
   selector: 'ptah-file-tree-context-menu',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -231,9 +223,6 @@ function makeEditorServiceStub() {
     }),
     splitFilePath: signal<string | undefined>(undefined),
     splitFileContent: signal(''),
-    terminalVisible: signal(false),
-    terminalHeight: signal(200),
-    setTerminalHeight: jest.fn(),
     fileTree: signal<unknown[]>([]),
     error: signal<string | null>(null),
     activeWorkspacePath: '/ws',
@@ -267,13 +256,11 @@ function makeEditorServiceStub() {
     isLoading: ReturnType<typeof signal<boolean>>;
     activeFilePath: ReturnType<typeof signal<string | undefined>>;
     openTabs: ReturnType<typeof signal<unknown[]>>;
-    terminalVisible: ReturnType<typeof signal<boolean>>;
     splitActive: ReturnType<typeof signal<boolean>>;
     splitFilePath: ReturnType<typeof signal<string | undefined>>;
     splitFileContent: ReturnType<typeof signal<string>>;
     activeFileContent: ReturnType<typeof signal<string>>;
     focusedPane: ReturnType<typeof signal<'left' | 'right'>>;
-    setTerminalHeight: jest.Mock;
     switchTab: jest.Mock;
     closeTab: jest.Mock;
     saveFile: jest.Mock;
@@ -342,7 +329,6 @@ describe('EditorPanelComponent — loading gate keeps the editor mounted (Seriou
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -507,7 +493,6 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -600,24 +585,6 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     expect(rafSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('coalesces the terminal resize drag the same way', () => {
-    editor.terminalVisible.set(true);
-    fixture.detectChanges();
-
-    pointerDownOn('Resize terminal');
-    moveTo(100, 90);
-    moveTo(100, 80);
-    moveTo(100, 70);
-
-    expect(rafSpy).toHaveBeenCalledTimes(1);
-    expect(editor.setTerminalHeight).not.toHaveBeenCalled();
-
-    tickFrame();
-    expect(editor.setTerminalHeight).toHaveBeenCalledTimes(1);
-
-    releasePointer();
-  });
-
   it('coalesces the split divider drag the same way', () => {
     editor.splitActive.set(true);
     fixture.detectChanges();
@@ -672,23 +639,21 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     expect(readSignal('sidebarWidth')).toBe(256);
   });
 
-  it('restores the terminal height and ends the drag on blur', () => {
-    editor.terminalHeight.set(300);
-    editor.terminalVisible.set(true);
+  it('restores the split divider percentage and ends the drag on blur', () => {
+    editor.splitActive.set(true);
     fixture.detectChanges();
 
-    pointerDownOn('Resize terminal');
-    moveTo(100, 90);
-    moveTo(100, 10);
+    pointerDownOn('Resize split panes');
+    moveTo(5000);
     expect(frames.size).toBe(1);
 
     window.dispatchEvent(new Event('blur'));
 
     expect(cafSpy).toHaveBeenCalled();
     expect(frames.size).toBe(0);
-    expect(editor.setTerminalHeight).toHaveBeenCalledWith(300);
+    expect(readSignal('splitLeftPercent')).toBe(50);
 
-    moveTo(100, 5);
+    moveTo(400);
     expect(rafSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -796,27 +761,25 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     expect(readSignal('sidebarWidth')).toBe(256);
   });
 
-  it('(209-5) losing capture ends the drag — the terminal handle can be unmounted mid-drag', () => {
-    editor.terminalHeight.set(300);
-    editor.terminalVisible.set(true);
+  it('(209-5) losing capture ends the drag — the split handle can be unmounted mid-drag', () => {
+    editor.splitActive.set(true);
     fixture.detectChanges();
 
-    const handle = pointerDownOn('Resize terminal', 4);
-    moveTo(100, 10, 4);
+    const handle = pointerDownOn('Resize split panes', 4);
+    moveTo(5000, 100, 4);
     expect(frames.size).toBe(1);
 
     // What the browser fires when a capturing element leaves the document.
     handle.dispatchEvent(pointerEvent('lostpointercapture', { pointerId: 4 }));
 
     expect(frames.size).toBe(0);
-    expect(editor.setTerminalHeight).toHaveBeenCalledWith(300);
+    expect(readSignal('splitLeftPercent')).toBe(50);
 
     // And the guard is clear, so the handle can start a fresh drag.
-    editor.setTerminalHeight.mockClear();
-    pointerDownOn('Resize terminal', 5);
-    moveTo(100, 90, 5);
+    pointerDownOn('Resize split panes', 5);
+    moveTo(5000, 100, 5);
     tickFrame();
-    expect(editor.setTerminalHeight).toHaveBeenCalledTimes(1);
+    expect(readSignal('splitLeftPercent')).toBe(80);
     releasePointer(5);
   });
 
@@ -883,7 +846,6 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -932,11 +894,10 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
 
   /**
    * TASK_2026_196. Both Monaco surfaces are absolutely positioned with z-index
-   * auto, so they paint in CSS 2.1 layer 8 while the terminal separator and
-   * terminal panel — in-flow siblings of the editor region — paint in layer 4.
-   * An unclipped overflow therefore paints over the terminal AND, because
-   * hit-testing follows paint order, swallows the mousedown on the resize
-   * separator.
+   * auto, so they paint in CSS 2.1 layer 8 while the in-flow siblings of the
+   * editor region paint in layer 4. An unclipped overflow therefore paints over
+   * them AND, because hit-testing follows paint order, swallows the mousedown
+   * on a resize separator.
    *
    * The assertion walks up from the positioned elements rather than hardcoding
    * a selector, so it also fails if someone introduces a NEW positioned surface
@@ -1066,7 +1027,6 @@ describe('EditorPanelComponent — tab strip controls are siblings, not nested (
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -1283,7 +1243,6 @@ describe('EditorPanelComponent — split-pane save (C2)', () => {
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -1554,7 +1513,6 @@ describe('EditorPanelComponent — focused-pane read path (C2 §1.2 regression g
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -1706,7 +1664,6 @@ describe('EditorPanelComponent — save-conflict dialog focus management (C2)', 
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -1960,7 +1917,6 @@ describe('EditorPanelComponent — keyboard focus retargets the pane (focusin)',
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -2233,7 +2189,6 @@ describe('EditorPanelComponent — a keyboard user can save from the split pane'
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -2418,7 +2373,6 @@ describe('EditorPanelComponent — file-ops dialogs live in the top layer (TASK_
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -2697,7 +2651,6 @@ describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },
@@ -2880,7 +2833,6 @@ describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => 
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },

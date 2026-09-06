@@ -156,14 +156,6 @@ class StubSidebarComponent {
 class StubGitStatusBarComponent {}
 
 @Component({
-  selector: 'ptah-terminal-panel',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class StubTerminalPanelComponent {}
-
-@Component({
   selector: 'ptah-file-tree-context-menu',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -200,9 +192,6 @@ function makeEditorServiceStub() {
     }),
     splitFilePath: signal<string | undefined>(undefined),
     splitFileContent: signal(''),
-    terminalVisible: signal(false),
-    terminalHeight: signal(200),
-    setTerminalHeight: jest.fn(),
     fileTree: signal<unknown[]>([]),
     error: signal<string | null>(null),
     activeWorkspacePath: '/ws',
@@ -484,7 +473,6 @@ describe('EditorPanelComponent dialogs — axe (TASK_2026_215 follow-up)', () =>
           StubDiffViewComponent,
           StubSidebarComponent,
           StubGitStatusBarComponent,
-          StubTerminalPanelComponent,
           StubContextMenuComponent,
         ],
       },

@@ -52,8 +52,6 @@ export const RPC_CAPABILITIES = [
   'editorHost',
   /** Host has a command palette / command executor. */
   'commandExecution',
-  /** Host can spawn pseudo-terminals. */
-  'pty',
   /** Host ships a self-updating application shell. */
   'appUpdater',
 ] as const;

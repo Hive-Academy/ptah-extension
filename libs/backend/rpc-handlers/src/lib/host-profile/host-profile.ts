@@ -79,7 +79,6 @@ const ALL_DISABLED: HostCapabilities = {
   editorRevert: false,
   editorHost: false,
   commandExecution: false,
-  pty: false,
   appUpdater: false,
 };
 

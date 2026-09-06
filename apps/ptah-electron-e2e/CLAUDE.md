@@ -13,7 +13,7 @@ Playwright end-to-end tests for the built Electron app. Launches the actual `dis
 
 ## Specs
 
-`src/specs/*.spec.ts` covers: auto-updater, clipboard, electron browser capabilities, git watcher, license watcher, pty manager, rpc, setup wizard, smoke, startup config, state.
+`src/specs/*.spec.ts` covers: auto-updater, clipboard, electron browser capabilities, git watcher, license watcher, rpc, setup wizard, smoke, startup config, state.
 
 ## Build & Run
 

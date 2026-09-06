@@ -18,7 +18,6 @@ import {
   PanelLeft,
   X,
   Columns2,
-  TerminalSquare,
   AlertTriangle,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
@@ -33,7 +32,6 @@ import type {
 } from '../services/editor/editor-tab.types';
 import { GitStatusService } from '../services/git-status.service';
 import { GitStatusBarComponent } from '../git-status-bar/git-status-bar.component';
-import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import {
   FileTreeContextMenuComponent,
@@ -42,26 +40,21 @@ import {
 import type { FileTreeNode } from '../models/file-tree.model';
 
 /**
- * EditorPanelComponent - Main container combining file tree sidebar, code editor,
- * and resizable terminal panel.
+ * EditorPanelComponent - Main container combining file tree sidebar and code editor.
  *
  * Complexity Level: 2 (Medium - composition, resize drag handling, multiple signal states)
  * Patterns: Composition, signal-based state delegation, horizontal split with drag handle
  *
  * Layout (top to bottom):
- * 1. Toolbar (h-8): Explorer toggle + Terminal toggle
+ * 1. Toolbar (h-8): Explorer toggle + Split toggle
  * 2. Git status bar (h-7, conditional on git repo)
  * 3. Main content (flex-1): File tree sidebar (w-64) + Code editor (flex-1)
- * 4. Resize handle (h-1, conditional on terminal visible)
- * 5. Terminal panel (terminalHeight px, conditional on terminal visible)
  *
  * Communication flow:
  * 1. Workspace switch coordination -> EditorService.switchWorkspace() -> loadFileTree() -> RPC to backend
  * 2. Backend responds -> EditorService updates signals internally
  * 3. User clicks file -> EditorService.openFile() -> RPC to backend
  * 4. User presses Ctrl+S -> EditorService.saveFile() -> RPC to backend
- * 5. User toggles terminal -> terminalVisible signal toggles terminal panel
- * 6. User drags resize handle -> terminalHeight signal updates terminal size
  */
 @Component({
   selector: 'ptah-editor-panel',
@@ -72,7 +65,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
     DiffViewComponent,
     LucideAngularModule,
     GitStatusBarComponent,
-    TerminalPanelComponent,
     SidebarComponent,
     FileTreeContextMenuComponent,
   ],
@@ -114,34 +106,16 @@ import type { FileTreeNode } from '../models/file-tree.model';
           >
             <lucide-angular [img]="SplitIcon" class="w-4 h-4" />
           </button>
-
-          <button
-            class="btn btn-ghost btn-xs px-2 text-base-content-muted hover:text-base-content"
-            data-testid="editor-terminal-toggle"
-            [class.text-primary]="editorService.terminalVisible()"
-            [title]="
-              editorService.terminalVisible()
-                ? 'Hide terminal'
-                : 'Show terminal'
-            "
-            aria-label="Toggle terminal"
-            (click)="toggleTerminal()"
-          >
-            <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
-          </button>
         </div>
       </div>
 
       <!-- Git status bar (below toolbar, above content) -->
       <ptah-git-status-bar />
 
-      <!-- Main content area with optional terminal split -->
+      <!-- Main content area -->
       <div class="flex flex-col flex-1 min-h-0">
-        <!-- Editor area (takes remaining space above terminal) -->
-        <div
-          class="flex min-h-0"
-          [style.flex]="editorService.terminalVisible() ? '1 1 0' : '1 1 auto'"
-        >
+        <!-- Editor area -->
+        <div class="flex flex-auto min-h-0">
           @if (sidebarVisible()) {
             <ptah-sidebar
               [width]="sidebarWidth()"
@@ -287,12 +261,11 @@ import type { FileTreeNode } from '../models/file-tree.model';
               <!-- overflow-hidden and isolate are load-bearing, not tidying.
                    The children below are absolutely positioned with z-index
                    auto, so CSS 2.1 paint order puts them in layer 8 while the
-                   terminal separator and terminal panel — in-flow siblings of
-                   this region — paint in layer 4. Without a clip, any Monaco
-                   surface that overflows paints OVER both, and because
-                   hit-testing follows paint order it also swallows the
-                   mousedown on [aria-label="Resize terminal"], which is why
-                   the terminal stopped being resizable (TASK_2026_196).
+                   in-flow siblings of this region paint in layer 4. Without a
+                   clip, any Monaco surface that overflows paints OVER them, and
+                   because hit-testing follows paint order it also swallows the
+                   mousedown on a separator underneath — which is how a resize
+                   handle stops responding (TASK_2026_196).
                    The isolate utility keeps that stacking contained here. -->
               <div class="flex-1 min-h-0 relative overflow-hidden isolate">
                 <ptah-diff-view
@@ -417,26 +390,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
             }
           </div>
         </div>
-
-        <!-- Resize handle between editor and terminal -->
-        @if (editorService.terminalVisible()) {
-          <div
-            class="h-1 bg-base-300 cursor-row-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 touch-none"
-            role="separator"
-            aria-label="Resize terminal"
-            (pointerdown)="onTerminalResizeStart($event)"
-          ></div>
-        }
-
-        <!-- Terminal panel -->
-        @if (editorService.terminalVisible()) {
-          <div
-            [style.height.px]="editorService.terminalHeight()"
-            class="flex-shrink-0 min-h-[100px]"
-          >
-            <ptah-terminal-panel />
-          </div>
-        }
       </div>
 
       <!-- Error toast -->
@@ -726,12 +679,11 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   readonly PanelLeftIcon = PanelLeft;
   readonly XIcon = X;
   readonly SplitIcon = Columns2;
-  readonly TerminalIcon = TerminalSquare;
   readonly AlertTriangleIcon = AlertTriangle;
 
   /**
    * Listeners registered by the active resize drag, stored for symmetric
-   * removal. One set serves all three drag surfaces: at most one drag can be
+   * removal. One set serves both drag surfaces: at most one drag can be
    * active at a time because {@link startDragTracking} refuses to start a
    * second while {@link _dragPointerId} is held — the same reasoning that lets
    * {@link _dragFrame} be a single handle. `null` means no drag is in progress.
@@ -814,10 +766,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected toggleSidebar(): void {
     this.sidebarVisible.update((v) => !v);
-  }
-
-  protected toggleTerminal(): void {
-    this.editorService.toggleTerminal();
   }
 
   /**
@@ -1448,36 +1396,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle pointerdown on the terminal resize handle.
-   * Starts tracking pointer movement to resize the terminal panel.
-   *
-   * The drag operates by calculating the delta from the pointer start Y position
-   * and subtracting it from the initial terminal height. The terminal height
-   * is clamped to a minimum of 100px and a maximum of 60% of the component height.
-   */
-  protected onTerminalResizeStart(event: PointerEvent): void {
-    event.preventDefault();
-
-    const startY = event.clientY;
-    const startHeight = this.editorService.terminalHeight();
-
-    this.startDragTracking<number>({
-      event,
-      original: startHeight,
-      compute: (e) => {
-        const deltaY = startY - e.clientY;
-        const newHeight = startHeight + deltaY;
-        const hostElement = (event.target as HTMLElement).closest(
-          '[role="main"]',
-        );
-        const maxHeight = hostElement ? hostElement.clientHeight * 0.6 : 600;
-        return Math.max(100, Math.min(newHeight, maxHeight));
-      },
-      commit: (height) => this.editorService.setTerminalHeight(height),
-    });
-  }
-
-  /**
    * Handle pointerdown on the sidebar resize handle.
    * Starts tracking horizontal pointer movement to resize the sidebar.
    * Width is clamped between 160px and 480px.
@@ -1528,7 +1446,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * The single drag loop behind all three resize surfaces (B5 AC4).
+   * The single drag loop behind both resize surfaces (B5 AC4).
    *
    * Each surface supplies only what actually differs between them — the value
    * to restore on interruption, the pointer→value arithmetic (including its
@@ -1712,7 +1630,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    *
    * Guarded on `hasPointerCapture` because releasing a capture the element does
    * not hold throws `NotFoundError`, and the handle may already have been
-   * unmounted — the terminal separator lives inside an `@if`.
+   * unmounted — the split separator lives inside an `@if`.
    */
   private releaseDragPointer(): void {
     const target = this._dragCaptureTarget;
@@ -1735,9 +1653,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * Pending `requestAnimationFrame` handle for the active resize drag.
    *
    * Only one drag surface can be active at a time — {@link startDragTracking}
-   * refuses a second `pointerdown` while one owns a pointer — so the terminal,
-   * sidebar and split drags share this one handle. `null` means no frame is
-   * armed.
+   * refuses a second `pointerdown` while one owns a pointer — so the sidebar
+   * and split drags share this one handle. `null` means no frame is armed.
    */
   private _dragFrame: number | null = null;
 

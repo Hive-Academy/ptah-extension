@@ -53,7 +53,6 @@ export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
-export { TerminalRpcHandlers } from './terminal-rpc.handlers';
 export { UpdateRpcHandlers } from './update-rpc.handlers';
 export {
   PersistenceRpcHandlers,
