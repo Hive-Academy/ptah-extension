@@ -1,7 +1,8 @@
 # Batches - TASK_2026_380
 
-Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 2/5
-Tasks complete: 9/16 | Commits: `0c7e4d05c` (Batch 1), `ee6ad1d8a` (Batch 2)
+Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 3/5
+Tasks complete: 13/16 (+4 IMPLEMENTED, commit pending) | Commits: `0c7e4d05c`
+(Batch 1), `ee6ad1d8a` (Batch 2), `4a00d8c74` (Batch 3)
 
 **Repository root for every path in this file (a git worktree on branch
 `electron-cold-start-380`):**
@@ -545,12 +546,44 @@ nx build ptah-cli
 
 ---
 
-## Batch 3: Boot readiness port, RPC, Electron activation and the activity emitter — IN_PROGRESS
+## Batch 3: Boot readiness port, RPC, Electron activation and the activity emitter — COMPLETE
 
-> Tasks 3.1-3.3 ran concurrently with Batch 2 by orchestrator decision (no shared
-> file). **Task 3.4's hold is LIFTED** — Batch 2 is committed at `ee6ad1d8a`, so
-> `start-thoth-cron.ts` is settled. 3.4 goes to the same executor, sequentially
-> after 3.3, because it shares `boot-heavy-services.ts` with it.
+- **Commit: `4a00d8c74`** — `feat(electron): batch 3 - broadcast boot readiness and
+back-office activity`
+- Reviews: code-logic-reviewer **APPROVED** 8/10; code-style-reviewer **APPROVED**
+  8/10. Report: `batch-3-report.md`.
+- Verification: `run-many -t test` green for 6 projects under `--parallel=1` (a
+  first parallel attempt hit a pre-existing Windows temp-dir race in
+  `CpuProfileCapture`, unrelated to this batch); targeted typecheck green for 5
+  projects; `nx build ptah-electron` green; **`rpc-allowlist.spec.ts` green** — the
+  partition gate that forced Task 1.6's deferral is now satisfied with all four
+  registration sites present; eslint clean; the husky hook passed (no
+  `--no-verify`).
+- Tasks 3.1-3.3 ran concurrently with Batch 2 (no shared file); Task 3.4's hold
+  was lifted at `ee6ad1d8a` and it ran sequentially after 3.3.
+
+**Deviations recorded from `batch-3-report.md`:**
+
+- `bootstrapElectron` gained a `coordinator: Pick<BootCoordinator, 'snapshot'>`
+  parameter — the narrowest shape that lets the readiness adapter be registered
+  inside bootstrap.
+- The broadcaster is wired **after** `bootstrapElectron` returns, because it needs
+  the container; `post-window.ts` builds its own broadcaster for the reload replay
+  rather than threading one through.
+- The RPC handler is `async` over a synchronous port — the transport type requires
+  it; the port itself stays synchronous as designed.
+- `setPhase` clears `detail` on transition, so a stale sentence cannot outlive its
+  phase.
+- `withActivityEmit` lives in `activity-emitter.ts` and takes a **type-only**
+  `JobHandler` import from `cron-scheduler`; the two file-private cron registrars
+  gained an `emit` parameter.
+- Emission rules as built: a **thrown** cron handler emits nothing and rethrows;
+  `skipped` emits at `warn`; only the **first** harness reconcile emits; session
+  import emits even when the count is zero.
+
+**Open notes / follow-ups:** nothing produces a `degraded` readiness yet — the
+value exists in the vocabulary with no producer. User-defined cron jobs still emit
+nothing (they would need an event surface on `CronScheduler`, a different lib).
 
 - Components: 9, 10, 11, 14b
 - Recommended executor: `backend-developer` (Electron main-process activation is
@@ -567,7 +600,7 @@ nx build ptah-cli
 - Tasks: 4 | Depends on: Batch 1 (lane C). Independent of Batch 2, but scheduled
   after it so a single reviewer sees the backend in dependency order.
 
-### Task 3.1: `IBootReadinessProvider` port + three host answers (component 9) — IN_PROGRESS
+### Task 3.1: `IBootReadinessProvider` port + three host answers (component 9) — COMPLETE
 
 - Files:
   - CREATE `…/libs/backend/platform-core/src/interfaces/boot-readiness.interface.ts`
@@ -598,7 +631,7 @@ nx build ptah-cli
   `register-platform-agnostic` case asserts the null adapter is **not** registered
   when one already is.
 
-### Task 3.2: `boot:getReadiness` RPC — the four-site registration (component 11) — IN_PROGRESS
+### Task 3.2: `boot:getReadiness` RPC — the four-site registration (component 11) — COMPLETE
 
 - Depends on: Task 3.1
 - **Scope widened by a Batch 1 deferral — this is now the FULL four-site
@@ -642,7 +675,7 @@ nx build ptah-cli
   fallback when the port throws. `rpc-allowlist.spec.ts` passes — it is the
   partition gate and this task does not close until it is green.
 
-### Task 3.3: `BootCoordinator` phase state, broadcaster and phase anchors (component 10) — IN_PROGRESS
+### Task 3.3: `BootCoordinator` phase state, broadcaster and phase anchors (component 10) — COMPLETE
 
 - Depends on: Task 3.1, Task 3.2
 - Files:
@@ -688,7 +721,7 @@ nx build ptah-cli
   phase; `boot-order.spec.ts` asserts the sequence
   `database → harness → sessions → index → settled`.
 
-### Task 3.4: Back-office activity emitter (component 14b) — IN_PROGRESS (hold lifted at `ee6ad1d8a`)
+### Task 3.4: Back-office activity emitter (component 14b) — COMPLETE
 
 - Depends on: Task 3.3 (same file, `boot-heavy-services.ts`) and Batch 2's
   `start-thoth-cron.ts`, now committed. **The `db:integrity` handler this task
@@ -748,7 +781,32 @@ nx build ptah-electron
 
 ---
 
-## Batch 4: Renderer — boot status, boot screen, activity service and ticker — PENDING
+## Batch 4: Renderer — boot status, boot screen, activity service and ticker — IMPLEMENTED
+
+> **Files verified on disk; commit is HELD pending the code-logic verdict.**
+> code-style-reviewer **APPROVED** 8/10. Report: `batch-4-report.md`.
+>
+> Verification: `run-many -t test` green for `@ptah-extension/core` (639),
+> `chat-ui` (119), `chat` (944 + 2 skipped), `ptah-extension-webview` (142);
+> targeted typecheck green for 4 projects; `nx build ptah-extension-webview`
+> green. One post-implementation fix: 10 `no-duplicate-attributes` template errors
+> (`class` beside `[class]`) in `skeleton-block`, `boot-progress` and
+> `activity-ticker` were collapsed into single `[class]` bindings —
+> `chat-ui:lint` is now 0 errors.
+>
+> **Deviations (`batch-4-report.md` D-1..D-6):** the harness handover is an
+> `isBlockingBoot()` computed, and the shell branch is gated on it too;
+> `ActivityItem` lives in `libs/frontend/core` rather than in shared;
+> `app-shell.component.ts` and `electron-shell.component.ts` were both modified
+> for injection (the plan named only the latter); `text-base-content-muted` is used
+> because the alpha ladder is ratcheted.
+>
+> **DEFERRED — the two `webview-e2e-harness` Playwright cases** (a `warming`
+> readiness rendering the boot screen, and an `ACTIVITY_EVENT` rendering in the
+> header) were not written: they need a webview build plus a Playwright run. The
+> sketch is in `batch-4-report.md`. **Carried into Task 5.1** — Batch 4 must not be
+> called done on the strength of unit tests alone, since these two cases are the
+> only proof the push actually reaches the rendered surface.
 
 - Components: 12, 13, 14d, 14e
 - Recommended executor: `frontend-developer`
@@ -762,7 +820,7 @@ nx build ptah-electron
   because the ticker binds the service's signals.
 - Tasks: 4 | Depends on: Batch 1 (lane C), Batch 3
 
-### Task 4.1: `BootStatusService` (component 12) — PENDING
+### Task 4.1: `BootStatusService` (component 12) — IMPLEMENTED
 
 - Files:
   - CREATE `…/libs/frontend/core/src/lib/services/boot-status.service.ts`
@@ -792,7 +850,7 @@ nx build ptah-electron
   `isBooting`; a malformed push is ignored; a rejected pull leaves the default; a
   batched push (through the router's `MESSAGE_TYPES.BATCH` unwrap) still lands.
 
-### Task 4.2: `BackOfficeActivityService` (component 14d) — PENDING
+### Task 4.2: `BackOfficeActivityService` (component 14d) — IMPLEMENTED
 
 - Depends on: Task 4.1 (shares `core/services/index.ts` and `app.config.ts`)
 - Files:
@@ -833,7 +891,7 @@ nx build ptah-electron
   changes nothing; a `settled` boot phase produces no item; a batched message
   lands.
 
-### Task 4.3: Boot screen + panel skeletons (component 13) — PENDING
+### Task 4.3: Boot screen + panel skeletons (component 13) — IMPLEMENTED (e2e harness case deferred to Task 5.1)
 
 - Depends on: Task 4.1
 - Files:
@@ -874,7 +932,7 @@ nx build ptah-electron
   bridge and asserts the boot screen renders, then posts `harness` and asserts
   the shell appears.
 
-### Task 4.4: `ptah-activity-ticker` + shell wiring (component 14e) — PENDING
+### Task 4.4: `ptah-activity-ticker` + shell wiring (component 14e) — IMPLEMENTED (e2e harness case deferred to Task 5.1)
 
 - Depends on: Task 4.2, Task 4.3
 - Files:
@@ -967,6 +1025,12 @@ npm run lint:all
   **That run, and only that run, authorises a readiness guard — on exactly the
   methods it names.** If it names none, record that no guard ships and why. Do not
   add guards speculatively.
+- **Carried in from Batch 4:** write and run the two deferred
+  `webview-e2e-harness` Playwright cases (post a `warming` readiness and assert
+  the boot screen renders, then `harness` and assert the shell appears; post an
+  `ACTIVITY_EVENT` and assert the header line renders its `summary`). The sketch
+  is in `batch-4-report.md`. These are the only proof that the push reaches the
+  rendered surface, and acceptance criterion 4 depends on the same path.
 - Also verify assumption A-1 live: with the app running, confirm the worker's
   read-only connection opens against the same WAL database, and that a forced
   open failure produces `unavailable` with no record written.

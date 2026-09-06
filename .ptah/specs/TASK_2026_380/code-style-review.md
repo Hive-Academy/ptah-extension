@@ -218,3 +218,670 @@ Score 8/10 — `registerIntegrityCheckJob` (`:151-236`) is a nameable, self-cont
 - Confidence: HIGH
 - Key concern: the boot-timer-arms-inside-the-registration-guard coupling in `start-thoth-cron.ts:184-224` is correct but implicit; a future refactor of `registerIntegrityCheckJob` that separates those two concerns without re-reading the guarantee could silently double-arm the timer.
 - What a 10/10 version would do differently: add a one-line comment at `start-thoth-cron.ts:189` stating explicitly that the boot timer's one-per-process guarantee depends on being armed inside the same guard as handler registration, not just alongside it; add a matching forward-pointer in `IIntegrityWorkerProcessFactory`'s own doc comment (or its file header) noting that the CLI legitimately registers a factory it never dispatches, so the fact is discoverable from the port definition and not only from the one registration call site.
+
+## Batch 3
+
+## Summary
+
+| Metric          | Value                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Overall score   | 8/10                                                                                                                              |
+| Assessment      | APPROVED                                                                                                                          |
+| Blocking issues | 0                                                                                                                                 |
+| Serious issues  | 0                                                                                                                                 |
+| Minor issues    | 3                                                                                                                                 |
+| Files reviewed  | 27 (exact scope list: platform-core 3, vscode-core 5, shared 1, rpc-handlers 6, thoth-runtime 5, ptah-electron 8, minus overlaps) |
+
+Scope confirmed against `batch-3-report.md` and `git status --short`: every
+file in the assigned list was checked with `git diff -- <path>` (modified) or a
+full `Read` (new). `libs/frontend/**` and `apps/ptah-extension-webview/**` dirty
+files (Batch 4, in flight) were not opened as diffs — only their names were
+noted in `git status` to confirm they are out of scope.
+
+## Five style questions
+
+### 1. What breaks in six months?
+
+`ElectronBootReadinessProvider`'s constructor takes `Pick<BootCoordinator,
+'snapshot'>` (`apps/ptah-electron/src/services/platform/electron-boot-readiness.ts:27-29`),
+and `bootstrapElectron` now takes the same narrowed type as a second parameter
+(`apps/ptah-electron/src/activation/bootstrap.ts:129`). Both are correct today
+— the port needs exactly one method — but a future second method on
+`IBootReadinessProvider` (a subscribe-style transition count, say) would need
+the `Pick` widened at two call sites simultaneously, `bootstrap.ts` and the
+adapter, with nothing forcing the second edit if the first compiles alone
+(`Pick` degrades silently to a narrower-than-needed type, it does not error).
+Not a defect — the narrowing is the right call for what exists now — but the
+two sites are coupled by convention, not by the type system.
+
+### 2. What would a new team member misread?
+
+`registerIntegrityCheckJob` and `registerSkillDrainJobs` in
+`libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts:101-104,209-212` each
+gained an `emit: ActivityEmitter` parameter with no default, so a reader
+diffing this file against Batch 2's version sees two functions whose call
+signature changed for a reason not visible at either function's own
+definition — the reason (`thoth-runtime` must not know what a ticker is, so
+the emitter is built once at the top of `startThothCron` and threaded down) is
+stated in `activity-emitter.ts:1-29`'s header, not at the call sites
+themselves. A reader who opens `start-thoth-cron.ts` first, without following
+the import to `activity-emitter.ts`, sees a bare `ActivityEmitter` parameter
+and has to go find out what it is for. The type name and the `emitActivity =
+createActivityEmitter(...)` call two lines above (`start-thoth-cron.ts:283-288`)
+mitigate this quickly, but there is no one-line comment at either function
+signature pointing at the header that explains it.
+
+### 3. What does this cost to maintain?
+
+Two near-identical lazy-broadcast helpers now exist —
+`boot-readiness-broadcaster.ts:40-67` and `activity-emitter.ts:62-94` — each
+resolving `TOKENS.WEBVIEW_MANAGER` per-call behind `isRegistered`, each
+duck-typing the same `{ broadcastMessage }` surface, each swallowing a
+synchronous throw and a rejected broadcast with the identical two-`catch`
+shape. `batch-3-report.md`'s stated reason for not sharing one helper — the two
+carry different message types and payloads (`BootReadinessChangedPayload` vs
+`ActivityEventPayload`) and routing readiness through the activity emitter (or
+vice versa) would give one of them a second responsibility — holds for the
+_payload_, but the _lazy-resolve-and-swallow_ mechanics around it are
+identical enough that a generic `broadcastLazily<T>(container, messageType,
+payload)` helper in a shared location (`vscode-core`, which both already
+depend on) would have removed one of the two copies without merging the
+concerns the report was protecting. This is a judgment call the report reasons
+about rather than skips, so it is a recommendation and not a defect: two
+call sites is thin evidence for an abstraction, and the existing repo norm
+(`libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts`'s
+paired transport shim, accepted as a "faithful copy" in Batch 1's review) is to
+tolerate a second templated copy rather than force a premature shared helper.
+Flagged so a _third_ lazy-broadcast site (there will likely be one, given the
+ticker's own future-enhancements note) does not get built as a third copy
+without someone re-reading this tradeoff.
+
+### 4. Where is this inconsistent with the rest of the repository?
+
+`RPC_HANDLER_MANIFEST`'s import block and its array both order every existing
+entry alphabetically by key (`agent`, `auth`, `autocomplete`, `chat`,
+`command`, …. — `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts:28-77`,
+`123-230`), and this batch's `boot` entry breaks that order in both places:
+the import lists `AuthRpcHandlers`, then `BootRpcHandlers`, then
+`AutocompleteRpcHandlers` (`manifest.ts:29-31`), and the manifest array puts
+the `boot` object between `auth` and `autocomplete`
+(`manifest.ts:123-144`) — alphabetically `boot` belongs after `autocomplete`,
+before `chat`. Nothing depends on the order (the partition assertion in
+`manifest.spec.ts` is order-independent, confirmed by reading the file's own
+comment at `:14-18`), so this is cosmetic, not a defect. But every other
+handler in both lists is exactly where alphabetizing would put it, so this is
+the one entry a reader scanning for `'boot'` by eye, or a future diff adding a
+`'br...'`-prefixed handler beside it, will trip over.
+
+### 5. What would you have done differently, and why is that better rather than merely other?
+
+I would have added the one-line pointer questions 2 and 4 are missing: a
+comment at `registerIntegrityCheckJob`/`registerSkillDrainJobs`'s `emit`
+parameter referencing `activity-emitter.ts`'s header, and alphabetical
+placement for the `boot` manifest entry and import. Both cost one line or a
+cut-and-paste move, and both remove a small "go read a different file, or
+notice by luck" tax the current shape imposes on the next reader — the same
+category of finding Batch 1 and Batch 2's reviews both closed on, which
+suggests this is a recurring gap in how the lanes hand off a batch rather than
+a one-off.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Minor issues
+
+- `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts:29-31,123-144` —
+  the `boot` entry is out of the alphabetical order every other import and
+  manifest entry follows (`auth` → `boot` → `autocomplete`, should be `auth` →
+  `autocomplete` → `boot`). No functional effect (the partition/disjointness
+  invariants are order-independent), but it is the one entry that does not
+  match the established scan order.
+- `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts:101-104,209-212` —
+  `registerSkillDrainJobs` and `registerIntegrityCheckJob` each gained an
+  `emit: ActivityEmitter` parameter with no comment at the signature pointing
+  back at `activity-emitter.ts`'s header, which is where the "why does this
+  function suddenly take an emitter" question is actually answered. A reader
+  who does not follow the import will have to guess or grep.
+- `apps/ptah-electron/src/activation/boot-readiness-broadcaster.ts:40-67` and
+  `libs/backend/thoth-runtime/src/lib/activity-emitter.ts:62-94` — two
+  independently-written, structurally identical lazy-resolve-and-swallow
+  helpers around two different payload types. `batch-3-report.md` reasons
+  about this explicitly and the payload-merging alternative is rightly
+  rejected, but a generic `broadcastLazily` helper for the _mechanics_ (not the
+  payload) was not considered in the report and would have removed one of the
+  two copies. Worth a look if a third such site appears.
+
+## File-by-file
+
+### `libs/backend/platform-core/src/{interfaces/boot-readiness.interface.ts,di/tokens.ts,index.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. `IBootReadinessProvider` is
+correctly `I`-prefixed, one method, documented as synchronous-and-read-only
+with the reason stated (`boot-readiness.interface.ts:9-13`); its only import is
+`import type { BootReadinessChangedPayload } from '@ptah-extension/shared'`
+(`:20`), which matches the CLAUDE.md-documented precedent of other
+`platform-core` interfaces importing shared wire types type-only (confirmed by
+grep: `app-updater.interface.ts` does the same). `platform-core` remains a
+leaf with respect to other backend libs — nothing here imports
+`vscode-core`, `rpc-handlers`, or any adapter lib. `BOOT_READINESS:
+Symbol.for('PlatformBootReadiness')` is grouped with, and documented in, the
+exact shape of `SESSION_ATTACHMENT_GUARD` (`tokens.ts:74-79,115-121`) as the
+task brief asked. `index.ts` exports it as `export type` beside
+`ISessionAttachmentGuard` (`:68-69`), consistent with every other port export
+in the file.
+
+### `libs/backend/vscode-core/src/{services/null-boot-readiness.ts,services/null-boot-readiness.spec.ts,di/register-platform-agnostic.ts,di/register-platform-agnostic.spec.ts}`
+
+Score 9/10 — `NullBootReadinessProvider` follows the `NullSessionAttachmentGuard`
+shape exactly: `@injectable()`, one method, a doc comment explaining why the
+constant answer is honest for VS Code/CLI and not for Electron
+(`null-boot-readiness.ts:5-18`). `startedAt` captured at construction, not per
+call, with the reasoning stated and pinned by a dedicated spec case
+(`null-boot-readiness.spec.ts:26-36`). `register-platform-agnostic.ts`'s new
+block uses the identical `if (!container.isRegistered(PLATFORM_TOKENS.X))`
+idiom as the `SESSION_ATTACHMENT_GUARD` block immediately above it
+(`:74-90`), with a comment explaining registration order both ways. The new
+`register-platform-agnostic.spec.ts` is the first spec file for this
+registration function (its sibling `SESSION_ATTACHMENT_GUARD` path has none),
+which is a net addition to coverage, not a gap.
+
+### `libs/backend/vscode-core/src/messaging/rpc-handler.ts`
+
+Score 9/10 — `'boot:'` appended to `ALLOWED_METHOD_PREFIXES` with a one-line
+comment naming the method and why the renderer needs it first (`:90`). One
+line, correctly placed, matches every neighbouring entry's comment style.
+
+### `libs/shared/src/lib/types/rpc.types.ts`
+
+Score 9/10 — the three re-applied hunks (import, `RpcMethodRegistry` entry,
+`RPC_METHOD_ENTRIES` key) match `batch-1-lane-C-report.md`'s "Deferred to
+Batch 3" section verbatim, confirmed line-for-line against the report's quoted
+blocks. The doc comment above `'boot:getReadiness'` is unchanged from what was
+deferred, so no drift occurred during the four months (in task time) the hunk
+sat out-of-tree. `export type` used for the import, matching the rest of the
+file's type-only cross-references.
+
+### `libs/backend/rpc-handlers/src/lib/handlers/{boot-rpc.handlers.ts,boot-rpc.handlers.spec.ts,boot-rpc.schema.ts,index.ts}`, `host-profile/manifest.ts`, `src/index.ts`
+
+Score 8/10 — `BootRpcHandlers` matches `persistence-rpc.handlers.ts`'s
+`static readonly METHODS … as const satisfies readonly RpcMethodName[]` +
+`register()` convention exactly (`boot-rpc.handlers.ts:43-52`); the file
+header states the never-throw contract and cites `db:health` as the precedent
+(`:17-25`); `BootGetReadinessParamsSchema = z.object({}).strict()`
+(`boot-rpc.schema.ts:14`) is the empty-schema idiom the brief asked for, with
+a comment explaining why an empty schema is still worth keeping. `export type
+{ BootGetReadinessResult }` re-export (`boot-rpc.handlers.ts:39`) matches the
+`export type` convention for result re-exports elsewhere in the lib. The
+manifest entry correctly sets `requires: []` with a comment explaining why no
+new `Capability` member was added (`manifest.ts:129-134`), and the spec's
+`createRpcHandler()` test double enforces the real `ALLOWED_METHOD_PREFIXES`
+allowlist rather than a hand-rolled one (`boot-rpc.handlers.spec.ts:30-45`),
+so the double cannot drift into asserting a method name the real transport
+would reject. Deducted one point for the ordering issue in Minor issues
+(shared with `manifest.ts`, not this file's own defect).
+
+### `libs/backend/thoth-runtime/src/lib/{activity-emitter.ts,activity-emitter.spec.ts,start-thoth-cron.ts,start-thoth-cron.spec.ts}`, `src/index.ts`
+
+Score 8/10 — `createActivityEmitter` mirrors `boot-readiness-broadcaster.ts`'s
+shape (lazy `isRegistered`-guarded resolve, duck-typed `BroadcastSurface`,
+`void`ed broadcast with a `.catch`, whole body in `try/catch`) closely enough
+that the two are recognizably the same idiom rather than independently
+invented ones — see the Minor issue on whether that idiom should itself be
+shared. `withActivityEmit`'s never-throw-on-success /
+rethrow-on-failure contract is stated and tested
+(`activity-emitter.spec.ts`'s "rethrows a failing handler while emitting
+nothing" case). `JobHandler` is imported type-only from
+`@ptah-extension/cron-scheduler` (`activity-emitter.ts:39`), which
+`thoth-runtime`'s own `CLAUDE.md` lists as an existing dependency — not a new
+boundary crossing. `start-thoth-cron.ts`'s wrapper usage
+(`withActivityEmit(emit, name, handler)`) reads as a drop-in replacement at
+each of the three call sites, and the diff shows no logic change inside any
+wrapped handler body beyond the wrapping itself. Deducted one point for the
+Minor issue on the un-cross-referenced `emit` parameter.
+
+### `apps/ptah-electron/src/activation/{boot-coordinator.ts,boot-coordinator.spec.ts,boot-readiness-broadcaster.ts,boot-readiness-broadcaster.spec.ts,boot-heavy-services.ts,post-window.ts,bootstrap.ts,boot-order.spec.ts}`, `src/main.ts`, `src/services/platform/electron-boot-readiness.ts`
+
+Score 8/10 — `boot-coordinator.ts` (569 lines, under the 700 soft ceiling)
+keeps every import `import type` (confirmed: `IStateStorage`,
+`BackendReadiness`/`BootPhase`/`BootReadinessChangedPayload`,
+`DiagnosticsHandle`, `ThothRuntimeRefs`, `GatewayService`, `GatewayChatBridge`,
+`UpdateManager` are all type-only, `:46-56`), so the file stays loadable under
+ts-jest with no Electron runtime as its own header promises. The local
+`BootReadiness` type is fully replaced by `BackendReadiness` — no alias or
+re-export left behind (confirmed: the file's own comment at `:58-71`
+documents the removal and gives the reason, and a grep for a local
+`BootReadiness` type declaration in the file finds none). `setPhase` is
+edge-triggered (`:295-300`) and every emit path is wrapped in
+`try/catch`/`.catch` so a broadcast failure cannot propagate into the boot
+critical path (`:302-314`, mirrored in `boot-readiness-broadcaster.ts:43-65`).
+The four phase anchors in `boot-heavy-services.ts` land at exactly the lines
+the plan specified (`database` before `bootThothRuntime`, `harness` after
+`markPersistenceSettled`, `sessions` before `scanAndImport`, `index` before
+`startThothCron`), and no `skills` phase was added, matching the stated reason
+that `thoth-runtime` must not know a renderer exists. `post-window.ts:109-115`
+carries an explicit comment explaining the `once` → `on` change and stating
+that it is a best-effort replay, not a substitute for the `boot:getReadiness`
+pull — the "why" a reviewer needs is right there, not left to be inferred from
+the diff. `bootstrapElectron`'s new `Pick<BootCoordinator, 'snapshot'>`
+parameter (`bootstrap.ts:129`) is a defensible narrowing over the alternative
+the report names (wiring the registration into `wire-runtime.ts` instead,
+which already holds the coordinator) — narrowing the constructor dependency to
+exactly the one method used is consistent with the same narrowing already
+done in `electron-boot-readiness.ts:27-29`, and the report's stated
+alternative would have moved a platform-adapter registration out of the one
+file that owns every other one. Question 1 above notes the maintenance cost of
+this choice; it is not treated as a defect here because the alternative traded
+one coupling for a worse one. `boot-order.spec.ts`'s new "boot phase sequence"
+describe drives the phases through the real coordinator and asserts the exact
+sequence with no timing dependency (`:550-560`), matching the acceptance
+criterion precisely.
+
+## Pattern compliance
+
+| Repository rule or nearby convention                                                                | Status            | Evidence                                                                                                                  |
+| --------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `platform-core` stays a leaf; only type-only import from `libs/shared`                              | PASS              | `boot-readiness.interface.ts:20`; grep confirms no other new import into `platform-core` from a backend lib               |
+| `I`-prefixed port name                                                                              | PASS              | `IBootReadinessProvider`                                                                                                  |
+| `Symbol.for(...)` UPPER_SNAKE token, documented in `SESSION_ATTACHMENT_GUARD` shape                 | PASS              | `platform-core/src/di/tokens.ts:115-121`                                                                                  |
+| Null adapter in `vscode-core` with `if (!isRegistered)` idiom                                       | PASS              | `register-platform-agnostic.ts:85-90`                                                                                     |
+| Electron adapter under `services/platform/`, `{platform}-{capability}.ts`                           | PASS              | `apps/ptah-electron/src/services/platform/electron-boot-readiness.ts`                                                     |
+| `thoth-runtime` imports no `electron`/renderer type                                                 | PASS              | `activity-emitter.ts`, `start-thoth-cron.ts` diffs add no such import; `JobHandler` import is type-only                   |
+| RPC handler class name ends `RpcHandlers`, file `*.handlers.ts` + `*.schema.ts`                     | PASS              | `BootRpcHandlers`, `boot-rpc.handlers.ts`, `boot-rpc.schema.ts`                                                           |
+| `static readonly METHODS … as const satisfies readonly RpcMethodName[]`                             | PASS              | `boot-rpc.handlers.ts:43-45`                                                                                              |
+| Manifest entry shape + barrel exports                                                               | PASS              | `manifest.ts:135-139` (ordering aside, see Minor); `handlers/index.ts:12`; `rpc-handlers/src/index.ts:20`                 |
+| `export type` for result re-export                                                                  | PASS              | `boot-rpc.handlers.ts:39`                                                                                                 |
+| `rpc.types.ts` hunks match Batch 1's deferred text verbatim                                         | PASS              | Diff compared line-for-line against `batch-1-lane-C-report.md`'s quoted blocks                                            |
+| `'boot:'` in `ALLOWED_METHOD_PREFIXES`, in sync with `RpcMethodName`                                | PASS              | `rpc-handler.ts:90`                                                                                                       |
+| Zod `.strict()` on the empty-params schema                                                          | PASS              | `boot-rpc.schema.ts:14`                                                                                                   |
+| `catch (error: unknown)` throughout                                                                 | PASS              | consistent across all reviewed files                                                                                      |
+| No `@ts-ignore`                                                                                     | PASS              | none found in any file in scope                                                                                           |
+| `BootCoordinator` — every import `import type`, no runtime import                                   | PASS              | `boot-coordinator.ts:46-56`                                                                                               |
+| Local `BootReadiness` replaced by `BackendReadiness`, no alias left behind                          | PASS              | `boot-coordinator.ts:58-71` (comment + removal), no local declaration found                                               |
+| File size ceiling — `boot-coordinator.ts` 569 lines                                                 | PASS              | under the 700 soft ceiling                                                                                                |
+| Specs assert call counts/sequence, not wall-clock timing (new "phase state"/"boot phase" describes) | PASS              | `boot-coordinator.spec.ts:434-556`, `boot-order.spec.ts:520-582` — no `setTimeout`/fake-timer advance in either new block |
+| `post-window.ts` comment explains `once` → `on`                                                     | PASS              | `post-window.ts:109-115`                                                                                                  |
+| Prettier applied                                                                                    | PASS (per report) | `batch-3-report.md`'s verification table records `npx prettier --write` run over every touched file                       |
+| Import/manifest entries alphabetically ordered                                                      | FAIL (cosmetic)   | `manifest.ts:29-31,123-144` — `boot` out of order (see Minor issues)                                                      |
+
+## Maintenance debt
+
+- Introduced: one new port + two host adapters (Electron real, vscode-core
+  null) with symmetric DI wiring; one new RPC namespace with the full
+  four-site dual registration; `BootCoordinator` gained a phase-state machine
+  (~100 lines) and a paired broadcaster file; a second lazy-broadcast helper
+  in `thoth-runtime` structurally identical to the Electron one; three cron
+  handlers wrapped to emit activity events.
+- Retired: the app-local `BootReadiness` type (fully replaced, no dead alias);
+  `once('did-finish-load')` (replaced by `on`, with the old single-fire
+  behavior's limitation now documented rather than silently changed).
+- Net: a proportionate addition for a four-component batch — one port, one RPC
+  namespace, one state machine, one activity channel — with two small,
+  named-and-reasoned IOUs (the manifest ordering, the un-cross-referenced
+  `emit` parameter) and one worth-a-look-later observation (the two
+  lazy-broadcast helpers) rather than any unreasoned shortcut.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: none blocking or serious; the manifest/import ordering slip in
+  `manifest.ts` is the only place this batch visibly deviates from an
+  established repo convention, and it has no functional effect.
+- What a 10/10 version would do differently: alphabetize the `boot` import and
+  manifest entry in `manifest.ts` to sit between `autocomplete` and `chat`;
+  add a one-line comment at `registerSkillDrainJobs`/`registerIntegrityCheckJob`'s
+  new `emit` parameter pointing at `activity-emitter.ts`'s header; extract the
+  shared lazy-resolve-and-swallow mechanics of `boot-readiness-broadcaster.ts`
+  and `activity-emitter.ts` into one generic helper in `vscode-core`, taking
+  the message type and payload as parameters, so the swallow/log wording and
+  the `isRegistered` guard have one definition instead of two hand-kept copies.
+
+## Batch 4
+
+## Summary
+
+| Metric          | Value                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Overall score   | 8/10                                                                                                                                |
+| Assessment      | APPROVED                                                                                                                            |
+| Blocking issues | 0                                                                                                                                   |
+| Serious issues  | 0                                                                                                                                   |
+| Minor issues    | 2                                                                                                                                   |
+| Files reviewed  | 21 (exact Batch 4 scope: `core` 5, `chat-ui` 8, `chat` 3, `apps/ptah-extension-webview` 4, plus the two skeleton-widget swap sites) |
+
+Scope confirmed against `batch-4-report.md` and the exact file list in this
+prompt; every file was read in full, not diffed against a base I do not have in
+this context. `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/{plugin-status-widget,setup-status-widget}.component.ts`
+were read whole to confirm the skeleton swap changed nothing else.
+
+## Five style questions
+
+### 1. What breaks in six months?
+
+Two independent phase-label vocabularies now exist for the same `BootPhase`
+union: `BOOT_STEPS` in `libs/frontend/chat-ui/src/lib/molecules/boot-progress/boot-progress.component.ts:30-36`
+(five entries, `'settled'` deliberately absent) and `BOOT_PHASE_LABELS` in
+`libs/frontend/core/src/lib/services/back-office-activity.service.ts:83-90`
+(six entries, `'settled'` present because the ticker's `mapBootReadiness`
+early-returns on it at `:303` before the label would ever be read). The wording
+overlaps almost exactly ("Opening the database" vs "Opening the database") but
+is independently typed twice, in two different libs, with no comment on either
+side pointing at the other. `BootPhase` is a six-member closed union
+(`rpc-readiness.types.ts`), so a seventh phase is unlikely, but the next
+person who renames a phase's label for one surface (say, changing "Syncing the
+agent harness" to something else for the boot screen) has no signal that the
+ticker's fallback text for the same phase now reads differently, and no test
+in either file would catch the drift because each asserts only its own
+component's output.
+
+### 2. What would a new team member misread?
+
+`app.html:6-23`'s `@if`/`@else` nesting is written as a single dense paragraph
+(no line break between `@if (bootStatus.isBlockingBoot()) {` and the template
+markup, and the closing `} }` on its own line at `:23`) rather than the
+line-per-branch shape control-flow blocks take elsewhere in this app (e.g.
+`app-shell.component.html:345-349`'s `@empty { @if (bootStatus.isBooting()) {`
+is similarly compressed, but every other multi-branch `@if` in the same file,
+such as `:686-702`, breaks each branch onto its own line). A reader scanning
+`app.html` for the boot-screen condition has to un-flow two nested `{ }` pairs
+sharing one line before finding it. This is a formatting artifact, not a logic
+problem (the report states Prettier was run on every touched file, and this is
+Prettier's html-in-inline-template default for short branches), so it is noted
+as a minor readability tax rather than a defect.
+
+### 3. What does this cost to maintain?
+
+Very little beyond what the two new services already carry. `BootStatusService`
+and `BackOfficeActivityService` (`libs/frontend/core/src/lib/services/boot-status.service.ts`,
+`back-office-activity.service.ts`) both implement the same `MessageHandler`
+shape, both leave a safe default on every failure path, and both are
+independently good citizens of the "signal-first, no `BehaviorSubject`" rule
+this lib documents (`libs/frontend/core/CLAUDE.md:47,69`). The one recurring
+cost is the phase-label duplication in Question 1 — two hand-kept vocabularies
+for one six-member union is a small, bounded liability, not a growing one,
+because the union itself does not grow casually (it is the wire contract for
+an Electron `BootCoordinator` state machine reviewed in Batch 3).
+
+### 4. Where is this inconsistent with the rest of the repository?
+
+Nowhere material. `ActivityItem` living in `libs/frontend/core` and being
+imported by `chat-ui`'s `activity-ticker.component.ts:13` with `import type`
+is the one boundary-shaped choice this batch makes, and it holds up against
+both the tag rules and the lib's own stated shape: `chat-ui` is tagged
+`scope:webview, type:feature` (`libs/frontend/chat-ui/project.json:7`), `core`
+is `scope:webview, type:core` (`libs/frontend/core/project.json:7`), and
+`eslint.config.mjs:227-236` permits `type:feature → type:core` while
+`:249-252` forbids the reverse (`type:core` may only depend on `type:core`,
+`type:util`) — so `core` structurally cannot import back from `chat-ui` and no
+cycle is possible, confirmed independently of the report's own D-3 reasoning.
+It also matches the existing pattern of a `core` service exporting its own
+display-shaped type beside itself (`ThemeName`/`ThemeInfo` beside
+`ThemeService`, `AgentSuggestion` beside `AgentDiscoveryFacade` — both in the
+same barrel, `services/index.ts:11-14,39-41`), so `ActivityItem` beside
+`BackOfficeActivityService` (`services/index.ts:50-56`) is the established
+shape, not a new one.
+
+### 5. What would you have done differently, and why is that better rather than merely other?
+
+I would have hoisted `BOOT_PHASE_LABELS`/`BOOT_STEPS`'s shared five labels into
+one `Record<BootPhase, string>` exported from `@ptah-extension/shared` beside
+`BootPhase` itself, with the boot screen consuming it for `label` and the
+ticker consuming it for the fallback, each keeping their own list of _which_
+phases they show (`'settled'` omitted vs included) but not their own wording
+for the phases they share. That removes the one place this batch could drift
+without a test noticing, at the cost of one export in a lib both `core` and
+`chat-ui` already depend on (`libs/shared`) — cheaper than the two independent
+copies it replaces.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Minor issues
+
+- `libs/frontend/chat-ui/src/lib/molecules/boot-progress/boot-progress.component.ts:30-36`
+  and `libs/frontend/core/src/lib/services/back-office-activity.service.ts:83-90`
+  — two independently-typed `BootPhase → string` label maps with overlapping
+  but not identical membership and no cross-reference comment. Not a defect
+  today (the wording still agrees), but the next label change on either side
+  has no signal that it should be mirrored, and no test spans both files.
+- `apps/ptah-extension-webview/src/app/app.html:6-23` — the boot-screen
+  `@if`/`@else` nesting is compressed onto shared lines rather than one branch
+  per line, unlike most multi-branch `@if` blocks elsewhere in the same
+  component (e.g. `:26-31`, `:34-48`, which are each cleanly one statement per
+  line). Cosmetic; Prettier-produced, not hand-written, and does not change
+  what the block does.
+
+## File-by-file
+
+### `libs/frontend/core/src/lib/services/{boot-status.service.ts,boot-status.service.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor specific to this file.
+`providedIn: 'root'`, `implements MessageHandler` with exactly
+`handledMessageTypes`/`handleMessage` (`:58,62-64,121-127`), matching the
+lib's documented pattern (`vec-embedder-recovery.service.ts` precedent cited
+in `batches.md:773-775`). The `ready`/`settled` default
+(`READY_DEFAULT`, `:51-55`) is signal-first with a header comment
+(`:15-21`) that states the load-bearing reason precisely: the same bundle
+runs in VS Code, which never emits `boot:readinessChanged`, so a `warming`
+default would hang that host forever. Every degrade path — rejected pull
+(`:141-144`), unsuccessful pull (`:138`), malformed push
+(`toReadinessSnapshot`, `:148-171`, narrowing with the shared `isBackendReadiness`/`isBootPhase`
+guards rather than hand-rolled checks) — provably leaves the default in place,
+each with its own spec case. The constructor pull is gated on a **snapshot**
+read of `VSCodeService.isElectron` (`:110-113`), not a reactive one, with a
+comment pointing at the `app.ts:47` idiom it copies — checked, and `app.ts:56`
+does the identical `signal(this.vscodeService.isElectron)` snapshot. The
+`pushSeen` latch (`:107,125,137`) correctly resolves the "late pull vs. fresh
+push" race and is the one behaviour with a dedicated spec case
+(`boot-status.service.spec.ts:108-136`) that actually races a pending promise
+against a synchronous push rather than asserting the two paths in isolation.
+19 tests, all state/call-count based (`spec.ts:226-244`'s two elapsed-time
+cases mock `Date.now` rather than waiting on a real clock).
+
+### `libs/frontend/core/src/lib/services/{back-office-activity.service.ts,back-office-activity.service.spec.ts}`
+
+Score 8/10 — `@ptah-extension/shared` is the only import source
+(confirmed: no `ClaudeRpcService`, no `VSCodeService`, no backend package
+anywhere in the file), matching the "no RPC, no backend import" requirement
+exactly. Coalescing is a correctly-scoped mutation of the head slot only
+(`push`, `:181-204`), keyed on `` `${source}:${kind}` `` against a
+sliding window (`headArrivalAt` is reset on every arrival, not fixed at the
+first one, so a steady stream of sub-750ms updates keeps coalescing
+indefinitely rather than stopping after one window — this is the correct
+"latest wins" reading of the requirement, not the "one replace per window"
+alternative). `mapVecStatus`/`mapEmbedderStatus` are the only two mappers that
+are instance methods rather than the pure `(payload) => ActivityItem | null`
+functions the header comment (`:153`) describes, because they need
+`isNewStatus`'s per-key fingerprint memory (`:210-214`) — a deliberate,
+minimal exception scoped to exactly the two message types that need
+re-broadcast suppression, not a drift from the stated shape. Skill-synthesis
+phrasing is reused verbatim from `skill-synthesis-live.service.ts` rather than
+re-invented, with a comment saying exactly why (`:381-385`). Deducted one
+point jointly with the sibling file for the un-cross-referenced phase-label
+duplication (Minor issues).
+
+### `libs/frontend/core/src/lib/services/index.ts`
+
+Score 9/10 — both services and all four re-exports (`ACTIVITY_RING_CAPACITY`,
+`ACTIVITY_COALESCE_WINDOW_MS`, `ACTIVITY_IDLE_AFTER_MS`, `type ActivityItem`)
+land in the same grouped-named-export idiom every other service in the barrel
+uses (`:49-56` vs. `:38-45` for the discovery facades immediately above).
+
+### `libs/frontend/chat-ui/src/lib/atoms/skeleton-block.component.ts`
+
+Score 9/10 — genuinely presentational: `input()` only, no injection, no
+timer, `aria-hidden="true"` on the whole block (correct — it is a loading
+placeholder, not content a screen reader should announce). The extraction is
+justified by real duplication (`plugin-status-widget.component.ts`,
+`setup-status-widget.component.ts` each carried the identical markup before
+this batch, confirmed by reading both — the diff in each is exactly the
+inline skeleton block replaced by `<ptah-skeleton-block>` with the two width
+classes promoted to inputs, nothing else touched). Five inputs is a
+reasonable ceiling for "how many rows, with or without an avatar/action, what
+width" — not over-configured for the two existing sites plus this batch's two
+new ones (session sidebar, canvas region).
+
+### `libs/frontend/chat-ui/src/lib/molecules/boot-progress/{boot-progress.component.ts,boot-progress.component.spec.ts}`
+
+Score 8/10 — inputs only (`phase`, `readiness`, `startedAt`, `detail`, all
+`input.required` except `detail`), no service injection, matching the
+`chat-ui` presentational rule (`chat-ui/CLAUDE.md` guideline 1) exactly.
+`role="status" aria-live="polite"` on the root (`:49-50`); the phase list is a
+real `<ol>`/`<li>` (`:63-103`), not styled `<div>`s; an unknown phase degrades
+to "Starting" with everything pending (`currentIndex === -1`, `:158-167`) per
+the validation note in `batches.md:857-864`; the elapsed clock is a `DestroyRef`-cleared
+interval (`:199-204`) exactly the shape `back-office-activity.service.ts`
+uses for its own idle clock — two instances of the same idiom, not two
+inventions. `text-base-content-muted` used throughout for the non-headline
+text tiers (`:72,107,113,174`), with the sole exception of
+`bg-base-content/30` on the pending-step dot (`:96`) — a background, not a
+text color, so it is not what the ratchet spec (`no-alpha-base-content.spec.ts`,
+per D-5) checks, and the distinction is correctly drawn. `prefers-reduced-motion`
+kills the spin animation (`:136-140`). Deducted one point jointly with the
+sibling activity-service file for the un-cross-referenced phase-label
+duplication.
+
+### `libs/frontend/chat-ui/src/lib/molecules/activity-ticker/{activity-ticker.component.ts,activity-ticker.component.spec.ts}`
+
+Score 9/10 — `input.required` for `items`/`idle`, `input` with a default for
+`rotateMs`, `output<void>()` for `activate` — the exact IO shape
+`batches.md:902-904` specifies. No service injection. The `effect()` at
+`:150-155` is scoped tightly to the one thing it needs to do (reset the
+rotation index when the head **id** changes, not on every items() mutation),
+reads `untracked` correctly to avoid re-triggering itself off the write it
+makes, and is justified by a spec case that specifically proves a coalesced
+in-place update does NOT reset the index (`activity-ticker.component.spec.ts:86-98`)
+— the one case that would catch a naive "reset whenever items() changes"
+mistake. The second `effect()` (`:159-163`) re-arming the timer when
+`rotateMs()` changes, clearing the previous one first, is the correct pattern
+for a reactively-configurable interval and is exercised by the "does not
+rotate a single item" and "clears its rotation timer on destroy" cases. CSS-only
+animation with a `prefers-reduced-motion` block (`:104-108`); `no-drag` is
+present at both the outer `role="status"` div (`:54`) and the button
+(`:61`) — belt and suspenders, matching the header row's convention that
+every interactive child opts out of the macOS titlebar drag region. `max-w-[22rem]
+truncate` present (`:61`). An empty summary correctly falls back to
+`SOURCE_LABELS[item.source] ?? item.source` (`:135-140`), covering both the
+known-source and an unrecognised-source case, with a spec proving the known
+case only (`:100-104`) — a small, harmless gap, not counted as a finding
+since the unknown-source fallback is a defensive default rather than a stated
+requirement.
+
+### `libs/frontend/chat-ui/src/index.ts`, `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/{plugin-status-widget,setup-status-widget}.component.ts`
+
+Score 9/10 — barrel additions (`SkeletonBlockComponent`, `BootProgressComponent`,
+`ActivityTickerComponent`) grouped with their neighbours, no reordering of
+unrelated exports. Both widget files' only change is the skeleton swap
+(`plugin-status-widget.component.ts:32,38-42`, `setup-status-widget.component.ts:42,48-52`);
+their pre-existing service injection (`PluginCatalogService`, `ClaudeRpcService`)
+is untouched and is the lib's own documented, named exception to the
+no-service rule (`chat-ui/CLAUDE.md` guideline 1: "The `setup-plugins/`
+molecules are the standing exception... Do not widen it"), which this batch
+correctly does not widen — the two new components (skeleton, boot-progress,
+ticker) all stay in the general no-injection rule.
+
+### `libs/frontend/chat/src/lib/components/templates/{app-shell.component.html,app-shell.component.ts,electron-shell.component.ts}`
+
+Score 8/10 — `app-shell.component.ts` injects `BootStatusService` and imports
+`SkeletonBlockComponent` (D-4's necessary but unlisted file), consistent with
+`chat/CLAUDE.md` guideline 2 ("If a new component injects... any service, it
+stays here" — `chat`, not `chat-ui`). The two skeleton sites in
+`app-shell.component.html` are exactly the two named in the plan (session
+list `@empty`, `:345-355`; canvas `@else`, `:686-702`), each with a comment
+stating why a skeleton is honest where the old copy or spinner was not.
+`electron-shell.component.ts` places `<ptah-activity-ticker>` inside the
+existing right-hand `no-drag` group immediately before `<ptah-theme-toggle />`
+(`:212-221`, confirmed byte-for-byte against the plan's instruction), reuses
+`openThoth()` including its `thothFirstRunDismissed` side effect
+(`:353-356`) rather than duplicating navigation, and the header row's `h-10`
+class is unchanged (`:93`, confirmed identical to the pre-batch anchor
+`batches.md:51`). Scored with the sibling `.html` file below for the one
+formatting minor.
+
+### `apps/ptah-extension-webview/src/app/{app.html,app.ts,app.config.ts,thoth-message-routing.spec.ts}`
+
+Score 8/10 — `app.ts` injects `BootStatusService` at the same `inject()` site
+as every other service (`:53`), folds `hasFailed()` into the existing
+`hasError` computed (`:64-67`) rather than adding a parallel error surface,
+and `errorMessage()` (`:74-79`) prefers the host's boot `detail` with a
+sensible fallback string. `app.config.ts` registers both services on
+`MESSAGE_HANDLERS` with `useExisting`/`multi: true` in the exact idiom every
+other handler in the file uses (`:252-260`), and the comment there states
+correctly why registering `BootStatusService` for the VS Code host too is
+safe (the `ready` default). `thoth-message-routing.spec.ts` adds
+`BackOfficeActivityService` to the mirrored provider list and a case that
+posts a genuine `window` `MessageEvent` with the literal `'activity:event'`
+string through the real router (`:252-260`+), which is the stronger version
+of a router test — it proves the wire string, not just the constant, is
+correctly wired. Deducted one point for the `app.html` formatting minor
+(shared with the `app-shell.component.html` note above).
+
+## Pattern compliance
+
+| Repository rule or nearby convention                                                                                              | Status          | Evidence                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OnPush` on every new component                                                                                                   | PASS            | `skeleton-block.component.ts:22`, `boot-progress.component.ts:45`, `activity-ticker.component.ts:51`                                                                  |
+| `input`/`input.required`/`output` signal APIs, no `@Input`/`@Output`                                                              | PASS            | all three new `chat-ui` components                                                                                                                                    |
+| No service injection in `chat-ui` atoms/molecules (outside the named exception)                                                   | PASS            | `skeleton-block.component.ts`, `boot-progress.component.ts`, `activity-ticker.component.ts` — none inject; `setup-plugins/*` keep their pre-existing, named exception |
+| `MessageHandler` = `{ handledMessageTypes; handleMessage }`, not `messageType`/`handle`                                           | PASS            | `boot-status.service.ts:62-64,121`, `back-office-activity.service.ts:102-113,148`                                                                                     |
+| Registration via `MESSAGE_HANDLERS` multi `useExisting`                                                                           | PASS            | `app.config.ts:252-260`                                                                                                                                               |
+| Signal-first, no `BehaviorSubject`                                                                                                | PASS            | both new services and all three new components                                                                                                                        |
+| `DestroyRef` for timers                                                                                                           | PASS            | `back-office-activity.service.ts:100,141-146`, `boot-progress.component.ts:145,199-204`, `activity-ticker.component.ts:113,165`                                       |
+| `effect()` used sparingly, each justified                                                                                         | PASS            | `activity-ticker.component.ts:150-163`, both scoped and spec-pinned                                                                                                   |
+| `chat-ui` → `core` import direction (`scope:webview`→`scope:shared\|scope:webview`, `type:feature`→`type:core`), no reverse cycle | PASS            | `eslint.config.mjs:127-129,227-236,249-252`; `activity-ticker.component.ts:13`                                                                                        |
+| No `[innerHTML]` on AI markdown                                                                                                   | PASS            | none of the new files render markdown                                                                                                                                 |
+| `text-base-content-muted` in place of the alpha ladder                                                                            | PASS            | `boot-progress.component.ts:72,107,113,174` (D-5); `bg-base-content/30` correctly exempt (background, not text)                                                       |
+| Tailwind + daisyui only, no inline `style="..."`                                                                                  | PASS            | all three new components use class bindings; the two `styles: […]` blocks are keyframes/media queries, not inline styles                                              |
+| `role="status"`/`aria-live`/`aria-atomic`                                                                                         | PASS            | `boot-progress.component.ts:49-50`, `activity-ticker.component.ts:55-57`                                                                                              |
+| `no-drag` on interactive header children                                                                                          | PASS            | `activity-ticker.component.ts:54,61`; header group `electron-shell.component.ts:212`                                                                                  |
+| Header `h-10` unchanged                                                                                                           | PASS            | `electron-shell.component.ts:93`                                                                                                                                      |
+| Naming: kebab-case files, `*.component.ts`, atoms flat / molecules grouped                                                        | PASS            | `atoms/skeleton-block.component.ts`; `molecules/boot-progress/`, `molecules/activity-ticker/` match `molecules/agent-card/` etc.                                      |
+| Barrel exports grouped with neighbours                                                                                            | PASS            | `chat-ui/src/index.ts:17,33-34`; `core/services/index.ts:49-56`                                                                                                       |
+| No new `chat-ui` external dependency                                                                                              | PASS            | animation is CSS-only; no package added (confirmed against the report's own claim, no `package.json` diff in scope)                                                   |
+| Coverage floor (`core`)                                                                                                           | PASS            | report cites 97.44/88.67/100/97.59 % against the 85/75/75/85 floor for the two new service files                                                                      |
+| Fake timers / call-count specs, no wall-clock                                                                                     | PASS            | `boot-status.service.spec.ts:226-244` mocks `Date.now`; `activity-ticker.component.spec.ts` uses `jest.useFakeTimers()` throughout                                    |
+| One phase-label vocabulary per union member                                                                                       | FAIL (cosmetic) | `boot-progress.component.ts:30-36` vs `back-office-activity.service.ts:83-90` (see Minor issues)                                                                      |
+
+## Maintenance debt
+
+- Introduced: two new `core` services (signal-first, `MessageHandler`-shaped,
+  fully spec'd) with symmetric barrel and `MESSAGE_HANDLERS` wiring; one
+  extracted presentational atom removing a two-site duplication and pre-empting
+  a third and fourth; two new presentational molecules; two small template
+  edits reusing the new atom; one header-row wiring addition reusing an
+  existing navigation method. A second, independently-typed copy of the
+  boot-phase label vocabulary (small, bounded, not evidence of a pattern that
+  will repeat, since `BootPhase` is a closed six-member union owned by an
+  already-reviewed wire contract).
+- Retired: two duplicated skeleton-markup blocks (`plugin-status-widget.component.ts`,
+  `setup-status-widget.component.ts`); a boot experience that was a bare
+  spinner with no stage information.
+- Net: a proportionate, well-bounded addition for a four-component batch — one
+  push/pull service, one coalescing sink service, one extracted atom, two new
+  molecules — with one named, low-cost duplication (the phase labels) and one
+  cosmetic template-formatting note, neither blocking.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: none blocking or serious; the two independently-typed
+  `BootPhase → string` label maps (`boot-progress.component.ts:30-36`,
+  `back-office-activity.service.ts:83-90`) are the one place a future edit
+  could silently drift without either file's own tests catching it.
+- What a 10/10 version would do differently: hoist the shared phase labels
+  into one `Record<BootPhase, string>` exported from `@ptah-extension/shared`
+  so the boot screen and the ticker consume one wording and only diverge on
+  which phases they choose to show; reformat `app.html:6-23`'s nested
+  `@if`/`@else` onto one branch per line to match the rest of the file's
+  control-flow style.

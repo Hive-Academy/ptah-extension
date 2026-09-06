@@ -1,25 +1,17 @@
 <!-- Streamlined Full-Screen App -->
+<!--
+  ONE exclusive chain, error first (TASK_2026_380 logic review F-2).
+
+  These three states used to be independent sibling `@if`s, which let a
+  `readiness: 'failed'` push landing during `ngOnInit`'s own await render the
+  spinner and the error alert stacked in the same `<main>`. `hasError()` is
+  driven by a signal the host can flip at any instant, so no ordering of the
+  awaits can prevent that — only mutual exclusion can. `app-boot-branches` in
+  `app.spec.ts` pins the chain.
+-->
 <main class="h-screen w-screen bg-base-100 overflow-hidden">
-  <!-- Loading State -->
-  @if (appState.isLoading() || isInitializing()) {
-  <div class="flex flex-col items-center justify-center h-full gap-3">
-    <span class="loading loading-spinner loading-lg text-primary"></span>
-    @if (appState.statusMessage()) {
-    <span class="text-sm text-base-content/70"
-      >{{ appState.statusMessage() }}</span
-    >
-    }
-  </div>
-  }
-
-  <!-- Main Content - Platform-specific shell -->
-  @if (isReady() && !appState.isLoading()) { @if (isElectron()) {
-  <ptah-electron-shell class="h-full w-full" />
-  } @else {
-  <ptah-app-shell class="h-full w-full" />
-  } }
-
-  <!-- Error State -->
+  <!-- Error State — takes precedence: a failed boot is terminal, so a spinner
+       beside it would promise progress that is not coming. -->
   @if (hasError()) {
   <div class="flex items-center justify-center h-full p-4">
     <div class="alert alert-error max-w-md">
@@ -30,13 +22,40 @@
       />
       <div>
         <h3 class="font-bold">Initialization Error</h3>
-        <p class="text-sm">
-          Failed to initialize the application. Please try refreshing.
-        </p>
+        <p class="text-sm">{{ errorMessage() }}</p>
       </div>
     </div>
   </div>
   }
+
+  <!-- Loading State — a staged boot screen while the host is still warming.
+       It hands over at `harness`: from there the shell is usable and
+       per-panel skeletons own the rest. -->
+  @else if (appState.isLoading() || isInitializing() ||
+  bootStatus.isBlockingBoot()) { @if (bootStatus.isBlockingBoot()) {
+  <ptah-boot-progress
+    [phase]="bootStatus.phase()"
+    [readiness]="bootStatus.readiness()"
+    [startedAt]="bootStatus.status().startedAt"
+    [detail]="bootStatus.detail()"
+  />
+  } @else {
+  <div class="flex flex-col items-center justify-center h-full gap-3">
+    <span class="loading loading-spinner loading-lg text-primary"></span>
+    @if (appState.statusMessage()) {
+    <span class="text-sm text-base-content/70"
+      >{{ appState.statusMessage() }}</span
+    >
+    }
+  </div>
+  } }
+
+  <!-- Main Content - Platform-specific shell -->
+  @else if (isReady()) { @if (isElectron()) {
+  <ptah-electron-shell class="h-full w-full" />
+  } @else {
+  <ptah-app-shell class="h-full w-full" />
+  } }
 </main>
 
 <!-- Update dialog — Electron only, overlays the app when a release is available -->

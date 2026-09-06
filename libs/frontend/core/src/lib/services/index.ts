@@ -46,3 +46,11 @@ export {
 export { pickerWorkspaceScope } from './picker-workspace-scope.util';
 export { setIfChanged } from './idempotent-setters';
 export { LazyViewService } from './lazy-view.service';
+export { BootStatusService } from './boot-status.service';
+export {
+  BackOfficeActivityService,
+  ACTIVITY_RING_CAPACITY,
+  ACTIVITY_COALESCE_WINDOW_MS,
+  ACTIVITY_IDLE_AFTER_MS,
+  type ActivityItem,
+} from './back-office-activity.service';

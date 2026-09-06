@@ -388,7 +388,7 @@ reviewed or scored here.
   calling through — if Electron ever delivered `null` in practice (it does not,
   per its own types) the cast at `:42-44` would silently pass it through rather
   than reject it; this is a type-level widening for cross-transport compatibility
-  (worker_threads _can_ deliver `null`) and is not exercised by any test with an
+  (worker*threads \_can* deliver `null`) and is not exercised by any test with an
   actual `null` on the Electron side. Low risk given Electron's contract, but the
   factory's own test suite (`electron-integrity-worker-factory.spec.ts:90-99`)
   only asserts numeric codes `0` and `3`, never exercises the `null` branch the
@@ -646,3 +646,724 @@ runner actually catches a rejected handler (out of this batch's file list).
   (cheap, closes the one asymmetry this review found); and, longer-term, the
   same consecutive-failure escalation Batch 1's review already recommended, now
   reachable through four call sites instead of zero.
+
+## Batch 3
+
+## Summary
+
+| Metric              | Value           |
+| ------------------- | --------------- |
+| Overall score       | 8/10            |
+| Assessment          | APPROVED        |
+| Blocking issues     | 0               |
+| Serious issues      | 0               |
+| Moderate issues     | 2               |
+| Failure modes found | 4 (all handled) |
+
+Scope reviewed: `libs/backend/platform-core/src/{interfaces/boot-readiness.interface.ts,
+di/tokens.ts, index.ts}`; `libs/backend/vscode-core/src/{services/null-boot-readiness.ts,
+services/null-boot-readiness.spec.ts, di/register-platform-agnostic.ts,
+di/register-platform-agnostic.spec.ts, messaging/rpc-handler.ts}`;
+`libs/shared/src/lib/types/rpc.types.ts`;
+`libs/backend/rpc-handlers/src/lib/handlers/{boot-rpc.handlers.ts,
+boot-rpc.handlers.spec.ts, boot-rpc.schema.ts, index.ts}`,
+`libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts`,
+`libs/backend/rpc-handlers/src/index.ts`; `libs/backend/thoth-runtime/src/lib/
+{activity-emitter.ts, activity-emitter.spec.ts, start-thoth-cron.ts,
+start-thoth-cron.spec.ts}`, `libs/backend/thoth-runtime/src/index.ts`;
+`apps/ptah-electron/src/activation/{boot-coordinator.ts, boot-coordinator.spec.ts,
+boot-readiness-broadcaster.ts, boot-readiness-broadcaster.spec.ts,
+boot-heavy-services.ts, post-window.ts, bootstrap.ts, boot-order.spec.ts}`,
+`apps/ptah-electron/src/main.ts`,
+`apps/ptah-electron/src/services/platform/electron-boot-readiness.ts`. Every
+file was read in full via `git diff` (modified files) or a complete read (new
+files), cross-checked against `implementation-plan.md` components 9, 10, 11,
+14b, `batch-3-report.md`'s five named deviations for tasks 3.1-3.3 and two for
+3.4, and `apps/ptah-electron/CLAUDE.md`'s ref/disposal rules. `libs/frontend/**`
+and `apps/ptah-extension-webview/**` dirty files were explicitly excluded per
+the brief (Batch 4 is mid-flight there) and not read.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `BootRpcHandlers.handleGetReadiness` (`boot-rpc.handlers.ts:69-95`) fails OPEN
+  by design: a Zod parse failure on the (empty) params logs a warn and answers
+  anyway (`:76-81`), and a throw from `IBootReadinessProvider.getReadiness()`
+  degrades to a fabricated `{ readiness: 'ready', phase: 'settled' }`
+  (`:83-94`). This is the documented, correct trade-off for a boot-screen probe
+  — verified by `boot-rpc.handlers.spec.ts:80-98` — but it means a coordinator
+  that is genuinely still warming, if its `snapshot()` ever threw, would report
+  "done" to the renderer, which dismisses the boot screen while the backend is
+  not actually ready. `BootCoordinator.snapshot()` (`boot-coordinator.ts:275-282`)
+  is a plain object literal with no I/O, so this path is unreachable today, not
+  a live defect — noted as the one place a coordinator regression would become
+  invisible in the renderer.
+- `BootCoordinator.setPhase` (`:295-300`) is edge-triggered: a repeat call with
+  the SAME phase but a DIFFERENT `detail` string is silently dropped, including
+  the detail (`boot-coordinator.spec.ts:473-485` pins exactly this — "a
+  different detail" never reaches the emitter). This is deliberate ("one
+  message per transition") and documented, but it means any future call site
+  that tries to update progress TEXT without changing the phase (e.g. "Opening
+  the database (retry 2)") will silently do nothing — worth flagging for
+  whoever adds the next anchor.
+- `createBootReadinessBroadcaster` and `createActivityEmitter` both swallow
+  every failure to `console.warn` (`boot-readiness-broadcaster.ts:44-65`,
+  `activity-emitter.ts:66-93`) — a renderer that never receives a push looks
+  identical, from the main process's perspective, to a renderer that received
+  and ignored one. This is the documented, correct contract (a display update
+  must never abort the boot it narrates) and is the same shape already
+  reviewed and accepted in Batches 1-2 for the integrity check; not a new gap.
+
+### 2. What user action produces unexpected behaviour?
+
+- A renderer reload during an in-progress boot now gets a replay
+  (`post-window.ts:116-119`, `on` not `once`), but the replay is UNCONDITIONAL
+  on every `did-finish-load` — including a reload that happens AFTER the boot
+  has already settled. That is correct and intended (a reloaded renderer that
+  missed the one `settled` push needs to be told), and it is idempotent from
+  the renderer's perspective since the payload does not change once settled.
+  No defect found here.
+- A user who force-quits during the `harness` phase (after
+  `refreshUserLayer` but before the post-download callback's `reconcileHarness`
+  fires) sees `emitActivity('harness', 'reconcile', ...)` never fire for that
+  pass, and the readiness push may report `failed` with `phase: 'harness'` — a
+  correct, honest answer per `boot-coordinator.spec.ts:536-555`. No unexpected
+  behaviour, just partial narration, which matches the plan's "best effort"
+  contract for the ticker.
+
+### 3. What input data produces a wrong answer?
+
+- None found specific to this batch's new code. `BootGetReadinessParamsSchema`
+  is `.strict()` (`boot-rpc.schema.ts:14`) so an evolving caller that starts
+  sending fields gets a parse failure that is logged and ignored — the method
+  answers the same snapshot regardless, verified by
+  `boot-rpc.handlers.spec.ts:110-122`. `withActivityEmit` derives its summary
+  from `result.outcome === 'skipped'` only (`activity-emitter.ts:121`); a
+  handler that returns some THIRD `outcome` value (not `'skipped'`, and no
+  `summary`) falls into the `else` branch and emits the generic
+  `"<name> completed"` fallback (`:129`, pinned by
+  `activity-emitter.spec.ts:191-206`) — this is not wrong, since
+  `JobHandlerResult.outcome` today has no third literal, but the wrapper's
+  branching is coupled to that fact rather than exhaustively switched; a future
+  outcome literal added to `cron-scheduler` would silently read as "succeeded"
+  here with no compiler signal, because `withActivityEmit` narrows on a string
+  literal comparison rather than an exhaustive `satisfies`/switch. Minor,
+  forward-looking.
+
+### 4. What happens when a dependency fails?
+
+- **`TOKENS.WEBVIEW_MANAGER` absent or throwing**, at every one of the three new
+  call sites (boot readiness broadcaster, activity emitter x2): each is
+  `isRegistered`-guarded and wrapped in try/catch, verified by dedicated specs
+  (`boot-readiness-broadcaster.spec.ts:71-93`, `activity-emitter.spec.ts:81-121`).
+  No caller's own control flow (`setPhase`, the cron handler, `boot-heavy-services.ts`)
+  can be affected.
+- **A rejected `broadcastMessage`**: caught with a `.catch` on the returned
+  promise in both emitters (`boot-readiness-broadcaster.ts:52-59`,
+  `activity-emitter.ts:79-86`), verified by
+  `boot-readiness-broadcaster.spec.ts:95-108` and
+  `activity-emitter.spec.ts:123-138`. No unhandled rejection reaches the main
+  process.
+- **`IBootReadinessProvider.getReadiness()` throws** (Electron adapter reading a
+  disposed/faulted coordinator, or the null adapter somehow throwing): caught
+  in the RPC handler, degrades to a fabricated ready/settled answer (see Q1).
+  Never propagates to the transport as an error.
+- **A cron handler throws inside `withActivityEmit`**: the wrapper does not
+  catch it — `await handler(ctx)` propagates the rejection to the caller and
+  emits nothing (`activity-emitter.ts:119-132`, pinned by
+  `activity-emitter.spec.ts:208-219`). This is the one place a dependency
+  failure is deliberately NOT absorbed at this layer, on the stated reasoning
+  that the cron scheduler's run-row is the correct failure channel — consistent
+  with the Batch 2 finding that the cron handler bodies here have no
+  try/catch of their own around `container.resolve`, an inherited, not new,
+  gap.
+- **`container.isRegistered`/`.resolve` mid-teardown for `PLATFORM_TOKENS.BOOT_READINESS`**:
+  not applicable at the RPC layer — the token is injected once at
+  `BootRpcHandlers` construction time via `@inject`, which happens during RPC
+  surface registration (`wire-runtime.ts`, confirmed to run strictly AFTER
+  `bootstrap.ts`'s `container.register(PLATFORM_TOKENS.BOOT_READINESS, …)` at
+  `bootstrap.ts:361`), so the constructor always receives the Electron adapter
+  on that host. A container disposed later would make the ALREADY-INJECTED
+  `bootReadiness.getReadiness()` call fail only if the coordinator itself
+  throws, which it structurally cannot (Q1).
+
+### 5. What is missing that the requirements never mentioned?
+
+- No test exercises the actual tsyringe override behaviour claimed by the
+  report and the code comments — "last registration wins" for
+  `container.register(TOKEN, { useValue })` after an earlier
+  `container.registerSingleton(TOKEN, Class)` for the SAME token. This batch's
+  unit tests (`register-platform-agnostic.spec.ts`) only prove the `isRegistered`
+  guard skips re-registration when something is ALREADY registered on the same
+  container instance — they do not reproduce the real sequence (null singleton
+  registered by `registerVsCodeCorePlatformAgnostic` during `ElectronDIContainer.setup`,
+  then overridden by `bootstrap.ts:361`'s `useValue` on the same container).
+  Verified this is the existing, precedented idiom (`SESSION_ATTACHMENT_GUARD`
+  is registered and overridden the identical way, unreviewed by any batch
+  because it predates this task), so treated as low risk, but the very
+  assumption the whole component 9 design rests on ("Electron's registration
+  overrides the null default") has no assertion of its own beyond a code
+  comment and an untested claim in `batch-3-report.md`.
+- Nothing added distinguishes, from the renderer's side, "the coordinator threw
+  and we faked ready" from "the boot genuinely finished" — both produce
+  identical wire payloads. Acceptable for a boot screen (per Q1), but worth
+  naming as a diagnostic gap if a live host is ever reported stuck on a
+  spinner that the backend insists is `ready`.
+- `degraded` is in the wire vocabulary (`BackendReadiness`) but nothing in this
+  batch (or any prior one) ever sets it — `batch-3-report.md` names this
+  explicitly as a handoff note for Batch 4's renderer. Confirmed still true by
+  reading `boot-coordinator.ts` in full: only `warming`/`ready`/`failed` are
+  ever assigned.
+
+## Failure modes
+
+### `setPhase` called from inside a fired-and-forgotten async callback race
+
+- Trigger: `boot-heavy-services.ts`'s `contentDownload.ensureContent().then(...)`
+  callback (`:199-245`) runs concurrently with the rest of the function body but
+  calls no `setPhase` of its own — verified by reading the full callback body.
+- Symptom without this property: if that callback DID call `setPhase`, it could
+  race the main line's own phase advances (e.g. set `harness` again after
+  `index` already fired), which `setPhase`'s edge-trigger would only partially
+  guard against (a phase regression from `index` back to `harness` is NOT a
+  repeat, so it would emit and the renderer would see progress run backwards).
+- Evidence: `boot-heavy-services.ts:199-245` (no `setPhase` call in the
+  detached callback), `boot-coordinator.ts:295-300` (edge-trigger only compares
+  equality, not monotonic order).
+- Current handling: correct by omission — this batch's only phase anchors are
+  all on the synchronous main line of `bootHeavyServicesOnce`
+  (`:154, 173, 335, 406`), never inside the detached `.then`. No regression is
+  reachable today.
+- Recommendation: none for this batch; if a future anchor is ever added inside
+  a detached callback, `setPhase` will need a monotonic-order guard, not just
+  an equality guard — worth a comment at the call site when that happens, not
+  a change today.
+
+### Renderer reload replay double-fires `notifyWindowLoaded` and the broadcaster
+
+- Trigger: `did-finish-load` fires more than once in a single process lifetime
+  (dev reload, a renderer crash-recover, or the update dialog's own navigation).
+- Symptom without idempotence: the warmup barrier would re-arm or the
+  broadcaster would push stale data after the boot already settled.
+- Evidence: `post-window.ts:116-119` (`on`, not `once`);
+  `boot-coordinator.ts:502-505` (`notifyWindowLoaded` gated by `warmupSettled`
+  inside `evaluateWarmupBarrier`, `:513`).
+- Current handling: correct — `notifyWindowLoaded` is a no-op past the first
+  real barrier resolution, and `broadcastReadiness(coordinator.snapshot())` is
+  a stateless read-and-push that is safe to repeat since `snapshot()` always
+  reflects the CURRENT truth, never a cached one.
+- Recommendation: none — correct by construction, and this is exactly the
+  behaviour the report's deviation 3 argues for.
+
+### A cron handler throws after `withActivityEmit` wraps it
+
+- Trigger: `backup:daily`, `db:integrity`, or any `skills:drain:*` handler
+  throws (e.g. `backupSvc.backup` rejects with a disk-full error not already
+  caught inside the handler body).
+- Symptom: the wrapped handler's promise rejects; the activity ticker shows
+  nothing for that run.
+- Evidence: `activity-emitter.ts:119-120` (no try/catch around
+  `await handler(ctx)`), pinned by `activity-emitter.spec.ts:208-219`.
+- Current handling: deliberate — the run row the cron scheduler already writes
+  is the failure channel; emitting a fabricated success event here would be
+  worse than emitting nothing. Consistent with the Batch 2 finding that these
+  same handler bodies already have inconsistent resolve-guarding one layer
+  down.
+- Recommendation: none from this batch; the open question (does the real
+  `CronScheduler` job runner actually catch and record the rejection as a
+  failed run, distinct from an unhandled rejection?) is the same one Batch 2's
+  review already raised and remains unanswered because `cron-scheduler`'s
+  runner is outside every batch's file list so far.
+
+### `BootRpcHandlers` constructed with a stale `IBootReadinessProvider` if RPC surface registration ever moved earlier
+
+- Trigger: a future refactor that calls `registerRpcSurface` (which resolves
+  `BootRpcHandlers` and, by DI, its `PLATFORM_TOKENS.BOOT_READINESS` dependency)
+  BEFORE `bootstrap.ts:361`'s `container.register(PLATFORM_TOKENS.BOOT_READINESS, …)`
+  runs.
+- Symptom: the handler would be constructed holding the `NullBootReadinessProvider`
+  (registered earlier via `registerVsCodeCorePlatformAgnostic` during
+  `ElectronDIContainer.setup`) instead of `ElectronBootReadinessProvider`, and —
+  because `@injectable()` classes here are typically resolved once and the
+  constructor param is captured by value, not re-resolved per call — Electron
+  would silently report "always ready" for the lifetime of the process.
+- Evidence: `wire-runtime.ts:175` (`registerRpcSurface` call site, confirmed to
+  run in `wireRuntimePreWindow`, itself confirmed to be called from `main.ts`
+  strictly after `bootstrapElectron` — i.e., after `bootstrap.ts:361` — via
+  `main.ts:67` then a later `wireRuntimePreWindow` call); `bootstrap.ts:361`.
+- Current handling: correct today, by ordering, but ordering is enforced only
+  by file layout and comments, not by a type or a runtime assertion. No test
+  in this batch pins "the RPC handler resolves the ELECTRON adapter, not the
+  null one, in the real Electron boot sequence" — `boot-rpc.handlers.spec.ts`
+  constructs `BootRpcHandlers` directly with a hand-built port, which proves
+  the handler's OWN logic but not the DI wiring that selects which port it
+  gets.
+- Recommendation: not a blocker — the ordering is correct and documented in
+  three places (report, code comment, this review) — but an integration-level
+  assertion (e.g. a `wire-runtime.boot-order.spec.ts` case resolving
+  `BootRpcHandlers` after the real Electron DI sequence and asserting it is NOT
+  the null adapter) would catch a future reordering that today only a manual
+  reading catches.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+- **The tsyringe "last registration wins" override for `PLATFORM_TOKENS.BOOT_READINESS`
+  has no test of its own** — see Failure Modes, "constructed with a stale
+  provider". The precedent (`SESSION_ATTACHMENT_GUARD`) is real but also
+  untested by any reviewed batch; this task adds a second port whose entire
+  correctness depends on that same untested tsyringe behaviour.
+- **`withActivityEmit`'s outcome branch is a literal string comparison, not an
+  exhaustive switch** (`activity-emitter.ts:121`) — see Q3. A future third
+  `JobHandlerResult.outcome` value would silently fall through to the "success"
+  summary path with no compiler signal. Low probability (the type is
+  cron-scheduler's, out of this batch's control) but cheap to harden with a
+  `satisfies`-checked exhaustive switch when `cron-scheduler` next changes that
+  union.
+
+## Data flow
+
+1. **Port registration** (component 9): `registerVsCodeCorePlatformAgnostic`
+   registers `NullBootReadinessProvider` as a guarded singleton
+   (`register-platform-agnostic.ts:85-90`) during `ElectronDIContainer.setup`;
+   `bootstrap.ts:355-364` later registers `ElectronBootReadinessProvider` as a
+   `useValue`, unconditionally, overriding it on the same container. VS Code and
+   the CLI never call the Electron override, so they keep the null default.
+   OK, by construction and by the codebase's own established idiom — see
+   Moderate issues for the one gap (no direct test of the override itself).
+2. **Pull path**: renderer → `boot:getReadiness` → `BootRpcHandlers.handleGetReadiness`
+   → Zod validate (warn-only) → `IBootReadinessProvider.getReadiness()` →
+   (Electron) `coordinator.snapshot()` / (null) constant. Every branch degrades
+   to a valid `BootGetReadinessResult`, never a thrown error. OK.
+3. **Push path**: `boot-heavy-services.ts` → `coordinator.setPhase(phase, detail)`
+   → edge-trigger check → `emitCurrent()` → the registered emitter (
+   `createBootReadinessBroadcaster`'s closure) → lazy `isRegistered` check →
+   `webviewManager.broadcastMessage(BOOT_READINESS_CHANGED, snapshot)`. Every
+   step from `setPhase` onward is wrapped in a swallow; nothing here can abort
+   the boot it narrates. OK — matches the "never throws" contract in the plan
+   exactly.
+4. **Ordering invariant** ("nothing may be inserted between `bootThothRuntime`
+   and `markPersistenceSettled`"): verified directly by reading
+   `boot-heavy-services.ts:159-172` — the `harness` phase anchor
+   (`coordinator.setPhase('harness', …)`) sits AFTER `markPersistenceSettled`
+   (`:170-172`), not between the two calls the rule protects. OK, the rule is
+   intact.
+5. **Activity path**: `boot-heavy-services.ts` / `start-thoth-cron.ts` →
+   `emitActivity(source, kind, summary, level?)` → lazy `isRegistered` check →
+   `webviewManager.broadcastMessage(ACTIVITY_EVENT, payload)`. Same swallow
+   shape as the readiness push, verified by a fully overlapping test suite. OK.
+6. **Cron wrapper path**: `startThothCron` builds one `emitActivity`, wraps
+   `backup:daily`, `db:integrity` and the three `skills:drain:*` handlers with
+   `withActivityEmit`, verified by reading the full diff — every
+   `handlerRegistry.register(...)` call for those five names now passes the
+   wrapped function, and the wrapper returns the handler's ORIGINAL result
+   object by identity (`activity-emitter.spec.ts:142-152`), so
+   `job_runs.result_summary` persistence (out of this batch's files) is
+   unaffected. OK.
+7. **Manifest partition**: the new `boot` entry in `RPC_HANDLER_MANIFEST`
+   (`manifest.ts:129-139`) carries `requires: []`, and no `Capability` member
+   was added — verified by reading the diff for `capabilities.ts` (absent from
+   the changed-file list, confirmed no new export needed since `requires: []`
+   needs none). `rpc-allowlist.spec.ts` (not itself in this batch's file list,
+   but asserted green by the verification run and independently plausible
+   since the manifest is additive-only) is the gate that would fail if
+   `'boot:getReadiness'` were left out of `RPC_METHOD_ENTRIES` — confirmed
+   present at `rpc.types.ts:3756`. OK.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                 | Status   | Gap                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `IBootReadinessProvider` port, synchronous, one method, type-only shared import                             | COMPLETE | none                                                                                                                            |
+| Null default always registered when nothing else has; Electron overrides it                                 | COMPLETE | override behaviour itself untested (see Moderate)                                                                               |
+| `boot:getReadiness` registered at all four sites, `requires: []`, no new `Capability`                       | COMPLETE | none                                                                                                                            |
+| Never-throw contract for the RPC handler, safe fallback on port failure                                     | COMPLETE | none                                                                                                                            |
+| `BootCoordinator` phase state: edge-triggered `setPhase`, `snapshot()`, `.then`/`.catch` semantics          | COMPLETE | none                                                                                                                            |
+| Broadcaster: lazy `isRegistered`-guarded, swallowed failures, wired at first-container-existence point      | COMPLETE | none                                                                                                                            |
+| Four phase anchors exactly as specified, no `skills` phase, no code between the two ordering-critical calls | COMPLETE | none                                                                                                                            |
+| `did-finish-load` `once` → `on`, idempotent replay                                                          | COMPLETE | none                                                                                                                            |
+| Activity emitter: lazy resolve, swallow, `withActivityEmit` preserves `JobHandler` contract                 | COMPLETE | outcome branch not exhaustively typed (Minor, see Q3)                                                                           |
+| Three activity emits in `boot-heavy-services.ts`, only-first-reconcile rule, zero-count import emits too    | COMPLETE | none                                                                                                                            |
+| No subsystem that already broadcasts gained a second broadcast                                              | COMPLETE | not independently re-verified in this review (trusted from the report's own audit table; out of this batch's diff to re-derive) |
+
+Implicit requirements not addressed: an integration-level test proving the RPC
+layer resolves the ELECTRON adapter (not the null one) through the real
+Electron DI sequence, rather than only through a hand-built port in
+`boot-rpc.handlers.spec.ts` (see Failure Modes).
+
+## Edge cases
+
+| Case                                                                                                        | Handled         | How                                                              | Concern                                                                              |
+| ----------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `boot:getReadiness` called with `{}`                                                                        | YES             | `.strict()` schema accepts empty object                          | none                                                                                 |
+| `boot:getReadiness` called with `undefined` params                                                          | YES             | `params ?? {}` before parse                                      | none                                                                                 |
+| `boot:getReadiness` called with extra fields                                                                | YES             | parse fails, logged, still answers                               | none                                                                                 |
+| Port throws inside the RPC handler                                                                          | YES             | fallback `{ ready, settled }`                                    | indistinguishable from a genuine finish (Q5)                                         |
+| Two hosts both register `BOOT_READINESS`                                                                    | YES             | `isRegistered` guard + Electron's later `useValue` override      | override mechanism itself untested (Moderate)                                        |
+| `setPhase` called twice with the same phase, different detail                                               | YES (by design) | edge-trigger drops the whole call, including the new detail      | intentional; flagged for future call-site authors                                    |
+| Renderer reload mid-boot                                                                                    | YES             | `on('did-finish-load')` replay + idempotent `notifyWindowLoaded` | none                                                                                 |
+| `WEBVIEW_MANAGER` absent (CLI, tests)                                                                       | YES             | `isRegistered` guard on both the readiness and activity emitters | none                                                                                 |
+| Cron handler throws                                                                                         | YES (by design) | `withActivityEmit` rethrows, emits nothing                       | relies on `cron-scheduler`'s runner catching it — unverified, inherited from Batch 2 |
+| `db:integrity` handler's `void dispatchIfDue()` not yet resolved when the "dispatched" activity event fires | YES (by design) | summary says "dispatched", not "done"                            | wording is accurate; no gap                                                          |
+| `degraded` readiness                                                                                        | NO              | nothing sets it                                                  | explicit, named handoff to Batch 4 in the report                                     |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: the entire component-9 design (Electron's real adapter silently
+  overriding vscode-core's null default) rests on tsyringe's last-registration-
+  wins behaviour for `container.register(TOKEN, { useValue })` after an earlier
+  `registerSingleton(TOKEN, Class)` call — a real, precedented idiom in this
+  codebase, but one with no test anywhere (this batch or before) that exercises
+  the actual override on a live container rather than the `isRegistered` guard
+  in isolation. If that assumption were ever wrong, Electron would silently run
+  the "always ready" null adapter and never show a boot screen at all — a
+  regression a boot-order or wire-runtime integration spec would catch and a
+  unit spec cannot.
+- What a robust implementation would add: one integration assertion (in
+  `wire-runtime.boot-order.spec.ts` or equivalent) that resolves
+  `PLATFORM_TOKENS.BOOT_READINESS` (or `BootRpcHandlers`) after the real
+  Electron bootstrap sequence and asserts it is the Electron adapter, not the
+  null one; and an exhaustive switch (or `satisfies`-checked branch) in
+  `withActivityEmit` instead of a single string-literal comparison against
+  `'skipped'`.
+
+## Batch 4
+
+## Summary
+
+| Metric              | Value               |
+| ------------------- | ------------------- |
+| Overall score       | 7/10                |
+| Assessment          | APPROVED WITH NOTES |
+| Blocking issues     | 0                   |
+| Serious issues      | 2                   |
+| Moderate issues     | 3                   |
+| Failure modes found | 4                   |
+
+Scope reviewed: `boot-status.service.ts` + spec, `back-office-activity.service.ts`
+
+- spec, `services/index.ts`, `skeleton-block.component.ts`,
+  `boot-progress/*`, `activity-ticker/*`, `chat-ui/src/index.ts`,
+  `app-shell.component.{html,ts}`, `electron-shell.component.ts`, `app.html`,
+  `app.ts`, `app.config.ts`, `thoth-message-routing.spec.ts`. Every file was read
+  in full and cross-checked against `batches.md` Batch 4, `implementation-plan.md`
+  components 12/13/14d/14e, `batch-4-report.md`'s six deviations, and
+  `rpc-readiness.types.ts` / `rpc-activity.types.ts` for wire-shape agreement.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `boot-status.service.ts:130-145` — `pullReadiness()` is issued exactly once,
+  at construction. If a mid-boot push is lost — and it can be: the plan's own
+  Task 3.3 requires the host's `setPhase` emit to be wrapped in a try/catch so
+  a broadcaster exception "never propagates into the boot path" — the renderer
+  has no periodic re-pull, no watchdog, and no visible symptom. The screen
+  keeps rendering whatever phase it last received as if that were still true,
+  forever, with nothing in this batch to notice or recover. This is a silent
+  failure by construction: the service's own contract ("pull does NOT
+  duplicate the push") assumes the push channel is reliable, but the plan it
+  cites documents that channel as best-effort.
+- `back-office-activity.service.ts:216-264` and the plain-cast mappers at
+  `:315-379` — nine of the ten mappers narrow with a partial `typeof` check on
+  one or two fields (e.g. `mapMemoryObservation:330-339` checks only
+  `body.kind`), not the full-guard pattern `mapActivityEvent` uses via
+  `isActivityEventPayload`. A malformed `timestamp` (wrong type, present but
+  not a number) is not rejected — it flows straight into `ActivityItem.timestamp`
+  via `makeItem`'s `fields.timestamp ?? Date.now()`, which only substitutes a
+  default on `null`/`undefined`, not on a wrong type. The result renders (the
+  ticker shows a line), so the failure is invisible; it just means a field
+  typed `number` in `ActivityItem` can silently hold whatever the wire sent.
+- `app.html:6,26,34` — see question 2 below: two branches can be simultaneously
+  true, which is a rendering defect, not a crash, so nothing errors and nothing
+  logs.
+
+### 2. What user action produces unexpected behaviour?
+
+- No user action is required — a boot failure that occurs during Angular's own
+  `ngOnInit` produces a genuine overlap. `hasError()` (`app.ts:64-67`) is
+  `initializationStatus() === 'error' || bootStatus.hasFailed()`, and
+  `bootStatus.hasFailed()` is driven by an independent signal
+  (`boot-status.service.ts:83-85`) that can flip to `true` at any time via a
+  `boot:readinessChanged` push. `initializationStatus` starts at `'initializing'`
+  synchronously in `ngOnInit` (`app.ts:85`) and only leaves that state after
+  `handleInitialView()` resolves. If the host pushes `readiness: 'failed'`
+  while that await is still pending — plausible, since a boot failure is
+  exactly the scenario this batch exists to surface, and it can happen very
+  early — then `isInitializing()` is still `true` (loading branch shows,
+  `app.html:6`) **and** `hasError()` is also `true` (error branch shows,
+  `app.html:34`) at the same time. Both `@if` blocks are independent siblings
+  in the same `<main>`; nothing gates the error branch on `!isInitializing()`,
+  unlike the shell branch, which D-2 correctly excluded from
+  `isBlockingBoot()`. The user sees a spinner and an error alert stacked in the
+  same screen.
+- A user who watches the boot screen through a lost final push (see F-1 below)
+  has no action available to recover except a full reload — there is no retry
+  button, no timeout-driven re-pull.
+
+### 3. What input data produces a wrong answer?
+
+- Any of the nine loosely-cast `back-office-activity.service.ts` mappers given
+  a payload whose `timestamp`/`completedAt` field is present but the wrong
+  type produces an `ActivityItem` whose `timestamp` is not actually a number
+  (see finding above) — a wrong value admitted as valid data, not a rejected
+  message.
+- `mapBootReadiness` (`back-office-activity.service.ts:296-313`) does not
+  validate `body.detail`'s type before using it as `summary` — a non-string
+  `detail` on an otherwise well-formed push produces an `ActivityItem.summary`
+  that is not a string, in violation of that field's contract.
+- `mapSkillSynthesis`/`skillSummary` (`:386-424`) read `stats['done']` /
+  `stats['total']` / `stats['suggestionsCreated']` with `Number(x ?? 0)` —
+  `Number(null)` is `0` but `Number('abc')` is `NaN`; a backend that sends a
+  non-numeric string for one of these stats produces a line reading
+  "Embedding candidates NaN/NaN…" rather than a dropped or generic message.
+
+### 4. What happens when a dependency fails?
+
+- `ClaudeRpcService.call('boot:getReadiness', ...)` rejecting or timing out
+  (`boot-status.service.ts:130-144`) is handled correctly: caught, ready
+  default retained, VS Code and any host with no `boot:` namespace are
+  unaffected. This is the one dependency-failure path in scope and it is
+  handled well.
+- The `MessageRouterService` (pre-existing, not in this batch) calls every
+  registered handler for a type in an unguarded loop
+  (`message-router.service.ts:67-73`); both `BootStatusService` and
+  `BackOfficeActivityService` register for `BOOT_READINESS_CHANGED`. Neither
+  handler in this batch throws on a well-formed or malformed payload (verified
+  by reading both `handleMessage` implementations), so this is not a live
+  regression, but the batch adds a second handler to an unguarded dispatch loop
+  without adding isolation — a defensive read, not a finding against this
+  batch specifically.
+
+### 5. What is missing that the requirements never mentioned?
+
+- No liveness check for the boot screen itself: nothing in this batch asks "is
+  it still true that a push will eventually arrive," and nothing surfaces to
+  the user that the app may be waiting on one silently forever (F-1).
+- No `data-testid` gap, but the two `webview-e2e-harness` cases in the plan's
+  acceptance section were not written (D-6, openly flagged by the report) —
+  the `isBlockingBoot` → shell handover and the ticker's real-postmessage path
+  are therefore proven only at the unit level, not through the actual message
+  bridge the production build uses.
+- The canvas `@else` skeleton (`app-shell.component.html:686-699`) renders
+  whenever `orchestraCanvasComponent` is falsy for **any** reason, not only
+  during a boot — a DI wiring regression that made the token permanently
+  unbound would present as an unaltered "still booting" skeleton instead of a
+  visibly broken state. This matches the plan's literal instruction (already
+  flagged as the report's Open Question 2) and is not this batch's defect to
+  fix, but it is a real gap the requirements left open.
+
+## Failure modes
+
+### F-1 — Boot screen has no recovery from a single lost push
+
+- Trigger: the host's edge-triggered `setPhase` emit throws internally after
+  reaching `harness`/`sessions`/`index` but the exception is caught by the
+  host-side wrapper (per `batches.md` Task 3.3's own requirement that the emit
+  "never throw into the boot path"), so the corresponding push to the renderer
+  never leaves the main process. No later phase transition will re-fire it
+  because `setPhase` is edge-triggered ("ignores a repeat" is not the failure
+  here — this is a genuinely unsent edge).
+- Symptom: `isBlockingBoot()` stays `true` forever if the lost push was
+  `database → harness` (the boot screen never hands over); `isBooting()` stays
+  `true` forever if a later one is lost (the session-list and canvas skeletons
+  never clear even once the app has fully booted).
+- Evidence: `boot-status.service.ts:109-115` (one-shot pull, no retry loop),
+  `:130-145` (`pullReadiness` has no caller after construction).
+- Current handling: none — the mandatory pull is documented as covering "the
+  first transition," not every subsequent one.
+- Recommendation: either a periodic re-pull while `isBooting()` is true and no
+  push has landed for N seconds, or a host-side acknowledgement/replay
+  mechanism, so a lost edge cannot strand the renderer indefinitely.
+
+### F-2 — Loading and error branches can render simultaneously
+
+- Trigger: a `boot:readinessChanged` push carrying `readiness: 'failed'`
+  arrives while `App.ngOnInit`'s `handleInitialView()` await is still
+  in-flight.
+- Symptom: `app.html`'s loading block (`:6-23`, via `isInitializing()`) and
+  error block (`:34-48`, via `hasError()`) both render inside the same
+  `<main>` at once.
+- Evidence: `app.ts:64-67` (`hasError` independent of `initializationStatus`
+  synchronization), `app.html:6` and `:34` (no mutual exclusion between the two
+  `@if`s beyond what each condition alone provides).
+- Current handling: none — D-2 added `!bootStatus.isBlockingBoot()` to the
+  shell branch for exactly this class of overlap but the same treatment was
+  not applied between the loading and error branches.
+- Recommendation: gate the error `@if` on `!isInitializing()`, or fold
+  `bootStatus.hasFailed()` into a state machine alongside
+  `initializationStatus` rather than two independently-flipping booleans.
+
+### F-3 — Partial-shape mappers admit type-wrong fields into `ActivityItem`
+
+- Trigger: any backend push (memory, indexing, skill-synthesis) whose payload
+  has the right keys present but a field of the wrong runtime type — e.g. a
+  `timestamp` sent as a string, or a `detail` sent as a non-string.
+- Symptom: the ticker/ring silently holds an `ActivityItem` whose declared
+  `number`/`string` field is not actually that type; nothing crashes, but any
+  future consumer that trusts the type (e.g. a "time ago" formatter, a sort by
+  `timestamp`) reads garbage without warning.
+- Evidence: `back-office-activity.service.ts:330-339` (`mapMemoryObservation`),
+  `:341-357` (`mapMemoryCorpus`), `:296-313` (`mapBootReadiness`'s `detail`),
+  `:386-397` (`mapSkillSynthesis`'s unchecked `timestamp`/`stats`), contrasted
+  with the full-guard `mapActivityEvent` at `:284-294` via
+  `isActivityEventPayload`.
+- Current handling: partial `typeof` checks on the field(s) each mapper
+  actually reads for control flow, none on the fields it passes through
+  unchecked.
+- Recommendation: either add a type guard per payload (mirroring
+  `isActivityEventPayload`) or coerce/validate `timestamp` and any
+  string-typed pass-through field before calling `makeItem`, consistent with
+  the repository's "Zod/guard at every external boundary" standard
+  (`CLAUDE.md` Coding Standards → Validation).
+
+### F-4 — `skillSummary` can render `NaN` in a user-facing line
+
+- Trigger: a `SkillSynthesisEventWire.stats` entry for `done`/`total`/
+  `suggestionsCreated` that is present but not numeric (e.g. a string that
+  does not parse, or a nested object).
+- Symptom: the ticker/ring shows "Embedding candidates NaN/NaN…" or "…finished
+  (NaN suggestions)" instead of a generic fallback.
+- Evidence: `back-office-activity.service.ts:405-411` (`Number(stats[...] ??
+0)` — `??` only guards `null`/`undefined`, not "not a number").
+- Current handling: none.
+- Recommendation: use `Number.isFinite(Number(x)) ? Number(x) : 0` or reuse
+  whatever guard `skill-synthesis-live.service.ts` already applies to the same
+  `stats` shape.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### Boot screen has no recovery from a lost push (F-1)
+
+- File: `libs/frontend/core/src/lib/services/boot-status.service.ts:109-145`
+- Scenario: a single dropped `boot:readinessChanged` push after the mandatory
+  pull, on a host whose emit is documented (in the plan this batch depends on)
+  to swallow broadcaster exceptions.
+- Impact: the user is stuck behind either the full boot screen or a
+  permanently-stale skeleton with no in-app recovery path other than a manual
+  reload, and no diagnostic signal that this happened.
+- Fix: add a bounded re-pull (e.g. every 3-5s while `isBooting()` is true) or
+  document explicitly, with a test, that this is an accepted residual risk
+  given the plan's edge-triggered contract.
+
+### Loading and error branches overlap during app initialization (F-2)
+
+- File: `apps/ptah-extension-webview/src/app/app.html:6-48`,
+  `apps/ptah-extension-webview/src/app/app.ts:64-67,84-100`
+- Scenario: a boot failure push arrives while `App.ngOnInit`'s
+  `handleInitialView()` promise is still pending.
+- Impact: the user sees a spinner and an "Initialization Error" alert stacked
+  in the same view — a visibly broken screen at exactly the moment the batch
+  is meant to make failures legible.
+- Fix: exclude the error branch from the loading condition (or vice versa),
+  matching the treatment `app.html:26` already gives the shell branch against
+  `isBlockingBoot()`.
+
+## Moderate and minor issues
+
+- `back-office-activity.service.ts` — nine of ten mappers use partial-shape
+  casts rather than full type guards (F-3); moderate because the practical
+  blast radius is a mis-typed field in a passive, non-authoritative ticker, not
+  a crash or data-loss path.
+- `skillSummary`'s unguarded `Number(...)` coercion (F-4) — moderate, cosmetic
+  but user-facing.
+- `boot-status.service.ts:99-101` — `elapsedMs` is a `computed()` over
+  `Date.now()`, which only re-evaluates when `_status` changes; it does not
+  tick on its own. It is unused by any production caller (`boot-progress`
+  keeps its own `now` signal with its own interval instead), so this is dead,
+  possibly-misleading API surface rather than a live bug — minor.
+- `app-shell.component.html:686-699` — the canvas skeleton renders on ANY
+  falsy `orchestraCanvasComponent`, not only during a boot (already an open
+  question in `batch-4-report.md`); minor, matches the plan's literal
+  instruction.
+
+## Data flow
+
+1. Host emits `boot:readinessChanged` at `did-finish-load` (before Angular's
+   listener exists) and on every phase edge thereafter — OK, documented gap
+   covered by the mandatory pull.
+2. `BootStatusService` constructor snapshots `VSCodeService.isElectron`
+   (already populated, since `VSCodeService`'s own constructor runs
+   synchronously from injected `window.ptahConfig` before this constructor
+   executes) and issues one `boot:getReadiness` pull — OK, timing verified
+   correct; see F-1 for what happens if the one push after this point is lost.
+3. `handleMessage` narrows every push through `toReadinessSnapshot` before
+   accepting it and sets `pushSeen` — OK, guards a late pull from clobbering
+   newer state.
+4. `app.html` derives `isBlockingBoot()`/shell/error branches from the
+   service's signals — mostly OK; gap at F-2 between loading and error.
+5. `app-shell.component.html` and `electron-shell.component.ts` read
+   `bootStatus.isBooting()` / `activity.recent()` / `activity.isIdle()` for
+   skeletons and the ticker — OK, all presentational, no injection beyond the
+   documented exceptions (D-4).
+6. `BackOfficeActivityService` maps ten push types into `ActivityItem`s,
+   coalesces against the head, bounds the ring, and exposes `isIdle` off one
+   interval cleared via `DestroyRef` — OK for the coalescing/ring/idle
+   mechanics (verified against the spec's stated call-count assertions); gap
+   at F-3/F-4 in the mapper validation.
+7. `ActivityTickerComponent` rotates on its own timer, resets index only on a
+   head-id change (not an in-place coalesce), and stays a click target while
+   idle — OK, matches the acceptance criteria exactly, including the
+   `index() % list.length` guard against a shrinking list.
+
+## Requirements fulfilment
+
+| Requirement                                                          | Status   | Gap                                                                                           |
+| -------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `BootStatusService` ready default, degrade-safe                      | COMPLETE | none found                                                                                    |
+| `isBlockingBoot` exact phase set                                     | COMPLETE | matches `{starting, database}` exactly                                                        |
+| `pushSeen` beats a late pull                                         | COMPLETE | verified by spec and code                                                                     |
+| Boot screen a11y (`role="status"`, real list)                        | COMPLETE | none found                                                                                    |
+| Session-list / canvas skeletons at the two named sites               | COMPLETE | canvas site not boot-gated, per plan's literal text (open question)                           |
+| Ticker rotation / idle collapse / reset-on-new-head                  | COMPLETE | none found                                                                                    |
+| Ten activity mappers                                                 | PARTIAL  | nine use shallow validation vs. the full-guard pattern used elsewhere in this same file (F-3) |
+| No new `chat-ui` dependency, no service injection in atoms/molecules | COMPLETE | verified across all touched files                                                             |
+| `text-base-content/NN` ratchet (D-5)                                 | COMPLETE | verified via `text-base-content-muted` usage throughout                                       |
+| Recovery from a lost mid-boot push                                   | MISSING  | not a stated requirement, but a real gap (F-1)                                                |
+
+Implicit requirements not addressed: recovery from a single lost push (F-1); a
+guard against the loading/error branch overlap (F-2).
+
+## Edge cases
+
+| Case                                                                | Handled         | How                                     | Concern                    |
+| ------------------------------------------------------------------- | --------------- | --------------------------------------- | -------------------------- |
+| Rejected/timed-out `boot:getReadiness` pull                         | YES             | ready default retained                  | none                       |
+| Late pull after a push already landed                               | YES             | `pushSeen` latch                        | none                       |
+| Malformed `boot:readinessChanged` push                              | YES             | `toReadinessSnapshot` full guard        | none                       |
+| Single lost push after a successful pull                            | NO              | —                                       | F-1                        |
+| Boot failure during `ngOnInit`'s own async window                   | NO              | —                                       | F-2                        |
+| 60 rapid activity pushes                                            | YES             | ring capped at 50, newest-first         | none                       |
+| 100 coalescible pushes 10ms apart                                   | YES             | one slot, stable id                     | none                       |
+| Interleaved A,B,A within the coalesce window                        | YES (by design) | three slots, head-only coalescing       | matches plan's stated rule |
+| Ticker list shrinking below current index                           | YES             | `index() % list.length`                 | none                       |
+| Ticker with one item                                                | YES             | `advance()` no-ops at length ≤ 1        | none                       |
+| Malformed field of the _right_ key but _wrong type_ in 9/10 mappers | NO              | passed through                          | F-3, F-4                   |
+| Session list empty after `settled`                                  | YES             | `isBooting()` false → "No sessions yet" | none                       |
+
+## Verdict
+
+- Recommendation: APPROVE (with notes)
+- Confidence: HIGH
+- Top risk: a single lost `boot:readinessChanged` push (a scenario the plan's
+  own host-side contract makes possible) can strand the renderer behind a
+  stale boot screen or stale skeletons with no recovery path in this batch.
+- What a robust implementation would add: a bounded re-pull/watchdog in
+  `BootStatusService` while booting; a `!isInitializing()` guard on the error
+  branch in `app.html`; full-shape guards (or targeted type coercion) on the
+  nine partially-validated activity mappers, matching the pattern
+  `mapActivityEvent` already demonstrates in the same file.

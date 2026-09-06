@@ -36,6 +36,7 @@ import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.co
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SidebarTabComponent,
+  SkeletonBlockComponent,
   ThemeToggleComponent,
 } from '@ptah-extension/chat-ui';
 import { SettingsComponent } from '../../settings/settings.component';
@@ -53,6 +54,7 @@ import { SessionDisplayUtils } from '../../services/session-display-utils.servic
 import {
   AppStateManager,
   AuthStateService,
+  BootStatusService,
   VSCodeService,
   ClaudeRpcService,
   LazyViewService,
@@ -110,6 +112,7 @@ import type { ViewType } from '@ptah-extension/core';
     FormsModule,
     NativePopoverComponent,
     SidebarTabComponent,
+    SkeletonBlockComponent,
     DashboardGridComponent,
     ThothShellComponent,
   ],
@@ -136,6 +139,11 @@ export class AppShellComponent {
   ] as const;
 
   readonly chatStore = inject(ChatStore);
+  /**
+   * Boot progress, for the two skeleton sites (TASK_2026_380). Reports `ready`
+   * under VS Code, so both skeletons are unreachable there by construction.
+   */
+  readonly bootStatus = inject(BootStatusService);
   readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
