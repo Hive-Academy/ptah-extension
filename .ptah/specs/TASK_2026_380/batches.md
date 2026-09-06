@@ -1,7 +1,7 @@
 # Batches - TASK_2026_380
 
-Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 1/5
-Tasks complete: 6/16 | Commits: `0c7e4d05c` (Batch 1)
+Total tasks: 14 components in 16 tasks | Batches: 5 | Complete: 2/5
+Tasks complete: 9/16 | Commits: `0c7e4d05c` (Batch 1), `ee6ad1d8a` (Batch 2)
 
 **Repository root for every path in this file (a git worktree on branch
 `electron-cold-start-380`):**
@@ -399,7 +399,39 @@ npm run lint:all
 
 ---
 
-## Batch 2: Integrity worker hosts, build targets and scheduling — IN_PROGRESS
+## Batch 2: Integrity worker hosts, build targets and scheduling — COMPLETE
+
+- **Commit: `ee6ad1d8a`** — `perf(thoth-runtime): batch 2 - run the database
+integrity check out of process`
+- Reviews: code-logic-reviewer **APPROVED** 8/10; code-style-reviewer
+  **APPROVED** 8/10 (both appended to `code-logic-review.md` /
+  `code-style-review.md`). Report: `batch-2-report.md`.
+- Verification: `run-many -t test` green for 3 projects (`thoth-runtime` 52 tests,
+  `ptah-electron` 416, `cli-engine`); `nx build ptah-electron` and
+  `nx build ptah-cli` green; `dist/apps/ptah-electron/integrity-worker.mjs` **and**
+  `dist/apps/ptah-cli/integrity-worker.mjs` emitted with `better-sqlite3` external.
+- **HIGH risk closed:** all four worker-build lists were edited —
+  `build.dependsOn`, `build-dev.commands`, `serve:watch.commands` and
+  `ptah-cli`'s `restore-cli-manifest.dependsOn`. **Correction to this file's own
+  risk row: the third target is named `serve:watch`, not `serve`.**
+
+**Deviations recorded from `batch-2-report.md`:**
+
+- `apps/ptah-cli/tsconfig.integrity-worker.json` was also created — the CLI has its
+  own paths map, so the single tsconfig the plan named was not enough.
+- The cron handler pre-checks `isDue()` and returns `{ outcome: 'skipped' }` when
+  not due, mirroring the TASK_2026_315 drain fix, rather than dispatching blindly.
+- The boot timer is armed **inside the `!has()` branch**, so it is one timer per
+  process rather than one per `startThothCron` call.
+- The Electron factory constructor takes one argument; there is no `init` post,
+  unlike the embedder factory it was copied from.
+- `INTEGRITY_WORKER_PATH` is registered but resolved by nobody — the same shape as
+  the existing `EMBEDDER_WORKER_PATH`, kept for symmetry.
+
+**Carried to Batch 5 / follow-ups:** the packaged ABI-143 load and assumption A-1
+remain open questions and belong to Task 5.1. `apps/ptah-electron/CLAUDE.md`'s
+Build & Run section understates the worker chain (it omits voice and now
+integrity) — follow-up, not this task.
 
 - Components: 4, 5
 - Recommended executor: `backend-developer` (the two factory classes, the DI
@@ -415,7 +447,7 @@ npm run lint:all
   them in one owner avoids a second pass over that file.
 - Tasks: 2 | Depends on: Batch 1 (lane P)
 
-### Task 2.1: Host integrity worker factories (component 4, code half) — PENDING
+### Task 2.1: Host integrity worker factories (component 4, code half) — COMPLETE
 
 - Files:
   - CREATE `…/apps/ptah-electron/src/services/platform/electron-integrity-worker-factory.ts`
@@ -442,7 +474,7 @@ npm run lint:all
   with the configured path and returns a handle whose `on('exit')` maps the
   numeric code, mirroring the embedder factory's coverage.
 
-### Task 2.2: Worker build targets (component 4, build half) — PENDING
+### Task 2.2: Worker build targets (component 4, build half) — COMPLETE
 
 - Depends on: Task 2.1
 - Files:
@@ -458,15 +490,16 @@ libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts`,
   `build-integrity-worker` must be added to **all four** places in
   `apps/ptah-electron/project.json`:
   `build.dependsOn` (`:187-191`), `build-dev.commands` (`:222-223`),
-  `serve`'s watch `commands` (`:273-274`), and the mirror target in
-  `apps/ptah-cli/project.json`'s build chain (`:157-158`). Omitting the dev and
+  the watch `commands` of the target actually named **`serve:watch`** (`:273-274`),
+  and the mirror in `apps/ptah-cli/project.json` (`restore-cli-manifest.dependsOn`).
+  _(Target name corrected after Batch 2: it is `serve:watch`, not `serve`.)_ Omitting the dev and
   serve lists leaves `electron:serve` with no worker file, so the check silently
   never runs in development and nobody notices until production.
 - Implementation details: report explicitly, per list, which four you edited.
 - Acceptance: `nx build ptah-electron` produces
   `dist/apps/ptah-electron/integrity-worker.mjs`; `nx build ptah-cli` succeeds.
 
-### Task 2.3: Integrity scheduling seam in `thoth-runtime` (component 5) — PENDING
+### Task 2.3: Integrity scheduling seam in `thoth-runtime` (component 5) — COMPLETE
 
 - Depends on: Task 2.1
 - Files:
@@ -514,11 +547,10 @@ nx build ptah-cli
 
 ## Batch 3: Boot readiness port, RPC, Electron activation and the activity emitter — IN_PROGRESS
 
-> **Running concurrently with Batch 2, by orchestrator decision.** Tasks 3.1-3.3
-> share no file with Batch 2 and are started in parallel. **Task 3.4 is HELD**
-> until Batch 2 is verified and committed, because it edits
-> `start-thoth-cron.ts` (Task 2.3) and `boot-heavy-services.ts` (Task 3.3). Do not
-> release 3.4 before both of those are on disk and reviewed.
+> Tasks 3.1-3.3 ran concurrently with Batch 2 by orchestrator decision (no shared
+> file). **Task 3.4's hold is LIFTED** — Batch 2 is committed at `ee6ad1d8a`, so
+> `start-thoth-cron.ts` is settled. 3.4 goes to the same executor, sequentially
+> after 3.3, because it shares `boot-heavy-services.ts` with it.
 
 - Components: 9, 10, 11, 14b
 - Recommended executor: `backend-developer` (Electron main-process activation is
@@ -535,7 +567,7 @@ nx build ptah-cli
 - Tasks: 4 | Depends on: Batch 1 (lane C). Independent of Batch 2, but scheduled
   after it so a single reviewer sees the backend in dependency order.
 
-### Task 3.1: `IBootReadinessProvider` port + three host answers (component 9) — PENDING
+### Task 3.1: `IBootReadinessProvider` port + three host answers (component 9) — IN_PROGRESS
 
 - Files:
   - CREATE `…/libs/backend/platform-core/src/interfaces/boot-readiness.interface.ts`
@@ -566,7 +598,7 @@ nx build ptah-cli
   `register-platform-agnostic` case asserts the null adapter is **not** registered
   when one already is.
 
-### Task 3.2: `boot:getReadiness` RPC — the four-site registration (component 11) — PENDING
+### Task 3.2: `boot:getReadiness` RPC — the four-site registration (component 11) — IN_PROGRESS
 
 - Depends on: Task 3.1
 - **Scope widened by a Batch 1 deferral — this is now the FULL four-site
@@ -610,7 +642,7 @@ nx build ptah-cli
   fallback when the port throws. `rpc-allowlist.spec.ts` passes — it is the
   partition gate and this task does not close until it is green.
 
-### Task 3.3: `BootCoordinator` phase state, broadcaster and phase anchors (component 10) — PENDING
+### Task 3.3: `BootCoordinator` phase state, broadcaster and phase anchors (component 10) — IN_PROGRESS
 
 - Depends on: Task 3.1, Task 3.2
 - Files:
@@ -656,9 +688,12 @@ nx build ptah-cli
   phase; `boot-order.spec.ts` asserts the sequence
   `database → harness → sessions → index → settled`.
 
-### Task 3.4: Back-office activity emitter (component 14b) — PENDING
+### Task 3.4: Back-office activity emitter (component 14b) — IN_PROGRESS (hold lifted at `ee6ad1d8a`)
 
-- Depends on: Task 3.3 (same file, `boot-heavy-services.ts`)
+- Depends on: Task 3.3 (same file, `boot-heavy-services.ts`) and Batch 2's
+  `start-thoth-cron.ts`, now committed. **The `db:integrity` handler this task
+  wraps already pre-checks `isDue()` and can return `{ outcome: 'skipped' }` —
+  the wrapper must preserve that return value unchanged, not just `{ summary }`.**
 - Files:
   - CREATE `…/libs/backend/thoth-runtime/src/lib/activity-emitter.ts`
   - CREATE `…/libs/backend/thoth-runtime/src/lib/activity-emitter.spec.ts`

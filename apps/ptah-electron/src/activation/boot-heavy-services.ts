@@ -8,6 +8,7 @@ import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
   bootThothRuntime,
+  createActivityEmitter,
   startThothCron,
 } from '@ptah-extension/thoth-runtime';
 
@@ -95,6 +96,21 @@ export function createHeavyServicesBooter(
   const { container, coordinator } = options;
   const refs = coordinator.refs;
   const signal = coordinator.abortSignal;
+  /**
+   * Back-office activity for the three SILENT steps of this file.
+   *
+   * `createActivityEmitter` is `thoth-runtime`'s, reused rather than
+   * re-implemented, so there is exactly ONE way to emit an activity event —
+   * one payload shape, one lazy `WEBVIEW_MANAGER` resolution, one swallow
+   * rule. Harness reconcile and session import emit HERE rather than from the
+   * lib because they are host activation work, which `thoth-runtime`'s own
+   * CLAUDE.md keeps out of that lib.
+   *
+   * Only steps with no existing broadcast are emitted. Memory, indexing, skill
+   * synthesis, vec, embedder and boot readiness each already push their own
+   * message type and must not gain a second one.
+   */
+  const emitActivity = createActivityEmitter(container, '[Ptah Electron]');
 
   /**
    * The in-flight (or settled) boot per normalized workspace root.
@@ -133,6 +149,10 @@ export function createHeavyServicesBooter(
       '[Ptah Electron] Booting deferred backend services for workspace...',
     );
 
+    // Phase labels for the boot screen. Display-only: no consumer may infer a
+    // subsystem's availability from one (see `BootPhase` in libs/shared).
+    coordinator.setPhase('database', 'Opening the database');
+
     // FIRST. `bootThothRuntime` awaits `openAndMigrate()` before every scan it
     // owns, so SQLite is open the moment this returns. Everything below assumes
     // that; nothing below may be hoisted above it.
@@ -150,6 +170,7 @@ export function createHeavyServicesBooter(
     coordinator.markPersistenceSettled({
       sqliteOpen: thoth.sqliteConnection?.isOpen ?? false,
     });
+    coordinator.setPhase('harness', 'Syncing skills and agents');
     refs.memoryCurator = thoth.memoryCurator;
     refs.memoryTrigger = thoth.memoryTrigger;
     refs.skillSynthesis = thoth.skillSynthesis;
@@ -174,6 +195,7 @@ export function createHeavyServicesBooter(
     // that used to stand here ran the catalog sync twice on their own and
     // raced the folder listener's propagation for the other two.
     await refreshUserLayer(container, workspaceRoot, 'activation');
+    emitActivity('harness', 'user-layer', 'User layer refreshed');
     contentDownload
       .ensureContent()
       .then(async (result) => {
@@ -236,6 +258,10 @@ export function createHeavyServicesBooter(
       downloadPending: true,
       signal,
     });
+    // The FIRST reconcile only. The post-download pass in the callback above is
+    // the same work against fresher sources, and emitting there too would put
+    // two indistinguishable lines in the ticker for one user-visible outcome.
+    emitActivity('harness', 'reconcile', 'Harness reconciled');
     if (signal.aborted) return;
     try {
       const providerModels = container.resolve(
@@ -306,6 +332,7 @@ export function createHeavyServicesBooter(
       // (backed by workspace state storage, not SQLite): an empty store returns
       // `{ sessions: [], total: 0, hasMore: false }` and never an error, so a
       // list requested mid-import is short, never broken.
+      coordinator.setPhase('sessions', 'Importing recent sessions');
       try {
         const sessionImporter = container.resolve(
           SDK_TOKENS.SDK_SESSION_IMPORTER,
@@ -328,6 +355,15 @@ export function createHeavyServicesBooter(
             `[Ptah Electron] Imported ${imported} existing Claude session(s)`,
           );
         }
+        // Emitted for zero too: "nothing to import" is the answer a user
+        // wondering where their sessions went actually needs.
+        emitActivity(
+          'sessions',
+          'import',
+          imported > 0
+            ? `Imported ${imported} recent session${imported === 1 ? '' : 's'}`
+            : 'No new sessions to import',
+        );
       } catch (importError: unknown) {
         console.warn(
           '[Ptah Electron] Session import skipped (non-fatal):',
@@ -367,6 +403,7 @@ export function createHeavyServicesBooter(
       }
     }
     if (signal.aborted) return;
+    coordinator.setPhase('index', 'Starting background services');
     await startThothCron(container, thoth, {
       logPrefix: '[Ptah Electron]',
     });

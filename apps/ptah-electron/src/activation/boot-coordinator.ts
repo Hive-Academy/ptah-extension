@@ -44,6 +44,11 @@
  */
 
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  BackendReadiness,
+  BootPhase,
+  BootReadinessChangedPayload,
+} from '@ptah-extension/shared';
 import type { DiagnosticsHandle } from '@ptah-extension/vscode-core';
 import type { ThothRuntimeRefs } from '@ptah-extension/thoth-runtime';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
@@ -51,15 +56,19 @@ import type { GatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import type { UpdateManager } from '../services/update/update-manager';
 
 /**
- * Coarse boot state for the renderer.
+ * Coarse boot state for the renderer — `BackendReadiness` from
+ * `@ptah-extension/shared`.
  *
  * `warming` is the initial state and holds until the post-window boot settles.
  * `failed` is set when that boot rejects. `degraded` is reserved for a boot
- * that completed with a subsystem missing; nothing sets it in Batch 1, and it
- * exists here because the renderer contract added in Batch 2 needs the full
- * vocabulary to be stable from the start.
+ * that completed with a subsystem missing; nothing sets it yet.
+ *
+ * This used to be a local copy of the same four literals. It was replaced
+ * rather than kept beside the shared type: the renderer narrows a pushed value
+ * with `isBackendReadiness`, and two independently-edited definitions of one
+ * wire vocabulary is exactly how a producer starts emitting a member the guard
+ * rejects.
  */
-export type BootReadiness = 'warming' | 'ready' | 'degraded' | 'failed';
 
 /**
  * The state of persistence at the moment the boot stopped being able to change
@@ -185,9 +194,35 @@ export class BootCoordinator {
   readonly refs: BootRefs = createEmptyBootRefs();
 
   private readonly abortController = new AbortController();
-  private readinessState: BootReadiness = 'warming';
+  private readinessState: BackendReadiness = 'warming';
   private postWindowPromise: Promise<void> | null = null;
   private pending = false;
+
+  /**
+   * Epoch ms of boot start. Read by every snapshot so the renderer can show
+   * elapsed time; captured at construction because `main.ts` builds the
+   * coordinator as the first thing it does inside `whenReady`.
+   */
+  readonly startedAt = Date.now();
+
+  /** The stage the boot has reached. Display-only; see {@link BootPhase}. */
+  private phase: BootPhase = 'starting';
+
+  /** Human-facing label for the current phase, if the emitter supplied one. */
+  private detail: string | undefined;
+
+  /**
+   * The single readiness emitter, registered by `main.ts`.
+   *
+   * A plain function, deliberately — NOT a container. Every import in this file
+   * is `import type`, which is what makes the module loadable under ts-jest
+   * without an Electron runtime, and resolving DI here would end that. The
+   * broadcaster that owns the container lives in
+   * `boot-readiness-broadcaster.ts`.
+   */
+  private emitReadiness:
+    | ((payload: BootReadinessChangedPayload) => void)
+    | null = null;
 
   /**
    * The persistence gate's resolver, captured out of the promise's executor.
@@ -218,8 +253,64 @@ export class BootCoordinator {
   }
 
   /** Current readiness. Starts `warming`. */
-  get readiness(): BootReadiness {
+  get readiness(): BackendReadiness {
     return this.readinessState;
+  }
+
+  /**
+   * Register the one readiness emitter. Later calls replace the earlier one;
+   * there is exactly one broadcaster and it is wired in `main.ts` immediately
+   * after this object is constructed.
+   */
+  onReadinessChange(
+    emit: (payload: BootReadinessChangedPayload) => void,
+  ): void {
+    this.emitReadiness = emit;
+  }
+
+  /**
+   * The current boot state, in the shape both the `boot:getReadiness` pull and
+   * the `boot:readinessChanged` push use.
+   */
+  snapshot(): BootReadinessChangedPayload {
+    return {
+      readiness: this.readinessState,
+      phase: this.phase,
+      ...(this.detail === undefined ? {} : { detail: this.detail }),
+      startedAt: this.startedAt,
+    };
+  }
+
+  /**
+   * Advance the boot phase and emit.
+   *
+   * **Edge-triggered**: a repeat of the current phase is ignored, so a caller
+   * placed inside a retry loop cannot turn this into a progress tick. The
+   * renderer's contract is one message per transition.
+   *
+   * Never throws. The call sites are the boot's own critical path, and a
+   * broadcast failure — a closed window, a container mid-teardown — must not
+   * be able to abort the boot it was only narrating.
+   */
+  setPhase(phase: BootPhase, detail?: string): void {
+    if (this.phase === phase) return;
+    this.phase = phase;
+    this.detail = detail;
+    this.emitCurrent();
+  }
+
+  /** Emit the current snapshot, swallowing anything the emitter throws. */
+  private emitCurrent(): void {
+    const emit = this.emitReadiness;
+    if (emit === null) return;
+    try {
+      emit(this.snapshot());
+    } catch (error: unknown) {
+      console.warn(
+        '[BootCoordinator] readiness emit failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   /** `true` only while a post-window boot promise is still pending. */
@@ -262,9 +353,19 @@ export class BootCoordinator {
         if (this.readinessState === 'warming') {
           this.readinessState = 'ready';
         }
+        // `settled` is the terminal phase and pairs with a terminal readiness.
+        // Set both before emitting, so the renderer never sees a `ready`
+        // message still carrying `index`.
+        this.phase = 'settled';
+        this.detail = undefined;
+        this.emitCurrent();
       })
       .catch((error: unknown) => {
         this.readinessState = 'failed';
+        // The phase is deliberately KEPT: "failed during `harness`" is the only
+        // thing the renderer can say about where a boot died, and overwriting
+        // it with `settled` would throw that away.
+        this.emitCurrent();
         console.error(
           '[BootCoordinator] Post-window boot failed:',
           error instanceof Error ? error.message : String(error),

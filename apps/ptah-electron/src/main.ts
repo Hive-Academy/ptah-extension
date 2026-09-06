@@ -17,6 +17,7 @@ import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electro
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import { bootstrapElectron } from './activation/bootstrap';
 import { BootCoordinator } from './activation/boot-coordinator';
+import { createBootReadinessBroadcaster } from './activation/boot-readiness-broadcaster';
 import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import { handleWillQuit } from './activation/shutdown';
@@ -63,8 +64,16 @@ if (!gotLock) {
   let trayService: PtahTrayService | null = null;
 
   app.whenReady().then(async () => {
-    const boot = await bootstrapElectron(() => mainWindow);
+    const boot = await bootstrapElectron(() => mainWindow, coordinator);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
+
+    // The readiness push side, wired at the FIRST point a container exists —
+    // the coordinator is constructed above, before there is one. Nothing has
+    // called `setPhase` yet (the first anchor is in `boot-heavy-services.ts`,
+    // behind the window), so no transition can be missed by wiring it here.
+    coordinator.onReadinessChange(
+      createBootReadinessBroadcaster(boot.container),
+    );
 
     // Phase 3: capture the per-workspace isolated provider-proxy pool so its
     // proxy servers are torn down on app quit (per-workspace teardown runs on

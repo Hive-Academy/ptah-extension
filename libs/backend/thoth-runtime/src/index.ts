@@ -11,6 +11,11 @@
  */
 export { bootThothRuntime } from './lib/boot-thoth-runtime';
 export { startThothCron } from './lib/start-thoth-cron';
+export {
+  createActivityEmitter,
+  withActivityEmit,
+  type ActivityEmitter,
+} from './lib/activity-emitter';
 
 export {
   DEFAULT_THOTH_LOG_PREFIX,

@@ -25,6 +25,11 @@ import {
   type StartThothCronOptions,
   type ThothRuntimeRefs,
 } from './types';
+import {
+  createActivityEmitter,
+  withActivityEmit,
+  type ActivityEmitter,
+} from './activity-emitter';
 
 /**
  * The three skill-synthesis drain tiers, as cron jobs.
@@ -96,39 +101,48 @@ function registerSkillDrainJobs(
   handlerRegistry: IHandlerRegistry,
   workspaceProvider: IWorkspaceProvider,
   logPrefix: string,
+  emit: ActivityEmitter,
 ): void {
   if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE)) {
     return;
   }
   for (const job of SKILL_DRAIN_JOBS) {
     if (!handlerRegistry.has(job.handlerName)) {
-      handlerRegistry.register(job.handlerName, async (ctx) => {
-        const drain = container.resolve<SkillDrainService>(
-          SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
-        );
-        // Resolved per run, not captured: the monitor is a live OS view and a
-        // laptop can move on and off mains between two ticks.
-        const monitor = container.resolve<IPowerMonitor>(
-          CRON_TOKENS.CRON_POWER_MONITOR,
-        );
-        const summary = await drain.drain({
-          tier: job.tier,
-          signal: ctx.signal,
-          onBattery: monitor.isOnBattery(),
-        });
-        // A gated tick did no work, so it is not a success. `DrainSummary`
-        // has carried `skipped` + `reason` since phase 1; before
-        // TASK_2026_315 it could only reach the run row as prose inside
-        // `summary`, and `cron:runs` said "succeeded". The reason token is
-        // passed through verbatim (`daily-token-budget-exhausted`,
-        // `on-battery`, …) rather than re-worded, so the run history shows
-        // the same string the drain logs.
-        return summary.skipped
-          ? { outcome: 'skipped', reason: summary.reason ?? 'unknown' }
-          : {
-              summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
-            };
-      });
+      const drainHandler = withActivityEmit(
+        emit,
+        job.handlerName,
+        async (ctx) => {
+          const drain = container.resolve<SkillDrainService>(
+            SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
+          );
+          // Resolved per run, not captured: the monitor is a live OS view and a
+          // laptop can move on and off mains between two ticks.
+          const monitor = container.resolve<IPowerMonitor>(
+            CRON_TOKENS.CRON_POWER_MONITOR,
+          );
+          const summary = await drain.drain({
+            tier: job.tier,
+            signal: ctx.signal,
+            onBattery: monitor.isOnBattery(),
+          });
+          // A gated tick did no work, so it is not a success. `DrainSummary`
+          // has carried `skipped` + `reason` since phase 1; before
+          // TASK_2026_315 it could only reach the run row as prose inside
+          // `summary`, and `cron:runs` said "succeeded". The reason token is
+          // passed through verbatim (`daily-token-budget-exhausted`,
+          // `on-battery`, …) rather than re-worded, so the run history shows
+          // the same string the drain logs.
+          return summary.skipped
+            ? {
+                outcome: 'skipped' as const,
+                reason: summary.reason ?? 'unknown',
+              }
+            : {
+                summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
+              };
+        },
+      );
+      handlerRegistry.register(job.handlerName, drainHandler);
     }
     jobStore.upsert({
       id: job.jobId,
@@ -195,6 +209,7 @@ function registerIntegrityCheckJob(
   jobStore: IJobStore,
   handlerRegistry: IHandlerRegistry,
   logPrefix: string,
+  emit: ActivityEmitter,
 ): void {
   if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE)) {
     return;
@@ -203,16 +218,19 @@ function registerIntegrityCheckJob(
   // more than once, so both the handler AND the one-shot boot timer live behind
   // this guard — a second call must not arm a second dispatch.
   if (!handlerRegistry.has(INTEGRITY_HANDLER_NAME)) {
-    handlerRegistry.register(INTEGRITY_HANDLER_NAME, async () => {
-      const integrity = container.resolve<SqliteIntegrityService>(
-        PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
-      );
-      if (!integrity.isDue()) {
-        return { outcome: 'skipped' as const, reason: 'not-due' };
-      }
-      void integrity.dispatchIfDue();
-      return { summary: 'integrity check dispatched (runs out of process)' };
-    });
+    handlerRegistry.register(
+      INTEGRITY_HANDLER_NAME,
+      withActivityEmit(emit, INTEGRITY_HANDLER_NAME, async () => {
+        const integrity = container.resolve<SqliteIntegrityService>(
+          PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+        );
+        if (!integrity.isDue()) {
+          return { outcome: 'skipped' as const, reason: 'not-due' };
+        }
+        void integrity.dispatchIfDue();
+        return { summary: 'integrity check dispatched (runs out of process)' };
+      }),
+    );
 
     const bootTimer = setTimeout(() => {
       try {
@@ -262,6 +280,12 @@ export async function startThothCron(
   options: StartThothCronOptions = {},
 ): Promise<void> {
   const logPrefix = options.logPrefix ?? DEFAULT_THOTH_LOG_PREFIX;
+  // One emitter for every built-in cron job. Stateless and lazy, so building it
+  // before the scheduler exists costs nothing and a host with no webview simply
+  // emits nowhere. Only the jobs registered BELOW are wrapped — user-defined
+  // jobs would need an event surface on `CronScheduler`, which is a change to a
+  // different lib and out of scope.
+  const emitActivity = createActivityEmitter(container, logPrefix);
 
   try {
     if (
@@ -302,51 +326,59 @@ export async function startThothCron(
           );
           const BACKUP_HANDLER_NAME = 'backup:daily';
           if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
-            handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
-              const sqliteConn = refs.sqliteConnection;
-              if (!sqliteConn) {
-                return { summary: 'skipped: no sqlite connection' };
-              }
-              const backupSvc = container.resolve<IBackupService>(
-                PERSISTENCE_TOKENS.BACKUP_SERVICE,
-              );
-              const backupPath = await backupSvc.backup(sqliteConn.db, 'daily');
-              try {
-                backupSvc.rotate('daily', 7);
-              } catch (rotateErr: unknown) {
-                console.warn(
-                  `${logPrefix} Daily backup rotation failed (non-fatal):`,
-                  rotateErr instanceof Error
-                    ? rotateErr.message
-                    : String(rotateErr),
+            const backupHandler = withActivityEmit(
+              emitActivity,
+              BACKUP_HANDLER_NAME,
+              async () => {
+                const sqliteConn = refs.sqliteConnection;
+                if (!sqliteConn) {
+                  return { summary: 'skipped: no sqlite connection' };
+                }
+                const backupSvc = container.resolve<IBackupService>(
+                  PERSISTENCE_TOKENS.BACKUP_SERVICE,
                 );
-              }
-              try {
-                sqliteConn.db.pragma('incremental_vacuum(100)');
-              } catch (vacuumErr: unknown) {
-                console.warn(
-                  `${logPrefix} Post-backup incremental_vacuum failed (non-fatal):`,
-                  vacuumErr instanceof Error
-                    ? vacuumErr.message
-                    : String(vacuumErr),
+                const backupPath = await backupSvc.backup(
+                  sqliteConn.db,
+                  'daily',
                 );
-              }
-              try {
-                sqliteConn.db.pragma('optimize');
-              } catch (optimizeErr: unknown) {
-                console.warn(
-                  `${logPrefix} Post-backup optimize failed (non-fatal):`,
-                  optimizeErr instanceof Error
-                    ? optimizeErr.message
-                    : String(optimizeErr),
-                );
-              }
-              return {
-                summary: backupPath
-                  ? `backup written to ${backupPath}`
-                  : 'backup skipped (db.backup unavailable)',
-              };
-            });
+                try {
+                  backupSvc.rotate('daily', 7);
+                } catch (rotateErr: unknown) {
+                  console.warn(
+                    `${logPrefix} Daily backup rotation failed (non-fatal):`,
+                    rotateErr instanceof Error
+                      ? rotateErr.message
+                      : String(rotateErr),
+                  );
+                }
+                try {
+                  sqliteConn.db.pragma('incremental_vacuum(100)');
+                } catch (vacuumErr: unknown) {
+                  console.warn(
+                    `${logPrefix} Post-backup incremental_vacuum failed (non-fatal):`,
+                    vacuumErr instanceof Error
+                      ? vacuumErr.message
+                      : String(vacuumErr),
+                  );
+                }
+                try {
+                  sqliteConn.db.pragma('optimize');
+                } catch (optimizeErr: unknown) {
+                  console.warn(
+                    `${logPrefix} Post-backup optimize failed (non-fatal):`,
+                    optimizeErr instanceof Error
+                      ? optimizeErr.message
+                      : String(optimizeErr),
+                  );
+                }
+                return {
+                  summary: backupPath
+                    ? `backup written to ${backupPath}`
+                    : 'backup skipped (db.backup unavailable)',
+                };
+              },
+            );
+            handlerRegistry.register(BACKUP_HANDLER_NAME, backupHandler);
           }
           jobStore.upsert({
             id: '@ptah/daily-backup',
@@ -376,6 +408,7 @@ export async function startThothCron(
             ),
             workspaceProvider,
             logPrefix,
+            emitActivity,
           );
         } catch (drainErr: unknown) {
           console.warn(
@@ -391,6 +424,7 @@ export async function startThothCron(
               CRON_TOKENS.CRON_HANDLER_REGISTRY,
             ),
             logPrefix,
+            emitActivity,
           );
         } catch (integrityErr: unknown) {
           console.warn(

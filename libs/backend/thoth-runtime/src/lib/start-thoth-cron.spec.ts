@@ -5,6 +5,8 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import type { JobHandler } from '@ptah-extension/cron-scheduler';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES, isActivityEventPayload } from '@ptah-extension/shared';
 
 import { startThothCron } from './start-thoth-cron';
 import { emptyThothRuntimeRefs, type ThothRuntimeRefs } from './types';
@@ -649,6 +651,75 @@ describe('startThothCron', () => {
       // No service means no boot timer either — nothing to unref, nothing to
       // keep an exiting host alive.
       expect(timers).toHaveLength(0);
+    });
+  });
+
+  describe('back-office activity events (TASK_2026_380)', () => {
+    /** Register the built-in jobs and hand back the handlers + broadcast spy. */
+    async function bootWithWebview(
+      webviewManager: unknown,
+    ): Promise<Map<string, JobHandler>> {
+      const handlers = new Map<string, JobHandler>();
+      const entries: Entry[] = [
+        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
+        [CRON_TOKENS.CRON_JOB_STORE, { upsert: jest.fn() }],
+        [
+          CRON_TOKENS.CRON_HANDLER_REGISTRY,
+          {
+            has: (name: string) => handlers.has(name),
+            register: (name: string, fn: JobHandler) => {
+              handlers.set(name, fn);
+            },
+          },
+        ],
+        [
+          PERSISTENCE_TOKENS.BACKUP_SERVICE,
+          {
+            backup: jest.fn().mockResolvedValue('/backups/daily.db'),
+            rotate: jest.fn(),
+          },
+        ],
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+      ];
+      if (webviewManager !== undefined) {
+        entries.push([TOKENS.WEBVIEW_MANAGER, webviewManager]);
+      }
+
+      await startThothCron(makeContainer(entries), refsWithSqlite());
+      return handlers;
+    }
+
+    it('a wrapped handler returns its original value AND emits exactly one event', async () => {
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      const handlers = await bootWithWebview({ broadcastMessage });
+
+      const result = await (handlers.get('backup:daily') as JobHandler)(
+        {} as never,
+      );
+
+      expect(result).toEqual({
+        summary: 'backup written to /backups/daily.db',
+      });
+      const activity = broadcastMessage.mock.calls.filter(
+        (call) => call[0] === MESSAGE_TYPES.ACTIVITY_EVENT,
+      );
+      expect(activity).toHaveLength(1);
+      expect(isActivityEventPayload(activity[0][1])).toBe(true);
+      expect(activity[0][1]).toMatchObject({
+        source: 'cron',
+        kind: 'backup:daily',
+        summary: 'backup written to /backups/daily.db',
+      });
+    });
+
+    it('runs the handler, emits zero and throws nothing without a WEBVIEW_MANAGER', async () => {
+      // Every CLI and test host. A missing webview must cost the ticker a line,
+      // never the cron run.
+      const handlers = await bootWithWebview(undefined);
+
+      await expect(
+        (handlers.get('backup:daily') as JobHandler)({} as never),
+      ).resolves.toEqual({ summary: 'backup written to /backups/daily.db' });
     });
   });
 
