@@ -2,7 +2,7 @@
  * Editor Library - Main Entry Point
  *
  * ARCHITECTURE: Monaco-based code editor with file tree explorer, git integration,
- * integrated terminal panel (xterm.js + node-pty via binary IPC), and worktree management
+ * and an integrated terminal panel (xterm.js + node-pty via binary IPC)
  *
  * COMPONENTS:
  * - EditorPanelComponent: Main container (file tree + code editor + git status bar + terminal)
@@ -13,7 +13,7 @@
  * - TerminalComponent: xterm.js wrapper with WebGL/canvas rendering
  * - TerminalTabBarComponent: Terminal tab bar with new/close/switch actions
  * - TerminalPanelComponent: Container for multi-tab terminal panel
- * - AddWorktreeDialogComponent: Modal dialog for creating new git worktrees
+ * - WorktreeSectionComponent: Worktree list section inside the sidebar
  *
  * SERVICES:
  * - EditorService: File state management and backend RPC communication
@@ -30,12 +30,6 @@
  * - PtahTerminalApi: Window extension for terminal binary IPC
  */
 export type { FileTreeNode } from './lib/models/file-tree.model';
-export type {
-  SearchMatch,
-  SearchFileResult,
-  SearchInFilesParams,
-  SearchInFilesResult,
-} from './lib/models/search.model';
 export { FileTreeComponent } from './lib/file-tree/file-tree.component';
 export { FileTreeNodeComponent } from './lib/file-tree/file-tree-node.component';
 export { FileTreeContextMenuComponent } from './lib/file-tree/file-tree-context-menu.component';
@@ -47,14 +41,10 @@ export { GitStatusBarComponent } from './lib/git-status-bar/git-status-bar.compo
 export { TerminalComponent } from './lib/terminal/terminal.component';
 export { TerminalTabBarComponent } from './lib/terminal/terminal-tab-bar.component';
 export { TerminalPanelComponent } from './lib/terminal/terminal-panel.component';
-export { AddWorktreeDialogComponent } from './lib/worktree/add-worktree-dialog.component';
-export { WorktreePanelComponent } from './lib/worktree/worktree-panel.component';
 export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
 export { SidebarComponent } from './lib/sidebar/sidebar.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
-export { SearchPanelComponent } from './lib/search/search-panel.component';
-export { QuickOpenComponent } from './lib/quick-open/quick-open.component';
 export { BranchPickerDropdownComponent } from './lib/branch-picker/branch-picker-dropdown.component';
 export { BranchDetailsPopoverComponent } from './lib/branch-picker/branch-details-popover.component';
 export { EditorService } from './lib/services/editor.service';
@@ -68,6 +58,5 @@ export { GitStatusService } from './lib/services/git-status.service';
 export { GitBranchesService } from './lib/services/git-branches.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
-export { VimModeService } from './lib/services/vim-mode.service';
 export { SourceControlService } from './lib/services/source-control.service';
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';

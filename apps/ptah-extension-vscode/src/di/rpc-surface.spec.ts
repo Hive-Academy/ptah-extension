@@ -29,7 +29,7 @@ const NOOP_LOGGER = {
   trace: jest.fn(),
 } as unknown as Parameters<typeof createVscodeRpcHostProfile>[0];
 
-/** Electron-only surfaces: desktop editor pane, raw FS, layout, PTY, updater,
+/** Electron-only surfaces: desktop editor pane, raw FS, PTY, updater,
  *  workspace lifecycle, and every SQLite/native-backed subsystem. */
 export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'corpus:build',
@@ -60,11 +60,9 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'editor:getDirectoryChildren',
   'editor:getFileTree',
   'editor:getSetting',
-  'editor:listAllFiles',
   'editor:openFile',
   'editor:renameItem',
   'editor:saveFile',
-  'editor:searchInFiles',
   'editor:updateSetting',
   'embedder:retry',
   'embedder:status',
@@ -96,8 +94,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'indexing:resume',
   'indexing:setPipelineEnabled',
   'indexing:start',
-  'layout:persist',
-  'layout:restore',
   'mem:getObservations',
   'mem:searchIndex',
   'mem:timeline',

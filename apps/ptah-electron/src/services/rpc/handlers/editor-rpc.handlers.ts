@@ -49,40 +49,6 @@ interface FileTreeEntry {
   needsLoad?: boolean;
 }
 
-/** A single match within a file for search results. */
-interface SearchMatchInternal {
-  line: number;
-  column: number;
-  lineText: string;
-  matchLength: number;
-}
-
-/** A file containing search matches. */
-interface SearchFileResultInternal {
-  filePath: string;
-  fileName: string;
-  relativePath: string;
-  matches: SearchMatchInternal[];
-}
-
-/** Escape special regex characters for literal string search. */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Directory-exclusion glob handed to `findFiles` by `editor:searchInFiles`
- * and `editor:listAllFiles`, derived from `TREE_HIDDEN_DIRS` instead of
- * written out by hand.
- *
- * The two hand-written literals this replaces named 5 of the shared set's 11
- * members, so search and quick-open surfaced matches from `.hg`, `.svn`,
- * `.DS_Store`, `.Trash`, `.tmp` and `.temp` that the file tree itself hides.
- * Deriving the pattern means a name added to `TREE_HIDDEN_DIRS` reaches both
- * methods without a third manual edit, so the drift cannot recur.
- */
-export const EXCLUDED_DIRS_GLOB = `**/{${[...TREE_HIDDEN_DIRS].join(',')}}/**`;
-
 /**
  * How deep `editor:getFileTree` materializes before it hands over to the
  * lazy path (TASK_2026_340).
@@ -118,67 +84,6 @@ export const EXCLUDED_DIRS_GLOB = `**/{${[...TREE_HIDDEN_DIRS].join(',')}}/**`;
  */
 const FILE_TREE_INITIAL_DEPTH = 2;
 
-/** File extensions considered binary (skip during text search). */
-const BINARY_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.bmp',
-  '.ico',
-  '.svg',
-  '.webp',
-  '.avif',
-  '.mp3',
-  '.mp4',
-  '.wav',
-  '.ogg',
-  '.webm',
-  '.flac',
-  '.aac',
-  '.avi',
-  '.mov',
-  '.zip',
-  '.gz',
-  '.tar',
-  '.rar',
-  '.7z',
-  '.bz2',
-  '.xz',
-  '.zst',
-  '.exe',
-  '.dll',
-  '.so',
-  '.dylib',
-  '.bin',
-  '.obj',
-  '.o',
-  '.a',
-  '.lib',
-  '.pdf',
-  '.doc',
-  '.docx',
-  '.xls',
-  '.xlsx',
-  '.ppt',
-  '.pptx',
-  '.woff',
-  '.woff2',
-  '.ttf',
-  '.otf',
-  '.eot',
-  '.wasm',
-  '.node',
-  '.pyc',
-  '.class',
-  '.jar',
-  '.sqlite',
-  '.db',
-  '.mdb',
-  '.DS_Store',
-  '.lock',
-]);
-
 @injectable()
 export class EditorRpcHandlers {
   constructor(
@@ -203,12 +108,10 @@ export class EditorRpcHandlers {
     this.registerGetDirectoryChildren();
     this.registerGetSetting();
     this.registerUpdateSetting();
-    this.registerSearchInFiles();
     this.registerCreateFile();
     this.registerCreateFolder();
     this.registerRenameItem();
     this.registerDeleteItem();
-    this.registerListAllFiles();
   }
 
   /** Validate that a file path is within any workspace folder. Returns error message or null. */
@@ -474,187 +377,6 @@ export class EditorRpcHandlers {
     );
   }
 
-  /**
-   * Search for text or regex matches across workspace files.
-   * Caps results to prevent memory/performance issues on large workspaces.
-   */
-  private registerSearchInFiles(): void {
-    this.rpcHandler.registerMethod(
-      'editor:searchInFiles',
-      async (
-        params:
-          | {
-              query: string;
-              isRegex: boolean;
-              caseSensitive: boolean;
-              maxFileResults?: number;
-              maxMatchesPerFile?: number;
-            }
-          | undefined,
-      ) => {
-        if (!params?.query || params.query.trim().length === 0) {
-          return {
-            success: true,
-            files: [],
-            truncated: false,
-            totalMatches: 0,
-          };
-        }
-        if (params.isRegex && params.query.length > 500) {
-          return {
-            success: false,
-            error: 'Regex pattern too long (max 500 characters)',
-            files: [],
-            truncated: false,
-            totalMatches: 0,
-          };
-        }
-
-        const maxFileResults = params.maxFileResults ?? 2000;
-        const maxMatchesPerFile = params.maxMatchesPerFile ?? 200;
-        const wsRoot = this.workspace.getWorkspaceRoot();
-
-        if (!wsRoot) {
-          return {
-            success: false,
-            error: 'No workspace folder open',
-            files: [],
-            truncated: false,
-            totalMatches: 0,
-          };
-        }
-        let searchRegex: RegExp;
-        try {
-          const flags = params.caseSensitive ? 'g' : 'gi';
-          const pattern = params.isRegex
-            ? params.query
-            : escapeRegex(params.query);
-          searchRegex = new RegExp(pattern, flags);
-          if (params.isRegex) {
-            const canary = 'a'.repeat(50);
-            const start = Date.now();
-            searchRegex.exec(canary);
-            if (Date.now() - start > 100) {
-              return {
-                success: false,
-                error: 'Regex pattern is too complex (potential backtracking)',
-                files: [],
-                truncated: false,
-                totalMatches: 0,
-              };
-            }
-          }
-        } catch {
-          return {
-            success: false,
-            error: `Invalid regex: ${params.query}`,
-            files: [],
-            truncated: false,
-            totalMatches: 0,
-          };
-        }
-
-        try {
-          const excludePattern = [EXCLUDED_DIRS_GLOB];
-          const filePaths = await this.fs.findFiles(
-            wsRoot.replace(/\\/g, '/') + '/**/*',
-            excludePattern,
-          );
-
-          const resultFiles: SearchFileResultInternal[] = [];
-          let totalMatches = 0;
-          let truncated = false;
-
-          for (const filePath of filePaths) {
-            if (resultFiles.length >= maxFileResults) {
-              truncated = true;
-              break;
-            }
-            const ext = nodePath.extname(filePath).toLowerCase();
-            if (BINARY_EXTENSIONS.has(ext)) {
-              continue;
-            }
-            try {
-              const stat = await this.fs.stat(filePath);
-              if (stat.size > 1_048_576) {
-                continue;
-              }
-            } catch {
-              continue;
-            }
-
-            let content: string;
-            try {
-              content = await this.fs.readFile(filePath);
-            } catch {
-              continue;
-            }
-
-            const lines = content.split('\n');
-            const matches: SearchMatchInternal[] = [];
-
-            for (let i = 0; i < lines.length; i++) {
-              if (matches.length >= maxMatchesPerFile) {
-                break;
-              }
-
-              const line = lines[i];
-              const linePreview =
-                line.length > 200 ? line.substring(0, 200) : line;
-              searchRegex.lastIndex = 0;
-              let match: RegExpExecArray | null;
-              while ((match = searchRegex.exec(line)) !== null) {
-                matches.push({
-                  line: i + 1,
-                  column: match.index + 1,
-                  lineText: linePreview,
-                  matchLength: match[0].length,
-                });
-                if (matches.length >= maxMatchesPerFile) {
-                  break;
-                }
-                if (match[0].length === 0) {
-                  searchRegex.lastIndex++;
-                }
-              }
-            }
-
-            if (matches.length > 0) {
-              resultFiles.push({
-                filePath,
-                fileName: nodePath.basename(filePath),
-                relativePath: nodePath
-                  .relative(wsRoot, filePath)
-                  .replace(/\\/g, '/'),
-                matches,
-              });
-              totalMatches += matches.length;
-            }
-          }
-
-          return {
-            success: true,
-            files: resultFiles,
-            truncated,
-            totalMatches,
-          };
-        } catch (error) {
-          this.logger.error('[Electron RPC] editor:searchInFiles failed', {
-            query: params.query,
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-            files: [],
-            truncated: false,
-            totalMatches: 0,
-          };
-        }
-      },
-    );
-  }
-
   private registerCreateFile(): void {
     this.rpcHandler.registerMethod(
       'editor:createFile',
@@ -790,51 +512,6 @@ export class EditorRpcHandlers {
         }
       },
     );
-  }
-
-  /**
-   * Return a flat, sorted list of all workspace file paths (relative to root).
-   * Used by the Quick Open file picker for fast, unbounded file listing.
-   */
-  private registerListAllFiles(): void {
-    this.rpcHandler.registerMethod('editor:listAllFiles', async () => {
-      const wsRoot = this.workspace.getWorkspaceRoot();
-      if (!wsRoot) {
-        return { success: false, error: 'No workspace folder open', files: [] };
-      }
-
-      try {
-        const excludePattern = [EXCLUDED_DIRS_GLOB];
-        const filePaths = await this.fs.findFiles(
-          wsRoot.replace(/\\/g, '/') + '/**/*',
-          excludePattern,
-        );
-
-        const relativePaths: string[] = [];
-        for (const filePath of filePaths) {
-          const ext = nodePath.extname(filePath).toLowerCase();
-          if (BINARY_EXTENSIONS.has(ext)) {
-            continue;
-          }
-          relativePaths.push(
-            nodePath.relative(wsRoot, filePath).replace(/\\/g, '/'),
-          );
-        }
-
-        relativePaths.sort();
-
-        return { success: true, files: relativePaths };
-      } catch (error) {
-        this.logger.error('[Electron RPC] editor:listAllFiles failed', {
-          error: error instanceof Error ? error.message : String(error),
-        } as unknown as Error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          files: [],
-        };
-      }
-    });
   }
 
   /**

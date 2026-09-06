@@ -32,7 +32,6 @@ import type {
   OpenDiffRequest,
 } from '../services/editor/editor-tab.types';
 import { GitStatusService } from '../services/git-status.service';
-import { VimModeService } from '../services/vim-mode.service';
 import { GitStatusBarComponent } from '../git-status-bar/git-status-bar.component';
 import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
 import { SidebarComponent } from '../sidebar/sidebar.component';
@@ -40,7 +39,6 @@ import {
   FileTreeContextMenuComponent,
   type ContextMenuAction,
 } from '../file-tree/file-tree-context-menu.component';
-import { QuickOpenComponent } from '../quick-open/quick-open.component';
 import type { FileTreeNode } from '../models/file-tree.model';
 
 /**
@@ -77,7 +75,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
     TerminalPanelComponent,
     SidebarComponent,
     FileTreeContextMenuComponent,
-    QuickOpenComponent,
   ],
   template: `
     <div
@@ -107,23 +104,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
         <!-- Right: Editor controls -->
         <div class="flex items-center gap-0.5 ml-auto">
-          <!-- Vim mode toggle (always visible) -->
-          <button
-            class="px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors"
-            [class]="
-              vimModeService.enabled()
-                ? 'bg-primary/15 text-primary'
-                : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
-            "
-            [title]="
-              vimModeService.enabled() ? 'Disable Vim mode' : 'Enable Vim mode'
-            "
-            aria-label="Toggle Vim mode"
-            (click)="toggleVimMode()"
-          >
-            VIM
-          </button>
-
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content-muted hover:text-base-content"
             [class.text-primary]="editorService.splitActive()"
@@ -170,7 +150,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
               [changedFiles]="gitStatus.files()"
               (fileSelected)="onFileSelected($event)"
               (diffRequested)="onDiffRequested($event)"
-              (searchResultSelected)="onSearchResultSelected($event)"
               (contextMenuRequested)="onContextMenu($event)"
             />
 
@@ -717,14 +696,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
           <div class="modal-backdrop" aria-hidden="true"></div>
         </dialog>
       }
-
-      <!-- Quick Open file picker (Ctrl+P / Cmd+P) -->
-      @if (quickOpenVisible()) {
-        <ptah-quick-open
-          (fileSelected)="onQuickOpenFileSelected($event)"
-          (closed)="quickOpenVisible.set(false)"
-        />
-      }
     </div>
   `,
   styles: `
@@ -739,16 +710,12 @@ import type { FileTreeNode } from '../models/file-tree.model';
 export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly editorService = inject(EditorService);
   protected readonly gitStatus = inject(GitStatusService);
-  protected readonly vimModeService = inject(VimModeService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly ngZone = inject(NgZone);
   protected readonly sidebarVisible = signal(true);
 
   /** Width of the sidebar in pixels. Default 256px, min 160px, max 480px. */
   protected readonly sidebarWidth = signal(256);
-
-  /** Whether the Quick Open file picker is visible (Ctrl+P / Cmd+P). */
-  protected readonly quickOpenVisible = signal(false);
 
   /**
    * Ratio of the left pane width as a percentage (0-100).
@@ -776,23 +743,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _dragKeydown: ((e: KeyboardEvent) => void) | null = null;
 
   /**
-   * Bound document keydown handler: Ctrl+P / Cmd+P Quick Open, and Escape to
-   * cancel the split-pane save conflict.
-   *
-   * The conflict dialog is checked first and swallows Escape, so the key that
-   * dismisses a dialog cannot also reach anything behind it.
+   * Bound document keydown handler: Escape cancels the split-pane save
+   * conflict, and swallows the key so the dismissal cannot also reach anything
+   * behind the dialog.
    */
   private readonly _panelKeydown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape' && this.saveConflict()) {
       e.preventDefault();
       this.ngZone.run(() => this.cancelSaveConflict());
-      return;
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-      e.preventDefault();
-      this.ngZone.run(() => {
-        this.quickOpenVisible.set(true);
-      });
     }
   };
 
@@ -844,7 +802,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.gitStatus.startListening();
     this.editorService.startFileTreeWatcher();
-    void this.vimModeService.loadPreference();
     document.addEventListener('keydown', this._panelKeydown);
   }
 
@@ -857,10 +814,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected toggleSidebar(): void {
     this.sidebarVisible.update((v) => !v);
-  }
-
-  protected toggleVimMode(): void {
-    void this.vimModeService.toggle();
   }
 
   protected toggleTerminal(): void {
@@ -1169,23 +1122,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected onFileSelected(filePath: string): void {
     void this.editorService.openFile(filePath);
-  }
-
-  /** Handle file selection from the Quick Open picker */
-  protected onQuickOpenFileSelected(event: { filePath: string }): void {
-    this.quickOpenVisible.set(false);
-    const wsRoot = this.editorService.activeWorkspacePath;
-    const absolutePath = wsRoot
-      ? wsRoot.replace(/\\/g, '/').replace(/\/$/, '') + '/' + event.filePath
-      : event.filePath;
-    void this.editorService.openFile(absolutePath);
-  }
-
-  protected onSearchResultSelected(event: {
-    filePath: string;
-    line: number;
-  }): void {
-    void this.editorService.openFileAtLine(event.filePath, event.line);
   }
 
   /**

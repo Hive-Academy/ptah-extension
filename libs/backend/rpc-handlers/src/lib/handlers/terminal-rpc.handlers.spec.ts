@@ -18,9 +18,8 @@
  *     the swap to a top-level import is behaviourally identical and this case
  *     is what verifies that (TASK_2026_171 risk R6).
  *   - terminal:create RE-THROWS on ptyManager.create() failure (it does NOT
- *     swallow), the opposite of layout:persist/layout:restore and of
- *     update:check-now, which both swallow and return a `success: false`
- *     payload instead. Because the test harness routes through
+ *     swallow), the opposite of update:check-now, which swallows and returns a
+ *     `success: false` payload instead. Because the test harness routes through
  *     `createMockRpcHandler().handleMessage()` (which itself catches thrown
  *     errors, mirroring production `RpcHandler`), this surfaces as
  *     `raw.success === false` / `raw.error === <message>` rather than an
@@ -28,8 +27,7 @@
  *
  * Strategy: construct TerminalRpcHandlers directly (no DI container) using
  * `createMockRpcHandler()` / `createMockWorkspaceProvider()`, plus a
- * hand-rolled IPtyHost stub, mirroring layout-rpc.handlers.spec.ts in this
- * directory.
+ * hand-rolled IPtyHost stub.
  */
 
 import 'reflect-metadata';

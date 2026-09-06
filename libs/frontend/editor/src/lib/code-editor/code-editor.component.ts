@@ -17,7 +17,6 @@ import {
 import { MarkdownComponent } from 'ngx-markdown';
 import { LucideAngularModule, Eye, Code } from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
-import { VimModeService } from '../services/vim-mode.service';
 import { EditorService } from '../services/editor.service';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 
@@ -114,13 +113,6 @@ type MonacoApi = typeof monaco;
           </div>
         }
       </div>
-      @if (vimModeService.enabled() && isFocused() && filePath()) {
-        <div
-          #vimStatusBar
-          class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content-muted flex-shrink-0"
-          aria-label="Vim status"
-        ></div>
-      }
     </div>
   `,
   styles: `
@@ -138,7 +130,7 @@ export class CodeEditorComponent {
 
   /**
    * Whether this editor pane currently has focus.
-   * When false, vim mode is detached from this instance.
+   * Gates the Ctrl+S save handler so only the focused pane saves.
    * Defaults to true for non-split (single pane) usage.
    */
   readonly isFocused = input(true);
@@ -167,17 +159,12 @@ export class CodeEditorComponent {
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
-  protected readonly vimModeService = inject(VimModeService);
   private readonly editorService = inject(EditorService);
   private readonly loader = inject(MonacoLoaderService);
 
   /** Host element the Monaco editor mounts into. Always present in the DOM. */
   private readonly editorHost =
     viewChild<ElementRef<HTMLElement>>('editorHost');
-
-  /** Reference to the vim status bar DOM element. */
-  private readonly vimStatusBar =
-    viewChild<ElementRef<HTMLElement>>('vimStatusBar');
 
   private static instanceCounter = 0;
   /**
@@ -319,22 +306,6 @@ export class CodeEditorComponent {
       });
     });
 
-    // Vim attach/detach follows enabled + focus, using the real editor.
-    effect(() => {
-      const enabled = this.vimModeService.enabled();
-      const focused = this.isFocused();
-      if (enabled && focused && this.editor) {
-        Promise.resolve().then(() => {
-          const bar = this.vimStatusBar()?.nativeElement;
-          if (bar && this.editor) {
-            this.vimModeService.attachToEditor(this.editor, bar);
-          }
-        });
-      } else if (!enabled || !focused) {
-        this.vimModeService.detach();
-      }
-    });
-
     // One-shot reveal-line coordination from the EditorService.
     effect(() => {
       const line = this.editorService.targetLine();
@@ -394,15 +365,6 @@ export class CodeEditorComponent {
         });
       }
     });
-
-    if (this.vimModeService.enabled() && this.isFocused()) {
-      Promise.resolve().then(() => {
-        const bar = this.vimStatusBar()?.nativeElement;
-        if (bar && this.editor) {
-          this.vimModeService.attachToEditor(this.editor, bar);
-        }
-      });
-    }
   }
 
   /**
@@ -608,7 +570,6 @@ export class CodeEditorComponent {
   private dispose(): void {
     this.destroyed = true;
     this.detachKeydownHandler();
-    this.vimModeService.detach();
     this.contentListener?.dispose();
     this.contentListener = null;
     this.themeObserver?.disconnect();

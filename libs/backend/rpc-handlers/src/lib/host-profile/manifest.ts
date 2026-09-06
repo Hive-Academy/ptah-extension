@@ -43,7 +43,6 @@ import {
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
   IndexingRpcHandlers,
-  LayoutRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
   McpDirectoryRpcHandlers,
@@ -107,8 +106,6 @@ const EDITOR_PANE_METHODS = [
   'editor:deleteItem',
   'editor:getSetting',
   'editor:updateSetting',
-  'editor:searchInFiles',
-  'editor:listAllFiles',
 ] as const satisfies readonly RpcMethodName[];
 
 export const RPC_HANDLER_MANIFEST = [
@@ -354,12 +351,6 @@ export const RPC_HANDLER_MANIFEST = [
     methods: WorkspaceRpcHandlers.METHODS,
     requires: ['workspaceLifecycle'],
     handler: WorkspaceRpcHandlers,
-  },
-  {
-    key: 'layout',
-    methods: LayoutRpcHandlers.METHODS,
-    requires: ['layoutPersistence'],
-    handler: LayoutRpcHandlers,
   },
   {
     key: 'terminal',

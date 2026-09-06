@@ -30,7 +30,6 @@ import { VSCodeService } from '@ptah-extension/core';
 import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
-import { VimModeService } from '../services/vim-mode.service';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
 import { EditorDiffSplitHelper } from '../services/editor/editor-diff-split';
@@ -163,7 +162,6 @@ class StubSidebarComponent {
   readonly changedFiles = input<unknown[]>([]);
   readonly fileSelected = output<string>();
   readonly diffRequested = output<unknown>();
-  readonly searchResultSelected = output<{ filePath: string; line: number }>();
   readonly contextMenuRequested = output<unknown>();
 }
 
@@ -194,17 +192,6 @@ class StubContextMenuComponent {
   readonly y = input(0);
   readonly node = input<unknown>(null);
   readonly action = output<unknown>();
-  readonly closed = output<void>();
-}
-
-@Component({
-  selector: 'ptah-quick-open',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class StubQuickOpenComponent {
-  readonly fileSelected = output<{ filePath: string }>();
   readonly closed = output<void>();
 }
 
@@ -316,17 +303,6 @@ function makeGitStatusStub() {
   } as unknown as GitStatusService;
 }
 
-function makeVimStub() {
-  return {
-    enabled: signal(false),
-    loadPreference: jest.fn(async () => undefined),
-    toggle: jest.fn(async () => undefined),
-    // Used by the REAL CodeEditorComponent's attach/detach effect.
-    attachToEditor: jest.fn(),
-    detach: jest.fn(),
-  } as unknown as VimModeService;
-}
-
 function makeVscodeStub() {
   return {
     config: signal({ workspaceRoot: '' }),
@@ -352,7 +328,6 @@ describe('EditorPanelComponent — loading gate keeps the editor mounted (Seriou
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -369,7 +344,6 @@ describe('EditorPanelComponent — loading gate keeps the editor mounted (Seriou
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -520,7 +494,6 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -536,7 +509,6 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -898,7 +870,6 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -914,7 +885,6 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -1083,7 +1053,6 @@ describe('EditorPanelComponent — tab strip controls are siblings, not nested (
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -1099,7 +1068,6 @@ describe('EditorPanelComponent — tab strip controls are siblings, not nested (
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -1302,7 +1270,6 @@ describe('EditorPanelComponent — split-pane save (C2)', () => {
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -1318,7 +1285,6 @@ describe('EditorPanelComponent — split-pane save (C2)', () => {
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -1575,7 +1541,6 @@ describe('EditorPanelComponent — focused-pane read path (C2 §1.2 regression g
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -1591,7 +1556,6 @@ describe('EditorPanelComponent — focused-pane read path (C2 §1.2 regression g
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -1729,7 +1693,6 @@ describe('EditorPanelComponent — save-conflict dialog focus management (C2)', 
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -1745,7 +1708,6 @@ describe('EditorPanelComponent — save-conflict dialog focus management (C2)', 
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -1985,7 +1947,6 @@ describe('EditorPanelComponent — keyboard focus retargets the pane (focusin)',
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -2001,7 +1962,6 @@ describe('EditorPanelComponent — keyboard focus retargets the pane (focusin)',
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -2254,7 +2214,6 @@ describe('EditorPanelComponent — a keyboard user can save from the split pane'
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
         {
           provide: MonacoLoaderService,
@@ -2276,7 +2235,6 @@ describe('EditorPanelComponent — a keyboard user can save from the split pane'
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -2447,7 +2405,6 @@ describe('EditorPanelComponent — file-ops dialogs live in the top layer (TASK_
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -2463,7 +2420,6 @@ describe('EditorPanelComponent — file-ops dialogs live in the top layer (TASK_
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -2728,7 +2684,6 @@ describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -2744,7 +2699,6 @@ describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });
@@ -2913,7 +2867,6 @@ describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => 
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -2929,7 +2882,6 @@ describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => 
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });

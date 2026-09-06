@@ -170,7 +170,6 @@
     "marked": "^17.0.0",
     "minimatch": "10.2.4",
     "monaco-editor": "^0.55.1",
-    "monaco-vim": "^0.4.4",
     "ngx-monaco-editor-v2": "^21.1.4",
     "node-pty": "1.1.0",
     "nodejs-whisper": "0.2.9",

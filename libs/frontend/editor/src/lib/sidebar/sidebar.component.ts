@@ -6,22 +6,16 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  FolderOpen,
-  GitBranch,
-  LucideAngularModule,
-  Search,
-} from 'lucide-angular';
+import { FolderOpen, GitBranch, LucideAngularModule } from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { GitFileStatus } from '@ptah-extension/shared';
 import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
-import { SearchPanelComponent } from '../search/search-panel.component';
 
 /**
- * SidebarComponent - Tabbed container switching between Explorer, Source
- * Control, and Search panels.
+ * SidebarComponent - Tabbed container switching between Explorer and Source
+ * Control panels.
  *
  * Complexity Level: 1 (Simple tab container, delegates rendering to child components)
  * Patterns: Standalone, OnPush, signal-based tab state, composition
@@ -32,7 +26,6 @@ import { SearchPanelComponent } from '../search/search-panel.component';
   imports: [
     FileTreeComponent,
     SourceControlPanelComponent,
-    SearchPanelComponent,
     LucideAngularModule,
   ],
   template: `
@@ -84,21 +77,6 @@ import { SearchPanelComponent } from '../search/search-panel.component';
             }}</span>
           }
         </button>
-
-        <button
-          class="px-2 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
-          role="tab"
-          [attr.aria-selected]="activeTab() === 'search'"
-          [class]="
-            activeTab() === 'search'
-              ? 'text-base-content bg-base-content/10'
-              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
-          "
-          (click)="activeTab.set('search')"
-        >
-          <lucide-angular [img]="SearchIcon" class="w-3.5 h-3.5" />
-          <span>Search</span>
-        </button>
       </div>
 
       <!-- Tab content -->
@@ -117,11 +95,6 @@ import { SearchPanelComponent } from '../search/search-panel.component';
               [files]="changedFiles()"
               (fileClicked)="fileSelected.emit($event)"
               (diffRequested)="diffRequested.emit($event)"
-            />
-          }
-          @case ('search') {
-            <ptah-search-panel
-              (searchResultSelected)="searchResultSelected.emit($event)"
             />
           }
         }
@@ -143,16 +116,14 @@ export class SidebarComponent {
   readonly fileSelected = output<string>();
   /** Forwarded from the source-control rows; carries the comparison (A2). */
   readonly diffRequested = output<OpenDiffRequest>();
-  readonly searchResultSelected = output<{ filePath: string; line: number }>();
   readonly contextMenuRequested = output<{
     event: MouseEvent;
     node: FileTreeNode | null;
   }>();
   protected readonly FolderOpenIcon = FolderOpen;
   protected readonly GitBranchIcon = GitBranch;
-  protected readonly SearchIcon = Search;
-  protected readonly activeTab = signal<
-    'explorer' | 'source-control' | 'search'
-  >('explorer');
+  protected readonly activeTab = signal<'explorer' | 'source-control'>(
+    'explorer',
+  );
   protected readonly changeCount = computed(() => this.changedFiles().length);
 }

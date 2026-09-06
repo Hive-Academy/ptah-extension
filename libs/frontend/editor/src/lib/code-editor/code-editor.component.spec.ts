@@ -45,7 +45,6 @@ jest.mock('ngx-markdown', () => {
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CodeEditorComponent } from './code-editor.component';
-import { VimModeService } from '../services/vim-mode.service';
 import { EditorService } from '../services/editor.service';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 
@@ -162,14 +161,6 @@ function makeFakeMonaco() {
   return { api, editor, createdModels, registry };
 }
 
-function makeVimStub() {
-  return {
-    enabled: signal(false).asReadonly(),
-    attachToEditor: jest.fn(),
-    detach: jest.fn(),
-  } as unknown as VimModeService;
-}
-
 function makeEditorServiceStub() {
   const target = signal<number | undefined>(undefined);
   return {
@@ -198,7 +189,6 @@ describe('CodeEditorComponent — Monaco model reuse (F1)', () => {
     TestBed.configureTestingModule({
       imports: [CodeEditorComponent],
       providers: [
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: EditorService, useValue: makeEditorServiceStub() },
         { provide: MonacoLoaderService, useValue: loader },
       ],
@@ -383,7 +373,6 @@ describe('CodeEditorComponent — split-pane multi-instance (F1)', () => {
     TestBed.configureTestingModule({
       imports: [CodeEditorComponent],
       providers: [
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: EditorService, useValue: makeEditorServiceStub() },
         { provide: MonacoLoaderService, useValue: loader },
       ],
@@ -433,7 +422,6 @@ describe('CodeEditorComponent — pure computed logic', () => {
     TestBed.configureTestingModule({
       imports: [CodeEditorComponent],
       providers: [
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: EditorService, useValue: makeEditorServiceStub() },
         {
           provide: MonacoLoaderService,
@@ -505,7 +493,6 @@ describe('CodeEditorComponent — split-pane content ownership (C2)', () => {
     TestBed.configureTestingModule({
       imports: [CodeEditorComponent],
       providers: [
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: EditorService, useValue: makeEditorServiceStub() },
         {
           provide: MonacoLoaderService,

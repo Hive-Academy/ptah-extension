@@ -4,28 +4,28 @@
 
 ## Purpose
 
-Monaco-based code editor stack for the webview: file tree explorer, code editor, diff view, integrated multi-tab terminal (xterm.js + node-pty via binary IPC), git status bar, branch picker, source-control panel, search, quick-open, and worktree management. Owned by the editor panel and consumed by the webview shell.
+Monaco-based code editor stack for the webview: file tree explorer, code editor, diff view, integrated multi-tab terminal (xterm.js + node-pty via binary IPC), git status bar, branch picker, source-control panel, and worktree management. Owned by the editor panel and consumed by the webview shell.
 
 ## Boundaries
 
-**Belongs here**: editor UI components (tree, editor, diff, terminal, sidebar, quick-open, search), editor services (`EditorService` coordinator + helpers, `GitStatusService`, `GitBranchesService`, `TerminalService`, `WorktreeService`, `SourceControlService`, `VimModeService`), the inverted-dependency `EDITOR_INTERNAL_STATE` token + provider.
+**Belongs here**: editor UI components (tree, editor, diff, terminal, sidebar), editor services (`EditorService` coordinator + helpers, `GitStatusService`, `GitBranchesService`, `TerminalService`, `WorktreeService`, `SourceControlService`), the inverted-dependency `EDITOR_INTERNAL_STATE` token + provider.
 
 **Does NOT belong**: chat surfaces, backend file system code, language servers (those live in extension code, communicated via RPC).
 
 ## Public API (from `src/index.ts`)
 
-- **Models**: `FileTreeNode`, `SearchMatch`, `SearchFileResult`, `SearchInFilesParams`, `SearchInFilesResult`
-- **Components**: file tree family (`FileTreeComponent`, `FileTreeNodeComponent`, `FileTreeContextMenuComponent`, `FileTreeInlineInputComponent`), `CodeEditorComponent`, `DiffViewComponent`, `EditorPanelComponent`, `GitStatusBarComponent`, terminal trio (`TerminalComponent`, `TerminalTabBarComponent`, `TerminalPanelComponent`), worktree trio (`AddWorktreeDialogComponent`, `WorktreePanelComponent`, `WorktreeSectionComponent`), `SidebarComponent`, source-control (`SourceControlPanelComponent`, `SourceControlFileComponent`), `SearchPanelComponent`, `QuickOpenComponent`, branch-picker (`BranchPickerDropdownComponent`, `BranchDetailsPopoverComponent`)
-- **Services**: `EditorService`, `GitStatusService`, `GitBranchesService`, `TerminalService`, `WorktreeService`, `VimModeService`, `SourceControlService`
+- **Models**: `FileTreeNode`
+- **Components**: file tree family (`FileTreeComponent`, `FileTreeNodeComponent`, `FileTreeContextMenuComponent`, `FileTreeInlineInputComponent`), `CodeEditorComponent`, `DiffViewComponent`, `EditorPanelComponent`, `GitStatusBarComponent`, terminal trio (`TerminalComponent`, `TerminalTabBarComponent`, `TerminalPanelComponent`), `WorktreeSectionComponent`, `SidebarComponent`, source-control (`SourceControlPanelComponent`, `SourceControlFileComponent`), branch-picker (`BranchPickerDropdownComponent`, `BranchDetailsPopoverComponent`)
+- **Services**: `EditorService`, `GitStatusService`, `GitBranchesService`, `TerminalService`, `WorktreeService`, `SourceControlService`
 - **Tokens / providers**: `EDITOR_INTERNAL_STATE` + `EditorInternalState` + `provideEditorInternalState()`
 - **Types**: `EditorTab`, `TerminalTab`, `PtahTerminalApi`
 
 ## Internal Structure
 
-- `src/lib/branch-picker/`, `code-editor/`, `diff-view/`, `editor-panel/`, `file-tree/`, `git-status-bar/`, `quick-open/`, `search/`, `sidebar/`, `source-control/`, `terminal/`, `worktree/` — one component family per folder
+- `src/lib/branch-picker/`, `code-editor/`, `diff-view/`, `editor-panel/`, `file-tree/`, `git-status-bar/`, `sidebar/`, `source-control/`, `terminal/`, `worktree/` — one component family per folder
 - `src/lib/services/` — top-level services + `editor/` sub-folder containing the four `EditorService` helpers (`editor-workspace`, `editor-tabs`, `editor-file-ops`, `editor-diff-split`), the `editor-internal-state.ts` interface, `editor-tab.types.ts`
 - `src/lib/services/editor-internal-state.provider.ts` — composition-root binding for the `EDITOR_INTERNAL_STATE` token
-- `src/lib/models/` — `file-tree.model.ts`, `search.model.ts`
+- `src/lib/models/` — `file-tree.model.ts`
 - `src/lib/types/terminal.types.ts` — terminal IPC types
 - `src/services.ts` — secondary entry point for service-only consumers
 

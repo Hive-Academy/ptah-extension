@@ -53,7 +53,6 @@ import { VSCodeService } from '@ptah-extension/core';
 import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
-import { VimModeService } from '../services/vim-mode.service';
 
 beforeAll(() => {
   // jsdom implements no HTMLDialogElement methods, so `showModal()` would throw
@@ -145,7 +144,6 @@ class StubSidebarComponent {
   readonly changedFiles = input<unknown[]>([]);
   readonly fileSelected = output<string>();
   readonly diffRequested = output<unknown>();
-  readonly searchResultSelected = output<{ filePath: string; line: number }>();
   readonly contextMenuRequested = output<unknown>();
 }
 
@@ -176,17 +174,6 @@ class StubContextMenuComponent {
   readonly y = input(0);
   readonly node = input<unknown>(null);
   readonly action = output<unknown>();
-  readonly closed = output<void>();
-}
-
-@Component({
-  selector: 'ptah-quick-open',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class StubQuickOpenComponent {
-  readonly fileSelected = output<{ filePath: string }>();
   readonly closed = output<void>();
 }
 
@@ -258,16 +245,6 @@ function makeGitStatusStub() {
     startListening: jest.fn(),
     stopListening: jest.fn(),
   } as unknown as GitStatusService;
-}
-
-function makeVimStub() {
-  return {
-    enabled: signal(false),
-    loadPreference: jest.fn(async () => undefined),
-    toggle: jest.fn(async () => undefined),
-    attachToEditor: jest.fn(),
-    detach: jest.fn(),
-  } as unknown as VimModeService;
 }
 
 function makeVscodeStub() {
@@ -494,7 +471,6 @@ describe('EditorPanelComponent dialogs — axe (TASK_2026_215 follow-up)', () =>
       providers: [
         { provide: EditorService, useValue: editor },
         { provide: GitStatusService, useValue: makeGitStatusStub() },
-        { provide: VimModeService, useValue: makeVimStub() },
         { provide: VSCodeService, useValue: makeVscodeStub() },
       ],
     });
@@ -510,7 +486,6 @@ describe('EditorPanelComponent dialogs — axe (TASK_2026_215 follow-up)', () =>
           StubGitStatusBarComponent,
           StubTerminalPanelComponent,
           StubContextMenuComponent,
-          StubQuickOpenComponent,
         ],
       },
     });

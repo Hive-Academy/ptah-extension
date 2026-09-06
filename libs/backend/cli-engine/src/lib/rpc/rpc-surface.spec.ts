@@ -30,8 +30,8 @@ import {
   EXPECTED_ABSENT_CAPABILITIES,
 } from './expected-absent';
 
-/** Webview-only surfaces: pickers, command palette, editor pane, persisted
- *  layout, embedded PTY, desktop updater. Every backend subsystem stays on. */
+/** Webview-only surfaces: pickers, command palette, editor pane, embedded PTY,
+ *  desktop updater. Every backend subsystem stays on. */
 export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'command:execute',
   'editor:createFile',
@@ -40,12 +40,10 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'editor:getDirectoryChildren',
   'editor:getFileTree',
   'editor:getSetting',
-  'editor:listAllFiles',
   'editor:openFile',
   'editor:renameItem',
   'editor:revertFiles',
   'editor:saveFile',
-  'editor:searchInFiles',
   'editor:updateSetting',
   'file:exists',
   'file:open',
@@ -53,8 +51,6 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'file:pick-images',
   'file:read',
   'file:save-dialog',
-  'layout:persist',
-  'layout:restore',
   'terminal:create',
   'terminal:kill',
   'update:check-now',

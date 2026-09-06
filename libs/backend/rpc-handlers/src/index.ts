@@ -44,7 +44,6 @@ export {
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
   VoiceRpcHandlers,
-  LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
   PersistenceRpcHandlers,

@@ -1312,14 +1312,6 @@ export interface RpcMethodRegistry {
     params: { path: string };
     result: { success: boolean; path: string; name: string; error?: string };
   };
-  'layout:persist': {
-    params: Record<string, unknown>;
-    result: { success: boolean };
-  };
-  'layout:restore': {
-    params: Record<string, never>;
-    result: { success: boolean };
-  };
   'editor:revertFiles': {
     params: EditorRevertFilesParams;
     result: EditorRevertFilesResult;
@@ -1386,29 +1378,6 @@ export interface RpcMethodRegistry {
   'editor:updateSetting': {
     params: { key: string; value: unknown };
     result: { success: boolean; error?: string };
-  };
-  'editor:searchInFiles': {
-    params: {
-      query: string;
-      isRegex: boolean;
-      caseSensitive: boolean;
-      maxFileResults?: number;
-      maxMatchesPerFile?: number;
-    };
-    result: {
-      success: boolean;
-      files: Array<{
-        filePath: string;
-        matches: Array<{ line: number; lineText: string; matchText: string }>;
-      }>;
-      truncated: boolean;
-      totalMatches: number;
-      error?: string;
-    };
-  };
-  'editor:listAllFiles': {
-    params: Record<string, never>;
-    result: { success: boolean; files: string[]; error?: string };
   };
   'file:read': {
     params: { path: string };
@@ -3542,8 +3511,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'workspace:removeFolder': true,
   'workspace:switch': true,
   'workspace:registerFolder': true,
-  'layout:persist': true,
-  'layout:restore': true,
   'editor:revertFiles': true,
   'editor:openFile': true,
   'editor:saveFile': true,
@@ -3555,8 +3522,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'editor:deleteItem': true,
   'editor:getSetting': true,
   'editor:updateSetting': true,
-  'editor:searchInFiles': true,
-  'editor:listAllFiles': true,
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,

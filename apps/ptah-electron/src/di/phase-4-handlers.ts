@@ -51,7 +51,6 @@ import {
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
-  LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
   registerHarnessServices,
@@ -172,7 +171,6 @@ export function registerPhase4Handlers(
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
-  container.registerSingleton(LayoutRpcHandlers);
   const ptyManagerService = new PtyManagerService(logger);
   container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
     useValue: ptyManagerService,
@@ -202,7 +200,6 @@ export function registerPhase4Handlers(
       'CommandRpcHandlers',
       'AgentRpcHandlers',
       'SkillsShRpcHandlers',
-      'LayoutRpcHandlers',
       'TerminalRpcHandlers',
       'UpdateRpcHandlers',
     ],

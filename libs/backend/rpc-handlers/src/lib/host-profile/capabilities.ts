@@ -52,8 +52,6 @@ export const RPC_CAPABILITIES = [
   'editorHost',
   /** Host has a command palette / command executor. */
   'commandExecution',
-  /** Host persists a webview tile layout. */
-  'layoutPersistence',
   /** Host can spawn pseudo-terminals. */
   'pty',
   /** Host ships a self-updating application shell. */
