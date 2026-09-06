@@ -7,7 +7,11 @@ import {
   bringUpSubsystems,
   armDiagnostics,
 } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  DegradationReporter,
+  DegradationSnapshot,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
@@ -94,6 +98,150 @@ const WARMUP_HEAP_DELTA_BUDGET_MB = 48;
 /** Current main-process V8 heap in MB. */
 function heapUsedMb(): number {
   return process.memoryUsage().heapUsed / (1024 * 1024);
+}
+
+/**
+ * How many distinct codes the boot summary names before it says "and N more".
+ *
+ * The whole point of the summary is that it is ONE line: a boot with forty
+ * degradations that printed forty lines would reproduce the invisibility this
+ * exists to remove. Five is enough to identify what actually went wrong while
+ * the total and the code count carry the rest.
+ */
+const MAX_SUMMARISED_DEGRADATION_CODES = 5;
+
+/**
+ * The one-line, human-readable form of a non-empty degradation tally.
+ *
+ * `snapshot.entries` arrives sorted count-desc then code-asc, so "the top
+ * codes" is a `slice` and needs no re-sorting here.
+ */
+export function formatDegradationSummary(
+  snapshot: DegradationSnapshot,
+): string {
+  const shown = snapshot.entries.slice(0, MAX_SUMMARISED_DEGRADATION_CODES);
+  const hidden = snapshot.entries.length - shown.length;
+  const codes = shown
+    .map((entry) => `${entry.code} x${entry.count}`)
+    .join(', ');
+  const plural = (n: number): string => (n === 1 ? '' : 's');
+
+  let line =
+    `[Degradation] Boot summary: ${snapshot.total} degradation${plural(snapshot.total)} ` +
+    `across ${snapshot.entries.length} code${plural(snapshot.entries.length)} — ${codes}` +
+    `${hidden > 0 ? `, and ${hidden} more` : ''}.`;
+  if (snapshot.droppedReports > 0) {
+    line += ` ${snapshot.droppedReports} report${plural(snapshot.droppedReports)} dropped past the code cap.`;
+  }
+  if (snapshot.broadcastFailures > 0) {
+    line += ` ${snapshot.broadcastFailures} push${snapshot.broadcastFailures === 1 ? '' : 'es'} never reached the renderer.`;
+  }
+  return line;
+}
+
+/**
+ * Emit the once-per-boot degradation summary (TASK_2026_383, component 3).
+ *
+ * Armed on the coordinator beside the warmup barrier and fired at the boot's
+ * terminal transition. `info` at zero, `warn` otherwise — the LEVEL is the
+ * signal a human scanning a log file reads first, and it is derived from the
+ * count here rather than from any single report's `severity`, which is the call
+ * site's own judgement about one capability and not about the boot.
+ *
+ * Both the reporter and the logger are resolved lazily and behind
+ * `isRegistered`, the idiom `DegradationReporter` itself uses for the webview
+ * manager: a host that registered neither (a test container, a stripped CLI
+ * boot) must get silence, not a throw.
+ *
+ * ## The two limits of what this line covers
+ *
+ * - **It narrates the AWAITED chain, not everything the boot started.** The
+ *   summary fires from the `.finally()` of the promise `postWindow()` returns,
+ *   so a report issued from a detached continuation — `boot-heavy-services.ts`
+ *   has two, `prefetchPricing().catch(...)` and
+ *   `cliDetection.detectAll().then(...)` — lands after the line was already
+ *   printed. Such a report is still tallied by the reporter, but no summary
+ *   ever names it, and there is no second summary per process. A later batch
+ *   that converts one of those `console.warn` sites to `reporter.report(...)`
+ *   must either move the report inside the awaited chain or accept that it is
+ *   counted and never narrated.
+ * - **`snapshot().total` is cumulative since process start**, not scoped to
+ *   this boot (`degradation-reporter.ts`: "every report accepted this
+ *   process"). Today nothing reports before the post-window boot — every
+ *   pre-window fallback in this file logs and nothing more — so the two are the
+ *   same number. Convert a pre-window site to a report and the "boot summary"
+ *   silently starts counting work that happened before the boot.
+ */
+export function logBootDegradationSummary(
+  container: DependencyContainer,
+): void {
+  try {
+    if (!container.isRegistered(TOKENS.DEGRADATION_REPORTER)) return;
+    if (!container.isRegistered(TOKENS.LOGGER)) return;
+    const snapshot = container
+      .resolve<DegradationReporter>(TOKENS.DEGRADATION_REPORTER)
+      .snapshot();
+    const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
+    if (snapshot.total === 0) {
+      logger.info(
+        '[Degradation] Boot summary: no capability degraded during this boot.',
+      );
+      return;
+    }
+    logger.warn(formatDegradationSummary(snapshot));
+  } catch (error: unknown) {
+    // A summary is a diagnostic. It is already fired after the boot's terminal
+    // transition, but swallowing here as well means a broken logger cannot turn
+    // the narration of a boot into a second failure inside it.
+    console.warn(
+      '[Ptah Electron] Degradation summary skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+/**
+ * Handle a rejected startup-workspace boot reservation (TASK_2026_383, task 2.2).
+ *
+ * This replaces `.catch(() => undefined)`. That swallow and the sibling
+ * workspace-change call a few lines above were the SAME method with two
+ * different error contracts — and the silent one covered the startup root, i.e.
+ * the boot that owns SQLite, the harness and session import for the workspace
+ * the user actually opened. A failure there left no trace anywhere.
+ *
+ * The log is the sibling's form. The report is what makes the failure
+ * countable: `severity: 'critical'` because nothing about the app works
+ * normally afterwards, and the code is a string literal so the tally means
+ * something.
+ */
+export function reportStartupBootFailure(
+  container: DependencyContainer,
+  error: unknown,
+): void {
+  console.error(
+    '[Ptah Electron] Failed to boot heavy services for the startup workspace:',
+    error,
+  );
+  try {
+    if (!container.isRegistered(TOKENS.DEGRADATION_REPORTER)) return;
+    container.resolve<DegradationReporter>(TOKENS.DEGRADATION_REPORTER).report({
+      source: 'boot',
+      code: 'electron.boot.startOrJoin-failed',
+      severity: 'critical',
+      summary:
+        'The startup workspace never finished booting its heavy services.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  } catch (reportError: unknown) {
+    // The reporter never throws by contract; this covers a container that
+    // cannot resolve it at all. The `console.error` above already happened, so
+    // the failure is not lost — only its tally is.
+    console.warn(
+      '[Ptah Electron] Could not record the startup boot failure:',
+      reportError instanceof Error ? reportError.message : String(reportError),
+    );
+  }
 }
 
 export interface WireRuntimeOptions {
@@ -287,6 +435,12 @@ export async function wireRuntimePreWindow(
       // Read BEFORE reserving, synchronously: `startOrJoin` creates the entry,
       // so asking afterwards always answers "yes".
       const alreadyBooted = booter.isReserved(active);
+      // This log-only handler and `reportStartupBootFailure` at the startup
+      // reservation below are the SAME method with two error contracts, and the
+      // asymmetry is deliberate: TASK_2026_383 named only the startup swallow
+      // (which reported nothing at all) as the defect to fix. This path already
+      // logs, so it is out of that task's scope. Whoever gives it a degradation
+      // code should reuse `reportStartupBootFailure`'s shape with its own code.
       booter.startOrJoin(active).catch((err: unknown) => {
         console.error(
           '[Ptah Electron] Failed to boot heavy services lazily:',
@@ -321,7 +475,14 @@ export async function wireRuntimePreWindow(
   // entry for its own root first and the startup root would then start a SECOND
   // boot. The body does not run until `openWindowGate()` below.
   if (startupWorkspaceRoot) {
-    void booter.startOrJoin(startupWorkspaceRoot).catch(() => undefined);
+    // Held in a local so the reservation call stays one unbroken expression:
+    // `wire-runtime.boot-order.spec.ts` pins the ordering by searching this
+    // file for `booter.startOrJoin(startupWorkspaceRoot)` verbatim, and a
+    // formatter breaking the chain across lines would silently unpin it.
+    const reserved = booter.startOrJoin(startupWorkspaceRoot);
+    void reserved.catch((error: unknown) => {
+      reportStartupBootFailure(container, error);
+    });
   }
 
   // The barrier replaces the old `if (refs.memoryCurator === null) return;`
@@ -329,6 +490,13 @@ export async function wireRuntimePreWindow(
   // the curator exists, so sampling it once at that moment skipped warmup on
   // every single launch.
   coordinator.armWarmup(() => runEmbedderWarmup(container));
+
+  // One line per boot, at the coordinator's terminal transition. Armed here
+  // rather than emitted from `boot-coordinator.ts` because that module holds
+  // no container and imports nothing at runtime by design.
+  coordinator.armBootSummary(() => {
+    logBootDegradationSummary(container);
+  });
 
   const postWindow = async (): Promise<void> => {
     booter.openWindowGate();

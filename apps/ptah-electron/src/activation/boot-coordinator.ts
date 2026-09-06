@@ -236,6 +236,26 @@ export class BootCoordinator {
     | null = null;
 
   /**
+   * The once-per-boot degradation summary (TASK_2026_383, component 3).
+   *
+   * A plain function for the same reason {@link emitReadiness} is one: reading
+   * `TOKENS.DEGRADATION_REPORTER` here would put a runtime import in a module
+   * whose every import is `import type`, which is what lets it load under
+   * ts-jest with no Electron runtime. `wire-runtime.ts` owns the container and
+   * arms this beside the warmup barrier.
+   *
+   * Cleared as it fires, so "one line per boot" holds even if a future caller
+   * reaches the terminal transition twice.
+   *
+   * This is the THIRD field of this shape in the class (`emitReadiness`,
+   * `warmupRun`, `bootSummary`), each with its own arm/fire pair. Three copies
+   * of a two-method pattern is still cheaper than the data-only registry an
+   * abstraction would have to be here (see the no-runtime-import rule above),
+   * but a FOURTH should trigger a look rather than a fourth copy.
+   */
+  private bootSummary: (() => void) | null = null;
+
+  /**
    * The persistence gate's resolver, captured out of the promise's executor.
    *
    * Both fields are initialized HERE, in the field initializer, rather than in a
@@ -277,6 +297,57 @@ export class BootCoordinator {
     emit: (payload: BootReadinessChangedPayload) => void,
   ): void {
     this.emitReadiness = emit;
+  }
+
+  /**
+   * Register the one per-boot degradation summary emitter.
+   *
+   * Called once, from `wire-runtime.ts`, beside {@link armWarmup}. It fires at
+   * the boot's terminal transition and exactly once, whether that boot settled
+   * or failed — a boot that FAILED is the one whose degradations a reader most
+   * needs, so hanging the line off the success branch alone would hide it at
+   * the worst moment.
+   *
+   * ## What "per boot" means here, exactly
+   *
+   * - **Once per PROCESS, for the STARTUP workspace only.** This rides
+   *   {@link startPostWindow}'s promise, and `main.ts` calls that once. A later
+   *   workspace switch boots through `booter.startOrJoin(active)` in
+   *   `wire-runtime.ts` directly and never touches the coordinator, so its
+   *   degradations accumulate in the reporter's tally but are never narrated by
+   *   a second line. Summarising a switch would need its own terminal signal;
+   *   that is not this batch's scope, and this is the limitation, not an
+   *   oversight.
+   * - **Best-effort on a quit.** `abort()` does not settle the post-window
+   *   promise — it fires the signal and lets the in-flight boot return. A boot
+   *   that observes `abortSignal` still gets its one line; a boot that ignores
+   *   the signal and is still pending when `will-quit`'s bounded drain expires
+   *   takes its line with it. Emitting from the timeout instead would print a
+   *   summary of a boot that is still running. Both halves are pinned by spec.
+   */
+  armBootSummary(emit: () => void): void {
+    this.bootSummary = emit;
+  }
+
+  /**
+   * Fire the armed summary, at most once, swallowing anything it throws.
+   *
+   * Runs after the phase and readiness have already been written and emitted,
+   * so a failure here is structurally incapable of disturbing the terminal
+   * transition it is only narrating.
+   */
+  private emitBootSummary(): void {
+    const emit = this.bootSummary;
+    if (emit === null) return;
+    this.bootSummary = null;
+    try {
+      emit();
+    } catch (error: unknown) {
+      console.warn(
+        '[BootCoordinator] degradation summary failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   /**
@@ -394,6 +465,11 @@ export class BootCoordinator {
         this.markPersistenceSettled({
           sqliteOpen: this.refs.sqliteConnection?.isOpen ?? false,
         });
+        // LAST, and in `finally` rather than beside `this.phase = 'settled'`
+        // above, for two reasons: a failed boot must still get its one line,
+        // and running after both terminal branches means the summary cannot be
+        // upstream of anything — not the phase, not the readiness, not the gate.
+        this.emitBootSummary();
       });
   }
 

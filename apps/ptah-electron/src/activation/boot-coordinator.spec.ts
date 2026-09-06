@@ -554,3 +554,192 @@ describe('BootCoordinator — phase state (TASK_2026_380)', () => {
     });
   });
 });
+
+describe('BootCoordinator — degradation summary (TASK_2026_383)', () => {
+  it('fires the armed summary exactly once when the boot settles', async () => {
+    const summary = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(summary);
+
+    coordinator.startPostWindow(async () => undefined);
+    await coordinator.awaitCompletion(1000);
+
+    // ONE line per boot, not one per degradation. A boot with forty degraded
+    // capabilities that printed forty lines would reproduce the invisibility
+    // the whole task exists to remove.
+    expect(summary).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires the summary after the terminal phase is already written', async () => {
+    const phaseAtSummary: string[] = [];
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(() => {
+      phaseAtSummary.push(coordinator.snapshot().phase);
+    });
+
+    coordinator.startPostWindow(async () => undefined);
+    await coordinator.awaitCompletion(1000);
+
+    // The summary narrates a transition that has already happened, so it is
+    // structurally incapable of being upstream of it.
+    expect(phaseAtSummary).toEqual(['settled']);
+  });
+
+  it('still fires the summary when the boot FAILS', async () => {
+    // The failed boot is the one whose degradations a reader most needs.
+    // Hanging the line off the success branch alone would hide them at exactly
+    // the moment they matter.
+    const summary = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(summary);
+
+    coordinator.setPhase('harness');
+    coordinator.startPostWindow(async () => {
+      throw new Error('boot blew up');
+    });
+    await coordinator.awaitCompletion(1000);
+
+    expect(summary).toHaveBeenCalledTimes(1);
+    expect(coordinator.snapshot().readiness).toBe('failed');
+    expect(coordinator.snapshot().phase).toBe('harness');
+  });
+
+  it('does not let a throwing summary disturb the terminal transition', async () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(() => {
+      throw new Error('logger exploded');
+    });
+
+    coordinator.startPostWindow(async () => undefined);
+    await expect(coordinator.awaitCompletion(1000)).resolves.toBeUndefined();
+
+    expect(coordinator.snapshot()).toEqual({
+      readiness: 'ready',
+      phase: 'settled',
+      startedAt: coordinator.startedAt,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      '[BootCoordinator] degradation summary failed (non-fatal):',
+      'logger exploded',
+    );
+    warn.mockRestore();
+  });
+
+  it('does not let a throwing summary strand the persistence gate', async () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(() => {
+      throw new Error('logger exploded');
+    });
+
+    coordinator.startPostWindow(async () => undefined);
+    await coordinator.awaitCompletion(1000);
+
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+    warn.mockRestore();
+  });
+
+  it('still fires the summary exactly once when a quit aborts the boot', async () => {
+    // The third terminal case beside settle and fail, and the one `will-quit`
+    // actually takes. `abort()` does NOT settle the post-window promise itself
+    // (`boot-coordinator.ts` — it fires the signal and releases the persistence
+    // gate); the in-flight boot observes `abortSignal` and returns, which is
+    // what this `fn` reproduces. The summary rides the same `.finally()` as the
+    // other two branches, so a quit still gets exactly one line.
+    const summary = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(summary);
+
+    coordinator.startPostWindow(
+      async () =>
+        new Promise<void>((resolve) => {
+          if (coordinator.abortSignal.aborted) {
+            resolve();
+            return;
+          }
+          coordinator.abortSignal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        }),
+    );
+
+    expect(summary).not.toHaveBeenCalled();
+    coordinator.abort();
+    await coordinator.awaitCompletion(1000);
+
+    expect(summary).toHaveBeenCalledTimes(1);
+    expect(coordinator.snapshot().phase).toBe('settled');
+  });
+
+  it('does not delay the bounded drain when the summary throws on the abort path', async () => {
+    // `handleWillQuit` gives the aborted boot ~2 s and then disposes regardless.
+    // A summary that throws during that window must cost nothing: the drain has
+    // to return on the boot's own timing, not on the diagnostic's.
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(() => {
+      throw new Error('logger exploded mid-quit');
+    });
+
+    coordinator.startPostWindow(
+      async () =>
+        new Promise<void>((resolve) => {
+          coordinator.abortSignal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        }),
+    );
+
+    coordinator.abort();
+    const startedAt = Date.now();
+    await expect(coordinator.awaitCompletion(2000)).resolves.toBeUndefined();
+
+    // Returned on the boot's timing, nowhere near the 2000 ms budget.
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(warn).toHaveBeenCalledWith(
+      '[BootCoordinator] degradation summary failed (non-fatal):',
+      'logger exploded mid-quit',
+    );
+    warn.mockRestore();
+  });
+
+  it('leaves the summary UNFIRED when an aborted boot never observes the signal', async () => {
+    // The honest limit of the guarantee, pinned rather than assumed. The
+    // summary hangs off the post-window promise's `.finally()`, so a boot body
+    // that ignores `abortSignal` and is still pending when `will-quit`'s drain
+    // expires takes its line with it. That is deliberate — a summary emitted
+    // from a timeout would describe a boot that is still running — and it is
+    // why the summary is best-effort on a quit, not guaranteed.
+    const summary = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.armBootSummary(summary);
+
+    coordinator.startPostWindow(async () => new Promise<void>(() => undefined));
+
+    coordinator.abort();
+    await coordinator.awaitCompletion(20);
+
+    expect(summary).not.toHaveBeenCalled();
+    // The gate is still released, so no consumer is stranded by the quit.
+    await expect(coordinator.whenPersistenceSettled()).resolves.toEqual({
+      sqliteOpen: false,
+    });
+  });
+
+  it('tolerates a boot with no summary armed', async () => {
+    const coordinator = new BootCoordinator();
+    coordinator.startPostWindow(async () => undefined);
+
+    await expect(coordinator.awaitCompletion(1000)).resolves.toBeUndefined();
+    expect(coordinator.snapshot().phase).toBe('settled');
+  });
+});
