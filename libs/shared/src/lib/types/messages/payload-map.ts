@@ -124,6 +124,7 @@ import type {
 } from '../rpc/rpc-persistence.types';
 import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
 import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
+import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
@@ -316,6 +317,7 @@ export interface MessagePayloadMap {
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
   'activity:event': ActivityEventPayload;
+  'degradation:event': DegradationEventPayload;
   'memory:observationCaptured': MemoryObservationCapturedPayload;
   'memory:corpusChanged': MemoryCorpusChangedPayload;
   'memory:extracted': MemoryExtractedPayload;
