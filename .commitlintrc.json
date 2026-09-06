@@ -70,6 +70,7 @@
         "ui",
         "markdown",
         "editor",
+        "git-ui",
         "chat",
         "chat-state",
         "chat-streaming",
