@@ -44,12 +44,18 @@ export type {
   IntegrityCheckRequest,
   IntegrityCheckResponse,
   IntegrityErrorResponse,
+  BackupRequest,
+  BackupResponse,
   IntegrityWorkerInbound,
+  IntegrityCheckOutbound,
   IntegrityWorkerOutbound,
 } from './lib/integrity/integrity-worker-protocol';
 export {
   classifyQuickCheck,
   isIntegrityCheckRequest,
+  isBackupRequest,
+  validateBackupDestination,
+  resolveRealBackupDestination,
 } from './lib/integrity/integrity-worker-protocol';
 
 export { VecStatusService } from './lib/vec-status.service';

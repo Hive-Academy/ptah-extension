@@ -45,7 +45,7 @@ import type {
 import type {
   IntegrityCheckRequest,
   IntegrityCheckResponse,
-  IntegrityWorkerOutbound,
+  IntegrityCheckOutbound,
 } from './integrity-worker-protocol';
 
 /**
@@ -224,18 +224,18 @@ export class SqliteIntegrityService {
     signal: AbortSignal | undefined,
   ): Promise<{
     aborted: boolean;
-    response: IntegrityWorkerOutbound | null;
+    response: IntegrityCheckOutbound | null;
   }> {
     return new Promise<{
       aborted: boolean;
-      response: IntegrityWorkerOutbound | null;
+      response: IntegrityCheckOutbound | null;
     }>((resolve) => {
       let settled = false;
       let worker: IIntegrityWorkerProcess | null = null;
       let budgetTimer: ReturnType<typeof setTimeout> | null = null;
 
       const settle = (
-        result: IntegrityWorkerOutbound | null,
+        result: IntegrityCheckOutbound | null,
         aborted = false,
       ): void => {
         if (settled) return;
@@ -315,12 +315,20 @@ export class SqliteIntegrityService {
    * Narrow the worker's reply. An unrecognised shape is `null` — inconclusive,
    * exactly like no reply at all — rather than a fabricated verdict.
    */
-  private asResponse(msg: unknown): IntegrityWorkerOutbound | null {
+  private asResponse(msg: unknown): IntegrityCheckOutbound | null {
     if (typeof msg !== 'object' || msg === null) return null;
-    const candidate = msg as Partial<IntegrityWorkerOutbound>;
+    const candidate = msg as Partial<IntegrityCheckOutbound>;
     if (typeof candidate.id !== 'number') return null;
-    if (candidate.ok === false) return candidate as IntegrityWorkerOutbound;
+    if (candidate.ok === false) return candidate as IntegrityCheckOutbound;
     if (candidate.ok !== true) return null;
+    // A `BackupResponse` also carries `ok: true` and a valid `verdict`, so
+    // without this it would narrow to `IntegrityCheckResponse` with
+    // `foreignKeyViolations` and `pageCount` silently `undefined`. This service
+    // spawns its own worker per check and never sends `type: 'backup'`, so it
+    // cannot happen today — but the outbound union was widened in TASK_2026_383
+    // precisely so one worker could one day serve both commands, and this is
+    // the narrowing site that would be wrong on that day.
+    if ((candidate as { type?: unknown }).type === 'backup') return null;
     const reply = candidate as Partial<IntegrityCheckResponse>;
     if (
       reply.verdict !== 'ok' &&
@@ -339,7 +347,7 @@ export class SqliteIntegrityService {
    * record, so the check simply re-runs in the next window. Writing one would
    * mean remembering a question we never asked as an answer.
    */
-  private record(response: IntegrityWorkerOutbound | null): void {
+  private record(response: IntegrityCheckOutbound | null): void {
     if (!response) {
       this.logger.warn(
         '[persistence-sqlite] integrity check produced no result; not recorded',

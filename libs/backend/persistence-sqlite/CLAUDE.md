@@ -26,7 +26,9 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 `SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
 
-Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(now?)` and `dispatchIfDue()`; `DB_INTEGRITY_CHECK_INTERVAL_MS`, `INTEGRITY_WORKER_BUDGET_MS`); `IntegrityCheckStateStore` + `IntegrityCheckState`; the host port `IIntegrityWorkerProcessFactory` / `IIntegrityWorkerProcess`; `classifyQuickCheck`, `isIntegrityCheckRequest` and the protocol types (`IntegrityVerdict`, `IntegrityCheckRequest`, `IntegrityCheckResponse`, `IntegrityErrorResponse`, `IntegrityWorkerInbound`, `IntegrityWorkerOutbound`).
+Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(now?)` and `dispatchIfDue()`; `DB_INTEGRITY_CHECK_INTERVAL_MS`, `INTEGRITY_WORKER_BUDGET_MS`); `IntegrityCheckStateStore` + `IntegrityCheckState`; the host port `IIntegrityWorkerProcessFactory` / `IIntegrityWorkerProcess`; `classifyQuickCheck`, `isIntegrityCheckRequest`, `isBackupRequest`, `validateBackupDestination`, `resolveRealBackupDestination` and the protocol types (`IntegrityVerdict`, `IntegrityCheckRequest`, `IntegrityCheckResponse`, `IntegrityErrorResponse`, `BackupRequest`, `BackupResponse`, `IntegrityWorkerInbound`, `IntegrityCheckOutbound`, `IntegrityWorkerOutbound`).
+
+`performBackup` and the `BackupArtifactFs` / `BackupEnvironment` ports are deliberately NOT in the barrel — they are the worker's own internals, and `SqliteBackupService` talks to the worker over the protocol, not by calling them.
 
 ## Internal Structure
 
@@ -44,6 +46,26 @@ Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(
   worker entry, which each host bundles to `integrity-worker.mjs` and opens the
   database on its own **read-only** connection. A run that cannot produce a
   verdict answers `unavailable` and writes no record, so the check stays due.
+- **The worker serves TWO commands: `check` and `backup`** (TASK_2026_383). The
+  backup's source is opened read-only by the same `openReadOnly` the check uses —
+  assumption A-1, and it is pinned by
+  `integrity/integrity-worker-backup.integration.spec.ts` against the real
+  `better-sqlite3`, not by prose. **Anything the worker needs tested lives in
+  `integrity-worker-protocol.ts`, not in `integrity-worker.ts`**: the entry
+  subscribes to a parent port at module scope and throws when there is none, so
+  Jest cannot import it and any logic left there is unassertable. That is why
+  `performBackup` is in the protocol module behind an injected
+  `BackupEnvironment`, and why `integrity-worker.ts` is only openers + dispatch.
+- **The backup COPY is validated read-WRITE** (`openForValidation`), not
+  read-only. A read-only connection cannot checkpoint on close and leaves
+  `<file>-wal` / `<file>-shm` beside the backup; rotation selects by filename
+  PREFIX, so those sidecars take rotation slots and evict a real backup. Do not
+  "deduplicate" `openReadOnly` and `openForValidation` — they differ by one flag
+  and that flag is the bug fix.
+- **`destPath` containment is checked twice.** `validateBackupDestination` is
+  pure string containment; `resolveRealBackupDestination` re-checks it against
+  `realpathSync`-resolved ancestors, because a symlinked `backups/` defeats the
+  string check. `performBackup` runs both, before it creates anything.
 - `src/lib/di/{tokens,register}.ts` — includes `INTEGRITY_WORKER_PROCESS_FACTORY`
   and `INTEGRITY_WORKER_PATH` (both host-supplied) and `SQLITE_INTEGRITY_SERVICE`
 

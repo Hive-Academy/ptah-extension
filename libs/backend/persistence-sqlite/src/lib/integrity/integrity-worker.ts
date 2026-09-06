@@ -42,16 +42,33 @@
  * so it stays bundleable in isolation with `better-sqlite3` as its one
  * external.
  *
+ * IT ALSO TAKES THE BACKUP (TASK_2026_383). `db.backup()` is one synchronous
+ * full-file copy on its first slice — `better-sqlite3`'s `runBackup` transfers
+ * at an unlimited rate before it ever yields, so no option makes a 1 GB copy
+ * cheap. Like `quick_check`, the cost is intrinsic and the only lever is the
+ * thread it runs on, so the copy moved here rather than staying on the main
+ * process. The SOURCE is opened read-only by the same `openReadOnly` the check
+ * uses (assumption A-1, measured: a `{ readonly: true }` connection backs up
+ * fine, including against a live writer), so this worker still issues no write
+ * statement against the live database — the only file it writes is the copy.
+ *
  * Protocol (matches `integrity-worker-protocol.ts`):
  *   request:  { id, type: 'check', dbPath }
+ *           | { id, type: 'backup', dbPath, destPath }
  *   response: { id, ok: true, verdict, quickCheck, foreignKeyViolations,
  *               durationMs, pageCount, detail }
+ *           | { id, type: 'backup', ok: true, verdict, bytesWritten,
+ *               durationMs, quickCheck, detail }
  *           | { id, ok: false, error }
  */
+import * as fs from 'node:fs';
 import { parentPort as workerThreadsParentPort } from 'node:worker_threads';
 import {
   classifyQuickCheck,
+  isBackupRequest,
   isIntegrityCheckRequest,
+  performBackup,
+  type BackupEnvironment,
   type IntegrityCheckRequest,
   type IntegrityWorkerOutbound,
 } from './integrity-worker-protocol';
@@ -98,9 +115,18 @@ if (electronParentPort) {
   );
 }
 
-/** The narrow slice of `better-sqlite3` this worker uses. Read-only. */
+/**
+ * The narrow slice of `better-sqlite3` this worker uses. The CONNECTION is
+ * read-only; `backup()` is the one method that writes, and it writes only to
+ * the separate destination file it is handed.
+ *
+ * `backup` is optional because a database instance may not expose it (the same
+ * `typeof db.backup !== 'function'` guard `backup.service.ts` has always
+ * carried) — a missing method is inconclusive, never corruption.
+ */
 interface ReadOnlyDatabase {
   pragma(source: string, options?: { simple?: boolean }): unknown;
+  backup?(destination: string): Promise<unknown>;
   close(): void;
 }
 
@@ -110,18 +136,48 @@ type DatabaseCtor = new (
 ) => ReadOnlyDatabase;
 
 /**
- * Open the file read-only.
+ * Open the file read-only. Used for the `check` command's target AND for the
+ * `backup` command's SOURCE.
  *
  * Deliberately one function that may throw, with the caller mapping ANY throw
  * to `'unavailable'` — "load the module" and "open this file" are inconclusive
  * in the same way and need no separate treatment here, because neither is
  * evidence about the data.
+ *
+ * @see openForValidation — the near-identical opener directly below, which
+ * opens the finished backup COPY read-WRITE. The two differ by one flag and
+ * MUST NOT be deduplicated into one helper: the missing `readonly` is what lets
+ * SQLite checkpoint on close, and merging them reintroduces the WAL-sidecar
+ * bug documented there.
  */
 function openReadOnly(dbPath: string): ReadOnlyDatabase {
   // `better-sqlite3` is an esbuild external, resolved from the host's own
   // node_modules at runtime so the ABI matches the runtime that forked us.
   const Database = require('better-sqlite3') as DatabaseCtor;
   return new Database(dbPath, { readonly: true, fileMustExist: true });
+}
+
+/**
+ * Open a FINISHED BACKUP for validation. Read-WRITE, and the difference from
+ * `openReadOnly` is deliberate and measured.
+ *
+ * A read-only connection cannot checkpoint on close, so opening a WAL database
+ * read-only LEAVES `<file>-wal` and `<file>-shm` behind (measured on
+ * better-sqlite3 12.10.0 / Electron ABI 143: a read-only open-and-close leaves
+ * both sidecars; a read-write one leaves neither). Rotation selects backups by
+ * filename PREFIX, and those sidecars carry the backup's own prefix while
+ * sorting after it — so validating the copy read-only would quietly plant two
+ * files that take rotation slots and evict a real backup. That is the same
+ * class of bug the partial-file unlink exists to prevent.
+ *
+ * Writing here is safe in a way writing to `dbPath` never is: this file is a
+ * private copy this worker created moments ago, not the live database. It is
+ * also exactly what `backup.service.ts`'s validation factory did before the
+ * check moved into this worker — the behaviour is carried, not invented.
+ */
+function openForValidation(destPath: string): ReadOnlyDatabase {
+  const Database = require('better-sqlite3') as DatabaseCtor;
+  return new Database(destPath, { fileMustExist: true });
 }
 
 function describe(error: unknown): string {
@@ -190,12 +246,53 @@ function runCheck(request: IntegrityCheckRequest): IntegrityWorkerOutbound {
   }
 }
 
+/**
+ * The non-pure half of the `backup` command, bound once for the life of the
+ * process. `performBackup` itself lives in the protocol module so a spec can
+ * drive it against the real `better-sqlite3`; this object is the only part that
+ * cannot be — it names the two openers and the real `node:fs`.
+ *
+ * `inFlight` is process-scoped on purpose: it is what makes the command
+ * single-flight per destination, and this worker is the one process serving
+ * these requests.
+ */
+const backupEnvironment: BackupEnvironment = {
+  fs,
+  openSource: openReadOnly,
+  openCopy: openForValidation,
+  now: () => Date.now(),
+  inFlight: new Set<string>(),
+};
+
 subscribe((msg: unknown) => {
-  if (!isIntegrityCheckRequest(msg)) {
-    // An unrecognised payload has no id to echo, so there is no correlated
-    // reply to send. Dropping it is correct: the driver's own kill budget
-    // reclaims the process.
+  if (isIntegrityCheckRequest(msg)) {
+    post(runCheck(msg));
     return;
   }
-  post(runCheck(msg));
+  if (isBackupRequest(msg)) {
+    // `performBackup` never rejects, but the driver would hang forever on a
+    // reply that never came, so the rejection handler is here anyway — a bug
+    // in that function must still produce a correlated answer.
+    const request = msg;
+    const startedAt = Date.now();
+    void performBackup(backupEnvironment, request).then(
+      post,
+      (error: unknown) => {
+        post({
+          id: request.id,
+          type: 'backup',
+          ok: true,
+          verdict: 'unavailable',
+          bytesWritten: 0,
+          durationMs: Date.now() - startedAt,
+          quickCheck: '',
+          detail: describe(error),
+        });
+      },
+    );
+    return;
+  }
+  // An unrecognised payload has no id to echo, so there is no correlated
+  // reply to send. Dropping it is correct: the driver's own kill budget
+  // reclaims the process.
 });
