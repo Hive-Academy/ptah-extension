@@ -1,0 +1,40 @@
+libs/backend/rpc-handlers/src/lib/chat/ptah-cli/chat-ptah-cli.service.ts:384 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/chat/ptah-cli/chat-ptah-cli.service.ts:423 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/chat/session/chat-sdk-context.service.ts:62 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/chat/session/chat-sdk-context.service.ts:97 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:454 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:471 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:947 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/config-rpc.handlers.ts:620 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/file-rpc.handlers.ts:167 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.handlers.ts:785 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.ts:830 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts:1213 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts:1241 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts:1294 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts:150 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts:939 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts:1028 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.handlers.ts:702 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:1913 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:1943 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:1968 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:2248 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/voice-rpc.handlers.ts:365 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/rpc-handlers/src/lib/handlers/voice-rpc.handlers.ts:436 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/rpc-handlers/src/lib/handlers/voice-rpc.handlers.ts:522 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts:814 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts:828 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.schema.ts:41 [promise-catch-sentinel] .catch(undefined) — identifier not declared in this file; flagged for triage, could not verify it logs or rethrows
+libs/backend/rpc-handlers/src/lib/harness/health/harness-health-rpc.service.ts:276 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/harness/io/harness-fs.service.ts:150 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/harness/selection/skill-catalog.ts:122 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts:223 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts:243 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts:366 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-legacy-adoption.ts:157 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-legacy-adoption.ts:202 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:230 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:360 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:387 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/rpc-handlers/src/lib/utils/custom-provider-probe.ts:579 [catch-return-sentinel] catch swallows error and returns a literal
