@@ -320,7 +320,7 @@ async function startCron(
     ) {
       return;
     }
-    registerBackupJob(container, refs, logger);
+    registerBackupJob(container, logger);
     registerSkillDrainJobs(container, logger);
 
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
@@ -361,7 +361,6 @@ async function startCron(
 
 function registerBackupJob(
   container: DependencyContainer,
-  refs: ThothRefs,
   logger: Logger,
 ): void {
   try {
@@ -377,14 +376,17 @@ function registerBackupJob(
     );
     if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
       handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
-        const connection = refs.sqliteConnection;
-        if (!connection) {
-          return { summary: 'skipped: no sqlite connection' };
-        }
+        // No connection check in front of the backup (TASK_2026_383): the copy
+        // runs in the integrity worker, which opens the database file itself
+        // read-only. The old guard here returned 'skipped: no sqlite
+        // connection' and so skipped the daily backup entirely on a host with
+        // no live connection — the host that most needs one. Unlike the
+        // Electron tier this handler runs no post-backup pragmas, so nothing
+        // in it needs the handle and the guard is gone rather than moved.
         const backupService = container.resolve<IBackupService>(
           PERSISTENCE_TOKENS.BACKUP_SERVICE,
         );
-        const backupPath = await backupService.backup(connection.db, 'daily');
+        const backupPath = await backupService.backup('daily');
         try {
           backupService.rotate('daily', 7);
         } catch (rotateError: unknown) {
@@ -398,7 +400,7 @@ function registerBackupJob(
         return {
           summary: backupPath
             ? `backup written to ${backupPath}`
-            : 'backup skipped (db.backup unavailable)',
+            : 'backup not taken; see the database.backup degradation report',
         };
       });
     }
