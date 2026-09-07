@@ -222,25 +222,19 @@ libs/frontend/webview-e2e-harness/test-results/**
 *.bak
 tmp-scratch-*
 
-# tools/video-editor: vendored MCP server (+ its venv), raw footage, renders,
-# and exports never belong in git. Transcripts and cut lists are small and are
-# the editorial record, so they stay tracked.
-tools/video-editor/vendor/
-tools/video-editor/projects/*/raw/
-tools/video-editor/projects/*/outputs/
-tools/video-editor/projects/*/graphics/**/renders/
-
-# The same rule, for the three directories the list above missed. Measured
-# 2026-09-07: `export/` alone held 2,103 MB across three MP4 cuts of 795, 787
-# and 513 MB. GitHub refuses any blob over 100 MB, so committing one does not
-# merely bloat the history — it makes the branch unpushable, and the only way
-# back out is a history rewrite. `.scratch/` is working imagery by definition.
-# The media extensions are belt-and-braces: a render dropped outside these
-# directories is still a render.
-tools/video-editor/.scratch/
-tools/video-editor/projects/*/export/
-tools/video-editor/projects/*/.scratch/
-tools/video-editor/**/*.mp4
-tools/video-editor/**/*.wav
-tools/video-editor/**/*.zip
+# tools/video-editor is a local editorial workspace, ignored WHOLE.
+#
+# An earlier version of this block tried to track the editorial record — the
+# transcript, the cut lists, the graphics compositions — while ignoring the
+# media beside it. That is a per-directory allowlist maintained by hand, and it
+# had already failed once: `vendor/`, `raw/`, `outputs/` and the graphics
+# renders were listed, `export/` and `.scratch/` were not, and `export/` was
+# where the weight actually sat. Measured 2026-09-07: 2,216 MB untracked, of
+# which 2,103 MB was three MP4 cuts of 795, 787 and 513 MB. GitHub refuses any
+# blob over 100 MB, so one such file does not merely bloat the history — it
+# makes the branch unpushable, and the way back out is a history rewrite.
+#
+# A rule that must enumerate every directory a video tool might invent is a
+# rule that fails again on the next one. Ignoring the tree whole cannot.
+tools/video-editor/
 tools/video-editor/projects/*/graphics/**/node_modules/
