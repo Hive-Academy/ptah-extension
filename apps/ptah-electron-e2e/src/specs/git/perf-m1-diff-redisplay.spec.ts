@@ -111,6 +111,20 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
   test('10 round trips against the git:diffFile mechanism (Task 2.14 baseline)', async ({
     ui,
   }) => {
+    test.fixme(
+      true,
+      'The dock has no tab strip, no file tree and no second surface, so the ' +
+        'file-tab <-> diff-tab round trip this harness times has no dock ' +
+        'equivalent. The underlying claim — diff re-display latency across a ' +
+        'switch-away-and-back — is still real product behaviour worth ' +
+        "measuring. Deferred to TASK_2026_386, which owns the dock's " +
+        'remaining UI work and must first decide which mechanism counts as ' +
+        '"away and back": toggling the dock closed and open, or selecting a ' +
+        "second file's diff and back. See batch-3.3-report.md " +
+        '(TASK_2026_385) for the decision record and the KNOWN GAP comment ' +
+        'below for the exact failure.',
+    );
+
     await ui.mockRpc({
       'editor:getFileTree': fileTree(),
       'editor:openFile': {
@@ -138,7 +152,18 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
       }),
     });
 
-    await ui.goto('editor');
+    // KNOWN GAP (TASK_2026_385 Batch 3.3): this M1 harness measures the
+    // latency of re-displaying the diff tab after switching to a plain FILE
+    // tab and back — both tabs living in `ptah-editor-panel`'s tab strip. The
+    // git dock has no file-tree, no plain-file-open affordance and no tab
+    // strip: `GitDockComponent` shows only the active diff, or nothing.
+    // `goto` is retargeted below so the spec at least navigates to a real
+    // surface, but the `fileNode`/`fileTabBtn`/`ptah-code-editor` steps below
+    // have no dock equivalent and WILL fail here — measuring this harness
+    // against the dock needs a different round-trip mechanism (e.g. toggling
+    // the dock closed/open) before its numbers mean anything again. Left
+    // failing rather than silently deleted; see batch-3.3-report.md.
+    await ui.goto('git');
     const page = ui.page;
 
     // Open the plain file tab.
@@ -162,7 +187,6 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
     });
 
     // Surface the file in Source Control and open its diff tab.
-    await page.getByRole('tab', { name: 'Git' }).click();
     const changedRow = page.locator('[role="listitem"]', {
       hasText: 'big-file.ts',
     });

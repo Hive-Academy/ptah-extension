@@ -10,6 +10,10 @@ export default defineConfig({
   redirects: {
     // Setup Wizard moved out of the Agents section into its own Setup group.
     '/agents/setup-wizard': '/setup/setup-wizard/',
+    // The file tree page documented @ptah-extension/editor's left-sidebar
+    // panel. That library is being retired (TASK_2026_385); the git surface
+    // it used to host lives in the Git dock now.
+    '/workspace/file-tree': '/git/git-status/',
   },
   integrations: [
     starlight({

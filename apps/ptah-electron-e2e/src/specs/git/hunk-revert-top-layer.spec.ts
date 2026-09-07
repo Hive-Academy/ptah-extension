@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Locator, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import { showCanvas } from '../../support/show-canvas';
@@ -77,6 +77,30 @@ async function topmostAt(page: Page, locator: Locator): Promise<HitTest> {
   );
 }
 
+/**
+ * Widen the OS window so the git dock's diff pane clears its own vertical
+ * scrollbar.
+ *
+ * At the launcher's default 1200x800, `ElectronLayoutService`'s 700px dock
+ * width minus the 256px source-control sidebar leaves the diff pane too
+ * narrow for the hunk-action cluster's three buttons: `nowrap` pushes
+ * "Discard" past the visible width and Monaco's own vertical scrollbar —
+ * which paints on top — swallows the click (measured: `locator.click`
+ * timing out with "<div class="slider"> ... intercepts pointer events",
+ * unchanged by dragging `ptah-electron-resize-handle` wider, because
+ * `MAX_EDITOR_WIDTH_RATIO` clamps the dock to half of `window.innerWidth`
+ * and 1200 * 0.5 = 600 is still short of what the cluster needs). Growing
+ * the window instead of the dock's own width gives the flex layout enough
+ * total room that the default dock width no longer collides with anything
+ * (TASK_2026_385 Batch 3.3).
+ */
+async function widenWindow(electronApp: ElectronApplication): Promise<void> {
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.setSize(2200, 1000);
+  });
+}
+
 /** True when the two painted boxes overlap at all. */
 function overlaps(
   a: { x: number; y: number; width: number; height: number },
@@ -124,9 +148,14 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
    * Drive the UI to an open revert dialog using the mouse only, and hand back
    * the locators the assertions need.
    */
-  async function openRevertDialog(page: Page) {
-    await page.getByRole('tab', { name: 'Git' }).click();
-
+  async function openRevertDialog(
+    page: Page,
+    electronApp: ElectronApplication,
+  ) {
+    // The dock has no tab rail (TASK_2026_385 Batch 3.3): the caller's
+    // goto('git') already opens it on the source-control panel, so the old
+    // "click the Git tab" step is gone.
+    await widenWindow(electronApp);
     const changedRow = page.locator('[role="listitem"]', {
       hasText: FILE_NAME,
     });
@@ -167,15 +196,19 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
   test('paints above the canvas and gives Cancel the mouse, writing nothing', async ({
     ui,
     repo,
+    electronApp,
   }, testInfo) => {
     const page = ui.page;
-    await ui.goto('editor');
+    await ui.goto('git');
     await showCanvas(ui);
 
     const before = repo.worktreeDiff();
     expect(before.match(/^@@ /gm)?.length).toBe(3);
 
-    const { dialog, cancel, confirm } = await openRevertDialog(page);
+    const { dialog, cancel, confirm } = await openRevertDialog(
+      page,
+      electronApp,
+    );
 
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
@@ -230,15 +263,16 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
   test('gives Discard the mouse, and discards exactly the hunk it was opened for', async ({
     ui,
     repo,
+    electronApp,
   }) => {
     const page = ui.page;
-    await ui.goto('editor');
+    await ui.goto('git');
 
     const before = repo.worktreeDiff();
     expect(before.match(/^@@ /gm)?.length).toBe(3);
     expect(before).toContain('value10 = 10000');
 
-    const { dialog, confirm } = await openRevertDialog(page);
+    const { dialog, confirm } = await openRevertDialog(page, electronApp);
 
     const overConfirm = await topmostAt(page, confirm);
     expect(

@@ -427,8 +427,10 @@ test.describe('glyph-margin hunk markers, seen in three themes (TASK_2026_222)',
     expect(repo.stagedDiff()).toBe('');
     expect(repo.worktreeDiff().match(/^@@ /gm)?.length).toBe(3);
 
-    await ui.goto('editor');
-    await page.getByRole('tab', { name: 'Git' }).click();
+    // The dock has no tab rail (TASK_2026_385 Batch 3.3): goto('git') opens it
+    // directly on the source-control panel, so the old "click the Git tab"
+    // step that followed goto('editor') is gone.
+    await ui.goto('git');
 
     const changedRow = page.locator('[role="listitem"]', {
       hasText: FILE_NAME,
