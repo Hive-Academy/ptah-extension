@@ -221,3 +221,12 @@ libs/frontend/webview-e2e-harness/test-results/**
 # alone once silently un-linted a tracked file that merely started with `tmp-`.
 *.bak
 tmp-scratch-*
+
+# tools/video-editor: vendored MCP server (+ its venv), raw footage, renders,
+# and exports never belong in git. Transcripts and cut lists are small and are
+# the editorial record, so they stay tracked.
+tools/video-editor/vendor/
+tools/video-editor/projects/*/raw/
+tools/video-editor/projects/*/outputs/
+tools/video-editor/projects/*/graphics/**/renders/
+tools/video-editor/projects/*/graphics/**/node_modules/
