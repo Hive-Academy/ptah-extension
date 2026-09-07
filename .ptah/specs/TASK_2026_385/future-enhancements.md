@@ -286,6 +286,34 @@ Note the interaction the hook's own comment documents: `git commit -- <paths>`
 means `--only`, which commits the **working tree** content of those paths and
 bypasses the index. Verify `git diff -- <paths>` is empty before relying on it.
 
+### The `--cached` trap, specifically
+
+A pathspec commit is safe for ordinary edits, which is why several sessions
+relied on it all day to keep their commits clear of each other's files. It has
+exactly one sharp edge, and it cost a sibling session **348 files** on
+2026-09-07.
+
+`git rm -r --cached <path>` drops the index entry and **deliberately leaves the
+file on disk** — untracking without deleting. A following
+`git commit -- <path>` then reads the worktree, finds the file present and
+identical to HEAD, records no change, and **discards the staged deletion**,
+reporting success.
+
+The hazard is therefore not "deletions are unreliable through a pathspec." If
+the file is genuinely gone from disk, the pathspec commit records the deletion
+correctly — that case is handled. It fails only where the index and the
+worktree are _meant_ to disagree, which is precisely what `--cached` exists to
+create.
+
+Rules that follow:
+
+- Use a pathspec commit for editing work, including deletions where the file is
+  actually removed from disk.
+- Use a bare `git commit` from a checked index whenever the intent is
+  **untracking** rather than editing.
+- Either way, verify the commit rather than its exit code. `git show --stat`
+  costs nothing and is the only thing that catches this.
+
 ### Fixes
 
 1. Raise or remove the five-minute timeout around any `git commit` in this
