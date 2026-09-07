@@ -28,6 +28,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
+  BootScanScheduler,
   deriveWorkspaceFingerprint,
 } from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
@@ -92,7 +93,12 @@ export class SkillTriggerService {
   private readonly editTestStates = new Map<string, EditTestState>();
   private readonly turnCompleteStates = new Map<string, TurnCompleteState>();
   private bootScanController: AbortController | null = null;
-  private bootScanTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The arming gate in front of {@link runBootScan}. Created only on the path
+   * that arms a scan; `stop()` cancels whatever it holds. See
+   * {@link BootScanScheduler} for why the scan is armed rather than run.
+   */
+  private bootScanScheduler: BootScanScheduler | null = null;
   /**
    * When the last chat turn was observed, or `null` when none has been in this
    * process. `null` — not `0` — because the boot-scan deferral reads "more
@@ -175,7 +181,8 @@ export class SkillTriggerService {
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
-      this.scheduleBootScan(this.bootScanController.signal);
+      this.bootScanScheduler = this.createBootScanScheduler();
+      this.bootScanScheduler.schedule(this.bootScanController.signal);
     }
 
     this.logger.info('[skill-synthesis] trigger service started');
@@ -206,8 +213,8 @@ export class SkillTriggerService {
     this.sessions.clear();
     this.editTestStates.clear();
     this.turnCompleteStates.clear();
-    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
-    this.bootScanTimer = null;
+    this.bootScanScheduler?.cancel();
+    this.bootScanScheduler = null;
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.lastActivityAt = null;
@@ -790,79 +797,33 @@ export class SkillTriggerService {
   }
 
   /**
-   * ARM the boot scan rather than run it (TASK_2026_380).
+   * Wire this pipeline's settings keys and log channel onto the shared
+   * {@link BootScanScheduler}.
    *
-   * `runBootScan` enqueues one `prefilter` row per session newer than the
-   * watermark. Each row is cheap, but the WALK is not: `start()` fired it
-   * synchronously, so a backlog of ~45 sessions was enqueued in the first
-   * seconds after launch and the drain — whose boot-row filter holds those rows
-   * for `skillSynthesis.drain.bootDeferralMs` but does not hold the SCAN —
-   * competed with window creation and the SDK boot for the main thread. None of
-   * that work is urgent: every session it reads ended before this process
-   * existed.
-   *
-   * Two conditions, and they are different questions. The DELAY answers "has
-   * the host settled"; the re-arm answers "is the user working right now". The
-   * re-arm is deliberately unbounded — it only ever continues while chat
-   * activity keeps arriving, so it terminates as soon as the user stops, and a
-   * host where the user never stops is one where the backlog genuinely should
-   * keep waiting. `stop()` clears the timer, so it cannot outlive the service.
-   *
-   * `unref` keeps a pending scan from holding the process alive at shutdown.
+   * The scan is armed rather than run from `start()` because `runBootScan`
+   * enqueues one `prefilter` row per session newer than the watermark. Each row
+   * is cheap, but the WALK is not: `start()` fired it synchronously, so a
+   * backlog of ~45 sessions was enqueued in the first seconds after launch and
+   * the drain — whose boot-row filter holds those rows for
+   * `skillSynthesis.drain.bootDeferralMs` but does not hold the SCAN — competed
+   * with window creation and the SDK boot for the main thread. The
+   * delay/backoff reasoning lives on the scheduler.
    */
-  private scheduleBootScan(signal: AbortSignal, delayMs?: number): void {
-    if (signal.aborted) return;
-    const wait = delayMs ?? this.readBootScanDelayMs();
-    if (wait <= 0) {
-      void this.runBootScan(signal);
-      return;
-    }
-    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
-    const timer = setTimeout(() => {
-      this.bootScanTimer = null;
-      if (signal.aborted) return;
-      const backoff = this.readBootScanIdleBackoffMs();
-      const sinceActivity =
-        this.lastActivityAt === null
-          ? Number.POSITIVE_INFINITY
-          : Math.max(0, Date.now() - this.lastActivityAt);
-      if (backoff > 0 && sinceActivity < backoff) {
-        this.logger.debug(
-          '[skill-synthesis] boot scan deferred — foreground chat is active',
-          { sinceActivityMs: sinceActivity, backoffMs: backoff },
-        );
-        this.scheduleBootScan(signal, backoff);
-        return;
-      }
-      void this.runBootScan(signal);
-    }, wait);
-    (timer as { unref?: () => void }).unref?.();
-    this.bootScanTimer = timer;
-    this.logger.debug('[skill-synthesis] boot scan armed', { delayMs: wait });
-  }
-
-  private readBootScanDelayMs(): number {
-    return this.readPositiveMs(
-      SKILL_TRIGGER_KEYS.bootScanDelayMs,
-      SKILL_TRIGGER_DEFAULTS.bootScanDelayMs,
-    );
-  }
-
-  private readBootScanIdleBackoffMs(): number {
-    return this.readPositiveMs(
-      SKILL_TRIGGER_KEYS.bootScanIdleBackoffMs,
-      SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
-    );
-  }
-
-  /** `0` is a legal value — it disables the gate — so only NaN falls back. */
-  private readPositiveMs(key: string, fallback: number): number {
-    const v = this.workspace.getConfiguration<number>(
-      SKILL_TRIGGER_SECTION,
-      key,
-      fallback,
-    );
-    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  private createBootScanScheduler(): BootScanScheduler {
+    return new BootScanScheduler({
+      logPrefix: '[skill-synthesis]',
+      logger: this.logger,
+      workspace: this.workspace,
+      section: SKILL_TRIGGER_SECTION,
+      delayMsKey: SKILL_TRIGGER_KEYS.bootScanDelayMs,
+      delayMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanDelayMs,
+      idleBackoffMsKey: SKILL_TRIGGER_KEYS.bootScanIdleBackoffMs,
+      idleBackoffMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
+      lastActivityAt: () => this.lastActivityAt,
+      run: (signal) => {
+        void this.runBootScan(signal);
+      },
+    });
   }
 
   private async runBootScan(signal: AbortSignal): Promise<void> {
