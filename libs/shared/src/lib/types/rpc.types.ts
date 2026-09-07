@@ -512,6 +512,8 @@ import type {
   EmbedderRetryResult,
 } from './rpc/rpc-persistence.types';
 
+import type { BootGetReadinessResult } from './rpc/rpc-readiness.types';
+
 import type {
   UpdateGetStateParams,
   UpdateGetStateResult,
@@ -1917,6 +1919,17 @@ export interface RpcMethodRegistry {
   'voice:testConnection': {
     params: VoiceTestConnectionParams;
     result: VoiceTestConnectionResult;
+  };
+
+  /**
+   * Pull the current boot readiness. Same shape as the
+   * `boot:readinessChanged` push, because a renderer that missed the push —
+   * Angular installs its message listener after `did-finish-load`, and a
+   * renderer reload gets no replay — must not need a second consumer path.
+   */
+  'boot:getReadiness': {
+    params: Record<string, never>;
+    result: BootGetReadinessResult;
   };
 
   'db:health': {
@@ -3616,6 +3629,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'voice:setProviderConfig': true,
   'voice:setApiKey': true,
   'voice:testConnection': true,
+
+  'boot:getReadiness': true,
 
   'db:health': true,
   'db:reset': true,

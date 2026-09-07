@@ -20,6 +20,15 @@ function createLogger(): Pick<Logger, 'debug' | 'info' | 'warn' | 'error'> {
 }
 
 describe('CpuProfileCapture', () => {
+  // Four specs below drive a real `node:inspector` session. The profile window
+  // itself is 25 ms; the cost is the protocol round trips, serialising the
+  // profile and writing it. On a loaded CI runner that overruns Jest's 5 s
+  // default — `allows a fresh capture once the previous one settled` does it
+  // twice, so it crosses first. Raising the ceiling keeps the captures real,
+  // which is the whole point of these specs; a mocked session would prove
+  // nothing about whether V8 produces a profile in this runtime.
+  jest.setTimeout(30_000);
+
   let tempDir: string;
   let logger: ReturnType<typeof createLogger>;
   let capture: CpuProfileCapture;

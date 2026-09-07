@@ -10,6 +10,8 @@
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { TypeScriptDiagnosticsProvider } from '../diagnostics/type-script-diagnostics-provider';
 import { PatternMatcherService } from '../file-indexing/pattern-matcher.service';
 import { IgnorePatternResolverService } from '../file-indexing/ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
@@ -60,6 +62,35 @@ import { configureArchitectureRules } from '../quality/rules/architecture-rules'
  * @param container - TSyringe DI container
  * @param logger - Logger instance
  */
+/**
+ * Replace the platform's diagnostics STUB with the real TypeScript compiler
+ * provider.
+ *
+ * A second call, not a step inside `registerWorkspaceIntelligenceServices`,
+ * because it is an OVERRIDE: the stub under
+ * `PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER` is registered in each host's platform
+ * phase, and the provider below needs `FILE_SYSTEM_PROVIDER`, which
+ * `registerWorkspaceIntelligenceServices` registers. Call it immediately after
+ * that function and before anything resolves the token.
+ *
+ * It lives here rather than in each composition root because the constructor
+ * argument and the ordering rule are this lib's own facts, and all three hosts
+ * had their own copy of both.
+ */
+export function registerTypeScriptDiagnosticsProvider(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: new TypeScriptDiagnosticsProvider(
+      container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+    ),
+  });
+  logger.info(
+    '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
+  );
+}
+
 export function registerWorkspaceIntelligenceServices(
   container: DependencyContainer,
   logger: Logger,

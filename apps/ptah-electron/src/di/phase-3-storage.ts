@@ -12,12 +12,15 @@ import type { DependencyContainer } from 'tsyringe';
 
 import {
   PLATFORM_TOKENS,
-  type IStateStorage,
   type IWorkspaceProvider,
   type IFileSystemProvider,
   type IEditorProvider,
 } from '@ptah-extension/platform-core';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  registerStateStorageAdapters,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
@@ -56,23 +59,10 @@ export function registerPhase3Storage(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  const workspaceStateStorage = container.resolve<IStateStorage>(
-    PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-  );
-  const storageAdapter = {
-    get: <T>(key: string, defaultValue?: T): T | undefined => {
-      const value = workspaceStateStorage.get<T>(key);
-      return value !== undefined ? value : defaultValue;
-    },
-    set: async <T>(key: string, value: T): Promise<void> => {
-      await workspaceStateStorage.update(key, value);
-    },
-  };
-  container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-  const globalStateStorage = container.resolve<IStateStorage>(
-    PLATFORM_TOKENS.STATE_STORAGE,
-  );
-  container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
+  // Reads the Phase 1.6 WORKSPACE_STATE_STORAGE override, which is why this
+  // stays first in the phase. The adapter and the pass-through both belong to
+  // `vscode-core`, which owns STORAGE_SERVICE and GLOBAL_STATE.
+  registerStateStorageAdapters(container);
   const platformAbstractions: Array<{
     token: symbol;
     impl: new (...args: unknown[]) => unknown;

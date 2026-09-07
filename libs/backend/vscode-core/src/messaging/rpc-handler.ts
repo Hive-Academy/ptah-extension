@@ -84,6 +84,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'indexing:', // Workspace indexing control
   'update:', // Desktop update dialog (get-state, check-now, mark-downloaded)
   'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
+  'boot:', // Boot readiness probe (getReadiness) — the renderer's first read
 ] as const;
 
 export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';

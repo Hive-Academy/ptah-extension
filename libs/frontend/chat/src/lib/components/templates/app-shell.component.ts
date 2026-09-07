@@ -36,6 +36,7 @@ import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.co
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SidebarTabComponent,
+  SkeletonBlockComponent,
   ThemeToggleComponent,
 } from '@ptah-extension/chat-ui';
 import { SettingsComponent } from '../../settings/settings.component';
@@ -53,6 +54,8 @@ import { SessionDisplayUtils } from '../../services/session-display-utils.servic
 import {
   AppStateManager,
   AuthStateService,
+  BootStatusService,
+  defaultSessionName,
   VSCodeService,
   ClaudeRpcService,
   LazyViewService,
@@ -110,6 +113,7 @@ import type { ViewType } from '@ptah-extension/core';
     FormsModule,
     NativePopoverComponent,
     SidebarTabComponent,
+    SkeletonBlockComponent,
     DashboardGridComponent,
     ThothShellComponent,
   ],
@@ -136,6 +140,11 @@ export class AppShellComponent {
   ] as const;
 
   readonly chatStore = inject(ChatStore);
+  /**
+   * Boot progress, for the two skeleton sites (TASK_2026_380). Reports `ready`
+   * under VS Code, so both skeletons are unreachable there by construction.
+   */
+  readonly bootStatus = inject(BootStatusService);
   readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
@@ -468,19 +477,6 @@ export class AppShellComponent {
   }
 
   /**
-   * Generate slugified default session name from current timestamp
-   * Format: session-MM-DD-HH-mm (e.g., "session-12-11-14-45")
-   */
-  private generateDefaultSessionName(): string {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `session-${month}-${day}-${hours}-${minutes}`;
-  }
-
-  /**
    * Open session name popover
    */
   createNewSession(): void {
@@ -494,7 +490,7 @@ export class AppShellComponent {
    */
   handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
-    const sessionName = name || this.generateDefaultSessionName();
+    const sessionName = name || defaultSessionName();
 
     if (this.layoutMode() === 'grid') {
       this.appState.requestNewCanvasSession(sessionName);

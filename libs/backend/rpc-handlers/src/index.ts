@@ -17,6 +17,7 @@ export {
   AutocompleteRpcHandlers,
   SubagentRpcHandlers,
   LlmRpcHandlers,
+  BootRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
   SetupRpcHandlers,

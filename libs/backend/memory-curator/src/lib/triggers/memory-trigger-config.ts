@@ -1,4 +1,5 @@
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { flattenSettingsTree } from '@ptah-extension/shared';
 import type { MemoryTriggersDto } from '@ptah-extension/shared';
 
 export const MEMORY_TRIGGER_SECTION = 'ptah';
@@ -29,7 +30,7 @@ export const MEMORY_TRIGGER_KEYS = {
   bootScanDelayMs: 'memory.triggers.bootScanDelayMs',
   /**
    * How recent foreground chat activity has to be for a due boot scan to
-   * re-arm instead of running. See `MemoryTriggerService.scheduleBootScan`.
+   * re-arm instead of running. See `BootScanScheduler.schedule`.
    */
   bootScanIdleBackoffMs: 'memory.triggers.bootScanIdleBackoffMs',
   userPromptSubmit: {
@@ -337,18 +338,7 @@ export function flattenMemoryTriggers(
   for (const [key, value] of entries) {
     if (value === undefined) continue;
     const prefix = MEMORY_TRIGGER_PREFIXES[key];
-    out.push(...flatten(prefix, value));
-  }
-  return out;
-}
-
-function flatten(prefix: string, value: unknown): Array<[string, unknown]> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return [[prefix, value]];
-  }
-  const out: Array<[string, unknown]> = [];
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out.push(...flatten(`${prefix}.${k}`, v));
+    out.push(...flattenSettingsTree(prefix, value));
   }
   return out;
 }

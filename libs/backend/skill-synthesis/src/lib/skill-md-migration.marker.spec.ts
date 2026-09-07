@@ -39,6 +39,25 @@
  *       NOT write the marker when the root cannot be read at all"
  *   M7  `if (!marker) return true`, i.e. treat "no store" as "already done" →
  *       "walks when no marker store is supplied at all"
+ *
+ * TASK_2026_380 extends the ledger. `skippedByMarker: false` was SIX facts
+ * wearing one hat, and telling them apart cost a query against the user's
+ * `~/.ptah/state/ptah.sqlite`. `markerOutcome` names them, and the
+ * `markerOutcome` block below asserts one token per path TOGETHER WITH the
+ * `readdirSync`/`readFileSync` counts — a token nobody cross-checks against the
+ * call counts is a label, not a diagnosis, and the module's standing rule is
+ * that only `'current'` may skip the walk. Additional mutations killed:
+ *
+ *   M8  any non-`'current'` token short-circuiting the walk → that token's case
+ *       (the call-count half fails, which is why both halves are asserted)
+ *   M9  collapse `'stale'` and `'future-stamped'` into one token, or `'absent'`
+ *       and `'no-store'` → the corresponding pair of cases
+ *   M10 `writeMarker` returning `true` from its catch → "reports
+ *       markerWritten:false when the store's write throws"
+ *   M11 `SKILL_MD_MIGRATION_RESCAN_INTERVAL_MS` back to 24 h → "treats a
+ *       two-day-old marker as current" (the whole point of the widening: the
+ *       app is opened about once a day, so a 24 h ceiling expired on
+ *       essentially every launch)
  */
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -179,6 +198,8 @@ describe('migrateSkillMdFiles — the marker gate over a large tree', () => {
       skipped: 0,
       errors: [],
       skippedByMarker: true,
+      markerOutcome: 'current',
+      markerWritten: false,
     });
     // A gate that skipped the walk must not then claim the root was re-scanned.
     expect(marker.write).not.toHaveBeenCalled();
@@ -402,5 +423,178 @@ describe('migrateSkillMdFiles — when the marker is written', () => {
       realFs.rmSync(activeRoot, { recursive: true, force: true });
       realFs.rmSync(candidatesRoot, { recursive: true, force: true });
     }
+  });
+});
+
+// ── markerOutcome: one token per path, cross-checked against the walk ────────
+
+describe('migrateSkillMdFiles — markerOutcome', () => {
+  const FILE_COUNT = 3;
+  let root: string;
+
+  beforeAll(() => {
+    // Every file already carries `when_to_use:`, so a walk reads and skips and
+    // leaves the tree byte-identical — the cases below can share it.
+    root = makeTmpDir();
+    for (let i = 0; i < FILE_COUNT; i++) {
+      writeSkillMd(root, `stub-${i}`, MIGRATED_STUB);
+    }
+  });
+
+  afterAll(() => {
+    realFs.rmSync(root, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  /** The walk RAN: every token except `'current'` must produce this. */
+  function expectWalked(): void {
+    expect(readdirSyncMock).toHaveBeenCalled();
+    expect(readFileSyncMock).toHaveBeenCalledTimes(FILE_COUNT);
+  }
+
+  it("reports 'current' and touches no file system", () => {
+    const marker = makeMarker({ [root]: currentState() });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('current');
+    expect(result.skippedByMarker).toBe(true);
+    expect(readdirSyncMock).not.toHaveBeenCalled();
+    expect(readFileSyncMock).not.toHaveBeenCalled();
+    // Nothing was walked, so there is nothing to record.
+    expect(result.markerWritten).toBe(false);
+  });
+
+  it("reports 'no-store' and walks when no store is supplied", () => {
+    const result = migrateSkillMdFiles(root, logger as never);
+
+    expect(result.markerOutcome).toBe('no-store');
+    expect(result.markerWritten).toBe(false);
+    expectWalked();
+  });
+
+  it("reports 'absent' and walks when the store has no row", () => {
+    const marker = makeMarker();
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('absent');
+    expect(result.markerWritten).toBe(true);
+    expectWalked();
+  });
+
+  it("reports 'version-mismatch' and walks when the transform version moved", () => {
+    const marker = makeMarker({
+      [root]: {
+        migrationVersion: SKILL_MD_MIGRATION_VERSION + 1,
+        lastScanAt: Date.now(),
+      },
+    });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('version-mismatch');
+    expect(result.markerWritten).toBe(true);
+    expectWalked();
+  });
+
+  it("reports 'stale' and walks when the marker is past the rescan interval", () => {
+    const marker = makeMarker({
+      [root]: {
+        migrationVersion: SKILL_MD_MIGRATION_VERSION,
+        lastScanAt: Date.now() - SKILL_MD_MIGRATION_RESCAN_INTERVAL_MS - 60_000,
+      },
+    });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('stale');
+    expect(result.markerWritten).toBe(true);
+    expectWalked();
+  });
+
+  it("reports 'future-stamped' and walks when the clock ran backwards", () => {
+    const marker = makeMarker({
+      [root]: {
+        migrationVersion: SKILL_MD_MIGRATION_VERSION,
+        lastScanAt: Date.now() + 60 * 60 * 1000,
+      },
+    });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('future-stamped');
+    expect(result.markerWritten).toBe(true);
+    expectWalked();
+  });
+
+  it("reports 'unreadable' and walks when the store's read throws", () => {
+    const store: SkillMdMigrationMarkerStore = {
+      read: jest.fn(() => {
+        throw new Error('PERSISTENCE_UNAVAILABLE');
+      }),
+      write: jest.fn(),
+    };
+
+    const result = migrateSkillMdFiles(root, logger as never, store);
+
+    expect(result.markerOutcome).toBe('unreadable');
+    expect(result.markerWritten).toBe(true);
+    expectWalked();
+  });
+
+  it("reports 'unreadable' and walks when the stored timestamp is not a number", () => {
+    // Same predicament as a throwing read: the row exists and cannot be dated.
+    const marker = makeMarker({
+      [root]: {
+        migrationVersion: SKILL_MD_MIGRATION_VERSION,
+        lastScanAt: Number.NaN,
+      },
+    });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('unreadable');
+    expectWalked();
+  });
+
+  it('reports markerWritten:false when the store write throws, with no errors', () => {
+    // The exact log signature that would have settled TASK_2026_380's root
+    // cause 4 without a database query: the walk succeeded (`errors: []`) and
+    // the marker still did not stick.
+    const store: SkillMdMigrationMarkerStore = {
+      read: jest.fn(() => null),
+      write: jest.fn(() => {
+        throw new Error('disk full');
+      }),
+    };
+
+    const result = migrateSkillMdFiles(root, logger as never, store);
+
+    expect(result.markerWritten).toBe(false);
+    expect(result.errors).toEqual([]);
+    expect(result.markerOutcome).toBe('absent');
+    expectWalked();
+  });
+
+  it('treats a two-day-old marker as current (the 24 h ceiling is gone)', () => {
+    // The defect the widening closes: the app is opened about once a day, so a
+    // 24 h ceiling expired on essentially every launch and the walk the marker
+    // exists to remove ran anyway.
+    const marker = makeMarker({
+      [root]: {
+        migrationVersion: SKILL_MD_MIGRATION_VERSION,
+        lastScanAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+      },
+    });
+
+    const result = migrateSkillMdFiles(root, logger as never, marker.store);
+
+    expect(result.markerOutcome).toBe('current');
+    expect(readdirSyncMock).not.toHaveBeenCalled();
+    expect(readFileSyncMock).not.toHaveBeenCalled();
   });
 });

@@ -107,14 +107,19 @@ export const MESSAGE_TYPES = {
   WORKSPACE_CHANGED: 'workspaceChanged',
   /**
    * Backend → Frontend: the post-window boot changed state
-   * (TASK_2026_331 B2A).
+   * (TASK_2026_331 B2A; widened by TASK_2026_380).
    *
-   * The one new message type in the whole boot-performance task. It exists so a
-   * surface that received an `RpcReadinessError` can drop its pending retry
-   * timer and re-issue the call the instant the backend is ready, instead of
-   * waiting out a delay that has already stopped being true.
+   * It exists so a surface that received an `RpcReadinessError` can drop its
+   * pending retry timer and re-issue the call the instant the backend is ready,
+   * instead of waiting out a delay that has already stopped being true.
    *
-   * Edge-triggered: one message per transition, not one per boot step.
+   * `readiness` is the only field with consumer semantics. The payload also
+   * carries `phase` and `detail`, which are **display-only labels** for a boot
+   * screen — nothing may branch on them beyond choosing what text to paint, so
+   * adding a phase is not a breaking protocol change.
+   *
+   * Still edge-triggered: one message per transition of `readiness` or `phase`,
+   * never a progress tick and never one per boot step.
    */
   BOOT_READINESS_CHANGED: 'boot:readinessChanged',
   RPC_REQUEST: 'rpc:request',
@@ -208,6 +213,16 @@ export const MESSAGE_TYPES = {
   EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
   /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
   SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
+  /**
+   * Backend → Frontend: one back-office activity item for the passive ticker
+   * (TASK_2026_380).
+   *
+   * The single shape every subsystem's "something happened" collapses into, so
+   * the ticker renders one ordered list instead of subscribing to eight bespoke
+   * message types. Payload carries no `error` level on purpose — see
+   * `rpc-activity.types.ts`.
+   */
+  ACTIVITY_EVENT: 'activity:event',
   /**
    * Backend → Frontend: the harness reconciler finished a pass whose SUMMARY
    * differs from the last one pushed (TASK_2026_278 Batch 4).

@@ -25,7 +25,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 ## Public API
 
 **Interfaces (all `I`-prefixed, exported as `type`)**:
-`IFileSystemProvider`, `IStateStorage`, `ISecretStorage`, `IWorkspaceProvider`, `IWorkspaceLifecycleProvider`, `IUserInteraction`, `IOutputChannel`, `ICommandRegistry`, `IEditorProvider`, `ITokenCounter`, `IDiagnosticsProvider`, `IMemoryWriter`, `IHttpServerProvider`, `IPlatformCommands`, `IPlatformAuthProvider`, `ISaveDialogProvider`, `IModelDiscovery`.
+`IFileSystemProvider`, `IStateStorage`, `ISecretStorage`, `IWorkspaceProvider`, `IWorkspaceLifecycleProvider`, `IUserInteraction`, `IOutputChannel`, `ICommandRegistry`, `IEditorProvider`, `ITokenCounter`, `IDiagnosticsProvider`, `IMemoryWriter`, `IHttpServerProvider`, `IPlatformCommands`, `IPlatformAuthProvider`, `ISaveDialogProvider`, `IModelDiscovery`, `IBootReadinessProvider`.
 
 **Concrete services**: `PtahFileSettingsManager`, `ContentDownloadService`, `AgentPackDownloadService`.
 
@@ -48,7 +48,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 ## Key Files
 
-- `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (25 ports; the table below lists the core subset)
+- `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (28 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
 - `src/interfaces/platform-abstractions.interface.ts:23` — `IPlatformCommands` (moved here in Wave C8)
 - `src/interfaces/workspace-provider.interface.ts` — workspace folders + configuration read API
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)
@@ -58,26 +58,43 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 ## DI Tokens
 
-All under `PLATFORM_TOKENS` (`Symbol.for('Platform*')`):
+All under `PLATFORM_TOKENS`, mostly `Symbol.for('Platform*')` (`TRACER` and
+`FILE_DIALOG` predate the prefix). 27 tokens — the count of `Symbol.for(`
+entries in `src/di/tokens.ts`:
 
-| Token                          | Port                          |
-| ------------------------------ | ----------------------------- |
-| `FILE_SYSTEM_PROVIDER`         | `IFileSystemProvider`         |
-| `STATE_STORAGE`                | `IStateStorage` (global)      |
-| `WORKSPACE_STATE_STORAGE`      | `IStateStorage` (workspace)   |
-| `SECRET_STORAGE`               | `ISecretStorage`              |
-| `WORKSPACE_PROVIDER`           | `IWorkspaceProvider`          |
-| `WORKSPACE_LIFECYCLE_PROVIDER` | `IWorkspaceLifecycleProvider` |
-| `USER_INTERACTION`             | `IUserInteraction`            |
-| `OUTPUT_CHANNEL`               | `IOutputChannel`              |
-| `COMMAND_REGISTRY`             | `ICommandRegistry`            |
-| `EDITOR_PROVIDER`              | `IEditorProvider`             |
-| `PLATFORM_INFO`                | `IPlatformInfo`               |
-| `TOKEN_COUNTER`                | `ITokenCounter`               |
-| `DIAGNOSTICS_PROVIDER`         | `IDiagnosticsProvider`        |
-| `CONTENT_DOWNLOAD`             | `ContentDownloadService`      |
-| `HTTP_SERVER_PROVIDER`         | `IHttpServerProvider`         |
-| `MEMORY_WRITER`                | `IMemoryWriter`               |
+| Token                          | Port                           |
+| ------------------------------ | ------------------------------ |
+| `FILE_SYSTEM_PROVIDER`         | `IFileSystemProvider`          |
+| `STATE_STORAGE`                | `IStateStorage` (global)       |
+| `WORKSPACE_STATE_STORAGE`      | `IStateStorage` (workspace)    |
+| `SECRET_STORAGE`               | `ISecretStorage`               |
+| `WORKSPACE_PROVIDER`           | `IWorkspaceProvider`           |
+| `WORKSPACE_LIFECYCLE_PROVIDER` | `IWorkspaceLifecycleProvider`  |
+| `USER_INTERACTION`             | `IUserInteraction`             |
+| `OUTPUT_CHANNEL`               | `IOutputChannel`               |
+| `COMMAND_REGISTRY`             | `ICommandRegistry`             |
+| `EDITOR_PROVIDER`              | `IEditorProvider`              |
+| `PLATFORM_INFO`                | `IPlatformInfo`                |
+| `TOKEN_COUNTER`                | `ITokenCounter`                |
+| `DIAGNOSTICS_PROVIDER`         | `IDiagnosticsProvider`         |
+| `CONTENT_DOWNLOAD`             | `ContentDownloadService`       |
+| `HTTP_SERVER_PROVIDER`         | `IHttpServerProvider`          |
+| `MEMORY_WRITER`                | `IMemoryWriter`                |
+| `MASTER_KEY_PROVIDER`          | `IMasterKeyProvider`           |
+| `DI_CONTAINER`                 | tsyringe `DependencyContainer` |
+| `MCP_SERVER_STATUS`            | `IMcpServerStatus`             |
+| `TRACER`                       | `ITracer`                      |
+| `SESSION_ATTACHMENT_GUARD`     | `ISessionAttachmentGuard`      |
+| `OAUTH_CALLBACK_LISTENER`      | `IOAuthCallbackListener`       |
+| `FILE_DIALOG`                  | `IFileDialog`                  |
+| `PTY_HOST`                     | `IPtyHost`                     |
+| `APP_UPDATER`                  | `IAppUpdater`                  |
+| `CALLER_WORKSPACE_RESOLVER`    | `ICallerWorkspaceResolver`     |
+| `BOOT_READINESS`               | `IBootReadinessProvider`       |
+
+`BOOT_READINESS` — `NullBootReadinessProvider` (`vscode-core`, always ready, the
+VS Code and CLI default) / `ElectronBootReadinessProvider` (`ptah-electron`,
+delegates to `BootCoordinator`).
 
 ## Dependencies
 

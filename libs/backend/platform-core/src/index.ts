@@ -66,6 +66,7 @@ export type {
   ProcessErrorListener,
 } from './interfaces/process-spawner.interface';
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
+export type { IBootReadinessProvider } from './interfaces/boot-readiness.interface';
 export type {
   IAppUpdater,
   AppUpdateState,

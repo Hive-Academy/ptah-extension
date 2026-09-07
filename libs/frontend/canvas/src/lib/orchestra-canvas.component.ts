@@ -20,7 +20,7 @@ import {
   Unlock,
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, defaultSessionName } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
@@ -394,19 +394,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
     }
   }
 
-  /**
-   * Generate slugified default session name from current timestamp.
-   * Format: session-MM-DD-HH-mm (e.g., "session-04-14-09-30")
-   */
-  private generateDefaultSessionName(): string {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `session-${month}-${day}-${hours}-${minutes}`;
-  }
-
   /** Open the session name popover. */
   protected openNewSessionPopover(): void {
     this.sessionNameInput.set('');
@@ -416,7 +403,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   /** Create session with the entered (or default) name. */
   protected handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
-    const sessionName = name || this.generateDefaultSessionName();
+    const sessionName = name || defaultSessionName();
     this.canvasStore.addTile(sessionName);
     this.sessionPopoverOpen.set(false);
   }

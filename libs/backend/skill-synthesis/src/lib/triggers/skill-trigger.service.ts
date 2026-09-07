@@ -28,6 +28,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
+  BootScanScheduler,
   deriveWorkspaceFingerprint,
 } from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
@@ -92,6 +93,21 @@ export class SkillTriggerService {
   private readonly editTestStates = new Map<string, EditTestState>();
   private readonly turnCompleteStates = new Map<string, TurnCompleteState>();
   private bootScanController: AbortController | null = null;
+  /**
+   * The arming gate in front of {@link runBootScan}. Created only on the path
+   * that arms a scan; `stop()` cancels whatever it holds. See
+   * {@link BootScanScheduler} for why the scan is armed rather than run.
+   */
+  private bootScanScheduler: BootScanScheduler | null = null;
+  /**
+   * When the last chat turn was observed, or `null` when none has been in this
+   * process. `null` — not `0` — because the boot-scan deferral reads "more
+   * recent than the backoff means someone is working"; a fresh process with no
+   * activity must not look busy, or the scan would never run on a host the user
+   * launched and walked away from. Same reasoning as
+   * `ForegroundActivityTracker.msSinceLastActivity` returning `Infinity`.
+   */
+  private lastActivityAt: number | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -165,7 +181,8 @@ export class SkillTriggerService {
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
-      void this.runBootScan(this.bootScanController.signal);
+      this.bootScanScheduler = this.createBootScanScheduler();
+      this.bootScanScheduler.schedule(this.bootScanController.signal);
     }
 
     this.logger.info('[skill-synthesis] trigger service started');
@@ -196,8 +213,11 @@ export class SkillTriggerService {
     this.sessions.clear();
     this.editTestStates.clear();
     this.turnCompleteStates.clear();
+    this.bootScanScheduler?.cancel();
+    this.bootScanScheduler = null;
     this.bootScanController?.abort();
     this.bootScanController = null;
+    this.lastActivityAt = null;
     this.started = false;
     this.logger.info('[skill-synthesis] trigger service stopped');
   }
@@ -213,6 +233,13 @@ export class SkillTriggerService {
    */
   private onActivity(payload: SessionActivityPayload): void {
     if (blankToUndefined(payload.sessionId) === undefined) return;
+
+    // Stamped ABOVE the `idleMs` guard, because this is the only foreground
+    // signal the boot-scan deferral has and it must not be silenced by an
+    // unrelated setting. `idleMs <= 0` disables the per-session idle TIMER; it
+    // does not mean the user stopped typing.
+    this.lastActivityAt = Date.now();
+
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 
@@ -767,6 +794,36 @@ export class SkillTriggerService {
         error: message,
       });
     }
+  }
+
+  /**
+   * Wire this pipeline's settings keys and log channel onto the shared
+   * {@link BootScanScheduler}.
+   *
+   * The scan is armed rather than run from `start()` because `runBootScan`
+   * enqueues one `prefilter` row per session newer than the watermark. Each row
+   * is cheap, but the WALK is not: `start()` fired it synchronously, so a
+   * backlog of ~45 sessions was enqueued in the first seconds after launch and
+   * the drain — whose boot-row filter holds those rows for
+   * `skillSynthesis.drain.bootDeferralMs` but does not hold the SCAN — competed
+   * with window creation and the SDK boot for the main thread. The
+   * delay/backoff reasoning lives on the scheduler.
+   */
+  private createBootScanScheduler(): BootScanScheduler {
+    return new BootScanScheduler({
+      logPrefix: '[skill-synthesis]',
+      logger: this.logger,
+      workspace: this.workspace,
+      section: SKILL_TRIGGER_SECTION,
+      delayMsKey: SKILL_TRIGGER_KEYS.bootScanDelayMs,
+      delayMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanDelayMs,
+      idleBackoffMsKey: SKILL_TRIGGER_KEYS.bootScanIdleBackoffMs,
+      idleBackoffMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
+      lastActivityAt: () => this.lastActivityAt,
+      run: (signal) => {
+        void this.runBootScan(signal);
+      },
+    });
   }
 
   private async runBootScan(signal: AbortSignal): Promise<void> {

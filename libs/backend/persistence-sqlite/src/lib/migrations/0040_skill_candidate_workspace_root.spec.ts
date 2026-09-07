@@ -66,9 +66,10 @@ describe('migration 0040_skill_candidate_workspace_root — registry entry', () 
     // Migrations are forward-only and APPENDED, never inserted. This assertion
     // tracks the current highest version and moves forward with every appended
     // migration — that movement is the ratchet, not a failure (0028 / 0038 /
-    // 0039 / 0041 carry the identical test for the same reason). Bumped to 41
-    // when TASK_2026_331 B4 appended 0041_skill_md_migration_state.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(41);
+    // 0039 / 0041 carry the identical test for the same reason). Bumped to 42
+    // when TASK_2026_380 B1 appended 0042_db_integrity_check_state (41 when
+    // TASK_2026_331 B4 appended 0041_skill_md_migration_state).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(42);
   });
 });
 

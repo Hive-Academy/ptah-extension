@@ -27,6 +27,7 @@ import type { Capability } from './capabilities';
 import {
   AgentRpcHandlers,
   AuthRpcHandlers,
+  BootRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
   CommandRpcHandlers,
@@ -103,6 +104,17 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AuthRpcHandlers.METHODS,
     requires: [],
     handler: AuthRpcHandlers,
+  },
+  {
+    // `requires: []` on purpose. A readiness probe must answer on every host,
+    // and `vscode-core`'s always-ready null adapter guarantees the port
+    // resolves everywhere — so there is nothing for a capability to gate.
+    // Adding a `Capability` member would instead force every profile to opt in
+    // and make `resolveRpcHandlerPlan` throw for any that forgot.
+    key: 'boot',
+    methods: BootRpcHandlers.METHODS,
+    requires: [],
+    handler: BootRpcHandlers,
   },
   {
     key: 'autocomplete',

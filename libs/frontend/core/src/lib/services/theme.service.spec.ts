@@ -111,6 +111,71 @@ describe('ThemeService', () => {
 
       expect(service.currentTheme()).toBe('anubis-light');
     });
+
+    /**
+     * Regression, TASK_2026_187 Unit 9 / PR #463.
+     *
+     * `index.html`'s pre-paint script resolves the theme from
+     * `vscode.getState()` OR the `localStorage` mirror, whichever answers
+     * first, and paints it. This service used to read only the first source.
+     * When it came back empty — VS Code discards a disposed webview's state
+     * while `localStorage` survives — initialization fell through to the
+     * default and the `data-theme` effect repainted the user's theme back to
+     * `anubis` one frame after the correct paint. Observed as
+     * `expected "anubis-light", received "anubis"` in
+     * `apps/ptah-electron-e2e/src/specs/theme/theme.spec.ts`.
+     */
+    describe('when vscode state is empty but the localStorage mirror survives', () => {
+      it('adopts the mirrored theme instead of repainting to the default', () => {
+        localStorage.setItem('ptah-theme', 'anubis-light');
+
+        const service = configure(createMockVscode({ themeKind: 'dark' }));
+        TestBed.inject(ApplicationRef).tick();
+
+        expect(service.currentTheme()).toBe('anubis-light');
+        expect(document.documentElement.getAttribute('data-theme')).toBe(
+          'anubis-light',
+        );
+      });
+
+      it('adopts a mirrored DEFERRED theme and requests its sheet', () => {
+        addDeferredSheetMarker();
+        localStorage.setItem('ptah-theme', 'dracula');
+
+        const service = configure(createMockVscode({ themeKind: 'dark' }));
+
+        expect(service.currentTheme()).toBe('dracula');
+        expect(deferredSheetLink()).not.toBeNull();
+      });
+
+      it('repairs the authoritative store from the mirror', () => {
+        localStorage.setItem('ptah-theme', 'nord');
+        const mock = createMockVscode();
+
+        configure(mock);
+
+        expect(mock.setState).toHaveBeenCalledWith('theme', 'nord');
+      });
+
+      it('ignores an unrecognised mirror value and uses the theme kind', () => {
+        localStorage.setItem('ptah-theme', 'not-a-real-theme');
+
+        const service = configure(createMockVscode({ themeKind: 'light' }));
+
+        expect(service.currentTheme()).toBe('anubis-light');
+      });
+    });
+
+    it('prefers the authoritative vscode state over a stale localStorage mirror', () => {
+      localStorage.setItem('ptah-theme', 'nord');
+      const mock = createMockVscode({ persisted: 'dracula' });
+
+      const service = configure(mock);
+
+      expect(service.currentTheme()).toBe('dracula');
+      // Nothing to repair — the authoritative store already answered.
+      expect(mock.setState).not.toHaveBeenCalled();
+    });
   });
 
   describe('setTheme()', () => {

@@ -431,3 +431,126 @@ describe('BootCoordinator — warmup barrier', () => {
     expect(warmup).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('BootCoordinator — phase state (TASK_2026_380)', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('starts at `starting` / `warming` with a boot-start instant', () => {
+    const coordinator = new BootCoordinator();
+
+    const snapshot = coordinator.snapshot();
+
+    expect(snapshot.phase).toBe('starting');
+    expect(snapshot.readiness).toBe('warming');
+    expect(snapshot.startedAt).toBe(coordinator.startedAt);
+    expect(snapshot.detail).toBeUndefined();
+  });
+
+  it('emits once per distinct phase', () => {
+    const emit = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange(emit);
+
+    coordinator.setPhase('database', 'Opening the database');
+    coordinator.setPhase('harness', 'Syncing skills and agents');
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[0][0]).toEqual({
+      readiness: 'warming',
+      phase: 'database',
+      detail: 'Opening the database',
+      startedAt: coordinator.startedAt,
+    });
+  });
+
+  it('emits ZERO times for a repeat of the current phase', () => {
+    // Edge-triggered. The renderer contract is one message per transition, so
+    // a call site inside a retry loop must not become a progress tick.
+    const emit = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange(emit);
+
+    coordinator.setPhase('database');
+    emit.mockClear();
+    coordinator.setPhase('database', 'a different detail');
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('reflects the last phase in `snapshot()`', () => {
+    const coordinator = new BootCoordinator();
+
+    coordinator.setPhase('sessions', 'Importing recent sessions');
+
+    expect(coordinator.snapshot()).toEqual({
+      readiness: 'warming',
+      phase: 'sessions',
+      detail: 'Importing recent sessions',
+      startedAt: coordinator.startedAt,
+    });
+  });
+
+  it('does not propagate a throwing emitter into the boot path', () => {
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange(() => {
+      throw new Error('webview manager exploded');
+    });
+
+    expect(() => coordinator.setPhase('database')).not.toThrow();
+    // The state transition still happened — the emit is a side effect of it,
+    // not a precondition for it.
+    expect(coordinator.snapshot().phase).toBe('database');
+  });
+
+  it('tolerates a phase change with no emitter registered', () => {
+    const coordinator = new BootCoordinator();
+
+    expect(() => coordinator.setPhase('index')).not.toThrow();
+    expect(coordinator.snapshot().phase).toBe('index');
+  });
+
+  it('moves to `settled` / `ready` when the post-window boot resolves', async () => {
+    const emit = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange(emit);
+
+    coordinator.setPhase('index', 'Starting background services');
+    coordinator.startPostWindow(async () => undefined);
+    await coordinator.awaitCompletion(1000);
+
+    expect(coordinator.snapshot()).toEqual({
+      readiness: 'ready',
+      phase: 'settled',
+      startedAt: coordinator.startedAt,
+    });
+    expect(emit).toHaveBeenLastCalledWith(coordinator.snapshot());
+  });
+
+  it('KEEPS the last phase when the boot fails', async () => {
+    // "Failed during `harness`" is the only thing the renderer can say about
+    // where a boot died; overwriting it with `settled` would throw that away.
+    const emit = jest.fn();
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange(emit);
+
+    coordinator.setPhase('harness', 'Syncing skills and agents');
+    coordinator.startPostWindow(async () => {
+      throw new Error('boot blew up');
+    });
+    await coordinator.awaitCompletion(1000);
+
+    expect(coordinator.snapshot()).toEqual({
+      readiness: 'failed',
+      phase: 'harness',
+      detail: 'Syncing skills and agents',
+      startedAt: coordinator.startedAt,
+    });
+  });
+});
