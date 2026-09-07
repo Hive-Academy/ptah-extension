@@ -19,7 +19,6 @@ import {
   output,
   signal,
   ChangeDetectionStrategy,
-  OnInit,
 } from '@angular/core';
 import { LucideAngularModule, Users, ChevronDown } from 'lucide-angular';
 import {
@@ -141,7 +140,7 @@ import {
   styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentSelectorComponent implements OnInit {
+export class AgentSelectorComponent {
   private readonly agentDiscovery = inject(AgentDiscoveryFacade);
   private readonly keyboardNav = inject(KeyboardNavigationService);
   readonly UsersIcon = Users;
@@ -155,27 +154,14 @@ export class AgentSelectorComponent implements OnInit {
   readonly isOpen = this._isOpen.asReadonly();
   readonly activeIndex = this.keyboardNav.activeIndex;
 
-  ngOnInit(): void {
-    this.preloadAgents();
-  }
-
   /**
-   * Pre-load agents in background
-   */
-  private async preloadAgents(): Promise<void> {
-    try {
-      await this.agentDiscovery.fetchAgents();
-      this._agents.set(this.agentDiscovery.searchAgents(''));
-    } catch (error) {
-      console.error(
-        '[AgentSelectorComponent] Failed to preload agents:',
-        error,
-      );
-    }
-  }
-
-  /**
-   * Toggle dropdown visibility
+   * Toggle dropdown visibility.
+   *
+   * Agents are fetched lazily on first open — there is deliberately no
+   * `ngOnInit` preload (TASK_2026_383 Batch 10.1): the eager
+   * `autocomplete:agents` RPC cost 500 ms median (up to 709 ms) on every boot
+   * for a dropdown most sessions never open. `AgentDiscoveryFacade` caches the
+   * result, so the second open is free.
    */
   async toggleDropdown(): Promise<void> {
     if (this._isOpen()) {
