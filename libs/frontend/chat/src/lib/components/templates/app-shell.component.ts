@@ -55,6 +55,7 @@ import {
   AppStateManager,
   AuthStateService,
   BootStatusService,
+  defaultSessionName,
   VSCodeService,
   ClaudeRpcService,
   LazyViewService,
@@ -476,19 +477,6 @@ export class AppShellComponent {
   }
 
   /**
-   * Generate slugified default session name from current timestamp
-   * Format: session-MM-DD-HH-mm (e.g., "session-12-11-14-45")
-   */
-  private generateDefaultSessionName(): string {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `session-${month}-${day}-${hours}-${minutes}`;
-  }
-
-  /**
    * Open session name popover
    */
   createNewSession(): void {
@@ -502,7 +490,7 @@ export class AppShellComponent {
    */
   handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
-    const sessionName = name || this.generateDefaultSessionName();
+    const sessionName = name || defaultSessionName();
 
     if (this.layoutMode() === 'grid') {
       this.appState.requestNewCanvasSession(sessionName);
