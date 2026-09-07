@@ -450,3 +450,186 @@ one of these two decisions — per this batch's own hard-gate rule (A-4 / R-7).
 - **Cold-cache fidelity**: same caveat as 380 — the 32 GB scratch-file
   eviction is a weaker proxy for "cold" than `RAMMap -Es`, which remains
   unavailable in a non-interactive, non-elevated shell on this machine.
+
+---
+
+## Batch 9 — cold re-measurement (2026-09-07 re-run)
+
+> **Revised.** The original body of this section analyzed two runs that
+> turned out to be invalid: the database copy was unmigrated (schema version
+> 41), so both runs paid a one-time pre-migration backup instead of measuring
+> steady state, and no cold-cache eviction was recorded for them. The
+> coordinator rewrote `batch-9-raw-measurement.md` with three corrected
+> steady-state runs (pre-migrated copy, 32 GB eviction pass before each,
+> quiet machine) plus recovered event-loop-lag figures, and supplied
+> `research-report.md` establishing which of the five Track C remedies are
+> actually implemented on this branch. The analysis below supersedes
+> everything previously written in this section; the invalid two-run data is
+> preserved only inside `batch-9-raw-measurement.md`'s own "Discarded runs"
+> table, not repeated here.
+
+### Scope
+
+- **User request**: analyze the corrected Batch 9 cold-measurement data
+  (three steady-state runs, pre-migrated DB, cold-cache eviction confirmed)
+  against the 380 baseline, answer the 30%-movement gate question, judge each
+  Track C remedy against both the new numbers and the research report's
+  implementation-status findings, and state whether 380 criterion 2
+  (event-loop lag) is met now that it is measurable. No new measurement was
+  taken for this revision — analysis of already-collected data only.
+- **Criteria tested**: the same five 380-named handlers, the readiness-guard
+  question (does any RPC arrive before SQLite opens), 380 criterion 2
+  (max event-loop lag ≤ 500 ms), and `PRAGMA optimize` isolation (item A-2).
+- **Deliberately not tested**: nothing was skipped this time. Lag is now
+  measured from the app's own retained log rather than the probe.
+
+### Before/after table vs. the TASK_2026_380 baseline (median of 3 runs)
+
+| Handler                         | 380 baseline |   Run A |   Run B |   Run C |  Median |   Δ median | Movement >30%? |
+| ------------------------------- | -----------: | ------: | ------: | ------: | ------: | ---------: | :------------: |
+| `config:models-list` (1st call) |      2296 ms | 1368 ms | 1175 ms | 1157 ms | 1175 ms | **−48.8%** |    **yes**     |
+| `auth:getAuthStatus`            |      2244 ms |  283 ms |  753 ms |  734 ms |  734 ms | **−67.3%** |    **yes**     |
+| `session:list` (1st call)       |      2291 ms |    3 ms |  234 ms |  212 ms |  212 ms | **−90.7%** |    **yes**     |
+| `git:info`                      |      2476 ms |  364 ms |  436 ms |  710 ms |  436 ms | **−82.4%** |    **yes**     |
+| `autocomplete:agents`           |      4095 ms |   13 ms |  500 ms |  709 ms |  500 ms | **−87.8%** |    **yes**     |
+
+**Run-to-run variance is large and must be read alongside the median, not
+instead of it.** `autocomplete:agents` spans 13 to 709 ms and `session:list`
+spans 2 to 234 ms across three runs of the identical build against the
+identical database copy. Run A is a low outlier on both handlers — treating
+any single run as the answer would be unsafe, which is why every figure
+above and below is the median of three, not a single best or worst run.
+
+### Gate question, answered explicitly
+
+380's rule: numbers moving more than 30% mean the remedies must be
+re-selected before Batch 10/11 proceed. Every one of the five gated
+handlers' medians moved 48.8% to 90.7% past baseline, all in the improving
+direction. The rule as written does not exempt the improving direction, so
+the letter of the gate is triggered: **re-selection is required.**
+
+Unlike the discarded runs, nothing here collapses to near-zero: the medians
+still range 212 ms to 1175 ms — real, sub-second-to-low-single-second costs,
+not noise. So the re-selection this time is a **re-weighing of magnitude**,
+not a discovery that the underlying problem vanished.
+
+### Track C remedy assessment — measurement plus implementation status
+
+The research report checked whether each remedy is already done on this
+branch; that status changes what "still justified" means far more than the
+raw ms figures alone, so both are given together.
+
+| Remedy (batches.md)                                                    | Handler               | 380 cost     | Median now                                                 | Implemented on this branch? (research-report.md)                                                                                                                                                                                  | Still justified?                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------- | --------------------- | ------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delete eager agent preload (10.1, component 13)                        | `autocomplete:agents` | 4095 ms      | 500 ms (13–709 ms range)                                   | **Not done.** `ngOnInit` still calls `preloadAgents()` at `agent-selector.component.ts:158-174`, untouched by anything upstream.                                                                                                  | **Yes.** The code is unwritten and the cost is real and noisy (up to 709 ms observed), not eliminated by some other fix. This is the strongest "still needed" case of the five precisely because nothing else already did it.                                                                                                                                                   |
+| Drop constructor `loadModels()` (10.2, component 14 frontend half)     | `config:models-list`  | 2296 ms      | 1175 ms (1st), 167–905 ms (2nd)                            | **Not done** — line 151 unchanged. The drop from 2296 ms is explained by the SDK spawn moving off-thread elsewhere (TASK_2026_353), not by anything in Track C.                                                                   | **Yes, but re-measure the specific payoff before committing.** The duplicate call itself is still there (two arrivals, every run); deleting it still removes a real ~1.2 s + ~0.2–0.9 s pair, but the expensive part (the spawn) is already off-thread, so the actual latency this task buys back may be closer to "avoid one redundant RPC" than "avoid a multi-second block." |
+| Coalesce `session:list` (10.3, component 17)                           | `session:list`        | 2291 ms (×2) | 212 ms (1st), 179–234 ms (2nd, ex. Run A's 2-3 ms outlier) | **Not done** on the frontend loader — still only a 300 ms debounce, no shared in-flight promise. The drop appears to come from backend-side session/JSONL caching, not the planned frontend fix.                                  | **Yes, but as call-count hygiene, not latency relief.** Two ~200 ms calls instead of two ~2.3 s calls is a real, still-duplicated shape; coalescing them saves roughly 200 ms once, which is worth doing but is a materially smaller prize than 380 implied.                                                                                                                    |
+| Persist SDK model catalog cross-boot (11.1, component 14 backend half) | `config:models-list`  | 2296 ms      | see above                                                  | **Not done** — `modelsCache`/`pendingModels` are in-memory Maps, no `IStateStorage` read/write.                                                                                                                                   | **Yes.** Payoff is now bounded to "first RPC of _this_ boot" rather than "first RPC ever," which is smaller than 380 assumed, but the ~1.2 s first-call cost recurs on every single boot without this, so persisting it cross-boot remains worthwhile.                                                                                                                          |
+| Persist CLI health verdict cross-boot (11.2, component 16)             | `auth:getAuthStatus`  | 2244 ms      | 734 ms (283–753 ms range)                                  | **Not done**, but the in-process fix (`ClaudeCliDetector` single-flight + 30 s `--version` TTL, commit `f7c8d6c7a`) already collapsed the repeated-probe cost _within_ a boot, which is most of why the number fell from 2244 ms. | **Yes.** A ~734 ms median first-boot health-check spawn is still a real, unpersisted cost that a cross-boot memo would remove entirely; this was wrongly called "no longer justified" against the invalid data, where the number read 0-1 ms.                                                                                                                                   |
+| Route `git:info` through `IProcessSpawner` (11.3, component 15)        | `git:info`            | 2476 ms      | 436 ms (364–710 ms range)                                  | **Not done.** Only the git-binary-resolution optimization (`fa1d2d92a`) landed; the spawn is still inline `crossSpawn`, no `IProcessSpawner` anywhere in `vscode-core`.                                                           | **Yes — the largest remaining gap of the five.** `git:info` improved only ~2.5–5.7×, versus the ~50× (~1.6-2 s inline → ~29 ms max delay) TASK_2026_341 already achieved elsewhere for off-thread spawns generally. This is still a synchronous main-thread block, and the fix that would remove it is proven to work, just not applied here.                                   |
+
+**All five remedies are unimplemented on this branch and all five remain
+justified**, though at reduced and uneven magnitude relative to 380's
+assumptions: `git:info` (11.3) is now the largest single remaining gap;
+`autocomplete:agents` (10.1) and `auth:getAuthStatus` (11.2) still carry
+several-hundred-millisecond, fully-removable costs; `config:models-list`
+(10.2/11.1) and `session:list` (10.3) carry smaller, partly-already-mitigated
+costs where the remaining prize is a duplicate call rather than a multi-second
+block. This replaces the earlier (invalid-data) verdict that
+`autocomplete:agents` and `session:list` coalescing were "no longer
+justified" — that conclusion was an artifact of measuring a one-time
+migration boot on a warm cache, not the steady state.
+
+### The dominant remaining cost is now a confirmed finding, not a hypothesis
+
+The discarded runs' 11045–12474 ms `openAndMigrate()` readiness window is
+**confirmed** by `research-report.md` to be the **pre-migration backup**
+(`SqliteMigrationRunner.applyAll`, `migration-runner.ts:87-101`), which copies
+and validates the ~1 GB database whenever `pending.length > 0` — i.e. once,
+on the first boot after an app update ships a migration this database has
+not yet applied. It is not migration bodies, not sqlite-vec load, and not
+`PRAGMA` work (all separately timed and ruled out). A prior session measured
+the same event at 75073 ms on a contended machine; `persistence-sqlite`'s own
+doc comment independently pins the pre-worker-move version of this backup at
+~27 s inline on a 1 GB file.
+
+In the corrected steady-state runs (post-migration, no pending backup), the
+same `openAndMigrate()` call takes 31–169 ms — confirming the entire
+11–12.5 s difference was this one-time backup, not a per-boot cost.
+
+**This remains real and user-facing** — every user whose local database
+carries a pending migration when they update pays this once — **and no batch
+in `batches.md` currently targets it.** Unlike the prior draft of this
+section, this is now stated as a confirmed cause (traced to a named file and
+line range, corroborated by two independent measurements), not a plausible-
+but-unconfirmed hypothesis about backup guards or thread placement.
+
+### 380 criterion 2 (event-loop lag) — now measurable, and NOT met
+
+Recovered from the app's own `[event-loop] lag` lines in the retained
+`userData/logs/*.log` (the probe itself does not record lag; `--keep-db`
+made the log retrievable). The monitor only reports samples above 250 ms.
+
+| Lag run |   Max lag |                Spikes above 500 ms |
+| ------- | --------: | ---------------------------------: |
+| 1       |  493.6 ms |                                  0 |
+| 2       |  547.4 ms |                                  1 |
+| 3       | 1502.6 ms | 4 (1502.6, 1424, 1017.1, 833.1 ms) |
+
+380's ceiling is 500 ms; 380 itself measured 1073.7 ms. **The ceiling is
+exceeded in 2 of 3 runs here, and the worst run (1502.6 ms) is worse than
+380's own baseline figure.** Criterion 2 is **not met**. Lag run 3 followed
+two failed probe launches, so residual load may have inflated it — but runs
+1 and 2 had no such preceding load and still straddle the 500 ms line, so the
+ceiling is not being cleared even in the clean runs. This is a hard finding
+now, replacing the prior draft's "cannot be judged" — the instrument gap
+that made criterion 2 unjudgeable is closed.
+
+### Readiness-guard question and A-2, reconfirmed
+
+- **Readiness window, steady state: 130–260 ms** across seven measured
+  values (161, 157, 169, then 134, 148, 169, 258 ms). No RPC arrives before
+  SQLite opens in any steady-state run — reproducing all three of 380's own
+  runs. **No readiness guard ships**, on any method.
+- **`PRAGMA optimize`**: 0 ms after the connection has touched any table (the
+  only measurement that counts), consistent with a prior session's 100 ms
+  cold / 27 ms warm figures. **Not a boot cost. A-2 needs no follow-up.**
+
+### Honesty about the limits of this data
+
+- **Three runs, not a large sample**, and the variance is large enough that a
+  single run would mislead — `autocomplete:agents` alone spans a 54×
+  range (13 to 709 ms). Every figure in this section is a median of three for
+  that reason, and the range is always given alongside it.
+- **Event-loop lag is now measured, and the finding is unfavorable** (ceiling
+  exceeded in 2 of 3 runs) — stated as a finding, not softened, even though
+  it does not help the "boot is fixed" narrative the collapsed handler
+  numbers might otherwise suggest.
+- **The dominant-cost finding (pre-migration backup) is confirmed by a
+  named file and line range plus two independent measurements**, which is a
+  materially stronger basis than the prior draft's unconfirmed hypothesis —
+  but it is still scoped to "this is what the discarded runs' 11–12.5 s
+  measured," not a claim about every possible cause of a slow boot.
+- **This batch changed nothing in code.** The remedy-justification calls
+  above are read against `research-report.md`'s file:line evidence, not
+  re-verified independently against the source by this report.
+
+### Verdict
+
+**GATE PASSED WITH RE-SELECTION REQUIRED.** All five gated handlers' medians
+moved 48.8–90.7% past the 380 baseline, all improving, which triggers the
+letter of the 30% rule regardless of direction. Unlike the invalid two-run
+data this section previously analyzed, none of the five costs collapsed to
+zero: all five Track C remedies are confirmed **unimplemented** on this
+branch and all five remain justified, though at reduced and uneven
+magnitude — `git:info` (11.3) is the largest remaining gap, `session:list`
+coalescing (10.3) the smallest. Separately, and now as a **confirmed** rather
+than hypothesized finding, the pre-migration backup
+(`migration-runner.ts:87-101`) is a real, user-facing, one-time cost of
+11–75 s that no batch in the current plan targets. Additionally, 380
+criterion 2 (event-loop lag ≤ 500 ms) is now measurable and **is not met**
+(2 of 3 runs exceeded it, worst at 1502.6 ms). Recommend the team-leader
+re-weigh Batch 10/11's five remedies by the corrected magnitudes above
+(prioritizing `git:info`), decide whether the pre-migration backup needs its
+own batch, and treat the still-unmet criterion 2 as an open item the current
+plan does not resolve.

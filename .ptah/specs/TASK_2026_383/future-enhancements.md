@@ -321,19 +321,34 @@ Batch 1 logic review.
 
 ---
 
-## Pending measurement
+## Closed measurement
 
-### A-2 — `PRAGMA optimize` cost
-
-**A-2 (`PRAGMA optimize` cost) — pending Batch 9 measurement.**
+### A-2 — `PRAGMA optimize` cost — MEASURED, no action needed
 
 `PRAGMA optimize` runs at `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts:407`
 (and the CLI twin in `libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts`).
 It stays on the host by necessity — it writes, so it cannot move into the
 read-only worker — and unlike `incremental_vacuum(100)` it is **unbounded**.
-Batch 9 Task 9.2 times it in isolation on the same ~1 GB copy. If it proves to
-cost seconds, it becomes a named follow-up with its own decision, recorded here
-rather than absorbed into another remedy.
+Batch 9 Task 9.2 timed it in isolation on a ~1 GB copy of the real database.
+
+**Result: it is not a boot cost.** Measured 2026-09-07 with `better-sqlite3`
+under `ELECTRON_RUN_AS_NODE=1` (plain `node` cannot load the module — it is
+rebuilt for the Electron ABI):
+
+| Measurement                                   | Result |
+| --------------------------------------------- | -----: |
+| `journal_mode = WAL`                          |   2 ms |
+| `PRAGMA optimize`, fresh connection           |   0 ms |
+| Touch all 57 user tables (`select * limit 5`) |  36 ms |
+| `PRAGMA optimize`, after that load            |   0 ms |
+| `analysis_limit=400` then `optimize`          |   0 ms |
+
+The fresh-connection figure alone proves nothing, because `PRAGMA optimize`
+only analyzes tables the connection already queried. The figure after the table
+load is the one that counts, and it is also 0 ms. A prior session measured
+100 ms cold and 27 ms warm on the same database. Both sets agree.
+
+**A-2 is closed. No follow-up. The unbounded call stays on the host.**
 
 ---
 
@@ -427,6 +442,69 @@ artifacts.
 
 Neither 26 nor 27 is on the boot path; both are on the automatic teardown path
 for a capability that holds an OS window.
+
+---
+
+## Defects in the measurement instrument (`measure-boot-rpcs.mjs`)
+
+Found while running Batch 9 on 2026-09-07. The probe is the tool this task
+depends on to answer its own gate question, so its defects cost measurement
+time directly. None was fixed — Batch 9 owns no files.
+
+### P-1 — intermittent attach failure
+
+`electronApplication.evaluate: Execution context was destroyed` aborts the run
+before the probe installs. Measured rate this session: roughly **1 attempt in
+3**, with one stretch of 4 consecutive failures. Batch 9 needed seven-plus
+attempts to collect three runs.
+
+The application is not at fault. A direct `electron.exe main.mjs` launch with
+identical arguments, database and environment boots correctly through
+`SQLite connection opened + migrated successfully`. Two prior sessions hit the
+same failure and attributed it to transient load after a cache-eviction pass.
+That explanation is incomplete — the failure also occurs with no eviction
+before it. It is not tied to boot speed either: a controlled check on
+steady-state boots succeeded 2 of 3.
+
+**Suggested fix**: retry `app.evaluate(INSTALL_PROBE)` a few times with a short
+delay before giving up, rather than exiting on the first rejection.
+
+### P-2 — the failure path prints no diagnosis
+
+`measure-boot-rpcs.mjs:222-244`. On the early-failure path the script tells the
+reader to "read the stdout above — it is captured before this point and names
+the reason". It is not above. The `record` handler pushes every line into a
+local `stdout` array (`:222-228`) and that array is never printed on this path.
+The reader gets one Playwright error and nothing else, which is what made P-1
+take a direct-launch reproduction to diagnose.
+
+**Suggested fix**: print the collected `stdout` array before `process.exit(1)`.
+The instruction in the message is already correct — only the implementation is
+missing.
+
+### P-3 — the report prints arrival times, not durations
+
+`report()` (`:297-373`) prints each RPC's arrival offset and its outcome, but
+never `answeredAt - sentAt`. Batch 9 exists to compare handler **durations**
+against a baseline, so every duration in `batch-9-raw-measurement.md` had to be
+computed by hand from `tmp/boot-probe.json`. The trace holds both timestamps,
+so the data is there — only the report omits it.
+
+**Suggested fix**: add a duration column, and sort a second table by duration
+descending.
+
+### P-4 — event-loop lag is not in the probe's own output
+
+380 criterion 2 is a lag ceiling, and the probe cannot report against it. The
+lag figures in `batch-9-raw-measurement.md` were recovered from the app's own
+`[event-loop] lag` lines in `userData/logs/*.log`, reachable only because
+`--keep-db` retains the userData directory. `NODE_ENV=production` suppresses
+the console transport that would otherwise echo those lines to the probe's
+stdout.
+
+**Suggested fix**: have the probe read the retained log and fold the lag
+samples into its report, so a criterion-2 verdict does not depend on a reader
+knowing the log exists.
 
 ---
 

@@ -1,6 +1,31 @@
 # Batches - TASK_2026_383
 
-Total tasks: 12 batches | Complete: 6/12
+Total tasks: 12 batches | Complete: 9/12
+
+Batch 9 (the Track C gate) is COMPLETE and passed with re-selection required.
+Batches 10 and 11 were re-scoped against the measured numbers on 2026-09-07 —
+see "Re-selection after the Batch 9 gate" below — ran in parallel, and are both
+now COMPLETE and committed (`8acd5a79b`, `1269a187c`). **Batch 12 is the only
+batch left.** No thirteenth batch was added for the pre-migration backup; the
+reasoning is in that same section.
+
+**Two items were deliberately NOT implemented and must be carried into Batch 12's
+`future-enhancements.md`, not quietly dropped:**
+
+1. **Task 10.2 — DEFERRED.** The `ModelStateService` constructor fetch stays.
+   Deleting it would empty the chat model dropdown on a cold boot, because
+   `createTab` is not on the boot path and `ModelSelectorComponent` has no
+   lazy-load path. Needs an idempotent `ensureLoaded()` first — a cross-lib
+   design change deserving its own task.
+2. **Task 10.3's dashboard rewire — REJECTED.** The dashboard's `session:list`
+   is a genuinely different, `since`-bounded query, and reusing the chat loader
+   would cross a `dashboard` → `chat` feature-lib boundary. The real remedy is a
+   shared workspace-scoped session-metadata cache in a `type:data-access` lib.
+
+Consequently the acceptance criterion "exactly one `session:list` and no
+constructor-fired `config:models-list` in the boot window" is **not fully met**,
+and Batch 12's after-measurement must report it honestly rather than treating
+Batches 10 and 11 as having closed it.
 
 **Working tree for ALL executor work**:
 `D:/projects/ptah-extension/.claude-worktrees/task-383`, branch
@@ -1312,7 +1337,51 @@ Follow-ups filed for Batch 12:
 
 ---
 
-## Batch 9: Track C — cold re-measurement (THE GATE) — PENDING
+## Batch 9: Track C — cold re-measurement (THE GATE) — COMPLETE
+
+**Result: GATE PASSED WITH RE-SELECTION REQUIRED** (2026-09-07). No commit —
+this batch owns no code. Artifacts:
+`D:/projects/ptah-extension/.ptah/specs/TASK_2026_383/batch-9-raw-measurement.md`
+(authoritative raw data, three steady-state runs) and the
+`## Batch 9 — cold re-measurement (2026-09-07 re-run)` section of
+`test-report.md` (analysis and verdict, revised — it supersedes the earlier
+`## Batch 9 — cold re-measurement (THE GATE...)` section, whose two runs were
+taken against an unmigrated database copy and are invalid).
+
+| Handler                         | 380 baseline | Median of 3 | Δ median |
+| ------------------------------- | -----------: | ----------: | -------: |
+| `config:models-list` (1st call) |      2296 ms |     1175 ms |   −48.8% |
+| `auth:getAuthStatus`            |      2244 ms |      734 ms |   −67.3% |
+| `session:list` (1st call)       |      2291 ms |      212 ms |   −90.7% |
+| `git:info`                      |      2476 ms |      436 ms |   −82.4% |
+| `autocomplete:agents`           |      4095 ms |      500 ms |   −87.8% |
+
+All five moved 48.8 to 90.7 percent, all improving. The 30 percent rule does
+not exempt the improving direction, so re-selection was required and is
+recorded under Batches 10 and 11 below. Three further findings:
+
+- **Readiness window is 130 to 260 ms** across seven measured values. **No RPC
+  arrives before SQLite opens** in any steady-state run, reproducing all three
+  of 380's runs. **No readiness guard ships.**
+- **380 criterion 2 is NOT met.** Max event-loop lag 493.6, 547.4 and
+  1502.6 ms against a 500 ms ceiling. See "Criterion 2" below.
+- **Task 9.2 / item A-2 closed**: `PRAGMA optimize` costs 0 ms once the
+  connection has touched any table, consistent with a prior session's 100 ms
+  cold / 27 ms warm. **Not a boot cost, no follow-up.** The A-2 placeholder in
+  `future-enhancements.md` can now be filled (Task 12.3 remainder).
+
+**Cost of getting the measurement**: seven-plus probe attempts. The probe
+aborts with Playwright's `Execution context was destroyed` before it installs,
+at roughly 1 attempt in 3, with four consecutive failures once. A direct launch
+of the same build, database and environment boots cleanly through
+`SQLite connection opened + migrated successfully`, so the application is not
+at fault; two prior sessions hit the same failure. Two further probe defects
+were found: the failure path collects stdout into an array and never prints it
+(`measure-boot-rpcs.mjs:222-244`), so the reader gets one Playwright error and
+nothing else; and the probe's report prints arrival times, not durations, so
+every duration in the raw file was computed by hand from
+`tmp/boot-probe.json`. All three go to `future-enhancements.md` — Task 12.2
+re-runs this method and will hit the same wall.
 
 - Component: 12
 - Recommended executor: `senior-tester`
@@ -1325,7 +1394,7 @@ Follow-ups filed for Batch 12:
 - **Hard gate: Batches 10 and 11 may not be assigned until this batch is
   COMPLETE.** (A-4 / R-7.)
 
-### Task 9.1: cold re-measurement — PENDING
+### Task 9.1: cold re-measurement — COMPLETE
 
 Method, reproduced from `TASK_2026_380/test-report.md` so it is not re-derived:
 
@@ -1352,33 +1421,157 @@ numbers are comparable. Baseline to beat: `auth:getAuthStatus` 2244,
 `config:models-list` 2296, `session:list` 2291, `git:info` 2476,
 `autocomplete:agents` 4095.
 
-### Task 9.2: time `PRAGMA optimize` in isolation — PENDING
+### Task 9.2: time `PRAGMA optimize` in isolation — COMPLETE
 
 - **A-2.** It stays on the host by necessity (it writes) and it is unbounded,
   unlike `incremental_vacuum(100)`. Time it on the same 1 GB copy. If it is
   seconds, it is a named follow-up needing its own decision — record it, do not
   absorb it.
 
-### Batch 9 verification
+### Batch 9 verification — PASSED
 
-- The recorded table exists in the task folder and states which cold-cache method
-  was used.
-- **Gate**: if the numbers do not reproduce within ~30%, the Batch 10/11 remedies
-  **do not ship as written**. The team-leader returns the measured table to the
-  orchestrator and the remedies are re-selected before either batch is assigned.
+- The recorded table exists in the task folder (`batch-9-raw-measurement.md` +
+  `test-report.md`) and states the cold-cache method: 32 GB scratch
+  write+read+delete before each measured run, on a 27.86 GB machine.
+  `RAMMap -Es` needs interactive elevation this shell cannot grant — same
+  constraint 380 hit, carried forward as a stated fidelity caveat.
+- **Gate fired.** The numbers did not reproduce within ~30%; they improved by
+  48.8 to 90.7%. Batches 10 and 11 therefore **do not ship as written**. The
+  re-selection is recorded in-place below. Both batches are now assignable.
 
-Commit: `test(electron): batch 9 - cold re-measurement of the boot rpc window`
+No commit — this batch owns no files in the worktree. The task-folder documents
+it produced are staged for the docs commit with the rest of the task folder.
 
 ---
 
-## Batch 10: Track C — frontend remedies — PENDING
+## Re-selection after the Batch 9 gate (2026-09-07)
+
+The gate demanded a re-weighing of the five Track C remedies against measured
+cost. `research-report.md` independently established that **all five are
+unimplemented on this branch** — the collapse from 380's baseline came from
+work already merged into `main` before either task branched (TASK_2026_353
+off-thread SDK spawns, TASK_2026_341 off-thread CLI spawns, and the
+CLI-detector coalescing commit `f7c8d6c7a`), by different mechanisms than
+Track C plans. So no remedy is redundant; each one is re-priced, not
+re-invented.
+
+| Remedy                               | Handler               | 380 assumed |            Measured now | Decision                                                     |
+| ------------------------------------ | --------------------- | ----------: | ----------------------: | ------------------------------------------------------------ |
+| 11.3 route `git:info` off-thread     | `git:info`            |     2476 ms | 436 ms median (364–710) | **KEEP, promoted to first priority.** Largest remaining gap. |
+| 11.1 persist model catalog           | `config:models-list`  |     2296 ms | 1175 ms median 1st call | **KEEP at full scope.** Largest single per-boot number left. |
+| 10.1 delete eager agent preload      | `autocomplete:agents` |     4095 ms |  500 ms median (13–709) | **KEEP.** One-line delete, fully removable cost.             |
+| 11.2 persist CLI health verdict      | `auth:getAuthStatus`  |     2244 ms | 734 ms median (283–753) | **KEEP.**                                                    |
+| 10.2 drop constructor `loadModels()` | `config:models-list`  |     2296 ms |  1175 / 167–905 ms pair | **KEEP, resized** to call-count hygiene.                     |
+| 10.3 coalesce `session:list`         | `session:list`        |  2291 ms ×2 |   212 / 179–234 ms pair | **KEEP, resized and demoted** to last in Batch 10.           |
+
+Nothing is dropped. Two are resized downward (10.2, 10.3) because the
+multi-second block they were designed against is already off-thread and the
+remaining prize is one redundant RPC of a few hundred ms, not seconds. The
+per-batch ordering below is changed to put the largest measured win first in
+each batch, so that if either batch is cut short the highest-value task has
+already landed. **The file-disjoint property between Batches 10 and 11 is
+unchanged** — no file moved between them — so they still run in parallel.
+
+### Criterion 2 (event-loop lag ≤ 500 ms) — still unmet, and this work is not expected to close it
+
+Measured max lag: 493.6, 547.4 and 1502.6 ms across three runs. Stated plainly,
+because the temptation is to assume the batches below will fix it: **they very
+likely will not, and nothing in the current plan is known to.** The evidence is
+in the raw file — all three lag runs recorded **zero slow-handler log lines**.
+The lag spikes do not coincide with any of the five handlers Batches 10 and 11
+touch. Removing those handlers' cost therefore has no measured connection to
+the spikes.
+
+The one remedy with a plausible mechanism is **11.3**: an inline `crossSpawn`
+blocks the main process (TASK_2026_341 measured ~1.6 s per launch inline versus
+a 29 ms host-loop max delay off-thread), and a 1502 ms spike is the right order
+of magnitude for exactly that. 11.2 removes a second inline `crossSpawn`
+(`claude --version`) with the same mechanism at smaller scale. Neither is
+demonstrated to be the cause. 10.1, 10.2, 10.3 and 11.1 have no plausible path
+to a main-thread lag spike at all — they remove RPC calls whose expensive part
+already runs off-thread.
+
+**Consequence for Task 12.2**: the after-measurement must not report criterion 2
+as met or unmet on the aggregate number alone. It must attribute each spike
+above 500 ms to a source before anyone claims the criterion moved. If the
+spikes survive Batches 10 and 11 — the likely outcome — criterion 2 is an open
+item this task does not close, and it must be recorded as such rather than
+carried as a silent failure.
+
+### The pre-migration backup — no batch, and why
+
+`migration-runner.ts:87-101` awaits a full copy-and-validate of the ~1 GB
+database whenever `pending.length > 0`. Measured 11.0 to 12.5 s on a quiet
+machine and 75.1 s on a contended one. It is real, user-facing, and every user
+whose database carries a pending migration pays it once on the first boot after
+an update. **It gets no batch in TASK_2026_383.** Track B's own charter target
+— no main-thread lag spike attributable to the backup — is already met by
+Batches 6 to 8: the copy and its `quick_check` now run in the integrity worker,
+off the host thread. What remains is not a thread-placement defect but a
+deliberate _blocking await_, and every candidate remedy (skip the backup for
+additive-only migrations, run it after the migration instead of before, use a
+delta or hard-link copy, gate it on file size, or surface it as visible
+progress) trades durability for latency. Choosing among those is architecture,
+not decomposition, and inventing one here would leave `implementation-plan.md`
+and this file disagreeing about the Track B design. **Recommendation**: record
+it in `future-enhancements.md` as a named, measured finding under Task 12.3's
+remainder, and open a separate task with `software-architect` for the remedy.
+Do not let Task 12.2's after-measurement quietly absorb it — its 11 to 75 s
+dwarfs everything Batches 10 and 11 buy back combined.
+
+---
+
+## Batch 10: Track C — frontend remedies — COMPLETE (10.2 DEFERRED)
+
+- **Commit**: `8acd5a79b` — `perf(chat-ui): batch 10 - drop eager agent preload and single-flight session list`
+- **Landed**: 10.1 and 10.3's single-flight. **10.2 is DEFERRED, not done** — see
+  its task entry below for the evidence.
+- **Verified independently by team-leader**, not taken from the report:
+  - `npx nx run-many -t test -p @ptah-extension/chat-ui @ptah-extension/core @ptah-extension/chat @ptah-extension/chat-state @ptah-extension/dashboard`
+    → header read back as **`Running target test for 5 projects`** (N = 5, nothing
+    silently dropped), `Successfully ran target test for 5 projects`. Counts match
+    the report exactly: core 28/656, chat-state 15/338, dashboard 4/43,
+    chat-ui 23/122, chat 62 suites / 946 passed + 2 skipped.
+  - `npx nx run-many -t lint -p @ptah-extension/chat-ui @ptah-extension/core @ptah-extension/chat @ptah-extension/dashboard`
+    → 17 problems, **0 errors**, all pre-existing.
+  - Diffs read in full. Real implementations, no stubs or TODO markers. The
+    single-flight clears itself under an identity guard in `finally`, so it
+    cannot silently become a cache.
+  - `model-state.service.ts` and `session-analytics-state.service.ts` confirmed
+    **unmodified** on disk, consistent with the two deviations.
+- Staged by explicit path (4 files). `.gitignore` — a `# ptah:harness:begin`
+  managed block written by the running Ptah app's harness sync — was deliberately
+  left unstaged, as were `npm-ci.log` and `.ptah/specs/TASK_2026_383/`.
+- The pre-commit hook ran `nx format:write` on the staged files and produced **no
+  whitespace changes**; the commit is byte-identical to what was staged. Nothing
+  was amended and no hook was bypassed.
+
+### Batch 10 review note
+
+No separate `code-logic-reviewer` / `code-style-reviewer` pass was run before this
+commit — the orchestrator directed the commit on the strength of team-leader's
+independent verification (tests, lint, and a full diff read). Recorded here so the
+batch history is accurate rather than implying a review gate that did not run.
+
+## Batch 10 (original batch text follows)
 
 - Components: 13, 17, and 14's frontend half
 - Recommended executor: `frontend-developer`
 - Fallback executor: `claude` sub-agent
 - Execution mode: `sub-agent`, sequential
-- Depends on: **Batch 9 COMPLETE and its gate passed**
-- Parallel with: Batch 11 (fully file-disjoint)
+- Depends on: **Batch 9 COMPLETE and its gate passed** — both true as of
+  2026-09-07. This batch is unblocked.
+- Parallel with: Batch 11 (fully file-disjoint — unchanged by the re-selection)
+- **Execution order after re-selection: 10.1, then 10.2, then 10.3.** Largest
+  measured win first. If the batch is cut short, 10.3 is the one to lose.
+- **Measured cost this batch buys back**: ~500 ms median (10.1) + one redundant
+  `config:models-list` RPC of 167–905 ms (10.2) + one redundant `session:list`
+  RPC of ~200 ms (10.3). Total order-of-magnitude: under one second, not the
+  ~8.7 s the 380 baseline implied. Scope the effort accordingly — this is
+  boot-path hygiene now, not a multi-second rescue.
+- **All three tasks confirmed unimplemented** on this branch by
+  `research-report.md` with file:line evidence. None was silently fixed
+  upstream.
 - Files owned (exclusive):
   - MODIFY `libs/frontend/chat-ui/src/lib/molecules/chat-input/agent-selector.component.ts` + spec
   - MODIFY `libs/frontend/core/src/lib/services/model-state.service.ts` + spec
@@ -1386,8 +1579,19 @@ Commit: `test(electron): batch 9 - cold re-measurement of the boot rpc window`
   - MODIFY `libs/frontend/dashboard/src/lib/services/session-analytics-state.service.ts` + spec
     (**PC-8**: this is the real path; the plan wrote an ellipsis)
 
-### Task 10.1: delete the eager agent preload — PENDING
+### Task 10.1: delete the eager agent preload — COMPLETE (`8acd5a79b`)
 
+Deleted `ngOnInit`, `preloadAgents()`, the `implements OnInit` clause and the
+now-unused `OnInit` import — deleted, not flagged off, as the batch required.
+`preloadAgents` had no remaining caller (verified independently). A new
+`agent-selector.component.spec.ts` pins no-fetch-on-mount plus the lazy
+first-open and no-refetch-on-second-open paths; the component had no spec before.
+
+- **Measured**: `autocomplete:agents` 500 ms median, 13–709 ms across three
+  runs — a 54× spread, so treat 709 ms as the cost, not 13 ms. Down from
+  4095 ms, but the whole of it is still removable and nothing upstream removed
+  it: the `ngOnInit` preload is still present verbatim
+  (`agent-selector.component.ts:158-174`). Strongest keep of the five.
 - **PC-5**: `ngOnInit` is at `:157-159`, `preloadAgents` at `:165-174`,
   `toggleDropdown` at `:180`.
 - Delete the `ngOnInit` preload. The dropdown already loads on open, guarded by
@@ -1399,8 +1603,58 @@ Commit: `test(electron): batch 9 - cold re-measurement of the boot rpc window`
   unacceptable, arm the preload on **first user interaction with the composer**
   rather than on mount — decide from the measurement, not in advance.
 
-### Task 10.2: drop the constructor model fetch — PENDING
+### Task 10.2: drop the constructor model fetch — DEFERRED (not implemented, needs its own task)
 
+**Status: DEFERRED, not done.** `libs/frontend/core/src/lib/services/model-state.service.ts`
+is unmodified and is not in commit `8acd5a79b`. The executor hit the exact
+stop-and-report condition PC-2 defines and stopped correctly rather than
+improvising a redesign the batch forbade.
+
+**Evidence, re-verified independently by team-leader (not taken from the report):**
+
+- PC-2's binding **does** resolve: `TabManagerService:782` →
+  `MODEL_REFRESH_CONTROL` → `model-refresh-control.provider.ts:24-33` →
+  `ModelStateService.refreshModels` → `loadModels`. The literal check passes.
+- But **`createTab` is never called on the boot path.** `grep -rn "\.createTab("`
+  over `libs` and `apps`, specs excluded, returns six production callers and all
+  six are user-initiated: `app-shell.component.ts:510` (new-session confirm),
+  `keyboard-shortcuts.service.ts:67`, `message-sender.service.ts:349`,
+  `task-prompt-bridge.service.ts:59`, `canvas.store.ts:154`,
+  `tribunal-run.service.ts:170`. No `tabs().length === 0` bootstrap exists in
+  `chat`, `chat-state` or `ptah-extension-webview` — the only `length === 0`
+  hits are in compaction and turn-end handlers, not tab creation.
+- **`ModelSelectorComponent` has no lazy-load path.** `grep` over
+  `model-selector.component.ts` finds `availableModels()` at `:197`, `:207`,
+  `:217` and `isLoaded()` at `:106` — and **no** `ngOnInit`, `ensureLoaded`,
+  `loadModels` or `refreshModels` anywhere in the file.
+
+**Consequence**: `ModelStateService`'s constructor is the only thing populating
+`availableModels()` on a cold boot. Deleting `:151` would leave a user who boots
+into restored tabs staring at the `isLoaded() && length === 0` empty state in the
+chat model dropdown until they happened to create a tab, switch workspace or open
+settings. That trades a 167–905 ms redundant RPC for a broken control on the main
+chat surface — a functional regression, not a perf win.
+
+**Verdict: deferral ACCEPTED.** The evidence supports it on all three legs.
+
+**Remedy for the follow-up task** (explicitly NOT done here, because it is a
+model-loading design change across two libs): give `ModelStateService` an
+idempotent `ensureLoaded()` — the shape `PluginCatalogService.ensureLoaded()` and
+`AuthStateService.loadAuthStatus()` (`auth-state.service.ts:575-591`) already use
+in this repo — have `ModelSelectorComponent` call it on mount, then delete `:151`.
+That moves the fetch from boot to first render of the control that needs it
+without losing it. Carry this into `future-enhancements.md` under Batch 12.
+
+Original batch text for this task follows, retained for the record:
+
+- **Measured**: `config:models-list` arrives twice in every run — 1175 ms
+  median first call, 167–905 ms second. Line `:151` is unchanged; the drop from
+  2296 ms came from the SDK spawn moving off-thread (TASK_2026_353), not from
+  anything Track C plans.
+- **Resized**: the prize is _one redundant RPC_, not a multi-second main-thread
+  block — the block is already gone. Do the one-line delete and the PC-2
+  binding check; do not expand this into a model-loading redesign on the
+  strength of the old 2296 ms figure.
 - **PC-1**: the constructor call at `:151` is `this.loadModels()`, **not**
   `refreshModels()`. Delete line `151` only. Line `:152`
   (`void this.hydratePricing()`) is **out of scope** and stays.
@@ -1412,8 +1666,52 @@ Commit: `test(electron): batch 9 - cold re-measurement of the boot rpc window`
 - In-flight coalescing keyed on `WorkspaceScopeService.scopeKey()` (`:264-282`)
   means the two calls were already one RPC, just fired earlier than needed.
 
-### Task 10.3: one `session:list` loader — PENDING
+### Task 10.3: one `session:list` loader — COMPLETE in part (`8acd5a79b`); dashboard rewire REJECTED
 
+**Landed**: the single-flight. `SessionLoaderService` gained
+`loadSessionsInFlight` and `runLoadSessions()` — the `_loadPromise` shape the
+batch pointed at. The 300 ms trailing debounce is unchanged and
+`_loadSessionsImmediate()` including its post-RPC workspace-staleness guard is
+untouched. Two new specs pin both directions: a caller whose timer fires
+mid-flight shares the read, and a caller arriving after it settles gets a fresh
+one (so the single-flight cannot become a cache).
+
+**Rejected**: the dashboard rewire.
+`libs/frontend/dashboard/src/lib/services/session-analytics-state.service.ts` is
+unmodified. **Rejection ACCEPTED by team-leader**, verified independently:
+
+1. **Different query, not a duplicate.** The dashboard calls `session:list` with
+   `{ limit: METADATA_LOAD_LIMIT (200), offset: 0, since: rangeSinceMs(dateRange) }`
+   (`:225-229`); the file's own comments at `:70`, `:193` and `:205` state the
+   range is applied server-side via the `since` param and that "a different range
+   means a different `session:list` query". The loader sends **no `since`** and a
+   30-row page. Serving the dashboard from the loader would silently drop the
+   date range the whole analytics surface is built on and cap it at the sidebar's
+   page size — a behaviour change, not call-count hygiene.
+2. **Boundary violation.** `libs/frontend/dashboard` does not import
+   `@ptah-extension/chat` today, and `SessionLoaderService` lives in `chat`
+   (`type:feature`). Making dashboard depend on the chat feature lib to share one
+   ~200 ms RPC is the wrong dependency direction.
+
+**Consequence for acceptance**: "exactly one `session:list` in the boot window" is
+**improved but not met** — the loader's own five callers now coalesce, but a boot
+that renders the dashboard still issues its own distinct query. The honest remedy
+is a shared workspace-scoped session-metadata cache in a `type:data-access` lib
+both surfaces may depend on. That is a design task; carry it to
+`future-enhancements.md` alongside 10.2.
+
+Original batch text for this task follows, retained for the record:
+
+- **Measured**: `session:list` 212 ms median first call, 179–234 ms second
+  (Run A's 2–3 ms pair is a low outlier, ignore it). Down from 2291 ms ×2 —
+  the drop came from backend session/JSONL caching, not from the planned
+  frontend single-flight, which is still absent (`session-loader.service.ts`
+  still has only the 300 ms debounce).
+- **Resized and demoted**: this is now the smallest prize of the six remedies —
+  roughly 200 ms once, plus call-count hygiene. Still worth doing because the
+  duplicate-call shape is real and cheap to remove, but it is the first thing
+  to cut if the batch runs long. Two frontend edits, no backend change, no
+  scope growth.
 - Give `SessionLoaderService` a shared in-flight promise — the same `_loadPromise`
   single-flight shape `AuthStateService` already uses at
   `auth-state.service.ts:575-591`. The existing 300 ms trailing debounce at
@@ -1442,14 +1740,82 @@ Commit: `perf(chat-ui): batch 10 - stop fetching agents, models and sessions eag
 
 ---
 
-## Batch 11: Track C — backend remedies — PENDING
+## Batch 11: Track C — backend remedies — COMPLETE
+
+- **Commit**: `1269a187c` — `perf(vscode-core): batch 11 - spawn git off-thread and persist cli detection`
+- **All three tasks landed** (11.3, 11.1, 11.2), with one accepted deviation on
+  11.1's `invalidateForAuthChange` and one path correction on 11.3's DI location.
+- **Verified independently by team-leader**, not taken from the report:
+  - `npx nx run-many -t test -p @ptah-extension/vscode-core @ptah-extension/agent-sdk ptah-electron`
+    → header read back as **`Running target test for 3 projects`** (N = 3),
+    `Successfully ran target test for 3 projects and 4 tasks they depend on`.
+    Counts match the report exactly: vscode-core 31/512, agent-sdk 86 suites /
+    1450 passed + 2 skipped, ptah-electron 35 suites / 480 passed + 4 skipped.
+  - `npx nx run-many -t lint -p @ptah-extension/vscode-core @ptah-extension/agent-sdk ptah-electron`
+    → `Successfully ran target lint for 3 projects`, **0 errors**, warnings all
+    pre-existing (`max-lines` on files this batch did not touch, non-null
+    assertions in existing specs).
+  - Diffs read in full. `exec-git.ts` is real port-adapter work, not scaffolding.
+  - **Bonus gate**: the pre-commit hook rebuilt the Electron main bundle
+    (`ptah-electron:build-main:production`, not cached this time) and
+    `validate-deps` passed. That compiles the phase-4 DI change into the real
+    shipped bundle — stronger evidence than the unit run alone.
+- Staged by explicit path (9 files). `.gitignore`, `npm-ci.log` and
+  `.ptah/specs/TASK_2026_383/` deliberately left out.
+- `nx format:write` produced no whitespace changes. Nothing amended, no hook
+  bypassed.
+
+### Batch 11 — 11.3 DI location, checked
+
+The batch text said the Electron registration lives under
+`apps/ptah-electron/src/services/`. **It does not, and the executor was right to
+put the change where the registration actually is.** Confirmed:
+
+- `TOKENS.GIT_INFO_SERVICE` is registered at
+  `apps/ptah-electron/src/di/phase-4-handlers.ts:116`; the only other references
+  are a consumer (`activation/boot-heavy-services.ts:385`), a guard
+  (`rpc-host-profile.ts:52`) and a comment. There is no git-spawner file under
+  `src/services/`, and inventing one to match the batch's guess would have been
+  worse.
+- **Ordering is sound**: `container.ts:43` runs `registerPhase2Libraries` (which
+  calls `registerSdkServices` at `phase-2-libraries.ts:191`, binding
+  `SDK_TOKENS.SDK_PROCESS_SPAWNER` per `agent-sdk/src/lib/di/register.ts:316`)
+  before `registerPhase4Handlers` at `:45`. The spawner exists when phase 4
+  resolves it.
+- **`expected-resolvable.ts` correctly needed no change**: it contains no `GIT`
+  or `SPAWNER` entry, and no token became newly resolvable — the existing
+  singleton is _resolved_, not re-registered. There is **no `expected-absent.ts`**
+  in this app at all, so the concern about keeping it consistent does not apply.
+- The `container.isRegistered(...)` guard means a stripped container (the DI
+  smoke specs build several) falls back to the inline path instead of throwing
+  during registration. `container.smoke.spec.ts` passes unchanged, as does the
+  whole 35-suite ptah-electron run.
+
+**Verdict: the DI location is correct.** Path discrepancy in the batch text, not
+in the implementation.
+
+## Batch 11 (original batch text follows)
 
 - Components: 15, 16, and 14's backend half
 - Recommended executor: `backend-developer`
 - Fallback executor: `claude` sub-agent
 - Execution mode: `sub-agent`, sequential
-- Depends on: **Batch 9 COMPLETE and its gate passed**
-- Parallel with: Batch 10
+- Depends on: **Batch 9 COMPLETE and its gate passed** — both true as of
+  2026-09-07. This batch is unblocked.
+- Parallel with: Batch 10 (fully file-disjoint — unchanged by the re-selection)
+- **Execution order after re-selection: 11.3, then 11.1, then 11.2.** 11.3 is
+  promoted to first: it is the largest remaining gap of all six remedies and
+  the only one with a plausible mechanism for the still-unmet criterion 2.
+- **Measured cost this batch buys back**: ~436 ms per `git:info`, and it is the
+  one still running a synchronous main-thread spawn (11.3) + ~1175 ms on the
+  first `config:models-list` of every boot (11.1) + ~734 ms on
+  `auth:getAuthStatus` (11.2). This batch now carries roughly three times the
+  measured value of Batch 10. Assign it first if only one executor is
+  available.
+- **All three tasks confirmed unimplemented** on this branch by
+  `research-report.md`. In particular there is no `IProcessSpawner` reference
+  anywhere under `libs/backend/vscode-core/src` — only the git-binary
+  resolution optimization (`fa1d2d92a`) landed, which is not this task.
 - Files owned (exclusive):
   - MODIFY `libs/backend/vscode-core/src/utils/exec-git.ts`,
     `libs/backend/vscode-core/src/services/git-info.service.ts` + specs
@@ -1457,8 +1823,53 @@ Commit: `perf(chat-ui): batch 10 - stop fetching agents, models and sessions eag
   - MODIFY `libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts` + spec
   - MODIFY the Electron DI registration for the git spawner under `apps/ptah-electron/src/services/`
 
-### Task 11.1: persist the SDK model catalog — PENDING
+### Task 11.1: persist the SDK model catalog — COMPLETE (`1269a187c`), with one accepted deviation
 
+Persisted in `IStateStorage` under `ptah.sdk.modelCatalog`, keyed by the **same**
+`authFingerprint()` string the in-memory map uses, shape-validated on read,
+bounded to 8 entries with least-recently-written eviction (the lib's own "a token
+AND a bound" rule). A corrupt entry is ignored, not repaired. No DI registration
+change was needed — tsyringe supplies the new optional `IStateStorage` from
+`@injectable()` metadata.
+
+**Deviation: `invalidateForAuthChange()` deliberately does NOT clear the persisted
+copy.** The batch text asked for it. The executor implemented `clearCache()` only
+and flagged the difference loudly.
+
+**Verdict: deviation ACCEPTED.** Verified against the source, not the report:
+
+- `libs/backend/agent-sdk/CLAUDE.md` states outright: "**A workspace/provider
+  switch must call `invalidateForAuthChange()`, never `clearCache()`** — the
+  per-identity catalogs are already isolated, so wiping them is not protection, it
+  is a guaranteed extra multi-second SDK-bridge spawn every time the user switches
+  BACK (A → B → A paid three spawns for two providers)." That is recorded as a
+  judge round-1 finding of TASK_2026_353, and `sdk-model-service.ts:1102-1112`
+  carries the same reasoning in-code.
+- The batch's actual safety requirement — "a stale catalog must never outlive an
+  auth change" — is **already satisfied by the key**. The persisted entry carries
+  the same fingerprint (active auth method, provider id, base URL, hashed
+  credential, tier mappings), so a changed credential misses by construction.
+  Clearing on top of that buys no safety.
+- Implementing the batch text literally would have reproduced the exact defect
+  TASK_2026_353 removed, one boot further out, and would have made the cross-boot
+  memo close to worthless — a provider switch is the commonest thing a user does
+  between two launches.
+
+`clearCache()` **does** drop the persisted copy, which is correct: it is the "I do
+not know what changed" entry point that `claude login`/`logout` reaches. The
+decision is pinned by a spec ("keeps the persisted copy across an auth change"),
+so a future editor who disagrees has to break a test rather than a comment.
+
+Original batch text for this task follows, retained for the record:
+
+- **Measured**: 1175 ms median on the first `config:models-list` of the boot —
+  the largest single per-boot handler number left. `modelsCache` /
+  `pendingModels` are still in-memory Maps with no `IStateStorage` read or
+  write, so this cost recurs on every boot forever without this task.
+- **Re-priced, not resized**: the payoff is bounded to "first RPC of _this_
+  boot" rather than "first RPC ever", because the in-process cache already
+  covers repeats within a boot. That is a smaller claim than 380 made, and the
+  full scope below is still justified by the ~1.2 s recurring cost.
 - Coordinates with Task 10.2 but shares no file. The existing `modelsCache` is
   keyed by an auth fingerprint with a `cacheGeneration` guard and **no TTL**, so a
   cross-boot store in `IStateStorage` is a faithful extension.
@@ -1467,8 +1878,35 @@ Commit: `perf(chat-ui): batch 10 - stop fetching agents, models and sessions eag
   `invalidateForAuthChange()` clear the persisted copy too.
 - Shape-validate on read; a corrupt entry is **ignored, not repaired**.
 
-### Task 11.2: persist the CLI health verdict — PENDING
+### Task 11.2: persist the CLI health verdict — COMPLETE (`1269a187c`)
 
+Persisted under `ptah.sdk.claudeCliVerdict`, keyed by the
+`(resolved executable path, mtimeMs, size)` triple the batch specified — a CLI
+upgrade moves at least one, so invalidation is exact and **no TTL is guessed at**.
+The restore runs **inside** the existing `detectionInFlight` single-flight rather
+than in front of it, which is the right call: the restore does file I/O, so
+checking it ahead of the single-flight would let all four boot-time consumers pass
+the check and start four detections, re-opening the fan-out that guard exists to
+absorb. Every uncertain case falls back to today's full detection (no storage, no
+entry, malformed entry, path disagreement, a configured path that disagrees with
+the memo, a `stat` failure, or a moved `mtimeMs`/`size`). `fs.promises.stat`
+rather than `statSync` keeps synchronous I/O off the boot path. `clearCache()`
+drops the persisted verdict alongside the in-memory one. No DI registration change
+was needed.
+
+Original batch text for this task follows, retained for the record:
+
+- **Measured**: `auth:getAuthStatus` 734 ms median, 283–753 ms. The fall from
+  2244 ms is explained by `ClaudeCliDetector`'s in-process single-flight and
+  30 s `--version` TTL (commit `f7c8d6c7a`), which collapsed the repeated probe
+  _within_ a boot. Nothing survives a restart, so a ~734 ms first-boot spawn
+  remains on every launch and a cross-boot memo removes it entirely.
+- **Do not confuse this with the earlier invalid data**, which read 0–1 ms and
+  was used to argue this remedy was no longer justified. That reading came from
+  a warm-cache, one-time-migration boot. It is wrong; the remedy stands.
+- Secondary reason to keep: this is the second of the two remaining inline
+  `crossSpawn` calls on the host path, so it shares 11.3's mechanism for
+  criterion 2, at smaller scale.
 - Cost source is a `crossSpawn` of `claude --version`
   (`claude-cli-detector.ts:24`, `:524`, `:536`). All three existing caches are
   process-local, so nothing survives a restart.
@@ -1479,8 +1917,53 @@ Commit: `perf(chat-ui): batch 10 - stop fetching agents, models and sessions eag
   behaviour. `clearCache()` drops the persisted entry alongside the in-memory one.
 - Precedent for trusting a stale memo already exists at `auth-rpc.handlers.ts:668`.
 
-### Task 11.3: route `git:info` through `IProcessSpawner` — PENDING
+### Task 11.3: route `git:info` through `IProcessSpawner` — COMPLETE (`1269a187c`)
 
+**R-9 honoured: the port was neither extended nor bypassed.**
+`ProcessSpawnRequest` / `SpawnedProcessHandle` already carried everything
+`exec-git` needs, including `whenSpawned` for the tree kill. `ExecGitOptions`
+gained an optional `spawner`; an internal `GitChildHandle` interface names the
+slice of a spawned child this module uses, and two small adapters map the
+port-backed and inline `crossSpawn` sources onto it — so the branch is confined to
+`spawnGitChild()` and the run loop below it is written once. Writing the handle
+out explicitly rather than relying on `ChildProcess` and `SpawnedProcessHandle`
+being structurally compatible is the right instinct: their `on` overload sets
+differ and an assignability accident there would have been silent.
+
+The timeout path now awaits `whenSpawned` before `killProcessTree` (off-thread the
+pid does not exist when the handle returns) and reads `killed` through
+`isKilled()`. SIGTERM-then-SIGKILL sequencing is unchanged — deliberately not
+"fixed" in passing. `execGit` reaches this through `execGitBuffer`, so both the
+string and buffer paths get the spawner from one change; the only remaining
+`crossSpawn` in the file is the intended inline fallback inside `spawnGitChild`.
+
+`GitInfoService` takes the spawner as an optional second constructor argument and
+threads it through `withSpawner(...)` at its two private `execGit`/`execGitBuffer`
+seams, which covers all ~30 call sites without touching any of them. Dependency
+direction is intact — a **type-only** import of the port from `platform-core`,
+never an adapter. VS Code (`phase-3-handlers.ts:56`) and the CLI
+(`cli-engine/src/lib/container.ts:405`) construct it with one argument and keep
+today's inline path, exactly as the batch specified. No settled cache was added
+for `getGitInfo`; its documented exclusion stands.
+
+**Still a hypothesis, not a measurement**: nothing here proves the 1502.6 ms lag
+maximum is closed. Task 12.2 must still attribute the spikes rather than assume
+this fixed them.
+
+Original batch text for this task follows, retained for the record:
+
+- **Measured**: `git:info` 436 ms median, 364–710 ms. It improved only ~2.5 to
+  5.7× from 2476 ms, against the ~50× TASK_2026_341 already achieved for
+  off-thread spawns generally (~1.6 s inline block → 29 ms max host-loop
+  delay). The gap is the whole point: `exec-git.ts:141-211` still calls
+  `crossSpawn` inline and there is no `IProcessSpawner` anywhere in
+  `vscode-core`. **This is the largest remaining gap of all six remedies and
+  the only one still holding a synchronous main-thread spawn on the boot path.**
+- **The only remedy with a plausible mechanism for criterion 2.** An inline
+  spawn blocking the main process for ~1.6 s is the right order of magnitude
+  for the observed 1502.6 ms lag spike. It is a hypothesis, not a measurement —
+  no slow-handler line coincided with any lag spike — so Task 12.2 must
+  attribute the spikes rather than assume this closed them.
 - **R-9, run first**: read `platform-core`'s `ProcessSpawnRequest` /
   `SpawnedProcessHandle` before writing the adapter. `exec-git` needs stdout
   capture, an exit code and a timeout. If a field is missing, the port is
@@ -1600,6 +2083,25 @@ object carrying an `error` field that the detector does not flag.
   window after the first answered RPC.
 - Assert a healthy Electron boot emits **zero** degradation events, end to end.
 
+Added by the Batch 9 re-selection (2026-09-07):
+
+- **Criterion 2 must be attributed, not aggregated.** Batch 9 measured 493.6,
+  547.4 and 1502.6 ms against the 500 ms ceiling, with **zero slow-handler log
+  lines in any lag run** — the spikes do not coincide with the five handlers
+  Batches 10 and 11 touch. Name a source for each spike above 500 ms. If the
+  spikes survive, record criterion 2 as **an open item this task does not
+  close**, not as a pending failure of Batches 10/11.
+- **Do not absorb the pre-migration backup.** Measured 11.0–12.5 s quiet,
+  75.1 s contended (`migration-runner.ts:87-101`). It is out of scope for this
+  task by the decision recorded in the re-selection section above. Report it as
+  a separate line, not folded into a boot total.
+- **Budget for the probe.** Batch 9 needed seven-plus attempts at roughly a
+  1-in-3 failure rate, with no diagnosis printed on the failure path, and its
+  report gives arrival times rather than durations. Plan for hand-computed
+  durations from `tmp/boot-probe.json` and for repeated attempts.
+- Use the median of at least three runs. Single-run variance is 54× on
+  `autocomplete:agents`.
+
 ### Task 12.3: documentation and naming debt — COMPLETE except A-2 (`96f20674d`, 5 files, +72/-3)
 
 `future-enhancements.md` created in the task folder (27 recorded defects
@@ -1607,7 +2109,21 @@ with suggested fixes, tool follow-ups, flakiness task, rename trigger,
 380 item 5 placement, A-2 placeholder). Root `CLAUDE.md` gained the
 `nx reset` paragraph; `vscode-core`, `shared`, `ptah-electron`,
 `thoth-runtime` CLAUDE.md files refreshed. `persistence-sqlite` verified
-current. Remaining: the A-2 `PRAGMA optimize` line, after Batch 9.
+current. Remaining after Batch 9, all for `future-enhancements.md`:
+
+- **A-2 line**: `PRAGMA optimize` is 0 ms once the connection has touched any
+  table (100 ms cold / 27 ms warm in a prior session). Not a boot cost, no
+  follow-up needed. Fill the placeholder with that and close it.
+- **The pre-migration backup** (`migration-runner.ts:87-101`): 11.0–12.5 s
+  quiet, 75.1 s contended, once per user per update that carries a migration.
+  Record it as a measured finding with its file:line, its four candidate
+  remedies and their durability trade-off, and the recommendation that it get
+  its own task with `software-architect`. It is deliberately **not** a batch
+  here — see the re-selection section.
+- **Three probe defects** in `apps/ptah-electron-e2e/scripts/measure-boot-rpcs.mjs`:
+  the ~1-in-3 `Execution context was destroyed` attach failure; the failure
+  path collecting stdout and never printing it (`:222-244`); and the report
+  printing arrival times instead of durations.
 
 - Record in `future-enhancements.md`: the integrity-worker rename to a neutral
   `db-worker` name, with its explicit trigger — **rename when a third command
