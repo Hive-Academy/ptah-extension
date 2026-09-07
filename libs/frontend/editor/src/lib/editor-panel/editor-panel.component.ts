@@ -22,15 +22,15 @@ import {
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
-import { DiffViewComponent } from '../diff-view/diff-view.component';
 import { EditorService } from '../services/editor.service';
-import type {
-  EditorTab,
-  GitApplyHunksResult,
-  HunkApplyRequest,
-  OpenDiffRequest,
-} from '../services/editor/editor-tab.types';
-import { GitStatusService } from '../services/git-status.service';
+import {
+  DiffViewComponent,
+  GitStatusService,
+  type EditorTab,
+  type GitApplyHunksResult,
+  type HunkApplyRequest,
+  type OpenDiffRequest,
+} from '@ptah-extension/git-ui';
 import { GitStatusBarComponent } from '../git-status-bar/git-status-bar.component';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import {

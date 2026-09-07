@@ -1,1 +1,49 @@
-// @ptah-extension/git-ui — the webview's entire git surface behind one public API (empty until Batch 2.2 moves the first symbol).
+/**
+ * @ptah-extension/git-ui — the webview's entire git surface behind one public API.
+ *
+ * Owns git status, branches, worktrees, source control and the Monaco diff
+ * view. Depends on `@ptah-extension/core` and `@ptah-extension/shared` only —
+ * never on `chat`, `ui` or `editor`.
+ *
+ * `MonacoLoaderService` and `git-read-error-messages` are deliberately NOT
+ * exported: they are implementation detail of `DiffViewComponent` and
+ * `DiffTabsService` respectively.
+ */
+
+// Services
+export { GitStatusService } from './lib/services/git-status.service';
+export { GitBranchesService } from './lib/services/git-branches.service';
+export {
+  WorktreeService,
+  WORKTREE_CHANGED_MESSAGE_TYPE,
+} from './lib/services/worktree.service';
+export { SourceControlService } from './lib/services/source-control.service';
+export { DiffTabsService } from './lib/services/diff-tabs.service';
+
+// Components
+export { DiffViewComponent } from './lib/diff-view/diff-view.component';
+export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
+export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
+export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
+
+// Diff tab types + helpers
+export type {
+  DiffComparison,
+  DiffSideRef,
+  DiffTabState,
+  DiffTabStatus,
+  EditorTab,
+  GitApplyHunksOperation,
+  GitApplyHunksResult,
+  GitDiffFileResult,
+  GitHunkRef,
+  HunkApplyFn,
+  HunkApplyRequest,
+  OpenDiffRequest,
+} from './lib/types/diff-tab.types';
+export {
+  diffComparisonLabel,
+  diffTabKey,
+  diffTabLabel,
+  normalizeDiffPath,
+} from './lib/types/diff-tab.types';

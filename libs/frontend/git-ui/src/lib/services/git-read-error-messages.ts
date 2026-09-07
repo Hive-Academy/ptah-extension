@@ -1,9 +1,3 @@
-/*
- * PRIVATE to `@ptah-extension/editor`. The canonical copy now lives in
- * `@ptah-extension/git-ui`, where it is deliberately NOT exported. This copy
- * serves the diff half of `EditorDiffSplitHelper`, which the plan keeps in
- * place until Phase 4 deletes the editor lib (TASK_2026_385, plan :392).
- */
 import type { GitBlobRead, GitReadErrorCode } from '@ptah-extension/shared';
 
 /**

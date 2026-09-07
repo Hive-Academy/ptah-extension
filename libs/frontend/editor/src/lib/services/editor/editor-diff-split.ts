@@ -15,13 +15,13 @@ import type {
   EditorTab,
   HunkApplyRequest,
   OpenDiffRequest,
-} from './editor-tab.types';
+} from '@ptah-extension/git-ui';
 import {
   diffComparisonLabel,
   diffTabKey,
   diffTabLabel,
   normalizeDiffPath,
-} from './editor-tab.types';
+} from '@ptah-extension/git-ui';
 
 import {
   describeGitReadError,

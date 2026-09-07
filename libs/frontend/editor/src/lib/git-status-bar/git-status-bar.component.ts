@@ -9,8 +9,7 @@ import {
   GitBranch,
   LucideAngularModule,
 } from 'lucide-angular';
-import { GitStatusService } from '../services/git-status.service';
-import { GitBranchesService } from '../services/git-branches.service';
+import { GitBranchesService, GitStatusService } from '@ptah-extension/git-ui';
 import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
 import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-popover.component';
 

@@ -19,7 +19,7 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { GitFileStatus } from '@ptah-extension/shared';
-import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
+import type { OpenDiffRequest } from '../types/diff-tab.types';
 import { SourceControlFileComponent } from './source-control-file.component';
 
 /** Every element a keyboard user or the browser treats as interactive. */

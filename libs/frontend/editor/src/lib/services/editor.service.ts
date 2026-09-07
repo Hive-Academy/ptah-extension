@@ -18,7 +18,7 @@ import type {
   EditorTab,
   GitApplyHunksResult,
   HunkApplyRequest,
-} from './editor/editor-tab.types';
+} from '@ptah-extension/git-ui';
 import {
   EditorInternalState,
   EditorWorkspaceState,
@@ -31,7 +31,7 @@ import {
   EditorDiffSplitHelper,
   type OpenDiffRequest,
 } from './editor/editor-diff-split';
-export type { EditorTab } from './editor/editor-tab.types';
+export type { EditorTab } from '@ptah-extension/git-ui';
 export type { OpenDiffRequest } from './editor/editor-diff-split';
 
 /**

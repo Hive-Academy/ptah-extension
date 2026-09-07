@@ -31,7 +31,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { GitFileStatus, GitBranchInfo } from '@ptah-extension/shared';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
 import { EditorService } from '../services/editor.service';
 import { FileTreeNodeComponent } from './file-tree-node.component';
 import type { FileTreeNode } from '../models/file-tree.model';

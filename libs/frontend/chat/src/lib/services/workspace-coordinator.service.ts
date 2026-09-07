@@ -100,11 +100,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     }
 
     try {
-      const editorModule = await import('@ptah-extension/editor/services');
+      const [editorModule, gitModule] = await Promise.all([
+        import('@ptah-extension/editor/services'),
+        import('@ptah-extension/git-ui'),
+      ]);
       this.editorServices = [
         this.injector.get(editorModule.EditorService),
-        this.injector.get(editorModule.GitStatusService),
-        this.injector.get(editorModule.GitBranchesService),
+        this.injector.get(gitModule.GitStatusService),
+        this.injector.get(gitModule.GitBranchesService),
       ];
       return this.editorServices;
     } catch (error) {

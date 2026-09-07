@@ -31,7 +31,6 @@ import {
   TREE_HIDDEN_DIRS,
   isExcludedWorkspacePath,
 } from '@ptah-extension/shared';
-import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 
 /** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
 type FileOpenCompatParams = FileOpenParams & { filePath?: string };
@@ -106,8 +105,6 @@ export class EditorRpcHandlers {
     this.registerSaveFile();
     this.registerGetFileTree();
     this.registerGetDirectoryChildren();
-    this.registerGetSetting();
-    this.registerUpdateSetting();
     this.registerCreateFile();
     this.registerCreateFolder();
     this.registerRenameItem();
@@ -302,74 +299,6 @@ export class EditorRpcHandlers {
           return {
             success: false,
             children: [],
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
-    );
-  }
-
-  /**
-   * Read a configuration setting value.
-   * Uses IWorkspaceProvider.getConfiguration which transparently routes
-   * file-based keys to ~/.ptah/settings.json.
-   */
-  private registerGetSetting(): void {
-    this.rpcHandler.registerMethod(
-      'editor:getSetting',
-      async (params: { key: string } | undefined) => {
-        if (!params?.key) {
-          return { success: false, error: 'key is required' };
-        }
-        try {
-          const value = this.workspace.getConfiguration('ptah', params.key);
-          return { success: true, value };
-        } catch (error) {
-          this.logger.error('[Electron RPC] editor:getSetting failed', {
-            key: params.key,
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
-    );
-  }
-
-  /**
-   * Update a configuration setting value.
-   * Uses IWorkspaceProvider.setConfiguration which transparently routes
-   * file-based keys to ~/.ptah/settings.json.
-   */
-  private registerUpdateSetting(): void {
-    this.rpcHandler.registerMethod(
-      'editor:updateSetting',
-      async (params: { key: string; value: unknown } | undefined) => {
-        if (!params?.key) {
-          return { success: false, error: 'key is required' };
-        }
-        if (!isFileBasedSettingKey(params.key)) {
-          return {
-            success: false,
-            error: `Setting key '${params.key}' is not writable`,
-          };
-        }
-        try {
-          await this.workspace.setConfiguration(
-            'ptah',
-            params.key,
-            params.value,
-          );
-          return { success: true };
-        } catch (error) {
-          this.logger.error('[Electron RPC] editor:updateSetting failed', {
-            key: params.key,
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-          return {
-            success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }

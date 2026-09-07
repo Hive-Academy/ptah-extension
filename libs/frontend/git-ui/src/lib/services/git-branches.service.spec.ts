@@ -7,18 +7,19 @@
  *     and updates the corresponding signals
  *   - recordVisitedBranch(): prepends to list, deduplicates, caps at 5
  *   - checkout(): passes GitCheckoutParams through; returns dirty:true from backend
- *   - startListening(): posting window message with type 'git:status-update' triggers refreshBranches()
+ *   - startListening(): a routed 'git:status-update' push triggers refreshForCauses()
  *
  * `rpcCall` is mocked at the module boundary.
  * VSCodeService is provided as a minimal stub.
  *
  * Source-under-test:
- *   libs/frontend/editor/src/lib/services/git-branches.service.ts
+ *   libs/frontend/git-ui/src/lib/services/git-branches.service.ts
  */
 
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { GitBranchesService } from './git-branches.service';
 
 // ---------------------------------------------------------------------------
@@ -390,27 +391,59 @@ describe('GitBranchesService (TASK_2026_111)', () => {
   });
 
   // ==========================================================================
-  // startListening / window message dispatch
+  // startListening / MessageHandler dispatch
   // ==========================================================================
 
   describe('startListening()', () => {
-    it('triggers refreshForCauses() when git:status-update message is dispatched', async () => {
+    /** Route a status push exactly as MessageRouterService would. */
+    function push(payload?: unknown): void {
+      service.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload,
+      });
+    }
+
+    it('declares git:status-update as its only handled type', () => {
+      expect(service.handledMessageTypes).toEqual([
+        MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      ]);
+    });
+
+    it('registers NO global message listener', () => {
+      const addSpy = jest.spyOn(window, 'addEventListener');
+
+      service.startListening();
+
+      expect(
+        addSpy.mock.calls.filter(([type]) => type === 'message'),
+      ).toHaveLength(0);
+      addSpy.mockRestore();
+    });
+
+    it('triggers refreshForCauses() when a git:status-update push is routed', async () => {
       const refreshSpy = jest
         .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
-
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { type: 'git:status-update', payload: { causes: ['head'] } },
-        }),
-      );
+      push({ causes: ['head'] });
 
       await Promise.resolve();
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
       expect(refreshSpy).toHaveBeenCalledWith(['head']);
+    });
+
+    it('drops a push that arrives BEFORE startListening()', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      push({ causes: ['head'] });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
     });
 
     it('does NOT trigger any refresh for unrelated message types', async () => {
@@ -419,50 +452,48 @@ describe('GitBranchesService (TASK_2026_111)', () => {
         .mockResolvedValue();
 
       service.startListening();
-
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { type: 'file:content-changed', payload: {} },
-        }),
-      );
+      service.handleMessage({ type: 'file:content-changed', payload: {} });
 
       await Promise.resolve();
 
       expect(refreshSpy).not.toHaveBeenCalled();
     });
 
-    it('is idempotent: calling startListening() twice does not double-register', async () => {
+    it('drops a push belonging to a different workspace folder', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      push({ causes: ['head'], workspaceRoot: '/other-workspace' });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent: calling startListening() twice does not double-handle', async () => {
       const refreshSpy = jest
         .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
       service.startListening();
-
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { type: 'git:status-update', payload: { causes: ['head'] } },
-        }),
-      );
+      push({ causes: ['head'] });
 
       await Promise.resolve();
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('stopListening() removes the listener so subsequent messages are ignored', async () => {
+    it('stopListening() closes the gate so subsequent pushes are ignored', async () => {
       const refreshSpy = jest
         .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
       service.stopListening();
-
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { type: 'git:status-update', payload: { causes: ['head'] } },
-        }),
-      );
+      push({ causes: ['head'] });
 
       await Promise.resolve();
 

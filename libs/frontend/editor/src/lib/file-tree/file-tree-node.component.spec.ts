@@ -17,7 +17,8 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import type { ComponentRef } from '@angular/core';
 import { FileTreeNodeComponent } from './file-tree-node.component';
 import { EditorService } from '../services/editor.service';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
+import { FileTreeGitIndexService } from './file-tree-git-index.service';
 import type { FileTreeNode } from '../models/file-tree.model';
 
 function dirNode(
@@ -42,6 +43,8 @@ describe('FileTreeNodeComponent', () => {
   };
   let gitStatusMock: {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
+  };
+  let gitIndexMock: {
     fileStatusMap: ReturnType<typeof signal<Map<string, unknown[]>>>;
     changedDirPrefixes: ReturnType<typeof signal<ReadonlySet<string>>>;
   };
@@ -56,6 +59,9 @@ describe('FileTreeNodeComponent', () => {
 
     gitStatusMock = {
       activeWorkspacePath: signal<string | null>(null),
+    };
+
+    gitIndexMock = {
       fileStatusMap: signal<Map<string, unknown[]>>(new Map()),
       changedDirPrefixes: signal<ReadonlySet<string>>(new Set<string>()),
     };
@@ -65,6 +71,7 @@ describe('FileTreeNodeComponent', () => {
       providers: [
         { provide: EditorService, useValue: editorMock },
         { provide: GitStatusService, useValue: gitStatusMock },
+        { provide: FileTreeGitIndexService, useValue: gitIndexMock },
       ],
     }).compileComponents();
   });
@@ -237,7 +244,7 @@ describe('FileTreeNodeComponent', () => {
     });
 
     it('marks a directory whose relative path is in the prefix set (AC3)', () => {
-      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
       const { component } = createFixture(
         dirNode({ name: 'app', path: `${WS}/src/app` }),
       );
@@ -246,7 +253,7 @@ describe('FileTreeNodeComponent', () => {
     });
 
     it('does NOT mark a directory that is absent from the set (AC3, negative)', () => {
-      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
       const { component } = createFixture(
         dirNode({ name: 'vendor', path: `${WS}/vendor` }),
       );
@@ -256,7 +263,7 @@ describe('FileTreeNodeComponent', () => {
 
     it('does not mark a sibling that merely shares a name prefix (AC3, negative)', () => {
       // `src/app` in the set must not light up `src/app-legacy`.
-      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
       const { component } = createFixture(
         dirNode({ name: 'app-legacy', path: `${WS}/src/app-legacy` }),
       );
@@ -265,7 +272,7 @@ describe('FileTreeNodeComponent', () => {
     });
 
     it('never marks a file node', () => {
-      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
       const fixture = TestBed.createComponent(FileTreeNodeComponent);
       fixture.componentRef.setInput('node', {
         name: 'app',
@@ -278,7 +285,7 @@ describe('FileTreeNodeComponent', () => {
     });
 
     it('resolves a Windows-separator node path against the normalized set (AC5)', () => {
-      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
       const { component } = createFixture(
         dirNode({ name: 'app', path: 'C:\\ws\\src\\app' }),
       );
@@ -288,7 +295,7 @@ describe('FileTreeNodeComponent', () => {
 
     it('returns false when there is no active workspace', () => {
       gitStatusMock.activeWorkspacePath.set(null);
-      gitStatusMock.changedDirPrefixes.set(new Set(['src']));
+      gitIndexMock.changedDirPrefixes.set(new Set(['src']));
       const { component } = createFixture(
         dirNode({ name: 'src', path: `${WS}/src` }),
       );
@@ -311,8 +318,8 @@ describe('FileTreeNodeComponent', () => {
       const hasSpy = jest.spyOn(prefixes, 'has');
       const keysSpy = jest.spyOn(statusMap, 'keys');
 
-      gitStatusMock.changedDirPrefixes.set(prefixes);
-      gitStatusMock.fileStatusMap.set(statusMap);
+      gitIndexMock.changedDirPrefixes.set(prefixes);
+      gitIndexMock.fileStatusMap.set(statusMap);
 
       const { component } = createFixture(
         dirNode({ name: 'app', path: `${WS}/src/app` }),

@@ -15,7 +15,7 @@ import {
   Globe,
   LucideAngularModule,
 } from 'lucide-angular';
-import { GitBranchesService } from '../services/git-branches.service';
+import { GitBranchesService } from '@ptah-extension/git-ui';
 
 /**
  * BranchDetailsPopoverComponent — small absolute-positioned popover that

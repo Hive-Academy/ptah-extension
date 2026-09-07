@@ -29,13 +29,13 @@ import { By } from '@angular/platform-browser';
 import { VSCodeService } from '@ptah-extension/core';
 import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
 import { EditorDiffSplitHelper } from '../services/editor/editor-diff-split';
 import { EditorTabsHelper } from '../services/editor/editor-tabs';
 import type { EditorInternalState } from '../services/editor/editor-internal-state';
-import { diffTabKey } from '../services/editor/editor-tab.types';
+import { diffTabKey } from '@ptah-extension/git-ui';
 
 /**
  * jsdom implements no HTMLDialogElement methods, so the save-conflict dialog's

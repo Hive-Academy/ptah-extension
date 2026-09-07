@@ -37,8 +37,8 @@ import type {
   EditorTab,
   GitHunkRef,
   HunkApplyFn,
-} from '../services/editor/editor-tab.types';
-import { diffTabKey } from '../services/editor/editor-tab.types';
+} from '../types/diff-tab.types';
+import { diffTabKey } from '../types/diff-tab.types';
 
 /**
  * jsdom implements no HTMLDialogElement methods, so the revert dialog's

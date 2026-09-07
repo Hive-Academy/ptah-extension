@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-angular';
 import type { BranchRef, GitCheckoutResult } from '@ptah-extension/shared';
-import { GitBranchesService } from '../services/git-branches.service';
+import { GitBranchesService } from '@ptah-extension/git-ui';
 
 /**
  * BranchPickerDropdownComponent — VS Code-style branch picker shown when the

@@ -9,9 +9,9 @@ import {
 import { FolderOpen, GitBranch, LucideAngularModule } from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { GitFileStatus } from '@ptah-extension/shared';
-import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
+import type { OpenDiffRequest } from '@ptah-extension/git-ui';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
-import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
+import { SourceControlPanelComponent } from '@ptah-extension/git-ui';
 
 /**
  * SidebarComponent - Tabbed container switching between Explorer and Source

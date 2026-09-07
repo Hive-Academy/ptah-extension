@@ -1,16 +1,15 @@
 /**
  * LazyDiffViewComponent — Monaco diff, loaded only when a diff is asked for.
  *
- * `DiffViewComponent` lives in `@ptah-extension/editor`, which pulls Monaco,
- * xterm and the whole editor surface. The Skills tab must not inherit that
- * bundle just because a drawer *can* show a diff, so the real component is
- * pulled in through a runtime `import()` and instantiated imperatively into a
- * `ViewContainerRef`. Nothing here is reachable from the Skills tab's static
- * import graph.
+ * `DiffViewComponent` lives in `@ptah-extension/git-ui`, which pulls Monaco in
+ * with it. The Skills tab must not inherit that bundle just because a drawer
+ * *can* show a diff, so the real component is pulled in through a runtime
+ * `import()` and instantiated imperatively into a `ViewContainerRef`. Nothing
+ * here is reachable from the Skills tab's static import graph.
  *
  * It is deliberately imperative rather than an `@defer` block: `@defer` would
  * still put `DiffViewComponent` in this component's static `imports`, which
- * drags `@ptah-extension/editor` into every unit test of this library.
+ * drags `@ptah-extension/git-ui` into every unit test of this library.
  *
  * The diff itself is between two IN-MEMORY bodies (current vs proposed, or
  * current vs a history snapshot), so the synthetic tab record is marked
@@ -38,7 +37,7 @@ type DiffLoadState = 'idle' | 'loading' | 'ready' | 'error';
 /**
  * The subset of `DiffViewComponent`'s `diffTab` input this component builds.
  * Declared structurally so the type never has to be imported from
- * `@ptah-extension/editor` (which would defeat the lazy boundary).
+ * `@ptah-extension/git-ui` (which would defeat the lazy boundary).
  */
 interface SyntheticDiffTab {
   filePath: string;
@@ -163,12 +162,12 @@ export class LazyDiffViewComponent implements OnDestroy {
     const token = ++this.loadToken;
     this.state.set('loading');
     try {
-      const editorModule = await import('@ptah-extension/editor');
+      const gitUiModule = await import('@ptah-extension/git-ui');
       if (token !== this.loadToken) return;
 
       const host = this.diffHost();
       host.clear();
-      const ref = host.createComponent(editorModule.DiffViewComponent);
+      const ref = host.createComponent(gitUiModule.DiffViewComponent);
       ref.setInput('diffTab', tab);
       ref.setInput('openDiffKeys', [tab.filePath]);
       ref.setInput('showHeader', false);

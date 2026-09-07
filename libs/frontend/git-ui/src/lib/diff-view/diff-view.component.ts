@@ -41,8 +41,8 @@ import type {
   GitApplyHunksOperation,
   GitHunkRef,
   HunkApplyFn,
-} from '../services/editor/editor-tab.types';
-import { diffComparisonLabel } from '../services/editor/editor-tab.types';
+} from '../types/diff-tab.types';
+import { diffComparisonLabel } from '../types/diff-tab.types';
 
 type MonacoApi = typeof monaco;
 
@@ -136,10 +136,11 @@ interface DiffModelPair {
 /**
  * Backend setting key for the inline / side-by-side preference (D3).
  *
- * Served by the EXISTING `editor:getSetting` / `editor:updateSetting` pair on
- * all three hosts — D3 deliberately adds no new RPC method.
+ * Served by the host-agnostic `settings:get` / `settings:set` pair, and
+ * registered in `FILE_BASED_SETTINGS_KEYS` so the write guard accepts it —
+ * under the previous `editor.` prefix the preference never persisted.
  */
-const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
+const DIFF_LAYOUT_SETTING_KEY = 'diff.renderSideBySide';
 
 /**
  * Fallback copy for an apply that failed without usable backend copy.
@@ -257,6 +258,14 @@ const APPLY_FAILED_MESSAGE =
             roving tabindex and make arrow navigation skip silently.
           -->
           @if (hunkActionsAvailable()) {
+            <!--
+              The roving tabindex lives on the BUTTONS (hunkTabIndex), which is
+              the documented toolbar pattern: exactly one child is in the focus
+              order and the container's keydown handler receives the bubbled
+              event. Making the container itself focusable would add a second
+              stop with nothing to activate.
+            -->
+            <!-- eslint-disable-next-line @angular-eslint/template/interactive-supports-focus -->
             <div
               class="flex items-center gap-0.5 flex-shrink-0"
               role="toolbar"
@@ -1427,9 +1436,9 @@ export class DiffViewComponent implements OnDestroy {
 
   private async loadLayoutPreference(): Promise<void> {
     try {
-      const result = await rpcCall<{ value?: boolean }>(
+      const result = await rpcCall<{ value: unknown }>(
         this.vscodeService,
-        'editor:getSetting',
+        'settings:get',
         { key: DIFF_LAYOUT_SETTING_KEY },
       );
       if (this.destroyed) return;
@@ -1445,7 +1454,7 @@ export class DiffViewComponent implements OnDestroy {
 
   private async persistLayoutPreference(sideBySide: boolean): Promise<void> {
     try {
-      await rpcCall(this.vscodeService, 'editor:updateSetting', {
+      await rpcCall(this.vscodeService, 'settings:set', {
         key: DIFF_LAYOUT_SETTING_KEY,
         value: sideBySide,
       });

@@ -51,8 +51,8 @@ import type {
   DiffTabState,
   EditorTab,
   GitHunkRef,
-} from '../services/editor/editor-tab.types';
-import { diffTabKey } from '../services/editor/editor-tab.types';
+} from '../types/diff-tab.types';
+import { diffTabKey } from '../types/diff-tab.types';
 
 /**
  * jsdom implements no `HTMLDialogElement` methods, so the dialog's

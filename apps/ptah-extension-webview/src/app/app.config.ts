@@ -54,8 +54,13 @@ import {
 import {
   provideEditorInternalState,
   EditorService,
-  GitStatusService,
 } from '@ptah-extension/editor/services';
+import {
+  DiffTabsService,
+  GitBranchesService,
+  GitStatusService,
+  WorktreeService,
+} from '@ptah-extension/git-ui';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
@@ -183,6 +188,9 @@ export const appConfig: ApplicationConfig = {
     ...provideEditorInternalState(),
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,

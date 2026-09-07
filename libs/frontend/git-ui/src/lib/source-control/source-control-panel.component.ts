@@ -16,7 +16,7 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import type { GitFileStatus } from '@ptah-extension/shared';
-import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
+import type { OpenDiffRequest } from '../types/diff-tab.types';
 import { SourceControlService } from '../services/source-control.service';
 import { SourceControlFileComponent } from './source-control-file.component';
 import { WorktreeSectionComponent } from '../worktree/worktree-section.component';

@@ -26,23 +26,14 @@ export { FileTreeNodeComponent } from './lib/file-tree/file-tree-node.component'
 export { FileTreeContextMenuComponent } from './lib/file-tree/file-tree-context-menu.component';
 export { FileTreeInlineInputComponent } from './lib/file-tree/file-tree-inline-input.component';
 export { CodeEditorComponent } from './lib/code-editor/code-editor.component';
-export { DiffViewComponent } from './lib/diff-view/diff-view.component';
 export { EditorPanelComponent } from './lib/editor-panel/editor-panel.component';
 export { GitStatusBarComponent } from './lib/git-status-bar/git-status-bar.component';
-export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
 export { SidebarComponent } from './lib/sidebar/sidebar.component';
-export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
-export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
 export { BranchPickerDropdownComponent } from './lib/branch-picker/branch-picker-dropdown.component';
 export { BranchDetailsPopoverComponent } from './lib/branch-picker/branch-details-popover.component';
 export { EditorService } from './lib/services/editor.service';
-export type { EditorTab } from './lib/services/editor/editor-tab.types';
 export {
   EDITOR_INTERNAL_STATE,
   type EditorInternalState,
 } from './lib/services/editor/editor-internal-state';
 export { provideEditorInternalState } from './lib/services/editor-internal-state.provider';
-export { GitStatusService } from './lib/services/git-status.service';
-export { GitBranchesService } from './lib/services/git-branches.service';
-export { WorktreeService } from './lib/services/worktree.service';
-export { SourceControlService } from './lib/services/source-control.service';

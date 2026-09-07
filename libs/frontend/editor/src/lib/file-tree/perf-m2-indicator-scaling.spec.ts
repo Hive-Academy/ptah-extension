@@ -47,7 +47,8 @@ import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { GitFileStatus, GitBranchInfo } from '@ptah-extension/shared';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
+import { FileTreeGitIndexService } from './file-tree-git-index.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -229,6 +230,7 @@ function warmUp(
 
 describe('perf M2 scaling — directory indicator lookup (B3 AC2)', () => {
   let gitStatus: GitStatusService;
+  let gitIndex: FileTreeGitIndexService;
 
   beforeEach(async () => {
     mockRpcCall.mockReset();
@@ -245,6 +247,7 @@ describe('perf M2 scaling — directory indicator lookup (B3 AC2)', () => {
     });
 
     gitStatus = TestBed.inject(GitStatusService);
+    gitIndex = TestBed.inject(FileTreeGitIndexService);
     gitStatus.switchWorkspace(WORKSPACE_ROOT);
     gitStatus.startListening();
     await Promise.resolve();
@@ -285,9 +288,9 @@ describe('perf M2 scaling — directory indicator lookup (B3 AC2)', () => {
     // One-per-update cost, O(total path segments) — reported for completeness,
     // not part of the per-node figures below.
     const buildStart = performance.now();
-    const prefixes = gitStatus.changedDirPrefixes();
+    const prefixes = gitIndex.changedDirPrefixes();
     const buildMs = performance.now() - buildStart;
-    const statusMap = gitStatus.fileStatusMap();
+    const statusMap = gitIndex.fileStatusMap();
 
     warmUp(prefixes, statusMap);
 

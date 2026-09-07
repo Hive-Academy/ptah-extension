@@ -18,7 +18,7 @@ import {
   Folder,
 } from 'lucide-angular';
 import type { GitFileStatus } from '@ptah-extension/shared';
-import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
+import type { OpenDiffRequest } from '../types/diff-tab.types';
 
 /**
  * SourceControlFileComponent - Single file row in the source control panel.

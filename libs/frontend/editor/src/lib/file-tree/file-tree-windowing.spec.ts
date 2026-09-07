@@ -27,7 +27,8 @@ import {
   FILE_TREE_WINDOW_SIZE,
 } from './file-tree-window';
 import { EditorService } from '../services/editor.service';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
+import { FileTreeGitIndexService } from './file-tree-git-index.service';
 import type { FileTreeNode } from '../models/file-tree.model';
 
 /** Far above the window, and above anything a hand-authored directory holds. */
@@ -205,6 +206,11 @@ describe('file tree rendering is bounded (TASK_2026_203)', () => {
           provide: GitStatusService,
           useValue: {
             activeWorkspacePath: signal<string | null>(null),
+          },
+        },
+        {
+          provide: FileTreeGitIndexService,
+          useValue: {
             fileStatusMap: signal(new Map()),
             changedDirPrefixes: signal(new Set<string>()),
           },
@@ -398,6 +404,11 @@ describe('the child list is sorted once per change, not once per reader (TASK_20
           provide: GitStatusService,
           useValue: {
             activeWorkspacePath: signal<string | null>('/ws'),
+          },
+        },
+        {
+          provide: FileTreeGitIndexService,
+          useValue: {
             fileStatusMap: signal(new Map()),
             changedDirPrefixes: signal(new Set<string>()),
           },

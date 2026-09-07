@@ -1,12 +1,3 @@
-/*
- * PRIVATE to `@ptah-extension/editor`. The canonical copy now lives in
- * `@ptah-extension/git-ui`, where it is deliberately NOT exported
- * (implementation detail of `DiffViewComponent`). `CodeEditorComponent` still
- * needs a loader, so this lib keeps its own until the whole editor lib is
- * deleted in Phase 4 (TASK_2026_385). Two instances are safe by design: the
- * service already coexists with `ngx-monaco-editor-v2`'s loader through the
- * shared `window.monaco` + `[data-monaco-loader]` sentinel + poll path.
- */
 import { Injectable, NgZone, inject } from '@angular/core';
 import {
   NGX_MONACO_EDITOR_CONFIG,

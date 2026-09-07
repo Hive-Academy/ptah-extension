@@ -1,7 +1,7 @@
 import { InjectionToken, type WritableSignal } from '@angular/core';
 import type { VSCodeService } from '@ptah-extension/core';
 import type { FileTreeNode } from '../../models/file-tree.model';
-import type { EditorTab } from './editor-tab.types';
+import type { EditorTab } from '@ptah-extension/git-ui';
 
 /**
  * Internal per-workspace editor state cache.

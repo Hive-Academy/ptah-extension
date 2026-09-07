@@ -52,7 +52,7 @@ import { By } from '@angular/platform-browser';
 import { VSCodeService } from '@ptah-extension/core';
 import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
 
 beforeAll(() => {
   // jsdom implements no HTMLDialogElement methods, so `showModal()` would throw

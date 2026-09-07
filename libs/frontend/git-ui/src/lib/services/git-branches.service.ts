@@ -6,6 +6,8 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import type { MessageHandler } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   BranchRef,
   GitBranchesResult,
@@ -70,8 +72,9 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  *
  * Pattern mirrors {@link GitStatusService}:
  * - Signal-based state (private writable + public readonly).
- * - Event-driven refresh: subscribes to `git:status-update` push events
- *   posted by the backend git watcher. There is NO polling.
+ * - Event-driven refresh: reacts to `git:status-update` pushes routed by
+ *   `MessageRouterService` while {@link startListening} has armed the gate.
+ *   There is NO polling and no raw `window` listener.
  * - On-demand refresh via `refreshBranches()`, `refreshTags()`,
  *   `refreshRemotes()`. Tags and remotes are split out so they can be
  *   lazily fetched (the branch picker doesn't need them on first paint).
@@ -85,7 +88,7 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  * workspace root so each repo gets its own most-recent list.
  */
 @Injectable({ providedIn: 'root' })
-export class GitBranchesService {
+export class GitBranchesService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -122,7 +125,6 @@ export class GitBranchesService {
   );
 
   private _isListening = false;
-  private _messageHandler: ((event: MessageEvent) => void) | null = null;
 
   /**
    * Re-entrancy guard for the refresh pass. Prevents overlapping RPC bursts
@@ -167,29 +169,44 @@ export class GitBranchesService {
   }
 
   /**
-   * Start listening for `git:status-update` push events from the backend
-   * git watcher. On each event, refreshes branches + stash + last commit.
+   * Message types dispatched to {@link handleMessage} by
+   * `MessageRouterService`. Registered through the `MESSAGE_HANDLERS`
+   * multi-provider in the composition root — this service holds no raw
+   * `window` listener of its own.
+   */
+  readonly handledMessageTypes = [MESSAGE_TYPES.GIT_STATUS_UPDATE] as const;
+
+  /**
+   * Apply a `git:status-update` push routed by `MessageRouterService`.
+   *
+   * Gated on {@link startListening} / {@link stopListening} so the observable
+   * behaviour matches the raw listener this replaced: a push arriving before
+   * the surface arms the service, or after it disarms, is dropped. A push for
+   * a different workspace folder is dropped too.
+   */
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (!this._isListening) return;
+    if (message.type !== MESSAGE_TYPES.GIT_STATUS_UPDATE) return;
+
+    const payload = message.payload as GitStatusUpdatePayload | undefined;
+    if (
+      payload?.workspaceRoot &&
+      payload.workspaceRoot !== this.workspaceKey()
+    ) {
+      return;
+    }
+    void this.refreshForCauses(payload?.causes);
+  }
+
+  /**
+   * Begin accepting `git:status-update` pushes. On each one, refreshes the
+   * slices whose triggers fired.
    *
    * Idempotent — calling twice is a no-op.
    */
   startListening(): void {
     if (this._isListening) return;
     this._isListening = true;
-
-    this._messageHandler = (event: MessageEvent): void => {
-      const data = event.data;
-      if (data?.type === 'git:status-update') {
-        const payload = data.payload as GitStatusUpdatePayload | undefined;
-        if (
-          payload?.workspaceRoot &&
-          payload.workspaceRoot !== this.workspaceKey()
-        ) {
-          return;
-        }
-        void this.refreshForCauses(payload?.causes);
-      }
-    };
-    window.addEventListener('message', this._messageHandler);
   }
 
   /**
@@ -324,15 +341,11 @@ export class GitBranchesService {
   }
 
   /**
-   * Stop listening for push events. Safe to call when not listening.
+   * Stop accepting push events. Safe to call when not listening.
    * Wired to {@link DestroyRef.onDestroy} in the constructor as a backstop.
    */
   stopListening(): void {
     this._isListening = false;
-    if (this._messageHandler) {
-      window.removeEventListener('message', this._messageHandler);
-      this._messageHandler = null;
-    }
     // An armed coalescing window would otherwise fire its RPCs after the
     // surface that wanted them is gone.
     if (this._coalesceTimer !== null) {

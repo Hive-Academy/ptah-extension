@@ -16,7 +16,6 @@ import {
   Trash2,
 } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
-import { EditorService } from '../services/editor.service';
 import { WorktreeService } from '../services/worktree.service';
 import type { GitWorktreeInfo } from '@ptah-extension/shared';
 
@@ -252,7 +251,6 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
 })
 export class WorktreeSectionComponent {
   protected readonly worktreeService = inject(WorktreeService);
-  private readonly editorService = inject(EditorService);
   private readonly layoutService = inject(ElectronLayoutService);
 
   protected readonly GitBranchIcon = GitBranch;
@@ -274,8 +272,15 @@ export class WorktreeSectionComponent {
   protected readonly isRemoving = signal(false);
   protected readonly removeError = signal('');
 
+  /**
+   * Which worktree row reads as active.
+   *
+   * Tracks `ElectronLayoutService.activeWorkspace()` — the shell's own notion
+   * of the focused folder — rather than editor-lib state, which this library
+   * must not reach into.
+   */
   protected isActiveWorktree(wt: GitWorktreeInfo): boolean {
-    const activeRoot = this.editorService.activeWorkspacePath;
+    const activeRoot = this.layoutService.activeWorkspace()?.path ?? null;
     if (!activeRoot) return wt.isMain;
     const normalizedActive = activeRoot.replace(/\\/g, '/').replace(/\/$/, '');
     const normalizedWt = wt.path.replace(/\\/g, '/').replace(/\/$/, '');

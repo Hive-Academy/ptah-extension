@@ -21,7 +21,8 @@ import {
 } from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import { EditorService } from '../services/editor.service';
-import { GitStatusService } from '../services/git-status.service';
+import { GitStatusService } from '@ptah-extension/git-ui';
+import { FileTreeGitIndexService } from './file-tree-git-index.service';
 import { FileTreeInlineInputComponent } from './file-tree-inline-input.component';
 import { FileTreeMoreRowComponent } from './file-tree-more-row.component';
 import { createFileTreeWindow } from './file-tree-window';
@@ -144,6 +145,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
 export class FileTreeNodeComponent {
   private readonly editorService = inject(EditorService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly gitIndex = inject(FileTreeGitIndexService);
 
   readonly node = input.required<FileTreeNode>();
   readonly depth = input<number>(0);
@@ -205,7 +207,7 @@ export class FileTreeNodeComponent {
     if (!normalizedPath.startsWith(rootWithSlash)) return undefined;
 
     const relativePath = normalizedPath.slice(rootWithSlash.length);
-    const entries = this.gitStatus.fileStatusMap().get(relativePath);
+    const entries = this.gitIndex.fileStatusMap().get(relativePath);
     if (!entries || entries.length === 0) return undefined;
     return entries.find((e) => e.staged) ?? entries[0];
   });
@@ -292,7 +294,7 @@ export class FileTreeNodeComponent {
    * Only applies to directory nodes.
    *
    * The answer is a single `Set.has` against
-   * {@link GitStatusService.changedDirPrefixes}, so it is constant-time with
+   * {@link FileTreeGitIndexService.changedDirPrefixes}, so it is constant-time with
    * respect to the number of changed files (B3 AC2) — this used to scan every
    * key of `fileStatusMap` once per directory node, making a status update
    * cost O(changed files × directory nodes).
@@ -318,7 +320,7 @@ export class FileTreeNodeComponent {
       : '';
     if (!relativeDirPath) return false;
 
-    return this.gitStatus.changedDirPrefixes().has(relativeDirPath);
+    return this.gitIndex.changedDirPrefixes().has(relativeDirPath);
   });
   readonly FolderIcon = Folder;
   private readonly FileIcon = File;

@@ -19,7 +19,7 @@ import { signal, computed } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentRef } from '@angular/core';
 import { BranchPickerDropdownComponent } from './branch-picker-dropdown.component';
-import { GitBranchesService } from '../services/git-branches.service';
+import { GitBranchesService } from '@ptah-extension/git-ui';
 import type { BranchRef, GitCheckoutResult } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------

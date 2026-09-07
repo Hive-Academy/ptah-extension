@@ -1363,14 +1363,6 @@ export interface RpcMethodRegistry {
     params: { itemPath: string; isDirectory: boolean };
     result: { success: boolean; error?: string };
   };
-  'editor:getSetting': {
-    params: { key: string };
-    result: { success: boolean; value?: unknown; error?: string };
-  };
-  'editor:updateSetting': {
-    params: { key: string; value: unknown };
-    result: { success: boolean; error?: string };
-  };
   'file:read': {
     params: { path: string };
     result: { content: string };
@@ -1413,6 +1405,14 @@ export interface RpcMethodRegistry {
         isDefault: boolean;
       }>;
     };
+  };
+  'settings:get': {
+    params: { key: string };
+    result: { success: boolean; value?: unknown; error?: string };
+  };
+  'settings:set': {
+    params: { key: string; value: unknown };
+    result: { success: boolean; error?: string };
   };
   'settings:export': {
     params: Record<string, never>;
@@ -3507,8 +3507,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'editor:createFolder': true,
   'editor:renameItem': true,
   'editor:deleteItem': true,
-  'editor:getSetting': true,
-  'editor:updateSetting': true,
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,
@@ -3516,6 +3514,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:setApiKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
+  'settings:get': true,
+  'settings:set': true,
   'settings:export': true,
   'settings:import': true,
   'webSearch:getApiKeyStatus': true,

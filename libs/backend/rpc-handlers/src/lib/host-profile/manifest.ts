@@ -103,8 +103,6 @@ const EDITOR_PANE_METHODS = [
   'editor:createFolder',
   'editor:renameItem',
   'editor:deleteItem',
-  'editor:getSetting',
-  'editor:updateSetting',
 ] as const satisfies readonly RpcMethodName[];
 
 export const RPC_HANDLER_MANIFEST = [

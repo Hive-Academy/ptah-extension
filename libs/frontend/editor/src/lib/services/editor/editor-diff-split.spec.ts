@@ -36,8 +36,8 @@ import type {
   EditorInternalState,
   EditorWorkspaceState,
 } from './editor-internal-state';
-import type { EditorTab, OpenDiffRequest } from './editor-tab.types';
-import { diffTabKey } from './editor-tab.types';
+import type { EditorTab, OpenDiffRequest } from '@ptah-extension/git-ui';
+import { diffTabKey } from '@ptah-extension/git-ui';
 import type {
   DiffSideRef,
   GitApplyHunksResult,

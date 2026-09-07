@@ -10,6 +10,7 @@ import {
   ElectronLayoutService,
   rpcCall,
 } from '@ptah-extension/core';
+import type { MessageHandler } from '@ptah-extension/core';
 import type {
   GitWorktreeInfo,
   GitWorktreesResult,
@@ -20,13 +21,23 @@ import type {
 
 const ASYNC_WORKTREE_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * Wire type of the worktree-changed push.
+ *
+ * Deliberately a literal and NOT a member of `MESSAGE_TYPES`: four backend
+ * producers broadcast this string directly (`git-rpc.handlers.ts`,
+ * `ptah-api-builder.service.ts` and two sites in `sdk-callbacks.ts`), so the
+ * contract must not move. `tasks-store.service.ts` matches the same way.
+ */
+export const WORKTREE_CHANGED_MESSAGE_TYPE = 'git:worktreeChanged' as const;
+
 interface PendingOperation {
   resolve: (value: { success: boolean; error?: string; path?: string }) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
 @Injectable({ providedIn: 'root' })
-export class WorktreeService {
+export class WorktreeService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly layoutService = inject(ElectronLayoutService);
   private readonly destroyRef = inject(DestroyRef);
@@ -39,8 +50,21 @@ export class WorktreeService {
   readonly isLoading = this._isLoading.asReadonly();
   readonly worktreeCount = computed(() => this._worktrees().length);
 
+  /**
+   * Message types dispatched to {@link handleMessage} by
+   * `MessageRouterService`. Registered through the `MESSAGE_HANDLERS`
+   * multi-provider in the composition root — this service holds no raw
+   * `window` listener of its own.
+   */
+  readonly handledMessageTypes = [WORKTREE_CHANGED_MESSAGE_TYPE] as const;
+
   constructor() {
-    this.setupWorktreeChangeListener();
+    this.destroyRef.onDestroy(() => {
+      for (const pending of this.pendingOps.values()) {
+        clearTimeout(pending.timer);
+      }
+      this.pendingOps.clear();
+    });
   }
 
   async loadWorktrees(): Promise<void> {
@@ -213,48 +237,43 @@ export class WorktreeService {
     this.pendingOps.delete(operationId);
   }
 
-  private setupWorktreeChangeListener(): void {
-    const handler = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (data.type !== 'git:worktreeChanged') return;
+  /**
+   * Apply a `git:worktreeChanged` push routed by `MessageRouterService`.
+   *
+   * A push carrying an `operationId` settles the matching pending operation
+   * and stops there — {@link addWorktree} / {@link removeWorktree} own the
+   * follow-up. An uncorrelated push (another surface created or removed a
+   * worktree) reconciles the local list instead.
+   */
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type !== WORKTREE_CHANGED_MESSAGE_TYPE) return;
 
-      const payload = data.payload as
-        | GitWorktreeChangedNotification
-        | undefined;
-      if (!payload || !payload.action) return;
+    const payload = message.payload as
+      | GitWorktreeChangedNotification
+      | undefined;
+    if (!payload || !payload.action) return;
 
-      if (payload.operationId) {
-        const pending = this.pendingOps.get(payload.operationId);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.pendingOps.delete(payload.operationId);
-          pending.resolve({
-            success: payload.success !== false,
-            error: payload.error,
-            path: payload.path,
-          });
-        }
-        return;
-      }
-
-      if (payload.action === 'created') {
-        if (payload.path) {
-          void this.layoutService.addFolderByPath(payload.path);
-        }
-        this.loadWorktrees();
-      } else if (payload.action === 'removed') {
-        this.loadWorktrees();
-      }
-    };
-
-    window.addEventListener('message', handler);
-    this.destroyRef.onDestroy(() => {
-      window.removeEventListener('message', handler);
-      for (const pending of this.pendingOps.values()) {
+    if (payload.operationId) {
+      const pending = this.pendingOps.get(payload.operationId);
+      if (pending) {
         clearTimeout(pending.timer);
+        this.pendingOps.delete(payload.operationId);
+        pending.resolve({
+          success: payload.success !== false,
+          error: payload.error,
+          path: payload.path,
+        });
       }
-      this.pendingOps.clear();
-    });
+      return;
+    }
+
+    if (payload.action === 'created') {
+      if (payload.path) {
+        void this.layoutService.addFolderByPath(payload.path);
+      }
+      void this.loadWorktrees();
+    } else if (payload.action === 'removed') {
+      void this.loadWorktrees();
+    }
   }
 }

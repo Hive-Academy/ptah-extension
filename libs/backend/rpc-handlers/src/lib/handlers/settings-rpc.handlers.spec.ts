@@ -1,8 +1,8 @@
 /**
  * SettingsRpcHandlers — integration specs.
  *
- * Surface under test: `settings:export` and `settings:import` RPC methods
- * wired through `SettingsRpcHandlers.register()`.
+ * Surface under test: the `settings:get`, `settings:set`, `settings:export` and
+ * `settings:import` RPC methods wired through `SettingsRpcHandlers.register()`.
  *
  * Design notes:
  *   - Direct constructor injection (no tsyringe container).
@@ -16,7 +16,11 @@
  *   - Fake timers are used where `setTimeout` appears (license-import path).
  *
  * Behavioral contracts locked in:
- *   - register() wires both methods.
+ *   - register() wires all four methods.
+ *   - settings:get: an unwritten file-based key answers with its registry
+ *     default; a missing key is refused without reaching the provider.
+ *   - settings:set: a file-based key is written through the provider; a key
+ *     outside FILE_BASED_SETTINGS_KEYS is refused and nothing is written.
  *   - settings:export: happy path returns exported:true with counts; cancelled
  *     dialog returns exported:false, cancelled:true.
  *   - settings:import: no showOpenDialog → cancelled:true.
@@ -64,6 +68,7 @@ import type {
   IWorkspaceProvider,
   IPlatformCommands,
 } from '@ptah-extension/platform-core';
+import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import type {
   SettingsExportService,
   SettingsImportService,
@@ -246,12 +251,98 @@ function seedFile(content: string): void {
 
 describe('SettingsRpcHandlers', () => {
   describe('register()', () => {
-    it('wires both settings RPC methods', () => {
+    it('wires every settings RPC method', () => {
       const h = makeHarness();
       h.handlers.register();
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
-        ['settings:export', 'settings:import'].sort(),
+        [
+          'settings:get',
+          'settings:set',
+          'settings:export',
+          'settings:import',
+        ].sort(),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // settings:get / settings:set
+  // -------------------------------------------------------------------------
+
+  describe('settings:get', () => {
+    it('returns the registry default for a key that was never written', async () => {
+      const h = makeHarness();
+      // Stand in for a real IWorkspaceProvider: an unwritten file-based key
+      // falls back to FILE_BASED_SETTINGS_DEFAULTS.
+      h.workspaceProvider.getConfiguration.mockImplementation(
+        (_section: string, key: string) =>
+          FILE_BASED_SETTINGS_DEFAULTS[
+            key as keyof typeof FILE_BASED_SETTINGS_DEFAULTS
+          ],
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; value?: unknown }>(
+        h,
+        'settings:get',
+        { key: 'diff.renderSideBySide' },
+      );
+
+      expect(result).toEqual({ success: true, value: true });
+      expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'diff.renderSideBySide',
+      );
+    });
+
+    it('rejects a missing key without touching the provider', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'settings:get',
+        {},
+      );
+
+      expect(result).toEqual({ success: false, error: 'key is required' });
+      expect(h.workspaceProvider.getConfiguration).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('settings:set', () => {
+    it('writes a file-based key through the workspace provider', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'settings:set', {
+        key: 'diff.renderSideBySide',
+        value: false,
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'diff.renderSideBySide',
+        false,
+      );
+    });
+
+    it('refuses a key that is not file-based and writes nothing', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'settings:set',
+        { key: 'not.a.real.setting', value: 'anything' },
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: "Setting key 'not.a.real.setting' is not writable",
+      });
+      expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
     });
   });
 
