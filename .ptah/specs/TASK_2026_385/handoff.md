@@ -82,6 +82,17 @@ task and must never be staged by it:
 Commit with an explicit path list, never `git add -A` on the repository root.
 The Phase 2 commit used `git commit -F <file> -- <path> <path> …`.
 
+An explicit path list is not enough on its own. **The husky pre-commit hook runs
+`nx lint` across all 73 projects, not only the staged files.** One lint error in
+any foreign, uncommitted file therefore blocks every commit in this working
+tree. Measured 2026-09-07: a `no-unexpected-multiline` error in an untracked
+`chat-ui` spec owned by a third session held up a finished Batch 3.1. If a
+commit fails on a project you never touched, look for a foreign edit before you
+look at your own work.
+
+**`batches.md` is the single source of truth between sessions**, and it will be
+ahead of this document. Read it first.
+
 ## Repository rules that cost time this session
 
 - The commitlint `scope` enum no longer contains `specs`. Use `docs` for

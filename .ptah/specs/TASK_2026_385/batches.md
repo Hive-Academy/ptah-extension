@@ -514,7 +514,7 @@ silently runs only `a`.
 
 ---
 
-## Batch 3.1: Git dock — PENDING
+## Batch 3.1: Git dock — COMPLETE (`239f8013e`)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -522,7 +522,7 @@ silently runs only `a`.
 - Rationale: new components plus the shell mount; independently revertible per plan line 820.
 - Tasks: 1 | Depends on: Phase 2 complete | Parallel with: 3.2
 
-### Task 3.1: build GitDockComponent and mount it in the shell slot — PENDING
+### Task 3.1: build GitDockComponent and mount it in the shell slot — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\frontend\git-ui\src\lib\git-dock\git-dock.component.ts` + `.spec.ts`, `...\git-dock-header.component.ts`. MODIFY `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\electron-shell.component.ts`, `...\git-ui\src\index.ts`
 - Plan reference: implementation-plan.md:461-528 (Component 9)
@@ -540,7 +540,7 @@ silently runs only `a`.
 
 ---
 
-## Batch 3.2: External-editor file:open — PENDING
+## Batch 3.2: External-editor file:open — COMPLETE (`e1585fad9`)
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -548,7 +548,7 @@ silently runs only `a`.
 - Rationale: a new Electron handler, a host-profile rebinding and one frontend collapse; disjoint from 3.1.
 - Tasks: 1 | Depends on: Phase 2 complete | Parallel with: 3.1
 
-### Task 3.2: launch the external editor from file:open — PENDING
+### Task 3.2: launch the external editor from file:open — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\file-open-rpc.handlers.ts` + `.spec.ts` + `file-open-rpc.schema.ts`. MODIFY `...\src\rpc-host-profile.ts` (`:44`), `...\src\di\phase-4-handlers.ts` (beside `:168`), `...\src\services\rpc\handlers\index.ts`, `D:\projects\ptah-extension\libs\frontend\chat-ui\src\lib\atoms\file-path-link.component.ts`
 - Plan reference: implementation-plan.md:530-584 (Component 10)
@@ -594,7 +594,7 @@ silently runs only `a`.
 
 ---
 
-## Batch 3.4: git-ui lazy-chunk budget — PENDING
+## Batch 3.4: git-ui lazy-chunk budget — CLOSED, OBSOLETE (no code change)
 
 - Recommended executor: devops-engineer
 - Fallback executor: none
@@ -602,7 +602,45 @@ silently runs only `a`.
 - Rationale: **fixes Defect 2.** A measured budget needs a real chunk, which only exists after 3.1's dock mount.
 - Tasks: 1 | Depends on: 3.1
 
-### Task 3.4: add a measured bundle budget for the git-ui chunk — PENDING
+### Why this batch shipped nothing (2026-09-07, user decision)
+
+The batch's premise is false. **There is no meaningful git-ui lazy chunk to
+budget**, so a budget over it cannot fix Defect 2.
+
+`apps\ptah-extension-webview\src\app\app.config.ts:58-63` statically imports
+`DiffTabsService`, `GitBranchesService`, `GitStatusService` and
+`WorktreeService` from `@ptah-extension/git-ui` to register them in the
+`MESSAGE_HANDLERS` multi-provider. That pulls the library's whole graph —
+components included — into the **initial** bundle. Measured against
+`239f8013e`: git-ui's real payload is ~78 kB raw in `chunk-KAUG6AKV.js`, which
+is an _initial_ chunk, while the lazy `import('@ptah-extension/git-ui')` added
+by Batch 3.1 emits only a **559-byte** re-export barrel
+(`chunk-TWYWCHSJ.js`), identified by grepping the emitted files for
+`GitDockComponent`, not by guessing from the size-ordered table.
+
+This is structural, not a defect in 3.1 or Phase 2. The services must be
+registered eagerly to receive `git:status-update` pushes, and they live in the
+same library as the components.
+
+A second, independent blocker: Angular's `@angular/build:application` budget
+checker matches a `"type": "bundle"` entry by `chunk.names.includes(budget.name)`,
+and the chunk name derives from the resolved entry-point basename. git-ui's
+chunk is therefore named `index`, shared with six unrelated lazy chunks. A
+budget named `git-ui` matches nothing, scores `size: 0` and always passes.
+esbuild-based Angular does not honour webpack-style `webpackChunkName`
+comments. `any`/`anyScript` are not usable either — any threshold low enough to
+matter for git-ui fails immediately on the unrelated 329 kB chunk.
+
+A budget was written and then **reverted**, on the user's decision, rather than
+commit a guard that always passes and looks meaningful. `project.json` is
+unchanged. See `batch-3.4-report.md` for the full measurement.
+
+Follow-up recorded in `future-enhancements.md`: git-ui's weight is in the
+initial bundle. Making it genuinely lazy needs the four services split into
+their own entry point, separate from the components — a design change, not a
+budget.
+
+### Task 3.4: add a measured bundle budget for the git-ui chunk — CLOSED, OBSOLETE
 
 - File: `D:\projects\ptah-extension\apps\ptah-extension-webview\project.json`
 - Plan reference: implementation-plan.md:245-247, context.md:124-125
