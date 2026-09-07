@@ -82,6 +82,9 @@
       ],
       "@ptah-extension/voice-providers": [
         "../../libs/backend/voice-providers/src/index.ts"
+      ],
+      "@ptah-extension/thoth-runtime": [
+        "../../libs/backend/thoth-runtime/src/index.ts"
       ]
     }
   }
