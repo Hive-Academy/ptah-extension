@@ -1,0 +1,511 @@
+<!doctype html>
+<!--
+  G15b — one workspace, eight applications.
+  Hand-authored for builder-invitation, timeline 9:51.0-10:09.0 (18.0 s).
+  Structure, palette handling and timeline discipline follow the worked
+  example at ../../g04-lifecycle-chain/compositions/lifecycle-chain.html.
+
+  Full-frame takeover on an --ink backdrop. The bottom 186px is reserved for
+  Arabic captions: the lowest painted pixel is the bottom node at y=810.
+
+  SYNC CONTRACT — each node lands on the application the speaker names.
+  Timeline seconds minus 591.0 gives local composition time:
+    Application CLI tool               591.64  ->  0.64
+    React application                  593.2   ->  2.20
+    Documentation / Astro application  594.8   ->  3.80
+    Electron application               596.4   ->  5.40
+    VS Code extension                  597.6   ->  6.60
+    Landing page                       598.8   ->  7.80
+    License server                     600.0   ->  9.00
+    Remotion / video pipeline          601.6   -> 10.60
+    "all of these share one workspace,
+     and the agent knows every corpus"  603.0-608.4 -> 12.00-17.40
+
+  GEOMETRY — every position is computed arithmetically at build time from
+  the ellipse (CX, CY, RX, RY). Nothing is measured from the DOM, and the
+  spoke lengths come from Math.hypot, not getTotalLength.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>One workspace, eight applications</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="monorepo-constellation"
+      data-composition-id="monorepo-constellation"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="18"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <h1 class="header header-a">Eight applications</h1>
+        <h1 class="header header-b">The agent knows all of it</h1>
+
+        <svg class="wire-svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet">
+          <g class="spokes"></g>
+          <g class="pulses"></g>
+          <circle class="hub-ring" cx="960" cy="500" r="120" />
+          <circle class="hub-burst" cx="960" cy="500" r="120" />
+        </svg>
+
+        <div class="hub-placeholder">
+          <span class="hub-count">0</span>
+          <span class="hub-count-label">applications</span>
+        </div>
+
+        <div class="hub-card"><span class="hub-card-text">One workspace</span></div>
+
+        <div class="node" id="node-cli"><span>CLI tool</span><i class="node-glow"></i></div>
+        <div class="node" id="node-react"><span>React app</span><i class="node-glow"></i></div>
+        <div class="node" id="node-astro"><span>Astro docs</span><i class="node-glow"></i></div>
+        <div class="node" id="node-electron"><span>Electron app</span><i class="node-glow"></i></div>
+        <div class="node" id="node-vscode"><span>VS Code extension</span><i class="node-glow"></i></div>
+        <div class="node" id="node-landing"><span>Landing page</span><i class="node-glow"></i></div>
+        <div class="node" id="node-license"><span>License server</span><i class="node-glow"></i></div>
+        <div class="node" id="node-remotion"><span>Remotion pipeline</span><i class="node-glow"></i></div>
+      </div>
+
+      <style>
+        [data-composition-id="monorepo-constellation"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --node-border: rgba(255, 255, 255, 0.18);
+          --node-bg: rgba(255, 255, 255, 0.05);
+          --hub-dash: rgba(255, 255, 255, 0.22);
+          --hub-card-bg: rgba(52, 211, 153, 0.13);
+          --glow-border: rgba(52, 211, 153, 0.62);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="monorepo-constellation"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(115% 85% at 50% 44%, var(--ink-raised) 0%, var(--ink) 66%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget: header 50-108, ring band 190-810,
+           186px reserved caption band 894-1080 stays empty. */
+        [data-composition-id="monorepo-constellation"] .scene-content {
+          position: absolute;
+          inset: 0;
+          padding-bottom: 186px;
+        }
+
+        [data-composition-id="monorepo-constellation"] .header {
+          position: absolute;
+          left: 0;
+          top: 50px;
+          width: 1920px;
+          text-align: center;
+          font-size: 44px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .header-b {
+          color: var(--emerald-light);
+        }
+
+        /* viewBox 1920x1080 on a 1920x1080 CSS box: SVG units are frame
+           pixels, so the spokes land on the HTML nodes 1:1. */
+        [data-composition-id="monorepo-constellation"] .wire-svg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          overflow: visible;
+        }
+
+        [data-composition-id="monorepo-constellation"] .spoke {
+          stroke: var(--amber);
+          stroke-width: 4;
+          stroke-linecap: round;
+          fill: none;
+        }
+
+        [data-composition-id="monorepo-constellation"] .pulse {
+          fill: var(--emerald-light);
+        }
+
+        [data-composition-id="monorepo-constellation"] .pulses {
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-ring {
+          fill: none;
+          stroke: var(--hub-dash);
+          stroke-width: 3;
+          stroke-dasharray: 10 16;
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-burst {
+          fill: none;
+          stroke: var(--emerald);
+          stroke-width: 4;
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-placeholder {
+          position: absolute;
+          left: 760px;
+          top: 380px;
+          width: 400px;
+          height: 240px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-count {
+          font-size: 76px;
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          color: var(--text-strong);
+          line-height: 1;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-count-label {
+          font-size: 28px;
+          font-weight: 500;
+          letter-spacing: 0.06em;
+          text-transform: lowercase;
+          color: var(--text-faint);
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-card {
+          position: absolute;
+          left: 740px;
+          top: 425px;
+          width: 440px;
+          height: 150px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 26px;
+          border: 3px solid var(--emerald);
+          background: var(--hub-card-bg);
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .hub-card-text {
+          font-size: 46px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          color: var(--emerald-light);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="monorepo-constellation"] .node {
+          position: absolute;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 360px;
+          height: 76px;
+          border-radius: 18px;
+          border: 2px solid var(--node-border);
+          background: var(--node-bg);
+          font-size: 30px;
+          font-weight: 600;
+          letter-spacing: -0.005em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="monorepo-constellation"] .node-glow {
+          position: absolute;
+          left: -3px;
+          top: -3px;
+          right: -3px;
+          bottom: -3px;
+          border-radius: 21px;
+          border: 2px solid var(--glow-border);
+          opacity: 0;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="monorepo-constellation"]';
+          const root = document.querySelector(ROOT);
+          const svg = root.querySelector(".wire-svg");
+          const NS = "http://www.w3.org/2000/svg";
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- Geometry (all build-time arithmetic) ----------------------
+          const CX = 960;
+          const CY = 500;
+          const RX = 640;
+          const RY = 272;
+          const NODE_W = 360;
+          const NODE_H = 76;
+          const NHW = NODE_W / 2;
+          const NHH = NODE_H / 2;
+          const CARD_HW = 220; // .hub-card 440 wide
+          const CARD_HH = 75; //  .hub-card 150 tall
+          const GAP = 16;
+
+          // Eight applications, clockwise from the top of the ellipse, in the
+          // order the speaker names them.
+          const NODES = [
+            { key: "cli", deg: 0, at: 0.64 },
+            { key: "react", deg: 45, at: 2.2 },
+            { key: "astro", deg: 90, at: 3.8 },
+            { key: "electron", deg: 135, at: 5.4 },
+            { key: "vscode", deg: 180, at: 6.6 },
+            { key: "landing", deg: 225, at: 7.8 },
+            { key: "license", deg: 270, at: 9.0 },
+            { key: "remotion", deg: 315, at: 10.6 },
+          ];
+
+          // Distance from a box centre to its border along a unit vector.
+          const boxReach = (ux, uy, hw, hh) =>
+            Math.min(Math.abs(ux) < 1e-6 ? Infinity : hw / Math.abs(ux), Math.abs(uy) < 1e-6 ? Infinity : hh / Math.abs(uy));
+
+          NODES.forEach((n) => {
+            const a = (n.deg * Math.PI) / 180;
+            n.x = CX + RX * Math.sin(a);
+            n.y = CY - RY * Math.cos(a);
+
+            const dx = n.x - CX;
+            const dy = n.y - CY;
+            const d = Math.hypot(dx, dy);
+            n.ux = dx / d;
+            n.uy = dy / d;
+
+            const outR = boxReach(n.ux, n.uy, CARD_HW, CARD_HH) + GAP;
+            const inR = boxReach(n.ux, n.uy, NHW, NHH) + GAP;
+            n.sx = CX + n.ux * outR;
+            n.sy = CY + n.uy * outR;
+            n.ex = n.x - n.ux * inR;
+            n.ey = n.y - n.uy * inR;
+            n.len = Math.hypot(n.ex - n.sx, n.ey - n.sy);
+
+            const el = document.getElementById("node-" + n.key);
+            el.style.left = `${n.x - NHW}px`;
+            el.style.top = `${n.y - NHH}px`;
+            n.el = el;
+            n.glow = el.querySelector(".node-glow");
+          });
+
+          // ---- Spokes and pulses -----------------------------------------
+          const spokeGroup = svg.querySelector(".spokes");
+          const pulseGroup = svg.querySelector(".pulses");
+
+          NODES.forEach((n) => {
+            const line = document.createElementNS(NS, "line");
+            line.setAttribute("x1", n.sx);
+            line.setAttribute("y1", n.sy);
+            line.setAttribute("x2", n.ex);
+            line.setAttribute("y2", n.ey);
+            line.setAttribute("class", "spoke");
+            // Length is arithmetic, never getTotalLength().
+            line.style.strokeDasharray = n.len;
+            line.style.strokeDashoffset = n.len;
+            spokeGroup.appendChild(line);
+            n.line = line;
+
+            const dot = document.createElementNS(NS, "circle");
+            dot.setAttribute("cx", n.sx);
+            dot.setAttribute("cy", n.sy);
+            dot.setAttribute("r", 8);
+            dot.setAttribute("class", "pulse");
+            pulseGroup.appendChild(dot);
+            n.pulse = dot;
+          });
+
+          // ---- Helpers ---------------------------------------------------
+          const fadeIn = (target, vars, at) => {
+            const from = Object.assign({ opacity: 0 }, (vars && vars.from) || {});
+            const to = Object.assign(
+              { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false },
+              (vars && vars.to) || {},
+            );
+            tl.fromTo(target, from, to, at);
+          };
+
+          const fadeOut = (target, at, duration, fromOpacity) => {
+            tl.fromTo(
+              target,
+              { opacity: fromOpacity === undefined ? 1 : fromOpacity },
+              { opacity: 0, duration: duration, ease: "power2.in", immediateRender: false },
+              at,
+            );
+          };
+
+          // ---- Timeline (18.0 s) -----------------------------------------
+          // 0.0-0.7 backdrop in, then the empty hub establishes the centre.
+          tl.fromTo(`${ROOT} .backdrop`, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power2.out" }, 0);
+          tl.fromTo(`${ROOT} .header-a`, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.25);
+          fadeIn(`${ROOT} .hub-ring`, { to: { opacity: 0.9, duration: 0.5 } }, 0.3);
+          fadeIn(`${ROOT} .hub-placeholder`, { to: { duration: 0.5 } }, 0.3);
+
+          // The hub counter is a pure function of one proxy time value, so any
+          // seek inside the span resolves to the same number. No wall clock.
+          const counter = root.querySelector(".hub-count");
+          const ARRIVALS = NODES.map((n) => n.at + 0.3);
+          const clock = { t: 0 };
+          tl.fromTo(
+            clock,
+            { t: 0 },
+            {
+              t: 11.4,
+              duration: 11.4,
+              ease: "none",
+              onUpdate: () => {
+                let c = 0;
+                for (let i = 0; i < ARRIVALS.length; i += 1) {
+                  if (clock.t >= ARRIVALS[i]) c += 1;
+                }
+                counter.textContent = String(c);
+              },
+            },
+            0,
+          );
+
+          // 0.64-10.60 — one node per named application, flying outward from
+          // the hub onto its ring seat.
+          NODES.forEach((n) => {
+            tl.fromTo(
+              n.el,
+              { opacity: 0, scale: 0.8, x: -n.ux * 26, y: -n.uy * 26 },
+              {
+                opacity: 1,
+                scale: 1,
+                x: 0,
+                y: 0,
+                duration: 0.46,
+                ease: "back.out(1.7)",
+                immediateRender: false,
+              },
+              n.at,
+            );
+          });
+
+          // 11.65 — the placeholder clears BEFORE the card lands at 12.00, so
+          // the counter and the resolved label never share a frame.
+          fadeOut(`${ROOT} .hub-placeholder`, 11.65, 0.32);
+          fadeOut(`${ROOT} .hub-ring`, 11.65, 0.32, 0.9);
+
+          // 12.00 — THE BEAT. The centre resolves and all eight connections
+          // draw together, completing at 12.90.
+          tl.fromTo(
+            `${ROOT} .hub-card`,
+            { opacity: 0, scale: 0.62 },
+            { opacity: 1, scale: 1, duration: 0.7, ease: "back.out(1.6)", immediateRender: false },
+            12.0,
+          );
+          tl.fromTo(
+            `${ROOT} .hub-burst`,
+            { attr: { r: 118 }, opacity: 0.8 },
+            { attr: { r: 300 }, opacity: 0, duration: 1.0, ease: "power2.out", immediateRender: false },
+            12.0,
+          );
+          fadeOut(`${ROOT} .header-a`, 12.0, 0.4);
+          tl.fromTo(
+            `${ROOT} .header-b`,
+            { opacity: 0, y: 12 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power2.out", immediateRender: false },
+            12.35,
+          );
+
+          NODES.forEach((n) => {
+            tl.fromTo(
+              n.line,
+              { strokeDashoffset: n.len },
+              { strokeDashoffset: 0, duration: 0.85, ease: "power2.inOut", immediateRender: false },
+              12.05,
+            );
+            fadeIn(n.glow, { to: { opacity: 0.85, duration: 0.45 } }, 12.9);
+          });
+
+          // 13.30-14.60 — one shared read: a pulse leaves the hub on every
+          // spoke at once. Positions are lerped from build-time endpoints.
+          const travel = { p: 0 };
+          fadeIn(`${ROOT} .pulses`, { to: { duration: 0.2 } }, 13.3);
+          tl.fromTo(
+            travel,
+            { p: 0 },
+            {
+              p: 1,
+              duration: 1.1,
+              ease: "power1.inOut",
+              immediateRender: false,
+              onUpdate: () => {
+                for (let i = 0; i < NODES.length; i += 1) {
+                  const n = NODES[i];
+                  n.pulse.setAttribute("cx", n.sx + (n.ex - n.sx) * travel.p);
+                  n.pulse.setAttribute("cy", n.sy + (n.ey - n.sy) * travel.p);
+                }
+              },
+            },
+            13.35,
+          );
+          fadeOut(`${ROOT} .pulses`, 14.45, 0.35);
+
+          // 14.80-16.40 hold on the finished constellation, then release the
+          // frame back to the footage. Everything is gone by 17.70.
+          fadeOut(`${ROOT} .scene-content`, 16.4, 0.8);
+          fadeOut(`${ROOT} .backdrop`, 16.8, 0.9);
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["monorepo-constellation"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

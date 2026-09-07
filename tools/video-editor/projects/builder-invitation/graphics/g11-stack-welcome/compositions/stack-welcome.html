@@ -1,0 +1,395 @@
+<!doctype html>
+<!--
+  G11 — the stack, and who else is welcome.
+  Hand-authored. Structure, palette handling and timeline discipline follow
+  g06-faster-not-aware/compositions/faster-not-aware.html, which in turn
+  follows g07-degradation-curve/compositions/quality-over-time.html.
+
+  LOWER THIRD for builder-invitation, timeline 5:34.1-5:52.1 (18.0 s).
+  The line is "TypeScript today. .NET and Python welcome."
+
+  TWO STATES, not one:
+    * What it IS      — TypeScript, a SOLID amber chip, present from the top.
+    * What it is OPEN TO — .NET and Python, OUTLINED emerald chips that arrive
+      later, after a horizontal rule draws left-to-right between the two lines.
+      That rule is the door sill: the second state is a threshold being
+      opened, not a footnote appended.
+  The left accent bar hands over at the same moment: amber holds the top half,
+  an emerald half grows down from the middle as the door opens.
+
+  Beats land on the narration (local = timeline - 334.1):
+    "TypeScript Stack"  332.77-333.35 -> local -1.33 to -0.75 (just before us)
+    ".NET او بايسون"              334.37 -> local 0.27
+    "contribution في ال open source application"
+                              336.5-338.5 -> local 2.4-4.4
+    shares experience / builds together, through to 352.1 -> local 18.0
+
+  LAYOUT CONSTRAINTS — this is a lower third over screen capture, not a
+  takeover. Nothing paints full frame.
+    * Webcam PiP, bottom-left: x 0-430. Nothing may enter x 0-470.
+      The card runs x 540-1440 and there is no box-shadow, so the painted
+      bounds are exactly the card bounds.
+    * Arabic caption band: the bottom 186px, i.e. y 894-1080.
+      The card runs y 606-878 and stops 16px clear of it.
+    * Entrances are all from ABOVE (y: -18). A card entering on y: +18 would
+      put its bottom edge at y=896 during the fade, inside the caption band.
+    * The card carries its own scrim so the text stays legible over any UI
+      behind it. It does not rely on the capture being dark.
+
+  No DOM geometry is measured anywhere. Every reveal is a transform or an
+  opacity the browser resolves itself.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>TypeScript today. .NET and Python welcome.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="stack-welcome"
+      data-composition-id="stack-welcome"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="18"
+    >
+      <div class="card">
+        <span class="bar bar-amber"></span>
+        <span class="bar bar-emerald"></span>
+
+        <div class="lines">
+          <span class="door"></span>
+
+          <!-- The word spacing is carried by margins on .plain, not by source
+               whitespace: a leading space inside an inline-block is collapsed
+               away, which butted every chip against the next word. -->
+          <p class="line line-1">
+            <span class="chip chip-solid chip-ts">TypeScript</span
+            ><span class="plain plain-today">today.</span>
+          </p>
+
+          <p class="line line-2">
+            <span class="chip chip-open chip-net">.NET</span
+            ><span class="plain plain-and">and</span
+            ><span class="chip chip-open chip-py">Python</span
+            ><span class="plain plain-welcome">welcome.</span>
+          </p>
+
+          <p class="support">Contribute your community's patterns.</p>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="stack-welcome"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          /* The card scrim. --ink-raised / --ink at 0.96 so the card reads as
+             glass sitting on the capture rather than a hole punched in it,
+             while still burying whatever UI is behind it. */
+          --scrim-top: rgba(14, 16, 21, 0.96);
+          --scrim-base: rgba(8, 9, 12, 0.96);
+          --edge: rgba(255, 255, 255, 0.12);
+          /* The OPEN state: outlined, not filled. */
+          --chip-outline: rgba(52, 211, 153, 0.6);
+          --chip-open-wash: rgba(52, 211, 153, 0.07);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        /* The card is the whole painted area of this graphic.
+           x 540-1440  (PiP zone x 0-470 stays clear by 70px)
+           y 606-878   (caption band y 894-1080 stays clear by 16px)
+           No box-shadow: a shadow would bleed into both reserved zones. */
+        [data-composition-id="stack-welcome"] .card {
+          position: absolute;
+          left: 540px;
+          top: 606px;
+          width: 900px;
+          height: 272px;
+          padding: 30px 46px 28px 51px;
+          border: 1px solid var(--edge);
+          border-radius: 10px;
+          background: linear-gradient(
+            180deg,
+            var(--scrim-top) 0%,
+            var(--scrim-base) 78%
+          );
+          opacity: 0;
+          overflow: hidden;
+        }
+
+        /* Two stacked accent bars: amber owns the whole height, emerald grows
+           down over its lower half when the door opens. */
+        [data-composition-id="stack-welcome"] .bar {
+          position: absolute;
+          left: 0;
+          width: 5px;
+        }
+
+        [data-composition-id="stack-welcome"] .bar-amber {
+          top: 0;
+          height: 272px;
+          background: var(--amber);
+          transform: scaleY(0);
+          transform-origin: top center;
+        }
+
+        [data-composition-id="stack-welcome"] .bar-emerald {
+          top: 136px;
+          height: 136px;
+          background: var(--emerald);
+          transform: scaleY(0);
+          transform-origin: top center;
+        }
+
+        [data-composition-id="stack-welcome"] .lines {
+          position: relative;
+          width: 100%;
+        }
+
+        /* The door sill. Absolutely positioned so it costs no layout height
+           and cannot shift the lines it separates. */
+        [data-composition-id="stack-welcome"] .door {
+          position: absolute;
+          left: 0;
+          top: 86px;
+          width: 700px;
+          height: 2px;
+          border-radius: 1px;
+          background: linear-gradient(
+            90deg,
+            var(--amber-deep) 0%,
+            var(--emerald) 55%,
+            var(--chip-outline) 100%
+          );
+          transform: scaleX(0);
+          transform-origin: left center;
+        }
+
+        [data-composition-id="stack-welcome"] .line {
+          font-size: 50px;
+          line-height: 76px;
+          font-weight: 600;
+          letter-spacing: -0.015em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="stack-welcome"] .line-2 {
+          margin-top: 12px;
+        }
+
+        [data-composition-id="stack-welcome"] .plain {
+          display: inline-block;
+          opacity: 0;
+        }
+
+        [data-composition-id="stack-welcome"] .plain-today {
+          margin-left: 16px;
+          color: var(--text-soft);
+        }
+
+        [data-composition-id="stack-welcome"] .plain-and {
+          margin: 0 16px;
+          color: var(--text-soft);
+        }
+
+        [data-composition-id="stack-welcome"] .plain-welcome {
+          margin-left: 16px;
+          color: var(--text-strong);
+          font-weight: 700;
+        }
+
+        [data-composition-id="stack-welcome"] .chip {
+          display: inline-block;
+          vertical-align: middle;
+          font-size: 44px;
+          line-height: 1;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          padding: 6px 16px;
+          border-radius: 8px;
+          border: 2px solid transparent;
+          opacity: 0;
+        }
+
+        /* What it IS: solid, filled, unmistakably present. */
+        [data-composition-id="stack-welcome"] .chip-solid {
+          background: var(--amber);
+          border-color: var(--amber);
+          color: var(--ink);
+        }
+
+        /* What it is OPEN TO: outlined, a shape waiting to be filled. */
+        [data-composition-id="stack-welcome"] .chip-open {
+          background: var(--chip-open-wash);
+          border-color: var(--chip-outline);
+          color: var(--emerald-light);
+        }
+
+        [data-composition-id="stack-welcome"] .support {
+          margin-top: 14px;
+          font-size: 26px;
+          line-height: 32px;
+          font-weight: 500;
+          letter-spacing: 0.01em;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="stack-welcome"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- The card claims the frame immediately (0.00-0.75) ----------
+          // He is one beat past "TypeScript Stack" (local -1.33 to -0.75) and
+          // says ".NET او بايسون" at local 0.27, so there is no room for
+          // anticipation here. The card settles DOWNWARD into place: entering
+          // from below would put its bottom edge inside the caption band.
+          tl.fromTo(
+            `${ROOT} .card`,
+            { opacity: 0, y: -18 },
+            { opacity: 1, y: 0, duration: 0.75, ease: "power2.out" },
+            0,
+          );
+          tl.fromTo(
+            `${ROOT} .bar-amber`,
+            { scaleY: 0 },
+            { scaleY: 1, duration: 0.65, ease: "power3.out" },
+            0.2,
+          );
+
+          // ---- State one: what it IS (0.45-1.1) ---------------------------
+          tl.fromTo(
+            `${ROOT} .chip-ts`,
+            { opacity: 0, y: -14, scale: 0.9 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.6)" },
+            0.45,
+          );
+          tl.fromTo(
+            `${ROOT} .plain-today`,
+            { opacity: 0, x: -12 },
+            { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" },
+            0.78,
+          );
+
+          // ---- The door opens (1.35-1.85) ---------------------------------
+          // The sill draws left to right, and the accent bar hands its lower
+          // half to emerald on the same beat. This is the hinge of the whole
+          // graphic: the second state is a threshold, not an addendum.
+          tl.fromTo(
+            `${ROOT} .door`,
+            { scaleX: 0 },
+            { scaleX: 1, duration: 0.55, ease: "power4.inOut" },
+            1.35,
+          );
+          tl.fromTo(
+            `${ROOT} .bar-emerald`,
+            { scaleY: 0 },
+            { scaleY: 1, duration: 0.6, ease: "power3.out" },
+            1.5,
+          );
+
+          // ---- State two: what it is OPEN TO (1.8-2.9) --------------------
+          // The outlined chips come THROUGH the door: they enter from the
+          // left, along the sill, rather than dropping in place.
+          tl.fromTo(
+            `${ROOT} .chip-net`,
+            { opacity: 0, x: -26, scale: 0.94 },
+            { opacity: 1, x: 0, scale: 1, duration: 0.5, ease: "power3.out" },
+            1.8,
+          );
+          tl.fromTo(
+            `${ROOT} .plain-and`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.35, ease: "power2.out" },
+            2.05,
+          );
+          tl.fromTo(
+            `${ROOT} .chip-py`,
+            { opacity: 0, x: -26, scale: 0.94 },
+            { opacity: 1, x: 0, scale: 1, duration: 0.5, ease: "power3.out" },
+            2.2,
+          );
+          tl.fromTo(
+            `${ROOT} .plain-welcome`,
+            { opacity: 0, x: -12 },
+            { opacity: 1, x: 0, duration: 0.45, ease: "power3.out" },
+            2.5,
+          );
+
+          // ---- The invitation, under the sentence (2.95) ------------------
+          // Lands inside "contribution في ال open source application"
+          // (local 2.4-4.4), which is exactly what this line names.
+          tl.fromTo(
+            `${ROOT} .support`,
+            { opacity: 0, y: -10 },
+            { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" },
+            2.95,
+          );
+
+          // ---- Hold 3.55-16.2: 12.6 s on the finished card. --------------
+          // He spends that whole stretch on sharing experience and building
+          // together, which is this card's claim restated. No new content —
+          // 18 s of lower third is a hold, not a slideshow.
+
+          // ---- Release the frame back to the footage (16.2-17.3) ---------
+          // Fully clear at 17.3, inside the 18.0 s slot with 0.7 s to spare.
+          tl.to(
+            `${ROOT} .lines`,
+            { opacity: 0, duration: 0.7, ease: "power2.in" },
+            16.2,
+          );
+          tl.to(
+            `${ROOT} .card`,
+            { opacity: 0, y: -12, duration: 1.0, ease: "power2.in" },
+            16.3,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["stack-welcome"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

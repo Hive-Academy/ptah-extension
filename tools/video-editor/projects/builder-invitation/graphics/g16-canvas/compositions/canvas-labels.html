@@ -1,0 +1,363 @@
+<!doctype html>
+<!--
+  G16 — the Ptah canvas. Overlay labels, NOT a takeover.
+  Hand-authored for builder-invitation, timeline 10:44.4-11:08.0 (23.6 s).
+  Overlay pattern and palette handling follow the worked example at
+  ../../g10-saas-chips/compositions/saas-chips.html.
+
+  TREATMENT — annotation labels. There is no backdrop element at all: the app
+  canvas underneath stays fully visible for the whole beat, because the app IS
+  the shot. Every label carries its own --ink card with a border (no
+  box-shadow) so it stays legible over any UI behind it.
+
+  LAYOUT CONTRACT
+    x 0-470   webcam picture-in-picture   -> nothing may enter it
+    y 894+    Arabic caption band (186px) -> nothing may enter it
+    Used band: x 1210-1806, y 566-788. Kept on the RIGHT so the app's own
+    left-hand content (session list, tree) stays readable. Every entrance
+    offset is NEGATIVE y, so no label's bottom edge can dip toward the
+    caption band mid-fade.
+
+  ANCHORING — each label is a row: a 40px tick rule pointing left, into the
+  surface it names, then the card. Same tick, same left edge (x 1210) for all
+  five, so the labels read as annotation on one surface rather than as five
+  separate decorations.
+
+  SYNC CONTRACT — timeline seconds minus 644.4 gives local composition time:
+    "our canvas"            646.11 -> 1.71   The canvas (title, persists quiet)
+    "several sessions"      648.57 -> 4.17   Several sessions at once
+    "the old sessions"      650.05 -> 5.65   Session history
+    execution view   656.63-659.67 -> 12.23  See the agent's execution
+    own harness      662.34-664.32 -> 17.94  Your own harness / sub-agents
+
+  HANDOVER — never more than three cards on screen, and only the quiet title
+  spans the beat. The sessions pair clears at 10.6-11.45 before the execution
+  label arrives at 12.23; the execution label clears by 17.9 as the harness
+  label lands. Last exit completes at 23.4, inside the 23.6 s slot.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Canvas labels</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="canvas-labels"
+      data-composition-id="canvas-labels"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="23.6"
+    >
+      <div class="rail">
+        <div class="row row-title" id="row-title">
+          <span class="tick tick-amber"></span>
+          <div class="card card-title">
+            <span class="dot dot-amber"></span>
+            <span class="title-text">The canvas</span>
+          </div>
+        </div>
+
+        <div class="row row-sessions" id="row-sessions">
+          <span class="tick tick-emerald"></span>
+          <div class="card">
+            <span class="dot dot-emerald"></span>
+            <span class="label-text">Several sessions at once</span>
+          </div>
+        </div>
+
+        <div class="row row-history" id="row-history">
+          <span class="tick tick-emerald"></span>
+          <div class="card">
+            <span class="dot dot-emerald"></span>
+            <span class="label-text">Session history</span>
+          </div>
+        </div>
+
+        <div class="row row-exec" id="row-exec">
+          <span class="tick tick-emerald"></span>
+          <div class="card">
+            <span class="dot dot-emerald"></span>
+            <span class="label-text">See the agent&rsquo;s execution</span>
+          </div>
+        </div>
+
+        <div class="row row-harness" id="row-harness">
+          <span class="tick tick-emerald"></span>
+          <div class="card card-stack">
+            <span class="dot dot-emerald"></span>
+            <span class="label-stack">
+              <span class="label-text">Your own harness.</span>
+              <span class="label-text">Your own sub-agents.</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="canvas-labels"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-border: rgba(255, 255, 255, 0.22);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        /* The rail owns only its own band on the right of frame. No
+           full-frame backdrop exists, so the app canvas is never covered. */
+        [data-composition-id="canvas-labels"] .rail {
+          position: absolute;
+          left: 1210px;
+          top: 560px;
+          width: 620px;
+          height: 240px;
+        }
+
+        [data-composition-id="canvas-labels"] .row {
+          position: absolute;
+          left: 0;
+          display: flex;
+          align-items: center;
+          opacity: 0;
+        }
+
+        /* Title bottom 662; sessions 736; history 828; every row clears the
+           894 caption band and starts at x 1210, clear of the webcam PiP. */
+        [data-composition-id="canvas-labels"] .row-title {
+          top: 6px;
+        }
+
+        [data-composition-id="canvas-labels"] .row-sessions {
+          top: 100px;
+        }
+
+        [data-composition-id="canvas-labels"] .row-history {
+          top: 192px;
+        }
+
+        [data-composition-id="canvas-labels"] .row-exec {
+          top: 100px;
+        }
+
+        [data-composition-id="canvas-labels"] .row-harness {
+          top: 100px;
+        }
+
+        [data-composition-id="canvas-labels"] .tick {
+          display: block;
+          width: 40px;
+          height: 3px;
+          border-radius: 2px;
+          flex: none;
+        }
+
+        [data-composition-id="canvas-labels"] .tick-amber {
+          background: var(--amber);
+        }
+
+        [data-composition-id="canvas-labels"] .tick-emerald {
+          background: var(--emerald);
+        }
+
+        [data-composition-id="canvas-labels"] .card {
+          display: inline-flex;
+          align-items: center;
+          gap: 16px;
+          min-height: 76px;
+          padding: 16px 30px;
+          border-radius: 14px;
+          border: 2px solid var(--card-border);
+          background: var(--ink);
+        }
+
+        [data-composition-id="canvas-labels"] .card-title {
+          min-height: 56px;
+          padding: 12px 26px;
+          border-color: var(--amber-deep);
+        }
+
+        [data-composition-id="canvas-labels"] .card-stack {
+          align-items: flex-start;
+        }
+
+        [data-composition-id="canvas-labels"] .card-stack .dot {
+          margin-top: 14px;
+        }
+
+        [data-composition-id="canvas-labels"] .label-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        [data-composition-id="canvas-labels"] .title-text {
+          font-size: 26px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="canvas-labels"] .label-text {
+          font-size: 34px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          line-height: 1.24;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="canvas-labels"] .dot {
+          display: block;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          flex: none;
+        }
+
+        [data-composition-id="canvas-labels"] .dot-amber {
+          background: var(--amber-light);
+        }
+
+        [data-composition-id="canvas-labels"] .dot-emerald {
+          background: var(--emerald-light);
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="canvas-labels"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // Every row starts at opacity 0 in CSS and every tween below is an
+          // explicit fromTo with immediateRender:false, so no late-authored
+          // exit from-state can leak backwards to t=0 (BUILD-SPEC rule 10).
+          const ENTER = { opacity: 0, y: -18 };
+          const EXIT_TO = { opacity: 0, y: -14 };
+
+          function enter(sel, at) {
+            tl.fromTo(
+              sel,
+              ENTER,
+              {
+                opacity: 1,
+                y: 0,
+                duration: 0.5,
+                ease: "power2.out",
+                immediateRender: false,
+              },
+              at,
+            );
+          }
+
+          function exit(sel, at) {
+            tl.fromTo(
+              sel,
+              { opacity: 1, y: 0 },
+              { ...EXIT_TO, duration: 0.55, ease: "power2.in", immediateRender: false },
+              at,
+            );
+          }
+
+          function tick(sel, at) {
+            tl.fromTo(
+              sel,
+              { scaleX: 0, transformOrigin: "right center" },
+              {
+                scaleX: 1,
+                duration: 0.4,
+                ease: "power3.out",
+                immediateRender: false,
+              },
+              at,
+            );
+          }
+
+          // 1.71 — "our canvas". The title names the surface and is the only
+          // card allowed to span the beat; it drops to a quiet 0.6 once the
+          // feature labels start arriving so it never competes with them.
+          enter(`${ROOT} .row-title`, 1.71);
+          tick(`${ROOT} .row-title .tick`, 1.79);
+          tl.fromTo(
+            `${ROOT} .row-title`,
+            { opacity: 1 },
+            { opacity: 0.6, duration: 0.6, ease: "sine.inOut", immediateRender: false },
+            3.7,
+          );
+
+          // 4.17 / 5.65 — "several sessions" then "the old sessions". One
+          // idea in two beats, so the pair holds together, then clears well
+          // before the execution label so nothing accumulates.
+          enter(`${ROOT} .row-sessions`, 4.17);
+          tick(`${ROOT} .row-sessions .tick`, 4.25);
+          enter(`${ROOT} .row-history`, 5.65);
+          tick(`${ROOT} .row-history .tick`, 5.73);
+          exit(`${ROOT} .row-sessions`, 10.6);
+          exit(`${ROOT} .row-history`, 10.75);
+
+          // 12.23 — the execution view. Alone on screen with the quiet title
+          // for its whole life, and gone before the harness label lands.
+          enter(`${ROOT} .row-exec`, 12.23);
+          tick(`${ROOT} .row-exec .tick`, 12.31);
+          exit(`${ROOT} .row-exec`, 17.3);
+
+          // 17.94 — own harness and own sub-agents. The closing idea, held to
+          // 22.7 and cleared by 23.25.
+          enter(`${ROOT} .row-harness`, 17.94);
+          tick(`${ROOT} .row-harness .tick`, 18.02);
+          exit(`${ROOT} .row-harness`, 22.7);
+
+          // The title fades from its quiet state, so its exit tween starts
+          // from 0.6, not 1. Complete at 23.4, inside the 23.6 s slot.
+          tl.fromTo(
+            `${ROOT} .row-title`,
+            { opacity: 0.6, y: 0 },
+            { opacity: 0, y: -14, duration: 0.6, ease: "power2.in", immediateRender: false },
+            22.8,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["canvas-labels"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

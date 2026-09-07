@@ -1,0 +1,326 @@
+<!doctype html>
+<!--
+  G03 — what you lose.
+  Hand-authored. Structure, palette handling and timeline discipline follow
+  g07-degradation-curve/compositions/quality-over-time.html.
+
+  Full-frame takeover for builder-invitation, timeline 0:29.2-0:44.5 (15.3 s).
+  Two words are set as promises on empty field rules, then struck through in
+  --amber. Beats land on the narration: "Quality" at local 6.83, the
+  maintainability phrase at local 8.10.
+
+  The bottom 186px is reserved for Arabic captions and stays empty.
+  No DOM geometry is measured anywhere: both strikes are scaleX tweens on
+  elements that already span their word, so there is nothing to sample.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>What you lose</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="what-you-lose"
+      data-composition-id="what-you-lose"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="15.3"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <p class="eyebrow">What the life cycle buys you</p>
+
+        <div class="rows">
+          <div class="row row-1">
+            <span class="tick tick-1"></span>
+            <span class="slot">
+              <span class="slot-rule rule-1"></span>
+              <span class="word word-1"
+                >QUALITY<span class="strike strike-1"></span
+              ></span>
+            </span>
+          </div>
+
+          <div class="row row-2">
+            <span class="tick tick-2"></span>
+            <span class="slot">
+              <span class="slot-rule rule-2"></span>
+              <span class="word word-2"
+                >MAINTAINABILITY<span class="strike strike-2"></span
+              ></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="kicker">
+          <span class="kicker-rule"></span>
+          <span class="kicker-text">Neither is free.</span>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="what-you-lose"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="what-you-lose"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(118% 92% at 50% 20%, var(--ink-raised) 0%, var(--ink) 64%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget: 40 eyebrow + 74 gap + 2x205 rows + 40 row gap +
+           86 gap + 58 kicker = 708 of content, centred inside the 894px
+           that remains once the 186px caption band is reserved. */
+        [data-composition-id="what-you-lose"] .scene-content {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: flex-start;
+          width: 100%;
+          height: 100%;
+          padding: 150px 150px 186px;
+        }
+
+        [data-composition-id="what-you-lose"] .eyebrow {
+          font-size: 32px;
+          font-weight: 500;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="what-you-lose"] .rows {
+          display: flex;
+          flex-direction: column;
+          gap: 40px;
+          margin-top: 74px;
+        }
+
+        [data-composition-id="what-you-lose"] .row {
+          display: flex;
+          align-items: center;
+          gap: 40px;
+          height: 205px;
+        }
+
+        [data-composition-id="what-you-lose"] .tick {
+          flex: none;
+          width: 16px;
+          height: 16px;
+          border-radius: 3px;
+          background: var(--amber);
+          opacity: 0;
+        }
+
+        /* The slot is the field the word lands in. Its rule is a fixed
+           1500px so both rows share one measure — nothing is derived from
+           text metrics. Row origin is 150 + 16 tick + 40 gap = 206, so the
+           slot ends at 1706 and clears the 150px right margin. */
+        [data-composition-id="what-you-lose"] .slot {
+          position: relative;
+          display: inline-block;
+          width: 1500px;
+          height: 205px;
+        }
+
+        [data-composition-id="what-you-lose"] .slot-rule {
+          position: absolute;
+          left: 0;
+          bottom: 24px;
+          width: 1500px;
+          height: 2px;
+          background: var(--grid);
+          transform: scaleX(0);
+          transform-origin: left center;
+        }
+
+        [data-composition-id="what-you-lose"] .word {
+          position: absolute;
+          left: 0;
+          bottom: 46px;
+          display: inline-block;
+          font-size: 142px;
+          font-weight: 800;
+          line-height: 1;
+          letter-spacing: -0.02em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        /* The strike spans its own word and overhangs it slightly, so it
+           reads as a rule drawn through the promise rather than an
+           underline. Geometry is pure CSS — never measured. */
+        [data-composition-id="what-you-lose"] .strike {
+          position: absolute;
+          /* 58%, not 50%: the word box is line-height 1 and Inter leaves
+             ascender room above the caps, so the box centre sits above the
+             optical cap centre. */
+          left: -22px;
+          right: -22px;
+          top: 58%;
+          height: 14px;
+          margin-top: -7px;
+          border-radius: 2px;
+          background: var(--amber);
+          transform: scaleX(0);
+          transform-origin: left center;
+        }
+
+        [data-composition-id="what-you-lose"] .kicker {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+          margin-top: 86px;
+          opacity: 0;
+        }
+
+        [data-composition-id="what-you-lose"] .kicker-rule {
+          width: 0;
+          height: 5px;
+          border-radius: 3px;
+          background: var(--amber);
+        }
+
+        [data-composition-id="what-you-lose"] .kicker-text {
+          font-size: 44px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="what-you-lose"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // A struck promise is no longer a promise. Dimming to --text-soft
+          // (not --text-faint) keeps the word above WCAG AA after the loss.
+          const DIMMED = "rgba(255, 255, 255, 0.72)";
+
+          // ---- Backdrop: the takeover opens (0.0-0.7) --------------------
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.7, ease: "power2.out" },
+            0,
+          );
+
+          // ---- The frame is set while he is still talking (0.55-2.8) -----
+          tl.fromTo(
+            `${ROOT} .eyebrow`,
+            { opacity: 0, y: 14 },
+            { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" },
+            0.55,
+          );
+
+          tl.fromTo(`${ROOT} .tick-1`, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 1.3);
+          tl.fromTo(`${ROOT} .rule-1`, { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, 1.3);
+          tl.fromTo(`${ROOT} .tick-2`, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 1.9);
+          tl.fromTo(`${ROOT} .rule-2`, { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, 1.9);
+
+          // ---- The words arrive as he names them -------------------------
+          // "Quality" is spoken at 36.03 absolute = 6.83 local.
+          tl.fromTo(
+            `${ROOT} .word-1`,
+            { opacity: 0, y: 30 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" },
+            6.83,
+          );
+          // The maintainability phrase runs 37.30-37.88 absolute = 8.10 local.
+          tl.fromTo(
+            `${ROOT} .word-2`,
+            { opacity: 0, y: 30 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" },
+            8.1,
+          );
+
+          // ---- The strikes: the whole point ------------------------------
+          // power4.inOut commits and stops. Nothing bounces back.
+          tl.fromTo(
+            `${ROOT} .strike-1`,
+            { scaleX: 0 },
+            { scaleX: 1, duration: 0.45, ease: "power4.inOut" },
+            9.55,
+          );
+          tl.to(`${ROOT} .word-1`, { color: DIMMED, duration: 0.5, ease: "power2.out" }, 9.8);
+
+          tl.fromTo(
+            `${ROOT} .strike-2`,
+            { scaleX: 0 },
+            { scaleX: 1, duration: 0.6, ease: "power4.inOut" },
+            10.6,
+          );
+          tl.to(`${ROOT} .word-2`, { color: DIMMED, duration: 0.5, ease: "power2.out" }, 10.95);
+
+          // ---- Kicker, then the hold (11.7-14.0) -------------------------
+          tl.fromTo(`${ROOT} .kicker`, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 11.7);
+          tl.fromTo(`${ROOT} .kicker-rule`, { width: 0 }, { width: 84, duration: 0.7, ease: "power3.out" }, 11.7);
+          tl.fromTo(
+            `${ROOT} .kicker-text`,
+            { autoAlpha: 0, x: -16 },
+            { autoAlpha: 1, x: 0, duration: 0.7, ease: "power2.out" },
+            11.95,
+          );
+
+          // ---- Release the frame back to the footage (14.0-15.3) ---------
+          tl.to(`${ROOT} .scene-content`, { opacity: 0, duration: 1.0, ease: "power2.in" }, 14.0);
+          tl.to(`${ROOT} .backdrop`, { opacity: 0, duration: 1.1, ease: "power2.in" }, 14.2);
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["what-you-lose"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,433 @@
+<!doctype html>
+<!--
+  G09 — 25 days free.
+  Hand-authored (no registry block used). Sibling of
+  g08-free-open-source/compositions/free-open-source.html: same palette
+  declaration, same takeover backdrop, same timeline discipline. Where G08 is
+  word-led, this one is stat-led — the number IS the frame.
+
+  Full-frame takeover for builder-invitation, timeline 4:38.8-4:52.9 (14.1 s).
+  Screen capture underneath, so amber carries the number.
+  The bottom 186px is reserved for Arabic captions and stays empty.
+
+  Word anchors (local seconds = timeline seconds - 278.8):
+    0.65-2.57   "free لحد 25 يوم"          (free, up to 25 days)
+    7.33-9.29   "الworkshops والكود نفسه"  (the workshops and the code itself)
+
+  Exit is fully complete at 14.05 s — the next graphic's slot opens 0.1 s
+  after 14.1, so nothing may still be fading at the boundary.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>25 days free</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="twenty-five-days-free"
+      data-composition-id="twenty-five-days-free"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="14.1"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <p class="eyebrow">Free for everyone who joins</p>
+
+        <div class="hero">
+          <span class="hero-num">25</span>
+          <span class="hero-label">
+            <span class="hero-label-line">DAYS</span>
+            <span class="hero-label-line hero-label-line-2">FREE</span>
+          </span>
+        </div>
+
+        <span class="hero-rule"></span>
+
+        <p class="supports-label">Included from day one</p>
+
+        <div class="supports">
+          <div class="support support-a">
+            <span class="support-rule"></span>
+            <span class="support-body">
+              <span class="support-title">Workshops</span>
+              <span class="support-sub">Live, and every one recorded</span>
+            </span>
+          </div>
+
+          <div class="support support-b">
+            <span class="support-rule"></span>
+            <span class="support-body">
+              <span class="support-title">The full source</span>
+              <span class="support-sub">How it is built, line by line</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="twenty-five-days-free"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-fill: rgba(255, 255, 255, 0.035);
+          --card-edge: rgba(255, 255, 255, 0.09);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(
+              110% 80% at 30% 34%,
+              var(--ink-raised) 0%,
+              var(--ink) 62%
+            ),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget, all flow, no absolute positioning:
+             110 pad-top
+           +  39 eyebrow
+           +  58 + 330 hero row
+           +  34 +  10 hero rule
+           +  44 +  27 supports label
+           +  26 + 160 support cards
+           = 838px. The caption band starts at y=894, so there is 56px of
+           slack and nothing can enter it. */
+        [data-composition-id="twenty-five-days-free"] .scene-content {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          width: 100%;
+          height: 100%;
+          padding: 110px 150px 186px;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .eyebrow {
+          height: 39px;
+          font-size: 32px;
+          line-height: 39px;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        /* ---- The hero stat -------------------------------------------- */
+
+        [data-composition-id="twenty-five-days-free"] .hero {
+          display: flex;
+          /* NOT `baseline`. Baseline aligns the label's FIRST line to the
+             number's baseline, which sits near the bottom of a 330px box —
+             the second label line then hangs below the hero and the amber
+             rule drew straight through the word FREE. The contact sheet
+             caught it; no automated gate did, because a rule is not text. */
+          align-items: center;
+          gap: 44px;
+          /* 330px of font at line-height 1 leaves Inter's content box
+             overflowing ~35px above and below the flow box, so this gap is
+             larger than it looks — 18px here put the glyph tops through the
+             eyebrow and `check` flagged the collision. */
+          margin-top: 58px;
+          height: 330px;
+        }
+
+        /* Fixed box + tabular figures: the count-up runs 0 -> 25 and the
+           label beside it must not move while the digit count changes. */
+        [data-composition-id="twenty-five-days-free"] .hero-num {
+          display: block;
+          width: 400px;
+          font-size: 330px;
+          line-height: 330px;
+          font-weight: 800;
+          letter-spacing: -0.045em;
+          font-variant-numeric: tabular-nums;
+          font-feature-settings: "tnum" 1;
+          color: var(--amber);
+          text-shadow: 0 26px 90px rgba(201, 126, 14, 0.35);
+          transform-origin: 0% 62%;
+          opacity: 0;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .hero-label {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .hero-label-line {
+          display: block;
+          font-size: 96px;
+          line-height: 100px;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          clip-path: inset(0 100% 0 0);
+        }
+
+        [data-composition-id="twenty-five-days-free"] .hero-label-line-2 {
+          color: var(--amber-light);
+        }
+
+        [data-composition-id="twenty-five-days-free"] .hero-rule {
+          display: block;
+          margin-top: 34px;
+          width: 0;
+          height: 10px;
+          border-radius: 5px;
+          background: var(--amber);
+        }
+
+        /* ---- The two supports ------------------------------------------ */
+
+        [data-composition-id="twenty-five-days-free"] .supports-label {
+          height: 27px;
+          margin-top: 44px;
+          font-size: 22px;
+          line-height: 27px;
+          font-weight: 600;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .supports {
+          display: flex;
+          gap: 48px;
+          margin-top: 26px;
+          height: 160px;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .support {
+          display: flex;
+          align-items: center;
+          gap: 28px;
+          width: 620px;
+          height: 160px;
+          padding: 0 32px;
+          border: 1px solid var(--card-edge);
+          border-radius: 18px;
+          background: var(--card-fill);
+          opacity: 0;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .support-rule {
+          flex: none;
+          width: 8px;
+          height: 92px;
+          border-radius: 4px;
+          background: var(--emerald);
+          transform-origin: 50% 0%;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .support-body {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .support-title {
+          font-size: 46px;
+          line-height: 54px;
+          font-weight: 700;
+          letter-spacing: -0.015em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="twenty-five-days-free"] .support-sub {
+          font-size: 25px;
+          line-height: 30px;
+          font-weight: 400;
+          color: var(--text-soft);
+          white-space: nowrap;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="twenty-five-days-free"]';
+          const numEl = document.querySelector(
+            '[data-composition-id="twenty-five-days-free"] .hero-num',
+          );
+
+          // Seek-safe count-up: GSAP tweens this proxy from the timeline's own
+          // progress, so any seek lands on the right value. No wall clock, no
+          // DOM measurement in the callback — only a text write.
+          const counter = { value: 25 };
+          const writeCount = () => {
+            numEl.textContent = String(Math.round(counter.value));
+          };
+
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- 0.0-0.6 : the frame is taken over ------------------------
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.65, ease: "power2.out" },
+            0,
+          );
+          tl.fromTo(
+            `${ROOT} .eyebrow`,
+            { opacity: 0, y: 14 },
+            { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+            0.28,
+          );
+
+          // ---- 0.65 : "free لحد 25 يوم" — the number lands --------------
+          tl.fromTo(
+            `${ROOT} .hero-num`,
+            { opacity: 0, scale: 0.8, y: 22 },
+            {
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              duration: 0.6,
+              ease: "back.out(1.6)",
+            },
+            0.6,
+          );
+
+          // The count. 0.95 s — he has moved past the number by 2.57, so a
+          // slow climb would still be running when it no longer matters.
+          tl.fromTo(
+            counter,
+            { value: 0 },
+            {
+              value: 25,
+              duration: 0.95,
+              ease: "power2.out",
+              onUpdate: writeCount,
+            },
+            0.65,
+          );
+
+          tl.to(
+            `${ROOT} .hero-label-line`,
+            {
+              clipPath: "inset(0 0% 0 0)",
+              duration: 0.5,
+              ease: "power2.inOut",
+              stagger: 0.14,
+            },
+            1.02,
+          );
+          tl.fromTo(
+            `${ROOT} .hero-rule`,
+            { width: 0 },
+            // 1288 = the exact width of the supports row below it (620 + 48
+            // + 620), so the rule reads as the spine of the whole block.
+            { width: 1288, duration: 0.75, ease: "power3.out" },
+            1.5,
+          );
+
+          // A slow settle through the hold, so the frame is never dead while
+          // he keeps talking between the two anchors.
+          tl.to(
+            `${ROOT} .hero`,
+            { y: -8, duration: 3.6, ease: "sine.inOut" },
+            3.1,
+          );
+
+          // ---- 7.33 : "الworkshops والكود نفسه" — two supports ----------
+          tl.fromTo(
+            `${ROOT} .supports-label`,
+            { opacity: 0, y: 10 },
+            { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" },
+            6.95,
+          );
+
+          tl.fromTo(
+            `${ROOT} .support-a`,
+            { opacity: 0, y: 26 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" },
+            7.33,
+          );
+          tl.fromTo(
+            `${ROOT} .support-a .support-rule`,
+            { scaleY: 0 },
+            { scaleY: 1, duration: 0.42, ease: "power2.out" },
+            7.5,
+          );
+
+          tl.fromTo(
+            `${ROOT} .support-b`,
+            { opacity: 0, y: 26 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" },
+            7.95,
+          );
+          tl.fromTo(
+            `${ROOT} .support-b .support-rule`,
+            { scaleY: 0 },
+            { scaleY: 1, duration: 0.42, ease: "power2.out" },
+            8.12,
+          );
+
+          // ---- Exit. Everything is off by 14.05, ahead of the 14.1 edge --
+          tl.to(
+            `${ROOT} .scene-content`,
+            { opacity: 0, duration: 0.6, ease: "power2.in" },
+            13.2,
+          );
+          tl.to(
+            `${ROOT} .backdrop`,
+            { opacity: 0, duration: 1.05, ease: "power2.in" },
+            13.0,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["twenty-five-days-free"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

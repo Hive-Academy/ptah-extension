@@ -1,0 +1,622 @@
+<!doctype html>
+<!--
+  G04 — the life-cycle chain.
+  Hand-authored for builder-invitation, timeline 0:45.2-1:11.2 (26.0 s).
+  Structure, palette handling and timeline discipline follow the worked
+  example at ../../g07-degradation-curve/compositions/quality-over-time.html.
+
+  Full-frame takeover. The bottom 186px is reserved for Arabic captions and
+  stays empty (enforced with padding-bottom on .scene-content).
+
+  SYNC CONTRACT — each link lands on the word the speaker says. Timeline
+  seconds minus 45.2 gives local composition time:
+    design / requirements / planning  47.88-49.66 -> 2.68-4.46
+    MVP (three months)                53.67       -> 8.47
+    proof of concept                  58.01-58.41 -> 12.81-13.21
+    architecture                      64.31       -> 19.11
+    scalable                          66.31       -> 21.11
+    maintainability                   69.47       -> 24.27
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Life-cycle chain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="lifecycle-chain"
+      data-composition-id="lifecycle-chain"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="26"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <div class="header">
+          <h1 class="headline">The life cycle</h1>
+          <p class="subtitle">Design first. Then proof. Then architecture.</p>
+        </div>
+
+        <svg class="rail-svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="railGradient" gradientUnits="userSpaceOnUse" x1="140" y1="0" x2="1800" y2="0">
+              <stop offset="0" stop-color="var(--rail-start)" />
+              <stop offset="0.34" stop-color="var(--amber)" />
+              <stop offset="0.68" stop-color="var(--amber-light)" />
+              <stop offset="0.9" stop-color="var(--emerald)" />
+              <stop offset="1" stop-color="var(--emerald-light)" />
+            </linearGradient>
+          </defs>
+
+          <line class="rail-track" x1="140" y1="560" x2="1800" y2="560" />
+          <g class="stems"></g>
+          <line class="rail-live" x1="140" y1="560" x2="1800" y2="560" />
+          <path class="rail-arrow" d="M 1806 544 L 1836 560 L 1806 576 Z" />
+          <g class="nodes"></g>
+          <circle class="head-halo" cx="140" cy="560" r="21" />
+          <circle class="head-core" cx="140" cy="560" r="8" />
+        </svg>
+
+        <div class="chip chip-neutral" id="node-requirements"><span>Requirements</span></div>
+        <div class="chip chip-neutral" id="node-design"><span>Design</span></div>
+        <div class="chip chip-neutral" id="node-planning"><span>Planning</span></div>
+
+        <div class="chip chip-milestone" id="node-mvp">
+          <span class="mvp-title">MVP</span>
+          <span class="mvp-sub">first 3 months</span>
+        </div>
+
+        <div class="chip chip-amber" id="node-poc"><span>Proof of concept</span></div>
+        <div class="chip chip-strong" id="node-architecture"><span>Architecture</span></div>
+
+        <div class="pair" id="node-pair">
+          <div class="pair-rule"></div>
+          <div class="pair-chips">
+            <div class="chip-inline chip-emerald" id="node-scalable"><span>Scalable</span></div>
+            <div class="chip-inline chip-emerald" id="node-maintainable"><span>Maintainable</span></div>
+          </div>
+        </div>
+
+        <div class="lane">
+          <p class="lane-line lane-1">Before any code</p>
+          <p class="lane-line lane-2">Ship the first slice</p>
+          <p class="lane-line lane-3">Prove it works</p>
+          <p class="lane-line lane-4">Then judge what you built</p>
+          <p class="lane-line lane-5">Built to hold up</p>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="lifecycle-chain"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --rail-start: rgba(255, 255, 255, 0.55);
+          --chip-border: rgba(255, 255, 255, 0.16);
+          --chip-bg: rgba(255, 255, 255, 0.05);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="lifecycle-chain"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(120% 90% at 50% 20%, var(--ink-raised) 0%, var(--ink) 62%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget: 90 top + header to ~228 + rail band 320-760
+           + lane 800-844 + 186 reserved caption band = 1080. Nothing enters
+           the bottom 186px. */
+        [data-composition-id="lifecycle-chain"] .scene-content {
+          position: absolute;
+          inset: 0;
+          padding: 90px 130px 186px;
+        }
+
+        [data-composition-id="lifecycle-chain"] .header {
+          position: relative;
+        }
+
+        [data-composition-id="lifecycle-chain"] .headline {
+          font-size: 74px;
+          font-weight: 700;
+          letter-spacing: -0.025em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          clip-path: inset(0 100% 0 0);
+        }
+
+        [data-composition-id="lifecycle-chain"] .subtitle {
+          margin-top: 16px;
+          font-size: 30px;
+          font-weight: 400;
+          color: var(--text-soft);
+          white-space: nowrap;
+          clip-path: inset(0 100% 0 0);
+        }
+
+        /* viewBox is 1920x1080 and the CSS box is 1920x1080, so the rail sits
+           at 1:1 with the absolutely positioned HTML chips. */
+        [data-composition-id="lifecycle-chain"] .rail-svg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          overflow: visible;
+        }
+
+        [data-composition-id="lifecycle-chain"] .rail-track {
+          stroke: rgba(255, 255, 255, 0.1);
+          stroke-width: 4;
+          stroke-linecap: round;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .rail-live {
+          stroke: url(#railGradient);
+          stroke-width: 6;
+          stroke-linecap: round;
+          fill: none;
+        }
+
+        [data-composition-id="lifecycle-chain"] .rail-arrow {
+          fill: var(--emerald-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .stem {
+          stroke: rgba(255, 255, 255, 0.22);
+          stroke-width: 3;
+          stroke-linecap: round;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .node-dot {
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .node-neutral {
+          fill: var(--text-strong);
+        }
+
+        [data-composition-id="lifecycle-chain"] .node-amber {
+          fill: var(--amber-light);
+        }
+
+        [data-composition-id="lifecycle-chain"] .node-emerald {
+          fill: var(--emerald);
+        }
+
+        [data-composition-id="lifecycle-chain"] .node-milestone {
+          fill: var(--amber);
+          stroke: var(--amber-light);
+          stroke-width: 3;
+        }
+
+        [data-composition-id="lifecycle-chain"] .mvp-ring {
+          fill: none;
+          stroke: var(--amber);
+          stroke-width: 3;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .head-halo {
+          fill: var(--amber-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .head-core {
+          fill: var(--text-strong);
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .chip {
+          position: absolute;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 86px;
+          border-radius: 18px;
+          border: 2px solid var(--chip-border);
+          background: var(--chip-bg);
+          font-size: 36px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .chip-amber {
+          border-color: var(--amber-deep);
+          color: var(--amber-light);
+        }
+
+        [data-composition-id="lifecycle-chain"] .chip-strong {
+          border-color: rgba(255, 255, 255, 0.34);
+          background: rgba(255, 255, 255, 0.09);
+          font-weight: 700;
+        }
+
+        [data-composition-id="lifecycle-chain"] .chip-milestone {
+          height: 148px;
+          gap: 6px;
+          border-color: var(--amber);
+          background: rgba(245, 165, 36, 0.12);
+        }
+
+        [data-composition-id="lifecycle-chain"] .mvp-title {
+          font-size: 56px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          color: var(--amber-light);
+        }
+
+        [data-composition-id="lifecycle-chain"] .mvp-sub {
+          font-size: 26px;
+          font-weight: 500;
+          letter-spacing: 0.02em;
+          color: var(--text-soft);
+        }
+
+        [data-composition-id="lifecycle-chain"] .pair {
+          position: absolute;
+          display: flex;
+          align-items: stretch;
+          gap: 20px;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .pair-rule {
+          flex: none;
+          width: 6px;
+          border-radius: 3px;
+          background: var(--emerald);
+          transform-origin: top center;
+        }
+
+        [data-composition-id="lifecycle-chain"] .pair-chips {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          flex: 1;
+        }
+
+        [data-composition-id="lifecycle-chain"] .chip-inline {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 86px;
+          border-radius: 18px;
+          border: 2px solid rgba(52, 211, 153, 0.55);
+          background: rgba(52, 211, 153, 0.12);
+          font-size: 36px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+          color: var(--emerald-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .lane {
+          position: absolute;
+          left: 0;
+          top: 800px;
+          width: 1920px;
+          height: 44px;
+        }
+
+        [data-composition-id="lifecycle-chain"] .lane-line {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          text-align: center;
+          font-size: 32px;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          color: var(--text-soft);
+          opacity: 0;
+        }
+
+        [data-composition-id="lifecycle-chain"] .lane-5 {
+          color: var(--emerald-light);
+          font-weight: 600;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="lifecycle-chain"]';
+          const root = document.querySelector(ROOT);
+          const svg = root.querySelector(".rail-svg");
+          const NS = "http://www.w3.org/2000/svg";
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- Geometry --------------------------------------------------
+          // One straight rail. Because it is straight, the drawn length maps
+          // linearly to x, so stroke-dashoffset never needs a DOM measure.
+          const X0 = 140;
+          const X1 = 1800;
+          const RAIL_Y = 560;
+          const LEN = X1 - X0;
+          const STEM = 52;
+          const CHIP_H = 86;
+          const PAIR_H = 188; // two 86px chips + 16px gap
+          const MVP_H = 148;
+
+          // ---- The chain -------------------------------------------------
+          // `at` is the local composition second the speaker says the word.
+          // Sides alternate above / below the rail so neighbouring cards can
+          // be wider than their spacing without ever colliding.
+          const NODES = [
+            { key: "requirements", x: 300, w: 300, side: "above", h: CHIP_H, at: 2.68, dot: "node-neutral" },
+            { key: "design", x: 480, w: 190, side: "below", h: CHIP_H, at: 3.3, dot: "node-neutral" },
+            { key: "planning", x: 690, w: 224, side: "above", h: CHIP_H, at: 3.95, dot: "node-neutral" },
+            { key: "mvp", x: 960, w: 300, side: "below", h: MVP_H, at: 8.47, dot: "node-milestone" },
+            { key: "poc", x: 1220, w: 380, side: "above", h: CHIP_H, at: 12.81, dot: "node-amber" },
+            { key: "architecture", x: 1450, w: 300, side: "below", h: CHIP_H, at: 19.11, dot: "node-amber" },
+            { key: "pair", x: 1620, w: 320, side: "above", h: PAIR_H, at: 21.11, dot: "node-emerald" },
+          ];
+
+          const topFor = (n) => (n.side === "above" ? RAIL_Y - STEM - n.h : RAIL_Y + STEM);
+
+          // ---- Place the cards in rail coordinates -----------------------
+          NODES.forEach((n) => {
+            const el = document.getElementById("node-" + n.key);
+            el.style.left = `${n.x - n.w / 2}px`;
+            el.style.top = `${topFor(n)}px`;
+            el.style.width = `${n.w}px`;
+            n.el = el;
+          });
+
+          // ---- Stems and node dots ---------------------------------------
+          const stemGroup = svg.querySelector(".stems");
+          const nodeGroup = svg.querySelector(".nodes");
+
+          NODES.forEach((n) => {
+            const stem = document.createElementNS(NS, "line");
+            stem.setAttribute("x1", n.x);
+            stem.setAttribute("x2", n.x);
+            stem.setAttribute("y1", RAIL_Y);
+            stem.setAttribute("y2", n.side === "above" ? RAIL_Y - STEM : RAIL_Y + STEM);
+            stem.setAttribute("class", "stem");
+            stemGroup.appendChild(stem);
+            n.stem = stem;
+
+            if (n.key === "mvp") {
+              // The milestone is a diamond, not another dot, plus a ring that
+              // expands once when it lands.
+              const d = 24;
+              const diamond = document.createElementNS(NS, "path");
+              diamond.setAttribute(
+                "d",
+                `M ${n.x} ${RAIL_Y - d} L ${n.x + d} ${RAIL_Y} L ${n.x} ${RAIL_Y + d} L ${n.x - d} ${RAIL_Y} Z`,
+              );
+              diamond.setAttribute("class", "node-dot node-milestone");
+              nodeGroup.appendChild(diamond);
+              n.dotEl = diamond;
+
+              const ring = document.createElementNS(NS, "circle");
+              ring.setAttribute("cx", n.x);
+              ring.setAttribute("cy", RAIL_Y);
+              ring.setAttribute("r", 24);
+              ring.setAttribute("class", "mvp-ring");
+              nodeGroup.appendChild(ring);
+              n.ring = ring;
+            } else {
+              const dot = document.createElementNS(NS, "circle");
+              dot.setAttribute("cx", n.x);
+              dot.setAttribute("cy", RAIL_Y);
+              dot.setAttribute("r", 11);
+              dot.setAttribute("class", `node-dot ${n.dot}`);
+              nodeGroup.appendChild(dot);
+              n.dotEl = dot;
+            }
+          });
+
+          // ---- Rail draw -------------------------------------------------
+          const rail = svg.querySelector(".rail-live");
+          const halo = svg.querySelector(".head-halo");
+          const core = svg.querySelector(".head-core");
+          rail.style.strokeDasharray = LEN;
+          rail.style.strokeDashoffset = LEN;
+
+          const applyHead = (x) => {
+            rail.style.strokeDashoffset = LEN - (x - X0);
+            halo.setAttribute("cx", x);
+            core.setAttribute("cx", x);
+          };
+
+          // Every rail segment is a proxy tween with immediateRender:false, so
+          // no later segment can stamp its start value onto the rail at build
+          // time and nothing is measured inside a callback.
+          const drawTo = (fromX, toX, at, duration) => {
+            const proxy = { x: fromX };
+            tl.fromTo(
+              proxy,
+              { x: fromX },
+              {
+                x: toX,
+                duration: duration,
+                ease: "none",
+                immediateRender: false,
+                onUpdate: () => applyHead(proxy.x),
+              },
+              at,
+            );
+          };
+
+          const fadeIn = (target, vars, at) => {
+            const from = Object.assign({ opacity: 0 }, vars.from || {});
+            const to = Object.assign(
+              { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false },
+              vars.to || {},
+            );
+            tl.fromTo(target, from, to, at);
+          };
+
+          const fadeOut = (target, at, duration) => {
+            tl.fromTo(
+              target,
+              { opacity: 1 },
+              { opacity: 0, duration: duration, ease: "power2.in", immediateRender: false },
+              at,
+            );
+          };
+
+          // ---- Timeline (26.0 s) -----------------------------------------
+          // 0.0-0.7 backdrop in.
+          tl.fromTo(`${ROOT} .backdrop`, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power2.out" }, 0);
+
+          // Frame established by 2.0: title, subtitle, the empty rail.
+          tl.to(`${ROOT} .headline`, { clipPath: "inset(0 0% 0 0)", duration: 1.0, ease: "power2.inOut" }, 0.35);
+          tl.to(`${ROOT} .subtitle`, { clipPath: "inset(0 0% 0 0)", duration: 0.9, ease: "power2.inOut" }, 0.8);
+          fadeIn(`${ROOT} .rail-track`, {}, 1.25);
+          fadeIn(halo, { to: { opacity: 0.3, duration: 0.4 } }, 2.0);
+          fadeIn(core, { to: { duration: 0.4 } }, 2.0);
+
+          // Land each link ON the word. The rail arrives at the node exactly
+          // when the chip pops, so the draw is the sync, not decoration.
+          const land = (n, chipTarget) => {
+            fadeIn(n.stem, { to: { duration: 0.3 } }, n.at);
+            fadeIn(n.dotEl, { to: { duration: 0.28, ease: "back.out(2)" } }, n.at);
+            fadeIn(
+              chipTarget || n.el,
+              { from: { y: n.side === "above" ? -16 : 16 }, to: { y: 0, duration: 0.45 } },
+              n.at + 0.06,
+            );
+          };
+
+          const byKey = {};
+          NODES.forEach((n) => (byKey[n.key] = n));
+
+          // 2.30-4.46 — "design and requirements and planning", one rushed
+          // cluster. Three links inside 1.8 s, tight spacing on the rail.
+          drawTo(X0, byKey.requirements.x, 2.3, 0.38);
+          land(byKey.requirements);
+          drawTo(byKey.requirements.x, byKey.design.x, 2.68, 0.62);
+          land(byKey.design);
+          drawTo(byKey.design.x, byKey.planning.x, 3.3, 0.65);
+          land(byKey.planning);
+
+          // 3.95-8.47 — dead air in the narration becomes elapsed time: the
+          // head crawls the rail toward the milestone.
+          drawTo(byKey.planning.x, byKey.mvp.x, 3.95, 4.52);
+          land(byKey.mvp);
+          tl.fromTo(
+            byKey.mvp.ring,
+            { attr: { r: 22 }, opacity: 0.85 },
+            { attr: { r: 54 }, opacity: 0, duration: 1.0, ease: "power2.out", immediateRender: false },
+            8.47,
+          );
+
+          // 8.47-13.21 — "then a proof of concept".
+          drawTo(byKey.mvp.x, byKey.poc.x, 8.47, 4.34);
+          land(byKey.poc);
+
+          // 12.81-19.11 — "then it starts to look at the architecture".
+          drawTo(byKey.poc.x, byKey.architecture.x, 12.81, 6.3);
+          land(byKey.architecture);
+
+          // 19.11-21.11 — "whether it is really scalable".
+          drawTo(byKey.architecture.x, byKey.pair.x, 19.11, 2.0);
+          land(byKey.pair);
+          // The bracket only reaches the first chip; it closes over the pair
+          // when "maintainability" lands.
+          fadeIn(`${ROOT} .pair-rule`, { from: { scaleY: 0.1 }, to: { scaleY: 0.457, duration: 0.5 } }, 21.11);
+          fadeIn(document.getElementById("node-scalable"), { from: { y: -14 }, to: { y: 0, duration: 0.45 } }, 21.17);
+
+          // 21.11-24.27 — the rail runs out to the arrow, then
+          // "maintainability" closes the pair.
+          drawTo(byKey.pair.x, X1, 21.11, 3.16);
+          fadeIn(
+            document.getElementById("node-maintainable"),
+            { from: { y: -14 }, to: { y: 0, duration: 0.5, ease: "back.out(1.6)" } },
+            24.27,
+          );
+          tl.fromTo(
+            `${ROOT} .pair-rule`,
+            { scaleY: 0.457 },
+            { scaleY: 1, duration: 0.55, ease: "power2.out", immediateRender: false },
+            24.27,
+          );
+          fadeIn(`${ROOT} .rail-arrow`, { to: { duration: 0.4 } }, 24.32);
+          fadeOut(halo, 24.3, 0.4);
+          fadeOut(core, 24.3, 0.4);
+
+          // Caption lane: one short line per phase, each landing on its beat.
+          fadeIn(`${ROOT} .lane-1`, { from: { y: 10 }, to: { y: 0, duration: 0.5 } }, 2.35);
+          fadeOut(`${ROOT} .lane-1`, 7.9, 0.45);
+          fadeIn(`${ROOT} .lane-2`, { from: { y: 10 }, to: { y: 0, duration: 0.5 } }, 8.47);
+          fadeOut(`${ROOT} .lane-2`, 12.3, 0.45);
+          fadeIn(`${ROOT} .lane-3`, { from: { y: 10 }, to: { y: 0, duration: 0.5 } }, 12.81);
+          fadeOut(`${ROOT} .lane-3`, 18.5, 0.45);
+          fadeIn(`${ROOT} .lane-4`, { from: { y: 10 }, to: { y: 0, duration: 0.5 } }, 19.11);
+          fadeOut(`${ROOT} .lane-4`, 23.7, 0.45);
+          fadeIn(`${ROOT} .lane-5`, { from: { y: 10 }, to: { y: 0, duration: 0.5 } }, 24.27);
+
+          // 24.8 hold, then release the frame back to the footage.
+          tl.fromTo(
+            `${ROOT} .scene-content`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.9, ease: "power2.in", immediateRender: false },
+            24.9,
+          );
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 1 },
+            { opacity: 0, duration: 1.0, ease: "power2.in", immediateRender: false },
+            25.0,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["lifecycle-chain"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

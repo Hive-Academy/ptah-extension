@@ -1,0 +1,200 @@
+{
+  "_source": "Resolve MCP timeline.source_range_report + timeline.get_items_in_track, project 'builder-invitation', Timeline 1, 2026-09-06",
+  "_note": "Recovered edit decision list. timeline_* frames are 24 fps. source_start is a frame index in the media's own 60 fps rate. Video track 1 only; audio follows the linked clips on rebuild.",
+  "timeline": {
+    "name": "Timeline 1",
+    "fps": 24,
+    "start_frame": 86400,
+    "end_frame": 106051,
+    "resolution": "1920x1080"
+  },
+  "sources": {
+    "22-04-23": "C:\\Users\\abdal\\Videos\\2026-09-05 22-04-23.mp4",
+    "22-14-20": "C:\\Users\\abdal\\Videos\\2026-09-05 22-14-20.mp4",
+    "22-41-09": "C:\\Users\\abdal\\Videos\\2026-09-05 22-41-09.mp4",
+    "22-48-04": "C:\\Users\\abdal\\Videos\\2026-09-05 22-48-04.mp4",
+    "22-53-13": "C:\\Users\\abdal\\Videos\\2026-09-05 22-53-13.mp4",
+    "23-03-43": "C:\\Users\\abdal\\Videos\\2026-09-05 23-03-43.mp4"
+  },
+  "source_fps": 60,
+  "items": [
+    {
+      "n": 1,
+      "source": "22-04-23",
+      "timeline_start": 86400,
+      "timeline_duration": 690,
+      "source_start": 2532
+    },
+    {
+      "n": 2,
+      "source": "22-04-23",
+      "timeline_start": 87090,
+      "timeline_duration": 200,
+      "source_start": 4817
+    },
+    {
+      "n": 3,
+      "source": "22-04-23",
+      "timeline_start": 87290,
+      "timeline_duration": 1700,
+      "source_start": 5372
+    },
+    {
+      "n": 4,
+      "source": "22-04-23",
+      "timeline_start": 88990,
+      "timeline_duration": 319,
+      "source_start": 10047
+    },
+    {
+      "n": 5,
+      "source": "22-14-20",
+      "timeline_start": 89309,
+      "timeline_duration": 1754,
+      "source_start": 0
+    },
+    {
+      "n": 6,
+      "source": "22-41-09",
+      "timeline_start": 91063,
+      "timeline_duration": 729,
+      "source_start": 767
+    },
+    {
+      "n": 7,
+      "source": "22-41-09",
+      "timeline_start": 91792,
+      "timeline_duration": 1041,
+      "source_start": 3577
+    },
+    {
+      "n": 8,
+      "source": "22-41-09",
+      "timeline_start": 92833,
+      "timeline_duration": 1494,
+      "source_start": 6885
+    },
+    {
+      "n": 9,
+      "source": "22-48-04",
+      "timeline_start": 94327,
+      "timeline_duration": 558,
+      "source_start": 2522
+    },
+    {
+      "n": 10,
+      "source": "22-48-04",
+      "timeline_start": 94885,
+      "timeline_duration": 250,
+      "source_start": 4345
+    },
+    {
+      "n": 11,
+      "source": "22-53-13",
+      "timeline_start": 95135,
+      "timeline_duration": 586,
+      "source_start": 257
+    },
+    {
+      "n": 12,
+      "source": "22-53-13",
+      "timeline_start": 95721,
+      "timeline_duration": 23,
+      "source_start": 1722
+    },
+    {
+      "n": 13,
+      "source": "22-53-13",
+      "timeline_start": 95744,
+      "timeline_duration": 727,
+      "source_start": 1970
+    },
+    {
+      "n": 14,
+      "source": "22-53-13",
+      "timeline_start": 96471,
+      "timeline_duration": 16,
+      "source_start": 3787
+    },
+    {
+      "n": 15,
+      "source": "22-53-13",
+      "timeline_start": 96487,
+      "timeline_duration": 2994,
+      "source_start": 8695
+    },
+    {
+      "n": 16,
+      "source": "22-53-13",
+      "timeline_start": 99481,
+      "timeline_duration": 548,
+      "source_start": 16312
+    },
+    {
+      "n": 17,
+      "source": "22-53-13",
+      "timeline_start": 100029,
+      "timeline_duration": 278,
+      "source_start": 21290
+    },
+    {
+      "n": 18,
+      "source": "22-53-13",
+      "timeline_start": 100307,
+      "timeline_duration": 1343,
+      "source_start": 22252
+    },
+    {
+      "n": 19,
+      "source": "22-53-13",
+      "timeline_start": 101650,
+      "timeline_duration": 2948,
+      "source_start": 25920
+    },
+    {
+      "n": 20,
+      "source": "23-03-43",
+      "timeline_start": 104598,
+      "timeline_duration": 374,
+      "source_start": 45
+    },
+    {
+      "n": 21,
+      "source": "23-03-43",
+      "timeline_start": 104972,
+      "timeline_duration": 234,
+      "source_start": 979
+    },
+    {
+      "n": 22,
+      "source": "23-03-43",
+      "timeline_start": 105206,
+      "timeline_duration": 845,
+      "source_start": 2272
+    }
+  ],
+  "transitions": [
+    {
+      "name": "Smooth Cut",
+      "timeline_start": 87078,
+      "duration": 24,
+      "between_items": [1, 2]
+    },
+    {
+      "name": "Cross Dissolve",
+      "timeline_start": 88978,
+      "duration": 24,
+      "between_items": [3, 4]
+    },
+    {
+      "name": "Blur Dissolve",
+      "timeline_start": 91770,
+      "duration": 44,
+      "between_items": [6, 7]
+    }
+  ],
+  "known_losses": [
+    "The 3 transitions above are not carried by create_timeline_from_clips. Re-add them by hand at the rebuilt cut points.",
+    "Audio item 4 on the original carries a 2-frame (33 ms) internal split at source 10060-10062 that the video track does not have. The rebuild restores those 2 frames."
+  ]
+}

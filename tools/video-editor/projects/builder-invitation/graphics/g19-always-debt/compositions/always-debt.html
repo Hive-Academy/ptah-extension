@@ -1,0 +1,702 @@
+<!doctype html>
+<!--
+  G19 — there is always debt, and what to do about it.
+  Hand-authored (no registry block used; the fork is a two-card flex row and
+  the end card is a centred stack, neither of which any block covers).
+  Structure, palette handling and timeline discipline follow
+  g07-degradation-curve/compositions/quality-over-time.html and
+  g08-free-open-source/compositions/free-open-source.html — the end card is
+  deliberately the conclusion of G08's offer.
+
+  Full-frame takeover resolving into an end card, for builder-invitation,
+  timeline 13:08.0-13:38.8 (30.8 s). This is the LAST graphic in the video and
+  it runs to the final frame: the end card holds at full opacity and is never
+  animated out. The bottom 186px is reserved for Arabic captions and carries
+  no content.
+
+  Word anchors (local seconds = timeline seconds - 788.0):
+    2.87-4.37   "عمره ما بيوصل لمرحلة الكمال"  never reaches perfection
+    6.07        "تيكنيكال ديبت"                technical debt
+   19.77-21.67  MVP + validation with the prototype
+   22.93-25.75  hand it to a good developer who builds on it
+   25.75+       instead of scratching it and starting over
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>There is always debt</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="always-debt"
+      data-composition-id="always-debt"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="30.8"
+    >
+      <div class="backdrop"></div>
+
+      <!-- ---- Movement 1: the admission (2.9-19.5) --------------------- -->
+      <div class="layer layer-statements">
+        <span class="spine"></span>
+        <p class="eyebrow">Let me be straight with you</p>
+
+        <div class="lines">
+          <p class="line line-1">No application is ever finished.</p>
+
+          <div class="line-block">
+            <p class="line line-2">There is always technical debt.</p>
+            <span class="debt-rule"></span>
+          </div>
+
+          <p class="line line-soft line-3">We should say that out loud.</p>
+          <p class="line line-soft line-4">Then money gets invested, not burned.</p>
+        </div>
+      </div>
+
+      <!-- ---- Movement 2: the alternative (19.6-26.6) ------------------ -->
+      <div class="layer layer-fork">
+        <div class="fork-head">
+          <p class="fork-kicker">Your MVP works. You have validation.</p>
+          <h2 class="fork-title">Two things can happen next.</h2>
+        </div>
+
+        <div class="fork-row">
+          <div class="card card-scratch">
+            <span class="card-accent"></span>
+            <p class="card-kicker">What usually happens</p>
+            <h3 class="card-title">Scratch it.</h3>
+            <p class="card-sub">Start again from zero.</p>
+          </div>
+
+          <div class="card card-build">
+            <span class="card-accent"></span>
+            <p class="card-kicker">The alternative</p>
+            <h3 class="card-title">Build on it.</h3>
+            <p class="card-sub">Hand it to someone who can.</p>
+          </div>
+
+          <div class="or-slot"><span class="or-chip">or</span></div>
+        </div>
+
+        <div class="fork-foot">
+          <span class="foot-rule"></span>
+          <span class="foot-text">Build on it. Don't burn it.</span>
+        </div>
+      </div>
+
+      <!-- ---- Movement 3: the end card (26.4 -> 30.8, holds) ----------- -->
+      <div class="layer layer-end">
+        <h1 class="wordmark">PTAH</h1>
+        <span class="mark-rule"></span>
+        <p class="domain">ptah.live</p>
+        <span class="cta">Get Ptah free</span>
+        <div class="builders">
+          <span class="builders-dot"></span>
+          <span class="builders-text">And the Builders community, next door.</span>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="always-debt"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-fill: rgba(255, 255, 255, 0.03);
+          --card-fill-build: rgba(52, 211, 153, 0.07);
+          --card-edge: rgba(255, 255, 255, 0.09);
+          --card-edge-build: rgba(52, 211, 153, 0.34);
+          --chip-fill: rgba(255, 255, 255, 0.05);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="always-debt"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(118% 88% at 50% 34%, var(--ink-raised) 0%, var(--ink) 62%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Every movement is its own absolutely-positioned layer so a
+           cross-fade never reflows the one underneath. The 186px bottom
+           padding is what keeps content out of the caption band: the tallest
+           layer (the fork) bottoms out at y=750, well clear of y=894. */
+        [data-composition-id="always-debt"] .layer {
+          position: absolute;
+          inset: 0;
+          padding-bottom: 186px;
+        }
+
+        /* ---- Movement 1 ------------------------------------------------ */
+
+        /* The spine is drawn at x=150 and the type is indented past it, so the
+           movement has structure on screen from 1.0 s — before the first
+           statement lands at 2.87 s. Its 530px height is the measured height
+           of the statement stack (top 178 -> bottom 708), which keeps it,
+           like everything else, clear of the caption band at y=894. */
+        [data-composition-id="always-debt"] .layer-statements {
+          padding-left: 202px;
+          padding-right: 150px;
+          padding-top: 178px;
+        }
+
+        [data-composition-id="always-debt"] .spine {
+          position: absolute;
+          left: 150px;
+          top: 178px;
+          width: 4px;
+          height: 530px;
+          border-radius: 2px;
+          background: var(--grid);
+          transform: scaleY(0);
+          transform-origin: 50% 0%;
+        }
+
+        [data-composition-id="always-debt"] .eyebrow {
+          font-size: 28px;
+          font-weight: 500;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .lines {
+          margin-top: 52px;
+          display: flex;
+          flex-direction: column;
+          gap: 34px;
+        }
+
+        [data-composition-id="always-debt"] .line {
+          font-size: 88px;
+          font-weight: 700;
+          line-height: 1.06;
+          letter-spacing: -0.032em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .line-soft {
+          font-size: 46px;
+          font-weight: 500;
+          letter-spacing: -0.015em;
+          color: var(--text-soft);
+        }
+
+        [data-composition-id="always-debt"] .line-block {
+          display: block;
+        }
+
+        [data-composition-id="always-debt"] .debt-rule {
+          display: block;
+          margin-top: 22px;
+          width: 0;
+          height: 8px;
+          border-radius: 4px;
+          background: var(--amber-deep);
+        }
+
+        [data-composition-id="always-debt"] .line-3 {
+          margin-top: 26px;
+        }
+
+        /* ---- Movement 2 ------------------------------------------------ */
+
+        [data-composition-id="always-debt"] .layer-fork {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding-top: 140px;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .fork-head {
+          text-align: center;
+        }
+
+        [data-composition-id="always-debt"] .fork-kicker {
+          font-size: 26px;
+          font-weight: 600;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .fork-title {
+          margin-top: 20px;
+          font-size: 62px;
+          font-weight: 700;
+          line-height: 1.05;
+          letter-spacing: -0.03em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .fork-row {
+          position: relative;
+          margin-top: 58px;
+          display: flex;
+          justify-content: center;
+          gap: 100px;
+          width: 1540px;
+          height: 320px;
+        }
+
+        [data-composition-id="always-debt"] .card {
+          position: relative;
+          flex: none;
+          width: 720px;
+          height: 320px;
+          padding: 44px 46px;
+          border: 1px solid var(--card-edge);
+          border-radius: 22px;
+          background: var(--card-fill);
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .card-build {
+          border-color: var(--card-edge-build);
+          background: var(--card-fill-build);
+        }
+
+        [data-composition-id="always-debt"] .card-accent {
+          position: absolute;
+          top: -1px;
+          left: 44px;
+          width: 0;
+          height: 5px;
+          border-radius: 3px;
+          background: var(--grid);
+        }
+
+        [data-composition-id="always-debt"] .card-build .card-accent {
+          background: var(--emerald);
+        }
+
+        [data-composition-id="always-debt"] .card-kicker {
+          font-size: 22px;
+          font-weight: 600;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--text-faint);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="always-debt"] .card-build .card-kicker {
+          color: var(--emerald);
+        }
+
+        [data-composition-id="always-debt"] .card-title {
+          margin-top: 30px;
+          font-size: 66px;
+          font-weight: 700;
+          line-height: 1;
+          letter-spacing: -0.03em;
+          color: var(--text-soft);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="always-debt"] .card-build .card-title {
+          color: var(--text-strong);
+        }
+
+        [data-composition-id="always-debt"] .card-sub {
+          margin-top: 26px;
+          font-size: 32px;
+          font-weight: 400;
+          color: var(--text-faint);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="always-debt"] .card-build .card-sub {
+          color: var(--emerald-light);
+        }
+
+        /* Centred in the 100px gutter without a CSS transform, so GSAP owns
+           the chip's transform outright. */
+        [data-composition-id="always-debt"] .or-slot {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          margin-left: -34px;
+          margin-top: -34px;
+          width: 68px;
+          height: 68px;
+        }
+
+        [data-composition-id="always-debt"] .or-chip {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 68px;
+          height: 68px;
+          border: 1px solid var(--card-edge);
+          border-radius: 999px;
+          background: var(--ink);
+          font-size: 24px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          color: var(--text-faint);
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .fork-foot {
+          margin-top: 64px;
+          display: flex;
+          align-items: center;
+          gap: 24px;
+          height: 60px;
+        }
+
+        [data-composition-id="always-debt"] .foot-rule {
+          display: block;
+          width: 0;
+          height: 5px;
+          border-radius: 3px;
+          background: var(--emerald);
+        }
+
+        [data-composition-id="always-debt"] .foot-text {
+          font-size: 38px;
+          font-weight: 600;
+          letter-spacing: -0.015em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        /* ---- Movement 3: the end card ---------------------------------- */
+
+        [data-composition-id="always-debt"] .layer-end {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+        }
+
+        [data-composition-id="always-debt"] .wordmark {
+          font-size: 190px;
+          font-weight: 800;
+          line-height: 1;
+          letter-spacing: 0.055em;
+          text-indent: 0.055em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .mark-rule {
+          display: block;
+          margin-top: 30px;
+          width: 0;
+          height: 8px;
+          border-radius: 4px;
+          background: var(--amber);
+        }
+
+        [data-composition-id="always-debt"] .domain {
+          margin-top: 32px;
+          font-size: 46px;
+          font-weight: 500;
+          letter-spacing: 0.02em;
+          color: var(--text-soft);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .cta {
+          margin-top: 46px;
+          padding: 22px 54px;
+          border-radius: 999px;
+          background: var(--amber);
+          font-size: 40px;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          color: var(--ink);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .builders {
+          margin-top: 44px;
+          display: flex;
+          align-items: center;
+          gap: 18px;
+          opacity: 0;
+        }
+
+        [data-composition-id="always-debt"] .builders-dot {
+          display: block;
+          width: 12px;
+          height: 12px;
+          border-radius: 999px;
+          background: var(--emerald);
+        }
+
+        [data-composition-id="always-debt"] .builders-text {
+          font-size: 30px;
+          font-weight: 500;
+          color: var(--text-soft);
+          white-space: nowrap;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="always-debt"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- 0.0-0.7 : the frame is taken over -----------------------
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.7, ease: "power2.out" },
+            0,
+          );
+          tl.fromTo(
+            `${ROOT} .eyebrow`,
+            { opacity: 0, y: 14 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" },
+            0.55,
+          );
+          tl.fromTo(
+            `${ROOT} .spine`,
+            { scaleY: 0 },
+            { scaleY: 1, duration: 1.15, ease: "power2.inOut" },
+            0.95,
+          );
+
+          // ---- 2.87 : "never reaches perfection" -----------------------
+          tl.fromTo(
+            `${ROOT} .line-1`,
+            { opacity: 0, y: 30 },
+            { opacity: 1, y: 0, duration: 0.68, ease: "power3.out" },
+            2.87,
+          );
+
+          // ---- 6.07 : "technical debt". The admission itself. ----------
+          tl.fromTo(
+            `${ROOT} .line-2`,
+            { opacity: 0, y: 30 },
+            { opacity: 1, y: 0, duration: 0.68, ease: "power3.out" },
+            6.07,
+          );
+          tl.fromTo(
+            `${ROOT} .debt-rule`,
+            { width: 0 },
+            { width: 490, duration: 0.6, ease: "power3.out" },
+            6.45,
+          );
+
+          // ---- 9.4 / 13.6 : the duty, then the payoff ------------------
+          tl.fromTo(
+            `${ROOT} .line-3`,
+            { opacity: 0, y: 18 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" },
+            9.4,
+          );
+          tl.fromTo(
+            `${ROOT} .line-4`,
+            { opacity: 0, y: 18 },
+            { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" },
+            13.6,
+          );
+
+          // ---- 18.9 : the admission clears for the fork ----------------
+          tl.to(
+            `${ROOT} .layer-statements`,
+            { opacity: 0, duration: 0.6, ease: "power2.in" },
+            18.9,
+          );
+
+          // ---- 19.55-21.7 : MVP + validation, and the fork opens -------
+          tl.fromTo(
+            `${ROOT} .layer-fork`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.4, ease: "power2.out" },
+            19.55,
+          );
+          tl.fromTo(
+            `${ROOT} .fork-kicker`,
+            { opacity: 0, y: 12 },
+            { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+            19.6,
+          );
+          tl.fromTo(
+            `${ROOT} .fork-title`,
+            { opacity: 0, y: 22 },
+            { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" },
+            19.9,
+          );
+
+          // 20.15 — what happens today. It arrives first because it is the
+          // default, and it is deliberately the duller of the two. It lands
+          // inside the "MVP + validation" anchor (19.77-21.67) rather than
+          // after it, so the frame is never a bare header.
+          tl.fromTo(
+            `${ROOT} .card-scratch`,
+            { opacity: 0, x: -38 },
+            { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" },
+            20.15,
+          );
+          tl.fromTo(
+            `${ROOT} .card-scratch .card-accent`,
+            { width: 0 },
+            { width: 180, duration: 0.45, ease: "power2.out" },
+            20.45,
+          );
+          tl.fromTo(
+            `${ROOT} .or-chip`,
+            { opacity: 0, scale: 0.7 },
+            { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2)" },
+            21.05,
+          );
+
+          // 22.93 — hand it to someone who builds on it. The offer.
+          tl.fromTo(
+            `${ROOT} .card-build`,
+            { opacity: 0, x: 38, scale: 0.95 },
+            {
+              opacity: 1,
+              x: 0,
+              scale: 1,
+              duration: 0.7,
+              ease: "back.out(1.4)",
+            },
+            22.93,
+          );
+          tl.fromTo(
+            `${ROOT} .card-build .card-accent`,
+            { width: 0 },
+            { width: 240, duration: 0.5, ease: "power2.out" },
+            23.25,
+          );
+
+          // 25.2 — the verdict. The default recedes; the alternative stands.
+          tl.to(
+            `${ROOT} .card-scratch`,
+            { opacity: 0.3, duration: 0.5, ease: "power2.inOut" },
+            25.2,
+          );
+          tl.fromTo(
+            `${ROOT} .foot-rule`,
+            { width: 0 },
+            { width: 84, duration: 0.36, ease: "power3.out" },
+            25.2,
+          );
+          tl.fromTo(
+            `${ROOT} .foot-text`,
+            { opacity: 0, x: -14 },
+            { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" },
+            25.3,
+          );
+
+          // ---- 26.0 : the fork clears for the end card -----------------
+          tl.to(
+            `${ROOT} .layer-fork`,
+            { opacity: 0, duration: 0.55, ease: "power2.in" },
+            26.0,
+          );
+
+          // ---- 26.45-28.6 : the end card. It holds to the final frame.
+          // Nothing below animates out — 30.8 s is the last frame of the
+          // video and it must be this card at full opacity.
+          tl.fromTo(
+            `${ROOT} .wordmark`,
+            { opacity: 0, y: 26, scale: 0.93 },
+            {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              duration: 0.78,
+              ease: "power3.out",
+            },
+            26.45,
+          );
+          tl.fromTo(
+            `${ROOT} .mark-rule`,
+            { width: 0 },
+            { width: 260, duration: 0.55, ease: "power3.out" },
+            26.9,
+          );
+          tl.fromTo(
+            `${ROOT} .domain`,
+            { opacity: 0, y: 14 },
+            { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" },
+            27.05,
+          );
+          tl.fromTo(
+            `${ROOT} .cta`,
+            { opacity: 0, scale: 0.88 },
+            { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.8)" },
+            27.3,
+          );
+          tl.fromTo(
+            `${ROOT} .builders`,
+            { opacity: 0, y: 12 },
+            { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" },
+            27.95,
+          );
+
+          // A single slow breath on the amber rule so the held card is not a
+          // frozen still. Second tween on .mark-rule, so it is a `to` and it
+          // finishes at 30.8 — the last frame is still fully opaque.
+          tl.to(
+            `${ROOT} .mark-rule`,
+            { width: 320, duration: 2.5, ease: "sine.inOut" },
+            28.3,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["always-debt"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

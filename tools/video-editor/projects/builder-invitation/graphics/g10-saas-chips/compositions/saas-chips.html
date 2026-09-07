@@ -1,0 +1,289 @@
+<!doctype html>
+<!--
+  G10 — what the real-estate SaaS actually contains.
+  Hand-authored for builder-invitation, timeline 4:53.0-5:04.9 (11.9 s).
+  Palette handling and timeline discipline follow the worked example at
+  ../../g04-lifecycle-chain/compositions/lifecycle-chain.html.
+
+  TREATMENT — chip strip, NOT a takeover. There is no backdrop element at
+  all: the screen capture underneath stays fully visible and every chip
+  carries its own --ink card so it is legible over any UI behind it.
+
+  LAYOUT CONTRACT
+    x 0-470   webcam picture-in-picture  -> nothing may enter it
+    y 894+    Arabic caption band (186px) -> nothing may enter it
+    Usable band used here: x 512-1642, y 616-864. Card shadows are
+    0 8px 24px, so their softest reach is x 500 and y 884 — still clear
+    of both reserved zones.
+
+  SYNC CONTRACT — timeline seconds minus 293.0 gives local composition time:
+    "real estate"          295.96        -> 2.96   (lead-in label)
+    the five terms         297.72-303.02 -> 4.72-10.02, one every ~1.06 s
+      Authentication        -> 4.72
+      Multi-tenancy         -> 5.78
+      Domain-Driven Design  -> 6.84
+      Payment               -> 7.90
+      Billing               -> 8.96
+    Hold, then the strip clears by 11.6 — inside the 11.9 s slot.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SaaS chips</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="saas-chips"
+      data-composition-id="saas-chips"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="11.9"
+    >
+      <div class="strip">
+        <div class="lead" id="lead">
+          <span class="lead-rule"></span>
+          <span class="lead-text">A real-estate SaaS</span>
+        </div>
+
+        <div class="row row-1">
+          <div class="chip chip-amber" id="chip-auth">
+            <span class="dot"></span><span class="chip-text">Authentication</span>
+          </div>
+          <div class="chip chip-amber" id="chip-tenancy">
+            <span class="dot"></span><span class="chip-text">Multi-tenancy</span>
+          </div>
+          <div class="chip chip-amber" id="chip-ddd">
+            <span class="dot"></span><span class="chip-text">Domain-Driven Design</span>
+          </div>
+        </div>
+
+        <div class="row row-2">
+          <div class="chip chip-emerald" id="chip-payment">
+            <span class="dot"></span><span class="chip-text">Payment</span>
+          </div>
+          <div class="chip chip-emerald" id="chip-billing">
+            <span class="dot"></span><span class="chip-text">Billing</span>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="saas-chips"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-border: rgba(255, 255, 255, 0.2);
+          --card-shadow: rgba(0, 0, 0, 0.55);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        /* The strip owns only its own band. No full-frame backdrop exists,
+           so the screen capture underneath is never covered. */
+        [data-composition-id="saas-chips"] .strip {
+          position: absolute;
+          left: 512px;
+          top: 616px;
+          width: 1318px;
+          height: 248px;
+        }
+
+        [data-composition-id="saas-chips"] .lead {
+          position: absolute;
+          left: 0;
+          top: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 16px;
+          height: 48px;
+          padding: 0 22px 0 18px;
+          border-radius: 12px;
+          border: 2px solid var(--card-border);
+          background: var(--ink);
+          box-shadow: 0 8px 24px var(--card-shadow);
+          opacity: 0;
+        }
+
+        [data-composition-id="saas-chips"] .lead-rule {
+          display: block;
+          width: 6px;
+          height: 22px;
+          border-radius: 3px;
+          background: var(--amber);
+        }
+
+        [data-composition-id="saas-chips"] .lead-text {
+          font-size: 26px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="saas-chips"] .row {
+          position: absolute;
+          left: 0;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          height: 84px;
+        }
+
+        /* Row 1 ends at y 764, row 2 at y 864 — 30px clear of the caption
+           band, and both rows start at x 500, clear of the webcam PiP. */
+        [data-composition-id="saas-chips"] .row-1 {
+          top: 64px;
+        }
+
+        [data-composition-id="saas-chips"] .row-2 {
+          top: 164px;
+        }
+
+        [data-composition-id="saas-chips"] .chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 14px;
+          height: 84px;
+          padding: 0 30px;
+          border-radius: 16px;
+          border: 2px solid var(--card-border);
+          background: var(--ink);
+          box-shadow: 0 8px 24px var(--card-shadow);
+          opacity: 0;
+        }
+
+        [data-composition-id="saas-chips"] .chip-text {
+          font-size: 34px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="saas-chips"] .dot {
+          display: block;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          flex: none;
+        }
+
+        [data-composition-id="saas-chips"] .chip-amber {
+          border-color: var(--amber-deep);
+        }
+
+        [data-composition-id="saas-chips"] .chip-amber .dot {
+          background: var(--amber-light);
+        }
+
+        [data-composition-id="saas-chips"] .chip-emerald {
+          border-color: var(--emerald);
+        }
+
+        [data-composition-id="saas-chips"] .chip-emerald .dot {
+          background: var(--emerald-light);
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="saas-chips"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // `at` is the local composition second the speaker says the word.
+          // Five chips on a ~1.06 s rhythm across 4.72-10.02.
+          const CHIPS = [
+            { id: "chip-auth", at: 4.72 },
+            { id: "chip-tenancy", at: 5.78 },
+            { id: "chip-ddd", at: 6.84 },
+            { id: "chip-payment", at: 7.9 },
+            { id: "chip-billing", at: 8.96 },
+          ];
+
+          // 2.96 — "real estate". The lead-in names what the chips belong to.
+          tl.fromTo(
+            `${ROOT} .lead`,
+            { opacity: 0, x: -22 },
+            { opacity: 1, x: 0, duration: 0.45, ease: "power2.out", immediateRender: false },
+            2.96,
+          );
+
+          // Each chip lands ON its word. Explicit fromTo everywhere — every
+          // element enters late, so gsap.from() would be unsafe under seek.
+          CHIPS.forEach((chip) => {
+            const el = document.getElementById(chip.id);
+            tl.fromTo(
+              el,
+              { opacity: 0, y: 18, scale: 0.94 },
+              {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                duration: 0.42,
+                ease: "back.out(1.7)",
+                immediateRender: false,
+              },
+              chip.at,
+            );
+            tl.fromTo(
+              el.querySelector(".dot"),
+              { scale: 0 },
+              { scale: 1, duration: 0.34, ease: "back.out(2.6)", immediateRender: false },
+              chip.at + 0.08,
+            );
+          });
+
+          // 9.38-10.9 hold on the full strip, then clear the band by 11.6 so
+          // the 11.9 s slot ends on empty frames.
+          tl.fromTo(
+            `${ROOT} .strip`,
+            { opacity: 1, y: 0 },
+            { opacity: 0, y: -14, duration: 0.7, ease: "power2.in", immediateRender: false },
+            10.9,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["saas-chips"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

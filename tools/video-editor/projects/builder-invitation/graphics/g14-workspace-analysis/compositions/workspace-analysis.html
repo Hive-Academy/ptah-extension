@@ -1,0 +1,512 @@
+<!doctype html>
+<!--
+  G14 — what workspace analysis reads.
+  Hand-authored for builder-invitation, timeline 8:45.3-9:02.0 (16.7 s).
+  Palette handling and timeline discipline follow the worked examples at
+  ../../g10-saas-chips/compositions/saas-chips.html and
+  ../../g07-degradation-curve/compositions/quality-over-time.html
+  (the build-time geometry sampling comes from G07's sampleTrack()).
+
+  TREATMENT — Punch and call. There is NO backdrop element at all: the Ptah
+  setup wizard underneath stays fully visible. Only a ring, a label, a
+  connector and a side list render, each on its own --ink card or as a
+  stroke. No box-shadow anywhere.
+
+  MEASURED UNDERLAY (Ptah desktop, "Let's Personalize Your Ptah Experience")
+    step rail            x 460-1800,  y 100-160   -> never touched
+    Start New Analysis   x 1070-1215, y 520-560   -> RINGED, never painted over
+    left sidebar         x 160-360                -> inside the PiP exclusion
+  RESERVED ZONES
+    x 0-470   webcam picture-in-picture -> nothing may enter it
+    y 894+    Arabic caption band       -> nothing may enter it
+  GEOMETRY ACTUALLY USED
+    ring path      x 1054-1231, y 504-576  (16px padding around the button)
+    ring ink       halo stroke 10 -> outermost pixel x 1049-1236, y 499-581
+    label chip     x 1262-1582, y 508-572
+    connector      x 1180-1400, y 580-620
+    side list      x 1400-1830, y 600-876
+    Leftmost ink 1049 (clear of 470). Lowest ink 876 (18px clear of 894).
+
+  SYNC CONTRACT — timeline seconds minus 525.3 gives local composition time:
+    "حاجة اسمها workspace analysis"  525.71-527.03 -> 0.41-1.73
+      ring draws 0.45, label lands 0.78
+    "deep analysis"                  533.63        -> 8.33
+    "التتشستاكل" (tech stack)         535.38        -> 10.08
+    "frameworks"                     536.86        -> 11.56
+    "design pattern"                 539.78        -> 14.48
+    Everything is clear of frame by 16.3 — inside the 16.7 s slot.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Workspace analysis</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="workspace-analysis"
+      data-composition-id="workspace-analysis"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="16.7"
+    >
+      <!-- Strokes only. The SVG box is 1920x1080 and so is the viewBox, so
+           preserveAspectRatio has nothing to letterbox. -->
+      <svg class="strokes" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+        <g id="ring-group">
+          <path
+            id="ring-halo"
+            d="M 1068 504 H 1217 A 14 14 0 0 1 1231 518 V 562 A 14 14 0 0 1 1217 576 H 1068 A 14 14 0 0 1 1054 562 V 518 A 14 14 0 0 1 1068 504 Z"
+          />
+          <path
+            id="ring-draw"
+            d="M 1068 504 H 1217 A 14 14 0 0 1 1231 518 V 562 A 14 14 0 0 1 1217 576 H 1068 A 14 14 0 0 1 1054 562 V 518 A 14 14 0 0 1 1068 504 Z"
+          />
+        </g>
+
+        <g id="scan-group">
+          <path id="conn-path" d="M 1180 580 V 600 Q 1180 620 1200 620 H 1400" />
+          <circle class="pulse" id="pulse-0" r="7" />
+          <circle class="pulse" id="pulse-1" r="7" />
+          <circle class="pulse" id="pulse-2" r="7" />
+          <circle class="pulse" id="pulse-3" r="7" />
+        </g>
+      </svg>
+
+      <div class="label" id="call-label">
+        <span class="label-rule"></span>
+        <span class="label-text">Workspace analysis</span>
+      </div>
+
+      <div class="list" id="read-list">
+        <div class="list-head" id="list-head">
+          <span class="head-rule"></span>
+          <span class="head-text">It reads</span>
+        </div>
+        <div class="row" id="row-deep">
+          <span class="dot"></span><span class="row-text">Deep analysis</span>
+        </div>
+        <div class="row" id="row-stack">
+          <span class="dot"></span><span class="row-text">Tech stack</span>
+        </div>
+        <div class="row" id="row-frameworks">
+          <span class="dot"></span><span class="row-text">Frameworks</span>
+        </div>
+        <div class="row" id="row-patterns">
+          <span class="dot"></span><span class="row-text">Design patterns</span>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="workspace-analysis"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-border: rgba(255, 255, 255, 0.2);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="workspace-analysis"] .strokes {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+        }
+
+        /* ---- the ring on Start New Analysis ---- */
+        [data-composition-id="workspace-analysis"] #ring-group {
+          opacity: 0;
+        }
+
+        [data-composition-id="workspace-analysis"] #ring-draw {
+          fill: none;
+          stroke: var(--amber-light);
+          stroke-width: 4;
+          stroke-linecap: round;
+        }
+
+        [data-composition-id="workspace-analysis"] #ring-halo {
+          fill: none;
+          stroke: var(--amber);
+          stroke-width: 10;
+          opacity: 0;
+        }
+
+        /* ---- the scan connector ---- */
+        [data-composition-id="workspace-analysis"] #scan-group {
+          opacity: 0;
+        }
+
+        [data-composition-id="workspace-analysis"] #conn-path {
+          fill: none;
+          stroke: var(--amber-deep);
+          stroke-width: 3;
+          stroke-linecap: round;
+        }
+
+        [data-composition-id="workspace-analysis"] .pulse {
+          fill: var(--amber-light);
+          opacity: 0;
+        }
+
+        /* ---- the call label, right of the ring ---- */
+        [data-composition-id="workspace-analysis"] .label {
+          position: absolute;
+          left: 1262px;
+          top: 508px;
+          display: inline-flex;
+          align-items: center;
+          gap: 16px;
+          height: 64px;
+          padding: 0 26px 0 20px;
+          border-radius: 14px;
+          border: 2px solid var(--amber-deep);
+          background: var(--ink);
+          opacity: 0;
+        }
+
+        [data-composition-id="workspace-analysis"] .label-rule {
+          display: block;
+          width: 6px;
+          height: 26px;
+          border-radius: 3px;
+          background: var(--amber);
+          flex: none;
+        }
+
+        [data-composition-id="workspace-analysis"] .label-text {
+          font-size: 30px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        /* ---- the side list ---- */
+        [data-composition-id="workspace-analysis"] .list {
+          position: absolute;
+          left: 1400px;
+          top: 600px;
+          width: 430px;
+          height: 276px;
+        }
+
+        [data-composition-id="workspace-analysis"] .list-head {
+          position: absolute;
+          left: 0;
+          top: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          height: 38px;
+          padding: 0 18px 0 14px;
+          border-radius: 10px;
+          border: 2px solid var(--card-border);
+          background: var(--ink);
+          opacity: 0;
+        }
+
+        [data-composition-id="workspace-analysis"] .head-rule {
+          display: block;
+          width: 5px;
+          height: 18px;
+          border-radius: 3px;
+          background: var(--emerald);
+          flex: none;
+        }
+
+        [data-composition-id="workspace-analysis"] .head-text {
+          font-size: 21px;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: var(--text-soft);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="workspace-analysis"] .row {
+          position: absolute;
+          left: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 14px;
+          height: 50px;
+          padding: 0 24px;
+          border-radius: 12px;
+          border: 2px solid var(--emerald);
+          background: var(--ink);
+          opacity: 0;
+        }
+
+        [data-composition-id="workspace-analysis"] #row-deep {
+          top: 52px;
+        }
+        [data-composition-id="workspace-analysis"] #row-stack {
+          top: 110px;
+        }
+        [data-composition-id="workspace-analysis"] #row-frameworks {
+          top: 168px;
+        }
+        [data-composition-id="workspace-analysis"] #row-patterns {
+          top: 226px;
+        }
+
+        [data-composition-id="workspace-analysis"] .dot {
+          display: block;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: var(--emerald-light);
+          flex: none;
+        }
+
+        [data-composition-id="workspace-analysis"] .row-text {
+          font-size: 30px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="workspace-analysis"]';
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- BUILD-TIME GEOMETRY. Nothing here is ever re-measured
+          // inside a callback: the render worker seeks non-linearly with
+          // events enabled, so a measurement in onUpdate is seek-order
+          // dependent. Sample once, index later (G07's sampleTrack pattern).
+          const ringEl = document.getElementById("ring-draw");
+          const RING_LEN = ringEl.getTotalLength();
+          ringEl.style.strokeDasharray = RING_LEN;
+          ringEl.style.strokeDashoffset = RING_LEN;
+
+          const connEl = document.getElementById("conn-path");
+          const CONN_LEN = connEl.getTotalLength();
+          connEl.style.strokeDasharray = CONN_LEN;
+          connEl.style.strokeDashoffset = CONN_LEN;
+
+          const STEPS = 120;
+          const TRACK = [];
+          for (let i = 0; i <= STEPS; i++) {
+            const p = connEl.getPointAtLength((i / STEPS) * CONN_LEN);
+            TRACK.push({ x: p.x, y: p.y });
+          }
+
+          // ---- 0.45-1.05 — "workspace analysis". The ring draws around
+          // the Start New Analysis button. It rings, it never covers.
+          tl.fromTo(
+            `${ROOT} #ring-group`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.22, ease: "power1.out", immediateRender: false },
+            0.45,
+          );
+          tl.fromTo(
+            ringEl,
+            { strokeDashoffset: RING_LEN },
+            {
+              strokeDashoffset: 0,
+              duration: 0.62,
+              ease: "power2.inOut",
+              immediateRender: false,
+            },
+            0.45,
+          );
+
+          // 0.78 — the label lands on the phrase itself.
+          tl.fromTo(
+            `${ROOT} .label`,
+            { opacity: 0, x: -18 },
+            { opacity: 1, x: 0, duration: 0.42, ease: "power2.out", immediateRender: false },
+            0.78,
+          );
+
+          // 1.15-10.15 — the ring breathes so it reads as live, not a
+          // static box. Bounded repeat, ends back at 0 opacity.
+          tl.fromTo(
+            `${ROOT} #ring-halo`,
+            { opacity: 0 },
+            {
+              opacity: 0.5,
+              duration: 0.75,
+              ease: "sine.inOut",
+              repeat: 11,
+              yoyo: true,
+              immediateRender: false,
+            },
+            1.15,
+          );
+
+          // 6.9 — the label clears before the list arrives, so the two
+          // never compete for the eye.
+          tl.fromTo(
+            `${ROOT} .label`,
+            { opacity: 1, x: 0 },
+            { opacity: 0, x: 14, duration: 0.45, ease: "power2.in", immediateRender: false },
+            6.9,
+          );
+
+          // 7.55 — the connector draws from the ring across to the list,
+          // then the heading lands just before the first spoken item.
+          tl.fromTo(
+            `${ROOT} #scan-group`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.2, ease: "power1.out", immediateRender: false },
+            7.55,
+          );
+          tl.fromTo(
+            connEl,
+            { strokeDashoffset: CONN_LEN },
+            {
+              strokeDashoffset: 0,
+              duration: 0.5,
+              ease: "power2.out",
+              immediateRender: false,
+            },
+            7.55,
+          );
+          tl.fromTo(
+            `${ROOT} .list-head`,
+            { opacity: 0, y: -10 },
+            { opacity: 1, y: 0, duration: 0.34, ease: "power2.out", immediateRender: false },
+            7.9,
+          );
+
+          // ---- each row arrives ON its spoken word, preceded by a pulse
+          // travelling the connector: the "reading" gesture.
+          const ROWS = [
+            { id: "row-deep", pulse: "pulse-0", at: 8.33 },
+            { id: "row-stack", pulse: "pulse-1", at: 10.08 },
+            { id: "row-frameworks", pulse: "pulse-2", at: 11.56 },
+            { id: "row-patterns", pulse: "pulse-3", at: 14.48 },
+          ];
+
+          ROWS.forEach((row) => {
+            const el = document.getElementById(row.id);
+            const dot = document.getElementById(row.pulse);
+            dot.setAttribute("cx", TRACK[0].x);
+            dot.setAttribute("cy", TRACK[0].y);
+
+            // One proxy per pulse, so no proxy ever carries two fromTo
+            // tweens and the from-value resolution stays unambiguous.
+            const proxy = { t: 0 };
+            const travelAt = row.at - 0.42;
+
+            tl.fromTo(
+              proxy,
+              { t: 0 },
+              {
+                t: 1,
+                duration: 0.46,
+                ease: "power1.inOut",
+                immediateRender: false,
+                onUpdate: function () {
+                  const p = TRACK[Math.round(proxy.t * STEPS)];
+                  dot.setAttribute("cx", p.x);
+                  dot.setAttribute("cy", p.y);
+                },
+              },
+              travelAt,
+            );
+            tl.fromTo(
+              dot,
+              { opacity: 0 },
+              { opacity: 1, duration: 0.1, ease: "power1.out", immediateRender: false },
+              travelAt,
+            );
+            tl.fromTo(
+              dot,
+              { opacity: 1 },
+              { opacity: 0, duration: 0.14, ease: "power1.in", immediateRender: false },
+              travelAt + 0.32,
+            );
+
+            tl.fromTo(
+              el,
+              { opacity: 0, x: 22, scale: 0.95 },
+              {
+                opacity: 1,
+                x: 0,
+                scale: 1,
+                duration: 0.4,
+                ease: "back.out(1.7)",
+                immediateRender: false,
+              },
+              row.at,
+            );
+            tl.fromTo(
+              el.querySelector(".dot"),
+              { scale: 0 },
+              { scale: 1, duration: 0.32, ease: "back.out(2.6)", immediateRender: false },
+              row.at + 0.08,
+            );
+          });
+
+          // ---- exit. Ring lets go first, the list and connector follow,
+          // and the frame is empty by 16.3 inside the 16.7 s slot.
+          tl.fromTo(
+            `${ROOT} #ring-group`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.6, ease: "power2.in", immediateRender: false },
+            15.3,
+          );
+          tl.fromTo(
+            `${ROOT} #scan-group`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.5, ease: "power2.in", immediateRender: false },
+            15.6,
+          );
+          tl.fromTo(
+            `${ROOT} .list`,
+            { opacity: 1, y: 0 },
+            { opacity: 0, y: -14, duration: 0.6, ease: "power2.in", immediateRender: false },
+            15.7,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["workspace-analysis"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,821 @@
+<!doctype html>
+<!--
+  G15a — the memory / retrieval system.
+  Hand-authored for builder-invitation, timeline 9:28.5-9:50.5 (22.0 s).
+  Structure, palette handling and timeline discipline follow
+  ../../g04-lifecycle-chain/compositions/lifecycle-chain.html.
+
+  Full-frame takeover. The bottom 186px is reserved for Arabic captions and
+  stays empty — the lowest content pixel is y=800 (panel bottom).
+
+  SYNC CONTRACT — each capability lands on the word the speaker says.
+  Timeline seconds minus 568.5 gives local composition time:
+    Memory                 570.76        -> 2.26
+    Indexed Memory         571.85        -> 3.35
+    AST / tree-sitter      573.41-574.07 -> 4.91-5.57
+    Graph Memory           577.43        -> 8.93
+    RAG system             579.43        -> 10.93
+    "so the coding agent can reach a large code base" -> payoff from 13.50
+
+  SHAPE — the five are not a list. They are five nodes of ONE graph around a
+  core. Each capability draws its own spoke into the core plus a chord to the
+  capability before it, so the ring closes at 12.30. At 13.50 the finished
+  graph is what DOES the work: it re-lights in emerald, packets run the ring,
+  and a beam leaves the core and scans the codebase panel on the right.
+
+  MEASUREMENT — every edge is a straight segment, so its length is arithmetic
+  from its endpoints. Nothing calls getTotalLength(), getPointAtLength() or
+  any DOM measure, at build time or inside a callback. Ring traversal indexes
+  a cumulative-length table built once, before the timeline is authored.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Memory system</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="memory-system"
+      data-composition-id="memory-system"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="22"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <div class="header">
+          <p class="eyebrow">Memory &amp; retrieval</p>
+          <h1 class="headline headline-a">Five systems, one graph</h1>
+          <h1 class="headline headline-b">The agent reaches a large codebase</h1>
+          <p class="subline">Any file. Any symbol. Any size.</p>
+        </div>
+
+        <svg class="graph-svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet">
+          <ellipse class="orbit" cx="640" cy="545" rx="290" ry="230" />
+          <g class="edges-base"></g>
+          <g class="edges-lit"></g>
+          <line class="beam" x1="662" y1="545" x2="1206" y2="560" />
+          <circle class="beam-head" cx="662" cy="545" r="9" />
+          <circle class="core-glow" cx="640" cy="545" r="52" />
+          <circle class="core-ring" cx="640" cy="545" r="24" />
+          <circle class="core-dot" cx="640" cy="545" r="11" />
+          <circle class="pulse pulse-1" cx="640" cy="545" r="24" />
+          <circle class="pulse pulse-2" cx="640" cy="545" r="24" />
+          <g class="packets">
+            <circle class="packet packet-1" cx="640" cy="545" r="8" />
+            <circle class="packet packet-2" cx="640" cy="545" r="8" />
+            <circle class="packet packet-3" cx="640" cy="545" r="8" />
+          </g>
+        </svg>
+
+        <div class="chip" id="n-memory">
+          <div class="chip-lit"></div>
+          <span class="chip-label">Memory</span>
+        </div>
+        <div class="chip" id="n-indexed">
+          <div class="chip-lit"></div>
+          <span class="chip-label">Indexed Memory</span>
+        </div>
+        <div class="chip chip-tall" id="n-ast">
+          <div class="chip-lit"></div>
+          <span class="chip-label">AST</span>
+          <span class="chip-sub">tree-sitter</span>
+        </div>
+        <div class="chip" id="n-graph">
+          <div class="chip-lit"></div>
+          <span class="chip-label">Graph Memory</span>
+        </div>
+        <div class="chip" id="n-rag">
+          <div class="chip-lit"></div>
+          <span class="chip-label">RAG</span>
+        </div>
+
+        <p class="panel-label">Your codebase</p>
+        <div class="panel">
+          <div class="panel-lit"></div>
+          <div class="code-field"></div>
+          <div class="scanline"></div>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="memory-system"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --edge-idle: rgba(255, 255, 255, 0.26);
+          --chip-border: rgba(255, 255, 255, 0.18);
+          /* Opaque, not translucent: ring packets travel node-centre to
+             node-centre, so a see-through chip would show a dot sliding
+             across its own label. */
+          --chip-bg: rgba(12, 14, 19, 0.94);
+          --panel-border: rgba(255, 255, 255, 0.14);
+          --panel-bg: rgba(255, 255, 255, 0.03);
+          --emerald-wash: rgba(52, 211, 153, 0.12);
+          --emerald-edge: rgba(52, 211, 153, 0.6);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="memory-system"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(110% 85% at 34% 46%, var(--ink-raised) 0%, var(--ink) 64%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget: 92 eyebrow -> 228 header end, graph band 277-769,
+           panel 268-800, then the reserved 186px caption band from 894.
+           Nothing is authored below y=800. */
+        [data-composition-id="memory-system"] .scene-content {
+          position: absolute;
+          inset: 0;
+          padding-bottom: 186px;
+        }
+
+        [data-composition-id="memory-system"] .header {
+          position: absolute;
+          left: 130px;
+          top: 92px;
+          width: 1060px;
+          height: 140px;
+        }
+
+        [data-composition-id="memory-system"] .eyebrow {
+          position: absolute;
+          left: 0;
+          top: 0;
+          font-size: 20px;
+          font-weight: 700;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+          color: var(--amber-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .headline {
+          position: absolute;
+          left: 0;
+          top: 30px;
+          font-size: 56px;
+          line-height: 1.14;
+          font-weight: 700;
+          letter-spacing: -0.025em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="memory-system"] .headline-a {
+          clip-path: inset(0 100% 0 0);
+        }
+
+        [data-composition-id="memory-system"] .headline-b {
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .subline {
+          position: absolute;
+          left: 0;
+          top: 108px;
+          font-size: 28px;
+          font-weight: 500;
+          letter-spacing: 0.01em;
+          color: var(--emerald-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        /* viewBox is 1920x1080 and the CSS box is 1920x1080, so SVG units sit
+           1:1 with the absolutely positioned HTML chips. */
+        [data-composition-id="memory-system"] .graph-svg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          overflow: visible;
+        }
+
+        [data-composition-id="memory-system"] .orbit {
+          fill: none;
+          stroke: var(--grid);
+          stroke-width: 2;
+          stroke-dasharray: 6 12;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .edge {
+          stroke: var(--edge-idle);
+          stroke-width: 2.5;
+          stroke-linecap: round;
+          fill: none;
+        }
+
+        [data-composition-id="memory-system"] .edge-spoke {
+          stroke-width: 3;
+        }
+
+        [data-composition-id="memory-system"] .edge-lit {
+          stroke: var(--emerald);
+          stroke-width: 3.5;
+          stroke-linecap: round;
+          fill: none;
+        }
+
+        [data-composition-id="memory-system"] .core-glow {
+          fill: var(--amber);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .core-ring {
+          fill: none;
+          stroke: var(--amber);
+          stroke-width: 2.5;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .core-dot {
+          fill: var(--amber-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .pulse {
+          fill: none;
+          stroke: var(--emerald-light);
+          stroke-width: 3;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .packet {
+          fill: var(--emerald-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .beam {
+          stroke: var(--emerald-light);
+          stroke-width: 4;
+          stroke-linecap: round;
+        }
+
+        [data-composition-id="memory-system"] .beam-head {
+          fill: var(--emerald-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .chip {
+          position: absolute;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          border-radius: 18px;
+          border: 2px solid var(--chip-border);
+          background: var(--chip-bg);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .chip-lit {
+          position: absolute;
+          inset: -2px;
+          border-radius: 18px;
+          border: 2px solid var(--emerald-edge);
+          background: var(--emerald-wash);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .chip-label {
+          position: relative;
+          font-size: 34px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+        }
+
+        [data-composition-id="memory-system"] .chip-sub {
+          position: relative;
+          font-size: 20px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
+          color: var(--text-soft);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .panel-label {
+          position: absolute;
+          left: 1216px;
+          top: 224px;
+          font-size: 22px;
+          font-weight: 600;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          color: var(--text-soft);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .panel {
+          position: absolute;
+          left: 1216px;
+          top: 268px;
+          width: 608px;
+          height: 532px;
+          border-radius: 22px;
+          border: 2px solid var(--panel-border);
+          background: var(--panel-bg);
+          overflow: hidden;
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .panel-lit {
+          position: absolute;
+          inset: -2px;
+          border-radius: 22px;
+          border: 2px solid var(--emerald-edge);
+          background: var(--emerald-wash);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .code-field {
+          position: absolute;
+          inset: 0;
+        }
+
+        [data-composition-id="memory-system"] .code-line {
+          position: absolute;
+          height: 8px;
+          border-radius: 4px;
+          background: rgba(255, 255, 255, 0.13);
+        }
+
+        [data-composition-id="memory-system"] .code-line-lit {
+          position: absolute;
+          inset: 0;
+          border-radius: 4px;
+          background: var(--emerald-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="memory-system"] .scanline {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 608px;
+          height: 86px;
+          background: linear-gradient(
+            to bottom,
+            rgba(52, 211, 153, 0) 0%,
+            rgba(52, 211, 153, 0.22) 55%,
+            rgba(110, 231, 183, 0.55) 100%
+          );
+          opacity: 0;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="memory-system"]';
+          const root = document.querySelector(ROOT);
+          const svg = root.querySelector(".graph-svg");
+          const NS = "http://www.w3.org/2000/svg";
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- Geometry -------------------------------------------------
+          // One core, five nodes on an ellipse. Every edge is a straight
+          // segment: its length is Math.hypot of its endpoints, so no DOM
+          // measurement happens anywhere in this file.
+          const CORE = { x: 640, y: 545, r: 22 };
+
+          const NODES = [
+            { key: "memory", x: 364, y: 474, w: 210, h: 76, at: 2.26 },
+            { key: "indexed", x: 640, y: 315, w: 340, h: 76, at: 3.35 },
+            { key: "ast", x: 916, y: 474, w: 300, h: 96, at: 4.91 },
+            { key: "graph", x: 810, y: 731, w: 300, h: 76, at: 8.93 },
+            { key: "rag", x: 470, y: 731, w: 160, h: 76, at: 10.93 },
+          ];
+
+          const byKey = {};
+          NODES.forEach((n) => {
+            const el = document.getElementById("n-" + n.key);
+            el.style.left = `${n.x - n.w / 2}px`;
+            el.style.top = `${n.y - n.h / 2}px`;
+            el.style.width = `${n.w}px`;
+            el.style.height = `${n.h}px`;
+            n.el = el;
+            byKey[n.key] = n;
+          });
+
+          // Clip a segment endpoint out of a chip's box (or the core's disc)
+          // so edges start at the border, never underneath a label.
+          const PAD = 10;
+
+          const exitChip = (n, tx, ty) => {
+            const dx = tx - n.x;
+            const dy = ty - n.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len;
+            const uy = dy / len;
+            const tX = Math.abs(ux) < 1e-6 ? Infinity : n.w / 2 / Math.abs(ux);
+            const tY = Math.abs(uy) < 1e-6 ? Infinity : n.h / 2 / Math.abs(uy);
+            const t = Math.min(tX, tY) + PAD;
+            return { x: n.x + ux * t, y: n.y + uy * t };
+          };
+
+          const exitCore = (tx, ty) => {
+            const dx = tx - CORE.x;
+            const dy = ty - CORE.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const t = CORE.r + PAD;
+            return { x: CORE.x + (dx / len) * t, y: CORE.y + (dy / len) * t };
+          };
+
+          // ---- Edge construction ----------------------------------------
+          const baseGroup = svg.querySelector(".edges-base");
+          const litGroup = svg.querySelector(".edges-lit");
+
+          const makeEdge = (group, cls, a, b) => {
+            const line = document.createElementNS(NS, "line");
+            line.setAttribute("x1", a.x);
+            line.setAttribute("y1", a.y);
+            line.setAttribute("x2", b.x);
+            line.setAttribute("y2", b.y);
+            line.setAttribute("class", cls);
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            line.style.strokeDasharray = len;
+            line.style.strokeDashoffset = len;
+            group.appendChild(line);
+            return { el: line, len: len };
+          };
+
+          // Spokes: node -> core, one per capability.
+          NODES.forEach((n) => {
+            const a = exitChip(n, CORE.x, CORE.y);
+            const b = exitCore(n.x, n.y);
+            n.spoke = makeEdge(baseGroup, "edge edge-spoke", a, b);
+            n.spokeLit = makeEdge(litGroup, "edge-lit", a, b);
+          });
+
+          // Chords: the ring, in the order the capabilities are spoken.
+          const RING = [
+            ["memory", "indexed"],
+            ["indexed", "ast"],
+            ["ast", "graph"],
+            ["graph", "rag"],
+            ["rag", "memory"],
+          ];
+
+          const chords = RING.map(([ka, kb]) => {
+            const na = byKey[ka];
+            const nb = byKey[kb];
+            const a = exitChip(na, nb.x, nb.y);
+            const b = exitChip(nb, na.x, na.y);
+            const base = makeEdge(baseGroup, "edge", a, b);
+            const lit = makeEdge(litGroup, "edge-lit", a, b);
+            return { from: na, to: nb, base: base, lit: lit };
+          });
+
+          // Ring traversal table — cumulative lengths over node centres,
+          // sampled once here so packet motion is pure arithmetic later.
+          const RING_PTS = RING.map(([ka]) => byKey[ka]);
+          const SEG = [];
+          let perim = 0;
+          for (let i = 0; i < RING_PTS.length; i++) {
+            const a = RING_PTS[i];
+            const b = RING_PTS[(i + 1) % RING_PTS.length];
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            SEG.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, len: len, start: perim });
+            perim += len;
+          }
+
+          const ringPoint = (u) => {
+            const d = ((u % 1) + 1) % 1;
+            const target = d * perim;
+            let s = SEG[SEG.length - 1];
+            for (let i = 0; i < SEG.length; i++) {
+              if (target < SEG[i].start + SEG[i].len) {
+                s = SEG[i];
+                break;
+              }
+            }
+            const k = (target - s.start) / s.len;
+            return { x: s.ax + (s.bx - s.ax) * k, y: s.ay + (s.by - s.ay) * k };
+          };
+
+          // ---- Codebase minimap -----------------------------------------
+          // Deterministic pseudo-random line widths from a fixed seed. No
+          // Math.random anywhere.
+          let seed = 20260907;
+          const rand = () => {
+            seed = (seed * 1103515245 + 12345) % 2147483648;
+            return seed / 2147483648;
+          };
+
+          const field = root.querySelector(".code-field");
+          const COLS = 3;
+          const ROWS = 26;
+          const COL_W = 170;
+          const COL_GAP = 25;
+          const ROW_STEP = 18;
+          const X0 = 24;
+          const Y0 = 37;
+
+          for (let c = 0; c < COLS; c++) {
+            for (let r = 0; r < ROWS; r++) {
+              const bar = document.createElement("div");
+              bar.className = "code-line";
+              bar.style.left = `${X0 + c * (COL_W + COL_GAP)}px`;
+              bar.style.top = `${Y0 + r * ROW_STEP}px`;
+              bar.style.width = `${Math.round(COL_W * (0.34 + rand() * 0.66))}px`;
+              const lit = document.createElement("div");
+              lit.className = "code-line-lit";
+              bar.appendChild(lit);
+              field.appendChild(bar);
+            }
+          }
+
+          // ---- Tween helpers ---------------------------------------------
+          // Every tween after t=0 is an explicit fromTo with
+          // immediateRender:false, so no later tween can stamp its from-state
+          // onto an element at build time.
+          const fadeIn = (target, at, vars) => {
+            const v = vars || {};
+            tl.fromTo(
+              target,
+              Object.assign({ opacity: 0 }, v.from || {}),
+              Object.assign(
+                { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false },
+                v.to || {},
+              ),
+              at,
+            );
+          };
+
+          const drawEdge = (edge, at, duration, ease) => {
+            tl.fromTo(
+              edge.el,
+              { strokeDashoffset: edge.len },
+              {
+                strokeDashoffset: 0,
+                duration: duration,
+                ease: ease || "power2.out",
+                immediateRender: false,
+              },
+              at,
+            );
+          };
+
+          // ---- 0.0-2.0 — the frame ---------------------------------------
+          tl.fromTo(`${ROOT} .backdrop`, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power2.out" }, 0);
+          fadeIn(`${ROOT} .eyebrow`, 0.3, { to: { duration: 0.45 } });
+          tl.to(`${ROOT} .headline-a`, { clipPath: "inset(0 0% 0 0)", duration: 1.0, ease: "power2.inOut" }, 0.5);
+          fadeIn(`${ROOT} .orbit`, 1.15, { to: { opacity: 1, duration: 0.6 } });
+          fadeIn(`${ROOT} .core-glow`, 1.25, { to: { opacity: 0.12, duration: 0.6 } });
+          fadeIn(`${ROOT} .core-ring`, 1.25, { from: { scale: 0.4 }, to: { opacity: 0.55, scale: 1, duration: 0.6, ease: "back.out(2)", svgOrigin: "640 545" } });
+          fadeIn(`${ROOT} .core-dot`, 1.3, { to: { duration: 0.45 } });
+          fadeIn(`${ROOT} .panel-label`, 1.0, { from: { x: 18 }, to: { x: 0, duration: 0.55 } });
+          fadeIn(`${ROOT} .panel`, 1.05, { from: { x: 18 }, to: { x: 0, duration: 0.6 } });
+
+          // ---- 2.26-12.30 — the graph forms ------------------------------
+          // Each capability draws its spoke into the core AND the chord back
+          // to the capability before it, so the structure grows by one edge
+          // per spoken word instead of five cards appearing in a row.
+          const land = (key, chordIndex) => {
+            const n = byKey[key];
+            fadeIn(n.el, n.at, {
+              from: { scale: 0.86 },
+              to: { scale: 1, duration: 0.42, ease: "back.out(1.8)" },
+            });
+            drawEdge(n.spoke, n.at + 0.08, 0.42);
+            if (chordIndex !== null) {
+              drawEdge(chords[chordIndex].base, n.at + 0.1, 0.5);
+            }
+          };
+
+          land("memory", null); //            2.26
+          land("indexed", 0); //              3.35  + Memory-Indexed
+          land("ast", 1); //                  4.91  + Indexed-AST
+          fadeIn(`${ROOT} .chip-sub`, 5.57, { from: { y: 6 }, to: { y: 0, duration: 0.45 } }); // "tree-sitter"
+          land("graph", 2); //                8.93  + AST-Graph
+          land("rag", 3); //                 10.93  + Graph-RAG
+
+          // 12.30 — the ring closes. Five capabilities, one structure.
+          drawEdge(chords[4].base, 12.3, 0.7, "power2.inOut");
+
+          // ---- 13.50 — the payoff ----------------------------------------
+          // The headline swaps and the finished graph is USED: it re-lights
+          // edge by edge, the core pulses, packets run the ring, and a beam
+          // leaves the core for the codebase.
+          tl.fromTo(
+            `${ROOT} .headline-a`,
+            { opacity: 1, y: 0 },
+            { opacity: 0, y: -18, duration: 0.4, ease: "power2.in", immediateRender: false },
+            13.4,
+          );
+          fadeIn(`${ROOT} .headline-b`, 13.6, {
+            from: { y: 20 },
+            to: { y: 0, duration: 0.6, ease: "power3.out" },
+          });
+
+          chords.forEach((c, i) => drawEdge(c.lit, 13.5 + i * 0.07, 0.55, "power1.inOut"));
+          NODES.forEach((n, i) => drawEdge(n.spokeLit, 13.62 + i * 0.07, 0.5, "power1.inOut"));
+          NODES.forEach((n, i) =>
+            fadeIn(n.el.querySelector(".chip-lit"), 13.66 + i * 0.07, { to: { duration: 0.45 } }),
+          );
+
+          tl.fromTo(
+            `${ROOT} .core-glow`,
+            { opacity: 0.12 },
+            { opacity: 0.28, duration: 0.5, ease: "power2.out", immediateRender: false },
+            13.5,
+          );
+
+          [
+            { sel: `${ROOT} .pulse-1`, at: 13.5 },
+            { sel: `${ROOT} .pulse-2`, at: 14.5 },
+          ].forEach((p) => {
+            tl.fromTo(
+              p.sel,
+              { attr: { r: 24 }, opacity: 0.8 },
+              {
+                attr: { r: 132 },
+                opacity: 0,
+                duration: 1.1,
+                ease: "power2.out",
+                immediateRender: false,
+              },
+              p.at,
+            );
+          });
+
+          // Packets: three of them, two and a half laps, position read from
+          // the cumulative-length table built above.
+          const PACKET_ELS = [
+            svg.querySelector(".packet-1"),
+            svg.querySelector(".packet-2"),
+            svg.querySelector(".packet-3"),
+          ];
+
+          [0, 0.34, 0.67].forEach((offset, i) => {
+            const el = PACKET_ELS[i];
+            const proxy = { u: offset };
+            fadeIn(el, 13.9, { to: { opacity: 0.95, duration: 0.35 } });
+            tl.fromTo(
+              proxy,
+              { u: offset },
+              {
+                u: offset + 2.5,
+                duration: 5.6,
+                ease: "none",
+                immediateRender: false,
+                onUpdate: () => {
+                  const p = ringPoint(proxy.u);
+                  el.setAttribute("cx", p.x);
+                  el.setAttribute("cy", p.y);
+                },
+              },
+              13.9,
+            );
+            tl.fromTo(
+              el,
+              { opacity: 0.95 },
+              { opacity: 0, duration: 0.5, ease: "power2.in", immediateRender: false },
+              19.5,
+            );
+          });
+
+          // The beam: core -> codebase. Straight line, length is arithmetic.
+          const beam = svg.querySelector(".beam");
+          const BEAM_LEN = Math.hypot(1206 - 662, 560 - 545);
+          beam.style.strokeDasharray = BEAM_LEN;
+          beam.style.strokeDashoffset = BEAM_LEN;
+          drawEdge({ el: beam, len: BEAM_LEN }, 13.85, 0.55, "power2.inOut");
+
+          const beamHead = svg.querySelector(".beam-head");
+          const headProxy = { k: 0 };
+          fadeIn(beamHead, 13.85, { to: { opacity: 1, duration: 0.2 } });
+          tl.fromTo(
+            headProxy,
+            { k: 0 },
+            {
+              k: 1,
+              duration: 0.55,
+              ease: "power2.inOut",
+              immediateRender: false,
+              onUpdate: () => {
+                beamHead.setAttribute("cx", 662 + (1206 - 662) * headProxy.k);
+                beamHead.setAttribute("cy", 545 + (560 - 545) * headProxy.k);
+              },
+            },
+            13.85,
+          );
+          tl.fromTo(
+            beamHead,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.3, ease: "power2.in", immediateRender: false },
+            14.4,
+          );
+
+          // The codebase answers: border lights, a scan runs top to bottom,
+          // and the lines resolve column by column behind it.
+          fadeIn(`${ROOT} .panel-lit`, 14.35, { to: { duration: 0.5 } });
+          tl.fromTo(
+            `${ROOT} .scanline`,
+            { opacity: 0, y: -86 },
+            { opacity: 1, y: 0, duration: 0.25, ease: "power1.out", immediateRender: false },
+            14.35,
+          );
+          tl.fromTo(
+            `${ROOT} .scanline`,
+            { y: 0 },
+            { y: 446, duration: 1.5, ease: "power1.inOut", immediateRender: false },
+            14.6,
+          );
+          tl.fromTo(
+            `${ROOT} .scanline`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.4, ease: "power2.in", immediateRender: false },
+            15.9,
+          );
+          tl.fromTo(
+            `${ROOT} .code-line-lit`,
+            { opacity: 0 },
+            {
+              opacity: 0.85,
+              duration: 0.32,
+              ease: "power1.out",
+              stagger: { each: 0.0135 },
+              immediateRender: false,
+            },
+            14.5,
+          );
+
+          // 15.9 — the claim, only after the frame has demonstrated it.
+          fadeIn(`${ROOT} .subline`, 15.9, {
+            from: { y: 12 },
+            to: { y: 0, duration: 0.55, ease: "power3.out" },
+          });
+
+          // ---- 20.3-21.5 — release ---------------------------------------
+          // Everything is clear by 21.5, half a second inside the 22.0 s
+          // slot, so the last frames of the file carry nothing.
+          tl.fromTo(
+            `${ROOT} .scene-content`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.8, ease: "power2.in", immediateRender: false },
+            20.3,
+          );
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.9, ease: "power2.in", immediateRender: false },
+            20.6,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["memory-system"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

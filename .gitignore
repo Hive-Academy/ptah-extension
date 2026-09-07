@@ -229,4 +229,18 @@ tools/video-editor/vendor/
 tools/video-editor/projects/*/raw/
 tools/video-editor/projects/*/outputs/
 tools/video-editor/projects/*/graphics/**/renders/
+
+# The same rule, for the three directories the list above missed. Measured
+# 2026-09-07: `export/` alone held 2,103 MB across three MP4 cuts of 795, 787
+# and 513 MB. GitHub refuses any blob over 100 MB, so committing one does not
+# merely bloat the history — it makes the branch unpushable, and the only way
+# back out is a history rewrite. `.scratch/` is working imagery by definition.
+# The media extensions are belt-and-braces: a render dropped outside these
+# directories is still a render.
+tools/video-editor/.scratch/
+tools/video-editor/projects/*/export/
+tools/video-editor/projects/*/.scratch/
+tools/video-editor/**/*.mp4
+tools/video-editor/**/*.wav
+tools/video-editor/**/*.zip
 tools/video-editor/projects/*/graphics/**/node_modules/

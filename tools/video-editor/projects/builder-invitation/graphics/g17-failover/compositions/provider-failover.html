@@ -1,0 +1,790 @@
+<!doctype html>
+<!--
+  G17 — the session does not stop.
+  Hand-authored for builder-invitation, timeline 11:56.9-12:16.9 (20.0 s).
+  Structure, palette handling and timeline discipline follow the worked
+  example at ../../g04-lifecycle-chain/compositions/lifecycle-chain.html.
+
+  Full-frame takeover on B-roll. The bottom 186px is reserved for Arabic
+  captions and stays empty (padding-bottom on .scene-content; the lowest
+  painted pixel is the payoff sub-line, which ends at y=838).
+
+  THE ARGUMENT
+    Amber is the provider layer — the variable. Emerald is the session line —
+    the constant. The baton (amber) changes hands three times. The emerald
+    line is drawn at ONE constant velocity from 1.20 s to 15.15 s and is never
+    interrupted, re-started or re-coloured. At 15.15 a sweep runs its whole
+    length to prove there is no seam.
+
+  SYNC CONTRACT — timeline seconds minus 716.9 gives local composition time:
+    شغال بكلود        (running on Claude)    717.62        -> 0.72
+    يرن مع كوديكس     (run with Codex)       718.90-719.72 -> 2.00-2.82
+    الكوديكس ليمت     (the Codex limit)      722.54-723.02 -> 5.64-6.12
+    anti-gravity                             725.14        -> 8.24
+    نفس السيشن/الاوركستريشن                   732.05-733.53 -> 15.15-16.63
+    layer                                    736.37        -> 19.47 (past end,
+                                                             deliberately
+                                                             uncovered)
+
+  HANDOVER SCHEDULE (local seconds)
+    0.72          Claude takes the session
+    2.32 -> 2.82  baton flies Claude -> Codex, lands ON "كوديكس"
+    5.64          Codex hits its limit — ceiling slams, LIMIT chip
+    7.62          the ceiling is struck again and the baton is ejected
+    7.74 -> 8.24  baton flies Codex -> Antigravity, lands ON "anti-gravity"
+    11.85         Antigravity hits its limit — ceiling slams
+    12.40 -> 12.90 baton flies Antigravity -> Claude (it comes back)
+    15.15         payoff: Same session. Same orchestration. + full-rail sweep
+    16.63         One layer underneath.
+    18.55 -> 19.80 exit, complete before 20.0
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Provider failover</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="provider-failover"
+      data-composition-id="provider-failover"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="20"
+      data-fps="60"
+    >
+      <div class="backdrop"></div>
+
+      <div class="scene-content">
+        <div class="header">
+          <h1 class="headline">The session does not stop</h1>
+          <p class="subtitle">Providers change. The run does not.</p>
+        </div>
+
+        <svg class="rail-svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="sessionGradient" gradientUnits="userSpaceOnUse" x1="160" y1="0" x2="1840" y2="0">
+              <stop offset="0" stop-color="var(--emerald)" />
+              <stop offset="0.55" stop-color="var(--emerald-light)" />
+              <stop offset="1" stop-color="var(--emerald)" />
+            </linearGradient>
+          </defs>
+
+          <line class="rail-track" x1="160" y1="690" x2="1840" y2="690" />
+          <g class="ticks"></g>
+          <line class="rail-live" x1="160" y1="690" x2="1840" y2="690" />
+          <line class="rail-sweep" x1="160" y1="690" x2="1840" y2="690" />
+          <line class="cable" x1="380" y1="510" x2="160" y2="690" />
+          <circle class="head-halo" cx="160" cy="690" r="24" />
+          <circle class="head-core" cx="160" cy="690" r="10" />
+          <circle class="cap-ring" cx="380" cy="510" r="18" />
+          <circle class="cap-halo" cx="380" cy="510" r="32" />
+          <circle class="cap-core" cx="380" cy="510" r="14" />
+        </svg>
+
+        <div class="wall" id="wall-codex"><span class="wall-bar"></span><span data-layout-allow-overflow class="wall-flash"></span></div>
+        <div class="wall" id="wall-antigravity">
+          <span class="wall-bar"></span><span data-layout-allow-overflow class="wall-flash"></span>
+        </div>
+        <div class="limit-chip" id="chip-codex">Limit</div>
+        <div class="limit-chip" id="chip-antigravity">Limit</div>
+
+        <div class="card" id="card-claude">
+          <div class="card-glow"></div>
+          <div class="card-name">Claude</div>
+          <div class="card-status">
+            <span data-layout-allow-overlap class="st st-standby">standby</span>
+            <span data-layout-allow-overlap class="st st-carry">carrying the session</span>
+          </div>
+        </div>
+
+        <div class="card" id="card-codex">
+          <div class="card-glow"></div>
+          <div class="card-name">Codex</div>
+          <div class="card-status">
+            <span data-layout-allow-overlap class="st st-standby">standby</span>
+            <span data-layout-allow-overlap class="st st-carry">carrying the session</span>
+            <span data-layout-allow-overlap class="st st-limit">out of quota</span>
+          </div>
+        </div>
+
+        <div class="card" id="card-antigravity">
+          <div class="card-glow"></div>
+          <div class="card-name">Antigravity</div>
+          <div class="card-status">
+            <span data-layout-allow-overlap class="st st-standby">standby</span>
+            <span data-layout-allow-overlap class="st st-carry">carrying the session</span>
+            <span data-layout-allow-overlap class="st st-limit">out of quota</span>
+          </div>
+        </div>
+
+        <p class="rail-label">one continuous session</p>
+
+        <div class="payoff">
+          <p class="payoff-line1">Same session. Same orchestration.</p>
+          <p class="payoff-line2">One layer underneath.</p>
+        </div>
+      </div>
+
+      <style>
+        [data-composition-id="provider-failover"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-border: rgba(255, 255, 255, 0.16);
+          --card-bg: rgba(255, 255, 255, 0.045);
+          --glow-border: rgba(245, 165, 36, 0.85);
+          --glow-bg: rgba(245, 165, 36, 0.12);
+          --track-line: rgba(255, 255, 255, 0.11);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="provider-failover"] .backdrop {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(120% 90% at 50% 22%, var(--ink-raised) 0%, var(--ink) 64%),
+            var(--ink);
+          opacity: 0;
+        }
+
+        /* Vertical budget: 84 top + header to 214 + limit chips 250-282 +
+           ceilings 300-310 + provider cards 330-510 + cable 510-690 +
+           rail 690 + rail label 714-746 + payoff 764-885 + the 186px
+           reserved caption band. Nothing enters the bottom 186px
+           (y >= 894); the lowest painted pixel is the payoff sub-line. */
+        [data-composition-id="provider-failover"] .scene-content {
+          position: absolute;
+          inset: 0;
+          padding: 84px 130px 186px;
+        }
+
+        [data-composition-id="provider-failover"] .header {
+          position: relative;
+        }
+
+        [data-composition-id="provider-failover"] .headline {
+          font-size: 68px;
+          font-weight: 700;
+          letter-spacing: -0.025em;
+          line-height: 1.06;
+          color: var(--text-strong);
+          white-space: nowrap;
+          clip-path: inset(0 100% 0 0);
+        }
+
+        [data-composition-id="provider-failover"] .subtitle {
+          margin-top: 14px;
+          font-size: 30px;
+          font-weight: 400;
+          color: var(--text-soft);
+          white-space: nowrap;
+          clip-path: inset(0 100% 0 0);
+        }
+
+        /* viewBox 1920x1080 on a 1920x1080 CSS box, so SVG units are frame
+           pixels and the absolutely positioned cards share the coordinates. */
+        [data-composition-id="provider-failover"] .rail-svg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          overflow: visible;
+        }
+
+        [data-composition-id="provider-failover"] .rail-track {
+          stroke: var(--track-line);
+          stroke-width: 4;
+          stroke-linecap: round;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .rail-live {
+          stroke: url(#sessionGradient);
+          stroke-width: 7;
+          stroke-linecap: round;
+          fill: none;
+        }
+
+        [data-composition-id="provider-failover"] .rail-sweep {
+          stroke: var(--emerald-light);
+          stroke-width: 11;
+          stroke-linecap: round;
+          fill: none;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .tick {
+          stroke: rgba(255, 255, 255, 0.3);
+          stroke-width: 2;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .cable {
+          stroke: var(--amber);
+          stroke-width: 3;
+          stroke-linecap: round;
+          stroke-dasharray: 7 9;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .head-halo {
+          fill: var(--emerald);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .head-core {
+          fill: var(--text-strong);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .cap-halo {
+          fill: var(--amber);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .cap-core {
+          fill: var(--amber-light);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .cap-ring {
+          fill: none;
+          stroke: var(--amber-light);
+          stroke-width: 3;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .card {
+          position: absolute;
+          width: 440px;
+          height: 180px;
+          top: 330px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          border-radius: 22px;
+          border: 2px solid var(--card-border);
+          background: var(--card-bg);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .card-glow {
+          position: absolute;
+          inset: -2px;
+          border-radius: 22px;
+          border: 2px solid var(--glow-border);
+          background: var(--glow-bg);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .card-name {
+          position: relative;
+          font-size: 52px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="provider-failover"] .card-status {
+          position: relative;
+          width: 100%;
+          height: 31px;
+        }
+
+        [data-composition-id="provider-failover"] .st {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          text-align: center;
+          font-size: 25px;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          white-space: nowrap;
+        }
+
+        [data-composition-id="provider-failover"] .st-standby {
+          color: var(--text-soft);
+          opacity: 1;
+        }
+
+        [data-composition-id="provider-failover"] .st-carry {
+          color: var(--amber-light);
+          font-weight: 600;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .st-limit {
+          color: var(--amber);
+          font-weight: 600;
+          opacity: 0;
+        }
+
+        /* The ceiling a provider hits. As wide as the card, sitting 20px
+           above the card it belongs to. */
+        [data-composition-id="provider-failover"] .wall {
+          position: absolute;
+          width: 440px;
+          height: 10px;
+          top: 300px;
+        }
+
+        [data-composition-id="provider-failover"] .wall-bar {
+          position: absolute;
+          inset: 0;
+          border-radius: 5px;
+          background: var(--amber);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .wall-flash {
+          position: absolute;
+          left: -30px;
+          right: -30px;
+          top: -13px;
+          bottom: -13px;
+          border-radius: 18px;
+          background: var(--amber);
+          filter: blur(14px);
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .limit-chip {
+          position: absolute;
+          top: 250px;
+          width: 440px;
+          text-align: center;
+          font-size: 27px;
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--amber-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .rail-label {
+          position: absolute;
+          left: 160px;
+          top: 714px;
+          font-size: 26px;
+          font-weight: 500;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--emerald-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .payoff {
+          position: absolute;
+          left: 0;
+          top: 764px;
+          width: 1920px;
+          text-align: center;
+        }
+
+        [data-composition-id="provider-failover"] .payoff-line1 {
+          font-size: 58px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: var(--text-strong);
+          white-space: nowrap;
+          opacity: 0;
+        }
+
+        [data-composition-id="provider-failover"] .payoff-line2 {
+          margin-top: 12px;
+          font-size: 30px;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          color: var(--emerald-light);
+          white-space: nowrap;
+          opacity: 0;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="provider-failover"]';
+          const root = document.querySelector(ROOT);
+          const svg = root.querySelector(".rail-svg");
+          const NS = "http://www.w3.org/2000/svg";
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- Geometry --------------------------------------------------
+          // The session line is STRAIGHT, so drawn length maps linearly to x
+          // and no DOM measurement is ever needed. Nothing is measured inside
+          // a callback: every geometric value below is a build-time constant.
+          const X0 = 160;
+          const X1 = 1840;
+          const RAIL_Y = 690;
+          const LEN = X1 - X0; // 1680
+          const CARD_W = 440;
+
+          const STATIONS = {
+            claude: { x: 380, id: "claude" },
+            codex: { x: 960, id: "codex" },
+            antigravity: { x: 1540, id: "antigravity" },
+          };
+
+          // Place cards, ceilings and chips from the station x values.
+          Object.values(STATIONS).forEach((s) => {
+            const left = `${s.x - CARD_W / 2}px`;
+            const card = document.getElementById("card-" + s.id);
+            card.style.left = left;
+            const wall = document.getElementById("wall-" + s.id);
+            if (wall) wall.style.left = left;
+            const chip = document.getElementById("chip-" + s.id);
+            if (chip) chip.style.left = left;
+          });
+
+          // ---- The session draw ------------------------------------------
+          // ONE constant velocity across the whole narrated stretch:
+          // 1600px between 1.20 s and 15.15 s = 114.696 px/s. Handover x is
+          // therefore a pure function of handover time — the line has no idea
+          // a handover happened, which is the argument.
+          const T_START = 1.2;
+          const T_END = 15.15;
+          const X_END = 1760;
+          const V = (X_END - X0) / (T_END - T_START);
+          const xAt = (t) => X0 + (t - T_START) * V;
+
+          const HANDOVERS = [2.82, 8.24, 12.9];
+
+          // ---- Ticks where the baton changed hands ------------------------
+          const tickGroup = svg.querySelector(".ticks");
+          const tickEls = HANDOVERS.map((t) => {
+            const el = document.createElementNS(NS, "line");
+            el.setAttribute("x1", xAt(t));
+            el.setAttribute("x2", xAt(t));
+            el.setAttribute("y1", RAIL_Y - 18);
+            el.setAttribute("y2", RAIL_Y + 18);
+            el.setAttribute("class", "tick");
+            tickGroup.appendChild(el);
+            return el;
+          });
+
+          // ---- Painters ---------------------------------------------------
+          const rail = svg.querySelector(".rail-live");
+          const sweep = svg.querySelector(".rail-sweep");
+          const cable = svg.querySelector(".cable");
+          const headHalo = svg.querySelector(".head-halo");
+          const headCore = svg.querySelector(".head-core");
+          const capHalo = svg.querySelector(".cap-halo");
+          const capCore = svg.querySelector(".cap-core");
+          const capRing = svg.querySelector(".cap-ring");
+
+          rail.style.strokeDasharray = LEN;
+          rail.style.strokeDashoffset = LEN;
+          sweep.style.strokeDasharray = "150 4000";
+          sweep.style.strokeDashoffset = 0;
+
+          const S = { headX: X0, capX: STATIONS.claude.x, sweep: 0 };
+
+          const paint = () => {
+            rail.style.strokeDashoffset = LEN - (S.headX - X0);
+            headHalo.setAttribute("cx", S.headX);
+            headCore.setAttribute("cx", S.headX);
+            capHalo.setAttribute("cx", S.capX);
+            capCore.setAttribute("cx", S.capX);
+            capRing.setAttribute("cx", S.capX);
+            cable.setAttribute("x1", S.capX);
+            cable.setAttribute("x2", S.headX);
+          };
+          paint();
+
+          const paintSweep = () => {
+            sweep.style.strokeDashoffset = -S.sweep;
+          };
+
+          // ---- Tween helpers ----------------------------------------------
+          // Every tween is an explicit fromTo with immediateRender:false, so
+          // no later tween can stamp its start value at build time. The CSS
+          // above is the single source of truth for the t=0 frame.
+          const fadeIn = (target, vars, at) => {
+            const from = Object.assign({ opacity: 0 }, (vars && vars.from) || {});
+            const to = Object.assign(
+              { opacity: 1, duration: 0.45, ease: "power2.out", immediateRender: false },
+              (vars && vars.to) || {},
+            );
+            tl.fromTo(target, from, to, at);
+          };
+
+          const fadeOut = (target, at, duration, fromOpacity) => {
+            tl.fromTo(
+              target,
+              { opacity: fromOpacity === undefined ? 1 : fromOpacity },
+              { opacity: 0, duration: duration, ease: "power2.in", immediateRender: false },
+              at,
+            );
+          };
+
+          // A status line swap is sequential, never a crossfade: the outgoing
+          // label is fully gone before the incoming one starts, or the two
+          // strings render on top of each other for ~0.1 s.
+          const swapStatus = (card, fromCls, toCls, at) => {
+            fadeOut(`${card} .${fromCls}`, at, 0.2);
+            if (toCls) fadeIn(`${card} .${toCls}`, { to: { duration: 0.3 } }, at + 0.21);
+          };
+
+          const drawTo = (fromX, toX, at, duration) => {
+            tl.fromTo(
+              S,
+              { headX: fromX },
+              {
+                headX: toX,
+                duration: duration,
+                ease: "none",
+                immediateRender: false,
+                onUpdate: paint,
+              },
+              at,
+            );
+          };
+
+          const moveBaton = (fromX, toX, at, duration) => {
+            tl.fromTo(
+              S,
+              { capX: fromX },
+              {
+                capX: toX,
+                duration: duration,
+                ease: "power2.inOut",
+                immediateRender: false,
+                onUpdate: paint,
+              },
+              at,
+            );
+          };
+
+          // ---- 0.0-1.2 — establish the frame ------------------------------
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.7, ease: "power2.out", immediateRender: false },
+            0,
+          );
+          tl.fromTo(
+            `${ROOT} .headline`,
+            { clipPath: "inset(0 100% 0 0)" },
+            { clipPath: "inset(0 0% 0 0)", duration: 0.95, ease: "power2.inOut", immediateRender: false },
+            0.15,
+          );
+          tl.fromTo(
+            `${ROOT} .subtitle`,
+            { clipPath: "inset(0 100% 0 0)" },
+            { clipPath: "inset(0 0% 0 0)", duration: 0.85, ease: "power2.inOut", immediateRender: false },
+            0.45,
+          );
+
+          fadeIn(`${ROOT} #card-claude`, { from: { y: 18 }, to: { y: 0, duration: 0.5 } }, 0.28);
+          fadeIn(`${ROOT} #card-codex`, { from: { y: 18 }, to: { y: 0, duration: 0.5 } }, 0.4);
+          fadeIn(`${ROOT} #card-antigravity`, { from: { y: 18 }, to: { y: 0, duration: 0.5 } }, 0.52);
+
+          fadeIn(`${ROOT} .rail-track`, { to: { duration: 0.5 } }, 1.0);
+          fadeIn(`${ROOT} .rail-label`, { from: { y: 8 }, to: { y: 0, duration: 0.5 } }, 1.25);
+
+          // ---- 0.72 — "شغال بكلود": Claude takes the session ---------------
+          const CLAUDE = `${ROOT} #card-claude`;
+          const CODEX = `${ROOT} #card-codex`;
+          const ANTI = `${ROOT} #card-antigravity`;
+
+          // Baton lands on Claude.
+          fadeIn(capHalo, { to: { opacity: 0.26, duration: 0.35 } }, 0.72);
+          fadeIn(capCore, { from: { scale: 0.4 }, to: { scale: 1, duration: 0.4, ease: "back.out(2.2)" } }, 0.72);
+          gsap.set([capCore, capHalo, capRing], { transformOrigin: "center center" });
+
+          // Arrival ring, re-fired on every handover.
+          const arrivalRing = (at) => {
+            tl.fromTo(
+              capRing,
+              { attr: { r: 15 }, opacity: 0.9 },
+              { attr: { r: 46 }, opacity: 0, duration: 0.75, ease: "power2.out", immediateRender: false },
+              at,
+            );
+          };
+          arrivalRing(0.72);
+
+          fadeIn(`${CLAUDE} .card-glow`, { to: { duration: 0.4 } }, 0.72);
+          swapStatus(CLAUDE, "st-standby", "st-carry", 0.72);
+
+          // ---- 1.20 — the session line starts and never stops -------------
+          fadeIn(headHalo, { to: { opacity: 0.34, duration: 0.35 } }, 1.2);
+          fadeIn(headCore, { to: { duration: 0.35 } }, 1.2);
+          fadeIn(cable, { to: { opacity: 0.65, duration: 0.4 } }, 1.2);
+
+          // Four contiguous segments, one constant velocity. Their boundaries
+          // are the handover instants purely so the cable is vertical there.
+          drawTo(X0, xAt(2.82), T_START, 2.82 - T_START);
+          drawTo(xAt(2.82), xAt(8.24), 2.82, 8.24 - 2.82);
+          drawTo(xAt(8.24), xAt(12.9), 8.24, 12.9 - 8.24);
+          drawTo(xAt(12.9), X_END, 12.9, T_END - 12.9);
+          // After the payoff the line keeps going, slower, out to the edge.
+          drawTo(X_END, X1, T_END, 3.4);
+
+          // ---- 2.00-2.82 — "يرن مع كوديكس": hand off to Codex --------------
+          fadeOut(`${CLAUDE} .card-glow`, 2.32, 0.4);
+          swapStatus(CLAUDE, "st-carry", "st-standby", 2.32);
+          moveBaton(STATIONS.claude.x, STATIONS.codex.x, 2.32, 0.5);
+
+          fadeIn(`${CODEX} .card-glow`, { to: { duration: 0.35 } }, 2.82);
+          swapStatus(CODEX, "st-standby", "st-carry", 2.82);
+          arrivalRing(2.82);
+          fadeIn(tickEls[0], { to: { opacity: 0.45, duration: 0.4 } }, 2.82);
+
+          // ---- 5.64 — "الكوديكس ليمت": Codex hits the ceiling --------------
+          const wallHit = (id, at) => {
+            tl.fromTo(
+              `${ROOT} #wall-${id} .wall-bar`,
+              { opacity: 0, y: -34 },
+              { opacity: 1, y: 0, duration: 0.17, ease: "power3.in", immediateRender: false },
+              at,
+            );
+            tl.fromTo(
+              `${ROOT} #wall-${id} .wall-flash`,
+              { opacity: 0 },
+              { opacity: 0.55, duration: 0.09, ease: "power2.out", immediateRender: false },
+              at + 0.17,
+            );
+            tl.fromTo(
+              `${ROOT} #wall-${id} .wall-flash`,
+              { opacity: 0.55 },
+              { opacity: 0, duration: 0.55, ease: "power2.in", immediateRender: false },
+              at + 0.26,
+            );
+            fadeIn(`${ROOT} #chip-${id}`, { from: { y: 10 }, to: { y: 0, duration: 0.35 } }, at + 0.12);
+          };
+
+          // A second strike on the same ceiling — this is the one that ejects
+          // the baton. It reads as brief pressure, not an error.
+          const wallRestrike = (id, at) => {
+            tl.fromTo(
+              `${ROOT} #wall-${id} .wall-flash`,
+              { opacity: 0 },
+              { opacity: 0.5, duration: 0.08, ease: "power2.out", immediateRender: false },
+              at,
+            );
+            tl.fromTo(
+              `${ROOT} #wall-${id} .wall-flash`,
+              { opacity: 0.5 },
+              { opacity: 0, duration: 0.42, ease: "power2.in", immediateRender: false },
+              at + 0.08,
+            );
+          };
+
+          wallHit("codex", 5.64);
+          swapStatus(CODEX, "st-carry", "st-limit", 5.64);
+
+          // ---- 7.62-8.24 — "anti-gravity": hand off to Antigravity ---------
+          wallRestrike("codex", 7.62);
+          fadeOut(`${CODEX} .card-glow`, 7.74, 0.4);
+          moveBaton(STATIONS.codex.x, STATIONS.antigravity.x, 7.74, 0.5);
+
+          fadeIn(`${ANTI} .card-glow`, { to: { duration: 0.35 } }, 8.24);
+          swapStatus(ANTI, "st-standby", "st-carry", 8.24);
+          arrivalRing(8.24);
+          fadeIn(tickEls[1], { to: { opacity: 0.45, duration: 0.4 } }, 8.24);
+
+          // ---- 11.85 — Antigravity hits its ceiling too --------------------
+          wallHit("antigravity", 11.85);
+          swapStatus(ANTI, "st-carry", "st-limit", 11.85);
+
+          // ---- 12.40-12.90 — it comes back to Claude ----------------------
+          fadeOut(`${ANTI} .card-glow`, 12.4, 0.4);
+          moveBaton(STATIONS.antigravity.x, STATIONS.claude.x, 12.4, 0.5);
+
+          fadeIn(`${CLAUDE} .card-glow`, { to: { duration: 0.35 } }, 12.9);
+          swapStatus(CLAUDE, "st-standby", "st-carry", 12.9);
+          arrivalRing(12.9);
+          fadeIn(tickEls[2], { to: { opacity: 0.45, duration: 0.4 } }, 12.9);
+
+          // ---- 15.15 — "نفس السيشن او نفس الاوركستريشن" ---------------------
+          // The proof: one pulse runs the whole drawn length without a seam.
+          fadeIn(`${ROOT} .payoff-line1`, { from: { y: 22 }, to: { y: 0, duration: 0.6 } }, 15.15);
+          tl.fromTo(
+            sweep,
+            { opacity: 0 },
+            { opacity: 0.9, duration: 0.25, ease: "power2.out", immediateRender: false },
+            15.15,
+          );
+          tl.fromTo(
+            S,
+            { sweep: 0 },
+            {
+              sweep: X_END - X0,
+              duration: 1.15,
+              ease: "power1.inOut",
+              immediateRender: false,
+              onUpdate: paintSweep,
+            },
+            15.15,
+          );
+          fadeOut(sweep, 16.15, 0.35, 0.9);
+
+          fadeIn(`${ROOT} .payoff-line2`, { from: { y: 16 }, to: { y: 0, duration: 0.55 } }, 16.63);
+
+          // ---- 18.55-19.80 — exit, complete before 20.0 -------------------
+          tl.fromTo(
+            `${ROOT} .scene-content`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.85, ease: "power2.in", immediateRender: false },
+            18.55,
+          );
+          tl.fromTo(
+            `${ROOT} .backdrop`,
+            { opacity: 1 },
+            { opacity: 0, duration: 1.05, ease: "power2.in", immediateRender: false },
+            18.75,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["provider-failover"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>
+

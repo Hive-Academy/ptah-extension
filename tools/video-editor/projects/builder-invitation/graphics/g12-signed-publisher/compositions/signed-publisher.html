@@ -1,0 +1,388 @@
+<!doctype html>
+<!--
+  G12 — the installer is signed.
+  Hand-authored for builder-invitation, timeline 6:10.2-6:28.1 (17.9 s).
+  Palette and timeline discipline follow the worked examples at
+  ../../g10-saas-chips/compositions/saas-chips.html and
+  ../../g07-degradation-curve/compositions/quality-over-time.html.
+
+  TREATMENT — Punch and call, NOT a takeover. There is no backdrop element
+  anywhere: the Windows screen recording underneath stays fully visible. Only
+  the ring, its connector and two small --ink cards paint pixels.
+
+  WHY EMERALD, NOT AMBER — he is explaining that the SmartScreen prompt is
+  expected and harmless because he is a registered publisher. Amber would read
+  as a second warning stacked on the OS warning, i.e. the opposite of his
+  point. --emerald reads as reassurance.
+
+  LAYOUT CONTRACT
+    x 0-430    webcam picture-in-picture  -> nothing may enter it
+    y 894+     Arabic caption band (186px) -> nothing may enter it
+    x 800-1280, y 240-720 is the SmartScreen dialog itself -> the ring
+      surrounds it with 20px of padding and NOTHING covers it, because the
+      viewer has to read "Windows protected your PC" and "Run anyway".
+    Ring stroke centreline: x 780-1300, y 220-740. Stroke 5px, halo 12px, so
+      the widest painted bound is x 774-1306, y 214-746.
+    Label + resolution cards live to the RIGHT, x 1350-1810.
+    Leftmost pixel 774, bottom-most pixel 746 — clear of both reserved zones.
+
+  SYNC CONTRACT — timeline seconds minus 370.2 gives local composition time:
+    (0 - 6.8)      Downloads folder on screen, no dialog. FRAME IS EMPTY.
+                   Ringing here would ring bare desktop.
+    6.80-11.80     the blue/purple "Windows protected your PC" dialog is up.
+    6.90           ring draws on, stroke-dashoffset, 0.72 s
+    8.60           label lands  -> "code already secured" 378.80
+    11.45-11.90    ring + label clear, ahead of the dialog leaving at 11.80
+    15.30          resolution line -> "verified ... this message will not
+                   appear again" 385.46-387.92
+    17.25-17.75    resolution line exits. Frame is empty before 17.9.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Signed publisher</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="signed-publisher"
+      data-composition-id="signed-publisher"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="17.9"
+    >
+      <!-- The pointer: ring + connector. Sized 560x560 at 760,200 so the
+           520x520 rounded rect inside it lands on x 780-1300 / y 220-740. -->
+      <svg
+        class="pointer"
+        id="pointer"
+        width="600"
+        height="560"
+        viewBox="0 0 600 560"
+        fill="none"
+      >
+        <path
+          id="ring-halo"
+          class="ring-halo"
+          d="M 40 20 H 520 A 20 20 0 0 1 540 40 V 520 A 20 20 0 0 1 520 540 H 40 A 20 20 0 0 1 20 520 V 40 A 20 20 0 0 1 40 20 Z"
+        />
+        <path
+          id="ring"
+          class="ring"
+          d="M 40 20 H 520 A 20 20 0 0 1 540 40 V 520 A 20 20 0 0 1 520 540 H 40 A 20 20 0 0 1 20 520 V 40 A 20 20 0 0 1 40 20 Z"
+        />
+        <!-- connector: ring right edge (x 540 local = 1300 frame) out to the
+             card at x 1350 frame = 590 local, on the ring's centre line -->
+        <path id="connector" class="connector" d="M 542 281 H 592" />
+        <circle id="connector-node" class="connector-node" cx="542" cy="281" r="5" />
+      </svg>
+
+      <!-- Label card. Sits entirely to the right of the dialog. -->
+      <div class="card card-label" id="label">
+        <span class="eyebrow"><span class="eyebrow-dot"></span>Signed publisher</span>
+        <span class="headline">Code already secured</span>
+      </div>
+
+      <!-- Resolution line. Arrives after the ring and label are gone. -->
+      <div class="card card-resolve" id="resolve">
+        <span class="resolve-line-1">Once verified,</span>
+        <span class="resolve-line-2">this warning stops.</span>
+      </div>
+
+      <style>
+        [data-composition-id="signed-publisher"] {
+          --ink: #08090c;
+          --ink-raised: #0e1015;
+          --amber: #f5a524;
+          --amber-light: #ffbb4d;
+          --amber-deep: #c97e0e;
+          --emerald: #34d399;
+          --emerald-light: #6ee7b7;
+          --text-strong: #ffffff;
+          --text-soft: rgba(255, 255, 255, 0.72);
+          --text-faint: rgba(255, 255, 255, 0.45);
+          --grid: rgba(255, 255, 255, 0.08);
+          --card-shadow: rgba(0, 0, 0, 0.55);
+          --halo: rgba(52, 211, 153, 0.3);
+
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="signed-publisher"] .pointer {
+          position: absolute;
+          left: 760px;
+          top: 200px;
+          opacity: 0;
+        }
+
+        [data-composition-id="signed-publisher"] .ring {
+          fill: none;
+          stroke: var(--emerald);
+          stroke-width: 5;
+          stroke-linecap: round;
+        }
+
+        /* A soft wider pass under the ring so the stroke survives the bright
+           blue/purple SmartScreen header without needing a backdrop. */
+        [data-composition-id="signed-publisher"] .ring-halo {
+          fill: none;
+          stroke: var(--halo);
+          stroke-width: 13;
+          stroke-linecap: round;
+        }
+
+        [data-composition-id="signed-publisher"] .connector {
+          fill: none;
+          stroke: var(--emerald);
+          stroke-width: 3;
+          stroke-linecap: round;
+        }
+
+        [data-composition-id="signed-publisher"] .connector-node {
+          fill: var(--emerald);
+        }
+
+        [data-composition-id="signed-publisher"] .card {
+          position: absolute;
+          left: 1350px;
+          display: flex;
+          flex-direction: column;
+          border-radius: 16px;
+          border: 2px solid var(--emerald);
+          background: var(--ink);
+          box-shadow: 0 8px 26px var(--card-shadow);
+          opacity: 0;
+        }
+
+        /* 1350-1810 x, 419-541 y. Vertically centred on the ring (y 480), so
+           the connector runs dead straight off the ring's right edge. */
+        [data-composition-id="signed-publisher"] .card-label {
+          top: 419px;
+          width: 460px;
+          padding: 22px 28px 26px;
+          gap: 10px;
+        }
+
+        [data-composition-id="signed-publisher"] .eyebrow {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          font-size: 22px;
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--emerald-light);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="signed-publisher"] .eyebrow-dot {
+          display: block;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: var(--emerald);
+          flex: none;
+        }
+
+        [data-composition-id="signed-publisher"] .headline {
+          font-size: 38px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+          line-height: 1.1;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+
+        /* Same left edge and roughly the same band as the label it replaces,
+           so the eye does not have to re-hunt. 1350-1810 x, 424-546 y. */
+        [data-composition-id="signed-publisher"] .card-resolve {
+          top: 424px;
+          width: 460px;
+          padding: 26px 28px 28px;
+          gap: 4px;
+          border-color: var(--emerald);
+        }
+
+        [data-composition-id="signed-publisher"] .resolve-line-1 {
+          font-size: 34px;
+          font-weight: 500;
+          line-height: 1.18;
+          color: var(--text-soft);
+          white-space: nowrap;
+        }
+
+        [data-composition-id="signed-publisher"] .resolve-line-2 {
+          font-size: 38px;
+          font-weight: 700;
+          line-height: 1.18;
+          letter-spacing: -0.01em;
+          color: var(--text-strong);
+          white-space: nowrap;
+        }
+      </style>
+
+      <script>
+        (function () {
+          const ROOT = '[data-composition-id="signed-publisher"]';
+          const root = document.querySelector(ROOT);
+
+          const ring = root.querySelector("#ring");
+          const halo = root.querySelector("#ring-halo");
+          const connector = root.querySelector("#connector");
+
+          // BUILD TIME geometry. Measured once, here, never inside a GSAP
+          // callback — the render worker seeks non-linearly.
+          const RING_LEN = ring.getTotalLength();
+          const CONNECTOR_LEN = connector.getTotalLength();
+
+          gsap.set([ring, halo], {
+            attr: { "stroke-dasharray": RING_LEN, "stroke-dashoffset": RING_LEN },
+          });
+          gsap.set(connector, {
+            attr: {
+              "stroke-dasharray": CONNECTOR_LEN,
+              "stroke-dashoffset": CONNECTOR_LEN,
+            },
+          });
+          gsap.set(`${ROOT} .connector-node`, { transformOrigin: "50% 50%", scale: 0 });
+
+          const tl = gsap.timeline({ paused: true });
+
+          // ---- 6.90 the ring draws on. The SmartScreen dialog has been on
+          // screen since 6.80, so this never rings bare desktop.
+          tl.fromTo(
+            `${ROOT} .pointer`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.18, ease: "sine.out", immediateRender: false },
+            6.9,
+          );
+          tl.fromTo(
+            [ring, halo],
+            { attr: { "stroke-dashoffset": RING_LEN } },
+            {
+              attr: { "stroke-dashoffset": 0 },
+              duration: 0.72,
+              ease: "power2.inOut",
+              immediateRender: false,
+            },
+            6.9,
+          );
+
+          // ---- 8.36 the connector reaches out, so the label at 8.60 lands
+          // as the end of a gesture rather than as a separate pop.
+          tl.fromTo(
+            `${ROOT} .connector-node`,
+            { scale: 0 },
+            { scale: 1, duration: 0.24, ease: "back.out(2.6)", immediateRender: false },
+            8.36,
+          );
+          tl.fromTo(
+            connector,
+            { attr: { "stroke-dashoffset": CONNECTOR_LEN } },
+            {
+              attr: { "stroke-dashoffset": 0 },
+              duration: 0.24,
+              ease: "power2.out",
+              immediateRender: false,
+            },
+            8.42,
+          );
+
+          // ---- 8.60 "code already secured".
+          tl.fromTo(
+            `${ROOT} .card-label`,
+            { opacity: 0, x: -16 },
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.34,
+              ease: "power3.out",
+              immediateRender: false,
+            },
+            8.6,
+          );
+
+          // ---- 11.45-11.90 clear the pointer and the label together, just
+          // ahead of the dialog itself leaving the recording at 11.80.
+          tl.fromTo(
+            `${ROOT} .card-label`,
+            { opacity: 1, x: 0 },
+            {
+              opacity: 0,
+              x: 14,
+              duration: 0.45,
+              ease: "power2.in",
+              immediateRender: false,
+            },
+            11.45,
+          );
+          tl.fromTo(
+            `${ROOT} .pointer`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.45, ease: "power2.in", immediateRender: false },
+            11.45,
+          );
+
+          // ---- 15.30 the payoff: "once it is verified this stops appearing".
+          tl.fromTo(
+            `${ROOT} .card-resolve`,
+            { opacity: 0, y: 16 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.42,
+              ease: "power3.out",
+              immediateRender: false,
+            },
+            15.3,
+          );
+
+          // ---- 17.25-17.75 exit, complete inside the 17.9 s slot.
+          tl.fromTo(
+            `${ROOT} .card-resolve`,
+            { opacity: 1, y: 0 },
+            {
+              opacity: 0,
+              y: -12,
+              duration: 0.5,
+              ease: "power2.in",
+              immediateRender: false,
+            },
+            17.25,
+          );
+
+          tl.seek(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["signed-publisher"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>
