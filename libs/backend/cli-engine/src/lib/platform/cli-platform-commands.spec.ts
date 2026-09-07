@@ -48,6 +48,23 @@ function nodeScript(dir: string, name: string, source: string): string {
 }
 
 describe('CliPlatformCommands', () => {
+  // The six `runAuthCommand` specs below each SPAWN A REAL `node` child process
+  // and wait for it to exit. That is the point of them — `runAuthCommand` exists
+  // because `auth:codexLogin` reported success while `openTerminal` did nothing,
+  // so a mocked `child_process` would assert the bug back into place. The cost is
+  // process creation plus a cold Node runtime start, per spec, and on Windows
+  // that is the expensive direction; under `--coverage` with several Nx projects
+  // in parallel it overruns Jest's 5 s default. Measured 2026-09-07: the file
+  // took 55.3 s at `--parallel=4` and `pushes child output as auth:loginOutput
+  // and never writes to stdout` crossed the ceiling first. Which of the six
+  // crosses first is a property of the host, not of the spec, so the ceiling is
+  // raised for the file rather than for that one test.
+  //
+  // `jest.setTimeout` is file-scoped from the point it runs, and every describe
+  // body runs during collection — placing it here rather than in the inner
+  // describe is what the scope actually is.
+  jest.setTimeout(30_000);
+
   let stdoutSpy: jest.SpyInstance;
   let stderrSpy: jest.SpyInstance;
   let logSpy: jest.SpyInstance;
