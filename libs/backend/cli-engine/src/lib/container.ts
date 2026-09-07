@@ -44,7 +44,6 @@ import type {
   IFileDialog,
   IOutputChannel,
   IStateStorage,
-  ISecretStorage,
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
@@ -58,6 +57,8 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import {
   armDiagnostics,
   registerVsCodeCorePlatformAgnostic,
+  registerExtensionContextShim,
+  registerStateStorageAdapters,
 } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
@@ -557,55 +558,10 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-    try {
-      const globalState = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.STATE_STORAGE,
-      );
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      const extensionContextShim = {
-        globalState: {
-          get: <T>(key: string): T | undefined => globalState.get<T>(key),
-          update: async (key: string, value: unknown): Promise<void> => {
-            await globalState.update(key, value);
-          },
-          keys: () => [] as readonly string[],
-          setKeysForSync: () => {
-            /* no-op in CLI */
-          },
-        },
-        secrets: {
-          get: async (key: string): Promise<string | undefined> =>
-            secretStorage.get(key),
-          store: async (key: string, value: string): Promise<void> =>
-            secretStorage.store(key, value),
-          delete: async (key: string): Promise<void> =>
-            secretStorage.delete(key),
-          onDidChange: (_listener: unknown) => ({
-            dispose: () => {
-              /* no-op: CLI has no secret change events */
-            },
-          }),
-        },
-        subscriptions: [] as { dispose: () => void }[],
-        extensionUri: { fsPath: appPath, scheme: 'file' },
-        globalStorageUri: { fsPath: userDataPath, scheme: 'file' },
-        extensionPath: appPath,
-        extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
-      };
-      container.register(TOKENS.EXTENSION_CONTEXT, {
-        useValue: extensionContextShim,
-      });
-      logger.info(
-        '[CLI DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
-      );
-    } catch (error) {
-      logger.error(
-        '[CLI DI] Failed to register EXTENSION_CONTEXT shim',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-    }
+    // The shim itself — and its own try/catch — belongs to `vscode-core`, which
+    // owns the token and the shape `LicenseService` reads off it. Only the two
+    // paths are this host's.
+    registerExtensionContextShim(container, logger, { appPath, userDataPath });
     try {
       const licenseService = container.resolve<LicenseService>(
         TOKENS.LICENSE_SERVICE,
@@ -704,23 +660,9 @@ export class CliDIContainer {
 
     phaseEnd('2', phase2Start);
     const phase3Start = phaseStart('3');
-    const workspaceStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-    );
-    const storageAdapter = {
-      get: <T>(key: string, defaultValue?: T): T | undefined => {
-        const value = workspaceStateStorage.get<T>(key);
-        return value !== undefined ? value : defaultValue;
-      },
-      set: async <T>(key: string, value: T): Promise<void> => {
-        await workspaceStateStorage.update(key, value);
-      },
-    };
-    container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-    const globalStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.STATE_STORAGE,
-    );
-    container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
+    // The adapter and the pass-through both belong to `vscode-core`, which owns
+    // STORAGE_SERVICE and GLOBAL_STATE.
+    registerStateStorageAdapters(container);
 
     phaseEnd('3', phase3Start);
     const phase3_5Start = phaseStart('3.5');
