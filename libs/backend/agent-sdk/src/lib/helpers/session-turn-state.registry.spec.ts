@@ -17,6 +17,7 @@ import { isTurnStateEvent } from '@ptah-extension/shared';
 import {
   REVISION_FLOOR_MAP_LIMIT,
   SessionTurnStateRegistry,
+  TURN_RECORD_MAP_LIMIT,
   toTurnStateEvent,
 } from './session-turn-state.registry';
 
@@ -599,6 +600,80 @@ describe('SessionTurnStateRegistry', () => {
         expect(registry.markGenerating(`session-${i}`)?.revision).toBe(2);
         registry.clear(`session-${i}`);
       }
+    });
+  });
+
+  // TASK_2026_374. `clear` has ONE caller (`ChatStreamBroadcaster`'s loop exit)
+  // and it did not cover the record's other creators — the Stop / StopFailure /
+  // SubagentStop hooks, the harness stream, the Ptah-CLI stream loop, and every
+  // `result` the transformer settles — nor the user-abort path, where the
+  // broadcaster's own guard skipped both clears. The map grew for the life of
+  // the process and `session:status` answered with a `turnState` for sessions
+  // that had ended long ago.
+  describe('record map bound', () => {
+    it('bounds the record map, evicting the least recently used record', () => {
+      // One turn each for LIMIT + 1 distinct sessions and NO clear — the leak
+      // shape exactly: records created down a path that has no teardown.
+      const total = TURN_RECORD_MAP_LIMIT + 1;
+      for (let i = 0; i < total; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      expect(registry.get('session-0')).toBeUndefined();
+      expect(registry.get(`session-${total - 1}`)?.phase).toBe('generating');
+    });
+
+    // The coupling this bound must not break (TASK_2026_371 review F1). An
+    // evicted record re-seeds from the floor, so the floor is the ONLY thing
+    // keeping the counter ahead of a tab that is still open and still holds the
+    // revision it last accepted. `evictOldestRecord` writes the victim's
+    // revision to the floor before dropping it, which both guarantees the floor
+    // exists and moves it to the recent end of the floor map.
+    it('folds the evicted record revision into the floor, so the counter does not restart', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT + 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // session-0's record is gone. Its next turn must still issue 2, not 1 —
+      // a tab holding `lastTurnStateRevision: 1` drops everything at or below.
+      expect(registry.markGenerating('session-0')?.revision).toBe(2);
+    });
+
+    it('evicts the least recently USED record, not the first inserted', () => {
+      // Stop one short of the limit so the touch below lands on a map that is
+      // NOT full: on a full map a first-inserted-first-out eviction would drop
+      // the key it is about to re-insert and append it again, which imitates
+      // use-recency ordering for that one key and hides the difference.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // A second event on session-0: the most recently USED record, still the
+      // FIRST inserted one.
+      registry.settleTurn('session-0');
+
+      // Fill the last slot, then overflow by one.
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT}`);
+
+      // session-1 is the least recently used, so it is the victim.
+      expect(registry.get('session-1')).toBeUndefined();
+      // First-inserted-first-out would have evicted session-0 instead. It is
+      // the long-lived chat tab: in streaming-input mode its broadcast loop —
+      // and therefore its single record — is created once and never re-created.
+      expect(registry.get('session-0')?.phase).toBe('idle');
+    });
+
+    it('a touch on an EXISTING record in a full map evicts nothing', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // An update, not an insertion. `storeRecord` shrinks the map before it
+      // tests the limit, so this path can never evict.
+      registry.settleTurn(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get('session-0')?.phase).toBe('generating');
     });
   });
 

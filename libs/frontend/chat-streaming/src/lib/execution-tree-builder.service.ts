@@ -287,7 +287,28 @@ export class ExecutionTreeBuilderService {
       startByRoot.set(messageId, msgStartEvent);
     }
 
-    const epochUnchanged = cached?.globalEpoch === globalEpoch;
+    /**
+     * Reuse — whole-tree below, and per-root inside the loop — additionally
+     * requires the SAME `StreamingState` OBJECT, mirroring the guard
+     * {@link resolveIndexes} already puts on its index memo.
+     *
+     * Every other input to the decision (the epoch, the per-root digests, the
+     * root order) is folded from CONTENT, and every counter feeding them
+     * restarts at 1 for a new state. `applyResumingSession` installs a brand-new
+     * `createEmptyStreamingState()` onto a tab that keeps its id, while the
+     * cache key is `tab-${tabId}` — so a fresh state meets a cache entry whose
+     * folds were computed from the object it replaced, and matching numbers no
+     * longer mean matching content (TASK_2026_336).
+     *
+     * It costs one reference compare and defeats no ordinary reuse: the
+     * streaming path mutates `StreamingState` IN PLACE and keeps the same
+     * object (see the lib's `CLAUDE.md`), so only a genuinely REPLACED state
+     * — a resume, a fork, `compaction_complete`'s `replacementState` — is
+     * rejected.
+     */
+    const sameStateObject = cached?.indexState === streamingState;
+    const epochUnchanged =
+      sameStateObject && cached?.globalEpoch === globalEpoch;
     if (
       cached &&
       epochUnchanged &&
@@ -625,6 +646,25 @@ export class ExecutionTreeBuilderService {
    * The predecessor of this method `JSON.stringify`d both payloads and joined
    * child fingerprint STRINGS, which made one rebuild cost a pass over the
    * whole transcript (TASK_2026_323 R3).
+   *
+   * ## What is deliberately NOT folded
+   *
+   * - **`startTime` / `endTime`.** A `complete` or `history` event legitimately
+   *   supersedes a `stream` event under the same node id with a fresh
+   *   timestamp, so folding either would invalidate node identity on every
+   *   history replay and force exactly the whole-tree re-render the incremental
+   *   rebuild exists to avoid (TASK_2026_323 Phase 3). Nothing renders them on
+   *   their own — `duration`, which does render, IS folded. Leave them out.
+   * - **`isCollapsed` / `isHighlighted`.** View state, and not this tree's:
+   *   every renderer owns its own collapse signal locally
+   *   (`tool-call-item`, `message-bubble`, `inline-agent-bubble`,
+   *   `thinking-block`) and nothing reads either field off the node. A reuse
+   *   key must not carry state the builder neither writes nor renders.
+   *
+   * `summaryContent` and `toolCount` were in neither category — both render on
+   * an agent card, and both were simply missing, so a node whose summary or
+   * tool count moved while every folded field stayed put kept its cached object
+   * and rendered stale (TASK_2026_337).
    */
   private fingerprintNode(
     node: ExecutionNode,
@@ -640,6 +680,7 @@ export class ExecutionTreeBuilderService {
     hash = mixString(hash, node.agentType ?? '');
     hash = mixString(hash, node.agentId ?? '');
     hash = mixString(hash, node.agentDescription ?? '');
+    hash = mixString(hash, node.summaryContent ?? '');
     hash = mixString(hash, node.model ?? '');
     hash = mixNumber(hash, node.cost ?? 0);
     hash = mixNumber(hash, node.duration ?? 0);
@@ -650,6 +691,7 @@ export class ExecutionTreeBuilderService {
     hash = this.mixValue(hash, node.toolOutput, VALUE_DEPTH_BUDGET);
     hash = mixNumber(hash, node.tokenUsage?.input ?? -1);
     hash = mixNumber(hash, node.tokenUsage?.output ?? -1);
+    hash = mixNumber(hash, node.toolCount ?? -1);
     for (const child of node.children) {
       hash = mixNumber(hash, fingerprintsById.get(child.id) ?? HASH_SEED);
     }

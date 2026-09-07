@@ -294,15 +294,31 @@ export class SessionImporterService {
   }
 
   /**
-   * Remove previously-imported metadata that points to title-only sidecar
-   * files — the CLI's `{"type":"ai-title",...}` files that carry no
-   * conversation. Earlier builds imported these as phantom "Session <date>"
-   * entries; this reconciles the store so they disappear on the next scan.
+   * Remove previously-imported metadata whose backing file carries no
+   * conversation — the CLI's `{"type":"ai-title",...}` sidecars, and files
+   * that hold nothing at all. Earlier builds imported both as phantom
+   * "Session <date>" entries; this reconciles the store so they disappear on
+   * the next scan.
    *
-   * Deletes only when the backing file still exists AND is positively a
-   * title-only sidecar (an `ai-title` line with no system/user line). Entries
-   * whose JSONL was removed externally, or any file that contains a real
-   * session marker, are left untouched.
+   * TASK_2026_308 fixed the PRODUCER only, so entries minted before it shipped
+   * survive every scan for the life of the store and the user has no
+   * affordance to clear them (TASK_2026_340).
+   *
+   * The rule is POSITIVE RE-CLASSIFICATION and nothing else: re-open the
+   * entry's backing file and delete only on a definite match from
+   * `isContentlessSessionFile`. It deliberately does NOT look at the entry's
+   * NAME. `Session <date>` is the legitimate name of a REAL session whose
+   * first user message yielded no title text — see the `sessionName || ...`
+   * fallback in `extractMetadata` — so a name heuristic would delete
+   * conversation history.
+   *
+   * An entry whose JSONL is GONE is deliberately KEPT. Absence is not
+   * evidence: a file can be missing because the user moved their
+   * `~/.claude/projects` directory, because a sync tool has not landed it yet,
+   * or because the sessions directory we resolved is a near-match of the
+   * one that actually holds it (`findSessionsDirectory` is fuzzy by design).
+   * The cost of keeping it is one stale row; the cost of deleting it is a
+   * conversation the user can never get back.
    */
   private async pruneTitleOnlySessions(
     sessionsDir: string,
@@ -319,21 +335,23 @@ export class SessionImporterService {
         try {
           await fs.promises.access(filePath);
         } catch {
+          // Backing file gone: KEEP the entry. See the method comment — this
+          // is a decision, not a gap.
           continue;
         }
-        if (await this.isTitleOnlySidecar(filePath)) {
+        if (await this.isContentlessSessionFile(filePath)) {
           await this.metadataStore.delete(entry.sessionId);
           pruned++;
         }
       }
     } catch (error) {
-      this.logger.debug('[SessionImporter] Title-only prune failed', {
+      this.logger.debug('[SessionImporter] Contentless-session prune failed', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
 
     if (pruned > 0) {
-      this.logger.info('[SessionImporter] Pruned title-only phantom sessions', {
+      this.logger.info('[SessionImporter] Pruned contentless phantom sessions', {
         pruned,
       });
     }
@@ -342,21 +360,45 @@ export class SessionImporterService {
   }
 
   /**
-   * Detect a title-only sidecar file: parses the leading lines and reports
-   * true only when an `ai-title` line is present and no `system`/`user`
-   * session line exists. A truncated or unparseable real-session file fails
-   * the positive `ai-title` test, so it is never misclassified.
+   * Positively identify a session file that holds no conversation. TRUE means
+   * "this file is provably contentless"; anything less certain is FALSE.
+   *
+   * The two shapes are exactly the two `extractMetadata` refuses to import,
+   * and the discriminators are read off that guard rather than restated —
+   * they must not drift apart, because the producer merely declines to import
+   * while THIS predicate DELETES stored metadata:
+   *
+   *   1. A title-only sidecar — a parsed `ai-title` line with no `system` or
+   *      `user` line anywhere in the prefix.
+   *   2. The WHOLE FILE is in hand (a SHORT read: `bytesRead <
+   *      METADATA_PREFIX_BYTES`, which includes a zero-byte file) and it holds
+   *      no non-whitespace byte at all. There is nothing here to BE a session.
+   *
+   * Shape 2 is what TASK_2026_340 adds. It keys on non-whitespace BYTES, never
+   * on parse successes: a count of parsed records cannot tell "there is
+   * nothing in this file" from "I could not parse what is in this file" — a
+   * BOM, a truncated tail or a corrupt record all read as zero — and only the
+   * first is evidence of absence. Keying on it would delete real sessions.
+   *
+   * A truncated, corrupt or otherwise unparseable REAL-session file therefore
+   * fails both tests and is kept: it has non-whitespace bytes and no positive
+   * `ai-title` sighting. Matching `extractMetadata`, a whitespace-only file of
+   * exactly `METADATA_PREFIX_BYTES` or longer is NOT covered — a full read is
+   * indistinguishable from a truncated one, so we have not seen the whole
+   * file and cannot conclude anything about it.
    */
-  private async isTitleOnlySidecar(filePath: string): Promise<boolean> {
+  private async isContentlessSessionFile(filePath: string): Promise<boolean> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
       const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
       const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
       await fd.close();
 
-      if (bytesRead === 0) return false;
-
       const content = decodePrefix(buffer, bytesRead);
+      const wholeFileInHand = bytesRead < METADATA_PREFIX_BYTES;
+      const prefixHasContent = content.trim().length > 0;
+      if (!prefixHasContent) return wholeFileInHand;
+
       const lines = splitCompleteRecords(content, bytesRead);
 
       let sawAiTitle = false;

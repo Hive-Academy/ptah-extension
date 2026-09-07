@@ -838,6 +838,123 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       expect(findByType(resumed, 'tool')?.status).toBe('complete');
       expect(resumed[1].children.map((c) => c.content)).toContain('and now');
     });
+
+    it('agrees with a full rebuild when a resumed tab swaps in a fresh StreamingState under the same cache key', () => {
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'hello'));
+
+      const before = expectEquivalent();
+      expect(findByType(before, 'text')?.content).toBe('hello');
+
+      // `applyResumingSession` installs a brand-new `createEmptyStreamingState()`
+      // onto a tab that KEEPS its id, and the cache key is `tab-${tabId}` — so
+      // the entry built from the previous object is still there, while every
+      // counter feeding the reuse decision has restarted at 1.
+      //
+      // This replay lands on exactly the numbers the cached entry recorded: the
+      // same single root in the same order, the same per-message revision and
+      // bucket length (two events), and an unchanged epoch (`textAccumulators`
+      // folds its SIZE, and there is still one key). Only the CONTENT differs —
+      // which nothing in the fold can see — so a content-only reuse key hands
+      // back the previous object's tree and the card renders the session the
+      // user just navigated away from (TASK_2026_336).
+      state = createEmptyStreamingState();
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'world'));
+
+      const after = expectEquivalent();
+      expect(findByType(after, 'text')?.content).toBe('world');
+    });
+  });
+
+  /**
+   * THE PER-NODE REUSE KEY (TASK_2026_337).
+   *
+   * `fingerprintNode` decides whether a rebuilt node may be swapped for the
+   * previous build's object. A field it does not fold is a field that can move
+   * while the node keeps rendering the old value — so what it folds, and what
+   * it deliberately does not, is a contract rather than an implementation
+   * detail. Exercised directly because no builder in this repo populates
+   * `summaryContent` / `toolCount` on a node today: they arrive on persisted
+   * and restored trees, which is precisely why "today's producers move them
+   * alongside cost" is not an invariant worth relying on.
+   */
+  describe('fingerprintNode — what the per-node reuse key folds', () => {
+    /** The private production reuse key, reached the way the oracle reaches it. */
+    const fingerprintOf = (node: ExecutionNode): number => {
+      const service = builder as unknown as {
+        fingerprintNode?: (
+          node: ExecutionNode,
+          fingerprintsById: ReadonlyMap<string, number>,
+        ) => number;
+      };
+      if (typeof service.fingerprintNode !== 'function') {
+        throw new Error(
+          'ExecutionTreeBuilderService.fingerprintNode is gone — this spec has ' +
+            'lost its coupling to the production reuse key and must be rewired.',
+        );
+      }
+      return service.fingerprintNode.call(builder, node, new Map());
+    };
+
+    const agentCard = (overrides: Partial<ExecutionNode> = {}): ExecutionNode =>
+      ({
+        id: 'agent:toolu_1',
+        type: 'agent',
+        status: 'streaming',
+        content: 'dig around',
+        agentType: 'general-purpose',
+        agentDescription: 'dig around',
+        toolCallId: 'toolu_1',
+        agentId: 'agent-1',
+        children: [],
+        isCollapsed: false,
+        ...overrides,
+      }) as ExecutionNode;
+
+    it('separates two cards that differ only in summaryContent', () => {
+      // The agent file watcher appends to `agentSummaryAccumulators`, keyed by
+      // agentId — it moves no cost, no duration and no token total.
+      expect(fingerprintOf(agentCard({ summaryContent: undefined }))).not.toBe(
+        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
+      );
+      expect(
+        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
+      ).not.toBe(
+        fingerprintOf(agentCard({ summaryContent: 'reading the builder' })),
+      );
+    });
+
+    it('separates two cards that differ only in toolCount', () => {
+      expect(fingerprintOf(agentCard({ toolCount: undefined }))).not.toBe(
+        fingerprintOf(agentCard({ toolCount: 0 })),
+      );
+      expect(fingerprintOf(agentCard({ toolCount: 3 }))).not.toBe(
+        fingerprintOf(agentCard({ toolCount: 4 })),
+      );
+    });
+
+    it('keeps startTime / endTime OUT of the key, so a replay under the same id reuses its node', () => {
+      // Deliberate exclusion, not an oversight: a `complete` or `history` event
+      // supersedes a `stream` event under the same node id with a fresh
+      // timestamp on every replay. Folding either would invalidate node
+      // identity for the whole transcript and force the re-render the
+      // incremental rebuild exists to avoid.
+      expect(
+        fingerprintOf(agentCard({ startTime: 1_000, endTime: 2_000 })),
+      ).toBe(fingerprintOf(agentCard({ startTime: 9_000, endTime: 9_500 })));
+    });
+
+    it('keeps isCollapsed / isHighlighted OUT of the key — the renderers own them', () => {
+      // Every collapse control is a local signal on the component
+      // (`tool-call-item`, `message-bubble`, `inline-agent-bubble`,
+      // `thinking-block`); nothing reads either field off the node.
+      expect(
+        fingerprintOf(agentCard({ isCollapsed: false, isHighlighted: false })),
+      ).toBe(
+        fingerprintOf(agentCard({ isCollapsed: true, isHighlighted: true })),
+      );
+    });
   });
 });
 

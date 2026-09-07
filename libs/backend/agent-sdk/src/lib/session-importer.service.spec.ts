@@ -728,7 +728,7 @@ describe('SessionImporterService', () => {
       // ---------------------------------------------------------------------
       // The prune pass under a BOM (TASK_2026_308).
       //
-      // `decodePrefix` is shared with `isTitleOnlySidecar`, so making the
+      // `decodePrefix` is shared with `isContentlessSessionFile`, so making the
       // importer BOM-aware made the PRUNE BOM-aware in the same stroke — and
       // the prune DELETES stored session metadata. Its refusal to touch a real
       // session rests on two things: it returns true only on a positive
@@ -837,6 +837,166 @@ describe('SessionImporterService', () => {
           await importer.scanAndImport(WORKSPACE);
 
           expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+      });
+
+      // ---------------------------------------------------------------------
+      // Pruning entries already in the store (TASK_2026_340).
+      //
+      // TASK_2026_308 fixed the PRODUCER: a contentless file no longer imports
+      // as a phantom "Session <date>" row. Rows minted BEFORE it shipped
+      // survived every scan, because the prune's predicate demanded a positive
+      // `ai-title` sighting and a whitespace-only file has zero parseable
+      // lines. The prune now recognises the second contentless shape too.
+      //
+      // Every case below is decided by re-reading the BACKING FILE. None may
+      // be decided by the entry's NAME: `Session <date>` is the legitimate
+      // name of a real session whose first user message yielded no title text,
+      // so a name heuristic deletes conversation history. The `keeps a real
+      // session named "Session <date>"` spec is the one that catches that.
+      // ---------------------------------------------------------------------
+      describe('pruning stored contentless entries (TASK_2026_340)', () => {
+        afterEach(() => {
+          fsPromises.access.mockReset();
+          fsPromises.open.mockReset();
+          fsPromises.readdir.mockReset();
+          fsPromises.stat.mockReset();
+        });
+
+        function mockPositionalRead(fileContent: Buffer): void {
+          fsPromises.open.mockResolvedValue({
+            read: jest.fn(
+              async (buf: Buffer, off: number, len: number, pos: number) => {
+                const end = Math.min(fileContent.length, pos + len);
+                const bytesRead = Math.max(0, end - pos);
+                if (bytesRead > 0) fileContent.copy(buf, off, pos, end);
+                return { bytesRead, buffer: buf };
+              },
+            ),
+            close: jest.fn(async () => undefined),
+          } as unknown as Awaited<ReturnType<typeof fsPromises.open>>);
+        }
+
+        /** A scan that discovers nothing new, so only the prune has effect. */
+        function primePruneOnlyScan(backingFileExists = true): void {
+          primeFindSessionsDir();
+          fsPromises.access.mockRejectedValueOnce(new Error('ENOENT')); // no index
+          fsPromises.readdir.mockResolvedValueOnce(
+            [] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>,
+          );
+          if (backingFileExists) {
+            fsPromises.access.mockResolvedValue(undefined);
+          } else {
+            fsPromises.access.mockRejectedValue(new Error('ENOENT'));
+          }
+        }
+
+        it('prunes an entry whose backing file is whitespace-only and shorter than the prefix', async () => {
+          // The reported case. Zero parseable lines, so the old predicate
+          // returned false unconditionally and the row survived forever.
+          await store.create('ws-only', WORKSPACE, 'Session 1/1/2026');
+
+          primePruneOnlyScan();
+          mockPositionalRead(Buffer.from('\n   \n\t\n'));
+
+          await importer.scanAndImport(WORKSPACE);
+
+          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+
+        it('prunes an entry whose backing file is zero bytes', async () => {
+          // Deliberate: a zero-byte read IS a short read, so the whole file is
+          // in hand and it holds no non-whitespace byte — the same conjunction
+          // that decides the whitespace case, at its limit. `extractMetadata`
+          // refuses to import this file, so keeping its row would be the same
+          // unreachable phantom by another route.
+          await store.create('empty-file', WORKSPACE, 'Session 1/1/2026');
+
+          primePruneOnlyScan();
+          mockPositionalRead(Buffer.alloc(0));
+
+          await importer.scanAndImport(WORKSPACE);
+
+          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+
+        it('keeps a REAL session whose stored name is "Session <date>"', async () => {
+          // The spec that fails the moment anyone reaches for a name
+          // heuristic. This row is named exactly like a phantom and is real.
+          await store.create('real-untitled', WORKSPACE, 'Session 1/1/2026');
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'system',
+              subtype: 'init',
+              session_id: 'real-untitled',
+            }) +
+              '\n' +
+              JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: '   ' },
+              }) +
+              '\n',
+          );
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['real-untitled']);
+        });
+
+        it('keeps a real session whose only record is cut off by the byte bound', async () => {
+          // Longer than the prefix and containing no newline inside it, so
+          // `splitCompleteRecords` drops the cut tail and NOTHING complete
+          // remains to judge from. Unparseable is not contentless.
+          await store.create('truncated', WORKSPACE, 'Session 1/1/2026');
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'system',
+              subtype: 'init',
+              session_id: 'truncated',
+              payload: 'B'.repeat(12000),
+            }) + '\n',
+          );
+          expect(content.length).toBeGreaterThan(8192);
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['truncated']);
+        });
+
+        it('keeps an entry whose short backing file is corrupt but not empty', async () => {
+          // Non-whitespace bytes are present, so the file is not provably
+          // contentless — whatever we failed to parse might be a session.
+          await store.create('corrupt-kept', WORKSPACE, 'Session 1/1/2026');
+
+          primePruneOnlyScan();
+          mockPositionalRead(Buffer.from('not json at all\n'));
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['corrupt-kept']);
+        });
+
+        it('keeps an entry whose backing file is missing from disk', async () => {
+          // Absence is not evidence: the file may be behind a moved projects
+          // directory or an unsynced one. Documented in the source.
+          await store.create('gone-from-disk', WORKSPACE, 'Session 1/1/2026');
+
+          primePruneOnlyScan(false);
+          mockPositionalRead(Buffer.from('\n  \n'));
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['gone-from-disk']);
         });
       });
     });
