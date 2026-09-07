@@ -27,6 +27,7 @@ import type {
   IIntegrityWorkerProcessFactory,
 } from './worker-process.port';
 import type { IntegrityCheckResponse } from './integrity-worker-protocol';
+import { DbWorkerRunner } from './db-worker-runner';
 
 const DB_PATH = 'C:\\temp\\ptah-test.sqlite';
 const NOW = 1_800_000_000_000;
@@ -135,6 +136,7 @@ function makeHarness(opts: {
     logger,
     DB_PATH,
     store,
+    new DbWorkerRunner(logger),
     opts.withFactory === false ? null : factory,
   );
   return { service, logger, workers, spawnCount: () => workers.length, writes };
@@ -386,7 +388,13 @@ describe('SqliteIntegrityService.dispatchIfDue — never throws', () => {
         throw new Error('utilityProcess.fork failed');
       },
     };
-    const service = new SqliteIntegrityService(logger, DB_PATH, store, factory);
+    const service = new SqliteIntegrityService(
+      logger,
+      DB_PATH,
+      store,
+      new DbWorkerRunner(logger),
+      factory,
+    );
     await expect(service.dispatchIfDue()).resolves.toBeUndefined();
     expect(logger.entries.some((e) => e.level === 'warn')).toBe(true);
   });
@@ -399,9 +407,13 @@ describe('SqliteIntegrityService.dispatchIfDue — never throws', () => {
       },
       write: () => undefined,
     } as unknown as IntegrityCheckStateStore;
-    const service = new SqliteIntegrityService(logger, DB_PATH, store, {
-      spawn: () => makeFakeWorker(),
-    });
+    const service = new SqliteIntegrityService(
+      logger,
+      DB_PATH,
+      store,
+      new DbWorkerRunner(logger),
+      { spawn: () => makeFakeWorker() },
+    );
     await expect(service.dispatchIfDue()).resolves.toBeUndefined();
   });
 

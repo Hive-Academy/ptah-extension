@@ -32,16 +32,22 @@
  * AN INCONCLUSIVE CHECK WRITES NO RECORD. A worker `error` response, an exit
  * before a result, or an `'unavailable'` verdict all warn and persist nothing,
  * so the next window retries rather than remembering an unasked question as a
- * clean answer. This is `backup.service.ts:44-53`'s rule.
+ * clean answer. It is the same rule `SqliteBackupService` follows when the
+ * worker cannot answer for a copy.
+ *
+ * THE RUN LOOP ITSELF IS NOT HERE ANY MORE (TASK_2026_383 Batch 7). Spawn, one
+ * settle on reply/exit/budget/abort, and the kill on every path live in
+ * {@link DbWorkerRunner}, which `SqliteBackupService` drives too. This class
+ * keeps the decisions that are its own: whether a check is due, single-flight,
+ * how a reply narrows, and what gets persisted.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '../di/tokens';
 import { IntegrityCheckStateStore } from './integrity-check-state.store';
-import type {
-  IIntegrityWorkerProcess,
-  IIntegrityWorkerProcessFactory,
-} from './worker-process.port';
+import { DbWorkerRunner } from './db-worker-runner';
+import type { DbWorkerRun } from './db-worker-runner';
+import type { IIntegrityWorkerProcessFactory } from './worker-process.port';
 import type {
   IntegrityCheckRequest,
   IntegrityCheckResponse,
@@ -80,13 +86,13 @@ export class SqliteIntegrityService {
   /** The "no worker factory in this host" line is worth saying exactly once. */
   private noFactoryLogged = false;
   /**
-   * Kills the worker of the run that is in flight, or `null` when none is.
+   * The run that is in flight, or `null` when none is.
    *
-   * Set inside {@link runWorker} and cleared the moment that run settles, so
-   * both {@link dispose} and an `AbortSignal` reach exactly the run they meant
-   * to and never a stale one.
+   * Set the moment {@link DbWorkerRunner.run} returns and cleared the moment
+   * that run settles, so both {@link dispose} and an `AbortSignal` reach
+   * exactly the run they meant to and never a stale one.
    */
-  private abortInFlight: (() => void) | null = null;
+  private inFlight: DbWorkerRun<IntegrityCheckOutbound> | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -94,6 +100,8 @@ export class SqliteIntegrityService {
     private readonly dbPath: string,
     @inject(IntegrityCheckStateStore)
     private readonly store: IntegrityCheckStateStore,
+    @inject(DbWorkerRunner)
+    private readonly runner: DbWorkerRunner,
     @inject(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PROCESS_FACTORY, {
       isOptional: true,
     })
@@ -167,7 +175,7 @@ export class SqliteIntegrityService {
 
     this.dispatching = true;
     try {
-      const outcome = await this.runWorker(factory, options?.signal);
+      const outcome = await this.runCheck(factory, options?.signal);
       if (outcome.aborted) {
         // Not `record(null)`: that path WARNS about a worker that failed to
         // answer, and an abort is not a failure — the host asked us to stop.
@@ -199,10 +207,10 @@ export class SqliteIntegrityService {
    * `settled` latch absorbs the second call.
    */
   dispose(): void {
-    const abort = this.abortInFlight;
-    if (!abort) return;
+    const run = this.inFlight;
+    if (!run) return;
     try {
-      abort();
+      run.abort();
     } catch (error: unknown) {
       this.logger.debug('[persistence-sqlite] integrity dispose failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -211,104 +219,37 @@ export class SqliteIntegrityService {
   }
 
   /**
-   * Spawn, ask, and settle exactly once — on the reply, on an early exit, on
-   * the budget expiring, or on an abort. The worker is killed on every one of
-   * those four paths, so it cannot outlive the host.
+   * Drive one `check` run through the shared {@link DbWorkerRunner} and keep a
+   * handle on it so {@link dispose} can reach it.
    *
-   * Resolves `{ aborted: true }` for the abort path so the caller can tell
-   * "stopped on request" from "asked and got no answer"; only the latter is
-   * worth a warning.
+   * The handle is cleared as soon as the run settles, which is what makes a
+   * `dispose()` after a completed check a no-op rather than a second kill.
    */
-  private runWorker(
+  private async runCheck(
     factory: IIntegrityWorkerProcessFactory,
     signal: AbortSignal | undefined,
   ): Promise<{
     aborted: boolean;
     response: IntegrityCheckOutbound | null;
   }> {
-    return new Promise<{
-      aborted: boolean;
-      response: IntegrityCheckOutbound | null;
-    }>((resolve) => {
-      let settled = false;
-      let worker: IIntegrityWorkerProcess | null = null;
-      let budgetTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const settle = (
-        result: IntegrityCheckOutbound | null,
-        aborted = false,
-      ): void => {
-        if (settled) return;
-        settled = true;
-        this.abortInFlight = null;
-        signal?.removeEventListener('abort', onAbort);
-        if (budgetTimer) {
-          clearTimeout(budgetTimer);
-          budgetTimer = null;
-        }
-        try {
-          worker?.kill();
-        } catch (error: unknown) {
-          this.logger.debug(
-            '[persistence-sqlite] integrity worker kill failed',
-            { error: error instanceof Error ? error.message : String(error) },
-          );
-        }
-        resolve({ aborted, response: result });
-      };
-
-      // Named rather than inline so `removeEventListener` above can name the
-      // same function; an anonymous listener would outlive every settled run.
-      function onAbort(): void {
-        settle(null, true);
-      }
-
-      this.abortInFlight = onAbort;
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      try {
-        worker = factory.spawn();
-      } catch (error: unknown) {
-        this.logger.warn('[persistence-sqlite] integrity worker spawn failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        settle(null);
-        return;
-      }
-
-      worker.on('message', (msg: unknown) => {
-        settle(this.asResponse(msg));
-      });
-      worker.on('exit', () => {
-        // An exit before a reply is inconclusive, not clean. `settle(null)`
-        // after a reply has landed is a no-op.
-        settle(null);
-      });
-
-      budgetTimer = setTimeout(() => {
-        this.logger.warn(
-          '[persistence-sqlite] integrity worker exceeded its budget; killing',
-          { budgetMs: INTEGRITY_WORKER_BUDGET_MS },
-        );
-        settle(null);
-      }, INTEGRITY_WORKER_BUDGET_MS);
-      // A pending integrity check must never hold the process open at quit.
-      budgetTimer.unref?.();
-
-      const request: IntegrityCheckRequest = {
-        id: 1,
-        type: 'check',
-        dbPath: this.dbPath,
-      };
-      try {
-        worker.postMessage(request);
-      } catch (error: unknown) {
-        this.logger.warn('[persistence-sqlite] integrity request post failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        settle(null);
-      }
+    const request: IntegrityCheckRequest = {
+      id: 1,
+      type: 'check',
+      dbPath: this.dbPath,
+    };
+    const run = this.runner.run<IntegrityCheckOutbound>(factory, {
+      label: 'integrity',
+      request,
+      budgetMs: INTEGRITY_WORKER_BUDGET_MS,
+      narrow: (msg) => this.asResponse(msg),
+      signal,
     });
+    this.inFlight = run;
+    try {
+      return await run.settled;
+    } finally {
+      this.inFlight = null;
+    }
   }
 
   /**
