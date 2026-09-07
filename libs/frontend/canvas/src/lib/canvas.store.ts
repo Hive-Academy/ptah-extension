@@ -1,12 +1,16 @@
 import { Injectable, Signal, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
-import { CanvasLayoutService } from './canvas-layout.service';
+import { DEFAULT_TILE_WEIGHT, type TileIntent } from './canvas-layout.service';
 
-export interface CanvasTile {
-  tabId: string;
-  position: { x: number; y: number; w: number; h: number };
-}
+/**
+ * A canvas tile is stored as intent only — where it sits in reading order and
+ * how much width it claims relative to its row-mates. Concrete `x`/`y`/`w`/`h`
+ * are derived by `CanvasLayoutService` on every layout pass and never stored,
+ * so a container resize re-flows the grid without destroying the arrangement
+ * the user chose.
+ */
+export type CanvasTile = TileIntent;
 
 /**
  * Structural subset of TabState used for seeding tiles from active tabs.
@@ -21,8 +25,8 @@ export interface CanvasSeedTab {
 /**
  * Hard bound on the number of workspace grid sections kept mounted (keep-alive)
  * at once. Beyond this cap the least-recently-active non-active workspace drops
- * out of `workspacePaths` so its grid unmounts — its tile positions survive in
- * the partition map and are restored on return. Single constant so profiling can
+ * out of `workspacePaths` so its grid unmounts — its tile intent survives in
+ * the partition map and is restored on return. Single constant so profiling can
  * dial it down without touching the eviction logic.
  */
 export const RETAINED_WORKSPACE_CAP = 4;
@@ -41,9 +45,10 @@ const IMPLICIT_WORKSPACE_PATH = '';
  * CanvasStore — scoped per OrchestraCanvasComponent (not providedIn: 'root').
  *
  * Manages the set of tiles visible in the Orchestra Canvas panel. Each tile
- * corresponds to a tab in TabManagerService. Tile positions are tracked here
- * for CSS Grid / Gridstack layout; focus state updates the global active tab
- * so message sending routes to the correct session.
+ * corresponds to a tab in TabManagerService. Only tile *intent* (order and
+ * weight) is tracked here — `CanvasLayoutService` derives grid coordinates from
+ * it. Focus state updates the global active tab so message sending routes to
+ * the correct session.
  *
  * The per-workspace partition is signal-backed so every retained workspace's
  * tiles stay reactive while its grid is hidden (keep-alive). `tiles` /
@@ -53,15 +58,13 @@ const IMPLICIT_WORKSPACE_PATH = '';
 @Injectable()
 export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
-  private readonly layoutService = inject(CanvasLayoutService);
 
   /**
    * Maximum number of tiles the orchestra canvas allows simultaneously.
    *
-   * Caps the layout at a 3x3 grid — `CanvasLayoutService` switches to that
-   * arrangement at the largest breakpoint, and Gridstack's column packing
-   * stays readable up to nine tiles before tiles get too small to host a
-   * usable chat surface.
+   * Caps the layout at a 3x3 grid — `CanvasLayoutService` clamps derived
+   * columns at 3, and Gridstack's column packing stays readable up to nine
+   * tiles before tiles get too small to host a usable chat surface.
    */
   static readonly MAX_TILES = 9;
 
@@ -181,7 +184,7 @@ export class CanvasStore {
    * @param tabId The tabId of the orphaned tile to remove.
    */
   removeTileOnly(tabId: string): void {
-    this.updateActiveTiles((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    this.updateActiveTiles((tiles) => dropTile(tiles, tabId));
     this.clearFocusIf(tabId);
   }
 
@@ -193,19 +196,69 @@ export class CanvasStore {
    */
   async removeTile(tabId: string): Promise<void> {
     await this.tabManager.closeTab(tabId);
-    this.updateActiveTiles((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    this.updateActiveTiles((tiles) => dropTile(tiles, tabId));
     this.clearFocusIf(tabId);
   }
 
   /**
-   * Update the grid position of a tile (called after Gridstack drag/resize).
-   * @param tabId The tabId of the tile to reposition.
-   * @param pos  New grid position { x, y, w, h }.
+   * Rewrite reading order from a finished drag gesture. Order is assigned
+   * densely in the given sequence; unknown ids are ignored and any stored tile
+   * missing from the argument keeps its relative order after the listed ones,
+   * so a partial node list can never silently drop a tile.
+   *
+   * Returns the tile array unchanged (same reference) when nothing moved, so
+   * the signal does not notify and a stray write-back cannot loop.
    */
-  updateTilePosition(tabId: string, pos: CanvasTile['position']): void {
-    this.updateActiveTiles((tiles) =>
-      tiles.map((t) => (t.tabId === tabId ? { ...t, position: pos } : t)),
-    );
+  reorderTiles(orderedTabIds: readonly string[]): void {
+    this.updateActiveTiles((tiles) => {
+      if (tiles.length === 0) return tiles;
+
+      const known = new Set(tiles.map((t) => t.tabId));
+      const placed = new Set<string>();
+      const sequence: string[] = [];
+      for (const tabId of orderedTabIds) {
+        if (!known.has(tabId) || placed.has(tabId)) continue;
+        placed.add(tabId);
+        sequence.push(tabId);
+      }
+      for (const tile of sortByOrder(tiles)) {
+        if (placed.has(tile.tabId)) continue;
+        placed.add(tile.tabId);
+        sequence.push(tile.tabId);
+      }
+
+      const rank = new Map(sequence.map((tabId, i) => [tabId, i]));
+      let changed = false;
+      const next = tiles.map((tile) => {
+        const order = rank.get(tile.tabId) ?? tile.order;
+        if (order === tile.order) return tile;
+        changed = true;
+        return { ...tile, order };
+      });
+      return changed ? sortByOrder(next) : tiles;
+    });
+  }
+
+  /**
+   * Rewrite relative width shares from a finished resize gesture. Tiles absent
+   * from the map keep their weight; a non-finite or non-positive weight is
+   * coerced to the default rather than stored. Returns the same array reference
+   * when nothing changed.
+   */
+  setTileWeights(weights: ReadonlyMap<string, number>): void {
+    this.updateActiveTiles((tiles) => {
+      let changed = false;
+      const next = tiles.map((tile) => {
+        if (!weights.has(tile.tabId)) return tile;
+        const raw = weights.get(tile.tabId) ?? DEFAULT_TILE_WEIGHT;
+        const weight =
+          Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TILE_WEIGHT;
+        if (weight === tile.weight) return tile;
+        changed = true;
+        return { ...tile, weight };
+      });
+      return changed ? next : tiles;
+    });
   }
 
   /**
@@ -264,14 +317,11 @@ export class CanvasStore {
     const seeded: CanvasTile[] = [];
     for (const tab of activeTabs) {
       if (seeded.length >= CanvasStore.MAX_TILES) break;
-      const layout = this.layoutService.computeLayout(seeded.length + 1);
-      const position = layout.tiles[seeded.length] ?? {
-        x: 0,
-        y: 0,
-        w: 4,
-        h: 6,
-      };
-      seeded.push({ tabId: tab.id, position });
+      seeded.push({
+        tabId: tab.id,
+        order: seeded.length,
+        weight: DEFAULT_TILE_WEIGHT,
+      });
     }
     this._workspaceTiles.update((map) => new Map(map).set(newPath, seeded));
     this._workspaceFocusedTabId.update((map) =>
@@ -290,10 +340,7 @@ export class CanvasStore {
       const next = new Map(map);
       for (const [path, tiles] of map) {
         if (tiles.some((t) => t.tabId === tabId)) {
-          next.set(
-            path,
-            tiles.filter((t) => t.tabId !== tabId),
-          );
+          next.set(path, dropTile(tiles, tabId));
           changed = true;
         }
       }
@@ -352,35 +399,31 @@ export class CanvasStore {
   }
 
   /**
-   * Append a tile for the given tabId at the next available grid position.
-   * Centralizes the position calculation to avoid duplication.
+   * Append a tile for the given tabId at the end of the reading order with the
+   * default width share. Position is derived from that intent, not stored.
    */
   private appendTile(tabId: string): void {
-    const newCount = this.tiles().length + 1;
-    const layout = this.layoutService.computeLayout(newCount);
-    const position = layout.tiles[newCount - 1] ?? {
-      x: 0,
-      y: 0,
-      w: 4,
-      h: 6,
-    };
-
-    this.updateActiveTiles((tiles) => [...tiles, { tabId, position }]);
+    this.updateActiveTiles((tiles) => [
+      ...tiles,
+      { tabId, order: tiles.length, weight: DEFAULT_TILE_WEIGHT },
+    ]);
   }
 
   /**
    * Apply an immutable transform to the active workspace's tile array. Seeds the
    * active path lazily so tiles created before the first workspace switch still
-   * land in a mounted bucket.
+   * land in a mounted bucket. A transform that returns the same array reference
+   * is a no-op and does not touch the signal.
    */
   private updateActiveTiles(
     fn: (tiles: readonly CanvasTile[]) => readonly CanvasTile[],
   ): void {
     const path = this.ensureActivePath();
     this._workspaceTiles.update((map) => {
-      const next = new Map(map);
-      next.set(path, fn(next.get(path) ?? EMPTY_TILES));
-      return next;
+      const current = map.get(path) ?? EMPTY_TILES;
+      const updated = fn(current);
+      if (updated === current) return map;
+      return new Map(map).set(path, updated);
     });
   }
 
@@ -439,8 +482,8 @@ export class CanvasStore {
         }
       }
       if (lruPath === null) break;
-      // Drop from the mounted set only — the map entry (tile positions) persists
-      // so returning to the workspace restores its layout.
+      // Drop from the mounted set only — the map entry (tile intent) persists
+      // so returning to the workspace restores its arrangement.
       const evicted = lruPath;
       this._workspacePaths.update((paths) =>
         paths.filter((p) => p !== evicted),
@@ -448,4 +491,26 @@ export class CanvasStore {
       this._workspaceRecency.delete(evicted);
     }
   }
+}
+
+/** Tiles in reading order — the canonical sequence `order` encodes. */
+function sortByOrder(tiles: readonly CanvasTile[]): CanvasTile[] {
+  return [...tiles].sort(
+    (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
+  );
+}
+
+/**
+ * Remove a tile and renumber the survivors densely, so a stored `order` is
+ * always `0..n-1` and a closed tile never leaves a gap that later reads as a
+ * different arrangement.
+ */
+function dropTile(
+  tiles: readonly CanvasTile[],
+  tabId: string,
+): readonly CanvasTile[] {
+  if (!tiles.some((t) => t.tabId === tabId)) return tiles;
+  return sortByOrder(tiles.filter((t) => t.tabId !== tabId)).map((tile, i) =>
+    tile.order === i ? tile : { ...tile, order: i },
+  );
 }

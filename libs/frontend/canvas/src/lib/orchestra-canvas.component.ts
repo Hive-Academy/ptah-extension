@@ -36,10 +36,11 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
  *
  * Layout: Gridstack.js drag-and-resize grid with one CanvasTileComponent per tile.
  *
- * Gridstack API (v12.5.0):
+ * Gridstack API (v12.6.0):
  * - Component selector: <gridstack>
  * - Item selector: <gridstack-item [options]="{ x, y, w, h, id }">
- * - Change event: (changeCB) — fires after drag/resize; nodes carry updated positions
+ * - Change event: (changeCB) — fires after drag/resize; the workspace grid
+ *   translates it into tile intent (order / weight), never into stored coordinates
  * - Imports: GridstackComponent + GridstackItemComponent from 'gridstack/dist/angular'
  *
  * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
@@ -70,7 +71,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
            down another workspace's tiles. -->
       @for (path of canvasStore.workspacePaths(); track path) {
         <ptah-canvas-workspace-grid
-          class="flex-1 overflow-auto w-[97%]"
+          class="flex-1 overflow-auto w-full"
           [workspacePath]="path"
           [visible]="path === canvasStore.activeWorkspacePath()"
           [locked]="locked()"
@@ -218,6 +219,15 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       :host {
         display: block;
         height: 100%;
+      }
+
+      /* The grid host measures the full container width (the layout service
+         derives its column count from that measurement, so a 97% child would
+         over-report by ~3% and move the 2->3 column boundary by ~45 px).
+         Reserving the scrollbar gutter up front keeps the measured width from
+         oscillating as the overflow-auto host gains and loses its scrollbar. */
+      ptah-canvas-workspace-grid {
+        scrollbar-gutter: stable;
       }
 
       gridstack {
@@ -422,7 +432,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
    *
    * Locking calls Gridstack's setStatic() to disable drag/resize on every tile
    * and freezes the auto-layout effect so the current arrangement is preserved
-   * across container resizes. Unlocking restores managed drag/resize behaviour.
+   * across container resizes. `onGridChange` also refuses to write intent while
+   * locked, so locked means *no layout writes at all* — not merely no layout
+   * recomputation. Unlocking restores managed drag/resize behaviour.
    */
   protected toggleLock(): void {
     this.locked.set(!this.locked());
