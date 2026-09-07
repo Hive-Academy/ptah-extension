@@ -111,6 +111,7 @@ export * from './autocomplete/command-discovery.service';
 export * from './quality';
 export {
   registerWorkspaceIntelligenceServices,
+  registerTypeScriptDiagnosticsProvider,
   CODE_SYMBOL_INDEXER,
 } from './di';
 export { TypeScriptDiagnosticsProvider } from './diagnostics/type-script-diagnostics-provider';

@@ -3,11 +3,9 @@
  *
  * Pre-conditions: `TOKENS.LOGGER` (vscode-core) is registered.
  *
- * The caller supplies the target list, the source resolver and the CLI
- * detector. None is defaulted, and that is the point:
+ * The caller supplies the source resolver and the CLI detector; neither is
+ * defaulted, and that is the point:
  *
- * - **Targets** are host policy. A host that cannot spawn rival CLIs registers
- *   `[claudeTargetFactory]` and nothing else.
  * - **The source resolver** is where the plugin loader lives, which differs per
  *   host container. Passing it in keeps `harness-sync` free of any dependency
  *   on `agent-sdk` — see `sources/harness-source.port.ts`.
@@ -15,6 +13,12 @@
  *   CLIs. It is a port for the same reason: `CliDetectionService` lives in
  *   `cli-agent-runtime`, which now depends on THIS lib for its MCP install
  *   surface, so the dependency must not run both ways.
+ *
+ * **Targets ARE defaulted**, to `ALL_HARNESS_TARGET_FACTORIES`. They read like
+ * host policy and are not: all three hosts registered the identical list, one
+ * line each, because a workspace is populated for the tools the USER has and
+ * not for the one running Ptah. The option survives so a host that genuinely
+ * cannot spawn rival CLIs can still pass `[claudeTargetFactory]`.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -66,8 +70,9 @@ export interface HarnessSyncRegistrationOptions {
   /**
    * Factories, not instances, so every target shares the one manifest store the
    * reconciler uses — co-ownership between Codex and Antigravity depends on it.
+   * Defaults to {@link ALL_HARNESS_TARGET_FACTORIES}.
    */
-  targets: HarnessTargetFactory[];
+  targets?: HarnessTargetFactory[];
   sourceResolver: IHarnessSourceResolver;
   /** Defaults to "nothing installed", which skips every rival target (E17). */
   cliDetector?: IHarnessCliDetector;
@@ -125,8 +130,8 @@ export function registerHarnessSyncServices(
   );
   const builder = new HarnessManifestBuilder();
   const detector = options.cliDetector ?? NO_CLI_DETECTOR;
-  const targets = options.targets.map((factory) =>
-    factory({ manifestStore, detector }),
+  const targets = (options.targets ?? ALL_HARNESS_TARGET_FACTORIES).map(
+    (factory) => factory({ manifestStore, detector }),
   );
 
   container.register(HARNESS_SYNC_TOKENS.MANIFEST_STORE, {

@@ -20,6 +20,7 @@ export type {
 } from './agent-process-manager.service';
 export * from './cli-adapters';
 export {
+  createContainerHarnessCliDetector,
   createHarnessCliDetector,
   type HarnessCliDetectionReader,
 } from './harness-cli-detector';
