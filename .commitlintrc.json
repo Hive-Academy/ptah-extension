@@ -69,7 +69,6 @@
         "core",
         "ui",
         "markdown",
-        "editor",
         "git-ui",
         "chat",
         "chat-state",

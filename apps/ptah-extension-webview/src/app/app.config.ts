@@ -52,10 +52,6 @@ import {
   SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
-  provideEditorInternalState,
-  EditorService,
-} from '@ptah-extension/editor/services';
-import {
   DiffTabsService,
   GitBranchesService,
   GitStatusService,
@@ -185,8 +181,6 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
-    ...provideEditorInternalState(),
-    { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },

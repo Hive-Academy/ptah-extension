@@ -6,8 +6,10 @@
  *                plus GitInfoService.
  *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
  *                host service they depend on (UpdateManager behind
- *                PLATFORM_TOKENS.APP_UPDATER). EditorRpcHandlers is the only
- *                handler class still declared in this app (TASK_2026_173).
+ *                PLATFORM_TOKENS.APP_UPDATER). `EditorRpcHandlers`, the last
+ *                app-local handler class (TASK_2026_173), was deleted in
+ *                TASK_2026_385 Batch 4.2 — its file explorer/Monaco methods
+ *                had no caller left once `libs/frontend/editor` was deleted.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -56,7 +58,6 @@ import {
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-import { EditorRpcHandlers } from '../services/rpc/handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -68,9 +69,9 @@ import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
  * when `registerRpcSurface()` runs in `wire-runtime.ts`.
  *
  * NOTE: Factory-based registrations (SetupRpcHandlers, WizardGenerationRpcHandlers,
- * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers) exist because
- * these handlers need the DependencyContainer interface itself (no reflection
- * metadata) or resolve WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
+ * EnhancedPromptsRpcHandlers, LlmRpcHandlers) exist because these handlers need
+ * the DependencyContainer interface itself (no reflection metadata) or resolve
+ * WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
  */
 export function registerPhase4Handlers(
   container: DependencyContainer,
@@ -155,17 +156,6 @@ export function registerPhase4Handlers(
       'ElectronFileOpenRpcHandlers',
     ],
   });
-  container.register(EditorRpcHandlers, {
-    useFactory: (c) =>
-      new EditorRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c.resolve(PLATFORM_TOKENS.EDITOR_PROVIDER),
-        c.resolve(TOKENS.WEBVIEW_MANAGER),
-      ),
-  });
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
@@ -179,12 +169,11 @@ export function registerPhase4Handlers(
   container.registerSingleton(UpdateRpcHandlers);
 
   logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
-    // EditorRpcHandlers is the last app-local handler class (TASK_2026_173).
-    // The rest live in @ptah-extension/rpc-handlers and are registered here
+    // These live in @ptah-extension/rpc-handlers and are registered here
     // because their capabilities are Electron-only, not because they are
-    // Electron code.
+    // Electron code. EditorRpcHandlers, the last app-local handler class
+    // (TASK_2026_173), was deleted in TASK_2026_385 Batch 4.2.
     handlers: [
-      'EditorRpcHandlers',
       'CommandRpcHandlers',
       'AgentRpcHandlers',
       'SkillsShRpcHandlers',

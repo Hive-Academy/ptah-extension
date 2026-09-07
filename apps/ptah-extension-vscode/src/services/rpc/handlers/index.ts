@@ -26,4 +26,3 @@ export {
   CommandRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 export { FileRpcHandlers } from './file-rpc.handlers';
-export { EditorRpcHandlers } from './editor-rpc.handlers';

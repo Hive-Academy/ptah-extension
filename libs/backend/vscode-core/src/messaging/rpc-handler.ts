@@ -64,7 +64,6 @@ export const ALLOWED_METHOD_PREFIXES = [
   'plugins:', // Plugin configuration (list, get-config, save-config)
   'agent:', // Agent orchestration (getConfig, setConfig, detectClis)
   'ptahCli:', // Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
-  'editor:', // Editor operations (openFile, etc.) for Electron Monaco editor
   'skillsSh:', // Skills.sh marketplace (search, install, recommend)
   'settings:', // Settings export/import (Electron desktop)
   'git:', // Git info and worktree management

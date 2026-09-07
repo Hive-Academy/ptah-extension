@@ -46,10 +46,6 @@ export const RPC_CAPABILITIES = [
   'filePickerImages',
   /** Host exposes raw filesystem read/exists/save-dialog RPC. */
   'fileSystemAccess',
-  /** Host can revert files to their on-disk/HEAD state. */
-  'editorRevert',
-  /** Host embeds a full editor pane (file tree, search, settings). */
-  'editorHost',
   /** Host has a command palette / command executor. */
   'commandExecution',
   /** Host ships a self-updating application shell. */

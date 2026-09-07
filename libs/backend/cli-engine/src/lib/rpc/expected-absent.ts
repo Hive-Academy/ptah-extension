@@ -4,8 +4,7 @@
  * The headless hosts run every backend subsystem, so nothing in the shared
  * handler library is off-limits — what they cannot serve are the webview-only
  * UI surfaces. There is no window to open a modal dialog on, no command
- * palette, no editor pane, and no self-updating
- * application shell.
+ * palette, and no self-updating application shell.
  *
  * Turning one of these capabilities on in `cli-host-profile.ts` requires an
  * actual headless implementation first; until then the manifest has no
@@ -20,8 +19,6 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'fileOpen',
   'filePickerImages',
   'fileSystemAccess',
-  'editorRevert',
-  'editorHost',
   'commandExecution',
   'appUpdater',
 ] as const;

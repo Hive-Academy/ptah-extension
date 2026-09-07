@@ -16,8 +16,6 @@ import {
   type HostProfile,
 } from '@ptah-extension/rpc-handlers';
 
-import { EditorRpcHandlers } from './services/rpc/handlers';
-
 export function createElectronRpcHostProfile(
   container: DependencyContainer,
   logger: Logger,
@@ -37,15 +35,11 @@ export function createElectronRpcHostProfile(
       filePicker: true,
       filePickerImages: true,
       fileSystemAccess: true,
-      editorRevert: true,
-      editorHost: true,
       commandExecution: true,
       appUpdater: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,
-      'host.editorRevert': EditorRpcHandlers,
-      'host.editorPane': EditorRpcHandlers,
     },
     wiring: {
       worktree: true,

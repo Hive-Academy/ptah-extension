@@ -321,11 +321,6 @@ import type {
 } from './rpc/rpc-git.types';
 
 import type {
-  EditorRevertFilesParams,
-  EditorRevertFilesResult,
-} from './rpc/rpc-editor.types';
-
-import type {
   MemoryListParams,
   MemoryListResult,
   MemorySearchParams,
@@ -1303,65 +1298,6 @@ export interface RpcMethodRegistry {
   'workspace:registerFolder': {
     params: { path: string };
     result: { success: boolean; path: string; name: string; error?: string };
-  };
-  'editor:revertFiles': {
-    params: EditorRevertFilesParams;
-    result: EditorRevertFilesResult;
-  };
-  'editor:openFile': {
-    params: { filePath: string };
-    result: {
-      success: boolean;
-      content?: string;
-      filePath?: string;
-      error?: string;
-    };
-  };
-  'editor:saveFile': {
-    params: { filePath: string; content: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:getFileTree': {
-    params: { rootPath?: string };
-    result: {
-      success: boolean;
-      tree: Array<{
-        name: string;
-        path: string;
-        type: 'file' | 'directory';
-        children?: unknown[];
-      }>;
-      error?: string;
-    };
-  };
-
-  'editor:getDirectoryChildren': {
-    params: { dirPath: string };
-    result: {
-      success: boolean;
-      children: Array<{
-        name: string;
-        path: string;
-        type: 'file' | 'directory';
-      }>;
-      error?: string;
-    };
-  };
-  'editor:createFile': {
-    params: { filePath: string; content?: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:createFolder': {
-    params: { folderPath: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:renameItem': {
-    params: { oldPath: string; newPath: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:deleteItem': {
-    params: { itemPath: string; isDirectory: boolean };
-    result: { success: boolean; error?: string };
   };
   'file:read': {
     params: { path: string };
@@ -3498,15 +3434,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'workspace:removeFolder': true,
   'workspace:switch': true,
   'workspace:registerFolder': true,
-  'editor:revertFiles': true,
-  'editor:openFile': true,
-  'editor:saveFile': true,
-  'editor:getFileTree': true,
-  'editor:getDirectoryChildren': true,
-  'editor:createFile': true,
-  'editor:createFolder': true,
-  'editor:renameItem': true,
-  'editor:deleteItem': true,
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,

@@ -29,8 +29,8 @@ const NOOP_LOGGER = {
   trace: jest.fn(),
 } as unknown as Parameters<typeof createVscodeRpcHostProfile>[0];
 
-/** Electron-only surfaces: desktop editor pane, raw FS, PTY, updater,
- *  workspace lifecycle, and every SQLite/native-backed subsystem. */
+/** Electron-only surfaces: raw FS, PTY, updater, workspace lifecycle, and
+ *  every SQLite/native-backed subsystem. */
 export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'corpus:build',
   'corpus:delete',
@@ -54,14 +54,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'db:openBindingFolder',
   'db:reloadVec',
   'db:reset',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:deleteItem',
-  'editor:getDirectoryChildren',
-  'editor:getFileTree',
-  'editor:openFile',
-  'editor:renameItem',
-  'editor:saveFile',
   'embedder:retry',
   'embedder:status',
   'file:exists',

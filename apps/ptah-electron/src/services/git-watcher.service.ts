@@ -1,19 +1,18 @@
 /**
  * Git Watcher Service
  *
- * Despite the name, this service now drives BOTH git status push updates
- * AND generic workspace file-tree change notifications to the renderer.
- * The class name is preserved for backward compatibility with DI wiring
- * and call sites; functionally it is a workspace + git watcher hybrid.
+ * Despite the name, this service drives BOTH git status push updates AND
+ * per-file content-change notifications to the renderer. The class name is
+ * preserved for backward compatibility with DI wiring and call sites;
+ * functionally it is a workspace + git watcher hybrid.
  *
  * Responsibilities:
  *   1. Watch the .git directory (when present) and push `git:status-update`
  *      events whenever HEAD, index, or refs change. This replaced the
  *      frontend `git:info` polling loop with event-driven push.
  *   2. Watch the workspace root unconditionally (NOT gated on `.git`
- *      existence) and push `file:tree-changed` events for any create /
- *      delete / rename, so the renderer's file explorer auto-refreshes
- *      even in non-git workspaces.
+ *      existence) so an agent's working-tree edit schedules a `git status`
+ *      refresh even in a non-git workspace.
  *   3. Push `file:content-changed` events when the active editor file
  *      is modified externally.
  *
@@ -22,9 +21,11 @@
  * - .git/index     (staging area changes: git add/reset)
  * - .git/refs/     (new commits, remote updates, tag creation)
  *
- * Workspace file changes (unstaged modifications, file/folder CRUD) are
- * detected via the workspace-root watcher and coalesced through
- * TREE_DEBOUNCE_MS before being pushed.
+ * The file-tree refresh job (`scheduleTreeRefresh`, `FILE_TREE_CHANGED`) was
+ * removed in TASK_2026_385 Batch 4.3 along with the file explorer it fed —
+ * the workspace-root watcher below still schedules `git status` and
+ * content-change refreshes on every event, which is how an agent's
+ * working-tree edits keep surfacing at all.
  *
  * Replaces git:info polling with event-driven push, and also drives generic
  * workspace file watching.
@@ -45,37 +46,24 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * The four push message types this watcher emits.
+ * The two push message types this watcher emits.
  *
  * These are aliases for the shared `MESSAGE_TYPES` entries — the wire
  * strings are unchanged from the local constants they replaced
- * ('git:status-update', 'file:tree-changed', 'file:content-changed',
- * 'editor:reread-open-tabs'). Both sides of the wire now name the same
- * constant, so the frontend `MessageHandler` registrations cannot drift
- * from what this service broadcasts.
+ * ('git:status-update', 'file:content-changed'). Both sides of the wire now
+ * name the same constant, so the frontend `MessageHandler` registrations
+ * cannot drift from what this service broadcasts.
  */
 
 /** Message type used for pushing git status to the renderer. */
 const GIT_STATUS_UPDATE = MESSAGE_TYPES.GIT_STATUS_UPDATE;
 
-/** Message type used for pushing file tree invalidation to the renderer. */
-const FILE_TREE_CHANGED = MESSAGE_TYPES.FILE_TREE_CHANGED;
-
 /** Message type used for pushing file content change notifications to the renderer. */
 const FILE_CONTENT_CHANGED = MESSAGE_TYPES.FILE_CONTENT_CHANGED;
-
-/**
- * Message type used to ask the renderer to re-read every currently open
- * editor tab from disk. Emitted after a git operation (commit, checkout,
- * reset, push, branch switch) since git mutates files atomically via
- * rename, which fs.watch does not always surface as a per-file change.
- */
-const EDITOR_REREAD_OPEN_TABS = MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS;
 
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private treeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly contentChangeTimers = new Map<
     string,
@@ -123,7 +111,6 @@ export class GitWatcherService {
    * the ceiling is crossed.
    */
   private workspaceBurstStartedAt: number | null = null;
-  private treeBurstStartedAt: number | null = null;
   private gitOpsBurstStartedAt: number | null = null;
   private readonly contentChangeBurstStarts = new Map<string, number>();
 
@@ -136,14 +123,11 @@ export class GitWatcherService {
   /** Debounce interval for workspace file changes (ms). Longer to avoid noise. */
   private static readonly WORKSPACE_DEBOUNCE_MS = 2000;
 
-  /** Debounce interval for file tree refresh (ms). Batches bulk ops (git pull, npm install) without making routine file creation feel laggy. */
-  private static readonly TREE_DEBOUNCE_MS = 500;
-
   /**
    * Max-wait ceiling for the workspace `git status` channel (ms).
    *
-   * Four debounce windows. Under sustained churn this caps the shell-out at
-   * one `git status` per 8 s — the most expensive of the four channels, and
+   * Three debounce windows. Under sustained churn this caps the shell-out at
+   * one `git status` per 8 s — the most expensive of the three channels, and
    * the one whose staleness the user reads as a frozen decoration rather
    * than a missing refresh, so it buys the largest coalescing win per forced
    * fire. Eight seconds is also short enough that a decoration is never more
@@ -154,7 +138,7 @@ export class GitWatcherService {
   /**
    * Max-wait ceiling for the .git-operations channel (ms).
    *
-   * Four debounce windows, as with every 500 ms channel. A single git command
+   * Three debounce windows, as with every 500 ms channel. A single git command
    * writes HEAD, index and refs within milliseconds, so a burst that is still
    * alive 2 s later is churn rather than one operation — at that point the
    * pending commit/checkout is worth pushing even if more events follow.
@@ -162,19 +146,9 @@ export class GitWatcherService {
   private static readonly GIT_OPS_MAX_WAIT_MS = 2000;
 
   /**
-   * Max-wait ceiling for the file-tree refresh channel (ms).
-   *
-   * Four debounce windows. The push is a bare invalidation the renderer
-   * answers with one `editor:getFileTree`, so forcing it is cheap; 2 s keeps
-   * the explorer usable during a bulk operation instead of leaving it frozen
-   * until the operation ends.
-   */
-  private static readonly TREE_MAX_WAIT_MS = 2000;
-
-  /**
    * Max-wait ceiling for per-file content-change notifications (ms).
    *
-   * Four debounce windows. Timers here are per file path, so a burst only
+   * Three debounce windows. Timers here are per file path, so a burst only
    * ever means one file being rewritten repeatedly (a generator, a
    * formatter-on-save loop); 2 s bounds how long the open editor can show
    * stale content while still coalescing a normal save flurry.
@@ -348,12 +322,6 @@ export class GitWatcherService {
     }
     this.workspaceBurstStartedAt = null;
 
-    if (this.treeDebounceTimer) {
-      clearTimeout(this.treeDebounceTimer);
-      this.treeDebounceTimer = null;
-    }
-    this.treeBurstStartedAt = null;
-
     if (this.gitOpsDebounceTimer) {
       clearTimeout(this.gitOpsDebounceTimer);
       this.gitOpsDebounceTimer = null;
@@ -455,16 +423,16 @@ export class GitWatcherService {
   }
 
   /**
-   * Watch the workspace root recursively for both git status changes
-   * and structural changes (file add/delete/rename).
+   * Watch the workspace root recursively for git status changes and
+   * per-file content changes.
    *
-   * - All file events schedule a git status update (existing behavior).
-   * - 'rename' events (file add/delete) also schedule a file tree refresh
-   *   push to the renderer so the file explorer stays in sync.
+   * All file events schedule a git status update — this, not any dedicated
+   * `.git` watcher, is how an agent's or the user's working-tree edits
+   * surface at all.
    *
    * Events under an excluded directory are dropped before they can re-arm the
    * debounce timer — see `WATCH_IGNORED_DIRS` in `@ptah-extension/shared`,
-   * which is the single source of truth this and the file-tree builder share.
+   * the single source of truth for what this watcher ignores.
    *
    * NOTE: the exclusion applies HERE ONLY. The dedicated `.git/HEAD`,
    * `.git/index` and `.git/refs/` watchers armed via `watchFile` /
@@ -488,9 +456,6 @@ export class GitWatcherService {
             GitWatcherService.WORKSPACE_DEBOUNCE_MS,
             'workspace',
           );
-          if (eventType === 'rename') {
-            this.scheduleTreeRefresh();
-          }
 
           if (eventType === 'change' && filename) {
             this.scheduleContentChange(dirPath, filename);
@@ -534,47 +499,6 @@ export class GitWatcherService {
     maxWaitMs: number,
   ): boolean {
     return burstStartedAt !== null && Date.now() - burstStartedAt >= maxWaitMs;
-  }
-
-  /**
-   * Schedule a debounced file tree refresh push.
-   * Uses a longer debounce than git status to batch bulk operations (e.g. git pull).
-   *
-   * Bounded by TREE_MAX_WAIT_MS: continuous arrivals can delay the push, but
-   * never suppress it indefinitely.
-   */
-  private scheduleTreeRefresh(): void {
-    if (this.isDisposed) return;
-
-    this.treeBurstStartedAt ??= Date.now();
-
-    if (this.treeDebounceTimer) {
-      clearTimeout(this.treeDebounceTimer);
-      this.treeDebounceTimer = null;
-    }
-
-    const fire = (): void => {
-      this.treeDebounceTimer = null;
-      this.treeBurstStartedAt = null;
-      if (!this.isDisposed && this.broadcastFn) {
-        this.broadcastFn(FILE_TREE_CHANGED, {});
-      }
-    };
-
-    if (
-      GitWatcherService.burstExpired(
-        this.treeBurstStartedAt,
-        GitWatcherService.TREE_MAX_WAIT_MS,
-      )
-    ) {
-      fire();
-      return;
-    }
-
-    this.treeDebounceTimer = setTimeout(
-      fire,
-      GitWatcherService.TREE_DEBOUNCE_MS,
-    );
   }
 
   /**
@@ -624,11 +548,10 @@ export class GitWatcherService {
   }
 
   /**
-   * Schedule a debounced git-operation refresh: pushes git status AND
-   * tells the renderer to re-read every open editor tab from disk.
+   * Schedule a debounced git-operation refresh: pushes git status.
    *
    * Coalesces a flurry of .git/* events (a single git command can write
-   * HEAD, index, and refs in rapid succession) into one broadcast pair.
+   * HEAD, index, and refs in rapid succession) into one broadcast.
    * The originating `kind` is added to `pendingCauses` so consumers can
    * skip RPCs whose triggers never fired during the window.
    *
@@ -651,7 +574,6 @@ export class GitWatcherService {
       this.gitOpsBurstStartedAt = null;
       if (this.isDisposed || !this.broadcastFn) return;
       void this.fetchAndPush();
-      this.broadcastFn(EDITOR_REREAD_OPEN_TABS, {});
     };
 
     if (

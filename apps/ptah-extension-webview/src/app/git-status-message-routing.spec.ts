@@ -1,12 +1,22 @@
 /**
- * End-to-end renderer delivery spec for the four editor push message types
+ * End-to-end renderer delivery spec for the `git:status-update` push message
  * (C1 AC1/AC2/AC5, TASK_2026_173 batch 1).
  *
+ * Retargeted from `editor-message-routing.spec.ts` (TASK_2026_385 Batch 4.1):
+ * that spec covered both the editor's file-tree push messages and git's
+ * status push through the same `MESSAGE_HANDLERS` composition root. The
+ * editor half is gone along with `@ptah-extension/editor` — `EditorService`
+ * no longer exists, and three of the four editor message types it handled
+ * (`EDITOR_TAB_CONTENT_REVERTED`, `FILE_TREE_CHANGED`, `EDITOR_REREAD_OPEN_TABS`)
+ * were deleted from `MESSAGE_TYPES` entirely in Batch 4.4 — they have no
+ * surface left to reach. `FILE_CONTENT_CHANGED` survives: `DiffTabsService`
+ * still revalidates on it. The git half survives unchanged.
+ *
  * This is the composition-root half of C1: it wires the REAL
- * `MessageRouterService` to the REAL `EditorService` and `GitStatusService`
- * through the same `MESSAGE_HANDLERS` multi-provider registrations
- * `app.config.ts` uses, then dispatches genuine `window` `MessageEvent`s
- * carrying the exact wire strings the Electron git watcher broadcasts
+ * `MessageRouterService` to the REAL `GitStatusService` through the same
+ * `MESSAGE_HANDLERS` multi-provider registration `app.config.ts` uses, then
+ * dispatches a genuine `window` `MessageEvent` carrying the exact wire string
+ * the Electron git watcher broadcasts
  * (`apps/ptah-electron/src/services/git-watcher.service.ts`).
  *
  * It proves three things the unit specs cannot:
@@ -29,7 +39,6 @@ import {
   MessageRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { EditorService } from '@ptah-extension/editor/services';
 import { GitStatusService } from '@ptah-extension/git-ui';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
@@ -51,15 +60,13 @@ jest.mock('@ptah-extension/core', () => {
 });
 
 /**
- * The literals `git-watcher.service.ts` broadcasts. Hard-coded on purpose:
- * if a shared constant is ever edited, this spec fails rather than silently
- * agreeing with the new value.
+ * The literal `git-watcher.service.ts` broadcasts. Hard-coded on purpose:
+ * if the shared constant is ever edited, this spec fails rather than
+ * silently agreeing with the new value.
  */
 const WIRE = {
   gitStatusUpdate: 'git:status-update',
-  fileTreeChanged: 'file:tree-changed',
   fileContentChanged: 'file:content-changed',
-  editorRereadOpenTabs: 'editor:reread-open-tabs',
 } as const;
 
 function makeVscodeStub() {
@@ -93,9 +100,8 @@ function dispatch(type: string, payload?: unknown): void {
   );
 }
 
-describe('editor push-message delivery through MessageRouterService (C1)', () => {
+describe('git status push-message delivery through MessageRouterService (C1)', () => {
   let router: MessageRouterService;
-  let editor: EditorService;
   let gitStatus: GitStatusService;
 
   beforeEach(() => {
@@ -105,8 +111,7 @@ describe('editor push-message delivery through MessageRouterService (C1)', () =>
       providers: [
         { provide: VSCodeService, useValue: makeVscodeStub() },
         MessageRouterService,
-        // Mirrors app.config.ts exactly.
-        { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
+        // Mirrors app.config.ts.
         {
           provide: MESSAGE_HANDLERS,
           useExisting: GitStatusService,
@@ -115,38 +120,25 @@ describe('editor push-message delivery through MessageRouterService (C1)', () =>
       ],
     });
 
-    editor = TestBed.inject(EditorService);
     gitStatus = TestBed.inject(GitStatusService);
     // Constructing the router builds the handler map, which reads
-    // handledMessageTypes off both services (risk A-8).
+    // handledMessageTypes off the registered service (risk A-8).
     router = TestBed.inject(MessageRouterService);
   });
 
   afterEach(() => {
-    editor.stopFileTreeWatcher();
     gitStatus.stopListening();
     TestBed.resetTestingModule();
   });
 
-  it('constructs the router with both editor handlers registered (A-8)', () => {
+  it('constructs the router with the git handler registered (A-8)', () => {
     expect(router).toBeTruthy();
     expect(gitStatus.handledMessageTypes).toContain(WIRE.gitStatusUpdate);
-    expect(editor.handledMessageTypes).toEqual(
-      expect.arrayContaining([
-        WIRE.fileTreeChanged,
-        WIRE.fileContentChanged,
-        WIRE.editorRereadOpenTabs,
-      ]),
-    );
   });
 
   it('the shared constants hold the exact strings the watcher broadcasts (C1 AC2)', () => {
     expect(MESSAGE_TYPES.GIT_STATUS_UPDATE).toBe(WIRE.gitStatusUpdate);
-    expect(MESSAGE_TYPES.FILE_TREE_CHANGED).toBe(WIRE.fileTreeChanged);
     expect(MESSAGE_TYPES.FILE_CONTENT_CHANGED).toBe(WIRE.fileContentChanged);
-    expect(MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS).toBe(
-      WIRE.editorRereadOpenTabs,
-    );
   });
 
   it('delivers a raw git:status-update window message to GitStatusService (C1 AC5)', () => {
@@ -163,36 +155,13 @@ describe('editor push-message delivery through MessageRouterService (C1)', () =>
     expect(gitStatus.branchName()).toBe('delivered');
   });
 
-  it('delivers a raw file:tree-changed window message to EditorService (C1 AC5)', () => {
-    jest.useFakeTimers();
-    try {
-      editor.switchWorkspace('/ws/a');
-      mockRpcCall.mockClear();
-      editor.startFileTreeWatcher();
-
-      dispatch(WIRE.fileTreeChanged, {});
-      jest.advanceTimersByTime(500);
-
-      expect(mockRpcCall).toHaveBeenCalledWith(
-        expect.anything(),
-        'editor:getFileTree',
-        { rootPath: '/ws/a' },
-      );
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('drops every message once the services have stopped listening (C1 AC3)', () => {
+  it('drops every message once the service has stopped listening (C1 AC3)', () => {
     jest.useFakeTimers();
     try {
       gitStatus.switchWorkspace('/ws/a');
       gitStatus.startListening();
-      editor.switchWorkspace('/ws/a');
-      editor.startFileTreeWatcher();
 
       gitStatus.stopListening();
-      editor.stopFileTreeWatcher();
       mockRpcCall.mockClear();
 
       dispatch(WIRE.gitStatusUpdate, {
@@ -201,8 +170,6 @@ describe('editor push-message delivery through MessageRouterService (C1)', () =>
         isGitRepo: true,
         workspaceRoot: '/ws/a',
       });
-      dispatch(WIRE.fileTreeChanged, {});
-      dispatch(WIRE.editorRereadOpenTabs, {});
       jest.advanceTimersByTime(5000);
 
       expect(gitStatus.branchName()).not.toBe('after-stop');

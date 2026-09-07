@@ -11,10 +11,11 @@
  * to it via `rpc-host-profile.ts`'s `hostHandlers`, but the class itself is
  * ordinary library code with no `vscode`/`electron` import.
  *
- * This replaces `EditorRpcHandlers` as the `host.fileOpen` binding
- * (`apps/ptah-electron/src/rpc-host-profile.ts`), which used to read file
- * bytes for a Monaco tab. `EditorRpcHandlers` keeps serving `editor:openFile`
- * and the rest of its namespace unchanged; only the `file:open` binding moved.
+ * This took over `host.fileOpen` (`apps/ptah-electron/src/rpc-host-profile.ts`)
+ * from `EditorRpcHandlers`, which used to read file bytes back for a Monaco
+ * tab. That class and its whole `editor:` namespace were deleted with the
+ * editor library in TASK_2026_385 Phase 4, so this is now the only handler
+ * for the method.
  */
 
 import { injectable, inject } from 'tsyringe';

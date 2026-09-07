@@ -90,21 +90,6 @@ export interface RpcHandlerManifestEntry {
   readonly handler?: RpcHandlerCtor;
 }
 
-/**
- * Host-owned method tuples. These become `static readonly METHODS` on the
- * unified handler classes as each family moves into this library.
- */
-const EDITOR_PANE_METHODS = [
-  'editor:openFile',
-  'editor:saveFile',
-  'editor:getFileTree',
-  'editor:getDirectoryChildren',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:renameItem',
-  'editor:deleteItem',
-] as const satisfies readonly RpcMethodName[];
-
 export const RPC_HANDLER_MANIFEST = [
   // --- library-owned, every host --------------------------------------------
   {
@@ -358,16 +343,6 @@ export const RPC_HANDLER_MANIFEST = [
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
-  {
-    key: 'host.editorRevert',
-    methods: ['editor:revertFiles'],
-    requires: ['editorRevert'],
-  },
-  {
-    key: 'host.editorPane',
-    methods: EDITOR_PANE_METHODS,
-    requires: ['editorHost'],
-  },
 ] as const satisfies readonly RpcHandlerManifestEntry[];
 
 /** Every manifest key, for typed `hostHandlers` maps on host profiles. */

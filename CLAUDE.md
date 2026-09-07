@@ -60,7 +60,6 @@ ptah-extension/
 │   ├── core/                          # VSCodeService, MESSAGE_HANDLERS, RPC client
 │   ├── ui/                            # Floating-UI primitives (Native*) + legacy CDK
 │   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
-│   ├── editor/                        # Monaco + git
 │   ├── chat/                          # Orchestrator + ChatStore facade
 │   ├── chat-{state,streaming,routing,ui,types,execution-tree}/
 │   ├── canvas/                        # Multi-tile orchestra (gridstack, 9-tile cap)
@@ -296,7 +295,6 @@ per-lib `CLAUDE.md` yet; each entry below is the whole of its documentation.
 - [core](./libs/frontend/core/CLAUDE.md) — VSCodeService, MESSAGE_HANDLERS, RPC
 - [ui](./libs/frontend/ui/CLAUDE.md) — Floating-UI Native\* primitives
 - [markdown](./libs/frontend/markdown/CLAUDE.md) — ★ DOMPurify XSS chokepoint
-- [editor](./libs/frontend/editor/CLAUDE.md) — Monaco + git
 - [chat](./libs/frontend/chat/CLAUDE.md) — Chat orchestrator + ChatStore
 - [chat-state](./libs/frontend/chat-state/CLAUDE.md) — TabManager + ConversationRegistry
 - [chat-streaming](./libs/frontend/chat-streaming/CLAUDE.md) — Streaming write path
