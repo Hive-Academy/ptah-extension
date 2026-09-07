@@ -363,3 +363,155 @@ describe('git binary resolution', () => {
     expect(mockSpawn.mock.calls[0][0]).toBe('git');
   });
 });
+
+// ===========================================================================
+// IProcessSpawner routing — TASK_2026_383 Batch 11.3.
+//
+// `child_process.spawn` runs `CreateProcessW` on the CALLING thread, so an
+// inline git spawn freezes the Electron main process for its whole duration.
+// When a host supplies `options.spawner`, git must go through the port and the
+// inline `crossSpawn` must not be called at all; when it does not, the inline
+// path has to survive exactly as it was.
+// ===========================================================================
+describe('spawner routing', () => {
+  interface FakeHandle {
+    stdin: FakeChild['stdin'];
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    whenSpawned: Promise<number | null>;
+    pid: number | undefined;
+    killed: boolean;
+    kill: jest.Mock;
+    on: jest.Mock;
+  }
+
+  /** A `SpawnedProcessHandle` that emits the given output then closes. */
+  function makeFakeHandle(opts: {
+    stdout?: Buffer[];
+    stderr?: Buffer[];
+    exitCode?: number;
+    /** Emit `error` instead of `close`. */
+    error?: Error;
+  }): FakeHandle {
+    const emitter = new EventEmitter();
+    const handle: FakeHandle = {
+      stdin: {
+        write: jest.fn(),
+        end: jest.fn(),
+        on: jest.fn(),
+      },
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      whenSpawned: Promise.resolve(9191),
+      pid: undefined,
+      killed: false,
+      kill: jest.fn(),
+      on: jest.fn((event: string, listener: (...args: unknown[]) => void) => {
+        emitter.on(event, listener);
+      }),
+    };
+
+    setTimeout(() => {
+      for (const chunk of opts.stdout ?? []) handle.stdout.emit('data', chunk);
+      for (const chunk of opts.stderr ?? []) handle.stderr.emit('data', chunk);
+      if (opts.error) emitter.emit('error', opts.error);
+      else emitter.emit('close', opts.exitCode ?? 0);
+    }, 0);
+
+    return handle;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSpawn.mockImplementation(() => makeFakeChild({}));
+  });
+
+  it('spawns through the port and never touches cross-spawn', async () => {
+    const spawnProcess = jest.fn(() =>
+      makeFakeHandle({ stdout: [Buffer.from('## main\n')], exitCode: 0 }),
+    );
+
+    const result = await execGit(['status', '--porcelain=v2'], WS, {
+      spawner: { spawnProcess } as never,
+    });
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(result.stdout).toBe('## main\n');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('hands the port the resolved binary, argv, cwd and the deterministic env', async () => {
+    interface SpawnRequest {
+      command: string;
+      args: readonly string[];
+      cwd?: string;
+      env: Record<string, string | undefined>;
+    }
+    const seen: SpawnRequest[] = [];
+    const spawnProcess = jest.fn((request: SpawnRequest) => {
+      seen.push(request);
+      return makeFakeHandle({ exitCode: 0 });
+    });
+
+    await execGit(['status'], WS, {
+      spawner: { spawnProcess } as never,
+      env: { LC_ALL: 'de_DE.UTF-8' },
+    });
+
+    const request = seen[0];
+    expect(request.command).toBe(GIT_ABS);
+    expect(request.args).toEqual(['status']);
+    expect(request.cwd).toBe(WS);
+    expect(request.env['GIT_OPTIONAL_LOCKS']).toBe('0');
+    // A caller override still wins over the deterministic default.
+    expect(request.env['LC_ALL']).toBe('de_DE.UTF-8');
+  });
+
+  it('surfaces a non-zero exit code and stderr from the port path', async () => {
+    const spawnProcess = jest.fn(() =>
+      makeFakeHandle({
+        stderr: [Buffer.from('fatal: not a repo\n')],
+        exitCode: 128,
+      }),
+    );
+
+    const result = await execGit(['status'], WS, {
+      spawner: { spawnProcess } as never,
+    });
+
+    expect(result.exitCode).toBe(128);
+    expect(result.stderr).toBe('fatal: not a repo\n');
+  });
+
+  it('rejects when the port reports a spawn error', async () => {
+    const spawnProcess = jest.fn(() =>
+      makeFakeHandle({ error: new Error('ENOENT') }),
+    );
+
+    await expect(
+      execGit(['status'], WS, { spawner: { spawnProcess } as never }),
+    ).rejects.toThrow('ENOENT');
+  });
+
+  it('writes and closes stdin on the port path', async () => {
+    let handle: FakeHandle | undefined;
+    const spawnProcess = jest.fn(() => {
+      handle = makeFakeHandle({ exitCode: 0 });
+      return handle;
+    });
+
+    await execGit(['apply', '-'], WS, {
+      spawner: { spawnProcess } as never,
+      stdin: 'diff --git a/x b/x\n',
+    });
+
+    expect(handle?.stdin.end).toHaveBeenCalledWith('diff --git a/x b/x\n');
+  });
+
+  it('keeps the inline cross-spawn path when no spawner is supplied', async () => {
+    await execGit(['status'], WS);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+});
