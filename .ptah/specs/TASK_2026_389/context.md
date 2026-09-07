@@ -291,3 +291,51 @@ Out of scope (needs its own task after the above lands and is measured):
 - Exact wall-clock savings from gating warmup/gateway/membership on
   `PTAH_E2E` — should be measured with a before/after timing run once
   implemented, not estimated here.
+
+---
+
+## Addendum — `os.homedir()` is not isolated by the harness
+
+Added 2026-09-07, diagnosed by the session owning the MCP directory work and
+independently confirmed here.
+
+`apps/ptah-electron-e2e/src/specs/rpc-new-features.spec.ts:175` asserts
+`mcpDirectory:listOAuthConnected` returns an empty servers array on a fresh
+launch. It fails on this machine and has since 2026-08-25 — thirteen days
+before the MCP commit first suspected of causing it.
+
+**The harness isolates two things and not a third.** `launchPtah` gives each
+run its own `--user-data-dir` and its own SQLite database via `PTAH_DB_PATH`.
+It does not isolate `os.homedir()`. `apps/ptah-electron-e2e/CLAUDE.md` already
+states this plainly: "`--user-data-dir` moves Electron's userData, **not**
+`os.homedir()`".
+
+So any store that hardcodes a path under the home directory reads the
+developer's real data during a test. Confirmed in this tree:
+
+- `smithery-installed-manifest.ts:33` — `os.homedir()`, hardcoded.
+- `McpOAuthInstalledManifestStore` — same shape, reads
+  `~/.ptah/mcp-oauth-installed.json`, which on this machine holds one real
+  record written 2026-08-25.
+- The `~/.ptah/mcp-installed.json` intent store shares the root and holds a
+  real entry here too, so any future "fresh launch is empty" assertion over
+  `listInstalled` will fail identically.
+
+There is **no `PTAH_HOME` override anywhere in the tree** — verified. This
+would be a new seam, not a switch someone forgot to flip.
+
+**Why it matters beyond one test.** The failure is machine-dependent: it passes
+on CI and on any machine that has never connected an OAuth MCP server, and
+fails permanently for anyone who has. That is worse than a consistently red
+test, because it makes the suite's result depend on the developer's own
+history.
+
+**Fix**: give those stores a resolvable root instead of a hardcoded
+`os.homedir()`, and have `launchPtah` point it at a temp directory, exactly as
+it already does for `PTAH_DB_PATH`. Do not weaken the assertion — empty on a
+fresh launch is the correct test; the harness simply does not currently
+establish "fresh".
+
+This belongs here rather than with the MCP work: it is a harness isolation gap
+that happens to be observable through an MCP surface, and it sits beside the
+per-test boot cost and the no-workspace launches already recorded above.

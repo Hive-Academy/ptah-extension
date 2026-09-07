@@ -681,7 +681,7 @@ budget.
 
 ---
 
-## Batch 4.1: Delete the editor library — PENDING
+## Batch 4.1: Delete the editor library — COMPLETE (`05e725865`)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -689,7 +689,7 @@ budget.
 - Rationale: the whole project plus its workspace registrations.
 - Tasks: 1 | Depends on: Phase 3 complete (all four batches) | Parallel with: 4.2, 4.5
 
-### Task 4.1: remove libs/frontend/editor and every workspace reference — PENDING
+### Task 4.1: remove libs/frontend/editor and every workspace reference — COMPLETE
 
 - Files: DELETE `D:\projects\ptah-extension\libs\frontend\editor\**` (entire project), `D:\projects\ptah-extension\libs\frontend\tasks-ui\src\lib\no-editor-dependency.spec.ts`. MODIFY `D:\projects\ptah-extension\tsconfig.base.json` (drop the alias), `D:\projects\ptah-extension\.commitlintrc.json` (drop the `editor` scope), `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\electron-layout.service.ts`, `D:\projects\ptah-extension\CLAUDE.md` (module index)
 - Plan reference: context.md:84-93, implementation-plan.md:854-855, :911
@@ -701,7 +701,7 @@ budget.
 
 ---
 
-## Batch 4.2: Delete EditorRpcHandlers on both hosts — PENDING
+## Batch 4.2: Delete EditorRpcHandlers on both hosts — COMPLETE (`05e725865`)
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -709,7 +709,7 @@ budget.
 - Rationale: two handler classes plus their DI registrations; disjoint from 4.1.
 - Tasks: 1 | Depends on: Phase 3 complete | Parallel with: 4.1, 4.5
 
-### Task 4.2: remove the editor handler classes and their registrations — PENDING
+### Task 4.2: remove the editor handler classes and their registrations — COMPLETE
 
 - Files: DELETE `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\editor-rpc.handlers.ts` + `.spec.ts`, `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\editor-rpc.handlers.ts` + `.spec.ts`. MODIFY both `handlers\index.ts` files, `apps\ptah-electron\src\di\phase-4-handlers.ts`, `D:\projects\ptah-extension\eslint.config.mjs` (`APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION` — remove the two `editor-rpc.handlers.ts` entries)
 - Plan reference: context.md:88, implementation-plan.md:916
@@ -719,7 +719,7 @@ budget.
 
 ---
 
-## Batch 4.3: Watcher reduction and exclusion-set collapse — PENDING
+## Batch 4.3: Watcher reduction and exclusion-set collapse — COMPLETE (`05e725865`)
 
 - Recommended executor: backend-developer
 - Fallback executor: none
@@ -727,7 +727,7 @@ budget.
 - Rationale: the watcher change the task carries after Phase 4; coupled to 4.2 because it inherits that spec's assertions.
 - Tasks: 1 | Depends on: 4.2
 
-### Task 4.3: drop the tree job and collapse the two exclusion sets — PENDING
+### Task 4.3: drop the tree job and collapse the two exclusion sets — COMPLETE
 
 - Files: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.ts` + `.spec.ts`, `D:\projects\ptah-extension\libs\shared\src\lib\constants\workspace-scan.constants.ts` + `.spec.ts`
 - Plan reference: implementation-plan.md:625-683 (Component 12), context.md:97-103
@@ -743,7 +743,7 @@ budget.
 
 ---
 
-## Batch 4.4: Phase 4 contract set — PENDING
+## Batch 4.4: Phase 4 contract set — COMPLETE (`05e725865`)
 
 - Recommended executor: backend-developer
 - Fallback executor: none — do not split
@@ -751,7 +751,7 @@ budget.
 - Rationale: the last Component 13 pass. Closes the Phase 4 commit window.
 - Tasks: 1 | Depends on: 4.1, 4.2, 4.3
 
-### Task 4.4: remove the editor RPC surface, capabilities and push types — PENDING
+### Task 4.4: remove the editor RPC surface, capabilities and push types — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts` (interface `:626` + `RPC_METHOD_ENTRIES` `:3391`), `...\lib\types\messages\message-constants.ts` and `payload-map.ts` (`FILE_TREE_CHANGED`, `EDITOR_REREAD_OPEN_TABS`, `EDITOR_TAB_CONTENT_REVERTED`), `D:\projects\ptah-extension\libs\backend\rpc-handlers\src\lib\host-profile\manifest.ts` (`:99-112`, `:379-383`, `:384-388`), `...\host-profile\capabilities.ts` (`editorRevert` `:50`, `editorHost` `:52`), `D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts` (`'editor:'` `:67`), the three host profiles, the three expected-absent lists and their two `rpc-surface.spec.ts` files
 - Plan reference: implementation-plan.md:685-722, context.md:88-90
@@ -762,7 +762,7 @@ budget.
 
 ---
 
-## Batch 4.5: Showcase and perf close-out — PENDING
+## Batch 4.5: Showcase and perf close-out — COMPLETE (`259e61450`)
 
 - Recommended executor: devops-engineer
 - Fallback executor: CLI lane
@@ -770,7 +770,7 @@ budget.
 - Rationale: capture harness and scene files, decoupled from the build.
 - Tasks: 1 | Depends on: Phase 3 complete | Parallel with: 4.1, 4.2
 
-### Task 4.5: delete the editor tour, prewarm targeting and remaining editor specs — PENDING
+### Task 4.5: delete the editor tour, prewarm targeting and remaining editor specs — COMPLETE
 
 - Files: DELETE `D:\projects\ptah-extension\apps\ptah-electron-e2e\src\specs\editor\**` (what remains after Task 3.3's moves: `editor.spec.ts`, `file-ops-dialogs-top-layer.spec.ts`, `file-tree-windowing.spec.ts`, `perf-m2-electron-spotcheck.spec.ts`, `perf-m4-drag-cd.spec.ts`, `perf-m3-watcher-churn.{md,script.mjs}`), `...\src\showcase\editor-tour.scene.ts`, `...\src\showcase\scripts\editor-tour.json`. MODIFY `...\src\showcase\_harness\prewarm.ts`, `D:\projects\ptah-extension\apps\ptah-video-studio\FOLLOW-UP.md`, `D:\projects\ptah-extension\apps\ptah-docs\SCREENSHOTS.md`
 - Plan reference: implementation-plan.md:745-772, context.md:91-93, :140

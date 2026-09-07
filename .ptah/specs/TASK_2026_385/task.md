@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_385
-status: in_progress
+status: done
 type: REFACTORING
 title: >-
   Retire the IDE shell: carve libs/frontend/git-ui, delete explorer, tabs, terminal panel, search, quick-open, vim
