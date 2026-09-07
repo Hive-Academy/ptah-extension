@@ -84,6 +84,58 @@ inline banner, and refresh the ahead count on the failure path.
 
 ---
 
+## 3b. Hunk action buttons are unclickable at the dock's default width
+
+**Priority: high. This is a user-facing regression, not a test problem.**
+
+Found while migrating the git e2e specs (Batch 3.3), and confirmed against the
+source.
+
+The hunk action cluster (Stage / Unstage / Discard) is a floating Monaco
+content widget anchored at the selected hunk
+(`diff-view.component.ts:605`, `syncHunkWidget` at `:1567`). Its CSS is
+`white-space: nowrap` — and the component's own comment at `:683` says that
+exists to stop the buttons wrapping "when the modified pane is narrow", so the
+risk was already known.
+
+The dock makes the pane narrow enough to trigger it. `DEFAULT_EDITOR_WIDTH` is
+700 px (`electron-layout.service.ts:34`), and `git-dock.component.ts:52` spends
+256 px of that on the `w-64` source-control sidebar. That leaves a **~444 px
+diff pane**. The three-button `nowrap` cluster overflows the visible width, and
+its rightmost buttons land under Monaco's own vertical scrollbar, which paints
+on top and swallows the click.
+
+Evidence from the e2e run — the click is intercepted, not missing:
+
+```
+locator resolved to <button ... data-testid="hunk-widget-revert" ...>Discard…</button>
+<div class="slider"></div> from <div ... class="visible scrollbar vertical">…</div>
+  subtree intercepts pointer events
+```
+
+`hunk-widget-stage`, the leftmost button, never failed — only the buttons
+further right collide. That asymmetry is the signature of the overflow.
+
+**This ships to users.** The same dock, the same 700 px default and the same
+collision apply to anyone who has not dragged the divider wider. Discard and
+Unstage are simply not clickable out of the box.
+
+It is a consequence of hosting the diff in a narrow docked sidebar instead of
+the old `ptah-editor-panel`'s wide main-content tab area, so it did not exist
+before this task.
+
+**The e2e specs work around it** by resizing the Electron window to 2200x1000
+before interacting. That is a test-side fix and deliberately does NOT hide the
+product defect — `diff-view.component.ts` was left untouched.
+
+**Fix**: a design decision, and it belongs to TASK_2026_386 with the dock's
+other UI work. Either raise the dock's default width, or let the widget cluster
+wrap instead of overflowing, or drop the button labels to icons at narrow
+widths. Whichever is chosen, pin it with a test at the default width, not a
+widened one.
+
+---
+
 ## 4. A non-git workspace shows an empty file list with no message
 
 **Priority: low.**
@@ -163,29 +215,84 @@ touched.
 **Fix**: scope the hook's lint to affected projects (`nx affected -t lint`), or
 to the staged files. Keep the full sweep in CI, where it belongs.
 
+**This is not only a delay.** Because the run exceeds a five-minute timeout, the
+hook gets killed mid-run, and a killed hook never restores lint-staged's stash —
+which silently reverts tracked files to HEAD. See item 8. Fixing this item
+removes the trigger for that data loss, so treat the two together.
+
 ---
 
-## 8. Files revert to HEAD on disk mid-run
+## 8. A killed pre-commit hook reverts tracked files to HEAD
 
-**Priority: high.** Tooling, not code. Unproven cause.
+**Priority: high.** Tooling, not code. **Cause identified 2026-09-07.**
 
-Reported twice on this branch, by two independent sessions. In-place edits to
-existing files disappear from the working tree while newly created files
-survive untouched. Phase 2 lost its edits to moved files this way and the
-reviewers, not the tests, caught it. A peer session reported the same shape in
+### The symptom
+
+In-place edits to tracked files disappear from the working tree while newly
+created files survive untouched. Seen at least three times on this branch by
+two independent sessions: Phase 2 lost its edits to the moved files (reviewers
+caught it, not the tests), and a peer session saw the same shape in
 `libs/frontend/marketplace` and `libs/backend/rpc-handlers`.
 
-The leading hypothesis, from that peer and **not proven**, is a stale editor
-buffer: a file already open in the editor holds an older in-memory copy, an
-agent writes the file on disk, and the editor later saves its stale buffer over
-that write. A newly created file has no buffer to overwrite, which matches the
-selective shape and the fact that reverted files came back looking like clean
-HEAD rather than corrupted.
+### The cause
 
-**Discriminator if it recurs**: check unsaved editor buffers at that moment. An
-unsaved buffer for the reverted file confirms the hypothesis; a clean result
-rules it out and points elsewhere.
+**`lint-staged`'s stash, plus a killed hook.** `.husky/pre-commit` runs
+`npx lint-staged --concurrent false`, and lint-staged's default path opens by
+stashing the working tree ("Backing up original state in git stash"), runs its
+tasks, then restores. **A hook killed before the restore step never puts the
+stash back.** Tracked files revert to their HEAD version; newly created files
+survive because they have no HEAD version to revert to. That is exactly the
+selective shape observed, and it explains why reverted files came back looking
+like clean HEAD rather than corrupted.
+
+`--no-stash` is **not** the fix and must not be added back — the hook's own
+comment records why (TASK_2026_224): in lint-staged 16 it implies
+`--no-hide-partially-staged`, so tasks run against the full working tree and
+the post-task `git add` stages whatever is on disk.
+
+An earlier hypothesis on record — a stale editor buffer overwriting an agent's
+disk write — was **withdrawn by the session that proposed it** once the stash
+mechanism was found. Do not chase it.
+
+### What triggers the kill here
+
+Item 7. The all-project `nx lint` genuinely needs more than five minutes, so
+any five-minute command timeout around `git commit` kills the hook mid-run.
+Measured 2026-09-07: exactly that sequence produced both a stale
+`.git/index.lock` and the reversion.
+
+### Recovery
+
+**The lost work is recoverable.** The stash entry survives as a dangling
+object:
+
+```
+git fsck --unreachable | grep commit
+git stash apply <sha>
+```
+
+Check this **before** re-editing anything, and before making further commits —
+they make the entry harder to find.
+
+### The quieter second route
+
+After a successful hook run, `format:write` has rewritten files on disk while
+the index still holds the pre-format copy, so `git status` shows `MM` on files
+whose worktree already matches HEAD. Harmless alone. But a later
+`git commit` **without** a pathspec commits those stale index copies over good
+work. Clear them with a plain `git add` on your own paths.
+
+Note the interaction the hook's own comment documents: `git commit -- <paths>`
+means `--only`, which commits the **working tree** content of those paths and
+bypasses the index. Verify `git diff -- <paths>` is empty before relying on it.
+
+### Fixes
+
+1. Raise or remove the five-minute timeout around any `git commit` in this
+   repository. The kill is what causes the data loss.
+2. Do item 7 — scope the hook's lint to affected projects so it finishes well
+   inside any timeout.
 
 **Interim guard, already in use**: after any batch that edits files in place,
-re-read each one and confirm the change survived before calling the batch done.
-Never trust a batch report that says green.
+re-read each file and confirm the change survived before calling the batch
+done. Never trust a batch report that says green.
