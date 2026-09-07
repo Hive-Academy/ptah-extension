@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_383
-status: in_progress
+status: in_review
 type: REFACTORING
 title: >-
   Silent-degradation audit, backup off the main thread, and post-boot RPC jank (TASK_2026_380 follow-ups)

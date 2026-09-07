@@ -90,6 +90,59 @@ Latent: only reached when `safeStorage` itself is unavailable.
 - **Trigger/owner**: `apps/ptah-electron` owner. One `try` boundary move plus a
   spec that forces `safeStorage` unavailable on a non-Linux platform.
 
+### 1.6 The pre-migration backup blocks the host thread for 11–75 s — no batch, own task needed
+
+**Where**: `libs/backend/persistence-sqlite/src/lib/migration-runner.ts:87-101` —
+awaits a full copy-and-validate of the ~1 GB database whenever
+`pending.length > 0`, on the first boot after an update ships a migration.
+Measured by Batch 9/12 (`batches.md:1503-1520`, `:2078-2117`): **11.0-12.5 s on
+a quiet machine, 75.1 s on a contended one.**
+
+Track B's own charter target — no main-thread lag spike attributable to the
+backup — is already met: the copy and its `quick_check` run in the integrity
+worker, off the host thread (Batches 6-8). What remains is not a
+thread-placement defect but a deliberate **blocking `await`**: every candidate
+remedy (skip the backup for additive-only migrations, run it after the
+migration instead of before, use a delta or hard-link copy, gate it on file
+size, or surface it as visible progress) trades durability for latency.
+
+- **Why deferred**: choosing among those remedies is architecture, not
+  decomposition — the team-leader explicitly declined to invent one inside
+  Batch 12, to avoid `implementation-plan.md` and this file disagreeing about
+  the Track B design (`batches.md:1514-1520`).
+- **Trigger/owner**: open a separate task with `software-architect`. This is
+  the single largest latency item this task measured — its 11-75 s dwarfs
+  everything Batches 10 and 11 buy back combined (well under 1 s).
+
+### 1.7 `config:models-list` regressed 1175 → 2039 ms median — cause unconfirmed
+
+**Where**: `config:models-list` handler duration, measured by Batch 12.2's
+after-measurement (`batch-12-2-after-measurement.md`, "Handler durations" and
+"`config:models-list` is not explained" sections). Median went from 1175 ms
+(Batch 9 before-measurement) to 2039 ms (Batch 12.2 after-measurement),
+**consistent across all three after-runs** (1560 / 2039 / 2249 ms). This
+handler was already off-thread before this task (TASK_2026_353), so the
+"work moved off the main thread, wall time goes up" explanation that accounts
+for the `git:*` regressions (Task 11.3) does not obviously apply here.
+
+Batches 11.1 (persist the SDK model catalog) and 11.2 (persist the CLI health
+verdict) are the only changes on this path in this task. Neither report
+(`batch-11-report.md`) identifies a mechanism by which persistence would add
+~900 ms to the median case, and Batch 12.2's cross-boot test is itself
+inconclusive on whether persistence helps or hurts
+(`batch-12-2-after-measurement.md`, "Cross-boot persistence — inconclusive":
+`config:models-list` improved boot-to-boot on one pair, while
+`auth:getAuthStatus` and `session:list` moved the wrong way in the same test).
+
+- **This is recorded as an open question, not a diagnosis.** Do not carry
+  forward a root cause that was not confirmed — the source report is explicit
+  that "this regression has no confirmed cause" and should not be written up
+  as if it does.
+- **Trigger/owner**: whoever picks up 11.1/11.2 follow-up work. Needs its own
+  instrumentation pass (e.g. isolate `restorePersistedCatalog` /
+  `restorePersistedVerdict` timing from the rest of the handler) before any fix
+  is proposed.
+
 ### 1.5 Pre-existing test-suite instability under concurrency
 
 **Where**: repo-wide, but the named sightings are
@@ -188,6 +241,110 @@ It does not, and Batch 2 correctly declined to invent one.
 
 - **Trigger/owner**: `cli-engine` owner, if and when the CLI grows a terminal boot
   transition of its own. Do not add one solely for the summary.
+
+### 2.7 `ModelStateService` needs an idempotent `ensureLoaded()` before `:151` can be deleted
+
+**Where**: `libs/frontend/core/src/lib/services/model-state.service.ts:150-153`
+— the constructor calls `this.loadModels()` unconditionally. Task 10.2 asked
+for this call to be deleted on the theory that `TabManagerService.createTab()`
+(`libs/frontend/chat-state/src/lib/tab-manager.service.ts:782`, which resolves
+through `MODEL_REFRESH_CONTROL` to `ModelStateService.refreshModels()` →
+`loadModels`) already covers it. Task 10.2 was **stopped, not implemented**
+(`batch-10-report.md`, "Task 10.2 — drop the constructor model fetch —
+STOPPED, NOT IMPLEMENTED"): `createTab()` is never called on the boot path —
+every one of its six production callers is user-initiated (new-session
+confirm, keyboard shortcut, send-with-no-tab, task-prompt launch, canvas tile
+add, tribunal run) — and
+`libs/frontend/chat/src/lib/components/molecules/chat-input/model-selector.component.ts`
+has no lazy-load path of its own (no `ngOnInit`, `ensureLoaded`, or
+`refreshModels()` call anywhere in the file; it only reads
+`modelState.availableModels()` at `:197`/`:207`/`:217` and `isLoaded()` at
+`:106`). Deleting `:151` as-is would leave a user who boots into restored tabs
+looking at an empty model dropdown until they create a tab, switch workspace,
+or open settings.
+
+**Proposed pattern**: give `ModelStateService` an idempotent `ensureLoaded()`
+— the shape `PluginCatalogService.ensureLoaded()` and
+`AuthStateService.loadAuthStatus()` already use in this repo
+(`libs/frontend/core/src/lib/services/auth-state.service.ts:575-591`) — and
+have `ModelSelectorComponent` call it on mount. Only then delete `:151`. This
+moves the fetch from "boot" to "first render of the control that needs it"
+without losing it, trading the constructor call for a per-component guard.
+
+- **Why deferred**: it is a model-loading design change spanning two libs
+  (`libs/frontend/core` and the `chat` lib's `model-selector.component.ts`),
+  which Batch 10's mandate explicitly forbade the executor from making.
+- **Trigger/owner**: its own frontend task. Acceptance should include: no
+  constructor-fired `config:models-list` on cold boot, and the model dropdown
+  still populates without a user first creating a tab, switching workspace, or
+  opening settings — the exact gap 10.2 stopped to avoid introducing silently.
+
+### 2.8 A shared, workspace-scoped session-metadata cache (`type:data-access`)
+
+**Where**: `libs/frontend/dashboard/src/lib/services/session-analytics-state.service.ts:225-230`
+issues its own `session:list` RPC —
+`{ workspacePath, limit: METADATA_LOAD_LIMIT, offset: 0, since: this.rangeSinceMs(this._dateRange()) }`
+— separately from
+`libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:218-222`'s
+`{ workspacePath, limit: max(SESSIONS_PAGE_SIZE=30, currentOffset), offset: 0 }`
+(no `since`). Task 10.3 asked for the dashboard to consume the chat loader
+instead; the executor declined (`batch-10-report.md`, "What I did NOT do — the
+dashboard rewire, and why") for two blocking reasons that are still true:
+
+1. **They are different queries, not a duplicate.** Serving the dashboard from
+   the loader's signals would silently drop the date range the whole analytics
+   surface is built on, and cap results at the sidebar's 30-row page — a
+   behaviour change, not call-count hygiene.
+2. **It would cross a library boundary.** `libs/frontend/dashboard` does not
+   import `@ptah-extension/chat` today (confirmed via
+   `grep -rn "@ptah-extension/chat'" libs/frontend/dashboard/src` → no hits).
+   `SessionLoaderService` lives in the `chat` feature lib; making `dashboard`
+   depend on it to reuse one RPC is the wrong dependency direction for a
+   ~200 ms prize.
+
+**Proposed pattern**: a `session:list` call with a `since` bound belongs behind
+a shared, workspace-scoped session-metadata cache living in a new
+`type:data-access` lib that both `chat` and `dashboard` may depend on, rather
+than either depending on the other's feature lib.
+
+- **Trigger/owner**: a design task, not a batch fix — the token-inversion
+  needed to let two feature libs share one data-access lib is exactly the kind
+  of change Batch 10's file-disjoint mandate forbade it from making.
+
+### 2.9 Task 10.3's "exactly one `session:list`" acceptance criterion cannot be met by single-flight alone
+
+**Where**: `batches.md`'s Batch 10 acceptance line requires "exactly one
+`session:list`" in the boot window. Batch 12.2's after-measurement
+(`batch-12-2-after-measurement.md`, "Call counts") recorded **2 / 2 / 2** for
+`session:list` across all three after-runs — unchanged from the Batch 9
+before-measurement's **2 / 2 / 2** — and states plainly: "Task 10.3 did not
+reduce the call count... The single-flight joins callers whose requests
+overlap. The two boot-window calls do not overlap, so each still issues its
+own read. The remedy is correctly implemented and does not do what the
+acceptance line claimed it would."
+
+The single-flight landed correctly in
+`libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts`
+(`loadSessionsInFlight` plus `runLoadSessions()`, `batch-10-report.md` "Task
+10.3"), and `loadSessions()` has five independent production callers
+(`chat-lifecycle.service.ts:55,248,319`,
+`session-stats-aggregator.service.ts:157`,
+`chat-message-handler.service.ts:415`) driven by different broadcasts. A
+single-flight only coalesces calls that are **concurrently in flight**; two
+callers that fire sequentially, one after the other's RPC has already
+resolved, each get their own read regardless.
+
+- **The implementation is correct; the acceptance criterion was wrong.** No
+  fix is owed against the current spec.
+- **What would actually reduce the count**: either (a) the shared
+  session-metadata cache in 2.8, so any of the five callers reads a
+  boot-scoped memo instead of re-issuing an RPC, or (b) identify which two of
+  the five callers actually fire inside the boot window and gate the second
+  behind the first's already-resolved result rather than behind
+  concurrency alone.
+- **Trigger/owner**: whoever writes the follow-up task for 2.8, since the
+  remedy is the same cache; correct the acceptance line in the follow-up
+  task's own spec rather than reopening this one.
 
 ### 2.6 Two Batch 2 sites left without a code
 
@@ -451,23 +608,47 @@ Found while running Batch 9 on 2026-09-07. The probe is the tool this task
 depends on to answer its own gate question, so its defects cost measurement
 time directly. None was fixed — Batch 9 owns no files.
 
-### P-1 — intermittent attach failure
+### P-1 — intermittent attach failure — PRIORITY RAISED (Batch 12.2)
 
 `electronApplication.evaluate: Execution context was destroyed` aborts the run
-before the probe installs. Measured rate this session: roughly **1 attempt in
-3**, with one stretch of 4 consecutive failures. Batch 9 needed seven-plus
+before the probe installs. Measured rate during Batch 9: roughly **1 attempt in
+3**, with one stretch of 4 consecutive failures; Batch 9 needed seven-plus
 attempts to collect three runs.
 
-The application is not at fault. A direct `electron.exe main.mjs` launch with
-identical arguments, database and environment boots correctly through
-`SQLite connection opened + migrated successfully`. Two prior sessions hit the
-same failure and attributed it to transient load after a cache-eviction pass.
-That explanation is incomplete — the failure also occurs with no eviction
-before it. It is not tied to boot speed either: a controlled check on
-steady-state boots succeeded 2 of 3.
+**It got materially worse during Batch 12.2's after-measurement**
+(`batch-12-2-after-measurement.md`, "Probe reliability degraded further"):
 
-**Suggested fix**: retry `app.evaluate(INSTALL_PROBE)` a few times with a short
-delay before giving up, rather than exiting on the first rejection.
+- One run needed **11 attempts**, another **12**, without ever succeeding.
+- **One three-run loop failed every attempt across all three runs.**
+- 86 leftover `ptah-bootprobe-*` directories had accumulated; removing them did
+  **not** restore the earlier success rate.
+- Collecting 3 usable runs took **well over 30 probe launches** in total.
+
+Disk space was ruled out (329 GB free throughout both sessions) and the
+application was ruled out both times: a direct `electron.exe main.mjs` launch
+with identical arguments, database and environment booted correctly through
+`SQLite connection opened + migrated successfully` every time it was tried.
+Two prior sessions had attributed the failure to transient load after a
+cache-eviction pass; that explanation is incomplete — the failure also occurs
+with no eviction before it, and Batch 12.2 saw the failure rate roughly
+triple with no eviction-related change to the measurement method.
+
+**Priority argument — from measurement cost, not from a guessed root cause**:
+this is not a cosmetic flake. Every batch in this task that needed a boot-time
+measurement paid for it in probe launches, not just wall-clock time: Batch
+12.2 spent more than 30 launches to produce the 3 runs its verdict rests on.
+At the rate Batch 12.2 measured (worse than 1-in-3, with full 3-attempt
+loops failing outright), the next task that needs this probe cannot budget for
+it reliably — a "collect 3 runs" step could cost anywhere from 3 to 30+
+launches with no way to predict which, in a probe used specifically to gate
+`software-architect`-level go/no-go decisions (see 1.6, 1.7). That
+unpredictability, not the failure itself, is what should move this above
+"file it and move on."
+
+**Suggested fix (unchanged)**: retry `app.evaluate(INSTALL_PROBE)` a few times
+with a short delay before giving up, rather than exiting on the first
+rejection. No root cause is asserted here beyond what was ruled out above —
+disk space and the application itself.
 
 ### P-2 — the failure path prints no diagnosis
 

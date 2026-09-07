@@ -633,3 +633,186 @@ re-weigh Batch 10/11's five remedies by the corrected magnitudes above
 (prioritizing `git:info`), decide whether the pre-migration backup needs its
 own batch, and treat the still-unmet criterion 2 as an open item the current
 plan does not resolve.
+
+---
+
+## Batch 12.2 — after-measurement
+
+### Scope
+
+- **User request**: with Batches 10 and 11 landed (head `1269a187c`), compare
+  the after-measurement in `batch-12-2-after-measurement.md` against the
+  before-measurement in `batch-9-raw-measurement.md`, decide whether 380
+  criterion 2 (event-loop lag ≤ 500 ms) is now met, and judge each acceptance
+  criterion in `batches.md` against what the numbers actually show. The
+  measurement itself was already run; this section is analysis only — no new
+  probe runs were taken.
+- **Method comparability**: both measurements used the identical worktree,
+  the identical pre-migrated version-42 database copy, the identical 32 GB
+  cold-cache eviction pass before each run, and a quiet machine. Nothing
+  about the method changed between before and after, so a difference in the
+  numbers is attributable to the code that changed, not to the measurement.
+- **Criteria tested**: 380 criterion 2 (event-loop lag), Batch 10.1's
+  `autocomplete:agents` call-count claim, Batch 10.3's "exactly one
+  `session:list`" claim, Batch 11.1/11.2's cross-boot persistence claim, and
+  the `git:*` / `config:models-list` duration deltas.
+- **Deliberately not tested**: no new probe runs, no re-measurement of the
+  probe-reliability defects logged in `batch-9-raw-measurement.md` beyond
+  noting they got worse (see below).
+
+### Before/after — event-loop lag (380 criterion 2)
+
+| Run | Before (Batch 9) |        After |
+| --- | ---------------: | -----------: |
+| 1   |         493.6 ms | **460.3 ms** |
+| 2   |         547.4 ms | **485.2 ms** |
+| 3   |        1502.6 ms | **449.1 ms** |
+
+**380 criterion 2 is now MET.** All three after-runs land under the 500 ms
+ceiling, versus 2 of 3 before-runs exceeding it. The 1502.6 ms outlier is
+gone and the spread across the three runs narrowed from 1009 ms to 36 ms.
+This is the headline result of this measurement, and it is the criterion
+Batch 11.3 (routing `git:info` off-thread) was promoted specifically to
+address. The numbers support that promotion.
+
+### Before/after — call counts
+
+| Handler               | Before (A/B/C) | After (A/B/C) |
+| --------------------- | -------------- | ------------- |
+| `autocomplete:agents` | 1 / 1 / 1      | **0 / 0 / 0** |
+| `config:models-list`  | 2 / 2 / 2      | 2 / 2 / 2     |
+| `session:list`        | 2 / 2 / 2      | 2 / 2 / 2     |
+| Total RPCs per run    | 26             | 25            |
+
+Batch 10.1's `autocomplete:agents` elimination is confirmed by measurement —
+the handler no longer appears in the boot window at all, in any of the three
+after-runs.
+
+Batch 10.3's acceptance criterion in `batches.md` reads "exactly one
+`session:list`" — that criterion is **NOT MET**. The call count is still 2
+per run, unchanged from before. The single-flight guard the implementation
+adds only joins callers whose requests overlap in time; the two boot-window
+callers here do not overlap, so each still issues its own read and its own
+handler call. The implementation is correct against what it was built to
+do — it is the acceptance line that claimed a stronger outcome than the
+single-flight mechanism can deliver. Both halves are true at once: the code
+does what a single-flight guard does, and the boot window still shows two
+calls.
+
+### Before/after — handler durations (median of first call per run)
+
+| Handler               |  Before |   After | Change          |
+| --------------------- | ------: | ------: | --------------- |
+| `config:models-list`  | 1175 ms | 2039 ms | **slower**      |
+| `git:info`            |  436 ms |  638 ms | **slower**      |
+| `git:branches`        |  366 ms |  548 ms | **slower**      |
+| `git:lastCommit`      |  284 ms |  503 ms | **slower**      |
+| `git:stashList`       |  174 ms |  547 ms | **slower**      |
+| `auth:getAuthStatus`  |  734 ms |  747 ms | flat            |
+| `session:list`        |  212 ms |  228 ms | flat            |
+| `autocomplete:agents` |  500 ms |       — | call eliminated |
+| `editor:getFileTree`  |  148 ms |   59 ms | faster          |
+
+### The git wall-time regression, explained
+
+Every `git:*` handler got slower in wall time while event-loop lag improved
+across the same three runs. This is not a contradiction — it is the expected
+signature of Batch 11.3's remedy (moving the git spawn off the main thread),
+not evidence against it. The probe measures wall time from request to
+response (`answeredAt - sentAt`). An off-thread spawn does not finish
+sooner; it stops blocking the event loop while it runs. The added hand-off
+cost to move the work off-thread and back shows up in the probe's duration
+column, and the benefit (the main thread staying responsive while the spawn
+runs) shows up in the lag table, not the duration table. The probe is
+recording the trade's cost column and missing its benefit column, by
+construction.
+
+Whether roughly 200 ms of extra wall time per git call is a good trade for
+the lag improvement in the section above is a judgement call, not something
+this measurement decides. It is stated plainly here, with both sides of the
+trade visible, rather than resolved one way.
+
+### `config:models-list` regression — no confirmed cause
+
+Median first-call duration moved from 1175 ms to 2039 ms, consistent across
+all three after-runs (1560 / 2039 / 2249 ms). Batches 11.1 and 11.2 both
+touched this handler's path. The off-thread explanation that accounts for
+the `git:*` regressions does not obviously apply here, because
+`config:models-list` was already off-thread before this task
+(TASK_2026_353). **This regression has no confirmed cause in the data
+gathered.** No cause is asserted here, and none should be inferred from
+what Batches 11.1/11.2 changed until it is investigated directly.
+
+### Cross-boot persistence — inconclusive
+
+Batches 11.1 and 11.2 persist the SDK model catalog and the CLI health
+verdict across boots. The three before/after runs above cannot show that
+benefit at all: each run copies a fresh database, so nothing a prior boot
+persisted survives into the next run.
+
+A separate two-boot test ran the probe twice against the same database, the
+second boot reading whatever the first boot wrote:
+
+| Handler              | Boot 1         | Boot 2        |
+| -------------------- | -------------- | ------------- |
+| `config:models-list` | 1866 / 1377 ms | 1461 / 513 ms |
+| `auth:getAuthStatus` | 292 / 0 ms     | 792 / 0 ms    |
+| `git:info`           | 648 ms         | 647 ms        |
+| `session:list`       | 3 / 2 ms       | 175 / 118 ms  |
+
+`config:models-list` improved on the second boot, most clearly on its second
+call (1377 to 513 ms) — consistent with the persistence the remedy intends.
+But `auth:getAuthStatus` moved the wrong way (292 to 792 ms) and
+`session:list` moved the wrong way too. With one boot pair, and run-to-run
+noise already measured at this scale across the before/after runs above,
+**this test does not demonstrate the cross-boot persistence benefit.** It
+also does not refute it. A proper answer needs several boot pairs, which
+was not run for this batch. This is reported as inconclusive, not as a win
+and not as a refutation.
+
+### Probe reliability
+
+P-1 (the intermittent attach failure logged in `batch-9-raw-measurement.md`
+at roughly 1 attempt in 3) was markedly worse during this measurement: one
+run needed 11 attempts and another 12 without succeeding, one three-run loop
+failed every attempt, and 86 leftover `ptah-bootprobe-*` directories had
+accumulated (disk space was not the cause — 329 GB free throughout; a direct
+launch of the same build booted cleanly every time it was tried, so the
+application itself is not at fault). Collecting the 3 usable after-runs took
+well over 30 probe launches. This is worth carrying forward, not repeating
+here as new analysis — it does not change any of the before/after
+conclusions above, all of which rest on the runs that did succeed.
+
+### Verdict
+
+- **Criterion proven — 380 criterion 2 (event-loop lag ≤ 500 ms) is now
+  MET.** All three after-runs (460.3 / 485.2 / 449.1 ms) sit under the
+  500 ms ceiling, against 493.6 / 547.4 / 1502.6 ms before, with the worst
+  outlier eliminated. This validates promoting Batch 11.3.
+- **Criterion proven — Batch 10.1's `autocomplete:agents` elimination.** Call
+  count went from 1 per run to 0 per run in every after-run.
+- **Criterion NOT MET — Batch 10.3's "exactly one `session:list`".** Call
+  count is unchanged at 2 per run. The single-flight implementation is
+  correct; the acceptance criterion described a stronger outcome (overlap
+  coalescing does not apply to two non-overlapping boot-window callers) than
+  the mechanism delivers.
+- **Not proven, not refuted — Batch 11.1/11.2 cross-boot persistence.** The
+  one available two-boot test shows one handler improving and two moving the
+  wrong way, at a noise scale that cannot separate signal from run-to-run
+  variance from a single pair.
+- **Visible trade, not a regression to fix blind — `git:*` wall-time cost.**
+  Every git handler got ~150-370 ms slower in wall time in exchange for the
+  lag ceiling being met. Whether that trade is worth it is a product
+  decision, not a test result.
+- **Open, uninvestigated — `config:models-list` regression (1175 → 2039 ms
+  median).** No cause identified in this data. Needs its own investigation
+  before Batches 11.1/11.2 are considered fully understood.
+- **Risks a reader should know about**: the cross-boot persistence claim is
+  resting on a single boot pair against a backdrop of large run-to-run
+  variance already documented in Batch 9 — do not treat "improved on boot 2"
+  as proof without more pairs. The `config:models-list` regression is real
+  and reproducible across all three after-runs but unexplained; do not let
+  the lag-ceiling win (which is real) crowd it out. Probe reliability (P-1)
+  degraded enough this run that any future measurement on this harness
+  should budget for it explicitly rather than assume Batch 9's ~1-in-3
+  failure rate still holds.
