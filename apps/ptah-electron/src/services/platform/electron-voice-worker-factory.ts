@@ -4,41 +4,12 @@
  * OS process, so a native ONNX abort kills only the child) and sends the `init`
  * config (ffmpeg path + model cache dir) immediately, before any request.
  */
-import electron, { type UtilityProcess } from 'electron';
-
-const { utilityProcess } = electron;
 import type {
   IVoiceWorkerProcess,
   IVoiceWorkerProcessFactory,
   VoiceWorkerInitMessage,
 } from '@ptah-extension/voice-providers';
-
-class ElectronVoiceWorkerProcess implements IVoiceWorkerProcess {
-  constructor(private readonly child: UtilityProcess) {}
-
-  postMessage(msg: unknown): void {
-    this.child.postMessage(msg);
-  }
-
-  on(event: 'message', cb: (msg: unknown) => void): void;
-  on(event: 'exit', cb: (code: number | null) => void): void;
-  on(
-    event: 'message' | 'exit',
-    cb: ((msg: unknown) => void) | ((code: number | null) => void),
-  ): void {
-    if (event === 'message') {
-      this.child.on('message', cb as (msg: unknown) => void);
-    } else {
-      this.child.on('exit', (code: number) =>
-        (cb as (code: number | null) => void)(code),
-      );
-    }
-  }
-
-  kill(): void {
-    this.child.kill();
-  }
-}
+import { ElectronUtilityWorkerProcess } from './electron-utility-worker-process';
 
 export class ElectronVoiceWorkerFactory implements IVoiceWorkerProcessFactory {
   constructor(
@@ -48,9 +19,10 @@ export class ElectronVoiceWorkerFactory implements IVoiceWorkerProcessFactory {
   ) {}
 
   spawn(): IVoiceWorkerProcess {
-    const child = utilityProcess.fork(this.workerPath, [], {
-      serviceName: 'ptah-voice-worker',
-    });
+    const child = ElectronUtilityWorkerProcess.fork(
+      this.workerPath,
+      'ptah-voice-worker',
+    );
     const init: VoiceWorkerInitMessage = {
       type: 'init',
       ffmpegPath: this.ffmpegPath,
@@ -59,6 +31,6 @@ export class ElectronVoiceWorkerFactory implements IVoiceWorkerProcessFactory {
     // Queued by Electron until the child's parent port is ready; delivered
     // before the first request the client posts synchronously after spawn().
     child.postMessage(init);
-    return new ElectronVoiceWorkerProcess(child);
+    return child;
   }
 }

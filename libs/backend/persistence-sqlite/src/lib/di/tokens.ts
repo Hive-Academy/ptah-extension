@@ -26,6 +26,23 @@ export const PERSISTENCE_TOKENS = {
    * falls back to the library default.
    */
   EMBEDDER_MODEL_CACHE_DIR: Symbol.for('PtahEmbedderModelCacheDir'),
+  /**
+   * IIntegrityWorkerProcessFactory — host-implemented spawner for the
+   * out-of-band integrity worker. Injected `{ isOptional: true }`: a host that
+   * registers none simply never runs an integrity check (VS Code registers no
+   * SQLITE_CONNECTION at all, so it has no database to check).
+   */
+  INTEGRITY_WORKER_PROCESS_FACTORY: Symbol.for(
+    'PtahIntegrityWorkerProcessFactory',
+  ),
+  /**
+   * Absolute path to the integrity worker entry (useValue: string). Read by the
+   * HOST's factory, not by this lib — the token lives here beside
+   * EMBEDDER_WORKER_PATH so both worker paths are registered the same way.
+   */
+  INTEGRITY_WORKER_PATH: Symbol.for('PtahIntegrityWorkerPath'),
+  /** SqliteIntegrityService — owns the due-decision and the worker dispatch. */
+  SQLITE_INTEGRITY_SERVICE: Symbol.for('PtahSqliteIntegrityService'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

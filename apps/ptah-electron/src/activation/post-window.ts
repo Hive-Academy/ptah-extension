@@ -20,6 +20,7 @@ import {
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 import type { BootCoordinator } from './boot-coordinator';
+import { createBootReadinessBroadcaster } from './boot-readiness-broadcaster';
 import { startMessagingGateway } from './start-messaging-gateway';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +56,11 @@ export async function registerPostWindow(
   const { container, resolvedStateStorage, setMainWindow, coordinator } =
     options;
   const refs = coordinator.refs;
+  // A second broadcaster instance, not the coordinator's. The coordinator's
+  // emitter fires on TRANSITIONS; this one replays the current state on a
+  // window load, which is not a transition. Both are stateless closures over
+  // the same container, so there is nothing to share.
+  const broadcastReadiness = createBootReadinessBroadcaster(container);
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
@@ -99,8 +105,17 @@ export async function registerPostWindow(
   // created inside the post-window boot, which has not even started yet, so
   // this is a NOTIFICATION rather than a trigger. The coordinator waits for
   // both before it starts the 3-second idle timer (TASK_2026_331 B1.T7).
-  mainWindow.webContents.once('did-finish-load', () => {
+  //
+  // `on`, not `once`: a renderer RELOAD fires `did-finish-load` again with a
+  // fresh Angular app that knows nothing about the boot. `notifyWindowLoaded`
+  // is idempotent (`warmupSettled`), and the re-emitted snapshot is what tells
+  // the reloaded renderer where the boot got to. This is a best-effort replay
+  // and does NOT replace the `boot:getReadiness` pull: this event fires before
+  // Angular installs its `message` listener, so the very first push is always
+  // lost by design.
+  mainWindow.webContents.on('did-finish-load', () => {
     coordinator.notifyWindowLoaded();
+    broadcastReadiness(coordinator.snapshot());
   });
   if (
     process.env['NODE_ENV'] === 'development' &&

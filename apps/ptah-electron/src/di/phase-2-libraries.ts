@@ -25,7 +25,7 @@ import {
 import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import {
   registerWorkspaceIntelligenceServices,
-  TypeScriptDiagnosticsProvider,
+  registerTypeScriptDiagnosticsProvider,
 } from '@ptah-extension/workspace-intelligence';
 import {
   registerSdkServices,
@@ -35,7 +35,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   registerHarnessSyncServices,
-  ALL_HARNESS_TARGET_FACTORIES,
   createPluginConfigSourceResolver,
   HARNESS_SYNC_TOKENS,
   type HarnessPluginConfigReader,
@@ -46,8 +45,7 @@ import {
 } from '@ptah-extension/auth-providers';
 import {
   registerCliAgentRuntimeServices,
-  createHarnessCliDetector,
-  type HarnessCliDetectionReader,
+  createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -95,6 +93,7 @@ import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
 import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-embedder-worker-factory';
+import { ElectronIntegrityWorkerFactory } from '../services/platform/electron-integrity-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -167,15 +166,7 @@ export function registerPhase2Libraries(
   // Override the Phase 0 diagnostics stub with the real TypeScript compiler
   // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
   // registered. PtahAPIBuilder resolves DIAGNOSTICS_PROVIDER in Phase 4 (later).
-  const tsDiagsProvider = new TypeScriptDiagnosticsProvider(
-    container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
-  );
-  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
-    useValue: tsDiagsProvider,
-  });
-  logger.info(
-    '[Phase 2] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
-  );
+  registerTypeScriptDiagnosticsProvider(container, logger);
   registerAuthProvidersServices(container, logger);
   // MUST precede registerSdkServices: PluginLoaderService injects the external
   // consent store as its allowlist source. Its late `initialize()` runs from
@@ -186,20 +177,13 @@ export function registerPhase2Libraries(
   // The resolver lambda is lazy anyway — the loader is only usable after
   // `initialize()` runs in plugin activation, long after this phase.
   //
-  // Every target, in every host: a workspace is populated for the tools the
-  // USER has, not for the one running Ptah. Undetected CLIs are skipped at
-  // reconcile time, so the detector lambda below is the only host-specific
-  // part — and it is lazy too, because `registerCliAgentRuntimeServices` (which
-  // owns `CLI_DETECTION_SERVICE`) runs a few lines further down.
+  // Every target, in every host — the lib's own default. A workspace is
+  // populated for the tools the USER has, not for the one running Ptah, and
+  // undetected CLIs are skipped at reconcile time. The detector is likewise the
+  // lib's, and lazy, because `registerCliAgentRuntimeServices` (which owns
+  // `CLI_DETECTION_SERVICE`) runs a few lines further down.
   registerHarnessSyncServices(container, logger, {
-    targets: ALL_HARNESS_TARGET_FACTORIES,
-    cliDetector: createHarnessCliDetector(() =>
-      container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
-        ? container.resolve<HarnessCliDetectionReader>(
-            TOKENS.CLI_DETECTION_SERVICE,
-          )
-        : null,
-    ),
+    cliDetector: createContainerHarnessCliDetector(container),
     sourceResolver: createPluginConfigSourceResolver(() => {
       if (!container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)) return null;
       const loader = container.resolve<HarnessPluginConfigReader>(
@@ -305,6 +289,25 @@ export function registerPhase2Libraries(
     // this factory (VS Code / CLI) the embedder degrades to unavailable.
     container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
       useValue: new ElectronEmbedderWorkerFactory(workerEntry, modelCacheDir),
+    });
+
+    // Integrity worker: the `quick_check` pragma that used to run inside
+    // `openAndMigrate` (20-26 s cold on a 1 GB database, gating every renderer
+    // IPC reply) now runs in its own utilityProcess, on a cadence
+    // `SqliteIntegrityService` owns (TASK_2026_380). Registered BEFORE
+    // `registerPersistenceSqliteServices` so the service resolves a factory
+    // rather than its optional `null`. Path is derived from `__dirname` exactly
+    // as the embedder path above; `build-integrity-worker` puts
+    // `integrity-worker.mjs` beside `embedder-worker.mjs`.
+    const integrityWorkerEntry = path.join(
+      dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+      'integrity-worker.mjs',
+    );
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PATH, {
+      useValue: integrityWorkerEntry,
+    });
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PROCESS_FACTORY, {
+      useValue: new ElectronIntegrityWorkerFactory(integrityWorkerEntry),
     });
 
     registerPersistenceSqliteServices(container, logger);

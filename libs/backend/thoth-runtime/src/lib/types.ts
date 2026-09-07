@@ -45,6 +45,21 @@ export interface BootThothRuntimeOptions {
 export interface StartThothCronOptions {
   /** Console prefix. Defaults to {@link DEFAULT_THOTH_LOG_PREFIX}. */
   logPrefix?: string;
+  /**
+   * The host's BOOT signal, same one {@link BootThothRuntimeOptions.signal}
+   * carries (TASK_2026_380).
+   *
+   * It reaches exactly one thing: the delayed boot dispatch of the database
+   * integrity check. That dispatch spawns a child process that reads the whole
+   * database file, so a quit inside its 60 s delay must disarm the timer, and a
+   * quit while the check is running must kill the worker rather than leave it
+   * behind a dying parent.
+   *
+   * The nightly cron dispatch deliberately does NOT get this signal — it fires
+   * at 03:30, long after boot, and the cron runner supplies its own `ctx.signal`
+   * for that lifetime.
+   */
+  signal?: AbortSignal;
 }
 
 /**

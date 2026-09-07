@@ -17,11 +17,11 @@ import {
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
-  type DrainTier,
   type SkillDrainService,
   type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
+import { SKILL_DRAIN_JOBS } from '@ptah-extension/thoth-runtime';
 import {
   CRON_TOKENS,
   type CronScheduler,
@@ -63,51 +63,6 @@ export interface ThothRefs {
 
 const BACKUP_HANDLER_NAME = 'backup:daily';
 let vecDiagnosticEmitted = false;
-
-/**
- * The three skill-synthesis drain tiers, as cron jobs. Same table, same seam
- * and same reasoning as `thoth-runtime/src/lib/start-thoth-cron.ts`: this file
- * is the CLI tier's copy of the boundary where `cron-scheduler` and
- * `skill-synthesis` are allowed to meet, which is why `drain()` takes
- * `onBattery` as a parameter instead of injecting `IPowerMonitor`.
- *
- * The two hosts are deliberately not merged — `cli-engine` runs its own
- * `activateThoth`/`disposeThoth` tier model, and converging them is a separate
- * task. Keep the two tables in step by hand until then.
- */
-const SKILL_DRAIN_JOBS: ReadonlyArray<{
-  readonly tier: DrainTier;
-  readonly jobId: string;
-  readonly name: string;
-  readonly handlerName: string;
-  readonly cronExprKey: string;
-  readonly defaultCronExpr: string;
-}> = [
-  {
-    tier: 'frequent',
-    jobId: '@ptah/skills-drain-frequent',
-    name: 'Skill Synthesis Drain (frequent)',
-    handlerName: 'skills:drain:frequent',
-    cronExprKey: 'skillSynthesis.drain.cronExpr',
-    defaultCronExpr: '*/15 * * * *',
-  },
-  {
-    tier: 'nightly',
-    jobId: '@ptah/skills-drain-nightly',
-    name: 'Skill Synthesis Drain (nightly)',
-    handlerName: 'skills:drain:nightly',
-    cronExprKey: 'skillSynthesis.drain.nightlyCronExpr',
-    defaultCronExpr: '0 3 * * *',
-  },
-  {
-    tier: 'weekly',
-    jobId: '@ptah/skills-drain-weekly',
-    name: 'Skill Synthesis Drain (weekly)',
-    handlerName: 'skills:drain:weekly',
-    cronExprKey: 'skillSynthesis.drain.weeklyCronExpr',
-    defaultCronExpr: '0 4 * * 0',
-  },
-];
 
 export function resetVecDiagnosticForTest(): void {
   vecDiagnosticEmitted = false;
@@ -467,6 +422,14 @@ function registerBackupJob(
 
 /**
  * Register the three drain handlers and upsert their jobs for the CLI tier.
+ *
+ * The TABLE is `thoth-runtime`'s `SKILL_DRAIN_JOBS` — one definition of the job
+ * ids, handler names and cron-expression keys, so a key the user sets in one
+ * host is the key the other host reads. Only the REGISTRATION is the CLI
+ * tier's own: no activity emitter (the CLI has no webview to emit into) and a
+ * `Logger` rather than `console`. The two lifecycles are still deliberately
+ * unmerged — `cli-engine` runs its own `activateThoth`/`disposeThoth` tier
+ * model, and converging them is a separate task.
  *
  * `has()` guards registration because `HandlerRegistry.register` THROWS on a
  * duplicate name and `activateThoth` can run more than once in a long-lived

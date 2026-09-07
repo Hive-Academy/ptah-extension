@@ -46,6 +46,7 @@ jest.mock('./plugin-activation', () => ({
 }));
 
 import type { DependencyContainer } from 'tsyringe';
+import type { BootPhase } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
@@ -513,5 +514,69 @@ describe('activation order — the network never gates the window', () => {
     expect(mockCallOrder).toContain('createMainWindow');
     expect(settledLicense).toBe(false);
     expect(settledAdapter).toBe(false);
+  });
+});
+
+describe('activation order — the boot phase sequence (TASK_2026_380)', () => {
+  /**
+   * Drive the same phases, but through `startPostWindow` so the terminal
+   * `settled` transition — which lives in the coordinator's `.then`, not in
+   * `boot-heavy-services.ts` — is part of the observed sequence.
+   */
+  async function drivePhases(stubs: Stubs): Promise<{
+    phases: BootPhase[];
+    coordinator: BootCoordinator;
+  }> {
+    const phases: BootPhase[] = [];
+    const coordinator = new BootCoordinator();
+    coordinator.onReadinessChange((payload) => {
+      phases.push(payload.phase);
+    });
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    const reserved = booter.startOrJoin(WORKSPACE);
+    booter.openWindowGate();
+    coordinator.startPostWindow(async () => {
+      await reserved;
+    });
+    await coordinator.awaitCompletion(5000);
+
+    return { phases, coordinator };
+  }
+
+  it('emits database → harness → sessions → index → settled, in that order', async () => {
+    const { phases } = await drivePhases(makeStubs());
+
+    expect(phases).toEqual([
+      'database',
+      'harness',
+      'sessions',
+      'index',
+      'settled',
+    ]);
+  });
+
+  it('emits no `skills` phase', async () => {
+    // Deliberate: the skill trigger and synthesis service start INSIDE
+    // `bootThothRuntime`, and `thoth-runtime` is runtime-agnostic — emitting
+    // from there would require it to know a renderer exists.
+    const { phases } = await drivePhases(makeStubs());
+
+    expect(phases).not.toContain('skills');
+  });
+
+  it('leaves the pull answer agreeing with the last push', async () => {
+    const { coordinator } = await drivePhases(makeStubs());
+
+    // `snapshot()` is what `boot:getReadiness` returns; a renderer that missed
+    // every push must land on the same state the pushes described.
+    expect(coordinator.snapshot()).toEqual({
+      readiness: 'ready',
+      phase: 'settled',
+      startedAt: coordinator.startedAt,
+    });
   });
 });

@@ -14,6 +14,8 @@ import {
   AutopilotStateService,
   AppStateManager,
   ElectronLayoutService,
+  BootStatusService,
+  BackOfficeActivityService,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
@@ -245,6 +247,15 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: HarnessHealthStore,
+      multi: true,
+    },
+    // Boot readiness (TASK_2026_380). Registered for BOTH hosts on purpose:
+    // the service defaults to `ready`, so the VS Code webview — which never
+    // receives `boot:readinessChanged` — is unaffected by construction.
+    { provide: MESSAGE_HANDLERS, useExisting: BootStatusService, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: BackOfficeActivityService,
       multi: true,
     },
     provideMonacoEditor({

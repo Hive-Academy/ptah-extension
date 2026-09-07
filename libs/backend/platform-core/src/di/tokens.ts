@@ -111,4 +111,12 @@ export const PLATFORM_TOKENS = {
    * WORKSPACE_PROVIDER unchanged.
    */
   CALLER_WORKSPACE_RESOLVER: Symbol.for('PlatformCallerWorkspaceResolver'),
+
+  /**
+   * IBootReadinessProvider — read-only boot snapshot for `boot:getReadiness`.
+   * Adapters: ElectronBootReadinessProvider (ptah-electron, delegates to
+   * BootCoordinator) / NullBootReadinessProvider (vscode-core default, always
+   * ready — VS Code and CLI hosts have no staged boot).
+   */
+  BOOT_READINESS: Symbol.for('PlatformBootReadiness'),
 } as const;

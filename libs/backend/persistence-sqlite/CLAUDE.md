@@ -26,6 +26,8 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 `SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
 
+Integrity subsystem: `SqliteIntegrityService` (public surface is exactly `isDue(now?)` and `dispatchIfDue()`; `DB_INTEGRITY_CHECK_INTERVAL_MS`, `INTEGRITY_WORKER_BUDGET_MS`); `IntegrityCheckStateStore` + `IntegrityCheckState`; the host port `IIntegrityWorkerProcessFactory` / `IIntegrityWorkerProcess`; `classifyQuickCheck`, `isIntegrityCheckRequest` and the protocol types (`IntegrityVerdict`, `IntegrityCheckRequest`, `IntegrityCheckResponse`, `IntegrityErrorResponse`, `IntegrityWorkerInbound`, `IntegrityWorkerOutbound`).
+
 ## Internal Structure
 
 - `src/lib/sqlite-connection.service.ts` — opens DB, loads sqlite-vec extension
@@ -34,7 +36,16 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 - `src/lib/backup.service.ts` — `SqliteBackupService` (uses VACUUM INTO / online backup API)
 - `src/lib/sqlite-errors.ts` — `isUniqueConstraintError`, the driver-level predicate behind every at-most-once claim (cron slot claim, synthesis-queue enqueue)
 - `src/lib/embedder/embedder.interface.ts` — `IEmbedder` contract
-- `src/lib/di/{tokens,register}.ts`
+- `src/lib/integrity/` — the out-of-process `quick_check`/`foreign_key_check`.
+  `integrity-check.service.ts` (interval gate + spawn), `integrity-check-state.store.ts`
+  (migration `0042`'s single-row `id INTEGER PRIMARY KEY CHECK (id = 1)` table),
+  `integrity-worker-protocol.ts` (`classifyQuickCheck`, verdict `'ok' | 'corrupt' | 'unavailable'`),
+  `worker-process.port.ts` (host-supplied spawn), and `integrity-worker.ts` — the
+  worker entry, which each host bundles to `integrity-worker.mjs` and opens the
+  database on its own **read-only** connection. A run that cannot produce a
+  verdict answers `unavailable` and writes no record, so the check stays due.
+- `src/lib/di/{tokens,register}.ts` — includes `INTEGRITY_WORKER_PROCESS_FACTORY`
+  and `INTEGRITY_WORKER_PATH` (both host-supplied) and `SQLITE_INTEGRITY_SERVICE`
 
 ## Dependencies
 
@@ -49,6 +60,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 - `IEmbedder` is the only interface consumers can rely on for vector embeddings; concrete embedder is registered by `memory-curator`.
 - The DB path is host-injected via `PERSISTENCE_TOKENS.SQLITE_DB_PATH`; use the exported `resolvePtahDbPath()` helper. Resolution order: `PTAH_DB_PATH` (absolute override, wins over everything including an explicit `opts.isDev`), then the profile — `development` → `ptah-dev.sqlite`, `test` → `ptah-test.sqlite`, anything else including **unset** → `ptah.sqlite`. Unset must stay production: packaged Electron and the VS Code extension host both run with no `NODE_ENV`.
 - **A boot migrates whatever database it opens, and migrations are forward-only.** So any process running a newer tree against the production file leaves an older installed build unable to open its own data ("Refusing to downgrade"). That is not hypothetical — before TASK_2026_291 `test` was not a recognised profile, so the Electron e2e launcher (`NODE_ENV=test`) and Jest both resolved to `ptah.sqlite`; a docs-screenshot capture run carried working-tree migrations into a 998 MB production database. Harnesses must set `PTAH_DB_PATH` to a temp file rather than rely on `NODE_ENV`.
+- **`openAndMigrate` runs no `quick_check`/`foreign_key_check` any more.** On a 1 GB database the pair measured 1868 ms warm and 20–26 s cold, all of it on the boot path (TASK_2026_380). The check now runs interval-gated (`DB_INTEGRITY_CHECK_INTERVAL_MS`, 7 days) and out of process, dispatched by `thoth-runtime` — never inline in the opener.
 - `catch (error: unknown)`.
 
 ## Cross-Lib Rules

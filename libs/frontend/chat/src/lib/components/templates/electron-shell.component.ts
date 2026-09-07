@@ -41,6 +41,7 @@ import {
   ClipboardList,
 } from 'lucide-angular';
 import {
+  BackOfficeActivityService,
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
@@ -49,6 +50,7 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
+  ActivityTickerComponent,
   SidebarTabComponent,
   ElectronResizeHandleComponent,
   ThemeToggleComponent,
@@ -65,6 +67,7 @@ import {
     ElectronResizeHandleComponent,
     NgComponentOutlet,
     ThemeToggleComponent,
+    ActivityTickerComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -207,6 +210,13 @@ import {
 
         <!-- Global actions — theme only (navigation moved to pills) -->
         <div class="flex items-center gap-0.5 no-drag">
+          <!-- Back-office activity. Before the toggle on purpose, so the
+               toggle keeps its far-right position. -->
+          <ptah-activity-ticker
+            [items]="activity.recent()"
+            [idle]="activity.isIdle()"
+            (activate)="openThoth()"
+          />
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
         </div>
@@ -289,6 +299,8 @@ export class ElectronShellComponent {
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
+  /** The header ticker's only source of items (TASK_2026_380). */
+  protected readonly activity = inject(BackOfficeActivityService);
 
   /** Lazily loaded EditorPanelComponent — keeps xterm/monaco out of the initial bundle. */
   readonly editorComponent = signal<Type<unknown> | null>(null);

@@ -200,6 +200,10 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'providerProxyPool',
   'clearTimers',
   'updateManager',
+  // Captured last in the heavy boot (right after the cron start), so LIFO
+  // disposes it early — and in the BEFORE-persistence half, because a check
+  // that completes writes its verdict through the connection about to close.
+  'integrityService',
   'gitWatcher',
   'symbolWatcher',
   'statusBridgeDisposables',
@@ -252,6 +256,7 @@ function makeFullRefs(order: string[]): BootRefs {
   refs.updateManager = {
     dispose: record('updateManager'),
   } as unknown as BootRefs['updateManager'];
+  refs.integrityService = { dispose: record('integrityService') };
   refs.gitWatcher = {
     stop: record('gitWatcher'),
     switchWorkspace: jest.fn(),
@@ -343,6 +348,48 @@ describe('will-quit — LIFO disposal order', () => {
 
     expect(order).toEqual(EXPECTED_LIFO_ORDER);
     expect(quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts the integrity check BEFORE SQLite is closed', async () => {
+    // The integrity worker is the one boot-path resource this task added, and
+    // a completing check writes its verdict through the connection the next
+    // half closes (TASK_2026_380 whole-task logic review). Stated on its own
+    // so a reorder inside the chain fails with the reason, not just the list.
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+    });
+
+    await flushMicrotasks();
+
+    expect(order.indexOf('integrityService')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('integrityService')).toBeLessThan(
+      order.indexOf('sqliteConnection'),
+    );
+  });
+
+  it('tolerates a host that never registered an integrity service', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.integrityService = null;
+
+    handleWillQuit({
+      ...inertDeps(order),
+      refs,
+      deferQuit: jest.fn(),
+      quit: jest.fn(),
+    });
+
+    await flushMicrotasks();
+
+    expect(order).toEqual(
+      EXPECTED_LIFO_ORDER.filter((name) => name !== 'integrityService'),
+    );
   });
 
   it('keeps disposing after one handle throws', async () => {

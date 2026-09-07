@@ -21,6 +21,7 @@ import { AuthSecretsService } from '../services/auth-secrets.service';
 import { SentryService } from '../services/sentry.service';
 import { SentryTracerAdapter } from '../services/sentry-tracer.adapter';
 import { NullSessionAttachmentGuard } from '../services/null-session-attachment-guard';
+import { NullBootReadinessProvider } from '../services/null-boot-readiness';
 import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
 import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
 
@@ -74,6 +75,17 @@ export function registerVsCodeCorePlatformAgnostic(
     container.registerSingleton(
       PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD,
       NullSessionAttachmentGuard,
+    );
+  }
+
+  // Null-object default for the boot readiness probe. The Electron host
+  // registers its coordinator-backed adapter first (bootstrap.ts), so this
+  // guard leaves that binding alone; VS Code and the CLI get "always ready",
+  // which is the truthful answer for a host with no staged boot.
+  if (!container.isRegistered(PLATFORM_TOKENS.BOOT_READINESS)) {
+    container.registerSingleton(
+      PLATFORM_TOKENS.BOOT_READINESS,
+      NullBootReadinessProvider,
     );
   }
 

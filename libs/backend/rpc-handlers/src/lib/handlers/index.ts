@@ -9,6 +9,7 @@
  * Tier 2 handlers: Refactored to use platform abstractions.
  */
 export { AgentRpcHandlers } from './agent-rpc.handlers';
+export { BootRpcHandlers } from './boot-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export {
   FileSystemRpcHandlers,

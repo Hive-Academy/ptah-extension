@@ -455,14 +455,21 @@ describe('AdminCommunityTopicsController', () => {
 
       await harness.controller.restore(ADMIN_REQUEST, 't-1');
 
+      const after = Date.now();
       const { gte } = harness.prisma.topic.updateMany.mock.calls[0][0].where
         .deletedAt as { gte: Date };
-      const days = (before - gte.getTime()) / (24 * 60 * 60 * 1000);
+      const day = 24 * 60 * 60 * 1000;
 
+      // The controller reads its own clock BETWEEN these two stamps, so bracket
+      // the window rather than measure it from one side. Measured against
+      // `before` alone the result is 30 days MINUS however long the call took,
+      // so the lower bound could only ever pass when zero milliseconds elapsed:
+      // CI failed on 29.999999953703703, which is 0.4 ms of real work.
+      //
       // R8.5 says "at least 30 days". A cutoff computed from a smaller constant
       // would silently breach the requirement with no other symptom.
-      expect(days).toBeGreaterThanOrEqual(30);
-      expect(days).toBeLessThan(30.001);
+      expect((after - gte.getTime()) / day).toBeGreaterThanOrEqual(30);
+      expect((before - gte.getTime()) / day).toBeLessThan(30.001);
     });
 
     it('refuses with a 409 when nothing was restorable, and audits nothing', async () => {

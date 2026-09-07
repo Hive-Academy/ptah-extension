@@ -10,6 +10,8 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { SetupStatusGetResponse } from '@ptah-extension/shared';
 import { LucideAngularModule, XCircle, FolderOpen } from 'lucide-angular';
 
+import { SkeletonBlockComponent } from '../../atoms/skeleton-block.component';
+
 /**
  * SetupStatus type - Agent configuration status information
  * Uses the RPC response type directly for type safety
@@ -37,22 +39,17 @@ export type SetupStatus = SetupStatusGetResponse;
 @Component({
   selector: 'ptah-setup-status-widget',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, SkeletonBlockComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="border border-base-300 rounded-md bg-base-200/50 p-2.5">
       @if (isLoading()) {
         <!-- Compact loading skeleton -->
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2 flex-1">
-            <div class="skeleton w-6 h-6 rounded-full shrink-0"></div>
-            <div class="flex-1">
-              <div class="skeleton h-3 w-20 mb-1"></div>
-              <div class="skeleton h-2 w-28"></div>
-            </div>
-          </div>
-          <div class="skeleton h-6 w-16"></div>
-        </div>
+        <ptah-skeleton-block
+          titleWidthClass="w-20"
+          subtitleWidthClass="w-28"
+          [showAction]="true"
+        />
       } @else if (workspaceNotOpen()) {
         <!-- No workspace open — friendly prompt, no error styling -->
         <div class="flex items-center gap-2 text-base-content-muted">

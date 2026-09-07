@@ -1,4 +1,5 @@
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { flattenSettingsTree } from '@ptah-extension/shared';
 import type { SkillTriggersDto } from '@ptah-extension/shared';
 
 export const SKILL_TRIGGER_SECTION = 'ptah';
@@ -7,6 +8,22 @@ export const SKILL_TRIGGER_KEYS = {
   sessionEnd: 'skillSynthesis.triggers.sessionEnd',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
+  /**
+   * How long after `start()` the boot scan waits before its first attempt.
+   *
+   * Deliberately absent from `SkillTriggersDto` / {@link SKILL_TRIGGER_PREFIXES}
+   * — like `memory.triggers.bootScanDelayMs`, it is a cost/latency tuning knob
+   * rather than one of the per-trigger toggles the settings panel round-trips.
+   * `0` is legal and restores the previous "scan immediately from `start()`"
+   * behaviour.
+   */
+  bootScanDelayMs: 'skillSynthesis.triggers.bootScanDelayMs',
+  /**
+   * How recent foreground chat activity has to be for a due boot scan to re-arm
+   * instead of running. See `BootScanScheduler.schedule`. `0` disables
+   * the activity gate entirely.
+   */
+  bootScanIdleBackoffMs: 'skillSynthesis.triggers.bootScanIdleBackoffMs',
   subagentStop: {
     enabled: 'skillSynthesis.triggers.subagentStop.enabled',
   },
@@ -27,6 +44,10 @@ export const SKILL_TRIGGER_DEFAULTS = {
   sessionEnd: true,
   idleMs: 600000,
   bootScan: true,
+  /** 5 min. Matches `MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs`. */
+  bootScanDelayMs: 300000,
+  /** 5 min. Matches `MEMORY_TRIGGER_DEFAULTS.bootScanIdleBackoffMs`. */
+  bootScanIdleBackoffMs: 300000,
   subagentStop: {
     enabled: true,
   },
@@ -149,18 +170,7 @@ export function flattenSkillTriggers(
   for (const [key, value] of entries) {
     if (value === undefined) continue;
     const prefix = SKILL_TRIGGER_PREFIXES[key];
-    out.push(...flatten(prefix, value));
-  }
-  return out;
-}
-
-function flatten(prefix: string, value: unknown): Array<[string, unknown]> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return [[prefix, value]];
-  }
-  const out: Array<[string, unknown]> = [];
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out.push(...flatten(`${prefix}.${k}`, v));
+    out.push(...flattenSettingsTree(prefix, value));
   }
   return out;
 }

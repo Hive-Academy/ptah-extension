@@ -42,6 +42,7 @@ import {
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
+import { BootScanScheduler } from './boot-scan-scheduler';
 import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
 import {
   MEMORY_TRIGGER_DEFAULTS,
@@ -96,7 +97,12 @@ export class MemoryTriggerService {
   private readonly inFlightCurates = new Set<string>();
   private readonly lastCurateAt = new Map<string, number>();
   private bootScanController: AbortController | null = null;
-  private bootScanTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The arming gate in front of {@link runBootScan}. Created only on the path
+   * that arms a scan; `stop()` cancels whatever it holds. See
+   * {@link BootScanScheduler} for why the scan is armed rather than run.
+   */
+  private bootScanScheduler: BootScanScheduler | null = null;
   /**
    * When the last chat turn was observed, or `null` when none has been in this
    * process. `null` — not `0` — because the boot-scan deferral reads "more
@@ -205,7 +211,8 @@ export class MemoryTriggerService {
 
     if (this.readMemoryEnabled() && this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
-      this.scheduleBootScan(this.bootScanController.signal);
+      this.bootScanScheduler = this.createBootScanScheduler();
+      this.bootScanScheduler.schedule(this.bootScanController.signal);
     }
 
     this.logger.info('[memory-curator] trigger service started');
@@ -238,8 +245,8 @@ export class MemoryTriggerService {
     this.episodes.clear();
     this.inFlightCurates.clear();
     this.lastCurateAt.clear();
-    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
-    this.bootScanTimer = null;
+    this.bootScanScheduler?.cancel();
+    this.bootScanScheduler = null;
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.lastActivityAt = null;
@@ -842,78 +849,32 @@ export class MemoryTriggerService {
   }
 
   /**
-   * Arm the boot scan instead of running it inside `start()`.
+   * Wire this pipeline's settings keys and log channel onto the shared
+   * {@link BootScanScheduler}.
    *
-   * The scan's callback calls `curator.curate` INLINE — one LLM round trip per
-   * eligible session, bounded only by a 200 ms throttle and the hourly limiter.
-   * Firing that from `start()` put every one of those calls in the first
-   * seconds after launch, competing with window creation, the SDK boot and the
-   * skill-synthesis drains that ran 122 s and 156 s on the same boot
-   * (`tmp/logs/log.log:676,678,1095,1453`). None of that work is urgent: every
-   * session it reads ended before this process existed.
-   *
-   * Two conditions, and they are different questions. The DELAY answers "has
-   * the host settled"; the re-arm answers "is the user working right now".
-   * The re-arm is deliberately unbounded — it only ever continues while chat
-   * activity keeps arriving, so it terminates as soon as the user stops, and a
-   * host where the user never stops is one where the backlog genuinely should
-   * keep waiting. `stop()` clears the timer, so it cannot outlive the service.
-   *
-   * `unref` keeps a pending scan from holding the process alive at shutdown.
+   * The scan is armed rather than run from `start()` because its callback calls
+   * `curator.curate` INLINE — one LLM round trip per eligible session, bounded
+   * only by a 200 ms throttle and the hourly limiter. Firing that from `start()`
+   * put every one of those calls in the first seconds after launch, competing
+   * with window creation, the SDK boot and the skill-synthesis drains that ran
+   * 122 s and 156 s on the same boot (`tmp/logs/log.log:676,678,1095,1453`).
+   * The delay/backoff reasoning lives on the scheduler.
    */
-  private scheduleBootScan(signal: AbortSignal, delayMs?: number): void {
-    if (signal.aborted) return;
-    const wait = delayMs ?? this.readBootScanDelayMs();
-    if (wait <= 0) {
-      void this.runBootScan(signal);
-      return;
-    }
-    if (this.bootScanTimer) clearTimeout(this.bootScanTimer);
-    const timer = setTimeout(() => {
-      this.bootScanTimer = null;
-      if (signal.aborted) return;
-      const backoff = this.readBootScanIdleBackoffMs();
-      const sinceActivity =
-        this.lastActivityAt === null
-          ? Number.POSITIVE_INFINITY
-          : Math.max(0, Date.now() - this.lastActivityAt);
-      if (backoff > 0 && sinceActivity < backoff) {
-        this.logger.debug(
-          '[memory-curator] boot scan deferred — foreground chat is active',
-          { sinceActivityMs: sinceActivity, backoffMs: backoff },
-        );
-        this.scheduleBootScan(signal, backoff);
-        return;
-      }
-      void this.runBootScan(signal);
-    }, wait);
-    (timer as { unref?: () => void }).unref?.();
-    this.bootScanTimer = timer;
-    this.logger.debug('[memory-curator] boot scan armed', { delayMs: wait });
-  }
-
-  private readBootScanDelayMs(): number {
-    return this.readPositiveMs(
-      MEMORY_TRIGGER_KEYS.bootScanDelayMs,
-      MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs,
-    );
-  }
-
-  private readBootScanIdleBackoffMs(): number {
-    return this.readPositiveMs(
-      MEMORY_TRIGGER_KEYS.bootScanIdleBackoffMs,
-      MEMORY_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
-    );
-  }
-
-  /** `0` is a legal value — it disables the gate — so only NaN falls back. */
-  private readPositiveMs(key: string, fallback: number): number {
-    const v = this.workspace.getConfiguration<number>(
-      MEMORY_TRIGGER_SECTION,
-      key,
-      fallback,
-    );
-    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  private createBootScanScheduler(): BootScanScheduler {
+    return new BootScanScheduler({
+      logPrefix: '[memory-curator]',
+      logger: this.logger,
+      workspace: this.workspace,
+      section: MEMORY_TRIGGER_SECTION,
+      delayMsKey: MEMORY_TRIGGER_KEYS.bootScanDelayMs,
+      delayMsDefault: MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs,
+      idleBackoffMsKey: MEMORY_TRIGGER_KEYS.bootScanIdleBackoffMs,
+      idleBackoffMsDefault: MEMORY_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
+      lastActivityAt: () => this.lastActivityAt,
+      run: (signal) => {
+        void this.runBootScan(signal);
+      },
+    });
   }
 
   private async runBootScan(signal: AbortSignal): Promise<void> {

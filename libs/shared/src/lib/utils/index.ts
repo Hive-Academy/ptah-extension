@@ -16,6 +16,7 @@ export {
   type CodexTokenFreshnessInput,
 } from './codex-token-freshness';
 export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
+export { flattenSettingsTree } from './settings-tree.utils';
 export {
   mergeAgentsRegion,
   PTAH_AGENTS_REGION_BEGIN,
