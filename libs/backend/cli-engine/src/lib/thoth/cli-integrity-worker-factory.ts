@@ -17,51 +17,16 @@
  * 2. No respawn or idle-teardown client behind it. One spawn, one reply, then
  *    the service kills it.
  */
-import { Worker } from 'node:worker_threads';
 import type {
   IIntegrityWorkerProcess,
   IIntegrityWorkerProcessFactory,
 } from '@ptah-extension/persistence-sqlite';
-
-class CliIntegrityWorkerProcess implements IIntegrityWorkerProcess {
-  constructor(private readonly worker: Worker) {}
-
-  postMessage(msg: unknown): void {
-    this.worker.postMessage(msg);
-  }
-
-  on(event: 'message', cb: (msg: unknown) => void): void;
-  on(event: 'exit', cb: (code: number | null) => void): void;
-  on(
-    event: 'message' | 'exit',
-    cb: ((msg: unknown) => void) | ((code: number | null) => void),
-  ): void {
-    if (event === 'message') {
-      // worker_threads delivers the raw payload as the first arg.
-      this.worker.on('message', cb as (msg: unknown) => void);
-    } else {
-      // worker_threads exit passes a numeric exit code.
-      this.worker.on('exit', (code: number) =>
-        (cb as (code: number | null) => void)(code),
-      );
-    }
-  }
-
-  kill(): void {
-    void this.worker.terminate();
-  }
-}
+import { CliWorkerThreadProcess } from './cli-worker-thread-process';
 
 export class CliIntegrityWorkerFactory implements IIntegrityWorkerProcessFactory {
   constructor(private readonly workerPath: string) {}
 
   spawn(): IIntegrityWorkerProcess {
-    // `.mjs` is loaded as ESM by extension; `type: 'module'` mirrors
-    // `CliEmbedderWorkerFactory`. Node's `WorkerOptions` type has no `type`
-    // field, so cast (no `any`, no `@ts-ignore`) — same seam that factory uses.
-    const worker = new Worker(this.workerPath, {
-      type: 'module',
-    } as unknown as ConstructorParameters<typeof Worker>[1]);
-    return new CliIntegrityWorkerProcess(worker);
+    return CliWorkerThreadProcess.fork(this.workerPath);
   }
 }
