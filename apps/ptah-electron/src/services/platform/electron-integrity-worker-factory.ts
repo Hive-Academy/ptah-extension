@@ -13,50 +13,19 @@
  * `check` request `SqliteIntegrityService` sends immediately after `spawn()`.
  * See `IIntegrityWorkerProcessFactory` in `persistence-sqlite`.
  */
-import electron, { type UtilityProcess } from 'electron';
-
-const { utilityProcess } = electron;
 import type {
   IIntegrityWorkerProcess,
   IIntegrityWorkerProcessFactory,
 } from '@ptah-extension/persistence-sqlite';
-
-class ElectronIntegrityWorkerProcess implements IIntegrityWorkerProcess {
-  constructor(private readonly child: UtilityProcess) {}
-
-  postMessage(msg: unknown): void {
-    this.child.postMessage(msg);
-  }
-
-  on(event: 'message', cb: (msg: unknown) => void): void;
-  on(event: 'exit', cb: (code: number | null) => void): void;
-  on(
-    event: 'message' | 'exit',
-    cb: ((msg: unknown) => void) | ((code: number | null) => void),
-  ): void {
-    if (event === 'message') {
-      this.child.on('message', cb as (msg: unknown) => void);
-    } else {
-      // Electron's `exit` carries a numeric code; the port's callback is
-      // widened to `number | null` because worker_threads can deliver null.
-      this.child.on('exit', (code: number) =>
-        (cb as (code: number | null) => void)(code),
-      );
-    }
-  }
-
-  kill(): void {
-    this.child.kill();
-  }
-}
+import { ElectronUtilityWorkerProcess } from './electron-utility-worker-process';
 
 export class ElectronIntegrityWorkerFactory implements IIntegrityWorkerProcessFactory {
   constructor(private readonly workerPath: string) {}
 
   spawn(): IIntegrityWorkerProcess {
-    const child = utilityProcess.fork(this.workerPath, [], {
-      serviceName: 'ptah-integrity-worker',
-    });
-    return new ElectronIntegrityWorkerProcess(child);
+    return ElectronUtilityWorkerProcess.fork(
+      this.workerPath,
+      'ptah-integrity-worker',
+    );
   }
 }
