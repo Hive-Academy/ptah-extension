@@ -147,20 +147,20 @@ describe('exclusion reachability — navigation is filtered, explicit access is 
   });
 
   it('opens a file inside an excluded directory, applying no exclusion test at all', async () => {
-    for (const method of ['file:open', 'editor:openFile']) {
-      const result = await call<{ success: boolean; content?: string }>(
-        method,
-        { path: `${WS}/node_modules/left-pad/index.js` },
-      );
+    // 'file:open' moved to ElectronFileOpenRpcHandlers (TASK_2026_385 Batch
+    // 3.2); this class now serves only its Electron-specific alias.
+    const result = await call<{ success: boolean; content?: string }>(
+      'editor:openFile',
+      { path: `${WS}/node_modules/left-pad/index.js` },
+    );
 
-      expect(result.success).toBe(true);
-      expect(result.content).toContain('index.js');
-    }
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('index.js');
   });
 
   // -- the boundary that IS enforced -----------------------------------------
 
-  it('still refuses every one of those three outside the workspace', async () => {
+  it('still refuses every one of those outside the workspace', async () => {
     const outside = 'D:/elsewhere/secrets';
 
     expect(
@@ -177,7 +177,7 @@ describe('exclusion reachability — navigation is filtered, explicit access is 
     ).toMatchObject({ success: false, error: 'Path is outside the workspace' });
 
     expect(
-      await call<{ success: boolean; error?: string }>('file:open', {
+      await call<{ success: boolean; error?: string }>('editor:openFile', {
         path: `${outside}/id_rsa`,
       }),
     ).toMatchObject({ success: false, error: 'Path is outside the workspace' });

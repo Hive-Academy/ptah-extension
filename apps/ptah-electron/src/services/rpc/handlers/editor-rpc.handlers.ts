@@ -99,7 +99,10 @@ export class EditorRpcHandlers {
   ) {}
 
   register(): void {
-    this.registerFileOpen(); // file:open (registry standard name)
+    // 'file:open' moved to ElectronFileOpenRpcHandlers (TASK_2026_385
+    // Batch 3.2) — it now launches the user's external editor instead of
+    // reading bytes for a Monaco tab. This class keeps 'editor:openFile',
+    // the Electron-specific alias Monaco itself still uses.
     this.registerOpenFile(); // editor:openFile (Electron-specific)
     this.registerRevertFiles(); // editor:revertFiles (Electron Monaco equivalent)
     this.registerSaveFile();
@@ -125,18 +128,6 @@ export class EditorRpcHandlers {
     return ok ? null : 'Path is outside the workspace';
   }
 
-  /**
-   * Register file:open (standard registry name used by the frontend)
-   * and editor:openFile (Electron-specific alias). Both delegate to handleFileOpen.
-   */
-  private registerFileOpen(): void {
-    this.rpcHandler.registerMethod(
-      'file:open',
-      (params: FileOpenCompatParams | undefined) =>
-        this.handleFileOpen(params, 'file:open'),
-    );
-  }
-
   private registerOpenFile(): void {
     this.rpcHandler.registerMethod(
       'editor:openFile',
@@ -146,9 +137,9 @@ export class EditorRpcHandlers {
   }
 
   /**
-   * Shared implementation for file:open and editor:openFile.
-   * Reads file content and notifies the editor provider.
-   * Accepts both 'path' (FileOpenParams standard) and 'filePath' (legacy).
+   * `editor:openFile` implementation. Reads file content and notifies the
+   * editor provider. Accepts both 'path' (FileOpenParams standard) and
+   * 'filePath' (legacy).
    *
    * NOTE, and it is deliberate: no `TREE_HIDDEN_DIRS` test happens here. A
    * path inside `node_modules` opens, even though the tree can never navigate
