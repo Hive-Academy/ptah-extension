@@ -219,18 +219,73 @@ export interface McpInstallResult {
   error?: string;
 }
 
+/**
+ * Where an installed MCP server was read from.
+ *
+ * The Installed tab used to show only `harness-config` rows, so it reported 8
+ * servers on a machine running about 11 — a Smithery install, an OAuth
+ * connection and anything the user added with `claude mcp add` were all
+ * invisible. The origin is what lets one list carry four disk/manifest sources
+ * without the UI having to guess which store a row came from.
+ *
+ * `claude-connector` is produced by the FRONTEND only: a claude.ai account
+ * connector (Gmail, Calendar, Drive, Canva) exists nowhere on disk, so the
+ * backend cannot and does not emit it.
+ */
+export type McpServerOrigin =
+  | 'harness-config'
+  | 'claude-user'
+  | 'smithery'
+  | 'oauth'
+  | 'claude-connector';
+
+/**
+ * How — and whether — a row can be removed locally.
+ *
+ * The distinction that matters is `ptah-managed` versus `direct`. The
+ * reconciler removes ONLY manifest-owned keys, by design: a key the user wrote
+ * by hand is `foreign` and never touched. So an ordinary uninstall of an
+ * unowned key removes nothing and used to report success anyway. `direct` says
+ * "this needs `force: true` and a deliberate confirm"; `none` says there is no
+ * local removal path at all and `removalBlockedReason` says where to go.
+ */
+export type McpRemovalKind =
+  | 'ptah-managed'
+  | 'direct'
+  | 'smithery'
+  | 'oauth'
+  | 'none';
+
 /** An MCP server that is currently installed (read from config files) */
 export interface InstalledMcpServer {
   /** Server key as it appears in the config file (e.g., "github", "filesystem") */
   serverKey: string;
-  /** Which target config this was read from */
-  target: McpInstallTarget;
-  /** Absolute path of the config file */
+  /**
+   * Which harness target config this was read from.
+   *
+   * OPTIONAL since the list stopped being harness-only: a Smithery record, an
+   * OAuth connection and a `~/.claude.json` entry belong to no harness target,
+   * and inventing one for them would make the uninstall RPC address a config
+   * file that has nothing to do with the row.
+   */
+  target?: McpInstallTarget;
+  /** Absolute path of the config file (or manifest) the row was read from */
   configPath: string;
   /** The server's transport config */
   config: McpServerConfig;
   /** Whether this server was installed by Ptah (tracked in manifest) */
   managedByPtah: boolean;
+  /** Which store the row came from. */
+  origin: McpServerOrigin;
+  /** Short human label for {@link InstalledMcpServer.origin}, for display. */
+  originLabel: string;
+  /** Which removal path applies to this row. */
+  removal: McpRemovalKind;
+  /**
+   * Why removal is unavailable or gated, when it is. Present for every
+   * `removal: 'none'` row and names the file plus the command that can do it.
+   */
+  removalBlockedReason?: string;
 }
 
 /** Tracks which MCP servers Ptah has installed (persisted to ~/.ptah/mcp-installed.json) */
@@ -686,6 +741,17 @@ export interface McpDirectoryUninstallParams {
   serverKey: string;
   /** Which targets to uninstall from (empty = all) */
   targets?: McpInstallTarget[];
+  /**
+   * Remove a key Ptah does not own.
+   *
+   * Defaults to `false`, which is the ordinary reconcile-based uninstall: it
+   * drops the recorded intent and lets the reconciler reap what the manifest
+   * owns, and it deliberately leaves a hand-written entry alone. `true` deletes
+   * the entry from the requested targets' config files directly, through the
+   * per-target facet, and must only be sent after an explicit user confirm —
+   * the entry is one the user, not Ptah, put there.
+   */
+  force?: boolean;
 }
 
 /** Result for mcpDirectory:uninstall */
