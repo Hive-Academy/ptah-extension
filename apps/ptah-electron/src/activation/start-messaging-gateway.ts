@@ -85,6 +85,9 @@ export async function startMessagingGateway(
       origin: null,
     });
   } catch (error: unknown) {
+    // degradation-audit: optional-capability - the messaging gateway is an
+    // opt-in channel, not part of the desktop app; returning leaves it stopped
+    // and the app fully usable, with the reason on the console line below.
     console.warn(
       '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
       error instanceof Error ? error.message : String(error),

@@ -420,6 +420,9 @@ export class SessionMetadataStore {
       );
       return true;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - moving inline CLI output to
+      // its own key is a size optimisation; false leaves the fat reference in
+      // place, which still holds the output, and a later pass retries.
       this.logger.warn(
         `[SessionMetadataStore] Could not migrate inline CLI output for agent ${agentId} — reference kept fat`,
         error instanceof Error ? error : new Error(String(error)),
@@ -1025,10 +1028,16 @@ export class SessionMetadataStore {
           // `addCliSession` callers branch on "Parent session not found". A
           // flush failure on top of it is logged inside settleWrite, not
           // substituted for the original.
+          // degradation-audit: optional-capability - the flush is a courtesy
+          // on the failure path and settleWrite logs its own error; undefined
+          // keeps the operation's original rejection as what the caller hears.
           await this.settleWrite().catch(() => undefined);
           throw error;
         },
       );
+    // degradation-audit: optional-capability - this branch is only the queue's
+    // ordering handle, and `next` carries the real rejection to the caller;
+    // swallowing keeps one failed write from wedging the writes behind it.
     this.writeQueue = next.catch(() => {
       /* swallow to keep chain alive */
     });

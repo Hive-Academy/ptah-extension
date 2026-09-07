@@ -567,6 +567,10 @@ export class MessageValidatorService {
     try {
       return this.validateMessage(data, expectedType);
     } catch {
+      // degradation-audit: optional-capability - this is the non-throwing probe
+      // used by validateUnknownMessage to test a candidate message type; null
+      // means "not this type", and the throwing validateMessage remains the
+      // path that surfaces a real validation failure to callers.
       return null;
     }
   }

@@ -452,6 +452,8 @@ export class AgentRpcHandlers {
         name: this.formatModelDisplayName(model.id),
       }));
     } catch {
+      // degradation-audit: optional-capability - the host Language Model API
+      // is optional; an empty list means the picker offers no Copilot models.
       return [];
     }
   }
@@ -469,6 +471,9 @@ export class AgentRpcHandlers {
         name: model.name || this.formatModelDisplayName(model.id),
       }));
     } catch {
+      // degradation-audit: optional-capability - the provider /models endpoint
+      // needs an authenticated, online account; an empty list leaves the
+      // adapter's curated model list standing in.
       return [];
     }
   }

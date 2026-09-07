@@ -125,6 +125,9 @@ function readPreflightTimeoutMs(
     );
     return typeof value === 'number' && value > 0 ? value : undefined;
   } catch {
+    // degradation-audit: optional-capability - the preflight timeout setting
+    // is optional; undefined means "use the harness-sync default", identical to
+    // `harness.preflightTimeoutMs` simply being unset.
     return undefined;
   }
 }
@@ -147,6 +150,9 @@ function readManageGitignore(
     );
     return typeof value === 'boolean' ? value : undefined;
   } catch {
+    // degradation-audit: optional-capability - the manage-gitignore setting
+    // is optional; undefined means "use the harness-sync default" (on),
+    // identical to `harness.manageGitignore` simply being unset.
     return undefined;
   }
 }
@@ -389,6 +395,9 @@ export function registerPhase2Libraries(
               const adapter = c.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER);
               return adapter.isSessionActive(SessionId.from(sessionUuid));
             } catch (error: unknown) {
+              // degradation-audit: optional-capability - the agent adapter is
+              // optional for this probe; false means "no live session", which
+              // is the only truthful answer when no adapter can be resolved.
               // No resolvable adapter / invalid uuid → nothing can be running.
               logger.warn(
                 '[Electron DI] session activity probe fell back to inactive',

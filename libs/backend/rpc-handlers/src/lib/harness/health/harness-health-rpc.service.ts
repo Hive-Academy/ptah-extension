@@ -274,6 +274,9 @@ export class HarnessHealthRpcService {
         TOKENS.WEBVIEW_MANAGER,
       );
     } catch {
+      // degradation-audit: optional-capability - the webview messenger is an
+      // optional host capability; returning skips the health push and the
+      // report itself is still cached for a later pull.
       // Headless hosts (ptah-cli one-shots) have no webview. Not an error.
       return;
     }

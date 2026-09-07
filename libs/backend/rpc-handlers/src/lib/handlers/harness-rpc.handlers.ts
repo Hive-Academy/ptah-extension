@@ -783,6 +783,9 @@ export class HarnessRpcHandlers {
         .filter((skill) => skill.isActive)
         .map((skill) => skill.id);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - skill discovery is an
+      // optional prompt input; an empty list makes the seed prompt fall back
+      // to the generic Stage A contract, which is the fail-closed posture.
       this.logger.debug(
         '[harness:start-new-project] Skill discovery unavailable; the seed prompt will use the generic Stage A contract',
         { error: error instanceof Error ? error.message : String(error) },

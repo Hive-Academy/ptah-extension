@@ -2267,6 +2267,10 @@ export class GitInfoService {
       );
       return exitCode === 0 && stdout.trim() === 'true';
     } catch {
+      // degradation-audit: optional-capability - this is the probe that asks
+      // whether git is usable here at all; false means "treat this folder as
+      // not a repository", which is exactly the answer a missing git binary
+      // or a non-repo path should produce.
       return false;
     }
   }

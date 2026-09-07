@@ -725,6 +725,9 @@ export class SdkModelService {
 
       return models;
     } catch (error) {
+      // degradation-audit: optional-capability - this is one link in an
+      // explicit model-source chain; [] hands the decision to the next source
+      // (SDK tier slots), and the exhausted chain warns for itself.
       this.logger.warn(
         '[SdkModelService] /v1/models API fallback also failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -824,6 +827,9 @@ export class SdkModelService {
 
       return models;
     } catch (error) {
+      // degradation-audit: optional-capability - /v1/models is an optional
+      // catalog source reached over the network; [] is the same answer as a
+      // response with no data and sends the caller to the SDK source.
       this.logger.warn(
         '[SdkModelService] Failed to fetch /v1/models',
         error instanceof Error ? error : new Error(String(error)),

@@ -115,6 +115,9 @@ export class ClaudeCliPathResolver {
         return this.parseUnixBash(content, wrapperPath);
       }
     } catch {
+      // degradation-audit: optional-capability - unwrapping a shim script is
+      // an optimisation over spawning it; null means "no inner path found"
+      // and the caller keeps the wrapper path it already has.
       return null;
     }
   }
@@ -124,7 +127,6 @@ export class ClaudeCliPathResolver {
    * Example: "%_prog%" "%dp0%\node_modules\@anthropic-ai\claude-code\cli.js" %*
    */
   private parseWindowsCmd(content: string, wrapperPath: string): string | null {
-
     const patterns = [
       /%dp0%\\(.+?\.js)/, // %dp0%\path\to\cli.js
       /"([^"]+\.js)"/, // "full\path\to\cli.js"
@@ -152,7 +154,6 @@ export class ClaudeCliPathResolver {
    * Example: exec node "$basedir/../lib/node_modules/@anthropic-ai/claude-code/cli.js" "$@"
    */
   private parseUnixBash(content: string, wrapperPath: string): string | null {
-
     const patterns = [
       /\$\{?basedir\}?\/(.+?\.js)/, // $basedir/path/to/cli.js
       /"([^"]+\.js)"/, // "full/path/to/cli.js"

@@ -525,6 +525,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
           try {
             return JSON.parse(slice);
           } catch {
+            // degradation-audit: optional-capability - brace scanning over LLM
+            // prose is a probe; a slice that does not parse is not the JSON
+            // object, and null means "no JSON here" for the caller's fallback.
             return null;
           }
         }

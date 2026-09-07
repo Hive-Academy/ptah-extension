@@ -362,6 +362,9 @@ export class VoiceRpcHandlers {
       category: error.category as VoiceProviderErrorPayload['category'],
       message: error.message,
     };
+    // degradation-audit: optional-capability - the webview push is a
+    // best-effort notification and the provider error is already logged, so a
+    // failed broadcast costs only the toast.
     void this.webviewManager
       .broadcastMessage(MESSAGE_TYPES.VOICE_PROVIDER_ERROR, payload)
       .catch(() => undefined);
@@ -433,6 +436,9 @@ export class VoiceRpcHandlers {
       if (evt.direction !== 'tts') return;
       const percent = downloadPercent(evt);
       if (percent === null) return;
+      // degradation-audit: optional-capability - TTS download progress is a
+      // best-effort webview push; a failed broadcast drops one percentage
+      // update and the download itself is unaffected.
       void this.webviewManager
         .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
           model: TTS_PROGRESS_MODEL,
@@ -519,6 +525,9 @@ export class VoiceRpcHandlers {
       if (evt.direction !== 'stt') return;
       const percent = downloadPercent(evt);
       if (percent === null) return;
+      // degradation-audit: optional-capability - STT download progress is a
+      // best-effort webview push; a failed broadcast drops one percentage
+      // update and the download itself is unaffected.
       void this.webviewManager
         .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
           model,

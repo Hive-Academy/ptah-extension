@@ -618,6 +618,9 @@ export class ConfigRpcHandlers {
       }
       return this.providerModels.getModelTiers(providerId, 'mainAgent');
     } catch (e) {
+      // degradation-audit: optional-capability - tier overrides are a
+      // third-party-provider remapping layer; null uses the model ids as
+      // written, which is the Anthropic-direct behaviour.
       this.logger.warn(
         'Failed to read provider tier overrides',
         e instanceof Error ? e : new Error(String(e)),

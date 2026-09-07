@@ -1057,6 +1057,9 @@ export class SdkQueryOptionsBuilder {
     try {
       supportedModels = await this.modelService.getSupportedModels();
     } catch {
+      // degradation-audit: optional-capability - the pre-flight only turns a
+      // later provider rejection into an earlier message; returning skips the
+      // check and the query proceeds, as it already does with no cached list.
       this.logger.warn(
         '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw — skipping check',
         { resolvedModel },

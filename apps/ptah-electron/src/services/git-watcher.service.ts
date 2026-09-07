@@ -286,6 +286,9 @@ export class GitWatcherService {
         : path.resolve(workspacePath, target);
       return fs.existsSync(resolved) ? resolved : null;
     } catch (err) {
+      // degradation-audit: optional-capability - following a worktree or
+      // submodule gitdir pointer is optional; null means "no git context to
+      // watch", the same answer a workspace with no .git at all produces.
       this.logger.warn('[GitWatcher] Failed to resolve gitdir pointer', {
         dotGit,
         error: err instanceof Error ? err.message : String(err),

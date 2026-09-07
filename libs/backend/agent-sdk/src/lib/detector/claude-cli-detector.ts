@@ -147,6 +147,9 @@ export class ClaudeCliDetector {
 
       return false;
     } catch {
+      // degradation-audit: optional-capability - WSL detection is an
+      // environment probe over /proc/version; false means "not WSL", which
+      // is the same answer every non-Linux host already gets.
       return false;
     }
   }
@@ -235,6 +238,9 @@ export class ClaudeCliDetector {
       const output = result.stdout + result.stderr;
       return this.isValidClaudeOutput(output);
     } catch {
+      // degradation-audit: optional-capability - verifying a candidate binary
+      // is a probe; false means "this path is not a usable Claude CLI" and
+      // sends the caller on to the next detection strategy.
       return false;
     }
   }
@@ -422,6 +428,9 @@ export class ClaudeCliDetector {
 
       return null;
     } catch {
+      // degradation-audit: optional-capability - the npm-global strategy is
+      // one of several; null means "not installed this way" and the chain
+      // moves on to common paths, which is the same as a missing prefix.
       return null;
     }
   }
@@ -485,6 +494,9 @@ export class ClaudeCliDetector {
         }
       }
     } catch {
+      // degradation-audit: optional-capability - PATH lookup is one detection
+      // strategy of several; null means "not on PATH" and the chain continues
+      // with the WSL and common-path strategies.
       return null;
     }
 
