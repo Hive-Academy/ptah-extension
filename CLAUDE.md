@@ -147,6 +147,16 @@ alias (`@ptah-extension/thoth-shell`), not the folder name. A misspelled name is
 silently dropped from a `run-many` set, so read the `Running target test for N
 projects` header and check that N is the number you asked for.
 
+**After editing a `project.json`, run `npx nx reset` before you trust a target.**
+The Nx daemon serves the stale project graph even with `--skip-nx-cache` — that
+flag skips the computation cache, not the daemon's own snapshot — so a new or
+renamed target reads as missing and an edited one runs with its old options
+(TASK_2026_380 item 15 / TASK_2026_383 R-10). The reset is process-wide, though:
+**never run it while another executor is working in the same worktree**, because
+it kills their daemon and clears their cache mid-run. With parallel batches
+sharing a worktree, reset before the first command of a `project.json`-touching
+batch, not opportunistically.
+
 ## Coding Standards
 
 - **Type safety**: `catch (error: unknown)`, narrow with `instanceof Error` before `.message`. No `@ts-ignore` without `@ts-expect-error + reason`.
@@ -248,7 +258,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [cron-scheduler](./libs/backend/cron-scheduler/CLAUDE.md) — SQLite cron loop
 - [task-specs](./libs/backend/task-specs/CLAUDE.md) — `.ptah/specs/` task.md contract
 - [skill-synthesis](./libs/backend/skill-synthesis/CLAUDE.md) — Trajectory extraction
-- thoth-runtime — Runtime-agnostic Thoth channel boot + cron start (no CLAUDE.md yet)
+- [thoth-runtime](./libs/backend/thoth-runtime/CLAUDE.md) — Runtime-agnostic Thoth channel boot + cron start
 
 ### API Libs
 
