@@ -27,6 +27,11 @@ export { SourceControlFileComponent } from './lib/source-control/source-control-
 export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
 export { GitDockComponent } from './lib/git-dock/git-dock.component';
 export { GitDockHeaderComponent } from './lib/git-dock/git-dock-header.component';
+export { OpenInButtonComponent } from './lib/open-in/open-in-button.component';
+export type {
+  OpenInButtonMode,
+  OpenInRequest,
+} from './lib/open-in/open-in-button.component';
 
 // Diff tab types + helpers
 export type {
