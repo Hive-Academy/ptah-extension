@@ -234,6 +234,25 @@ export class AnalysisStorageService {
     }
   }
 
+  /**
+   * Remove a readable stale phase file before a resumed phase runs.
+   * Returns false when the provider cannot remove it so callers can retain
+   * their observational freshness fallback.
+   */
+  async tryRemovePhaseFile(
+    slugDir: string,
+    filename: string,
+  ): Promise<boolean> {
+    try {
+      await this.fs.delete(join(slugDir, filename));
+      return true;
+    } catch {
+      // degradation-audit: optional-capability - some providers may reject a
+      // phase-file delete; the caller then retains content/mtime freshness.
+      return false;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Analysis manifest (version 3)
   // ---------------------------------------------------------------------------

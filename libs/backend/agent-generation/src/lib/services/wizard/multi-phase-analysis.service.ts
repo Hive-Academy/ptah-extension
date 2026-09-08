@@ -236,6 +236,33 @@ export class MultiPhaseAnalysisService {
           this.storageService.readPhaseFile(slugDir, phaseConfig.file),
           this.storageService.readPhaseFileMtime(slugDir, phaseConfig.file),
         ]);
+        // Then REMOVE it, so that afterwards the file EXISTING is itself the
+        // proof this run wrote it. Comparing the file to its own snapshot
+        // cannot deliver that proof: a rewrite with identical bytes is
+        // invisible to a content compare, and mtime granularity is not
+        // guaranteed to be finer than the gap between this snapshot and the
+        // agent's write, so a strict `>` reads a real write as no write. The
+        // asymmetric cost of that mistake is what forces an exact answer —
+        // `recordPhaseOutcome` OVERWRITES the file with the captured assistant
+        // text when it believes nothing was written, and for these prompts
+        // that text is often a bare "Done.".
+        //
+        // The content lives in `priorFileContent` for the whole phase and is
+        // written back by `restorePriorPhaseFileIfMissing` on every exit that
+        // did not produce a replacement — abort, pause, and both failure
+        // paths. The residue is a crash window: the file is absent on disk for
+        // the duration of the phase, so losing the process outright loses that
+        // stale text. It is stale, lossy partial output whose only use is
+        // diagnosis, and the phase re-runs from scratch after a crash anyway.
+        //
+        // A provider that refuses the delete reports `false` and the run keeps
+        // the content/mtime fallback — worse, but exactly as good as before.
+        const staleFileRemoved =
+          priorFileContent !== null &&
+          (await this.storageService.tryRemovePhaseFile(
+            slugDir,
+            phaseConfig.file,
+          ));
 
         const phaseStart = Date.now();
         let outcome: PhaseExecutionOutcome;
@@ -252,6 +279,12 @@ export class MultiPhaseAnalysisService {
           );
         } catch (error: unknown) {
           if (masterAbortController.signal.aborted) {
+            await this.restorePriorPhaseFileIfMissing(
+              slugDir,
+              phaseConfig.file,
+              priorFileContent,
+              staleFileRemoved,
+            );
             await checkpoint.pause(phaseId);
             paused = true;
             break;
@@ -267,6 +300,12 @@ export class MultiPhaseAnalysisService {
           this.logger.info(
             `${SERVICE_TAG} Phase ${phaseId} paused by user; partial file kept`,
           );
+          await this.restorePriorPhaseFileIfMissing(
+            slugDir,
+            phaseConfig.file,
+            priorFileContent,
+            staleFileRemoved,
+          );
           await checkpoint.pause(phaseId);
           paused = true;
           break;
@@ -280,6 +319,7 @@ export class MultiPhaseAnalysisService {
           Date.now() - phaseStart,
           priorFileContent,
           priorFileMtime,
+          staleFileRemoved,
         );
 
         const statuses = checkpoint.statuses();
@@ -364,10 +404,11 @@ export class MultiPhaseAnalysisService {
    * Turn an execution outcome into the phase's terminal manifest state.
    *
    * `completed` requires a successful result AND a phase file THIS RUN wrote,
-   * detected by an advanced modification time or changed content, or one
-   * created from the complete captured text. A stale file left by an earlier
-   * failed or paused run does not count. Everything else is `failed` with a
-   * non-empty error; captured text is still written for diagnosis.
+   * proven by removing a readable stale file before execution, or detected by
+   * the prior content/mtime fallback when removal was unavailable. A stale
+   * file left by an earlier failed or paused run does not count. Everything
+   * else is `failed` with a non-empty error; captured text is still written
+   * for diagnosis.
    *
    * @param priorFileContent - The phase file's content immediately before this
    *   run executed the phase, or null when there was no readable file.
@@ -382,6 +423,7 @@ export class MultiPhaseAnalysisService {
     durationMs: number,
     priorFileContent: string | null,
     priorFileMtime: number | null,
+    staleFileRemoved: boolean,
   ): Promise<void> {
     const [currentFileContent, currentFileMtime] = await Promise.all([
       this.storageService.readPhaseFile(checkpoint.slugDir, filename),
@@ -389,9 +431,10 @@ export class MultiPhaseAnalysisService {
     ]);
     const fileWrittenThisRun =
       currentFileContent !== null &&
-      ((priorFileMtime !== null &&
-        currentFileMtime !== null &&
-        currentFileMtime > priorFileMtime) ||
+      (staleFileRemoved ||
+        (priorFileMtime !== null &&
+          currentFileMtime !== null &&
+          currentFileMtime > priorFileMtime) ||
         currentFileContent !== priorFileContent);
     const succeeded =
       outcome.resultReceived && !outcome.timedOut && !outcome.error;
@@ -401,6 +444,12 @@ export class MultiPhaseAnalysisService {
         if (!outcome.assistantText) {
           this.logger.warn(
             `${SERVICE_TAG} Phase ${phaseId}: no file written and no text captured`,
+          );
+          await this.restorePriorPhaseFileIfMissing(
+            checkpoint.slugDir,
+            filename,
+            priorFileContent,
+            staleFileRemoved,
           );
           await checkpoint.markFailed(
             phaseId,
@@ -437,11 +486,37 @@ export class MultiPhaseAnalysisService {
         outcome.assistantText,
       );
     }
+    await this.restorePriorPhaseFileIfMissing(
+      checkpoint.slugDir,
+      filename,
+      priorFileContent,
+      staleFileRemoved,
+    );
     this.logger.error(
       `${SERVICE_TAG} Phase ${phaseId} failed after ${durationMs}ms: ${error}`,
       { phaseId, durationMs, timedOut: outcome.timedOut },
     );
     await checkpoint.markFailed(phaseId, durationMs, error);
+  }
+
+  private async restorePriorPhaseFileIfMissing(
+    slugDir: string,
+    filename: string,
+    priorFileContent: string | null,
+    staleFileRemoved: boolean,
+  ): Promise<void> {
+    if (
+      !staleFileRemoved ||
+      priorFileContent === null ||
+      (await this.storageService.phaseFileExists(slugDir, filename))
+    ) {
+      return;
+    }
+    await this.storageService.writePhaseFile(
+      slugDir,
+      filename,
+      priorFileContent,
+    );
   }
 
   /**
