@@ -1,4 +1,4 @@
-# Code Logic Review — `TASK_2026_391`
+# Code Logic Review — `TASK_2026_400`
 
 ## Summary
 
@@ -15,7 +15,7 @@ The scoped Batch 4 fix is behaviorally sound and now has the required non-specul
 
 The revised regression composes the real `SessionLoaderService`, `TabManagerService`, `BatchedUpdateService`, `StreamingHandlerService`, `StreamingAccumulatorCore`, `EventDeduplicationService`, `MessageFinalizationService`, and `SessionManager` (`session-loader.service.spec.ts:1293-1326`). It queues the exact two stale stub users through the real streaming path while hidden (`session-loader.service.spec.ts:1333-1358`), performs the real targeted reload (`session-loader.service.spec.ts:1360-1370`), and asserts the real target tab contains restored user/assistant history and neither stale stub (`session-loader.service.spec.ts:1372-1381`). The execution-tree builder remains a deterministic double, which is appropriate: the race under test is the real queue/state/finalization ordering, while the builder only converts the surviving state into a stable assertion shape.
 
-The report's red evidence is credible: removing only the production cleanup leaves the real target with roles `['user', 'user']` instead of `['user', 'assistant']` (`.ptah/specs/TASK_2026_391/agent-output-frontend-developer.md:86-127`). Restoring cleanup produces 34 passing tests in the file (`agent-output-frontend-developer.md:129-147`). I independently reran the focused composed test with `--skipNxCache`; it passed with 1 test run and 35 skipped.
+The report's red evidence is credible: removing only the production cleanup leaves the real target with roles `['user', 'user']` instead of `['user', 'assistant']` (`.ptah/specs/TASK_2026_400/agent-output-frontend-developer.md:86-127`). Restoring cleanup produces 34 passing tests in the file (`agent-output-frontend-developer.md:129-147`). I independently reran the focused composed test with `--skipNxCache`; it passed with 1 test run and 35 skipped.
 
 This earns 8 rather than 9–10 because the real Electron reproduction still remains the final environment-level confirmation, and two pre-existing adjacent failure paths remain. Neither was introduced or worsened by this target-only queue cleanup.
 

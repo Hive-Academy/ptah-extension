@@ -1,4 +1,4 @@
-# TASK_2026_391 — Batch 3 report
+# TASK_2026_400 — Batch 3 report
 
 ## What was added
 
@@ -176,10 +176,10 @@ Final direct project-command output:
 
     Running 1 test using 1 worker
 
-      x  1 src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_391) › restores both tiles in place when /compact originates from the non-first same-session tile (11.6s)
+      x  1 src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_400) › restores both tiles in place when /compact originates from the non-first same-session tile (11.6s)
 
 
-      1) src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_391) › restores both tiles in place when /compact originates from the non-first same-session tile
+      1) src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_400) › restores both tiles in place when /compact originates from the non-first same-session tile
 
         Error: expect(received).toEqual(expected) // deep equality
 
@@ -207,7 +207,7 @@ Final direct project-command output:
         Error Context: ..\..\dist\apps\ptah-electron-e2e\test-results\chat-compaction-duplicate--b0536-non-first-same-session-tile\error-context.md
 
       1 failed
-        src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_391) › restores both tiles in place when /compact originates from the non-first same-session tile
+        src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_400) › restores both tiles in place when /compact originates from the non-first same-session tile
     (node:33520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
     (Use node --trace-warnings ... to show where the warning was created)
     (node:33520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
@@ -447,7 +447,7 @@ Verbatim target output (ANSI colour-control bytes omitted):
 
     Running 1 test using 1 worker
 
-      ok 1 src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_391) › restores both tiles in place when /compact originates from the non-first same-session tile (11.5s)
+      ok 1 src\specs\chat\compaction-duplicate-session.spec.ts:52:7 › Compaction recovery for duplicate visible session tiles (TASK_2026_400) › restores both tiles in place when /compact originates from the non-first same-session tile (11.5s)
 
       1 passed (12.1s)
 

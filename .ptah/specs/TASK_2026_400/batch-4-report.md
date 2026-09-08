@@ -1,4 +1,4 @@
-# TASK_2026_391 Batch 4 — final report
+# TASK_2026_400 Batch 4 — final report
 
 ## Verdict
 
@@ -166,7 +166,7 @@ The effective aggregate HEAD plus worktree contains:
   finalization regression; existing targeted Batch 1 coverage remains.
 - `libs/frontend/chat/src/lib/services/chat-store/session-loader.cli-restore.spec.ts`:
   removes the now-unneeded cleanup method from an untargeted test double.
-- Task reports under `.ptah/specs/TASK_2026_391/`.
+- Task reports under `.ptah/specs/TASK_2026_400/`.
 
 `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts` was not edited by
 this work.

@@ -1,4 +1,4 @@
-# TASK_2026_391 Batch 5 — context-usage gauge
+# TASK_2026_400 Batch 5 — context-usage gauge
 
 ## Verdict
 
@@ -302,7 +302,7 @@ also passed.
 - `libs/shared/src/lib/types/rpc/rpc-chat.types.ts`
 - `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts`
 - `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.spec.ts`
-- Batch 5 evidence/review reports under `.ptah/specs/TASK_2026_391/`
+- Batch 5 evidence/review reports under `.ptah/specs/TASK_2026_400/`
 
 `session-stats-summary.component.ts`, `tab-manager.service.ts`, and the
 compaction diagnostic services did not require production changes.
