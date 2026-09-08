@@ -137,3 +137,157 @@ Implicit requirements not addressed: null-session fan-out ownership and visible 
 - Confidence: HIGH
 - Top risk: The scoped queue fix is proven, but real Electron confirmation should verify no host-specific event ordering falls outside the composed service regression.
 - What a robust implementation would add: separate fixes for null-session lifecycle ownership and reload rollback/retry, plus a dedicated regression for post-compaction context-gauge ordering.
+
+---
+
+# Batch 5 Addendum — Context-Usage Gauge
+
+## Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 0        |
+| Failure modes found | 0        |
+
+The remediated Batch 5 logic satisfies the requested context-gauge behavior. The backend emits a dedicated `contextSnapshot` from the globally latest valid post-boundary main-session assistant frame (`libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:741-800`). Agent usage remains in lifetime totals and the per-model breakdown but cannot overwrite that snapshot (`session-history-reader.service.ts:801-827`). The snapshot formula matches the live path—input + cache-read + cache-creation, excluding output (`session-history-reader.service.ts:785-792`; `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:284-295`).
+
+The frontend applies the same snapshot policy on both full session switches and restored-tab resumes (`libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:645-657,720-750,904-911`). A missing snapshot renders CTX unknown, a successful restored response with no stats clears stale persisted stats, and a delayed restore response is discarded when the captured tab no longer owns the captured session (`session-loader.service.ts:734-738,898-911`). Aggregate stats are still passed unchanged to `applyLoadedSessionStats`, so the TOKENS chip is not derived from or replaced by the context snapshot (`session-loader.service.ts:721-732`).
+
+The score is 8 rather than 9–10 because verification is service-level rather than a fresh real Electron reproduction, and the existing JSONL reader still trusts malformed numeric shapes after parsing. Neither limitation is introduced by this batch or leaves a demonstrated gap in its normal contract.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+No silent failure remains in the scoped implementation for valid resume data. The prior success-looking failures are closed:
+
+- Lifetime cumulative totals can no longer be published as CTX because `applyResumeStats` reads only `stats.contextSnapshot` (`session-loader.service.ts:734-749`).
+- A restored tab cannot retain stale local stats after a successful no-stats response; all three stat fields are cleared (`session-loader.service.ts:904-911`).
+- A delayed response cannot write into a tab rebound to another session because ownership is checked after the RPC resolves and before any tab-scoped write (`session-loader.service.ts:898-902`).
+
+Residual uncertainty is limited to pre-existing malformed JSONL handling: syntactically valid lines are cast rather than schema-validated (`libs/backend/agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts:625-627,645-661`), and numeric extraction checks primitive type but not finiteness/non-negativity (`libs/backend/agent-sdk/src/lib/helpers/usage-extraction.utils.ts:35-48`).
+
+### 2. What user action produces unexpected behaviour?
+
+No scoped user action found after remediation:
+
+- Manual compaction followed by targeted reload uses the post-boundary snapshot, not lifetime totals (`session-history-reader.service.ts:741-792`; `session-loader.service.spec.ts:1133-1180`).
+- Ordinary full resume uses the same helper (`session-loader.service.ts:645-648`).
+- Renderer/webview restore refreshes stale persisted stats when available and clears them when unavailable (`session-loader.service.ts:898-911`; `session-loader.service.spec.ts:238-314`).
+- Rebinding the restored tab while the resume RPC is pending leaves the new session untouched (`session-loader.service.spec.ts:316-354`).
+
+### 3. What input data produces a wrong answer?
+
+No valid input shape found:
+
+- Multiple main models: the last main frame carries its own model independently of aggregate cost (`session-history-reader.service.ts:764-795`; `session-history-reader.service.spec.ts:332-400`).
+- Expensive agent/subagent activity: agent data affects lifetime totals only and cannot select CTX (`session-history-reader.service.ts:801-827`; `session-history-reader.service.spec.ts:402-471`).
+- Large assistant output: output is excluded from both resumed and live context calculations (`session-history-reader.service.ts:785-792`; `helpers/stream-transformer.ts:290-295`).
+- Missing context snapshot: CTX is set to null rather than inferred from cumulative inputs (`session-loader.service.ts:734-738`).
+- Unknown context window: the payload carries `contextWindow: 0`, which the existing component treats as unknown (`session-loader.service.ts:740-749`).
+
+### 4. What happens when a dependency fails?
+
+- A failed restored-session RPC logs and returns without destroying the cached transcript or stats (`session-loader.service.ts:890-896,931-938`). This is appropriate because failure supplies no replacement truth.
+- A successful response that explicitly has no stats clears stale values to unknown (`session-loader.service.ts:898-911`). This correctly differs from an RPC failure.
+- If the tab disappears or is rebound during the await, the response is ignored before stats, resumable subagents, or CLI-session restoration are applied (`session-loader.service.ts:898-902`).
+- A missing/unreadable backend session history returns null stats and empty events after logging (`session-history-reader.service.ts:165-181,207-213`); the full switch follows its existing failure path rather than presenting a fabricated gauge (`session-loader.service.ts:655-703`).
+
+### 5. What is missing that the requirements never mentioned?
+
+No additional in-scope behavior is missing. Useful future hardening, outside this batch, would validate finite non-negative historical usage at the JSONL boundary and add a browser-level Electron assertion for the rendered chip.
+
+## Failure modes
+
+No current scoped failure mode was found after reading the complete changed production files, their focused specs, the shared RPC contract, the live context producer, the tab persistence behavior, and the resume RPC assembly path.
+
+The following previously identified modes are now pinned as resolved:
+
+- Aggregate model wins over latest main model — resolved by the dedicated snapshot and multi-model regression (`session-history-reader.service.spec.ts:332-400`).
+- Agent model suppresses root context — resolved by snapshot isolation and agent regression (`session-history-reader.service.spec.ts:402-471`).
+- Resume includes output while live does not — resolved by matching formulas and post-compaction regression (`session-history-reader.service.spec.ts:473-561`).
+- Restored resume discards valid stats — resolved through `applyResumeStats` and restore regression (`session-loader.service.spec.ts:238-297`).
+- Successful restored resume with null stats retains stale gauge — resolved by explicit clearing and regression (`session-loader.service.spec.ts:299-314`).
+- Delayed restored response writes into rebound tab — resolved by post-await ownership check and deferred-response regression (`session-loader.service.spec.ts:316-354`).
+
+Residual uncertainty: malformed-but-parseable JSONL numeric fields are existing boundary debt; focused service tests do not exercise actual Electron DOM rendering.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+No in-scope material issue.
+
+Pre-existing hardening opportunity: validate JSONL usage values as finite and non-negative before aggregation (`jsonl-reader.service.ts:625-627`; `usage-extraction.utils.ts:35-48`). This was already true for historical aggregate stats and is not introduced or worsened by the dedicated snapshot.
+
+## Data flow
+
+1. OK — `chat:resume` reads main history and agent sessions, then assembles stats (`session-history-reader.service.ts:165-206`).
+2. OK — The last compact boundary determines the main-message slice used for current stats (`session-history-reader.service.ts:741-752`).
+3. OK — Ordered main-message traversal overwrites one context snapshot on each valid assistant frame, leaving the globally latest frame and its resolved model (`session-history-reader.service.ts:764-795`).
+4. OK — Agent traversal updates aggregate totals/model usage but has no path to `contextSnapshot` (`session-history-reader.service.ts:801-827`).
+5. OK — The shared RPC contract carries the optional snapshot independently of lifetime tokens/model usage (`libs/shared/src/lib/types/rpc/rpc-chat.types.ts:257-280`).
+6. OK — Full switch passes non-null stats into the shared application method; successful no-stats ordinary switches clear stats through the existing branch (`session-loader.service.ts:645-657`).
+7. OK — `applyResumeStats` installs aggregate stats/list unchanged and derives CTX solely from the dedicated snapshot (`session-loader.service.ts:720-750`).
+8. OK — Restored-tab resume revalidates `(tabId, sessionId)` after the RPC (`session-loader.service.ts:898-902`).
+9. OK — Restored-tab resume applies non-null stats or clears all stale stats on successful null (`session-loader.service.ts:904-911`).
+10. OK — Resumable subagents and CLI sessions are processed only after the same ownership check (`session-loader.service.ts:913-930`).
+
+## Requirements fulfilment
+
+| Requirement                                         | Status   | Gap                                                                                                                                  |
+| --------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Post-compaction CTX uses post-compaction context    | COMPLETE | Last valid main frame after final boundary (`session-history-reader.service.ts:741-795`).                                            |
+| Ordinary resume uses current context                | COMPLETE | Full switch and restored-tab paths both use `applyResumeStats` (`session-loader.service.ts:645-648,904-906`).                        |
+| TOKENS chip remains intended aggregate              | COMPLETE | Aggregate stats are passed unchanged; context snapshot is separate (`session-loader.service.ts:721-732`).                            |
+| Unknown when correct context unavailable            | COMPLETE | Missing snapshot clears CTX; successful null stats clears persisted stat state (`session-loader.service.ts:734-738,904-911`).        |
+| Multi-model session uses globally latest main model | COMPLETE | Snapshot identity is independent of aggregate rank (`session-history-reader.service.spec.ts:332-400`).                               |
+| Agent usage cannot contaminate CTX                  | COMPLETE | Agent loop cannot assign snapshot (`session-history-reader.service.ts:801-827`).                                                     |
+| Same notion as live path                            | COMPLETE | Both use input + cache-read + cache-creation (`session-history-reader.service.ts:785-792`; `helpers/stream-transformer.ts:290-295`). |
+| Old cumulative guard removed only when dead         | COMPLETE | No cumulative total feeds CTX in `applyResumeStats` (`session-loader.service.ts:720-750`).                                           |
+| No stale post-await restored-tab write              | COMPLETE | Ownership rechecked before any application (`session-loader.service.ts:898-902`).                                                    |
+| Preserve `[compaction-diag]` logging                | COMPLETE | Loader diagnostic remains at `session-loader.service.ts:574-587`; scoped diff removes no lifecycle diagnostics.                      |
+| Failing regression proved red then green            | COMPLETE | Original red evidence remains in `test-report.md`; remediated focused specs pass.                                                    |
+
+Implicit requirements not addressed: none in scope.
+
+## Edge cases
+
+| Case                                   | Handled          | How                                          | Concern                                        |
+| -------------------------------------- | ---------------- | -------------------------------------------- | ---------------------------------------------- |
+| Single model after compaction          | YES              | Last post-boundary snapshot                  | None found.                                    |
+| Multiple main models                   | YES              | Globally latest frame carries model          | Aggregate rank remains display-only.           |
+| Agent model dominates cost             | YES              | Agents isolated from snapshot                | Lifetime breakdown still includes agent costs. |
+| Large assistant output                 | YES              | Excluded to match live formula               | None found.                                    |
+| Non-null stats, no snapshot            | YES              | CTX null                                     | Honest unknown.                                |
+| Successful restored resume, null stats | YES              | Clears preloaded/live/model list             | No stale persisted gauge.                      |
+| Failed restored resume                 | YES              | Logs and preserves cached state              | Failure does not masquerade as new truth.      |
+| Restored tab closed during RPC         | YES              | Ownership lookup fails; response dropped     | No write.                                      |
+| Restored tab rebound during RPC        | YES              | Session ownership mismatch; response dropped | Regression included.                           |
+| Sibling targeted compaction reloads    | YES              | Existing pair-keyed in-flight identity       | Existing tests retained.                       |
+| Unknown model context window           | YES              | Window 0 renders unknown                     | No fabricated percentage.                      |
+| Malformed numeric JSONL                | Pre-existing gap | Type-only parsing/extraction                 | Future boundary hardening.                     |
+
+Verification evidence from this final review:
+
+- `npx nx test @ptah-extension/chat --testPathPatterns=session-loader.service.spec.ts --runInBand --skipNxCache` — 38 passed, 2 skipped.
+- `npx nx test @ptah-extension/agent-sdk --testPathPatterns=session-history-reader.service.spec.ts --runInBand --skipNxCache` — 30/30 passed.
+- `npx nx run-many -t typecheck -p @ptah-extension/chat @ptah-extension/agent-sdk @ptah-extension/shared --parallel=3 --skipNxCache` — header named all 3 requested projects; all 3 passed.
+- `git diff --check` — passed.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: Only pre-existing malformed-history validation and the absence of a fresh browser-level Electron assertion remain; neither undermines the verified Batch 5 logic.
+- What a robust implementation would add: finite/non-negative JSONL usage validation and an Electron-level rendered-header regression, without changing the approved snapshot contract.

@@ -393,3 +393,55 @@ Nx read the output from the cache instead of running the command for 3 out of 3 
 - Criteria not proven: browser-level DOM rendering in the Electron shell and the independent secondary CTX gauge defect.
 - Risks a reader should know about: all three broad test outputs came from Nx cache; Jest reports existing forced-worker-exit warnings; lint is green with 22 warnings; the unresolved CTX gauge defect remains outside this fix. The logic review also records pre-existing null-session fan-out ownership and reload-failure rollback gaps, neither introduced by this target-only cleanup.
 - Overall verdict: **pass**. The revised composed regression exercises the production queue, replay, finalization, and tab-state path at the relevant seam, independently passes, and all three required project gates are green.
+
+## Batch 5 — context-gauge red regression
+
+### Scope
+
+- Criterion: A `chat:resume` payload whose lifetime tokens total 896,300 but whose post-compaction `lastTurnContextTokens` is 11,016 must publish a 1.1% context fill for a 1,000,000-token model, not 89.6%.
+- Regression location: `D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/chat-store/session-loader.service.spec.ts:997`.
+- Production was intentionally not changed during this red-test step.
+
+### Execution
+
+Command:
+
+```text
+npx nx test @ptah-extension/chat --testPathPatterns=session-loader.service.spec.ts --testNamePattern="uses the post-compaction last-turn context instead of cumulative resume tokens for the gauge" --runInBand --skipNxCache
+```
+
+Result: 0 passed, 1 failed, 36 skipped; exit code 1.
+
+```text
+> nx run @ptah-extension/chat:test --testPathPatterns=session-loader.service.spec.ts --testNamePattern=uses the post-compaction last-turn context instead of cumulative resume tokens for the gauge --runInBand
+
+FAIL chat libs/frontend/chat/src/lib/services/chat-store/session-loader.service.spec.ts
+  ● SessionLoaderService › tab-targeted compaction reload › uses the post-compaction last-turn context instead of cumulative resume tokens for the gauge
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+    - Expected
+    + Received
+      "tab-target-b",
+      Object {
+    -   "contextPercent": 1.1,
+    -   "contextUsed": 11016,
+    +   "contextPercent": 89.6,
+    +   "contextUsed": 896300,
+        "contextWindow": 1000000,
+        "model": "claude-opus-5",
+      },
+    Number of calls: 1
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 36 skipped, 37 total
+Snapshots:   0 total
+Ran all test suites matching session-loader.service.spec.ts with tests matching "uses the post-compaction last-turn context instead of cumulative resume tokens for the gauge".
+
+NX   Running target test for project @ptah-extension/chat failed
+
+Failed tasks:
+- @ptah-extension/chat:test
+```
+
+### Verdict
+
+RED AS REQUIRED: the test reproduces the reported 89.6% lifetime-token gauge and requires the accurate 1.1% post-compaction gauge.

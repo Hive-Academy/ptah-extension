@@ -25,6 +25,7 @@ import {
   FlatStreamEventUnion,
   SubagentRecord,
   getModelContextWindow,
+  type ChatResumeResult,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -180,7 +181,10 @@ export class SessionLoaderService {
       ) {
         this.restoredSessionChecked = true;
         untracked(() =>
-          this.refreshResumableSubagentsForSession(sessionId, tabId),
+          this.refreshResumableSubagentsForSession(
+            sessionId,
+            TabId.from(tabId),
+          ),
         );
       }
     });
@@ -680,43 +684,7 @@ export class SessionLoaderService {
       // third branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
-        this.tabManager.applyLoadedSessionStats(
-          resolvedTabId,
-          stats,
-          stats.model ?? null,
-        );
-        if (stats.model) {
-          const contextWindow = getModelContextWindow(stats.model);
-          const contextUsed =
-            stats.tokens.input +
-            (stats.tokens.cacheRead ?? 0) +
-            stats.tokens.output;
-          const cumulativeExceedsWindow =
-            contextWindow > 0 && contextUsed > contextWindow;
-
-          if (!cumulativeExceedsWindow) {
-            const contextPercent =
-              contextWindow > 0
-                ? Math.round((contextUsed / contextWindow) * 1000) / 10
-                : 0;
-            this.tabManager.setLiveModelStats(resolvedTabId, {
-              model: stats.model,
-              contextUsed,
-              contextWindow,
-              contextPercent,
-            });
-          }
-        }
-        if (stats.modelUsageList && stats.modelUsageList.length > 0) {
-          const backendModelList = stats.modelUsageList;
-          this.tabManager.setModelUsageList(
-            resolvedTabId,
-            backendModelList.map((entry) => ({
-              ...entry,
-              contextWindow: getModelContextWindow(entry.model),
-            })),
-          );
-        }
+        this.applyResumeStats(resolvedTabId, stats);
       } else if (
         !targetTabId &&
         resumeResult.success &&
@@ -785,6 +753,38 @@ export class SessionLoaderService {
       );
     }
     return target;
+  }
+
+  /** Apply one persisted resume snapshot without treating lifetime totals as CTX. */
+  private applyResumeStats(
+    tabId: TabId,
+    stats: NonNullable<ChatResumeResult['stats']>,
+  ): void {
+    this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
+    this.tabManager.setModelUsageList(
+      tabId,
+      (stats.modelUsageList ?? []).map((entry) => ({
+        ...entry,
+        contextWindow: getModelContextWindow(entry.model),
+      })),
+    );
+
+    const snapshot = stats.contextSnapshot;
+    if (!snapshot) {
+      this.tabManager.setLiveModelStats(tabId, null);
+      return;
+    }
+
+    const contextWindow = getModelContextWindow(snapshot.model);
+    this.tabManager.setLiveModelStats(tabId, {
+      model: snapshot.model,
+      contextUsed: snapshot.contextTokens,
+      contextWindow,
+      contextPercent:
+        contextWindow > 0
+          ? Math.round((snapshot.contextTokens / contextWindow) * 1000) / 10
+          : 0,
+    });
   }
 
   /**
@@ -904,7 +904,7 @@ export class SessionLoaderService {
    */
   private async refreshResumableSubagentsForSession(
     sessionId: SessionId,
-    tabId: string,
+    tabId: TabId,
   ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       return;
@@ -928,6 +928,21 @@ export class SessionLoaderService {
           { sessionId, error: result.error },
         );
         return;
+      }
+
+      const restoredTab =
+        this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (!restoredTab || restoredTab.claudeSessionId !== sessionId) {
+        return;
+      }
+
+      const stats = result.data?.stats;
+      if (stats) {
+        this.applyResumeStats(tabId, stats);
+      } else {
+        this.tabManager.setPreloadedStats(tabId, null);
+        this.tabManager.setLiveModelStats(tabId, null);
+        this.tabManager.setModelUsageList(tabId, []);
       }
 
       const resumableSubagents = result.data?.resumableSubagents;

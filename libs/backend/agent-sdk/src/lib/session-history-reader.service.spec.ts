@@ -329,6 +329,237 @@ describe('SessionHistoryReaderService', () => {
       expect(stats?.model).toBe('claude-sonnet-4-20250514');
     });
 
+    it('uses the globally latest main-session model for the context snapshot regardless of aggregate cost', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'gpt-4o',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o',
+            content: [{ type: 'text', text: 'first' }],
+          },
+          usage: {
+            input_tokens: 100_000,
+            output_tokens: 50_000,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'a2',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o-mini',
+            content: [{ type: 'text', text: 'second' }],
+          },
+          usage: {
+            input_tokens: 200,
+            output_tokens: 400,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 800,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.tokens).toEqual({
+        input: 100_200,
+        output: 50_400,
+        cacheRead: 10_000,
+        cacheCreation: 800,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'gpt-4o',
+        inputTokens: 100_000,
+        outputTokens: 50_000,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'gpt-4o-mini',
+          contextTokens: 11_000,
+        },
+      });
+    });
+
+    it('never lets agent usage select or overwrite the main-session context snapshot', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'gpt-4o-mini',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'root-turn',
+          message: {
+            role: 'assistant',
+            model: 'gpt-4o-mini',
+            content: [{ type: 'text', text: 'root reply' }],
+          },
+          usage: {
+            input_tokens: 250,
+            output_tokens: 100,
+            cache_read_input_tokens: 500,
+            cache_creation_input_tokens: 50,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([
+        {
+          agentId: 'agent-a',
+          filePath: '/sessions/dir/agent-a.jsonl',
+          messages: [
+            {
+              type: 'assistant',
+              uuid: 'agent-turn',
+              message: {
+                role: 'assistant',
+                model: 'gpt-4o',
+                content: [{ type: 'text', text: 'expensive agent reply' }],
+              },
+              usage: {
+                input_tokens: 200_000,
+                output_tokens: 100_000,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+              },
+            } as SessionHistoryMessage,
+          ],
+        },
+      ]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'gpt-4o',
+        inputTokens: 200_000,
+        outputTokens: 100_000,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'gpt-4o-mini',
+          contextTokens: 800,
+        },
+      });
+    });
+
+    it('uses the live input plus cache formula for the latest post-compaction context snapshot', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'claude-sonnet-4-20250514',
+          uuid: 'init',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'pre-compact',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'old context' }],
+          },
+          usage: {
+            input_tokens: 1_000,
+            output_tokens: 500,
+            cache_read_input_tokens: 800_000,
+            cache_creation_input_tokens: 0,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'boundary',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'post-compact-1',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'new context' }],
+          },
+          usage: {
+            input_tokens: 60,
+            output_tokens: 400,
+            cache_read_input_tokens: 120_000,
+            cache_creation_input_tokens: 2_000,
+          },
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: 'post-compact-2',
+          message: {
+            role: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            content: [{ type: 'text', text: 'latest context' }],
+          },
+          usage: {
+            input_tokens: 16,
+            output_tokens: 200,
+            cache_read_input_tokens: 10_000,
+            cache_creation_input_tokens: 800,
+          },
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stats?.tokens).toEqual({
+        input: 76,
+        output: 600,
+        cacheRead: 130_000,
+        cacheCreation: 2_800,
+      });
+      expect(stats?.modelUsageList?.[0]).toMatchObject({
+        model: 'claude-sonnet-4-20250514',
+        inputTokens: 76,
+        outputTokens: 600,
+      });
+      expect(stats).toMatchObject({
+        contextSnapshot: {
+          model: 'claude-sonnet-4-20250514',
+          contextTokens: 10_816,
+        },
+      });
+    });
+
     it('returns null stats when no message carries usage data', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(

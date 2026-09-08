@@ -264,6 +264,11 @@ export interface ChatResumeResult {
     };
     messageCount: number;
     model?: string;
+    /** Latest valid main-session context frame after the last compaction. */
+    contextSnapshot?: {
+      model: string;
+      contextTokens: number;
+    };
     /** Number of agent/subagent JSONL files found for this session */
     agentSessionCount?: number;
     /** Per-model token and cost breakdown for multi-model sessions */

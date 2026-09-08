@@ -44,11 +44,11 @@ import {
 import type { StreamingState } from '@ptah-extension/chat-types';
 import {
   SessionId,
+  TabId,
   type ChatSessionSummary,
   type ExecutionNode,
   type FlatStreamEventUnion,
   type SubagentRecord,
-  type TabId,
 } from '@ptah-extension/shared';
 
 function makeSummary(
@@ -73,6 +73,10 @@ describe('SessionLoaderService', () => {
   let activeTabSessionIdSignal: ReturnType<typeof signal<string | null>>;
   let activeTabStatusSignal: ReturnType<typeof signal<string | null>>;
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
+  let applyLoadedSessionStats: jest.Mock;
+  let setPreloadedStats: jest.Mock;
+  let setLiveModelStats: jest.Mock;
+  let setModelUsageList: jest.Mock;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -87,6 +91,10 @@ describe('SessionLoaderService', () => {
     activeTabSessionIdSignal = signal<string | null>(null);
     activeTabStatusSignal = signal<string | null>(null);
     activeTabIdSignal = signal<string | null>(null);
+    applyLoadedSessionStats = jest.fn();
+    setPreloadedStats = jest.fn();
+    setLiveModelStats = jest.fn();
+    setModelUsageList = jest.fn();
 
     const tabManagerMock = {
       pendingSessionLoad: computed(() => pendingSessionLoadSignal()),
@@ -94,6 +102,19 @@ describe('SessionLoaderService', () => {
       activeTabSessionId: computed(() => activeTabSessionIdSignal()),
       activeTabStatus: computed(() => activeTabStatusSignal()),
       activeTabId: computed(() => activeTabIdSignal()),
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const sessionId = activeTabSessionIdSignal();
+        return sessionId
+          ? {
+              tab: { id: tabId, claudeSessionId: sessionId },
+              workspacePath: 'D:/repo',
+            }
+          : null;
+      }),
+      applyLoadedSessionStats,
+      setPreloadedStats,
+      setLiveModelStats,
+      setModelUsageList,
     } as unknown as TabManagerService;
 
     const sessionManagerMock = {
@@ -198,8 +219,9 @@ describe('SessionLoaderService', () => {
     });
 
     it('skips the fetch when the session was already hydrated by chat:resume', async () => {
+      const restoredTabId = TabId.from('72f04290-94d6-497a-81b4-c096e7e7a2b4');
       activeTabSessionIdSignal.set(SESSION);
-      activeTabIdSignal.set('tab-1');
+      activeTabIdSignal.set(restoredTabId);
       rpcCall.mockImplementation(async (method: string) =>
         method === 'chat:resume'
           ? { success: true, data: { cliSessions: refs } }
@@ -215,6 +237,123 @@ describe('SessionLoaderService', () => {
       await service.restoreCliSessionsForSession(SESSION);
 
       expect(cliSessionCalls()).toHaveLength(0);
+    });
+
+    it('replaces a restored loaded tab stale stats from the resume snapshot', async () => {
+      const restoredTabId = TabId.from('15fe87b7-9888-456d-a125-74e31307780e');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        totalCost: 12,
+        tokens: {
+          input: 700_000,
+          output: 20_000,
+          cacheRead: 100_000,
+          cacheCreation: 0,
+        },
+        messageCount: 90,
+        model: 'claude-sonnet-4-5',
+        modelUsageList: [
+          {
+            model: 'claude-sonnet-4-5',
+            inputTokens: 700_000,
+            outputTokens: 20_000,
+            costUSD: 12,
+          },
+        ],
+        contextSnapshot: {
+          model: 'claude-opus-5',
+          contextTokens: 11_016,
+        },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).toHaveBeenCalledWith(
+        restoredTabId,
+        stats,
+        stats.model,
+      );
+      expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
+        model: 'claude-opus-5',
+        contextUsed: 11_016,
+        contextWindow: 1_000_000,
+        contextPercent: 1.1,
+      });
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
+        {
+          model: 'claude-sonnet-4-5',
+          inputTokens: 700_000,
+          outputTokens: 20_000,
+          costUSD: 12,
+          contextWindow: 200_000,
+        },
+      ]);
+    });
+
+    it('clears stale restored-tab stats when a successful resume has no stats', async () => {
+      const restoredTabId = TabId.from('c74b7af0-4c5c-4336-821c-e2fe28cd921d');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      rpcCall.mockResolvedValue({ success: true, data: { stats: null } });
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setPreloadedStats).toHaveBeenCalledWith(restoredTabId, null);
+      expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, null);
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, []);
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+    });
+
+    it('does not apply an old resume response after the tab is rebound', async () => {
+      const restoredTabId = TabId.from('6c7172a6-1f48-48c8-a3af-33e627e8bb55');
+      let resolveResume!: (value: {
+        success: true;
+        data: { stats: typeof stats };
+      }) => void;
+      const stats = {
+        totalCost: 1,
+        tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        contextSnapshot: { model: 'claude-opus-5', contextTokens: 12 },
+      };
+      const resume = new Promise<{
+        success: true;
+        data: { stats: typeof stats };
+      }>((resolve) => {
+        resolveResume = resolve;
+      });
+      rpcCall.mockImplementation((method: string) =>
+        method === 'chat:resume'
+          ? resume
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+
+      activeTabSessionIdSignal.set('different-session');
+      resolveResume({ success: true, data: { stats } });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(setPreloadedStats).not.toHaveBeenCalled();
+      expect(setLiveModelStats).not.toHaveBeenCalled();
+      expect(setModelUsageList).not.toHaveBeenCalled();
     });
   });
 
@@ -344,7 +483,7 @@ describe('SessionLoaderService', () => {
       // Trigger refreshResumableSubagentsForSession via restored-session effect.
       activeTabSessionIdSignal.set('sess-1');
       activeTabStatusSignal.set('loaded');
-      activeTabIdSignal.set('tab-1');
+      activeTabIdSignal.set(TabId.from('61a250e8-805c-4f1c-823a-791e06784980'));
       // Flush the async refresh.
       await Promise.resolve();
       await Promise.resolve();
@@ -869,6 +1008,7 @@ describe('SessionLoaderService', () => {
       const clearPendingUpdates = jest.fn();
       const markSessionActive = jest.fn();
       const setPreloadedStats = jest.fn();
+      const setLiveModelStats = jest.fn();
 
       const tabManagerMock = {
         pendingSessionLoad: computed(() => null),
@@ -888,7 +1028,7 @@ describe('SessionLoaderService', () => {
         applyResumeFailure: jest.fn(),
         applyResumedHistory,
         applyLoadedSessionStats,
-        setLiveModelStats: jest.fn(),
+        setLiveModelStats,
         setModelUsageList: jest.fn(),
         setPreloadedStats,
         markSessionActive,
@@ -937,6 +1077,7 @@ describe('SessionLoaderService', () => {
         clearPendingUpdates,
         markSessionActive,
         setPreloadedStats,
+        setLiveModelStats,
       };
     }
 
@@ -980,6 +1121,7 @@ describe('SessionLoaderService', () => {
         stats,
         stats.model,
       );
+      expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, null);
       expect(harness.processStreamEvent).toHaveBeenCalledWith(
         expect.anything(),
         TAB_B,
@@ -990,6 +1132,55 @@ describe('SessionLoaderService', () => {
         TAB_B,
         undefined,
       );
+    });
+
+    it('uses the dedicated context snapshot model instead of aggregate resume stats for the gauge', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                events: [{ type: 'noop' }],
+                stats: {
+                  totalCost: 35.668,
+                  tokens: {
+                    input: 896_000,
+                    output: 300,
+                    cacheRead: 0,
+                    cacheCreation: 0,
+                  },
+                  messageCount: 250,
+                  model: 'claude-sonnet-4-5',
+                  modelUsageList: [
+                    {
+                      model: 'claude-sonnet-4-5',
+                      inputTokens: 896_000,
+                      outputTokens: 300,
+                      costUSD: 35.668,
+                    },
+                  ],
+                  contextSnapshot: {
+                    model: 'claude-opus-5',
+                    contextTokens: 11_016,
+                  },
+                },
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+
+      expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, {
+        model: 'claude-opus-5',
+        contextUsed: 11_016,
+        contextWindow: 1_000_000,
+        contextPercent: 1.1,
+      });
     });
 
     it('uses the explicit target for the legacy-message fallback', async () => {
