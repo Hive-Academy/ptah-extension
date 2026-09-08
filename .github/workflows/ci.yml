@@ -147,7 +147,12 @@ jobs:
       # worker that misses its 500 ms deadline, so the flag would only cut off
       # the coordinator's own coverage write, and TASK_2026_392 measured no
       # leaked handle for it to paper over.
+      # Invoked through the local nx binary rather than `npx` for the same
+      # reason the degradation-audit step above is (githubactions:S6505, S8543
+      # — cwe:494, cwe:829). This line was pre-existing and therefore exempt
+      # until the worker cap edited it; an edited line is new code to the
+      # scanner, so the exemption ended with the edit.
       - name: Run affected tests with coverage
-        run: npx nx affected -t test --coverage --parallel=3 --maxWorkers=2
+        run: node node_modules/nx/bin/nx.js affected -t test --coverage --parallel=3 --maxWorkers=2
 
       - run: npx nx affected -t build
