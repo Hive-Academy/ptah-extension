@@ -81,7 +81,15 @@ COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 # below exited 2 with CLI.UNKNOWN_COMMAND, `&&` short-circuited, and main.cjs
 # never ran. caddy declares depends_on service_healthy, so it never bound
 # :80/:443 and api.ptah.live refused TCP for four days.
-RUN npm ci --omit=dev
+#
+# `--ignore-scripts`: a lifecycle script in ANY transitive dependency runs
+# arbitrary code as part of the build (sonar docker:S6505). The builder stage
+# above already installs this way. Verified safe for this dependency set, not
+# assumed — with scripts disabled, `prisma validate` passes, `prisma migrate
+# diff` emits the full DDL, and `prisma migrate deploy` reaches P1001 against an
+# unreachable database, which means the schema engine loaded and only the
+# connection failed. Nothing here needs a postinstall.
+RUN npm ci --omit=dev --ignore-scripts
 
 # The one package the generated manifest cannot carry. `generatePackageJson`
 # emits root `dependencies` only, and the prisma CLI is a devDependency — as it
@@ -97,7 +105,7 @@ RUN npm ci --omit=dev
 # @nestjs/config and @nestjs/jwt. They were missing from the generated manifest
 # only because they were misfiled under root `devDependencies` despite being
 # runtime imports. Fixed at the source in package.json, so Nx now emits them.
-RUN npm install --omit=dev --no-save prisma@7.7.0
+RUN npm install --omit=dev --no-save --ignore-scripts prisma@7.7.0
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image

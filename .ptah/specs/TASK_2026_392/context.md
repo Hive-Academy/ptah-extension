@@ -85,6 +85,29 @@ The bug was the version drift, **not** the `&&`.
   to full commit SHAs (`githubactions:S7637`, raised by SonarCloud on PR #470).
   They receive `DROPLET_SSH_KEY`, so a repointed mutable tag is a production
   credential leak. Same supply-chain class as the outage itself.
+
+### Review round on PR #470
+
+- **`docker:S6505` ×2** — both `npm` lines in the `deps` stage now pass
+  `--ignore-scripts`, matching the builder stage. A lifecycle script in any
+  transitive dependency otherwise runs arbitrary code during the build. Proven
+  safe for this dependency set rather than assumed: with scripts disabled,
+  `prisma validate` passes, `prisma migrate diff --from-empty --to-schema` emits
+  the full DDL, and `prisma migrate deploy` against an unreachable database
+  reaches `P1001` — so the schema engine loads and only the connection fails.
+- **Masked issue-API failures in `uptime-probe.yml`** (raised by Greptile, and
+  valid). `mapfile -t arr < <(gh issue list … | while …)` cannot fail the step:
+  mapfile's exit status describes reading the file descriptor, not the producer,
+  and `set -e` does not reach into process substitution. A `gh` failure
+  therefore read as "no matching issue" — filing a duplicate on the outage path,
+  and on the recovery path leaving a stale issue open while the step reported
+  success. Measured both forms against a stubbed failing `gh`: the old one
+  exited 0 with zero matches, the new one exits 1. Fixed by capturing the
+  listing in its own command substitution, where `set -e` does propagate.
+  `set -euo pipefail` is now explicit in all four `run` blocks instead of
+  relying on the runner's default shell flags, and the fragile
+  `[[ … ]] && sleep 20` line is a plain `if`, since an `&&` list is exempt from
+  `errexit` and reads as though it is not.
 - `.github/workflows/deploy-server.yml` — post-deploy smoke check polls the
   public `https://api.ptah.live/api/health` for up to 3 minutes and asserts
   `status: ok` **and** `database: connected`, not merely HTTP 200. On failure

@@ -37,7 +37,7 @@ jobs:
       - name: Probe the public health endpoint
         id: probe
         run: |
-          set -u
+          set -euo pipefail
           # Three attempts absorbs a single deploy restart or a transient blip
           # without flapping the issue open. Sustained failure still reports on
           # this run, so detection stays inside one 15-minute window.
@@ -59,7 +59,9 @@ jobs:
             echo "attempt ${attempt}: UNHEALTHY (HTTP ${status}) ${body:-<empty body>}"
             printf 'HTTP status: %s\nBody: %s\n' "${status}" "${body:-<empty body>}" \
               > "${RUNNER_TEMP}/last-failure.txt"
-            [[ "${attempt}" -lt 3 ]] && sleep 20
+            if [[ "${attempt}" -lt 3 ]]; then
+              sleep 20
+            fi
           done
 
           echo "healthy=${healthy}" >> "${GITHUB_OUTPUT}"
@@ -69,6 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           body_file="${RUNNER_TEMP}/uptime-issue-body.md"
 
           {
@@ -105,9 +108,21 @@ jobs:
           # Same open-or-update idiom as connectors-probe.yml: one long-lived
           # issue, edited in place, so a sustained outage does not file 96
           # issues a day.
-          mapfile -t matching_issues < <(
+          #
+          # The listing is captured in its OWN assignment, deliberately. A
+          # pipeline inside <(...) cannot fail this step — mapfile's exit status
+          # describes reading the FD, not the producer — so `gh issue list`
+          # returning an error would silently read as "no matching issue": a
+          # duplicate filed every run here, and a stale issue left open on the
+          # recovery path below while the step reported success. Under
+          # `set -e` a command substitution assignment does propagate.
+          open_issues="$(
             gh issue list --state open --limit 1000 --json number,title \
-              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}'
+          )"
+
+          mapfile -t matching_issues < <(
+            printf '%s\n' "${open_issues}" |
               while IFS=$'\t' read -r issue_number candidate_title; do
                 if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
                   printf '%s\n' "${issue_number}"
@@ -139,9 +154,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -t matching_issues < <(
+          set -euo pipefail
+          # Captured in its own assignment for the reason spelled out in the
+          # step above: a failed listing must fail this step, not read as
+          # "nothing to close" and leave the outage issue open forever.
+          open_issues="$(
             gh issue list --state open --limit 1000 --json number,title \
-              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}'
+          )"
+
+          mapfile -t matching_issues < <(
+            printf '%s\n' "${open_issues}" |
               while IFS=$'\t' read -r issue_number candidate_title; do
                 if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
                   printf '%s\n' "${issue_number}"

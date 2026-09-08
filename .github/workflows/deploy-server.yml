@@ -139,7 +139,7 @@ jobs:
       - name: Smoke check the deployed API
         id: smoke
         run: |
-          set -u
+          set -euo pipefail
           health_url='https://api.ptah.live/api/health'
           for attempt in $(seq 1 18); do
             body="$(curl --silent --show-error --max-time 10 "${health_url}" || true)"
