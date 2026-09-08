@@ -624,7 +624,9 @@ export class SessionLoaderService {
       // targeted reload started. Close/reopen clears that queue through
       // StreamRouter; in-place reload must do the same or history finalization's
       // flush can reinstall the stale two-stub compaction state over the replay.
-      this.streamingHandler.clearPendingUpdates(resolvedTabId);
+      if (targetTabId) {
+        this.streamingHandler.clearPendingUpdates(resolvedTabId);
+      }
       this.tabManager.applyResumingSession(resolvedTabId, {
         sessionId,
         name: title,

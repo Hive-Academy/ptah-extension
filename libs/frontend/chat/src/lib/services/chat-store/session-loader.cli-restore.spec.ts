@@ -98,7 +98,6 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
             processStreamEvent,
             finalizeSessionHistory: jest.fn(),
             cleanupSessionDeduplication: jest.fn(),
-            clearPendingUpdates: jest.fn(),
           },
         },
         { provide: AgentMonitorStore, useValue: { loadCliSessions } },

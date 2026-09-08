@@ -22,15 +22,33 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  BatchedUpdateService,
+  BackgroundAgentStore,
+  EventDeduplicationService,
+  ExecutionTreeBuilderService,
+  MessageFinalizationService,
   SessionManager,
+  StreamingAccumulatorCore,
   StreamingHandlerService,
   AgentMonitorStore,
+  TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
-import type {
-  ChatSessionSummary,
+import {
+  ConfirmationDialogService,
+  ConversationRegistry,
+  MODEL_REFRESH_CONTROL,
+  TabSessionBinding,
+  TabWorkspacePartitionService,
+  type ModelRefreshControl,
+} from '@ptah-extension/chat-state';
+import type { StreamingState } from '@ptah-extension/chat-types';
+import {
   SessionId,
-  SubagentRecord,
-  TabId,
+  type ChatSessionSummary,
+  type ExecutionNode,
+  type FlatStreamEventUnion,
+  type SubagentRecord,
+  type TabId,
 } from '@ptah-extension/shared';
 
 function makeSummary(
@@ -472,7 +490,6 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
-        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -584,7 +601,6 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
-        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -680,7 +696,6 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
-        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -924,66 +939,6 @@ describe('SessionLoaderService', () => {
         setPreloadedStats,
       };
     }
-
-    it('drops stale live-stream updates before replay so restored assistant history remains visible on the target tab', async () => {
-      const harness = makeTargetedService();
-      const renderedMessages = new Map<TabId, string[]>([
-        [
-          TAB_B,
-          [
-            'Continued from previous conversation (compacted)',
-            '/compact compact',
-          ],
-        ],
-      ]);
-      let staleLiveUpdatePending = true;
-      const replayedAssistantIds: string[] = [];
-
-      harness.clearPendingUpdates.mockImplementation((tabId: TabId) => {
-        if (tabId === TAB_B) staleLiveUpdatePending = false;
-      });
-      harness.processStreamEvent.mockImplementation(
-        (event: { eventType: string; messageId?: string }) => {
-          if (
-            event.eventType === 'message_start' &&
-            event.messageId === 'assistant-restored'
-          ) {
-            replayedAssistantIds.push(event.messageId);
-          }
-        },
-      );
-      harness.finalizeSessionHistory.mockImplementation((tabId: TabId) => {
-        // Models BatchedUpdateService.flushSync(): without target cleanup, an
-        // older deferred live `/compact` state wins over the newer replay state.
-        if (!staleLiveUpdatePending) {
-          renderedMessages.set(tabId, [...replayedAssistantIds]);
-        }
-      });
-      rpcCall.mockImplementation(async (method: string) =>
-        method === 'chat:resume'
-          ? {
-              success: true,
-              data: {
-                events: [
-                  {
-                    eventType: 'message_start',
-                    messageId: 'assistant-restored',
-                    role: 'assistant',
-                  },
-                ],
-              },
-            }
-          : { success: true, data: {} },
-      );
-
-      await harness.service.switchSession(SESSION, {
-        reason: 'compaction',
-        targetTabId: TAB_B,
-      });
-
-      expect(renderedMessages.get(TAB_B)).toEqual(['assistant-restored']);
-      expect(renderedMessages.get(TAB_A)).toBeUndefined();
-    });
 
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
       const harness = makeTargetedService();
@@ -1259,5 +1214,221 @@ describe('SessionLoaderService', () => {
       );
       expect(loadCalls.length).toBe(2);
     }, 10000);
+  });
+});
+
+describe('SessionLoaderService targeted replay with the real streaming state pipeline', () => {
+  const restoredText = 'Restored assistant content after compaction';
+  let visibilityDescriptor: PropertyDescriptor | undefined;
+  let requestAnimationFrameSpy: jest.SpyInstance;
+  let cancelAnimationFrameSpy: jest.SpyInstance;
+
+  function event(
+    sessionId: SessionId,
+    id: string,
+    eventType: 'message_start' | 'text_delta' | 'message_complete',
+    messageId: string,
+    details: Record<string, unknown> = {},
+  ): FlatStreamEventUnion {
+    return {
+      id,
+      eventType,
+      timestamp: Date.now(),
+      sessionId,
+      messageId,
+      source: 'stream',
+      ...details,
+    } as FlatStreamEventUnion;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    visibilityDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      'visibilityState',
+    );
+    requestAnimationFrameSpy = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation(() => 17);
+    cancelAnimationFrameSpy = jest
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
+    if (visibilityDescriptor) {
+      Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+    } else {
+      delete (
+        document as Document & { visibilityState?: DocumentVisibilityState }
+      ).visibilityState;
+    }
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  it('discards a deferred live compaction state before replaying assistant history into that exact tab', async () => {
+    const sessionId = SessionId.create();
+
+    const replayEvents: FlatStreamEventUnion[] = [
+      event(sessionId, 'replay-user-start', 'message_start', 'replay-user', {
+        role: 'user',
+      }),
+      event(sessionId, 'replay-user-text', 'text_delta', 'replay-user', {
+        blockIndex: 0,
+        delta: 'original user prompt',
+      }),
+      event(
+        sessionId,
+        'replay-assistant-start',
+        'message_start',
+        'replay-assistant',
+        { role: 'assistant' },
+      ),
+      event(
+        sessionId,
+        'replay-assistant-text',
+        'text_delta',
+        'replay-assistant',
+        { blockIndex: 0, delta: restoredText },
+      ),
+      event(
+        sessionId,
+        'replay-assistant-complete',
+        'message_complete',
+        'replay-assistant',
+        {
+          stopReason: 'end_turn',
+          tokenUsage: { input: 10, output: 20 },
+        },
+      ),
+    ];
+    const rpcCall = jest.fn(async (method: string) =>
+      method === 'chat:resume'
+        ? { success: true, data: { events: replayEvents } }
+        : { success: true, data: {} },
+    );
+    const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
+      refreshModels: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<ModelRefreshControl>;
+    const treeBuilder = {
+      buildTree: jest.fn(
+        (state: StreamingState): ExecutionNode[] =>
+          [...state.events.values()]
+            .filter(
+              (candidate) =>
+                candidate.eventType === 'message_start' &&
+                candidate.role === 'assistant',
+            )
+            .map((start) => ({
+              id: start.id,
+              type: 'text',
+              status: 'complete',
+              content: [...state.textAccumulators.entries()]
+                .filter(([key]) => key.startsWith(`${start.messageId}-`))
+                .map(([, text]) => text)
+                .join(''),
+              children: [],
+            })) as ExecutionNode[],
+      ),
+      clearForTab: jest.fn(),
+    };
+    const agentMonitorStore = {
+      clearAgents: jest.fn(),
+      loadCliSessions: jest.fn(),
+      markAgentNodesResumed: jest.fn(),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        SessionLoaderService,
+        TabManagerService,
+        TabWorkspacePartitionService,
+        ConversationRegistry,
+        TabSessionBinding,
+        BatchedUpdateService,
+        StreamingHandlerService,
+        StreamingAccumulatorCore,
+        EventDeduplicationService,
+        MessageFinalizationService,
+        SessionManager,
+        BackgroundAgentStore,
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn().mockResolvedValue(true) },
+        },
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+        {
+          provide: VSCodeService,
+          useValue: { config: () => ({ workspaceRoot: 'D:/repo' }) },
+        },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
+      ],
+    });
+
+    const loader = TestBed.inject(SessionLoaderService);
+    const tabManager = TestBed.inject(TabManagerService);
+    const streamingHandler = TestBed.inject(StreamingHandlerService);
+    const batchedUpdate = TestBed.inject(BatchedUpdateService);
+    tabManager.switchWorkspace('D:/repo');
+    const targetTabId = tabManager.openSessionTab(
+      sessionId,
+      'compacted session',
+    ) as TabId;
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    const staleEvents: FlatStreamEventUnion[] = [
+      event(sessionId, 'stale-user-1-start', 'message_start', 'stale-user-1', {
+        role: 'user',
+      }),
+      event(sessionId, 'stale-user-1-text', 'text_delta', 'stale-user-1', {
+        blockIndex: 0,
+        delta: 'Continued from previous conversation (compacted)',
+      }),
+      event(sessionId, 'stale-user-2-start', 'message_start', 'stale-user-2', {
+        role: 'user',
+      }),
+      event(sessionId, 'stale-user-2-text', 'text_delta', 'stale-user-2', {
+        blockIndex: 0,
+        delta: '/compact compact',
+      }),
+    ];
+    for (const staleEvent of staleEvents) {
+      streamingHandler.processStreamEvent(staleEvent, targetTabId, sessionId, {
+        fanOut: false,
+      });
+    }
+    expect(batchedUpdate.hasPendingUpdates(targetTabId)).toBe(true);
+
+    // The window becomes visible before resume, but no visibility event has
+    // drained the old live-state entry yet. Replay now queues a newer state;
+    // the finalization flush exposes whether the older deferred entry wins.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await loader.switchSession(sessionId, {
+      reason: 'compaction',
+      targetTabId,
+    });
+
+    const target = tabManager.tabs().find((tab) => tab.id === targetTabId);
+    expect(target?.messages.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
+    expect(JSON.stringify(target?.messages)).toContain(restoredText);
+    expect(JSON.stringify(target?.messages)).not.toContain(
+      'Continued from previous conversation (compacted)',
+    );
+    expect(JSON.stringify(target?.messages)).not.toContain('/compact compact');
   });
 });
