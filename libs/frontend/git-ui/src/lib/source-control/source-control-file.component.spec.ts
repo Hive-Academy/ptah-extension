@@ -169,6 +169,20 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     expect(host.discard).toEqual([]);
   });
 
+  it('does not emit a diff request for a directory-shaped legacy row', () => {
+    host.file.set({
+      path: '.github',
+      status: '??',
+      staged: false,
+      isDirectory: true,
+    } as GitFileStatus);
+    fixture.detectChanges();
+
+    clickReal(openDiffButton());
+
+    expect(host.openDiff).toEqual([]);
+  });
+
   // -- AC2/AC4/AC7 -----------------------------------------------------------
 
   it('gives every control a distinct label and independent keyboard focus (AC2, AC4)', () => {

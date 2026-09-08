@@ -56,7 +56,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
                focus-visible:outline-[oklch(var(--s))]"
         [title]="rowTitle()"
         [attr.aria-label]="'Open diff for ' + fileName()"
-        (click)="openDiff.emit(diffRequest())"
+        (click)="onOpenDiff()"
       >
         <!-- Status icon -->
         <lucide-angular
@@ -68,7 +68,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
         <!-- File name + parent dir -->
         <span class="flex items-center gap-1 min-w-0 flex-1">
           <span class="font-medium truncate">{{ fileName() }}</span>
-          @if (parentDir()) {
+          @if (showParentDir() && parentDir()) {
             <span class="opacity-40 text-[10px] truncate">{{
               parentDir()
             }}</span>
@@ -143,6 +143,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
 export class SourceControlFileComponent {
   readonly file = input.required<GitFileStatus>();
   readonly staged = input.required<boolean>();
+  readonly showParentDir = input(true);
 
   readonly stage = output<string>();
   readonly unstage = output<string>();
@@ -223,6 +224,12 @@ export class SourceControlFileComponent {
         return 'opacity-60';
     }
   });
+
+  /** Directory-shaped legacy rows are never valid diff targets. */
+  protected onOpenDiff(): void {
+    if (this.file().isDirectory) return;
+    this.openDiff.emit(this.diffRequest());
+  }
 
   /**
    * Inline row action. Takes no event: the three action buttons are SIBLINGS
