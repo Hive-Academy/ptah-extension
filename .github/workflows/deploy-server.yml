@@ -95,7 +95,7 @@ jobs:
           done
 
       - name: Copy .env.prod to Droplet
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
@@ -104,7 +104,7 @@ jobs:
           target: /opt/ptah-extension/
 
       - name: Deploy to Droplet
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
@@ -160,7 +160,7 @@ jobs:
       # force an SSH session to find out why.
       - name: Dump droplet diagnostics on smoke failure
         if: failure() && steps.smoke.outcome == 'failure'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
