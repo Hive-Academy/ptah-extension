@@ -620,6 +620,11 @@ export class SessionLoaderService {
             .map((t) => t.id),
         });
       }
+      // A compaction chunk may have queued a live-state write before this
+      // targeted reload started. Close/reopen clears that queue through
+      // StreamRouter; in-place reload must do the same or history finalization's
+      // flush can reinstall the stale two-stub compaction state over the replay.
+      this.streamingHandler.clearPendingUpdates(resolvedTabId);
       this.tabManager.applyResumingSession(resolvedTabId, {
         sessionId,
         name: title,

@@ -91,6 +91,11 @@ export class StreamingHandlerService {
     this.warnedNoTargetSessions.delete(sessionId);
   }
 
+  /** Drop queued tab writes before replacing its state from session history. */
+  clearPendingUpdates(tabId: string): void {
+    this.batchedUpdate.clearPendingUpdates(tabId);
+  }
+
   /**
    * Process flat streaming event from SDK
    *

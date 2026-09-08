@@ -472,6 +472,7 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
+        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -583,6 +584,7 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
+        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -678,6 +680,7 @@ describe('SessionLoaderService', () => {
 
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
+        clearPendingUpdates: jest.fn(),
         processStreamEvent: jest.fn(),
         finalizeSessionHistory: jest.fn(),
       } as unknown as StreamingHandlerService;
@@ -848,6 +851,7 @@ describe('SessionLoaderService', () => {
       const applyResumedHistory = jest.fn();
       const processStreamEvent = jest.fn();
       const finalizeSessionHistory = jest.fn();
+      const clearPendingUpdates = jest.fn();
       const markSessionActive = jest.fn();
       const setPreloadedStats = jest.fn();
 
@@ -881,6 +885,7 @@ describe('SessionLoaderService', () => {
       } as unknown as SessionManager;
       const streamingHandlerMock = {
         cleanupSessionDeduplication: jest.fn(),
+        clearPendingUpdates,
         processStreamEvent,
         finalizeSessionHistory,
       } as unknown as StreamingHandlerService;
@@ -914,10 +919,71 @@ describe('SessionLoaderService', () => {
         applyResumedHistory,
         processStreamEvent,
         finalizeSessionHistory,
+        clearPendingUpdates,
         markSessionActive,
         setPreloadedStats,
       };
     }
+
+    it('drops stale live-stream updates before replay so restored assistant history remains visible on the target tab', async () => {
+      const harness = makeTargetedService();
+      const renderedMessages = new Map<TabId, string[]>([
+        [
+          TAB_B,
+          [
+            'Continued from previous conversation (compacted)',
+            '/compact compact',
+          ],
+        ],
+      ]);
+      let staleLiveUpdatePending = true;
+      const replayedAssistantIds: string[] = [];
+
+      harness.clearPendingUpdates.mockImplementation((tabId: TabId) => {
+        if (tabId === TAB_B) staleLiveUpdatePending = false;
+      });
+      harness.processStreamEvent.mockImplementation(
+        (event: { eventType: string; messageId?: string }) => {
+          if (
+            event.eventType === 'message_start' &&
+            event.messageId === 'assistant-restored'
+          ) {
+            replayedAssistantIds.push(event.messageId);
+          }
+        },
+      );
+      harness.finalizeSessionHistory.mockImplementation((tabId: TabId) => {
+        // Models BatchedUpdateService.flushSync(): without target cleanup, an
+        // older deferred live `/compact` state wins over the newer replay state.
+        if (!staleLiveUpdatePending) {
+          renderedMessages.set(tabId, [...replayedAssistantIds]);
+        }
+      });
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                events: [
+                  {
+                    eventType: 'message_start',
+                    messageId: 'assistant-restored',
+                    role: 'assistant',
+                  },
+                ],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+
+      expect(renderedMessages.get(TAB_B)).toEqual(['assistant-restored']);
+      expect(renderedMessages.get(TAB_A)).toBeUndefined();
+    });
 
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
       const harness = makeTargetedService();
