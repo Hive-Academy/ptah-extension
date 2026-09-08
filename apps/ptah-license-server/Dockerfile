@@ -83,23 +83,21 @@ COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 # :80/:443 and api.ptah.live refused TCP for four days.
 RUN npm ci --omit=dev
 
-# The four packages the generated manifest genuinely does NOT carry. Verified
-# against the built bundle, not assumed:
-#   - @workos-inc/node, @nestjs/config, @nestjs/jwt — main.cjs `require()`s all
-#     three at runtime (48 call sites for @nestjs/config alone), yet Nx omits
-#     them from the generated dependencies. Drop one and the app dies on boot.
-#   - prisma — the CLI is a devDependency, so `generatePackageJson` will never
-#     emit it, but the CMD below runs `npx prisma migrate deploy`.
+# The one package the generated manifest cannot carry. `generatePackageJson`
+# emits root `dependencies` only, and the prisma CLI is a devDependency — as it
+# should be, since it is a tool rather than something main.cjs imports. But the
+# CMD below runs `npx prisma migrate deploy`, so the image needs it.
 #
-# EXACT VERSIONS ON PURPOSE — DO NOT LOOSEN. `prisma` (CLI) must stay equal to
-# `@prisma/client` in the generated package.json; a major split between them
-# breaks the container before the app boots. `--no-save` keeps the generated
-# manifest authoritative for everything else.
-RUN npm install --omit=dev --no-save \
-    prisma@7.7.0 \
-    @workos-inc/node@8.13.0 \
-    @nestjs/config@4.0.4 \
-    @nestjs/jwt@11.0.2
+# EXACT VERSION ON PURPOSE — DO NOT LOOSEN. The CLI must stay equal to
+# `@prisma/client` in the generated manifest (7.7.0); a major split between them
+# breaks the container before the app boots, which is what happened on
+# 2026-09-04. `--no-save` keeps the generated manifest authoritative.
+#
+# Three further packages used to be named here — @workos-inc/node,
+# @nestjs/config and @nestjs/jwt. They were missing from the generated manifest
+# only because they were misfiled under root `devDependencies` despite being
+# runtime imports. Fixed at the source in package.json, so Nx now emits them.
+RUN npm install --omit=dev --no-save prisma@7.7.0
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image

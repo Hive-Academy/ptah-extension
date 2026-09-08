@@ -63,11 +63,22 @@ The bug was the version drift, **not** the `&&`.
 
 ## What this task changed
 
+- `package.json` — `@nestjs/config`, `@nestjs/jwt` and `@workos-inc/node` moved
+  from `devDependencies` to `dependencies`. All three are runtime imports:
+  `main.cjs` `require()`s each one. `generatePackageJson` emits root
+  `dependencies` only, so the misclassification is the sole reason they were
+  absent from the generated manifest. Correlation checked across 13 packages
+  with no exceptions. Lockfile regenerated with `npm install
+--package-lock-only`; all three now carry `dev: false`.
 - `apps/ptah-license-server/Dockerfile` — the `deps` stage now runs
   `npm ci --omit=dev` against the Nx-generated `package.json` +
-  `package-lock.json`, then adds only the four packages that manifest genuinely
-  lacks. The hand-maintained version list drops from eight to four, and the
-  other 26 dependencies are versioned by the build. `CMD` left fail-closed on
+  `package-lock.json`, then adds only `prisma`. The hand-maintained version list
+  drops from eight packages to one, and the other 29 are versioned by the build.
+  Verified by rebuilding: the generated manifest grew from 26 to 29 dependencies
+  and now covers every external `require()` in the bundle, and running
+  `npm ci --omit=dev` plus `prisma@7.7.0` against the new manifests in a
+  `node:24-alpine` container resolves all 23 spot-checked packages with the CLI
+  matching `@prisma/client` at 7.7.0. `CMD` left fail-closed on
   purpose (serving against a partially-migrated schema is worse than not
   serving); reasoning recorded in a comment beside it.
 - `.github/workflows/deploy-server.yml` — all three `appleboy/*` actions pinned
@@ -132,15 +143,36 @@ main.cjs`), not `[node main.cjs]`.
 
 ## Follow-ups deliberately not done here
 
-- **Nx omits three runtime dependencies from the generated manifest.**
-  `main.cjs` `require()`s `@workos-inc/node`, `@nestjs/config` (48 call sites)
-  and `@nestjs/jwt` at runtime, but none of the three appears in
-  `dist/apps/ptah-license-server/package.json`. Only `@workos-inc/node` is even
-  listed in the `external` array in `project.json`. Until that is corrected the
-  Dockerfile must name them by hand, which is exactly the fragility that caused
-  this outage. Fixing the packaging so `generatePackageJson` emits them would
-  reduce the hand-maintained list from four to one (`prisma`, a devDependency
-  that generation can never emit).
+- **`@hive-academy/ptah-cli` has the same class of gap, unfixed.** Scanning
+  `dist/apps/ptah-cli/{main,tui}.mjs` with the electron `collectExternalImports`
+  helper finds 37 external imports against 37 declared in
+  `apps/ptah-cli/package.json` — but they are not the same 37. Three are
+  imported and undeclared:
+  - `@cursor/sdk` — `getCursorSdk()` in `cursor-cli.adapter.ts:160` does a bare
+    `await import('@cursor/sdk')` with **no catch**. In root `dependencies`, so
+    it resolves in this workspace and in Electron (whose `package.json` declares
+    it), and fails only for a user who installed the CLI from npm and selected
+    the Cursor adapter. The adjacent comment claims esbuild bundles it; the
+    scan shows it is an external import, so the comment is wrong.
+  - `@sentry/node` — `require()`d in `sentry.service.ts`, reached whenever a DSN
+    is configured. Same shape: declared at the root, not by the CLI package.
+  - `keytar` — **not a defect.** `cli-master-key-provider.ts:159` guards it with
+    `.catch(() => null)` and it is a documented optional capability. Correctly
+    absent from every manifest.
+
+  The CLI is a different release train (`publish-cli.yml`) and was deliberately
+  left out of this task.
+
+- **`ptah-license-server` has no dependency guard.** `ptah-electron` runs
+  `validate-deps`, which scans its built bundle for external imports and fails
+  when one is not declared — that is precisely why this bug landed on the
+  license server and not on Electron. An equivalent target here would stop the
+  next misfiled dependency from reaching production.
+
+- **`marked` is declared in both `dependencies` and `devDependencies`** in the
+  root `package.json` (lines 170 and 262). Pre-existing and harmless today —
+  npm takes the `dependencies` entry — but it is the same classification
+  sloppiness that caused this outage.
 - No alert routing beyond a GitHub issue (no email, Slack or pager). The issue
   is the notification surface for now.
 - Sentry's blind spot before app bootstrap is unaddressed and unaddressable
