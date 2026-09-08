@@ -112,6 +112,17 @@ export class SmitheryInstalledManifestStore {
   }
 
   /**
+   * Absolute path of the manifest this store reads.
+   *
+   * Exposed so a lister can report WHERE a record came from without building a
+   * second guess at the same path — the store already owns that answer, and a
+   * duplicate `join(homedir(), '.ptah', ...)` elsewhere is how the two drift.
+   */
+  get filePath(): string {
+    return this.manifestPath;
+  }
+
+  /**
    * Record (or update) a Smithery install. Writes the secret-bearing config to
    * the encrypted store and only non-secret metadata to the plaintext manifest.
    */
@@ -179,6 +190,10 @@ export class SmitheryInstalledManifestStore {
       const parsed: unknown = JSON.parse(raw);
       return isPlainObject(parsed) ? parsed : {};
     } catch {
+      // degradation-audit: optional-capability - the guarded returns above
+      // already answer `{}` for "no encrypted config" and "nothing stored",
+      // so a corrupt payload joins an existing, handled shape instead of
+      // introducing one callers do not expect.
       return {};
     }
   }

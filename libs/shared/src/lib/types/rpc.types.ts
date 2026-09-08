@@ -17,7 +17,6 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
-export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
@@ -320,18 +319,6 @@ import type {
   GitLastCommitParams,
   GitLastCommitResult,
 } from './rpc/rpc-git.types';
-
-import type {
-  TerminalCreateParams,
-  TerminalCreateResult,
-  TerminalKillParams,
-  TerminalKillResult,
-} from './rpc/rpc-terminal.types';
-
-import type {
-  EditorRevertFilesParams,
-  EditorRevertFilesResult,
-} from './rpc/rpc-editor.types';
 
 import type {
   MemoryListParams,
@@ -1314,104 +1301,6 @@ export interface RpcMethodRegistry {
     params: { path: string };
     result: { success: boolean; path: string; name: string; error?: string };
   };
-  'layout:persist': {
-    params: Record<string, unknown>;
-    result: { success: boolean };
-  };
-  'layout:restore': {
-    params: Record<string, never>;
-    result: { success: boolean };
-  };
-  'editor:revertFiles': {
-    params: EditorRevertFilesParams;
-    result: EditorRevertFilesResult;
-  };
-  'editor:openFile': {
-    params: { filePath: string };
-    result: {
-      success: boolean;
-      content?: string;
-      filePath?: string;
-      error?: string;
-    };
-  };
-  'editor:saveFile': {
-    params: { filePath: string; content: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:getFileTree': {
-    params: { rootPath?: string };
-    result: {
-      success: boolean;
-      tree: Array<{
-        name: string;
-        path: string;
-        type: 'file' | 'directory';
-        children?: unknown[];
-      }>;
-      error?: string;
-    };
-  };
-
-  'editor:getDirectoryChildren': {
-    params: { dirPath: string };
-    result: {
-      success: boolean;
-      children: Array<{
-        name: string;
-        path: string;
-        type: 'file' | 'directory';
-      }>;
-      error?: string;
-    };
-  };
-  'editor:createFile': {
-    params: { filePath: string; content?: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:createFolder': {
-    params: { folderPath: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:renameItem': {
-    params: { oldPath: string; newPath: string };
-    result: { success: boolean; error?: string };
-  };
-  'editor:deleteItem': {
-    params: { itemPath: string; isDirectory: boolean };
-    result: { success: boolean; error?: string };
-  };
-  'editor:getSetting': {
-    params: { key: string };
-    result: { success: boolean; value?: unknown; error?: string };
-  };
-  'editor:updateSetting': {
-    params: { key: string; value: unknown };
-    result: { success: boolean; error?: string };
-  };
-  'editor:searchInFiles': {
-    params: {
-      query: string;
-      isRegex: boolean;
-      caseSensitive: boolean;
-      maxFileResults?: number;
-      maxMatchesPerFile?: number;
-    };
-    result: {
-      success: boolean;
-      files: Array<{
-        filePath: string;
-        matches: Array<{ line: number; lineText: string; matchText: string }>;
-      }>;
-      truncated: boolean;
-      totalMatches: number;
-      error?: string;
-    };
-  };
-  'editor:listAllFiles': {
-    params: Record<string, never>;
-    result: { success: boolean; files: string[]; error?: string };
-  };
   'file:read': {
     params: { path: string };
     result: { content: string };
@@ -1454,6 +1343,14 @@ export interface RpcMethodRegistry {
         isDefault: boolean;
       }>;
     };
+  };
+  'settings:get': {
+    params: { key: string };
+    result: { success: boolean; value?: unknown; error?: string };
+  };
+  'settings:set': {
+    params: { key: string; value: unknown };
+    result: { success: boolean; error?: string };
   };
   'settings:export': {
     params: Record<string, never>;
@@ -1530,11 +1427,6 @@ export interface RpcMethodRegistry {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
   };
-  'terminal:create': {
-    params: TerminalCreateParams;
-    result: TerminalCreateResult;
-  };
-  'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
   'harness:initialize': {
     params: HarnessInitializeParams;
     result: HarnessInitializeResponse;
@@ -3555,21 +3447,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'workspace:removeFolder': true,
   'workspace:switch': true,
   'workspace:registerFolder': true,
-  'layout:persist': true,
-  'layout:restore': true,
-  'editor:revertFiles': true,
-  'editor:openFile': true,
-  'editor:saveFile': true,
-  'editor:getFileTree': true,
-  'editor:getDirectoryChildren': true,
-  'editor:createFile': true,
-  'editor:createFolder': true,
-  'editor:renameItem': true,
-  'editor:deleteItem': true,
-  'editor:getSetting': true,
-  'editor:updateSetting': true,
-  'editor:searchInFiles': true,
-  'editor:listAllFiles': true,
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,
@@ -3577,6 +3454,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:setApiKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
+  'settings:get': true,
+  'settings:set': true,
   'settings:export': true,
   'settings:import': true,
   'webSearch:getApiKeyStatus': true,
@@ -3603,8 +3482,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
-  'terminal:create': true,
-  'terminal:kill': true,
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,

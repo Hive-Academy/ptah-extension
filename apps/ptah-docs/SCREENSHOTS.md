@@ -11,7 +11,7 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 - Redact: Real API keys, tokens, email, license keys — use `sk-...REDACTED`
 - Annotations (optional): Use a subtle gold arrow/box `#D4AF37` to match brand
 
-**Total: 51 screenshots across 15 sections**
+**Total: 50 screenshots across 15 sections**
 
 ---
 
@@ -87,18 +87,17 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 | ------------------------ | ------------------------------------------------------------- | ------------------------------------- |
 | `open-folder-dialog.png` | Native Open Folder dialog                                     | `workspace/opening-a-workspace.md`    |
 | `recent-workspaces.png`  | Recent workspaces list                                        | `workspace/opening-a-workspace.md`    |
-| `file-tree-panel.png`    | File tree panel with expanded folders                         | `workspace/file-tree.md`              |
 | `workspace-switcher.png` | Quick workspace switcher                                      | `workspace/switching-workspaces.md`   |
 | `context-inspector.png`  | Context inspector showing what's attached to the current turn | `workspace/workspace-intelligence.md` |
 
 ## Git (4)
 
-| Filename                  | Shows                                           | Page                |
-| ------------------------- | ----------------------------------------------- | ------------------- |
-| `git-status-bar.png`      | Branch + dirty-state indicator in status bar    | `git/git-status.md` |
-| `diff-side-by-side.png`   | Side-by-side diff view with syntax highlighting | `git/diffs.md`      |
-| `diff-agent-proposed.png` | Agent-proposed diff with accept/reject controls | `git/diffs.md`      |
-| `commit-composer.png`     | Commit composer with agent-suggested message    | `git/commits.md`    |
+| Filename                  | Shows                                                 | Page                |
+| ------------------------- | ----------------------------------------------------- | ------------------- |
+| `git-dock-header.png`     | Branch + dirty-state indicator in the Git dock header | `git/git-status.md` |
+| `diff-side-by-side.png`   | Side-by-side diff view with syntax highlighting       | `git/diffs.md`      |
+| `diff-agent-proposed.png` | Agent-proposed diff with accept/reject controls       | `git/diffs.md`      |
+| `commit-composer.png`     | Commit composer with agent-suggested message          | `git/commits.md`    |
 
 ## Plugins (2)
 
@@ -163,7 +162,7 @@ Adding a shot: put it in the matching `*.shot.ts`, call
 
 ### Captured by the automated pass
 
-`file-tree-panel`, `git-status-bar`, `commit-composer`, `diff-side-by-side`,
+`git-dock-header`, `commit-composer`, `diff-side-by-side`,
 `workspace-switcher`, `recent-workspaces`, `settings-overview`,
 `agents-orchestration`, `theme-toggle`, `setup-new-project`,
 `sessions-overview`, `sessions-history`, `sessions-tabs`.
@@ -207,3 +206,12 @@ Re-capturing `welcome` needs an Electron profile with **zero** persisted
 workspaces, which the current harness cannot produce — it copies the real
 `~/.ptah` profile precisely so surfaces are not empty. Both pages read fine
 without the images; add a shot only alongside an empty-profile fixture.
+
+### Removed with the file tree page (TASK_2026_385)
+
+`file-tree-panel` is gone along with `workspace/file-tree.md` — the file tree
+was `@ptah-extension/editor`'s own left-sidebar panel, and that library is
+being retired in favor of the Electron shell's Git dock. `git-status-bar` was
+renamed to `git-dock-header`: the status surface moved from a permanent
+status-bar row into the dock header (`GitDockHeaderComponent`), and the shot
+was re-captured against that surface, not just renamed.

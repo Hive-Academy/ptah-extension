@@ -155,8 +155,6 @@ export const MESSAGE_TYPES = {
   SESSION_MCP_STATUS: 'session:mcpStatus',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
-  /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
-  EDITOR_TAB_CONTENT_REVERTED: 'editor:tabContentReverted',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
@@ -270,19 +268,8 @@ export const MESSAGE_TYPES = {
    * `causes` set and the `workspaceRoot` the status was computed for.
    */
   GIT_STATUS_UPDATE: 'git:status-update',
-  /**
-   * Backend → Frontend: the workspace file tree changed structurally
-   * (create / delete / rename). Payload is empty — the renderer re-fetches.
-   */
-  FILE_TREE_CHANGED: 'file:tree-changed',
   /** Backend → Frontend: a specific workspace file's content changed on disk. */
   FILE_CONTENT_CHANGED: 'file:content-changed',
-  /**
-   * Backend → Frontend: re-read every open editor tab from disk. Emitted
-   * after a git operation, since git mutates files atomically via rename,
-   * which `fs.watch` does not reliably surface as a per-file change.
-   */
-  EDITOR_REREAD_OPEN_TABS: 'editor:reread-open-tabs',
 } as const;
 
 /**

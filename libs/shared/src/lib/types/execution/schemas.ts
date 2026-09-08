@@ -36,6 +36,20 @@ export const MessageTokenUsageSchema = z.object({
   cacheRead: z.number().optional(),
   cacheCreation: z.number().optional(),
 });
+
+export const NodeRetentionFieldSchema = z.enum(['toolInput', 'toolOutput']);
+
+/**
+ * NodeRetentionNotice Zod schema — the truncation fact `capFinalizedTree`
+ * writes onto a bounded node.
+ */
+export const NodeRetentionNoticeSchema = z.object({
+  droppedChars: z.number(),
+  capped: z.array(NodeRetentionFieldSchema).readonly(),
+  foldFailed: z.boolean(),
+  reason: z.string().optional(),
+});
+
 export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   z.object({
     id: z.string(),
@@ -62,6 +76,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     isCollapsed: z.boolean(),
     isHighlighted: z.boolean().optional(),
     isBackground: z.boolean().optional(),
+    retention: NodeRetentionNoticeSchema.optional(),
   }),
 ) as unknown as z.ZodType<ExecutionNode>;
 

@@ -384,7 +384,7 @@ describe('CursorCliAdapter', () => {
 
       const code = await handle.done;
       expect(code).toBe(1);
-      expect(output.join('')).toContain('[Cursor SDK Error]');
+      expect(output.join('')).toContain('Cursor SDK Error:');
       expect(output.join('')).toContain('agent boom');
     });
   });

@@ -21,9 +21,10 @@ import type { UiDriver } from './ui-driver';
  * promise, so a switch that lands before `auth:getAuthStatus` settles can be
  * undone exactly once.
  *
- * Shared by `file-ops-dialogs-top-layer.spec.ts` and
- * `hunk-revert-top-layer.spec.ts` (TASK_2026_216, TASK_2026_227) — both hit
- * the byte-identical failure in CI.
+ * Used by `specs/git/hunk-revert-top-layer.spec.ts` (TASK_2026_216,
+ * TASK_2026_227). Its former second caller,
+ * `specs/editor/file-ops-dialogs-top-layer.spec.ts`, hit the byte-identical
+ * failure in CI and was deleted with the editor panel (TASK_2026_385).
  */
 export async function showCanvas(ui: UiDriver): Promise<void> {
   const grid = ui.page.locator('[data-testid="canvas-grid"]');

@@ -48,6 +48,15 @@ export class McpOAuthInstalledManifestStore {
     this.refresh();
   }
 
+  /**
+   * Absolute path of the manifest this store reads. Exposed for the same reason
+   * as `SmitheryInstalledManifestStore.filePath`: a lister reporting where a
+   * record came from must not re-derive the path.
+   */
+  get filePath(): string {
+    return this.manifestPath;
+  }
+
   /** Record (or update) a connection. Non-secret metadata only. */
   record(input: { serverKey: string; name: string; serverUrl: string }): void {
     this.refresh();

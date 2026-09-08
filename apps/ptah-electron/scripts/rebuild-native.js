@@ -17,7 +17,6 @@
  *
  * Other native deps do NOT need an Electron-specific rebuild:
  *   - sqlite-vec: SQLite loadable extension (.dll/.so/.dylib), not a Node addon.
- *   - node-pty: ships N-API prebuilds (ABI-stable across Node/Electron).
  *
  * Run via:  node apps/ptah-electron/scripts/rebuild-native.js
  * Or:       npm run electron:rebuild
@@ -182,8 +181,8 @@ function electronRebuildFromSource(packageName, electronVersion) {
     );
   }
 
-  // sqlite-vec is a SQLite loadable extension (.dll/.so/.dylib), NOT a Node addon.
-  // node-pty ships N-API prebuilts and is ABI-stable. Neither needs a rebuild.
+  // sqlite-vec is a SQLite loadable extension (.dll/.so/.dylib), NOT a Node
+  // addon, so it needs no rebuild.
 
   console.log('\n✅ Native module rebuild complete.');
 })().catch((err) => {

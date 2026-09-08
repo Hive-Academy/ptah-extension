@@ -48,7 +48,7 @@ L0.5 interface/contract library defining the **ports** of the hexagonal architec
 
 ## Key Files
 
-- `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (27 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
+- `src/di/tokens.ts:11` — `PLATFORM_TOKENS` registry (28 tokens, the count of `Symbol.for(` entries in `tokens.ts`)
 - `src/interfaces/platform-abstractions.interface.ts:23` — `IPlatformCommands` (moved here in Wave C8)
 - `src/interfaces/workspace-provider.interface.ts` — workspace folders + configuration read API
 - `src/interfaces/workspace-lifecycle.interface.ts` — workspace mutation API (add/remove/setActive)

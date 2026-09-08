@@ -65,7 +65,6 @@
           "chokidar",
           "fast-glob",
           "axios",
-          "node-pty",
           "exa-js",
           "gpt-tokenizer",
           "web-tree-sitter",

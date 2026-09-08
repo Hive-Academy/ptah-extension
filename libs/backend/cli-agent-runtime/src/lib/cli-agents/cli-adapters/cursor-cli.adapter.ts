@@ -21,6 +21,7 @@ import type {
   CliDetectionResult,
   CliOutputSegment,
 } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CliAdapter,
   CliCommandOptions,
@@ -34,6 +35,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { summarizeCliSdkError } from './sdk-error-summary';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -197,6 +199,12 @@ export class CursorCliAdapter implements CliAdapter {
   readonly supportsMcp = true;
 
   /**
+   * @param logger - Optional; when supplied it receives the FULL SDK rejection
+   *   text, which the stream deliberately no longer carries.
+   */
+  constructor(private readonly logger?: Logger) {}
+
+  /**
    * Detect Cursor availability. The SDK is bundled, so availability is gated
    * on API key presence rather than a binary on PATH.
    */
@@ -356,11 +364,12 @@ export class CursorCliAdapter implements CliAdapter {
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        output.emit(`\n[Cursor SDK Error] ${errorMessage}\n`);
-        segment.emit({
-          type: 'error',
-          content: `Cursor SDK Error: ${errorMessage}`,
+        this.logger?.error('[CursorCliAdapter] SDK run failed', {
+          detail: errorMessage,
         });
+        const summary = summarizeCliSdkError(error, 'Cursor');
+        output.emit(`\n${summary}\n`);
+        segment.emit({ type: 'error', content: summary });
         return 1;
       }
     };

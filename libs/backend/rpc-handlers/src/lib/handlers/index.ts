@@ -54,8 +54,6 @@ export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
-export { LayoutRpcHandlers } from './layout-rpc.handlers';
-export { TerminalRpcHandlers } from './terminal-rpc.handlers';
 export { UpdateRpcHandlers } from './update-rpc.handlers';
 export {
   PersistenceRpcHandlers,
@@ -75,3 +73,4 @@ export type {
 } from './persistence-rpc.handlers';
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
+export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';

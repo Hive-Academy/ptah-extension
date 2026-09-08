@@ -14,6 +14,7 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import { isCodexAccessTokenStale } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CliAdapter,
   CliCommandOptions,
@@ -30,6 +31,7 @@ import {
   withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { summarizeCliSdkError } from './sdk-error-summary';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -438,6 +440,12 @@ export class CodexCliAdapter implements CliAdapter {
   readonly name = 'codex' as const;
   readonly displayName = 'Codex CLI';
 
+  /**
+   * @param logger - Optional; when supplied it receives the FULL SDK rejection
+   *   text, which the stream deliberately no longer carries.
+   */
+  constructor(private readonly logger?: Logger) {}
+
   async detect(): Promise<CliDetectionResult> {
     try {
       const binaryPath = await resolveCliPath('codex');
@@ -703,13 +711,16 @@ export class CodexCliAdapter implements CliAdapter {
           return 1;
         }
 
+        // The SDK embeds the child's last ~500 output lines in `.message`.
+        // The full text goes to the log; the stream gets a bounded summary.
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        output.emit(`\n[Codex SDK Error] ${errorMessage}\n`);
-        segment.emit({
-          type: 'error',
-          content: `Codex SDK Error: ${errorMessage}`,
+        this.logger?.error('[CodexCliAdapter] SDK turn failed', {
+          detail: errorMessage,
         });
+        const summary = summarizeCliSdkError(error, 'Codex');
+        output.emit(`\n${summary}\n`);
+        segment.emit({ type: 'error', content: summary });
         return 1;
       }
     };

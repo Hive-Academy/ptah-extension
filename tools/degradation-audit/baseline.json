@@ -14,7 +14,6 @@
   "libs/backend/agent-generation": 1,
   "libs/backend/agent-sdk": 4,
   "libs/backend/auth-providers": 24,
-  "libs/backend/cli-agent-runtime": 2,
   "libs/backend/cli-engine": 12,
   "libs/backend/cron-scheduler": 2,
   "libs/backend/gateway-chat-bridge": 4,

@@ -54,10 +54,11 @@ import {
   SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
-  provideEditorInternalState,
-  EditorService,
+  DiffTabsService,
+  GitBranchesService,
   GitStatusService,
-} from '@ptah-extension/editor/services';
+  WorktreeService,
+} from '@ptah-extension/git-ui';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
@@ -182,9 +183,10 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
-    ...provideEditorInternalState(),
-    { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,

@@ -42,7 +42,7 @@ export interface VerifyAndReportRpcRegistrationOptions {
   /**
    * Methods excluded from the verification (methods that belong to another
    * platform — e.g. VS Code excludes Electron-only editor/file/workspace
-   * methods; TUI excludes harness/git/terminal/etc.).
+   * methods; TUI excludes harness/git/etc.).
    */
   readonly excluded?: readonly string[];
   /**

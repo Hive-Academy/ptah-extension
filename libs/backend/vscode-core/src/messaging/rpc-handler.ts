@@ -64,12 +64,9 @@ export const ALLOWED_METHOD_PREFIXES = [
   'plugins:', // Plugin configuration (list, get-config, save-config)
   'agent:', // Agent orchestration (getConfig, setConfig, detectClis)
   'ptahCli:', // Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
-  'editor:', // Editor operations (openFile, etc.) for Electron Monaco editor
-  'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
   'skillsSh:', // Skills.sh marketplace (search, install, recommend)
   'settings:', // Settings export/import (Electron desktop)
   'git:', // Git info and worktree management
-  'terminal:', // Terminal PTY session management
   'webSearch:', // Web search provider configuration (API key status)
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)

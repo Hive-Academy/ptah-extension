@@ -1,10 +1,11 @@
 /**
- * GitWatcherService specs — file-tree refresh debouncing, workspace watcher
- * lifecycle, ignore-list filtering, and stop/start cleanup.
+ * GitWatcherService specs — git-ops/workspace/content-change debouncing,
+ * watcher lifecycle, ignore-list filtering, and stop/start cleanup.
  *
  * Strategy: most tests are deterministic — they invoke the private
- * `scheduleTreeRefresh` / `scheduleUpdate` / `scheduleContentChange` callbacks
- * directly via `(svc as any)` and drive timers via `jest.useFakeTimers()`.
+ * `scheduleUpdate` / `scheduleGitOpsRefresh` / `scheduleContentChange`
+ * callbacks directly via `(svc as any)` and drive timers via
+ * `jest.useFakeTimers()`.
  *
  * A small number of tests exercise the real `fs.watch` path with actual
  * temp directories (real timers). These are timing-sensitive on Windows;
@@ -90,52 +91,6 @@ describe('GitWatcherService', () => {
   describe('debounce semantics (deterministic, fake timers)', () => {
     beforeEach(() => {
       jest.useFakeTimers();
-    });
-
-    it('coalesces 10 rapid scheduleTreeRefresh calls into a single broadcast', () => {
-      // Manually wire the broadcast + workspacePath so private schedulers run
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
-      for (let i = 0; i < 10; i++) {
-        (
-          svc as unknown as { scheduleTreeRefresh(): void }
-        ).scheduleTreeRefresh();
-      }
-
-      // Before debounce window elapses, no broadcast yet
-      jest.advanceTimersByTime(499);
-      expect(broadcast).not.toHaveBeenCalledWith('file:tree-changed', {});
-
-      // Crossing the 500ms window fires exactly once
-      jest.advanceTimersByTime(1);
-      const treeCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:tree-changed',
-      );
-      expect(treeCalls).toHaveLength(1);
-      expect(treeCalls[0]).toEqual(['file:tree-changed', {}]);
-    });
-
-    it('stop() before the debounce timer fires prevents the broadcast', () => {
-      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
-      (svc as unknown as { workspacePath: string }).workspacePath =
-        'D:\\fake\\ws';
-      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
-
-      (svc as unknown as { scheduleTreeRefresh(): void }).scheduleTreeRefresh();
-      svc.stop();
-      jest.advanceTimersByTime(2000);
-
-      const treeCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:tree-changed',
-      );
-      expect(treeCalls).toHaveLength(0);
-      // watchers list is empty after stop()
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        0,
-      );
     });
 
     it('scheduleContentChange coalesces rapid saves to the same path', () => {
@@ -367,20 +322,6 @@ describe('GitWatcherService', () => {
       expect(payload.causes).toEqual(['workspace']);
     });
 
-    it('file tree refresh fires within TREE_MAX_WAIT_MS (2000)', () => {
-      const emit = () =>
-        (
-          svc as unknown as { scheduleTreeRefresh(): void }
-        ).scheduleTreeRefresh();
-
-      // 200ms apart, well inside the 500ms window. Last emit lands at t=1800.
-      churn(emit, 10, 200);
-      expect(calls('file:tree-changed')).toHaveLength(0);
-
-      emit(); // t=2000
-      expect(calls('file:tree-changed')).toHaveLength(1);
-    });
-
     it('git-ops refresh fires within GIT_OPS_MAX_WAIT_MS (2000)', async () => {
       const emit = () =>
         (
@@ -390,12 +331,10 @@ describe('GitWatcherService', () => {
       churn(emit, 10, 200);
       await flush();
       expect(calls('git:status-update')).toHaveLength(0);
-      expect(calls('editor:reread-open-tabs')).toHaveLength(0);
 
       emit(); // t=2000
       await flush();
       expect(calls('git:status-update')).toHaveLength(1);
-      expect(calls('editor:reread-open-tabs')).toHaveLength(1);
     });
 
     it('content change fires within CONTENT_CHANGE_MAX_WAIT_MS (2000)', () => {
@@ -441,31 +380,34 @@ describe('GitWatcherService', () => {
       });
     });
 
-    it('a forced fire starts a fresh burst rather than firing on every event', () => {
+    it('a forced fire starts a fresh burst rather than firing on every event (git-ops channel)', async () => {
       const emit = () =>
         (
-          svc as unknown as { scheduleTreeRefresh(): void }
-        ).scheduleTreeRefresh();
+          svc as unknown as { scheduleGitOpsRefresh(kind: GitChangeKind): void }
+        ).scheduleGitOpsRefresh('index');
 
       churn(emit, 10, 200);
       emit(); // t=2000 — forced
-      expect(calls('file:tree-changed')).toHaveLength(1);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
 
       // The next event opens a new burst; it must NOT fire immediately.
       jest.advanceTimersByTime(200);
       emit();
-      expect(calls('file:tree-changed')).toHaveLength(1);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
 
       churn(emit, 10, 200);
       emit();
-      expect(calls('file:tree-changed')).toHaveLength(2);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(2);
     });
 
-    it('stop() clears the burst so a restarted watcher does not fire instantly', () => {
+    it('stop() clears the burst so a restarted watcher does not fire instantly (git-ops channel)', async () => {
       const emit = () =>
         (
-          svc as unknown as { scheduleTreeRefresh(): void }
-        ).scheduleTreeRefresh();
+          svc as unknown as { scheduleGitOpsRefresh(kind: GitChangeKind): void }
+        ).scheduleGitOpsRefresh('index');
 
       churn(emit, 10, 200);
       svc.stop();
@@ -473,7 +415,8 @@ describe('GitWatcherService', () => {
 
       (svc as unknown as { isDisposed: boolean }).isDisposed = false;
       emit();
-      expect(calls('file:tree-changed')).toHaveLength(0);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(0);
     });
   });
 
@@ -560,6 +503,17 @@ describe('GitWatcherService', () => {
         expect(isIgnored(name)).toBe(true);
       }
 
+      // Newly excluded by TASK_2026_385 Batch 4.3 — the explorer that made
+      // `coverage`/`tmp` risky to hide is gone (see workspace-scan.constants.ts).
+      for (const name of [
+        'coverage/lcov.info',
+        'coverage\\lcov.info',
+        'tmp/x',
+        'tmp\\x',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+
       // Nested occurrences too — monorepo churn does not only live at the root.
       for (const name of [
         'packages/foo/node_modules/bar/index.js',
@@ -578,13 +532,12 @@ describe('GitWatcherService', () => {
         // Deliberately NOT excluded: each is a plausible source directory.
         'out/generated.ts',
         'build/config.ts',
-        'coverage/report.ts',
         '.next/page.ts',
         '.turbo/log.ts',
         // Prefix collisions must not be treated as segment matches.
         'distribution/a.ts',
         'node_modules_backup/a.ts',
-        // Config dot-directories the tree shows and the watcher tracks.
+        // Config dot-directories the watcher still tracks.
         '.vscode/settings.json',
         '.github/workflows/ci.yml',
       ]) {
@@ -846,11 +799,17 @@ describe('GitWatcherService', () => {
   });
 
   // ===========================================================================
-  // REAL fs.watch INTEGRATION — non-git workspace receives file:tree-changed
+  // REAL fs.watch INTEGRATION — non-git workspace still schedules git:status-update
+  //
+  // TASK_2026_385 Batch 4.3: the file-tree refresh job (and its
+  // `file:tree-changed` push) is gone along with the file explorer it fed.
+  // `git:status-update` is now the only observable signal that the workspace
+  // watcher's `WATCH_IGNORED_DIRS` predicate is wired into the real
+  // `fs.watch` callback, so these tests assert on it instead.
   //
   // These tests use real timers and real file system events. They are
-  // timing-sensitive on Windows; we tolerate up to 2s and poll rather than
-  // depend on a precise tick.
+  // timing-sensitive on Windows; we tolerate up to a few seconds and poll
+  // rather than depend on a precise tick.
   // ===========================================================================
 
   describe('real fs.watch integration (non-git workspace)', () => {
@@ -868,16 +827,17 @@ describe('GitWatcherService', () => {
       }
     });
 
-    it('non-git workspace still receives file:tree-changed when a file is created', async () => {
+    it('non-git workspace still schedules git:status-update when a file is created', async () => {
       svc.start(tmpDir, broadcast);
+      broadcast.mockClear();
 
-      // Create a new file — fs.watch should emit 'rename' which triggers
-      // scheduleTreeRefresh; the broadcast fires after TREE_DEBOUNCE_MS (500).
+      // Create a new file — fs.watch should emit 'rename', which schedules
+      // scheduleUpdate; the broadcast fires after WORKSPACE_DEBOUNCE_MS (2000).
       fs.writeFileSync(path.join(tmpDir, 'new-file.ts'), 'export {};\n');
 
       const fired = await waitFor(
-        () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
-        2500,
+        () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+        4000,
       );
 
       // Document timing-sensitivity: fs.watch on Windows can occasionally
@@ -886,16 +846,16 @@ describe('GitWatcherService', () => {
       if (!fired) {
         fs.writeFileSync(path.join(tmpDir, 'new-file-2.ts'), 'export {};\n');
         await waitFor(
-          () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
-          2500,
+          () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+          4000,
         );
       }
 
-      const treeCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:tree-changed',
+      const statusCalls = broadcast.mock.calls.filter(
+        ([t]) => t === 'git:status-update',
       );
-      expect(treeCalls.length).toBeGreaterThanOrEqual(1);
-    });
+      expect(statusCalls.length).toBeGreaterThanOrEqual(1);
+    }, 10000);
 
     /**
      * End-to-end proof that the shared exclusion predicate is actually wired
@@ -905,13 +865,17 @@ describe('GitWatcherService', () => {
      * Positive control in the same test: if the negative half passed because
      * `fs.watch` simply delivered nothing, the positive half would fail too.
      */
-    it('writes under .nx/.angular are ignored while a real source write still pushes', async () => {
+    it('writes under .nx/.angular/coverage/tmp are ignored while a real source write still pushes', async () => {
       const nxCache = path.join(tmpDir, '.nx', 'cache');
       const ngCache = path.join(tmpDir, '.angular', 'cache');
+      const coverageDir = path.join(tmpDir, 'coverage');
+      const tmpOutputDir = path.join(tmpDir, 'tmp');
       const srcDir = path.join(tmpDir, 'src');
       // Created BEFORE start() so the mkdir events themselves are not measured.
       fs.mkdirSync(nxCache, { recursive: true });
       fs.mkdirSync(ngCache, { recursive: true });
+      fs.mkdirSync(coverageDir, { recursive: true });
+      fs.mkdirSync(tmpOutputDir, { recursive: true });
       fs.mkdirSync(srcDir, { recursive: true });
 
       svc.start(tmpDir, broadcast);
@@ -920,31 +884,33 @@ describe('GitWatcherService', () => {
       for (let i = 0; i < 5; i++) {
         fs.writeFileSync(path.join(nxCache, `probe-${i}.tmp`), String(i));
         fs.writeFileSync(path.join(ngCache, `probe-${i}.tmp`), String(i));
+        fs.writeFileSync(path.join(coverageDir, `probe-${i}.tmp`), String(i));
+        fs.writeFileSync(path.join(tmpOutputDir, `probe-${i}.tmp`), String(i));
       }
 
-      // Well past TREE_DEBOUNCE_MS (500) — nothing may have been pushed.
-      await new Promise((r) => setTimeout(r, 1200));
+      // Well past WORKSPACE_DEBOUNCE_MS (2000) — nothing may have been pushed.
+      await new Promise((r) => setTimeout(r, 2800));
       expect(
-        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed'),
+        broadcast.mock.calls.filter(([t]) => t === 'git:status-update'),
       ).toHaveLength(0);
 
       // Positive control: a genuine source write still fires (B4 AC3, R-9).
       fs.writeFileSync(path.join(srcDir, 'real.ts'), 'export {};\n');
       const fired = await waitFor(
-        () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
-        2500,
+        () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+        4000,
       );
       if (!fired) {
         // fs.watch on Windows occasionally misses a short-lived file event.
         fs.writeFileSync(path.join(srcDir, 'real-2.ts'), 'export {};\n');
         await waitFor(
-          () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
-          2500,
+          () => broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+          4000,
         );
       }
       expect(
-        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed').length,
+        broadcast.mock.calls.filter(([t]) => t === 'git:status-update').length,
       ).toBeGreaterThanOrEqual(1);
-    }, 15000);
+    }, 20000);
   });
 });

@@ -1,26 +1,25 @@
 import {
   Component,
-  Injector,
   input,
   inject,
   output,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ExternalLink } from 'lucide-angular';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 
 /**
  * FilePathLinkComponent - Clickable file path that opens file in editor
  *
  * Complexity Level: 1 (Simple atom)
- * Patterns: RPC integration, path shortening, platform-aware routing
+ * Patterns: RPC integration, path shortening
  *
  * Features:
  * - Shorten paths > 2 segments to ".../last/two"
  * - Show full path on hover (title attribute)
- * - Platform-aware file opening:
- *   - VS Code: opens via file:open RPC → vscode.window.showTextDocument()
- *   - Electron: opens in Monaco editor tab via EditorService (dynamic import)
+ * - Opens via the `file:open` RPC on every host: VS Code opens the file
+ *   natively; Electron launches the user's external editor
+ *   (`ElectronFileOpenRpcHandlers`, TASK_2026_385 Batch 3.2)
  * - Emit click event for parent to handle event propagation
  */
 @Component({
@@ -45,8 +44,6 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 })
 export class FilePathLinkComponent {
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly vscodeService = inject(VSCodeService);
-  private readonly injector = inject(Injector);
 
   readonly fullPath = input.required<string>();
   readonly clicked = output<Event>(); // For parent to handle stopPropagation
@@ -66,36 +63,14 @@ export class FilePathLinkComponent {
   }
 
   /**
-   * Open file in the editor (platform-aware).
-   * VS Code: sends file:open RPC which opens the file natively.
-   * Electron: dynamically imports EditorService to open in Monaco editor tab.
+   * Open the file via the `file:open` RPC. Every host handles it: VS Code
+   * opens the file natively, Electron launches the user's external editor.
    */
   protected openFile(event: Event): void {
     this.clicked.emit(event); // Let parent handle stopPropagation
     const filePath = this.fullPath();
     if (!filePath) return;
 
-    if (this.vscodeService.isElectron) {
-      void this.openFileInElectron(filePath);
-    } else {
-      void this.rpcService.openFile(filePath);
-    }
-  }
-
-  /**
-   * Open file in Electron's Monaco editor via dynamically-imported EditorService.
-   * Uses the same dynamic-import pattern as WorkspaceCoordinatorService.
-   */
-  private async openFileInElectron(filePath: string): Promise<void> {
-    try {
-      const editorModule = await import('@ptah-extension/editor');
-      const editorService = this.injector.get(editorModule.EditorService);
-      await editorService.openFile(filePath);
-    } catch (error) {
-      console.error(
-        '[FilePathLink] Electron openFile failed:',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    void this.rpcService.openFile(filePath);
   }
 }

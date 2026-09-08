@@ -76,11 +76,7 @@ const ALL_DISABLED: HostCapabilities = {
   filePicker: false,
   filePickerImages: false,
   fileSystemAccess: false,
-  editorRevert: false,
-  editorHost: false,
   commandExecution: false,
-  layoutPersistence: false,
-  pty: false,
   appUpdater: false,
 };
 

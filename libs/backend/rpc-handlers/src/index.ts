@@ -45,14 +45,13 @@ export {
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
   VoiceRpcHandlers,
-  LayoutRpcHandlers,
-  TerminalRpcHandlers,
   UpdateRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,
   TasksRpcHandlers,
   asAuthCommandRunner,
+  ElectronFileOpenRpcHandlers,
 } from './lib/handlers';
 export type {
   DbHealthResult,

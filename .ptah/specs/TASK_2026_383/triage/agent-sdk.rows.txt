@@ -1,0 +1,33 @@
+libs/backend/agent-sdk/src/lib/curator-llm-adapter/sdk-internal-query.curator-llm.ts:527 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:149 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:237 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:424 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/detector/claude-cli-detector.ts:487 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/detector/claude-cli-path-resolver.ts:117 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/code-symbol-prompt-injector.ts:77 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/history/history-event-factory.ts:548 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts:203 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts:264 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:132 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:207 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:267 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:1075 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts:727 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts:826 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:1059 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-control.service.ts:103 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/subagent-message-dispatcher.ts:424 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/helpers/workflow-transcript-reader.ts:37 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:608 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:631 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/agent-sdk/src/lib/sdk-transcript-reader.adapter.ts:40 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:622 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-importer.service.ts:375 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-importer.service.ts:634 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-importer.service.ts:797 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-importer.service.ts:843 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-metadata-store.ts:422 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/session-metadata-store.ts:1028 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/agent-sdk/src/lib/session-metadata-store.ts:1032 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/agent-sdk/src/lib/settings-export.service.ts:96 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/agent-sdk/src/lib/stream-processing/sdk-stream-processor.ts:269 [catch-return-sentinel] catch swallows error and returns a literal

@@ -2,6 +2,7 @@ import {
   Component,
   input,
   signal,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
@@ -96,6 +97,19 @@ interface InputParam {
         }
       </div>
     }
+    <!--
+      Deliberately OUTSIDE the hasNonTrivialInput() guard: a fold that preserved
+      nothing leaves no parameters to show, and that is exactly the case the
+      marker exists for. Real text in the document flow, readable in place by a
+      screen reader.
+    -->
+    @if (inputRetentionMessage(); as retentionMessage) {
+      <div
+        class="mb-1.5 mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] leading-snug text-base-content-muted"
+      >
+        {{ retentionMessage }}
+      </div>
+    }
   `,
   styles: [
     `
@@ -122,6 +136,36 @@ export class ToolInputDisplayComponent {
   readonly node = input.required<ExecutionNode>();
   readonly isInputCollapsed = signal(true);
   readonly isContentExpanded = signal(false);
+
+  /**
+   * Computed: the truncation notice for this node's INPUT, or null.
+   *
+   * Reads `ExecutionNode.retention`, written by `capFinalizedTree` in
+   * `@ptah-extension/chat-streaming`. The typed field is the only legal route
+   * across that boundary — chat-ui is `type:ui` and cannot import a predicate
+   * from a `type:feature` lib.
+   *
+   * The copy names the recovery honestly: the bytes are in the session's SDK
+   * transcript and come back when the session is reopened, and that reload is
+   * itself partial. There is no per-message re-fetch to promise.
+   */
+  readonly inputRetentionMessage = computed((): string | null => {
+    const retention = this.node().retention;
+    if (!retention?.capped.includes('toolInput')) return null;
+
+    const recovery =
+      "The full text is in this session's transcript on disk — reopen the " +
+      'session to reload it (a reload drops anything before the last compaction).';
+
+    if (retention.foldFailed) {
+      const reason = retention.reason ?? 'it could not be converted to text';
+      return `Input could not be preserved (${reason}). ${recovery}`;
+    }
+    return (
+      `Input truncated — ${retention.droppedChars.toLocaleString()} ` +
+      `characters were dropped from this tool call to bound the transcript. ${recovery}`
+    );
+  });
 
   /**
    * Toggle Input section collapsed state

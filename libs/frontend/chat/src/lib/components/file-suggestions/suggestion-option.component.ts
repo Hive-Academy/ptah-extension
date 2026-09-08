@@ -13,7 +13,7 @@ import type { FileSuggestion } from '../../services/file-picker.service';
 
 /**
  * Type discriminated union for file and command suggestions
- * Agents handled by AgentSelectorComponent - not part of this dropdown
+ * Agents are not part of this dropdown - the model picks its own sub-agents
  */
 export type SuggestionItem =
   | ({ type: 'file'; icon: LucideIconData; description: string } & Omit<

@@ -17,10 +17,12 @@ export interface ConfirmDialogOptions {
  * Contract for workspace coordination across feature libraries.
  *
  * Implemented by WorkspaceCoordinatorService in the chat library, which
- * orchestrates TabManagerService, EditorService, and ConfirmationDialogService
- * during workspace switch/remove operations.
+ * orchestrates TabManagerService, the git-ui services (GitStatusService,
+ * GitBranchesService), and ConfirmationDialogService during workspace
+ * switch/remove operations. `@ptah-extension/editor` — the former source of
+ * `EditorService`, mentioned here before TASK_2026_385 Batch 4.1 — is gone.
  *
- * This token breaks the circular dependency between core and chat/editor:
+ * This token breaks the circular dependency between core and chat/git-ui:
  *   core (defines interface) ← chat (provides implementation)
  *   instead of: core → chat (circular)
  */
