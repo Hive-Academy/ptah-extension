@@ -41,6 +41,25 @@ import { TurnStateApplier } from './turn-state-applier.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
+  /**
+   * Event types the accumulator routes to a STORE and nowhere else — see the
+   * `background_agent_*` / `agent_*` arms of
+   * `StreamingAccumulatorCore.process`. None of them reads or writes
+   * `StreamingState`, so none may cause one to be created. `turn_state` is not
+   * listed because it is intercepted in `processStreamEvent` and never reaches
+   * the per-tab path at all.
+   */
+  private static readonly STORE_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set(
+    [
+      'agent_progress',
+      'agent_status',
+      'agent_completed',
+      'background_agent_started',
+      'background_agent_completed',
+      'background_agent_stopped',
+    ],
+  );
+
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
 
@@ -244,7 +263,19 @@ export class StreamingHandlerService {
     if (sessionId && !targetTab.claudeSessionId) {
       this.tabManager.attachSession(targetTab.id, sessionId);
     }
-    if (!targetTab.streamingState) {
+    // An event that writes NOTHING into `StreamingState` must never create one.
+    // These six only touch the monitor / background-agent stores, and they all
+    // arrive after a turn ends as a matter of course (TASK_2026_360). Minting
+    // for them left a settled tab holding an empty tree that no finalize can
+    // clear — `finalizeCurrentMessage` early-returns on the null
+    // `currentMessageId` such a state carries — which every busy-predicate
+    // reader then saw as a live turn (TASK_2026_382 review B5). The accumulator
+    // still runs, on a scratch state it discards, so the stores are updated
+    // exactly as before.
+    const ephemeralState =
+      !targetTab.streamingState &&
+      StreamingHandlerService.STORE_ONLY_EVENT_TYPES.has(event.eventType);
+    if (!targetTab.streamingState && !ephemeralState) {
       this.tabManager.setStreamingState(
         targetTab.id,
         createEmptyStreamingState(),
@@ -257,7 +288,9 @@ export class StreamingHandlerService {
       }
     }
 
-    const state = targetTab.streamingState as StreamingState;
+    const state = ephemeralState
+      ? createEmptyStreamingState()
+      : (targetTab.streamingState as StreamingState);
 
     // Capture the SDK's real transcript UUID for the user's own turn — emitted
     // on the user `message_start` because `replay-user-messages` is enabled —
@@ -315,7 +348,7 @@ export class StreamingHandlerService {
         return { tabId: targetTab.id, queuedContent };
       }
     }
-    if (result.stateMutated) {
+    if (result.stateMutated && !ephemeralState) {
       // Content only. The spinner / `status` are NOT re-asserted from content
       // any more: a post-turn `agent_progress` used to re-light the stop
       // button with nothing left to clear it (TASK_2026_360, Defect 1). The

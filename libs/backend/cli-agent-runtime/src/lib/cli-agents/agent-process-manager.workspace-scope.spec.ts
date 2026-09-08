@@ -230,4 +230,45 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
       expect(status.status).toBe('running');
     });
   });
+
+  /**
+   * The internal bookkeeping accessor (TASK_2026_364 blocker B1).
+   *
+   * `sdk-callbacks.ts` remaps parent session ids on the chat SDK stream, which
+   * is not an MCP request, so there is no caller to scope to and every scope it
+   * could inherit is the wrong one. Reading that list through `getStatus()`
+   * silently dropped the non-active workspace's agents and skipped their
+   * re-persist — see `wiring/sdk-callbacks.spec.ts`. This accessor is the way to
+   * say "unscoped" out loud; it must stay unscoped whatever the caller context.
+   */
+  describe('listTrackedAgents() — the unscoped bookkeeping view', () => {
+    it('returns agents from EVERY workspace, whatever the caller and provider say', () => {
+      const manager = makeManager({
+        providerRoot: ROOT_B,
+        resolver: { resolveCallerWorkspaceRoot: () => ROOT_A },
+      });
+      seedAgent(manager, 'agent-a', `${ROOT_A}\\sub`);
+      seedAgent(manager, 'agent-b', `${ROOT_B}\\sub`);
+
+      expect(manager.listTrackedAgents().map((a) => String(a.agentId))).toEqual(
+        ['agent-a', 'agent-b'],
+      );
+      // The caller-facing list is still scoped — the two views differ on
+      // purpose, which is the whole point of having both.
+      expect(
+        (manager.getStatus() as AgentProcessInfo[]).map((a) =>
+          String(a.agentId),
+        ),
+      ).toEqual(['agent-a']);
+    });
+
+    it('hands out copies, so a bookkeeping consumer cannot mutate tracked state', () => {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      seedAgent(manager, 'agent-a', `${ROOT_A}\\sub`);
+
+      manager.listTrackedAgents()[0].parentSessionId = 'tampered';
+
+      expect(manager.listTrackedAgents()[0].parentSessionId).toBeUndefined();
+    });
+  });
 });

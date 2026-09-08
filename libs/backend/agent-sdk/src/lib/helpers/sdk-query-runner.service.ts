@@ -381,6 +381,7 @@ export class SdkQueryRunner {
     const mcpServers = this.buildOneShotMcpServers(
       input.mcpServerRunning,
       input.mcpPort,
+      input.cwd,
     );
 
     const hooks = this.buildOneShotHooks(input.cwd);
@@ -485,9 +486,37 @@ export class SdkQueryRunner {
     };
   }
 
+  /**
+   * The one-shot query's Ptah MCP server entry.
+   *
+   * A one-shot has no Ptah session, so it cannot send the `/session/{id}`
+   * segment the interactive path sends — but it always knows the directory it
+   * runs in, and the URL states it as `/workspace/{encodeURIComponent(cwd)}`
+   * (TASK_2026_364). Two things depend on it. Path-resolving tool calls
+   * resolved against whichever folder was most recently activated instead of
+   * this query's own; and with more than one folder open,
+   * `McpCallerWorkspaceResolver` REFUSES an anonymous caller by name, so every
+   * `ptah_agent_*` call from a one-shot hard-failed — this query runs
+   * `bypassPermissions` and its `PTAH_CORE_SYSTEM_PROMPT` tells the model to
+   * spawn CLI agents.
+   *
+   * The grammar is spelled inline, as `SdkQueryOptionsBuilder.buildMcpServers`
+   * spells `/session/{id}` inline: the two helpers that own it —
+   * `ptahMcpServerUrl` (`cli-agent-runtime`) and `ptahMcpUrl`
+   * (`vscode-lm-tools`) — both live in libs that DEPEND on this one, so
+   * importing either would invert the dependency. `encodeURIComponent`, never
+   * hand-rolled escaping: a Windows root carries a colon and backslashes, and
+   * encoding every `/` as `%2F` is what keeps `inferTransportType` from
+   * reading a path containing `/sse` back as an SSE endpoint.
+   *
+   * `cwd` is `runOneShot`'s already-sanitized value (`resolveSafeCwd`, which
+   * never returns an empty string), so the URL declares the same directory the
+   * SDK is given as `options.cwd` and there is no anonymous branch to take.
+   */
   private buildOneShotMcpServers(
     mcpServerRunning: boolean,
-    mcpPort?: number,
+    mcpPort: number | undefined,
+    cwd: string,
   ): Record<string, McpHttpServerConfig> {
     if (!mcpServerRunning) {
       this.logger.warn(`${SERVICE_TAG} MCP disabled (server not running)`);
@@ -498,7 +527,7 @@ export class SdkQueryRunner {
     return {
       ptah: {
         type: 'http',
-        url: `http://localhost:${port}`,
+        url: `http://localhost:${port}/workspace/${encodeURIComponent(cwd)}`,
       },
     };
   }

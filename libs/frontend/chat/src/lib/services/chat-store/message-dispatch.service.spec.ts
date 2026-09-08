@@ -14,16 +14,31 @@
  *   - sendQueuedMessage: on error, restores content to queue
  *   - sendQueuedMessage: calls continueExistingSessionForQueueFlush (not send / continueConversation)
  *   - sendQueuedMessage: warns and re-queues (no new conversation) when the tab has no claudeSessionId
+ *   - isTabBusyGenerating: the bounded exit — a tree with no currentMessageId
+ *     is debris nothing can finalize, so it is NOT busy
+ *   - Integration: the REAL StreamingHandler + MessageFinalization pair driven
+ *     through finalize → stray post-turn events → send, with no queueing
  */
 
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
-import { MessageDispatchService } from './message-dispatch.service';
+import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
+import { createEmptyStreamingState } from '@ptah-extension/chat-types';
+import {
+  MessageDispatchService,
+  isTabBusyGenerating,
+} from './message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  MessageFinalizationService,
+  PermissionHandlerService,
+  StreamingHandlerService,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
@@ -342,6 +357,109 @@ describe('MessageDispatchService', () => {
         tabId: 'tab-bg',
       });
     });
+
+    it('SENDS when the tree left behind has no currentMessageId — that state is debris no finalize can clear (TASK_2026_382 review B5)', async () => {
+      // `StreamingHandlerService` mints an empty `StreamingState` for any event
+      // routed to a tab that has none, and only `message_start` ever sets
+      // `currentMessageId`. A late post-turn `agent_progress` /
+      // `agent_completed` / `message_complete` therefore leaves exactly this
+      // shape behind. `finalizeCurrentMessage` early-returns on a null
+      // `currentMessageId`, and nothing else nulls `streamingState`, so an
+      // unbounded `streamingState != null` check latched the tab into
+      // queue-only mode for good: status is `loaded` (input enabled), the tab
+      // is absent from `_streamingTabIds` (Stop hidden), and no drain can fire.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(false);
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          status: 'loaded',
+          streamingState: {
+            currentMessageId: null,
+          } as unknown as TabState['streamingState'],
+        }),
+      ];
+
+      await service.sendOrQueueMessage('after the stray event');
+
+      expect(queueOrAppendMock).not.toHaveBeenCalled();
+      expect(sendMock).toHaveBeenCalledWith('after the stray event', undefined);
+    });
+  });
+
+  describe('isTabBusyGenerating (the one predicate the Stop button shares)', () => {
+    const tree = {
+      currentMessageId: 'msg-live',
+    } as unknown as NonNullable<TabState['streamingState']>;
+    const debris = {
+      currentMessageId: null,
+    } as unknown as NonNullable<TabState['streamingState']>;
+
+    it('is busy while a tree with a currentMessageId is live under an idle status', () => {
+      expect(
+        isTabBusyGenerating({
+          status: 'loaded',
+          streamingState: tree,
+          isStreamingTab: false,
+        }),
+      ).toBe(true);
+    });
+
+    it('is NOT busy for a tree with no currentMessageId — the bounded exit', () => {
+      expect(
+        isTabBusyGenerating({
+          status: 'loaded',
+          streamingState: debris,
+          isStreamingTab: false,
+        }),
+      ).toBe(false);
+    });
+
+    it.each(['awaiting-background', 'sleeping'] as const)(
+      'is NOT busy in %s even with a live tree — queuing there strands the message',
+      (status) => {
+        expect(
+          isTabBusyGenerating({
+            status,
+            streamingState: tree,
+            isStreamingTab: false,
+          }),
+        ).toBe(false);
+      },
+    );
+
+    it.each(['streaming', 'resuming'] as const)(
+      'is busy in %s with no tree at all',
+      (status) => {
+        expect(
+          isTabBusyGenerating({
+            status,
+            streamingState: null,
+            isStreamingTab: false,
+          }),
+        ).toBe(true);
+      },
+    );
+
+    it('is busy on the spinner set alone (the SDK pause/resume self-heal)', () => {
+      expect(
+        isTabBusyGenerating({
+          status: 'loaded',
+          streamingState: null,
+          isStreamingTab: true,
+        }),
+      ).toBe(true);
+    });
+
+    it('is NOT busy for a settled tab', () => {
+      expect(
+        isTabBusyGenerating({
+          status: 'loaded',
+          streamingState: null,
+          isStreamingTab: false,
+        }),
+      ).toBe(false);
+    });
   });
 
   describe('sendQueuedMessage', () => {
@@ -414,5 +532,255 @@ describe('MessageDispatchService', () => {
       );
       errorSpy.mockRestore();
     });
+  });
+});
+
+/**
+ * End-to-end over the REAL streaming pair — no mock stands between the events
+ * and the predicate. `StreamingHandlerService` and `MessageFinalizationService`
+ * are the production classes (with their real accumulator, deduplication,
+ * batched-update and tree-builder collaborators); only the tab store, the
+ * sender and the conversation queue are test doubles, and the tab store
+ * reproduces the two-write `applyFinalizedTurn` that production performs.
+ *
+ * This is the loop the review found: finish a turn, let the routine late
+ * post-turn events land, then send again. Before the fix the send was queued
+ * with no drain and no Stop button — recoverable only by reload or /clear.
+ */
+describe('MessageDispatchService with the real StreamingHandler + MessageFinalization pair (TASK_2026_382 review B5)', () => {
+  const TAB_ID = 'tab-1';
+  const SESSION_ID = SessionId.create();
+  const MESSAGE_ID = 'msg-1';
+
+  let tabsSignal: ReturnType<typeof signal<TabState[]>>;
+  let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
+  let visibleTabIdsSignal: ReturnType<typeof signal<Set<string>>>;
+  let streamingTabIdsSignal: ReturnType<typeof signal<Set<string>>>;
+  let dispatch: MessageDispatchService;
+  let streaming: StreamingHandlerService;
+  let finalization: MessageFinalizationService;
+  let sendMock: jest.Mock;
+  let queueOrAppendMock: jest.Mock;
+
+  function patchTab(id: string, changes: Partial<TabState>): void {
+    tabsSignal.update((all) =>
+      all.map((t) => (t.id === id ? ({ ...t, ...changes } as TabState) : t)),
+    );
+  }
+
+  function currentTab(): TabState {
+    const tab = tabsSignal().find((t) => t.id === TAB_ID);
+    if (!tab) throw new Error('tab vanished');
+    return tab;
+  }
+
+  /** Let `applyFinalizedTurn`'s second write (a microtask) land. */
+  const settle = (): Promise<void> =>
+    new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    tabsSignal = signal<TabState[]>([
+      {
+        id: TAB_ID,
+        title: 'Session',
+        name: 'Session',
+        status: 'streaming',
+        messages: [],
+        streamingState: createEmptyStreamingState(),
+        currentMessageId: null,
+        claudeSessionId: SESSION_ID,
+        queuedContent: null,
+        queuedOptions: null,
+      } as unknown as TabState,
+    ]);
+    activeTabIdSignal = signal<string | null>(TAB_ID);
+    visibleTabIdsSignal = signal<Set<string>>(new Set());
+    streamingTabIdsSignal = signal<Set<string>>(new Set());
+
+    const tabManagerFake = {
+      tabs: computed(() => tabsSignal()),
+      activeTabId: computed(() => activeTabIdSignal()),
+      activeTab: computed(
+        () => tabsSignal().find((t) => t.id === activeTabIdSignal()) ?? null,
+      ),
+      activeTabStatus: computed(
+        () =>
+          tabsSignal().find((t) => t.id === activeTabIdSignal())?.status ??
+          null,
+      ),
+      visibleTabIds: computed(() => visibleTabIdsSignal()),
+      isTabStreaming: (id: string) => streamingTabIdsSignal().has(id),
+      findTabByIdAcrossWorkspaces: (id: string) => {
+        const tab = tabsSignal().find((t) => t.id === id);
+        return tab ? { tab, workspacePath: '/ws' } : null;
+      },
+      findTabsBySessionId: (sid: string) =>
+        tabsSignal().filter((t) => t.claudeSessionId === sid),
+      findTabBySessionIdAcrossWorkspaces: () => null,
+      updateBackgroundTab: () => false,
+      attachSession: (id: string, sid: string) =>
+        patchTab(id, { claudeSessionId: sid } as Partial<TabState>),
+      setStreamingState: (id: string, state: TabState['streamingState']) =>
+        patchTab(id, { streamingState: state }),
+      setMessages: (id: string, messages: TabState['messages']) =>
+        patchTab(id, { messages }),
+      reconcileUserMessageNativeUuid: jest.fn(),
+      setQueuedContent: jest.fn(),
+      clearQueuedContentAndOptions: jest.fn(),
+      markTabIdle: jest.fn(),
+      markTabStreaming: jest.fn(),
+      markStreaming: jest.fn(),
+      applyFinalizedHistory: jest.fn(),
+      // Mirrors production: messages first, then a microtask that drops the
+      // streaming state and flips to `loaded`.
+      applyFinalizedTurn: (id: string, messages: TabState['messages']) => {
+        patchTab(id, { messages, currentMessageId: null });
+        queueMicrotask(() =>
+          patchTab(id, { streamingState: null, status: 'loaded' }),
+        );
+      },
+      clearStreamingForLoaded: (id: string) =>
+        patchTab(id, {
+          streamingState: null,
+          status: 'loaded',
+          currentMessageId: null,
+        }),
+    } as unknown as TabManagerService;
+
+    sendMock = jest.fn().mockResolvedValue(undefined);
+    queueOrAppendMock = jest.fn();
+
+    TestBed.configureTestingModule({
+      providers: [
+        MessageDispatchService,
+        { provide: TabManagerService, useValue: tabManagerFake },
+        // `turn_state` is never fed here; the applier would drag in the
+        // liveness registry for no coverage.
+        { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
+        // The real store reaches for VSCodeService + the RPC client.
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            onAgentStart: jest.fn(),
+            onAgentProgress: jest.fn(),
+            onAgentStatus: jest.fn(),
+            onAgentCompleted: jest.fn(),
+            markAgentNodesResumed: jest.fn(),
+          },
+        },
+        {
+          provide: MessageSenderService,
+          useValue: { send: sendMock, continueExistingSessionForQueueFlush: jest.fn() },
+        },
+        {
+          provide: ConversationService,
+          useValue: { queueOrAppendMessage: queueOrAppendMock },
+        },
+        {
+          provide: AuthStateService,
+          useValue: {
+            persistedAuthMethod: () => 'apiKey',
+            isLoading: () => false,
+          },
+        },
+        {
+          provide: PermissionHandlerService,
+          useValue: {
+            permissionRequests: () => [],
+            handlePermissionResponse: jest.fn(),
+          },
+        },
+      ],
+    });
+
+    dispatch = TestBed.inject(MessageDispatchService);
+    streaming = TestBed.inject(StreamingHandlerService);
+    finalization = TestBed.inject(MessageFinalizationService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function feed(event: FlatStreamEventUnion): void {
+    streaming.processStreamEvent(event, TAB_ID, SESSION_ID);
+  }
+
+  it('accepts the next send after a finished turn is followed by the routine late post-turn events', async () => {
+    // ----- A complete turn -------------------------------------------------
+    feed({
+      id: 'evt-start',
+      eventType: 'message_start',
+      timestamp: 1,
+      sessionId: SESSION_ID,
+      messageId: MESSAGE_ID,
+      role: 'assistant',
+      source: 'stream',
+    } as unknown as FlatStreamEventUnion);
+    feed({
+      id: 'evt-delta',
+      eventType: 'text_delta',
+      timestamp: 2,
+      sessionId: SESSION_ID,
+      messageId: MESSAGE_ID,
+      blockIndex: 0,
+      delta: 'done',
+      source: 'stream',
+    } as unknown as FlatStreamEventUnion);
+    feed({
+      id: 'evt-complete',
+      eventType: 'message_complete',
+      timestamp: 3,
+      sessionId: SESSION_ID,
+      messageId: MESSAGE_ID,
+      stopReason: 'end_turn',
+      tokenUsage: { input: 10, output: 20 },
+      source: 'stream',
+    } as unknown as FlatStreamEventUnion);
+
+    finalization.finalizeCurrentMessage(TAB_ID);
+    await settle();
+
+    expect(currentTab().streamingState).toBeNull();
+    expect(currentTab().status).toBe('loaded');
+
+    // ----- The late post-turn events TASK_2026_360 documents as routine ----
+    feed({
+      id: 'evt-progress',
+      eventType: 'agent_progress',
+      timestamp: 4,
+      sessionId: SESSION_ID,
+      parentToolUseId: 'toolu_1',
+      taskId: 'task-1',
+      description: 'still tidying up',
+      totalTokens: 12,
+      toolUses: 1,
+      durationMs: 400,
+      source: 'hook',
+    } as unknown as FlatStreamEventUnion);
+
+    // A store-only event must not RESURRECT a streaming state on a settled tab.
+    expect(currentTab().streamingState).toBeNull();
+
+    feed({
+      id: 'evt-late-complete',
+      eventType: 'message_complete',
+      timestamp: 5,
+      sessionId: SESSION_ID,
+      messageId: 'msg-late',
+      stopReason: 'end_turn',
+      source: 'stream',
+    } as unknown as FlatStreamEventUnion);
+
+    // This one legitimately writes into a state, so a state now exists — but it
+    // carries no `currentMessageId`, so no finalize can ever clear it. The
+    // predicate must read it as debris, not as a turn in flight.
+    expect(currentTab().streamingState?.currentMessageId ?? null).toBeNull();
+
+    // ----- The user sends again -------------------------------------------
+    await dispatch.sendOrQueueMessage('and now this');
+
+    expect(queueOrAppendMock).not.toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalledWith('and now this', undefined);
   });
 });

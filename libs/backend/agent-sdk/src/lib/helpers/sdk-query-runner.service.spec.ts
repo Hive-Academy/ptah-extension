@@ -298,6 +298,68 @@ describe('SdkQueryRunner', () => {
     });
   });
 
+  /**
+   * TASK_2026_364 blocker B3 — the one-shot query was the last anonymous Ptah
+   * MCP consumer.
+   *
+   * A bare `http://localhost:{port}` cannot say which folder the caller belongs
+   * to, so its path-resolving tool calls landed on whichever workspace was most
+   * recently activated. Worse, `McpCallerWorkspaceResolver` now REFUSES an
+   * anonymous caller outright when more than one folder is open, so every
+   * `ptah_agent_*` call from a one-shot hard-failed in a two-folder window —
+   * this query runs `bypassPermissions` and its system prompt tells the model
+   * to spawn CLI agents.
+   */
+  describe('runOneShot — the MCP URL declares the query workspace', () => {
+    async function capturedPtahMcpUrl(cwd: string): Promise<string> {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd,
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: true,
+        mcpPort: 51820,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      const servers = params.options.mcpServers as Record<
+        string,
+        { url?: string }
+      >;
+      return servers['ptah'].url as string;
+    }
+
+    it('carries the /workspace/{encoded cwd} segment, never the bare origin', async () => {
+      await expect(capturedPtahMcpUrl('/work/project')).resolves.toBe(
+        'http://localhost:51820/workspace/%2Fwork%2Fproject',
+      );
+    });
+
+    it('percent-encodes a Windows root, so no separator survives as a path segment', async () => {
+      const url = await capturedPtahMcpUrl('D:\\projects\\ptah-extension');
+      expect(url).toBe(
+        'http://localhost:51820/workspace/D%3A%5Cprojects%5Cptah-extension',
+      );
+      // `harness-sync`'s `inferTransportType` reads a literal `/sse` anywhere in
+      // a URL as an SSE endpoint. Encoding every separator is what makes that
+      // impossible for a scoped URL, whatever the directory is called.
+      expect(url.slice('http://localhost:51820/workspace/'.length)).not.toMatch(
+        /[/\\]/,
+      );
+    });
+
+    it('declares the SANITIZED cwd — the same directory the SDK is given', async () => {
+      // An empty cwd is rewritten to the home directory before the SDK sees it;
+      // the URL must name that directory too, not an anonymous origin.
+      const url = await capturedPtahMcpUrl('');
+      expect(url).toBe(
+        `http://localhost:51820/workspace/${encodeURIComponent(os.homedir())}`,
+      );
+    });
+  });
+
   describe('invokeWithLoadedQuery', () => {
     it('invokes the loaded queryFn with the prompt + options and returns its query', () => {
       const h = makeRunner();

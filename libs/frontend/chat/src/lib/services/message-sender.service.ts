@@ -429,6 +429,13 @@ export class MessageSenderService {
           result.data?.error ?? result.error,
         );
         this.tabManager.markLoaded(activeTabId);
+        // `markLoaded` writes `status` alone; the spinner/send-vs-queue set is a
+        // separate store that only `markTabIdle` or a backend `turn_state`
+        // clears. This turn never created a broadcaster, so no `turn_state` and
+        // no CHAT_ERROR will ever arrive to repair it — the optimistic
+        // `markTabStreaming` above must undo itself here, as
+        // `continueConversation` already does (TASK_2026_360).
+        this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
         // Structural failure: transport succeeded but the backend rejected the
@@ -445,6 +452,11 @@ export class MessageSenderService {
 
       if (activeTabId) {
         this.tabManager.markLoaded(activeTabId);
+        // Same reason as the structural exit above: a throw before the stream
+        // starts (e.g. AuthRequiredError out of startChatSession) leaves nothing
+        // downstream able to clear the optimistic streaming flag
+        // (TASK_2026_360).
+        this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
       this.sessionManager.failSession();

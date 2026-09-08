@@ -227,6 +227,16 @@ export class MultiPhaseAnalysisService {
           phaseConfig.label,
         );
 
+        // Snapshot the phase file BEFORE the agent runs. On resume the file a
+        // previous FAILED or PAUSED run left behind is still on disk — nothing
+        // deletes it — so a bare existence check after the run would let that
+        // stale stub satisfy the file requirement and mark the phase
+        // `completed`.
+        const priorFileContent = await this.storageService.readPhaseFile(
+          slugDir,
+          phaseConfig.file,
+        );
+
         const phaseStart = Date.now();
         let outcome: PhaseExecutionOutcome;
         try {
@@ -268,6 +278,7 @@ export class MultiPhaseAnalysisService {
           phaseConfig.file,
           outcome,
           Date.now() - phaseStart,
+          priorFileContent,
         );
 
         const statuses = checkpoint.statuses();
@@ -351,10 +362,16 @@ export class MultiPhaseAnalysisService {
   /**
    * Turn an execution outcome into the phase's terminal manifest state.
    *
-   * `completed` requires a successful result AND a phase file — either one the
-   * agent wrote or one created from the complete captured text. Everything
-   * else is `failed` with a non-empty error; captured text is still written
-   * to the phase file for diagnosis, but the manifest says failed.
+   * `completed` requires a successful result AND a phase file THIS RUN wrote —
+   * either one the agent wrote or one created from the complete captured text.
+   * A file left over from an earlier failed or paused run does not count: it
+   * is stale, lossy partial text and promoting it to `completed` would feed it
+   * to the enhanced-prompt designer. Everything else is `failed` with a
+   * non-empty error; captured text is still written to the phase file for
+   * diagnosis, but the manifest says failed.
+   *
+   * @param priorFileContent - The phase file's content immediately before this
+   *   run executed the phase, or null when there was no readable file.
    */
   private async recordPhaseOutcome(
     checkpoint: AnalysisRunCheckpoint,
@@ -362,16 +379,19 @@ export class MultiPhaseAnalysisService {
     filename: string,
     outcome: PhaseExecutionOutcome,
     durationMs: number,
+    priorFileContent: string | null,
   ): Promise<void> {
-    const fileExists = await this.storageService.phaseFileExists(
+    const currentFileContent = await this.storageService.readPhaseFile(
       checkpoint.slugDir,
       filename,
     );
+    const fileWrittenThisRun =
+      currentFileContent !== null && currentFileContent !== priorFileContent;
     const succeeded =
       outcome.resultReceived && !outcome.timedOut && !outcome.error;
 
     if (succeeded) {
-      if (!fileExists) {
+      if (!fileWrittenThisRun) {
         if (!outcome.assistantText) {
           this.logger.warn(
             `${SERVICE_TAG} Phase ${phaseId}: no file written and no text captured`,
@@ -384,7 +404,7 @@ export class MultiPhaseAnalysisService {
           return;
         }
         this.logger.warn(
-          `${SERVICE_TAG} Phase ${phaseId}: agent did not write file, creating it from the complete captured text`,
+          `${SERVICE_TAG} Phase ${phaseId}: agent did not write file this run, creating it from the complete captured text`,
         );
         await this.storageService.writePhaseFile(
           checkpoint.slugDir,
@@ -401,7 +421,7 @@ export class MultiPhaseAnalysisService {
       (outcome.timedOut
         ? `analysis_timeout: phase exceeded ${PER_PHASE_TIMEOUT_MS} ms`
         : 'Stream ended without a result');
-    if (!fileExists && outcome.assistantText) {
+    if (!fileWrittenThisRun && outcome.assistantText) {
       this.logger.warn(
         `${SERVICE_TAG} Phase ${phaseId}: keeping captured text as a diagnostic file (phase still failed)`,
       );
