@@ -63,11 +63,17 @@ The bug was the version drift, **not** the `&&`.
 
 ## What this task changed
 
-- `apps/ptah-license-server/Dockerfile` — all eight packages pinned to exact
-  lockfile versions; `prisma` CLI pinned to `7.7.0` to match `@prisma/client`.
-  Comment above the `RUN` records the coupling. `CMD` left fail-closed on
+- `apps/ptah-license-server/Dockerfile` — the `deps` stage now runs
+  `npm ci --omit=dev` against the Nx-generated `package.json` +
+  `package-lock.json`, then adds only the four packages that manifest genuinely
+  lacks. The hand-maintained version list drops from eight to four, and the
+  other 26 dependencies are versioned by the build. `CMD` left fail-closed on
   purpose (serving against a partially-migrated schema is worse than not
   serving); reasoning recorded in a comment beside it.
+- `.github/workflows/deploy-server.yml` — all three `appleboy/*` actions pinned
+  to full commit SHAs (`githubactions:S7637`, raised by SonarCloud on PR #470).
+  They receive `DROPLET_SSH_KEY`, so a repointed mutable tag is a production
+  credential leak. Same supply-chain class as the outage itself.
 - `.github/workflows/deploy-server.yml` — post-deploy smoke check polls the
   public `https://api.ptah.live/api/health` for up to 3 minutes and asserts
   `status: ok` **and** `database: connected`, not merely HTTP 200. On failure
@@ -126,10 +132,15 @@ main.cjs`), not `[node main.cjs]`.
 
 ## Follow-ups deliberately not done here
 
-- The `deps` stage duplicates versions that already exist in the generated
-  `dist/apps/ptah-license-server/package.json`. Installing from that generated
-  manifest instead of by bare name would remove the drift class entirely rather
-  than pinning around it. Larger change; not attempted under an incident fix.
+- **Nx omits three runtime dependencies from the generated manifest.**
+  `main.cjs` `require()`s `@workos-inc/node`, `@nestjs/config` (48 call sites)
+  and `@nestjs/jwt` at runtime, but none of the three appears in
+  `dist/apps/ptah-license-server/package.json`. Only `@workos-inc/node` is even
+  listed in the `external` array in `project.json`. Until that is corrected the
+  Dockerfile must name them by hand, which is exactly the fragility that caused
+  this outage. Fixing the packaging so `generatePackageJson` emits them would
+  reduce the hand-maintained list from four to one (`prisma`, a devDependency
+  that generation can never emit).
 - No alert routing beyond a GitHub issue (no email, Slack or pager). The issue
   is the notification surface for now.
 - Sentry's blind spot before app bootstrap is unaddressed and unaddressable
