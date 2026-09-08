@@ -363,7 +363,7 @@ export class GitInfoService {
 
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['status', '--porcelain=v2', '--branch'],
+        ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
         workspacePath,
       );
 
