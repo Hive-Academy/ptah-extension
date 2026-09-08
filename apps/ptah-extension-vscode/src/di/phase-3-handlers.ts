@@ -34,7 +34,6 @@ import {
   ContextRpcHandlers,
   AutocompleteRpcHandlers,
   FileRpcHandlers,
-  EditorRpcHandlers,
   ConfigRpcHandlers,
   AuthRpcHandlers,
   LicenseRpcHandlers,
@@ -63,7 +62,6 @@ export function registerPhase3Handlers(
   container.registerSingleton(ContextRpcHandlers);
   container.registerSingleton(AutocompleteRpcHandlers);
   container.registerSingleton(FileRpcHandlers);
-  container.registerSingleton(EditorRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);

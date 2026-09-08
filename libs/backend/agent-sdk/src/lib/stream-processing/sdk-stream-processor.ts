@@ -267,6 +267,9 @@ export class SdkStreamProcessor {
     try {
       emitter.emit(event);
     } catch {
+      // degradation-audit: optional-capability - a stream observer is an
+      // optional subscriber; returning drops that one notification so a
+      // throwing listener cannot tear down the stream it is watching.
       return;
     }
   }

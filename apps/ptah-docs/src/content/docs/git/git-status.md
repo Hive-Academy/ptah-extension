@@ -7,16 +7,19 @@ description: Real-time branch, commit, and dirty-state tracking without polling.
 
 Ptah watches your `.git/` directory for changes using native filesystem events. The moment git updates a ref, HEAD, or the index, Ptah's UI reflects it — usually within a few milliseconds. There is no polling interval to configure, and no refresh button to click.
 
-![Git status in status bar](/screenshots/git-status-bar.png)
+![Git status in the Git dock header](/screenshots/git-dock-header.png)
 
 ## What's displayed
 
-| Indicator         | Location                   | Meaning                                                                    |
-| ----------------- | -------------------------- | -------------------------------------------------------------------------- |
-| Branch name       | Status bar, bottom-left    | Current `HEAD` branch, or `(detached)` if HEAD points to a commit directly |
-| Short commit hash | Status bar, next to branch | First 7 chars of the current `HEAD` commit                                 |
-| Dirty dot         | Orange dot next to branch  | Index or working tree has uncommitted changes                              |
-| Ahead/behind      | Tooltip on hover           | Commits ahead/behind the upstream branch, if one is configured             |
+The Git dock is the toggleable panel on the right edge of the window — click
+the vertical **Git** tab to open it. Its header shows the live status:
+
+| Indicator     | Location                        | Meaning                                                                    |
+| ------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| Branch name   | Git dock header, left           | Current `HEAD` branch, or `(detached)` if HEAD points to a commit directly |
+| Ahead/behind  | Git dock header, next to branch | Commits ahead/behind the upstream branch, inline once one is configured    |
+| Stash count   | Git dock header, next to branch | Number of stash entries, when there are any                                |
+| Changed files | Source control list, below      | Every modified/added/deleted file, with its own status indicator           |
 
 ## How the watcher works
 

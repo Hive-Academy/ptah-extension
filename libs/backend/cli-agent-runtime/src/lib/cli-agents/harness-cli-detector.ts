@@ -13,10 +13,12 @@
  * skipping a target, never fail the pass.
  */
 
+import type { DependencyContainer } from 'tsyringe';
 import type {
   CliDetectionResult,
   HarnessTargetId,
 } from '@ptah-extension/shared';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import type { IHarnessCliDetector } from '@ptah-extension/harness-sync';
 
 /** The slice of `CliDetectionService` the detector needs. */
@@ -48,9 +50,33 @@ export function createHarnessCliDetector(
         return results.some(
           (result) => result.cli === target && result.installed,
         );
+        // degradation-audit: optional-capability - per the doc comment on this
+        // factory, a null or throwing reader means "nothing installed", which
+        // the reconciler reports as target-absent rather than an error.
       } catch {
         return false;
       }
     },
   };
+}
+
+/**
+ * The detector every host wires, over its own DI container.
+ *
+ * Which token holds the detection service, and the fact that it is registered
+ * AFTER `harness-sync` (hence the `isRegistered` guard and the lazy lambda),
+ * are facts about this lib — not host policy. All three composition roots had
+ * copied the same seven-line lambda, so a change to either fact would have had
+ * to be made in three places or silently hold in one host only.
+ */
+export function createContainerHarnessCliDetector(
+  container: DependencyContainer,
+): IHarnessCliDetector {
+  return createHarnessCliDetector(() =>
+    container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
+      ? container.resolve<HarnessCliDetectionReader>(
+          TOKENS.CLI_DETECTION_SERVICE,
+        )
+      : null,
+  );
 }

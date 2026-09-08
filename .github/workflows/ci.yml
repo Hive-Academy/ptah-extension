@@ -110,6 +110,20 @@ jobs:
           npx nx run di-lint:self-test
           npx nx run di-lint:lint
 
+      # Degradation-audit ratchet (TASK_2026_383 Batch 3) — per-directory
+      # inventory of silently swallowed catch/`.catch()` sites. Also runs its
+      # own meta self-test against a planted fixture first, same discipline as
+      # di-lint above: a broken detector must not silently pass.
+      # Invoked through the local nx binary rather than `npx`, which can
+      # install a package on demand and run its lifecycle scripts
+      # (githubactions:S6505, S8543 — cwe:494, cwe:829). Applied only to these
+      # two lines, new in this PR; the sibling di-lint step above is
+      # pre-existing and deliberately left untouched.
+      - name: degradation-audit (swallowed-failure ratchet + self-test)
+        run: |
+          node node_modules/nx/bin/nx.js run degradation-audit:self-test
+          node node_modules/nx/bin/nx.js run degradation-audit:lint
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below

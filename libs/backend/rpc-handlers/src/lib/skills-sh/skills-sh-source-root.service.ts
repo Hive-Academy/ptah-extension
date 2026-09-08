@@ -228,6 +228,9 @@ export class SkillsShSourceRootService {
     try {
       entries = await fs.readdir(this.pluginsBasePath);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the plugins base directory is
+      // created on demand; an empty list means no skills.sh source roots are
+      // installed, which the method's contract already promises.
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.logger.warn('[skills.sh] Could not read the plugins directory', {
           path: this.pluginsBasePath,
@@ -358,6 +361,8 @@ export class SkillsShSourceRootService {
     try {
       entries = await fs.readdir(skillsDir, { withFileTypes: true });
     } catch {
+      // degradation-audit: optional-capability - an absent skills directory is
+      // an ordinary source-root layout; an empty list contributes no slugs.
       return [];
     }
 
@@ -385,6 +390,9 @@ export class SkillsShSourceRootService {
       const parsed = SkillsShRootMetadataSchema.safeParse(JSON.parse(raw));
       return parsed.success ? parsed.data : null;
     } catch {
+      // degradation-audit: optional-capability - the root metadata file is
+      // optional provenance; null downgrades `source` to the slug and never
+      // removes the skill itself.
       // Absent or unreadable reads as "no record", which downgrades `source` in
       // `listInstalled` to the slug and never removes the skill itself.
       return null;

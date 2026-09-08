@@ -10,7 +10,10 @@
 import { TestBed } from '@angular/core/testing';
 import { CompletionHandlerService } from './completion-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '@ptah-extension/chat-streaming';
+import {
+  MessageFinalizationService,
+  SessionManager,
+} from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -33,6 +36,10 @@ type TabManagerSlice = Pick<
   | 'markTabIdle'
 >;
 type SessionManagerSlice = Pick<SessionManager, 'setStatus'>;
+type FinalizationSlice = Pick<
+  MessageFinalizationService,
+  'finalizeCurrentMessage'
+>;
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -52,6 +59,7 @@ describe('CompletionHandlerService', () => {
   let service: CompletionHandlerService;
   let tabManager: jest.Mocked<TabManagerSlice>;
   let sessionManager: jest.Mocked<SessionManagerSlice>;
+  let finalization: jest.Mocked<FinalizationSlice>;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -69,6 +77,10 @@ describe('CompletionHandlerService', () => {
       setStatus: jest.fn(),
     } as jest.Mocked<SessionManagerSlice>;
 
+    finalization = {
+      finalizeCurrentMessage: jest.fn(),
+    } as jest.Mocked<FinalizationSlice>;
+
     consoleError = jest.spyOn(console, 'error').mockImplementation();
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
     consoleLog = jest.spyOn(console, 'log').mockImplementation();
@@ -78,6 +90,7 @@ describe('CompletionHandlerService', () => {
         CompletionHandlerService,
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionManager, useValue: sessionManager },
+        { provide: MessageFinalizationService, useValue: finalization },
       ],
     });
     service = TestBed.inject(CompletionHandlerService);
@@ -185,6 +198,65 @@ describe('CompletionHandlerService', () => {
       expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith(
         'tab-active',
       );
+    });
+
+    it('settles the in-flight tree BEFORE resetting status, so nothing is stranded (TASK_2026_382 R1)', () => {
+      const targetTab = makeTab({
+        id: 'tab-abc',
+        claudeSessionId: SESS_1,
+        streamingState: {
+          currentMessageId: 'msg-partial',
+        } as unknown as TabState['streamingState'],
+      });
+      tabManager.findTabsBySessionId.mockReturnValue([targetTab]);
+      const order: string[] = [];
+      finalization.finalizeCurrentMessage.mockImplementation(() => {
+        order.push('finalize');
+      });
+      (tabManager.applyStatusErrorReset as jest.Mock).mockImplementation(() => {
+        order.push('reset');
+      });
+
+      service.handleChatError({ sessionId: SESS_1, error: 'CLI crashed' });
+
+      // Finalized as ABORTED: the partial output is promoted into `messages`
+      // with its nodes marked interrupted, rather than discarded with the tree.
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(
+        'tab-abc',
+        true,
+      );
+      // Order matters: `applyStatusErrorReset` writes `status: 'loaded'` and a
+      // tab that claims `loaded` must no longer own a live `streamingState`.
+      expect(order).toEqual(['finalize', 'reset']);
+    });
+
+    it('finalizes every tab bound to the failed session before its reset', () => {
+      const tabA = makeTab({ id: 'tab-a', claudeSessionId: SESS_SHARED });
+      const tabB = makeTab({ id: 'tab-b', claudeSessionId: SESS_SHARED });
+      tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
+
+      service.handleChatError({ sessionId: SESS_SHARED, error: 'boom' });
+
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(
+        'tab-a',
+        true,
+      );
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(
+        'tab-b',
+        true,
+      );
+    });
+
+    it('does not finalize when the error is rejected as belonging to an unknown session', () => {
+      tabManager.findTabsBySessionId.mockReturnValue([]);
+      tabManager.activeTabId.mockReturnValue('tab-active');
+      tabManager.activeTab.mockReturnValue(
+        makeTab({ id: 'tab-active', claudeSessionId: SESS_OTHER }),
+      );
+
+      service.handleChatError({ sessionId: SESS_FOREIGN, error: 'nope' });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
     });
 
     it('logs the error via console.error before processing', () => {

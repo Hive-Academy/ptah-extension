@@ -49,21 +49,34 @@
  * level regression class.
  */
 
-import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { describeIfBuiltOrFail } from '../../test-utils/build-artifact-gate';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const DIST_BIN = path.join(REPO_ROOT, 'dist', 'apps', 'ptah-cli', 'main.mjs');
 
 const integrationsEnabled = process.env['PTAH_INTEGRATION_TESTS'] === '1';
 
-// Triple-gated: explicit env opt-in + dist exists + stub-claude wiring is in
-// place. The third gate is currently always false (TODO above).
+// Triple-gated: explicit env opt-in + dist built + stub-claude wiring is in
+// place. The third gate is currently always false (TODO above), so this
+// whole suite is unconditionally skipped today no matter what the dist check
+// resolves to.
+//
+// PC-6 (TASK_2026_383 Batch 4): the dist check used to be a bare
+// `existsSync(DIST_BIN)`, which silently skipped on an unbuilt checkout the
+// same way `smoke.spec.ts` and the ESM bundle gate used to. Replacing it
+// with `describeIfBuiltOrFail` has ZERO observable effect today -- the
+// second gate below already forces `describe.skip` before the dist check is
+// ever consulted -- but it means the day `STUB_CLAUDE_AVAILABLE` flips true,
+// a missing dist fails loudly (naming `nx build ptah-cli`) instead of
+// quietly skipping again.
 const STUB_CLAUDE_AVAILABLE = false;
-const shouldRun =
-  integrationsEnabled && existsSync(DIST_BIN) && STUB_CLAUDE_AVAILABLE;
 
-const maybeDescribe = shouldRun ? describe : describe.skip;
+const maybeDescribe = !integrationsEnabled
+  ? describe.skip
+  : !STUB_CLAUDE_AVAILABLE
+    ? describe.skip
+    : describeIfBuiltOrFail(DIST_BIN, 'nx build ptah-cli');
 
 maybeDescribe(
   'ptah session start --task — headless integration (gated)',
@@ -87,8 +100,10 @@ maybeDescribe(
       //   expect(methods.some(m => m === 'agent.message' || m === 'chat:chunk')).toBe(true);
       //   expect(result.exitCode).toBe(0);
       //
-      // See file header for the wiring plan.
-      expect(shouldRun).toBe(true); // unreachable when shouldRun=false; describe.skip handles that
+      // See file header for the wiring plan. Reaching this body at all means
+      // both gates above already resolved true; the assertion is a
+      // placeholder for the real integration test the TODO describes.
+      expect(integrationsEnabled && STUB_CLAUDE_AVAILABLE).toBe(true);
     }, 30_000);
   },
 );

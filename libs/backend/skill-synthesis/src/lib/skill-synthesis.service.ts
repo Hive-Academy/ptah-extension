@@ -1130,6 +1130,8 @@ export class SkillSynthesisService {
     try {
       return this.verdicts.findBySession(sessionId);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Archaeology verdict context is
+      // optional; null makes synthesis use the trajectory-only prompt.
       this.logger.warn('[skill-synthesis] verdict lookup failed', {
         sessionId,
         error: error instanceof Error ? error.message : String(error),

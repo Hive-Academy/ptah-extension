@@ -605,6 +605,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const pass = (this.resetChain = (async () => {
       // A failed reset must not wedge the chain shut for the ones behind it.
       if (previous) {
+        // degradation-audit: optional-capability - the queued reset only waits
+        // for its predecessor to settle; the previous caller was already given
+        // that rejection, and swallowing it here keeps the chain open.
         await previous.catch(() => undefined);
       }
       await this.doReset();
@@ -628,6 +631,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // result is discarded), then dispose and initialize from a clean slate.
     const running = this.initInFlight;
     if (running) {
+      // degradation-audit: optional-capability - the reset only waits out the
+      // in-flight init and discards its result either way; a failed pass is
+      // owned by its own caller and dispose + initialize follow regardless.
       await running.catch(() => false);
     }
     this.dispose();

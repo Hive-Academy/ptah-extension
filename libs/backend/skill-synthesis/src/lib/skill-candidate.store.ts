@@ -1511,6 +1511,9 @@ export class SkillCandidateStore {
         buf.byteLength / Float32Array.BYTES_PER_ELEMENT,
       );
     } catch (err) {
+      // degradation-audit: optional-capability - Vector embeddings are
+      // cache-like enrichment; null means this candidate has no readable
+      // vector.
       this.logger.warn('[skill-synthesis] failed to read embedding', {
         rowid,
         error: err instanceof Error ? err.message : String(err),

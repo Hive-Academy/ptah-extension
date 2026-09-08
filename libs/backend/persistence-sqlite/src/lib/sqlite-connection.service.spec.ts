@@ -291,25 +291,21 @@ describe('SqliteConnectionService', () => {
     ).toBe(true);
   });
 
-  // --- quick_check + boot continues ---
+  // --- the boot path runs NO integrity pragma (TASK_2026_380 B1) ---
 
-  it('D3: quick_check pass logs info and boot continues normally', async () => {
-    const fake = new FakeSqliteDatabase(); // default: quick_check returns 'ok'
-    const logger = createMockLogger();
-    const service = new SqliteConnectionService(':memory:', logger);
-    service.configure({ factory: () => fake, vecPathResolver: null });
-
-    await service.openAndMigrate();
-
-    expect(service.isOpen).toBe(true);
-    expect(
-      logger.entries.some(
-        (e) => e.level === 'info' && /quick_check passed/.test(e.message),
-      ),
-    ).toBe(true);
-  });
-
-  it('D3: quick_check failure logs error but boot continues and db is accessible', async () => {
+  it('D3: openAndMigrate runs neither quick_check nor foreign_key_check', async () => {
+    // `runBootChecks` was DELETED, not disabled. It ran both pragmas after
+    // `this.database = db` and before the migration runner, so `isOpen` was
+    // already true while `quick_check` blocked — measured at 1868 ms WARM and
+    // 20-26 s cold against a real 1 000.7 MB database, on the one `await` the
+    // post-window boot makes, with every renderer IPC reply queued behind it.
+    // It was wrapped in try/catch and never marked the connection unavailable,
+    // so it gated nothing and the removal is behaviour-preserving. The check
+    // now runs out of band in `SqliteIntegrityService`.
+    //
+    // Asserting on the PRAGMA LIST rather than on the absence of a log line is
+    // deliberate: a log assertion would still pass if the pragma ran and its
+    // logging were merely dropped, which is the expensive half.
     const fake = new FakeSqliteDatabase();
     fake.setQuickCheckResult('row 42 missing from index');
     const logger = createMockLogger();
@@ -318,14 +314,11 @@ describe('SqliteConnectionService', () => {
 
     await service.openAndMigrate();
 
-    // Connection must still be open — quick_check failure is non-fatal.
+    expect(fake.pragmas).not.toContain('quick_check');
+    expect(fake.pragmas).not.toContain('foreign_key_check');
+    // A corrupt-looking database still opens: the check never gated boot.
     expect(service.isOpen).toBe(true);
     expect(() => service.db).not.toThrow();
-    expect(
-      logger.entries.some(
-        (e) => e.level === 'error' && /quick_check FAILED/.test(e.message),
-      ),
-    ).toBe(true);
   });
 
   // --- logConnectionHealth ---
@@ -553,81 +546,6 @@ describe('SqliteConnectionService', () => {
 
     expect(acted).toBe(false);
     expect(service.isOpen).toBe(true);
-  });
-
-  // --- foreign_key_check at boot ---
-
-  it('D10: foreign_key_check is silent when there are no violations', async () => {
-    const fake = new FakeSqliteDatabase();
-    // Default: empty FK violations.
-    const logger = createMockLogger();
-    const service = new SqliteConnectionService(':memory:', logger);
-    service.configure({ factory: () => fake, vecPathResolver: null });
-
-    await service.openAndMigrate();
-
-    // No warn log mentioning foreign_key_check violations.
-    expect(
-      logger.entries.some(
-        (e) =>
-          e.level === 'warn' && /foreign_key_check violations/.test(e.message),
-      ),
-    ).toBe(false);
-  });
-
-  it('D10: foreign_key_check logs warn with count and sample when violations found', async () => {
-    const fake = new FakeSqliteDatabase();
-    fake.setForeignKeyViolations([
-      { table: 'memories', rowid: 1, parent: 'workspaces', fkid: 0 },
-      { table: 'memories', rowid: 2, parent: 'workspaces', fkid: 0 },
-      { table: 'memories', rowid: 3, parent: 'workspaces', fkid: 0 },
-      { table: 'memories', rowid: 4, parent: 'workspaces', fkid: 0 },
-    ]);
-    const logger = createMockLogger();
-    const service = new SqliteConnectionService(':memory:', logger);
-    service.configure({ factory: () => fake, vecPathResolver: null });
-
-    await service.openAndMigrate();
-
-    // Must still open successfully — FK violations are non-fatal.
-    expect(service.isOpen).toBe(true);
-
-    const fkWarnLogs = logger.entries.filter(
-      (e) =>
-        e.level === 'warn' && /foreign_key_check violations/.test(e.message),
-    );
-    expect(fkWarnLogs).toHaveLength(1);
-    const ctx = fkWarnLogs[0].context as Record<string, unknown>;
-    expect(ctx['count']).toBe(4);
-    const sample = ctx['sample'] as unknown[];
-    // Sample is capped at 3.
-    expect(sample).toHaveLength(3);
-  });
-
-  it('D10: foreign_key_check pragma error is swallowed — non-fatal', async () => {
-    const fake = new FakeSqliteDatabase();
-    const originalPragma = fake.pragma.bind(fake);
-    (fake as unknown as Record<string, unknown>)['pragma'] = (
-      p: string,
-      opts?: { simple?: boolean },
-    ) => {
-      if (/^foreign_key_check/i.test(p.trim())) {
-        throw new Error('foreign_key_check failed (fake)');
-      }
-      return originalPragma(p, opts);
-    };
-
-    const logger = createMockLogger();
-    const service = new SqliteConnectionService(':memory:', logger);
-    service.configure({ factory: () => fake, vecPathResolver: null });
-
-    await expect(service.openAndMigrate()).resolves.not.toThrow();
-    expect(service.isOpen).toBe(true);
-    expect(
-      logger.entries.some(
-        (e) => e.level === 'warn' && /foreign_key_check error/.test(e.message),
-      ),
-    ).toBe(true);
   });
 });
 

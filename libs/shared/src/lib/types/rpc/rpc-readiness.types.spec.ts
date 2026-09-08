@@ -7,12 +7,17 @@
  * retry loop — so the negative cases below matter more than the positive one.
  */
 
+import type { MessagePayloadMap } from '../messages/payload-map';
 import {
   BACKEND_READINESS_VALUES,
+  BOOT_PHASE_VALUES,
   DEFAULT_READINESS_RETRY_AFTER_MS,
   isBackendReadiness,
+  isBootPhase,
   isRpcReadinessError,
   rpcReadinessError,
+  type BootGetReadinessResult,
+  type BootReadinessChangedPayload,
   type RpcReadinessError,
 } from './rpc-readiness.types';
 
@@ -104,5 +109,68 @@ describe('rpcReadinessError', () => {
     expect(read(rpcReadinessError('warming'))).toBe(
       -DEFAULT_READINESS_RETRY_AFTER_MS,
     );
+  });
+});
+
+describe('isBootPhase', () => {
+  it.each(BOOT_PHASE_VALUES)('accepts %s', (value) => {
+    expect(isBootPhase(value)).toBe(true);
+  });
+
+  it.each([
+    ['booting'],
+    ['Database'],
+    ['db'],
+    [''],
+    [null],
+    [undefined],
+    [0],
+    [{}],
+  ])('rejects the near-miss %p', (value) => {
+    expect(isBootPhase(value)).toBe(false);
+  });
+
+  it('lists every union member exactly once', () => {
+    // `as const satisfies readonly BootPhase[]` proves the tuple holds only
+    // legal members; it cannot prove the tuple is COMPLETE, so the membership
+    // is asserted here. A phase added to the union but not the tuple would
+    // make `isBootPhase` silently reject a phase the backend emits.
+    expect(new Set(BOOT_PHASE_VALUES).size).toBe(BOOT_PHASE_VALUES.length);
+    expect(BOOT_PHASE_VALUES).toEqual([
+      'starting',
+      'database',
+      'harness',
+      'sessions',
+      'index',
+      'settled',
+    ]);
+  });
+});
+
+describe('BootReadinessChangedPayload', () => {
+  it('is the payload-map shape for boot:readinessChanged and the pull result', () => {
+    const push: MessagePayloadMap['boot:readinessChanged'] = {
+      readiness: 'warming',
+      phase: 'database',
+      detail: 'Opening a 1.0 GB database',
+      startedAt: 1_700_000_000_000,
+    };
+
+    // One shape, push and pull — a renderer that missed the push reads exactly
+    // what a listener would have received.
+    const pull: BootGetReadinessResult = push;
+
+    expect(isBackendReadiness(pull.readiness)).toBe(true);
+    expect(isBootPhase(pull.phase)).toBe(true);
+  });
+
+  it('leaves detail optional', () => {
+    const settled: BootReadinessChangedPayload = {
+      readiness: 'ready',
+      phase: 'settled',
+      startedAt: 1_700_000_000_000,
+    };
+
+    expect(settled.detail).toBeUndefined();
   });
 });

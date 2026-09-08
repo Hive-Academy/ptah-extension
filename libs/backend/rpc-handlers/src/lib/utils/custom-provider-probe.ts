@@ -577,6 +577,8 @@ async function safeText(response: ProbeResponse): Promise<string> {
   try {
     return await response.text();
   } catch {
+    // degradation-audit: optional-capability - the body is diagnostic detail
+    // on a probe result; an empty string reports the status with no body.
     return '';
   }
 }

@@ -21,6 +21,7 @@ import type {
   CliDetectionResult,
   CliOutputSegment,
 } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CliAdapter,
   CliCommandOptions,
@@ -34,6 +35,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { summarizeCliSdkError } from './sdk-error-summary';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -181,6 +183,10 @@ function resolveCursorApiKey(): string | undefined {
     const cursor = provider?.['cursor'] as Record<string, unknown> | undefined;
     const key = cursor?.['apiKey'];
     return typeof key === 'string' && key.trim() ? key.trim() : undefined;
+    // degradation-audit: optional-capability - `~/.ptah/settings.json` may not
+    // exist yet, or may lack a cursor provider key; that is the ordinary "not
+    // configured" state, so a read/parse failure yields the same undefined as a
+    // key that was never set.
   } catch {
     return undefined;
   }
@@ -191,6 +197,12 @@ export class CursorCliAdapter implements CliAdapter {
   readonly displayName = 'Cursor';
   /** MCP is configured inline via the SDK's mcpServers option. */
   readonly supportsMcp = true;
+
+  /**
+   * @param logger - Optional; when supplied it receives the FULL SDK rejection
+   *   text, which the stream deliberately no longer carries.
+   */
+  constructor(private readonly logger?: Logger) {}
 
   /**
    * Detect Cursor availability. The SDK is bundled, so availability is gated
@@ -270,6 +282,9 @@ export class CursorCliAdapter implements CliAdapter {
 
     const onAbort = (): void => {
       if (activeRun) {
+        // degradation-audit: optional-capability - abort is best-effort
+        // cancellation cleanup; the run is being torn down regardless, so a
+        // failed cancel request has nothing left for the caller to act on.
         void activeRun.cancel().catch(() => {
           /* non-fatal */
         });
@@ -349,11 +364,12 @@ export class CursorCliAdapter implements CliAdapter {
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        output.emit(`\n[Cursor SDK Error] ${errorMessage}\n`);
-        segment.emit({
-          type: 'error',
-          content: `Cursor SDK Error: ${errorMessage}`,
+        this.logger?.error('[CursorCliAdapter] SDK run failed', {
+          detail: errorMessage,
         });
+        const summary = summarizeCliSdkError(error, 'Cursor');
+        output.emit(`\n${summary}\n`);
+        segment.emit({ type: 'error', content: summary });
         return 1;
       }
     };

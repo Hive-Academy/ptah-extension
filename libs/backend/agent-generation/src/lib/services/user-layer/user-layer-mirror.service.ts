@@ -918,6 +918,9 @@ export class UserLayerMirrorService {
     try {
       slugs = await this.listSubdirectories(sourceSkillsDir);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means this plugin ships
+      // no `skills/` directory, which is a normal, optional plugin layout; a
+      // real error still falls through to the warn + errors counter below.
       if (!this.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn(
@@ -969,6 +972,9 @@ export class UserLayerMirrorService {
     try {
       slugs = await this.listSubdirectories(synthesizedSkillsRoot);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means no synthesized
+      // skill has ever been promoted for this workspace yet, which is normal; a
+      // real error still falls through to the warn + errors counter below.
       if (!this.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn(
@@ -1014,6 +1020,9 @@ export class UserLayerMirrorService {
         .filter((e) => e.isFile() && e.name.endsWith('.md'))
         .map((e) => e.name);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means this plugin ships
+      // no `commands/` directory, which is a normal, optional plugin layout; a
+      // real error still falls through to the warn + errors counter below.
       if (!this.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn(
@@ -1056,6 +1065,10 @@ export class UserLayerMirrorService {
         .filter((e) => e.isFile() && e.name.endsWith('.md'))
         .map((e) => e.name);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means the workspace has
+      // no agent source directory yet (nothing generated); a real error still
+      // falls through to the warn + errors counter below rather than being
+      // swallowed.
       if (!this.isEnoent(error)) {
         result.errors += 1;
         this.logger.warn(
@@ -1302,6 +1315,11 @@ export class UserLayerMirrorService {
       release = res;
     });
     this.inflight.set(key, gate);
+    // degradation-audit: optional-capability - this only waits for the PRIOR
+    // holder of the same slug lock to settle before this call proceeds; that
+    // prior call's own failure was already reported at its own call site, so
+    // re-surfacing it here would be a duplicate, unrelated to this caller's
+    // operation.
     await prior.catch(() => undefined);
     try {
       return await fn();
@@ -1325,6 +1343,9 @@ export class UserLayerMirrorService {
     try {
       slugs = await this.listSubdirectories(sourceSkillsDir);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means this plugin ships
+      // no `skills/` directory, which is a normal, optional plugin layout; a
+      // real error still falls through to the warn + errors counter below.
       if (this.isEnoent(error)) {
         return;
       }
@@ -1358,6 +1379,9 @@ export class UserLayerMirrorService {
     try {
       slugs = await this.listSubdirectories(synthesizedSkillsRoot);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means no synthesized
+      // skill has ever been promoted for this workspace yet, which is normal; a
+      // real error still falls through to the warn + errors counter below.
       if (this.isEnoent(error)) {
         return;
       }
@@ -1485,6 +1509,9 @@ export class UserLayerMirrorService {
         .filter((e) => e.isFile() && e.name.endsWith('.md'))
         .map((e) => e.name);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means this plugin ships
+      // no `commands/` directory, which is a normal, optional plugin layout; a
+      // real error still falls through to the warn + errors counter below.
       if (this.isEnoent(error)) {
         return;
       }
@@ -1623,6 +1650,10 @@ export class UserLayerMirrorService {
         .filter((e) => e.isFile() && e.name.endsWith('.md'))
         .map((e) => e.name);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT means the workspace has
+      // no agent source directory yet (nothing generated); a real error still
+      // falls through to the warn + errors counter below rather than being
+      // swallowed.
       if (this.isEnoent(error)) {
         return;
       }

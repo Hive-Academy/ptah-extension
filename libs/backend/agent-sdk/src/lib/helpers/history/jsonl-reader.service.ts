@@ -201,6 +201,9 @@ export class JsonlReaderService {
     try {
       await fs.access(projectsDir);
     } catch {
+      // degradation-audit: optional-capability - ~/.claude/projects is absent
+      // on a machine that has never run the Claude CLI; null means "no
+      // transcript history here" and every caller treats that as no sessions.
       this.logger.warn('[JsonlReader] Projects directory does not exist', {
         projectsDir,
       });
@@ -262,6 +265,9 @@ export class JsonlReaderService {
       const stats = await fs.stat(projectsDir);
       return typeof stats.mtimeMs === 'number' ? stats.mtimeMs : null;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the mtime is only a cache
+      // validity token; null disables memoisation for this lookup and the
+      // caller does the full scan, so correctness never depends on it.
       this.logger.debug('[JsonlReader] Could not stat projects directory', {
         projectsDir,
         error: error instanceof Error ? error.message : String(error),

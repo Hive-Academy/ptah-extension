@@ -24,6 +24,9 @@ import type { WorkspaceAwareStateStorage } from './workspace-aware-state-storage
  * Returns true if accessible, false otherwise.
  */
 async function pathExists(filePath: string): Promise<boolean> {
+  // degradation-audit: optional-capability - existence is the question being
+  // asked, so an inaccessible path legitimately answers false and the caller
+  // treats the workspace folder as missing.
   return fs.promises
     .access(filePath)
     .then(() => true)

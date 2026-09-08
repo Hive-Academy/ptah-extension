@@ -92,12 +92,6 @@ export const PLATFORM_TOKENS = {
   FILE_DIALOG: Symbol.for('FileDialog'),
 
   /**
-   * IPtyHost — spawn/kill pseudo-terminals for the `terminal:*` RPC methods.
-   * Registered only by hosts whose profile sets `pty: true` (Electron today).
-   */
-  PTY_HOST: Symbol.for('PlatformPtyHost'),
-
-  /**
    * IAppUpdater — read/trigger the desktop update lifecycle for `update:*`.
    * Registered only by hosts whose profile sets `appUpdater: true`.
    */
@@ -111,4 +105,12 @@ export const PLATFORM_TOKENS = {
    * WORKSPACE_PROVIDER unchanged.
    */
   CALLER_WORKSPACE_RESOLVER: Symbol.for('PlatformCallerWorkspaceResolver'),
+
+  /**
+   * IBootReadinessProvider — read-only boot snapshot for `boot:getReadiness`.
+   * Adapters: ElectronBootReadinessProvider (ptah-electron, delegates to
+   * BootCoordinator) / NullBootReadinessProvider (vscode-core default, always
+   * ready — VS Code and CLI hosts have no staged boot).
+   */
+  BOOT_READINESS: Symbol.for('PlatformBootReadiness'),
 } as const;

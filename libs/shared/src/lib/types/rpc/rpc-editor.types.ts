@@ -1,33 +1,15 @@
 /**
- * Editor RPC Type Definitions
+ * Session-metadata push notification type definitions.
  *
- * Types for editor-related RPC methods that operate on the host editor
- * (VS Code text editors / Electron Monaco editors).
+ * `SessionMetadataChangedNotification` push payload (S4): broadcast from
+ * the backend when a session is created / updated / deleted / forked, so
+ * all open webviews can refresh their sidebar without imperative
+ * `loadSessions()` calls.
  *
- * Includes:
- *   - `editor:revertFiles` request/response (M3): re-read open editor buffers
- *     from disk after a session-rewind has mutated files. Used so users don't
- *     see stale unsaved content sitting on top of newly-rewound files.
- *   - `SessionMetadataChangedNotification` push payload (S4): broadcast from
- *     the backend when a session is created / updated / deleted / forked, so
- *     all open webviews can refresh their sidebar without imperative
- *     `loadSessions()` calls.
+ * The editor:revertFiles request/response types this file used to also
+ * carry were removed with the rest of the editor RPC surface
+ * (TASK_2026_385 Batch 4.4) — the file name is a historical artifact.
  */
-
-/** Parameters for editor:revertFiles RPC method. */
-export interface EditorRevertFilesParams {
-  /** Absolute file paths to revert in the host editor. */
-  files: string[];
-}
-
-/** Response from editor:revertFiles RPC method. */
-export interface EditorRevertFilesResult {
-  /**
-   * Number of files actually reverted. Files not currently open in any text
-   * editor (or open without unsaved changes) are silently skipped.
-   */
-  revertedCount: number;
-}
 
 /**
  * Reason a session metadata change was emitted.

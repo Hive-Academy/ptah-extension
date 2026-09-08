@@ -182,6 +182,9 @@ export class StatusBarManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - status bar text is decorative;
+      // the failure is counted in this item's error metrics and false reports
+      // the item kept whichever properties it already had.
       this.updateItemMetrics(itemId, 'update', true);
 
       return false;
@@ -211,6 +214,9 @@ export class StatusBarManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - showing a status bar item is a
+      // decorative affordance; false reports the item stayed hidden and its
+      // visibility metric was left unchanged.
       return false;
     }
   }
@@ -238,6 +244,9 @@ export class StatusBarManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - hiding a status bar item is a
+      // decorative affordance; false reports the item stayed visible and its
+      // visibility metric was left unchanged.
       return false;
     }
   }
@@ -322,6 +331,9 @@ export class StatusBarManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - status bar item disposal is
+      // best-effort teardown; false leaves the item and its metrics tracked
+      // rather than forgetting a handle that is still live.
       return false;
     }
   }

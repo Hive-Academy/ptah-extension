@@ -245,6 +245,12 @@ describe('TaskWriterService.updateStatus', () => {
     expect(body).toContain(CARRIER_BANNER);
     expect(body).toContain('./context.md');
 
+    // `updated` is stamped as `new Date().toISOString()` — millisecond
+    // resolution. Against the in-memory fs, create + updateStatus can both
+    // land inside the SAME millisecond, and the `not.toBe` below then fails
+    // on a correct writer. Cross a millisecond boundary deliberately.
+    await new Promise((r) => setTimeout(r, 5));
+
     const result = await writer.updateStatus(ROOT, id, 'in_progress');
 
     expect(result.success).toBe(true);

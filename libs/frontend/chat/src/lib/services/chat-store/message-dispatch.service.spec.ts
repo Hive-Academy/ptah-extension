@@ -45,6 +45,8 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 describe('MessageDispatchService', () => {
   let service: MessageDispatchService;
   let tabs: TabState[];
+  /** Tabs in a NON-active workspace — invisible to `tabs()` by design. */
+  let backgroundTabs: TabState[];
   let setMessagesMock: jest.Mock;
   let setQueuedContentMock: jest.Mock;
   let clearQueuedContentAndOptionsMock: jest.Mock;
@@ -62,6 +64,7 @@ describe('MessageDispatchService', () => {
 
   beforeEach(() => {
     tabs = [makeTab()];
+    backgroundTabs = [];
     setMessagesMock = jest.fn((id: string, messages: TabState['messages']) => {
       tabs = tabs.map((t) => (t.id === id ? { ...t, messages } : t));
     });
@@ -96,7 +99,16 @@ describe('MessageDispatchService', () => {
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),
+      activeTab: () => tabs.find((t) => t.id === activeTabId()) ?? null,
       isTabStreaming: isTabStreamingMock,
+      // Mirrors production: the ACTIVE workspace plus every background
+      // partition, unlike `tabs()`.
+      findTabByIdAcrossWorkspaces: (tabId: string) => {
+        const tab =
+          tabs.find((t) => t.id === tabId) ??
+          backgroundTabs.find((t) => t.id === tabId);
+        return tab ? { tab, workspacePath: '/ws' } : null;
+      },
     } as unknown as TabManagerService;
 
     const authStateMock = {
@@ -222,6 +234,113 @@ describe('MessageDispatchService', () => {
       tabs = [makeTab({ id: 'tab-2', status: 'loaded' })];
       await service.sendOrQueueMessage('hello', { tabId: 'tab-2' });
       expect(sendMock).toHaveBeenCalled();
+    });
+
+    it('queues while a streaming TREE is live, even though status is loaded and the spinner is clear (TASK_2026_382 R2)', async () => {
+      // The window the user hit: the root-turn phase says idle, but the
+      // transcript is still rendering a bubble built from `streamingState`.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(false);
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          status: 'loaded',
+          streamingState: {
+            currentMessageId: 'msg-live',
+          } as unknown as TabState['streamingState'],
+        }),
+      ];
+
+      await service.sendOrQueueMessage('follow up');
+
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', undefined);
+    });
+
+    it('lets the user send again once the error path has settled the tree (R1 + R2 anti-trap)', async () => {
+      // Step 1 — a live tree while `status` reads `loaded`: busy, so queue.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(false);
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          status: 'loaded',
+          streamingState: {
+            currentMessageId: 'msg-live',
+          } as unknown as TabState['streamingState'],
+        }),
+      ];
+      await service.sendOrQueueMessage('during the error window');
+      expect(sendMock).not.toHaveBeenCalled();
+
+      // Step 2 — what R1 leaves behind: `handleChatError` finalized the partial
+      // output into `messages` and `streamingState` is null. Without R1 this
+      // field would still be set and R2 would lock the user out for good.
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          status: 'loaded',
+          streamingState: null,
+          messages: [
+            { id: 'msg-live', role: 'assistant' },
+          ] as unknown as TabState['messages'],
+        }),
+      ];
+      await service.sendOrQueueMessage('after the error');
+
+      expect(sendMock).toHaveBeenCalledWith('after the error', undefined);
+    });
+
+    it.each(['awaiting-background', 'sleeping'] as const)(
+      'SENDS in %s even with a live streamingState — queuing there strands the message forever (TASK_2026_382 R2 exclusion)',
+      async (status) => {
+        // `chat-types.ts:443-448`: in both states the agent itself is idle and
+        // user input is DELIBERATELY enabled; a subagent's `message_start`
+        // builds a fresh `streamingState`, so the field is non-null while
+        // sending is correct.
+        //
+        // Queuing here would never drain. The root-turn flush
+        // (`streaming-handler.service.ts:305-317`) needs a `message_complete`
+        // with no `parentToolUseId` — the root turn already ended — and
+        // `handleSessionStats` (`:475-493`) returns null whenever
+        // `streamingState` is present. Do NOT drop this exclusion.
+        activeTabStatus.set(status);
+        isTabStreamingMock.mockReturnValue(false);
+        tabs = [
+          makeTab({
+            id: 'tab-1',
+            status,
+            queuedContent: null,
+            streamingState: {
+              currentMessageId: 'subagent-msg',
+            } as unknown as TabState['streamingState'],
+          }),
+        ];
+
+        await service.sendOrQueueMessage('follow up');
+
+        expect(queueOrAppendMock).not.toHaveBeenCalled();
+        expect(sendMock).toHaveBeenCalledWith('follow up', undefined);
+      },
+    );
+
+    it('reads the status of a BACKGROUND-workspace tab instead of falling back to the active one (TASK_2026_382 W4)', async () => {
+      // `tabs()` holds only the active workspace; the target lives elsewhere.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(false);
+      tabs = [makeTab({ id: 'tab-1', status: 'loaded' })];
+      backgroundTabs = [makeTab({ id: 'tab-bg', status: 'streaming' })];
+
+      await service.sendOrQueueMessage('to the background tab', {
+        tabId: 'tab-bg',
+      });
+
+      // Before the fix `tabs().find` missed and `status` silently became the
+      // ACTIVE tab's `loaded`, so this was sent mid-turn into the wrong tab.
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('to the background tab', {
+        tabId: 'tab-bg',
+      });
     });
   });
 

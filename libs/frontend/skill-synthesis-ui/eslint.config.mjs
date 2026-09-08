@@ -41,8 +41,8 @@ export default [
     },
   },
   {
-    // The Skills tab must never inherit the Monaco / xterm bundle. The ONLY
-    // legal route to `@ptah-extension/editor` is the runtime `import()` inside
+    // The Skills tab must never inherit the Monaco bundle. The ONLY legal
+    // route to `@ptah-extension/git-ui` is the runtime `import()` inside
     // `lazy-diff-view.component.ts`; a static import anywhere else silently
     // defeats that boundary, so it is a lint error rather than a convention.
     files: ['**/*.ts'],
@@ -53,16 +53,16 @@ export default [
         {
           paths: [
             {
-              name: '@ptah-extension/editor',
+              name: '@ptah-extension/git-ui',
               message:
-                'Static import of @ptah-extension/editor pulls Monaco/xterm into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+                'Static import of @ptah-extension/git-ui pulls Monaco into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
             },
           ],
           patterns: [
             {
-              group: ['@ptah-extension/editor/*'],
+              group: ['@ptah-extension/git-ui/*'],
               message:
-                'Static import of @ptah-extension/editor pulls Monaco/xterm into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+                'Static import of @ptah-extension/git-ui pulls Monaco into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
             },
           ],
         },

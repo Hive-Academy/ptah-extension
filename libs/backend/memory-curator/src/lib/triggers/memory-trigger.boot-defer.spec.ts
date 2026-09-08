@@ -35,6 +35,33 @@ import type { ObservationQueueStore } from '../observation-queue.store';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The REAL `setTimeout`, captured at module scope — `jest.useFakeTimers()` runs
+ * in `beforeEach`, so this binding is taken before the clock is replaced.
+ *
+ * {@link advanceUntil} needs a way to wait in WALL-CLOCK time for a libuv
+ * threadpool completion, and every other route is closed: `setTimeout` is faked
+ * (deliberately — the arming delay is the property under test) and `Date.now()`
+ * is faked with it (also deliberately — the scheduler's re-arm compares
+ * `Date.now()` against the last activity stamp, so unfaking the clock would
+ * make the backoff never expire).
+ */
+const realSetTimeout = setTimeout;
+
+/** A real millisecond, ignoring the fake clock. */
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((resolve) => realSetTimeout(resolve, ms));
+
+/**
+ * Real-time budget for a positive assertion, in ~1 ms polls. Comfortably under
+ * {@link TEST_TIMEOUT_MS} so an exhausted budget fails on the call-count
+ * assertion, which names what went wrong, rather than on a bare jest timeout.
+ */
+const WAIT_BUDGET_POLLS = 5_000;
+
+/** Room for the real filesystem work under `--coverage` on a loaded runner. */
+const TEST_TIMEOUT_MS = 30_000;
+
 function makeLogger(): Logger {
   return {
     info: jest.fn(),
@@ -189,16 +216,44 @@ async function advance(ms: number): Promise<void> {
   for (let i = 0; i < 60; i++) await tick();
 }
 
-/** Advance, then yield until `predicate` holds or the turn budget runs out. */
+/**
+ * Advance the fake clock, then WAIT until `predicate` holds or the budget runs
+ * out.
+ *
+ * The budget is spent in real milliseconds, not in loop turns. A turn count was
+ * the original shape and it is a flake: `await tick()` on an otherwise-idle loop
+ * costs microseconds, so 2 000 of them is a few milliseconds of wall clock — a
+ * SPIN, not a wait. The scan it waits on needs at least a `readdir` and a `stat`
+ * off the libuv threadpool, and under `--coverage` with several Nx projects in
+ * parallel those cost more than the spin lasts; the helper then reports "the
+ * scan never reached `curate`" when the truth is "the test stopped looking
+ * first". The twin of this helper in `skill-synthesis`'s
+ * `skill-trigger.boot-defer.spec.ts` failed exactly that way on CI for PR #463.
+ *
+ * A real `setTimeout` is the only clock available here — see {@link sleep}. The
+ * `tick()` beside it keeps the poll-phase yield the fake-timer advance does not
+ * give, and a saturated host stretches each poll past 1 ms, which moves the
+ * budget in the forgiving direction.
+ */
 async function advanceUntil(
   ms: number,
   predicate: () => boolean,
 ): Promise<void> {
   await jest.advanceTimersByTimeAsync(ms);
-  for (let i = 0; i < 2_000 && !predicate(); i++) await tick();
+  for (let i = 0; i < WAIT_BUDGET_POLLS && !predicate(); i++) {
+    await tick();
+    if (predicate()) return;
+    await sleep(1);
+  }
 }
 
 describe('MemoryTriggerService — boot scan deferral', () => {
+  // The positive assertions wait on REAL filesystem work through
+  // `advanceUntil`, whose budget is real milliseconds. Under `--coverage` on a
+  // loaded runner that can outlast Jest's 5 s default, and a bare timeout would
+  // report the wait rather than the call count.
+  jest.setTimeout(TEST_TIMEOUT_MS);
+
   let dir: string;
 
   beforeEach(async () => {

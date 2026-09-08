@@ -46,6 +46,7 @@ import { createCliVecPathResolver } from './cli-vec-path-resolver';
 import { CliTokenVault } from './cli-token-vault';
 import { CliSkillRepropagation } from './cli-skill-repropagation';
 import { CliEmbedderWorkerFactory } from './cli-embedder-worker-factory';
+import { CliIntegrityWorkerFactory } from './cli-integrity-worker-factory';
 
 export function registerThothLibraries(
   container: DependencyContainer,
@@ -76,6 +77,24 @@ export function registerThothLibraries(
     // BM25-only (the regression this restores).
     container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
       useValue: new CliEmbedderWorkerFactory(workerEntry, modelCacheDir),
+    });
+
+    // Integrity worker factory — the CLI's answer to
+    // `IIntegrityWorkerProcessFactory`, registered before
+    // `registerPersistenceSqliteServices` so `SqliteIntegrityService` resolves a
+    // factory instead of its optional `null`. NOTE: THE CLI HAS NO DISPATCH
+    // SITE TODAY — `startThothCron`, which arms the nightly job and the boot
+    // dispatch, is called only by `thoth-runtime` hosts (Electron / VS Code),
+    // never from `cli-engine`. This is not dead code and not a wiring bug: the
+    // port has exactly one implementation per host by contract, and a
+    // short-lived CLI process legitimately never reaches the check
+    // (TASK_2026_380, assumption A-2).
+    const integrityWorkerEntry = path.join(__dirname, 'integrity-worker.mjs');
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PATH, {
+      useValue: integrityWorkerEntry,
+    });
+    container.register(PERSISTENCE_TOKENS.INTEGRITY_WORKER_PROCESS_FACTORY, {
+      useValue: new CliIntegrityWorkerFactory(integrityWorkerEntry),
     });
 
     registerPersistenceSqliteServices(container, logger);

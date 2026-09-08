@@ -570,6 +570,11 @@ export class PtahAPIBuilder {
                 this.sdkSessionLifecycleManager?.getActiveSessionIds();
               return ids && ids.length > 0 ? (ids[0] as string) : undefined;
             } catch {
+              // degradation-audit: optional-capability - this is a best-effort
+              // lookup of the current agent session id for auto-detection; a
+              // lookup failure degrades to "no active session known", which
+              // resolveSessionId's own fallback already treats as a normal
+              // case.
               return undefined;
             }
           },
@@ -592,6 +597,10 @@ export class PtahAPIBuilder {
                 );
               return content ?? undefined;
             } catch {
+              // degradation-audit: optional-capability - project guidance is an
+              // optional add-on already gated by the enhancedPromptsService
+              // presence check above; a read failure degrades to no extra
+              // guidance rather than failing session setup.
               return undefined;
             }
           },
@@ -605,6 +614,11 @@ export class PtahAPIBuilder {
                 );
               return content ?? undefined;
             } catch {
+              // degradation-audit: optional-capability - the enhanced system
+              // prompt is an optional add-on already gated by the
+              // enhancedPromptsService presence check above; a read failure
+              // degrades to the agent's default prompt rather than failing
+              // session setup.
               return undefined;
             }
           },
@@ -622,6 +636,10 @@ export class PtahAPIBuilder {
                 config.enabledPluginIds,
               );
             } catch {
+              // degradation-audit: optional-capability - plugin paths are an
+              // optional enrichment for the agent's context; a config read or
+              // resolution failure degrades to "no plugin paths" rather than
+              // blocking agent namespace construction.
               return undefined;
             }
           },

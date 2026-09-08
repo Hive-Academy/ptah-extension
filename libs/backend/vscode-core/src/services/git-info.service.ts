@@ -7,6 +7,7 @@
 
 import * as path from 'path';
 import { createHash } from 'crypto';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
 import {
   execGit,
@@ -242,7 +243,19 @@ export interface ApplyHunksRequest extends DiffFileRequest {
  * every invocation. That is a larger change and is deliberately not made here.
  */
 export class GitInfoService {
-  constructor(private readonly logger: Logger) {}
+  /**
+   * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
+   * git invocation this service makes is launched on the spawner's thread
+   * instead of the caller's — see the `spawner` field on `ExecGitOptions`.
+   * Electron passes the `OffThreadProcessSpawner` it already binds under
+   * `SDK_TOKENS.SDK_PROCESS_SPAWNER`; VS Code and the CLI pass nothing and keep
+   * the inline `cross-spawn` path. Not injected via a decorator because this
+   * service is constructed by hand in all three hosts.
+   */
+  constructor(
+    private readonly logger: Logger,
+    private readonly spawner?: IProcessSpawner,
+  ) {}
 
   /**
    * Settled results of the cheap-to-invalidate read methods, held until
@@ -2267,6 +2280,10 @@ export class GitInfoService {
       );
       return exitCode === 0 && stdout.trim() === 'true';
     } catch {
+      // degradation-audit: optional-capability - this is the probe that asks
+      // whether git is usable here at all; false means "treat this folder as
+      // not a repository", which is exactly the answer a missing git binary
+      // or a non-repo path should produce.
       return false;
     }
   }
@@ -2285,7 +2302,7 @@ export class GitInfoService {
     cwd: string,
     options?: ExecGitOptions,
   ): Promise<ExecGitResult> {
-    const result = await execGit(args, cwd, options);
+    const result = await execGit(args, cwd, this.withSpawner(options));
     if (isMutatingGitCommand(args)) this.invalidateReadCache(cwd);
     return result;
   }
@@ -2295,9 +2312,22 @@ export class GitInfoService {
     cwd: string,
     options?: ExecGitOptions,
   ): Promise<ExecGitBufferResult> {
-    const result = await execGitBuffer(args, cwd, options);
+    const result = await execGitBuffer(args, cwd, this.withSpawner(options));
     if (isMutatingGitCommand(args)) this.invalidateReadCache(cwd);
     return result;
+  }
+
+  /**
+   * Attach the host's spawner to a caller's options.
+   *
+   * The two private seams above are the only places this service reaches
+   * `exec-git`, so threading the spawner here covers every git invocation
+   * without touching the ~30 call sites. A caller that already named a
+   * `spawner` keeps it — nothing does today, and the override costs nothing.
+   */
+  private withSpawner(options?: ExecGitOptions): ExecGitOptions | undefined {
+    if (!this.spawner) return options;
+    return { ...options, spawner: options?.spawner ?? this.spawner };
   }
 
   /**

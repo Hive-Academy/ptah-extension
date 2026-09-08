@@ -1,21 +1,16 @@
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import { FilePathLinkComponent } from './file-path-link.component';
 
 describe('FilePathLinkComponent', () => {
   let openFile: jest.Mock;
-  let isElectron: boolean;
 
-  async function setup(opts: { electron?: boolean } = {}) {
-    isElectron = !!opts.electron;
+  async function setup() {
     openFile = jest.fn().mockResolvedValue(undefined);
 
     await TestBed.configureTestingModule({
       imports: [FilePathLinkComponent],
-      providers: [
-        { provide: ClaudeRpcService, useValue: { openFile } },
-        { provide: VSCodeService, useValue: { isElectron } },
-      ],
+      providers: [{ provide: ClaudeRpcService, useValue: { openFile } }],
     }).compileComponents();
   }
 
@@ -38,8 +33,8 @@ describe('FilePathLinkComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('foo/bar');
   });
 
-  it('opens via RPC service when not Electron', async () => {
-    await setup({ electron: false });
+  it('opens via the file:open RPC on click, on every host', async () => {
+    await setup();
     const fixture = TestBed.createComponent(FilePathLinkComponent);
     fixture.componentRef.setInput('fullPath', '/a/b/c.ts');
     fixture.detectChanges();

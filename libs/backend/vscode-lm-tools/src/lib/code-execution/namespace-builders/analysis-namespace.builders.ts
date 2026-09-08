@@ -390,6 +390,10 @@ export function buildDependencyNamespace(
         }
         return result;
       } catch {
+        // degradation-audit: optional-capability - this delegate only walks its
+        // own Maps (dependencyGraph.getSymbolIndex) and cannot throw; the
+        // empty-array fallback matches "no symbols" and guards a call this
+        // wrapper cannot make fail.
         return [];
       }
     },
@@ -398,6 +402,10 @@ export function buildDependencyNamespace(
       try {
         return dependencyGraph.isBuilt(workspaceRoot);
       } catch {
+        // degradation-audit: optional-capability - dependencyGraph.isBuilt only
+        // reads Map.has/size and cannot throw; the false fallback matches its
+        // own "not built" meaning and guards a call this wrapper cannot make
+        // fail.
         return false;
       }
     },

@@ -11,41 +11,12 @@
  * both hosts. The `EmbedderWorkerClient` owns respawn / idle-teardown /
  * crash-loop; this factory owns Worker construction + init config.
  */
-import { Worker } from 'node:worker_threads';
 import type {
   IEmbedderWorkerProcess,
   IEmbedderWorkerProcessFactory,
   EmbedderWorkerInitMessage,
 } from '@ptah-extension/memory-curator';
-
-class CliEmbedderWorkerProcess implements IEmbedderWorkerProcess {
-  constructor(private readonly worker: Worker) {}
-
-  postMessage(msg: unknown): void {
-    this.worker.postMessage(msg);
-  }
-
-  on(event: 'message', cb: (msg: unknown) => void): void;
-  on(event: 'exit', cb: (code: number | null) => void): void;
-  on(
-    event: 'message' | 'exit',
-    cb: ((msg: unknown) => void) | ((code: number | null) => void),
-  ): void {
-    if (event === 'message') {
-      // worker_threads delivers the raw payload as the first arg.
-      this.worker.on('message', cb as (msg: unknown) => void);
-    } else {
-      // worker_threads exit passes a numeric exit code.
-      this.worker.on('exit', (code: number) =>
-        (cb as (code: number | null) => void)(code),
-      );
-    }
-  }
-
-  kill(): void {
-    void this.worker.terminate();
-  }
-}
+import { CliWorkerThreadProcess } from './cli-worker-thread-process';
 
 export class CliEmbedderWorkerFactory implements IEmbedderWorkerProcessFactory {
   constructor(
@@ -54,19 +25,14 @@ export class CliEmbedderWorkerFactory implements IEmbedderWorkerProcessFactory {
   ) {}
 
   spawn(): IEmbedderWorkerProcess {
-    // `.mjs` is loaded as ESM by extension; `type: 'module'` mirrors the
-    // pre-migration client construction. Node's `WorkerOptions` type has no
-    // `type` field, so cast (no `any`, no `@ts-ignore`) — same seam the old
-    // client used. `workerData` is intentionally dropped: config now arrives
-    // via the `init` message, identically to the Electron transport.
-    const worker = new Worker(this.workerPath, {
-      type: 'module',
-    } as unknown as ConstructorParameters<typeof Worker>[1]);
+    // `workerData` is intentionally dropped: config now arrives via the `init`
+    // message, identically to the Electron transport.
+    const worker = CliWorkerThreadProcess.fork(this.workerPath);
     const init: EmbedderWorkerInitMessage = {
       type: 'init',
       modelCacheDir: this.modelCacheDir,
     };
     worker.postMessage(init);
-    return new CliEmbedderWorkerProcess(worker);
+    return worker;
   }
 }

@@ -95,7 +95,7 @@ jobs:
           done
 
       - name: Copy .env.prod to Droplet
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
@@ -104,7 +104,7 @@ jobs:
           target: /opt/ptah-extension/
 
       - name: Deploy to Droplet
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
@@ -123,3 +123,51 @@ jobs:
             # pre-deploy config forever. Recreate to re-resolve the mount.
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate caddy
             docker image prune -f
+
+      # `up -d` returns as soon as containers are CREATED, so the step above is
+      # green even when the app crash-loops — that is exactly how the
+      # 2026-09-04 deploy reported success against a dead service for 4 days.
+      # Probe the PUBLIC url from the runner: that proves the image booted, ran
+      # its migrations, reported healthy AND that caddy bound :443 (it has
+      # depends_on: license-server: service_healthy, so it stays in `Created`
+      # and never binds when the app is unhealthy — the outage presented as a
+      # refused TCP connection, not a 502).
+      #
+      # Budget: compose healthcheck is start_period 30s + interval 30s x
+      # retries 3, and caddy only starts AFTER license-server is healthy.
+      # 18 attempts x 10s = 3 minutes covers that with margin.
+      - name: Smoke check the deployed API
+        id: smoke
+        run: |
+          set -euo pipefail
+          health_url='https://api.ptah.live/api/health'
+          for attempt in $(seq 1 18); do
+            body="$(curl --silent --show-error --max-time 10 "${health_url}" || true)"
+            # Assert the contract, not just HTTP 200: a 200 from a stale proxy
+            # or a maintenance page is not a working database.
+            if printf '%s' "${body}" | jq --exit-status \
+                '.status == "ok" and .database == "connected"' > /dev/null 2>&1; then
+              echo "API healthy after ${attempt} attempt(s): ${body}"
+              exit 0
+            fi
+            echo "attempt ${attempt}/18 — not healthy yet. Last body: ${body:-<empty>}"
+            sleep 10
+          done
+          echo "::error::api.ptah.live did not report status=ok/database=connected within 3 minutes"
+          exit 1
+
+      # Carry the diagnosis in the workflow log so a failed deploy does not
+      # force an SSH session to find out why.
+      - name: Dump droplet diagnostics on smoke failure
+        if: failure() && steps.smoke.outcome == 'failure'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            echo '===== docker ps -a ====='
+            docker ps -a
+            echo
+            echo '===== docker logs ptah_license_server_prod (last 50) ====='
+            docker logs --tail 50 ptah_license_server_prod 2>&1 || echo 'container not present'

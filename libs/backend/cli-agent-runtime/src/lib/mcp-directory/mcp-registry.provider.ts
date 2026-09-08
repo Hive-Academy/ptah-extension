@@ -197,6 +197,11 @@ export class McpRegistryProvider implements IMcpRegistrySource {
       const body = (await response.json()) as Record<string, unknown>;
 
       return unwrapRegistryEntry(body, this.logger);
+      // degradation-audit: optional-capability - the interface contract
+      // (`McpRegistrySource.getServerDetails`) documents null for "not found or
+      // unreachable"; a network failure here collapses to the same null as the
+      // explicit 404 case above, pinned by "returns null when getServerDetails
+      // throws" in the spec.
     } catch {
       return null;
     }

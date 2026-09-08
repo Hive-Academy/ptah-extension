@@ -71,6 +71,12 @@ export type {
   BootScanResult,
   BootScanRunnerOptions,
 } from './lib/triggers/boot-scan-runner';
+export { BootScanScheduler } from './lib/triggers/boot-scan-scheduler';
+export type {
+  BootScanSchedulerConfigReader,
+  BootScanSchedulerLogger,
+  BootScanSchedulerOptions,
+} from './lib/triggers/boot-scan-scheduler';
 export { MemoryDiagnosticsService } from './lib/diagnostics.service';
 export type {
   MemoryCuratorEvent,

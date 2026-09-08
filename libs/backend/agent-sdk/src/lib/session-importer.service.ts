@@ -373,6 +373,9 @@ export class SessionImporterService {
 
       return sawAiTitle;
     } catch {
+      // degradation-audit: optional-capability - this only classifies a file
+      // as title-only; false means "not title-only", the conservative answer
+      // that keeps the file on the ordinary import path.
       return false;
     }
   }
@@ -797,6 +800,9 @@ export class SessionImporterService {
     } catch (error) {
       // Only I/O now reaches here — per-record parse failures are handled
       // above. A file we could open but not read is worth more than debug.
+      // degradation-audit: optional-capability - metadata extraction is
+      // per-file; null skips this one transcript and the rest of the import
+      // continues, which is also the answer for a file with no session id.
       this.logger.warn('[SessionImporter] Failed to extract metadata', {
         filePath,
         error: error instanceof Error ? error.message : String(error),
@@ -841,6 +847,9 @@ export class SessionImporterService {
     try {
       await fs.promises.access(projectsDir);
     } catch {
+      // degradation-audit: optional-capability - ~/.claude/projects is absent
+      // on a machine that has never run the Claude CLI; null means "nothing
+      // to import for this workspace", which the importer treats as zero.
       return null;
     }
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');

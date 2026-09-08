@@ -4,7 +4,7 @@ export type ElectronView =
   | 'chat'
   | 'canvas'
   | 'dashboard'
-  | 'editor'
+  | 'git'
   | 'settings'
   | 'setup-wizard'
   | 'thoth'
@@ -309,20 +309,17 @@ export class UiDriver {
       }
       return;
     }
-    if (view === 'editor') {
-      const editorPanel = this.page.locator('ptah-editor-panel');
-      if (!(await editorPanel.count())) {
-        const editorTab = this.page
-          .getByRole('button', { name: 'Toggle Editor panel' })
-          .or(this.page.locator('[aria-label="Toggle Editor panel"]'))
+    if (view === 'git') {
+      const dock = this.page.locator('ptah-git-dock');
+      if (!(await dock.count())) {
+        const gitTab = this.page
+          .getByRole('button', { name: 'Toggle Git panel' })
+          .or(this.page.locator('[aria-label="Toggle Git panel"]'))
           .first();
-        await editorTab.waitFor({ state: 'visible' });
-        await editorTab.click();
+        await gitTab.waitFor({ state: 'visible' });
+        await gitTab.click();
       }
-      await editorPanel.first().waitFor({ state: 'visible' });
-      // Force a deterministic file-tree reload from the registered mock — the
-      // lazily-mounted panel's one-shot fetch can race the mock under xvfb.
-      await this.pushEvent({ type: 'file:tree-changed', payload: {} });
+      await dock.first().waitFor({ state: 'visible' });
       return;
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;
@@ -378,8 +375,8 @@ export class UiDriver {
     if (view === 'thoth' || view === undefined) {
       return this.page.locator('[id^="thoth-panel-"]');
     }
-    if (view === 'editor') {
-      return this.page.locator('ptah-editor-panel');
+    if (view === 'git') {
+      return this.page.locator('ptah-git-dock');
     }
     return this.page.locator('body');
   }

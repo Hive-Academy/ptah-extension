@@ -184,6 +184,12 @@ function disposeBeforePersistence(deps: DisposalDeps): void {
   });
   nonFatal('Interval teardown', deps.clearTimers);
   nonFatal('UpdateManager dispose', () => refs.updateManager?.dispose());
+  // LIFO puts it here: it is captured at the very END of the heavy boot, right
+  // after the cron start that arms its boot dispatch, so it is disposed early.
+  // It belongs in THIS half — a check that completes writes its verdict through
+  // the connection `disposeAfterPersistence` is about to close. The abort is
+  // synchronous (it kills the worker), so nothing here has to be awaited.
+  nonFatal('Integrity check abort', () => refs.integrityService?.dispose());
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
   nonFatal('Status bridge dispose', () =>

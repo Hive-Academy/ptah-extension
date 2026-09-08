@@ -117,6 +117,10 @@ export class UserLayerFsOps {
       renamed = true;
     } finally {
       if (!renamed) {
+        // degradation-audit: optional-capability - best-effort cleanup of
+        // copyFileAtomic's leftover temp file after a failed atomic write; the
+        // write failure itself already propagates via the try block above.
+        // writeTextAtomic below degrades identically, by the same reasoning.
         await unlink(tempPath).catch(() => undefined);
       }
     }
@@ -138,6 +142,10 @@ export class UserLayerFsOps {
       renamed = true;
     } finally {
       if (!renamed) {
+        // degradation-audit: optional-capability - best-effort cleanup of
+        // writeTextAtomic's leftover temp file after a failed atomic write; see
+        // copyFileAtomic above, which degrades identically. The write failure
+        // itself already propagates via the try block above.
         await unlink(tempPath).catch(() => undefined);
       }
     }
@@ -283,6 +291,9 @@ export class UserLayerFsOps {
       const s = await stat(dir);
       return s.isDirectory();
     } catch {
+      // degradation-audit: optional-capability - an "is it there" probe; a stat
+      // failure (missing path, permission) means "not a directory", which is
+      // the correct answer for every caller of this predicate.
       return false;
     }
   }
@@ -292,6 +303,9 @@ export class UserLayerFsOps {
       const s = await stat(filePath);
       return s.isFile();
     } catch {
+      // degradation-audit: optional-capability - an "is it there" probe; a stat
+      // failure (missing path, permission) means "not a file", which is the
+      // correct answer for every caller of this predicate.
       return false;
     }
   }

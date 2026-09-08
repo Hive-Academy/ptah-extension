@@ -481,6 +481,8 @@ export class JudgePanelService {
         vectors.slice(1).map((vector) => cosineSimilarity(vectors[0], vector)),
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Description neighbours enrich
+      // the second judge lens; an empty set retains measured gate evidence.
       this.logger.warn(
         '[skill-judge-panel] could not embed descriptions; the lens loses its neighbours',
         {

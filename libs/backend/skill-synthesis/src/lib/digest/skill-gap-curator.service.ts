@@ -821,6 +821,8 @@ export class SkillGapCuratorService {
     try {
       pending = this.suggestions.listByStatus('pending');
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Pending suggestions are
+      // optional rewrite evidence; no targets preserves the rest of the digest.
       this.logger.warn('[skill-digest] pending suggestions unavailable', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -871,6 +873,8 @@ export class SkillGapCuratorService {
         outputSchema: DIGEST_REWRITE_SCHEMA,
       });
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - LLM-authored rewrites are
+      // optional; null selects the documented verbatim-intent fallback.
       this.logger.warn('[skill-digest] rewrite lane threw', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1148,6 +1152,9 @@ export class SkillGapCuratorService {
         DIGEST_VERDICT_SCAN_LIMIT,
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Verdict rows are optional
+      // digest evidence, so an unavailable store means no evidence of this
+      // kind.
       // The C2 ⇢ C4 soft edge: no verdict table on this host yet. Sweeps (a),
       // (b) and (d) have nothing to read; (c) reads its own join, which lands
       // on the same table and degrades the same way.
@@ -1182,6 +1189,9 @@ export class SkillGapCuratorService {
     try {
       return this.candidates.listByStatus('promoted');
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - The promoted-skill library is
+      // optional digest context; an empty list lets independent sweeps
+      // continue.
       this.logger.warn('[skill-digest] skill library unavailable', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1199,6 +1209,9 @@ export class SkillGapCuratorService {
         ),
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Invocation history is
+      // supporting evidence; null deliberately distinguishes lookup failure
+      // from no invocations.
       this.logger.warn('[skill-digest] invocation lookup failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),
@@ -1214,6 +1227,9 @@ export class SkillGapCuratorService {
         DIGEST_EVIDENCE_SESSION_CAP,
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Recent sessions are optional
+      // evidence links, so an empty list omits only the unsupported digest
+      // item.
       this.logger.warn('[skill-digest] evidence lookup failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),

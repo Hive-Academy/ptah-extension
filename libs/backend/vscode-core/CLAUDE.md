@@ -31,6 +31,7 @@ Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `Val
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
 Diagnostics: `armDiagnostics` (+ `DiagnosticsHandle`), `EventLoopMonitor`, `CpuProfileCapture`, `readMsEnv`, `roundMs` — see "Diagnosing a hang".
+Degradation: `DegradationReporter`, `MAX_TRACKED_DEGRADATION_CODES`, and the types `DegradationReport`, `DegradationCount`, `DegradationSnapshot` — see "Counting a degradation".
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
 Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server start at activation (no license gate). The CLI skill/agent sync callbacks it used to drive were removed in TASK_2026_278 Batch 2; harness propagation is `HarnessReconciler.reconcile`, called from each host's activation path.
 
@@ -103,11 +104,64 @@ itself a suspect), VS Code as soon as the logger exists, the CLI only under
 `unref()`-ed: a hang detector that keeps the process alive would be a poor
 outcome (see commit `5dc525f02` for that defect class).
 
+## Counting a degradation
+
+`src/logging/degradation-reporter.ts` (TASK_2026_383) is the one way a site that
+fell back to a default says so, and the one place the per-boot counts live. Bound
+to `TOKENS.DEGRADATION_REPORTER` in `src/di/register-platform-agnostic.ts`, not in
+`register.ts` — the VS Code entry delegates to the platform-agnostic file, so one
+binding reaches all three hosts; binding in `register.ts` would hide the reporter
+from Electron and the CLI.
+
+It is **not** a logger and **not** a policy engine. A call site that already writes
+`logger.warn` keeps writing it; the reporter never logs on the reporting path and
+never decides severity, because only the call site knows what was lost. It never
+throws: no webview manager, a rejected broadcast, a container that resolves to
+nothing — all swallowed, and the count is taken regardless. `TOKENS.WEBVIEW_MANAGER`
+is resolved lazily per report behind `isRegistered`. The code map is bounded at
+`MAX_TRACKED_DEGRADATION_CODES` (64); past the cap, sites are dropped with one
+latched `logger.error`.
+
+**`code` MUST be a string literal written at the call site.** A code interpolated
+from an error message mints a fresh bucket per failure and makes the count
+meaningless — the exact failure this contract exists to prevent. Varying detail
+goes in `detail`, prose in `summary`. The wire shape is `DegradationEventPayload`
+in `@ptah-extension/shared` (`rpc-degradation.types.ts`); the only consumer today
+is Electron's one-per-boot summary line.
+
+### When a `catch` may degrade
+
+A `catch` may fall back to a default only if **both** hold:
+
+1. the **positive** path is tested against the real dependency (not only the
+   fallback), and
+2. the **negative** path emits a `DegradationEvent` through the reporter.
+
+A catch that satisfies neither is a defect, not an optional capability.
+
+### The `// degradation-audit:` marker
+
+`tools/degradation-audit/check-degradation.ts` walks every backend and app source
+file with an AST pass and ratchets a per-directory baseline in CI. A flagged site
+is suppressed with a comment carrying a **kind and a reason**:
+
+```ts
+// degradation-audit: optional-capability — keytar is absent on a Linux box with
+// no libsecret; the fallback is the file-backed key store.
+// degradation-audit: reported — database.backup.no-worker-factory
+```
+
+The separator may be `-`, `–` or `—`. A marker with no reason, an unrecognised
+kind or a malformed separator is itself a violation (`bare-suppression`), and a
+marker that attaches to nothing is an `orphaned-suppression` — a misplaced comment
+is not silently honoured. A wrapped marker must carry at least one word of reason
+on its **own** line. Run it with `npx nx run degradation-audit:lint`.
+
 ## Internal Structure
 
 - `src/diagnostics/` — `EventLoopMonitor`, `CpuProfileCapture`, `armDiagnostics`
 - `src/api-wrappers/` — VS Code API wrappers
-- `src/logging/` — `Logger`
+- `src/logging/` — `Logger`, `DegradationReporter`
 - `src/error-handling/` — `ErrorHandler`
 - `src/config/` — `ConfigManager`, file-settings store interface
 - `src/validation/` — `MessageValidatorService` + error types

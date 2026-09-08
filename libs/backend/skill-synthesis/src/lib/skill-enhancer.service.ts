@@ -285,6 +285,8 @@ export class SkillEnhancerService {
         .find((rate) => rate.slug === slug);
       return measured ? measured.winRate : null;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Win rate is optional
+      // enhancement evidence; null withholds the measurement-based gate.
       this.logger.warn(
         '[skill-enhancer] win-rate read failed; treating as unmeasured',
         {
@@ -772,6 +774,8 @@ export class SkillEnhancerService {
       const cleaned = this.stripCodeFence(collected.trim());
       return cleaned.length > 0 ? cleaned : null;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Generated enhancement text is
+      // optional; null preserves the existing artifact unchanged.
       this.logger.warn('[skill-enhancer] candidate generation failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),
@@ -849,6 +853,8 @@ export class SkillEnhancerService {
       const findings = await this.specFindings.getRecentFindings(slug);
       return findings ?? '';
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Spec findings are optional
+      // prompt evidence; empty text keeps enhancement available without them.
       this.logger.debug('[skill-enhancer] spec findings lookup failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),
@@ -870,6 +876,8 @@ export class SkillEnhancerService {
       if (!card || !this.hasScorecardData(card)) return null;
       return this.formatScorecardBlock(card).slice(0, MAX_SCORECARD_CHARS);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Scorecard context is optional
+      // prompt enrichment; null preserves the baseline enhancement prompt.
       this.logger.debug('[skill-enhancer] scorecard block build failed', {
         slug,
         error: error instanceof Error ? error.message : String(error),
@@ -1004,6 +1012,8 @@ export class SkillEnhancerService {
       const root = this.workspaceProvider.getWorkspaceRoot();
       return root && root.length > 0 ? root : undefined;
     } catch {
+      // degradation-audit: optional-capability - Workspace scope is a host
+      // capability probe; undefined selects the documented unscoped clone root.
       return undefined;
     }
   }

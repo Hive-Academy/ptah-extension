@@ -107,14 +107,19 @@ export const MESSAGE_TYPES = {
   WORKSPACE_CHANGED: 'workspaceChanged',
   /**
    * Backend → Frontend: the post-window boot changed state
-   * (TASK_2026_331 B2A).
+   * (TASK_2026_331 B2A; widened by TASK_2026_380).
    *
-   * The one new message type in the whole boot-performance task. It exists so a
-   * surface that received an `RpcReadinessError` can drop its pending retry
-   * timer and re-issue the call the instant the backend is ready, instead of
-   * waiting out a delay that has already stopped being true.
+   * It exists so a surface that received an `RpcReadinessError` can drop its
+   * pending retry timer and re-issue the call the instant the backend is ready,
+   * instead of waiting out a delay that has already stopped being true.
    *
-   * Edge-triggered: one message per transition, not one per boot step.
+   * `readiness` is the only field with consumer semantics. The payload also
+   * carries `phase` and `detail`, which are **display-only labels** for a boot
+   * screen — nothing may branch on them beyond choosing what text to paint, so
+   * adding a phase is not a breaking protocol change.
+   *
+   * Still edge-triggered: one message per transition of `readiness` or `phase`,
+   * never a progress tick and never one per boot step.
    */
   BOOT_READINESS_CHANGED: 'boot:readinessChanged',
   RPC_REQUEST: 'rpc:request',
@@ -150,8 +155,6 @@ export const MESSAGE_TYPES = {
   SESSION_MCP_STATUS: 'session:mcpStatus',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
-  /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
-  EDITOR_TAB_CONTENT_REVERTED: 'editor:tabContentReverted',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
@@ -211,6 +214,26 @@ export const MESSAGE_TYPES = {
   /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
   SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
   /**
+   * Backend → Frontend: one back-office activity item for the passive ticker
+   * (TASK_2026_380).
+   *
+   * The single shape every subsystem's "something happened" collapses into, so
+   * the ticker renders one ordered list instead of subscribing to eight bespoke
+   * message types. Payload carries no `error` level on purpose — see
+   * `rpc-activity.types.ts`.
+   */
+  ACTIVITY_EVENT: 'activity:event',
+  /**
+   * Backend → Frontend: a capability degraded to a default (TASK_2026_383).
+   *
+   * Distinct from `activity:event` on purpose. An activity item narrates work
+   * that HAPPENED; this narrates work that did NOT happen because a capability
+   * was missing, and carries the stable `code` a per-boot count is keyed on.
+   * Emitted only through `DegradationReporter` — see `rpc-degradation.types.ts`
+   * for why `code` must be a literal.
+   */
+  DEGRADATION_EVENT: 'degradation:event',
+  /**
    * Backend → Frontend: the harness reconciler finished a pass whose SUMMARY
    * differs from the last one pushed (TASK_2026_278 Batch 4).
    *
@@ -245,19 +268,8 @@ export const MESSAGE_TYPES = {
    * `causes` set and the `workspaceRoot` the status was computed for.
    */
   GIT_STATUS_UPDATE: 'git:status-update',
-  /**
-   * Backend → Frontend: the workspace file tree changed structurally
-   * (create / delete / rename). Payload is empty — the renderer re-fetches.
-   */
-  FILE_TREE_CHANGED: 'file:tree-changed',
   /** Backend → Frontend: a specific workspace file's content changed on disk. */
   FILE_CONTENT_CHANGED: 'file:content-changed',
-  /**
-   * Backend → Frontend: re-read every open editor tab from disk. Emitted
-   * after a git operation, since git mutates files atomically via rename,
-   * which `fs.watch` does not reliably surface as a per-file change.
-   */
-  EDITOR_REREAD_OPEN_TABS: 'editor:reread-open-tabs',
 } as const;
 
 /**
