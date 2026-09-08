@@ -247,6 +247,44 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     expect(badge.closest('button')).toBeNull();
   });
 
+  it.each([
+    ['M', 'M', 'Modified'],
+    ['A', 'A', 'Added'],
+    ['D', 'D', 'Deleted'],
+    ['??', 'U', 'Untracked'],
+    ['R', 'R', 'Renamed'],
+    ['C', 'C', 'Copied'],
+  ])(
+    'renders %s as badge %s with the human-readable label %s',
+    (status, badgeText, label) => {
+      host.file.set({
+        path: 'src/a.ts',
+        status,
+        staged: false,
+      } as GitFileStatus);
+      fixture.detectChanges();
+
+      const badge = q<HTMLElement>('[role="listitem"] > span:last-child');
+      expect(badge.textContent?.trim()).toBe(badgeText);
+      expect(badge.getAttribute('title')).toBe(label);
+      expect(badge.getAttribute('aria-label')).toBe(label);
+    },
+  );
+
+  it('falls back to the raw status code for an unmapped badge', () => {
+    host.file.set({
+      path: 'src/a.ts',
+      status: 'X',
+      staged: false,
+    } as GitFileStatus);
+    fixture.detectChanges();
+
+    const badge = q<HTMLElement>('[role="listitem"] > span:last-child');
+    expect(badge.textContent?.trim()).toBe('X');
+    expect(badge.getAttribute('title')).toBe('X');
+    expect(badge.getAttribute('aria-label')).toBe('X');
+  });
+
   it('still carries the rename-aware row title (AC6)', () => {
     host.file.set({
       path: 'src/new.ts',

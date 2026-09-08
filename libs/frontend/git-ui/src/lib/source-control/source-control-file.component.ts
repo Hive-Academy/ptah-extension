@@ -129,9 +129,12 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
       </span>
 
       <!-- Status badge -->
-      <span class="text-[10px] font-mono opacity-40 flex-shrink-0">{{
-        file().status
-      }}</span>
+      <span
+        class="text-[10px] font-mono opacity-40 flex-shrink-0"
+        [title]="statusLabel()"
+        [attr.aria-label]="statusLabel()"
+        >{{ statusBadge() }}</span
+      >
     </div>
   `,
   // The component HOST sits between the panel's role="list" and this row's
@@ -222,6 +225,30 @@ export class SourceControlFileComponent {
         return 'text-info';
       default:
         return 'opacity-60';
+    }
+  });
+
+  protected readonly statusBadge = computed(() =>
+    this.file().status === '??' ? 'U' : this.file().status,
+  );
+
+  protected readonly statusLabel = computed(() => {
+    const status = this.file().status;
+    switch (status) {
+      case 'M':
+        return 'Modified';
+      case 'A':
+        return 'Added';
+      case 'D':
+        return 'Deleted';
+      case '??':
+        return 'Untracked';
+      case 'R':
+        return 'Renamed';
+      case 'C':
+        return 'Copied';
+      default:
+        return status;
     }
   });
 
