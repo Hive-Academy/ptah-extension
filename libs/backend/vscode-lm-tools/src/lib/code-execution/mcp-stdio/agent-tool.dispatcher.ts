@@ -49,7 +49,10 @@ const AgentSpawnSchema = z
     cli: z.enum(SYSTEM_CLI_TYPES).optional(),
     ptahCliId: z.string().min(1).optional(),
     workingDirectory: z.string().optional(),
-    timeout: z.number().int().positive().max(3_600_000).optional(),
+    // Inactivity window, not a wall clock: the watchdog is re-armed by every
+    // output flush. `0` disables it. No upper bound — the old 1-hour ceiling
+    // rejected the spawn a long-running job needed.
+    timeout: z.number().int().nonnegative().optional(),
     files: z.array(z.string()).optional(),
     taskFolder: z.string().optional(),
     model: z.string().optional(),

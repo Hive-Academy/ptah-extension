@@ -55,8 +55,7 @@ import type {
 import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
-  DEFAULT_TIMEOUT,
-  MAX_TIMEOUT,
+  DEFAULT_INACTIVITY_TIMEOUT,
   COMPLETED_AGENT_TTL,
   SDK_IDLE_RELEASE_MS,
   MIN_SDK_IDLE_RELEASE_MS,
@@ -125,8 +124,10 @@ interface TrackedAgent {
   sdkAbortController?: AbortController;
   stdoutBuffer: string;
   stderrBuffer: string;
-  /** Absent for a restored record: it has no live run to time out. */
+  /** Absent for a restored record, and for an agent whose watchdog is disabled. */
   timeoutHandle?: NodeJS.Timeout;
+  /** Silence window this agent's watchdog uses, or undefined when disabled. */
+  inactivityTimeoutMs?: number;
   stdoutLineCount: number;
   stderrLineCount: number;
   truncated: boolean;
@@ -483,10 +484,11 @@ export class AgentProcessManager {
       ? { ...info, cliSessionId: initialCliSessionId }
       : info;
 
-    const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
-
-    return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
-      sdkHandle.getSessionId?.(),
+    return this.trackSdkHandle(
+      sdkHandle,
+      infoWithSession,
+      request.timeout,
+      () => sdkHandle.getSessionId?.(),
     );
   }
 
@@ -542,8 +544,6 @@ export class AgentProcessManager {
         ? { ...info, cliSessionId: initialCliSessionId }
         : info;
 
-      const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
-
       this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
         agentId,
         cli: meta.cli,
@@ -551,7 +551,7 @@ export class AgentProcessManager {
         ptahCliId: meta.ptahCliId,
       });
 
-      return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
+      return this.trackSdkHandle(sdkHandle, infoWithSession, meta.timeout, () =>
         sdkHandle.getSessionId?.(),
       );
     } finally {
@@ -567,7 +567,8 @@ export class AgentProcessManager {
    *
    * @param sdkHandle   - SDK handle to track
    * @param info        - Agent process info (agentId, cli, task, etc.)
-   * @param timeout     - Timeout in milliseconds
+   * @param requestedTimeout - Inactivity window in milliseconds, `0` to disable
+   *   the watchdog, or undefined for {@link DEFAULT_INACTIVITY_TIMEOUT}
    * @param captureSessionId - Optional callback to capture CLI session ID
    *   from async init events (e.g., the init JSONL segment). Called on
    *   each structured segment until a session ID is captured.
@@ -575,15 +576,20 @@ export class AgentProcessManager {
   private trackSdkHandle(
     sdkHandle: SdkHandle,
     info: AgentProcessInfo,
-    timeout: number,
+    requestedTimeout: number | undefined,
     captureSessionId?: () => string | undefined,
   ): SpawnAgentResult {
     const agentId = info.agentId;
-    const timeoutHandle = this.unrefTimer(
-      setTimeout(() => {
-        this.handleTimeout(agentId);
-      }, timeout),
-    );
+    const inactivityTimeoutMs =
+      AgentProcessManager.resolveInactivityTimeout(requestedTimeout);
+    const timeoutHandle =
+      inactivityTimeoutMs === undefined
+        ? undefined
+        : this.unrefTimer(
+            setTimeout(() => {
+              this.handleTimeout(agentId);
+            }, inactivityTimeoutMs),
+          );
     const supportsContinuation = sdkHandle.supportsContinuation?.() === true;
     const trackedInfo: AgentProcessInfo = supportsContinuation
       ? { ...info, supportsContinuation: true }
@@ -596,6 +602,7 @@ export class AgentProcessManager {
       stdoutBuffer: '',
       stderrBuffer: '',
       timeoutHandle,
+      inactivityTimeoutMs,
       stdoutLineCount: 0,
       stderrLineCount: 0,
       truncated: false,
@@ -1086,18 +1093,13 @@ export class AgentProcessManager {
       clearTimeout(tracked.exitEmitHandle);
       tracked.exitEmitHandle = undefined;
     }
-    clearTimeout(tracked.timeoutHandle);
     tracked.info = {
       ...tracked.info,
       status: 'running',
       completedAt: undefined,
       exitCode: undefined,
     };
-    tracked.timeoutHandle = this.unrefTimer(
-      setTimeout(() => {
-        this.handleTimeout(agentId);
-      }, DEFAULT_TIMEOUT),
-    );
+    this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
 
@@ -1321,7 +1323,8 @@ export class AgentProcessManager {
    * Every timer this manager arms is a per-agent watchdog or a deferred
    * housekeeping tick — a thing that must fire IF the process is still alive,
    * never a reason for it to stay alive. Left ref'd, one spawned agent pins the
-   * loop for up to an hour (`DEFAULT_TIMEOUT`) and a completed one for another
+   * loop for a whole inactivity window (`DEFAULT_INACTIVITY_TIMEOUT`, and an
+   * agent that keeps working re-arms it) and a completed one for another
    * thirty minutes (`COMPLETED_AGENT_TTL`); with several agents per session that
    * is the same open-handle defect commit 5dc525f02 fixed in
    * `wizard-generation-rpc.handlers.ts`, and it is what makes Jest report
@@ -1513,6 +1516,14 @@ export class AgentProcessManager {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
 
+    // Output IS the liveness signal, and this is the one funnel every kind of
+    // it passes through — stdout, stderr, segments and stream events alike.
+    // Throttled to OUTPUT_FLUSH_INTERVAL, so re-arming here costs one timer per
+    // 200 ms rather than one per token.
+    if (tracked.info.status === 'running') {
+      this.armInactivityWatchdog(agentId, tracked);
+    }
+
     const mergedSegments = mergeConsecutiveTextSegments(pending.segments);
 
     const delta: AgentOutputDelta = {
@@ -1533,11 +1544,49 @@ export class AgentProcessManager {
     this.events.emit('agent:output', delta);
   }
 
+  /**
+   * Resolve the inactivity window a spawn asked for.
+   *
+   * `0` is the caller saying "no watchdog" and is honoured — a job that is
+   * expected to sit silent for a day has no window that is both safe and
+   * useful. There is no upper bound: the clamp that used to be here discarded
+   * the caller's own number without telling it. A value that is not a usable
+   * number at all is not a preference, so the default is used.
+   */
+  private static resolveInactivityTimeout(
+    requested: number | undefined,
+  ): number | undefined {
+    if (requested === undefined) return DEFAULT_INACTIVITY_TIMEOUT;
+    if (!Number.isFinite(requested) || requested < 0) {
+      return DEFAULT_INACTIVITY_TIMEOUT;
+    }
+    return requested === 0 ? undefined : requested;
+  }
+
+  /**
+   * Re-arm the inactivity watchdog. Called on every output flush, so the window
+   * measures SILENCE rather than the run's total duration.
+   */
+  private armInactivityWatchdog(agentId: string, tracked: TrackedAgent): void {
+    clearTimeout(tracked.timeoutHandle);
+    tracked.timeoutHandle = undefined;
+    const window = tracked.inactivityTimeoutMs;
+    if (window === undefined) return;
+    tracked.timeoutHandle = this.unrefTimer(
+      setTimeout(() => {
+        this.handleTimeout(agentId);
+      }, window),
+    );
+  }
+
   private async handleTimeout(agentId: string): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked || tracked.info.status !== 'running') return;
 
-    this.logger.warn('[AgentProcessManager] Agent timed out', { agentId });
+    this.logger.warn(
+      '[AgentProcessManager] Agent produced no output for the whole inactivity window — treating it as hung',
+      { agentId, inactivityTimeoutMs: tracked.inactivityTimeoutMs },
+    );
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
