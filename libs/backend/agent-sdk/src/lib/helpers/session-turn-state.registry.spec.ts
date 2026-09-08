@@ -664,6 +664,39 @@ describe('SessionTurnStateRegistry', () => {
       expect(registry.get('session-0')?.phase).toBe('idle');
     });
 
+    // The accepted residue of a phase-BLIND eviction, pinned rather than
+    // guarded (TASK_2026_374). The floor carries `state.revision` and nothing
+    // else, so a record evicted mid-turn also loses `stopSnapshot`, `failure`
+    // and `generatingEmitted`. Making the victim choice skip `generating`
+    // records was rejected: the only non-generating entry in a busy map is
+    // typically the long-lived chat tab, and a record whose teardown never ran
+    // — the leak this bound collects — is exactly one stuck in `generating`.
+    // This spec is the thing that fails if that policy is changed quietly.
+    it("drops a mid-turn record's snapshots on eviction, keeping only its revision", () => {
+      registry.markGenerating(SESSION);
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: 'completed',
+      });
+
+      // LIMIT other ids touched before this session's `result` arrives.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+      expect(registry.get(SESSION)).toBeUndefined();
+
+      // The floor survived, so the counter is still ahead of anything the tab
+      // accepted — that half is the invariant and is NOT residue.
+      const settled = registry.settleTurn(SESSION);
+      expect(settled.revision).toBe(2);
+
+      // The snapshot did not. `awaiting-background` is the answer the dropped
+      // `stopSnapshot` would have produced.
+      expect(settled.phase).toBe('idle');
+      expect(settled.backgroundTasks).toEqual([]);
+    });
+
     it('a touch on an EXISTING record in a full map evicts nothing', () => {
       for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
         registry.markGenerating(`session-${i}`);

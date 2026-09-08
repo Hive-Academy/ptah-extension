@@ -159,6 +159,32 @@ export const REVISION_FLOOR_MAP_LIMIT = 256;
  * pick the chat tab that has been streaming all day, because in streaming-input
  * mode its broadcast loop — and therefore its single record — is created once
  * and lives for the whole session.
+ *
+ * **KNOWN AND ACCEPTED — eviction is phase-BLIND, and a mid-turn victim loses
+ * more than its revision.** The floor carries `state.revision` and nothing else,
+ * so a record evicted while `generating` also drops its `stopSnapshot`, its
+ * `failure` and `generatingEmitted`. Re-seeded from the floor, `settleTurn` then
+ * derives `idle` where the snapshots would have said `awaiting-background`,
+ * `sleeping` or `failed`, `applySnapshot` returns `null` for the gap between the
+ * eviction and the `result`, and `session:status` answers "no turn state" for a
+ * session that is mid-turn. The turn after that is correct — the record is
+ * re-created and the counter never went backwards — so the residue is one wrong
+ * terminal phase, self-healing.
+ *
+ * Skipping `generating` records when choosing the victim was considered and
+ * REJECTED, twice over. It inverts the rule the bullet above states — the only
+ * non-`generating` entry in a busy map is typically the long-lived chat tab,
+ * which is precisely the record that must survive — and the records this bound
+ * exists to collect are the ones whose teardown never ran, which is exactly how
+ * a record gets STUCK in `generating`. A policy that refuses to evict them
+ * cannot bound the map it is there to bound.
+ *
+ * Reaching the residue needs `TURN_RECORD_MAP_LIMIT` distinct session ids
+ * touched between one session's `markGenerating` and its `result`. Hooks and the
+ * Ptah-CLI stream loop do create records for ids the chat never streams, so it
+ * is not unreachable — but 256 of them inside one turn is not ordinary load. If
+ * that ever becomes ordinary, raise the bound; do not make eviction selective.
+ * Pinned by the `drops a mid-turn record's snapshots` spec (TASK_2026_374).
  */
 export const TURN_RECORD_MAP_LIMIT = 256;
 
@@ -438,7 +464,9 @@ export class SessionTurnStateRegistry {
   /**
    * Drop the least recently used record, after folding its revision into the
    * floor map. The floor write is not bookkeeping — it is what makes the
-   * eviction safe. See `TURN_RECORD_MAP_LIMIT`.
+   * eviction safe. The choice of victim is deliberately phase-BLIND, and the
+   * snapshots a mid-turn victim loses are an accepted residue; both are argued
+   * at `TURN_RECORD_MAP_LIMIT`.
    */
   private evictOldestRecord(): void {
     const victim = this.records.keys().next().value;

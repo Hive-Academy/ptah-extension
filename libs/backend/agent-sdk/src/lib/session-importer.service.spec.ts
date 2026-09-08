@@ -920,6 +920,70 @@ describe('SessionImporterService', () => {
           expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
         });
 
+        // The three sidecar shapes that are NOT `ai-title`. c38ea669f names
+        // all four the CLI writes as standalone `{uuid}.jsonl` files; the
+        // prune's first predicate demanded a positive `ai-title` sighting, so
+        // rows minted for these three before that commit shipped were
+        // unprunable forever — the exact defect this task exists to close, for
+        // three quarters of the population. Each parses cleanly and none
+        // carries a `system` or `user` line, which is the producer's own
+        // refusal rule.
+        it.each([
+          ['queue-operation', { type: 'queue-operation', op: 'add', index: 0 }],
+          ['permission-mode', { type: 'permission-mode', mode: 'acceptEdits' }],
+          [
+            'file-history-snapshot',
+            { type: 'file-history-snapshot', files: { 'a.ts': 'abc123' } },
+          ],
+        ])('prunes an entry whose backing file is a %s sidecar', async (
+          label,
+          record,
+        ) => {
+          await store.create(`sidecar-${label}`, WORKSPACE, 'Session 1/1/2026');
+
+          primePruneOnlyScan();
+          mockPositionalRead(Buffer.from(JSON.stringify(record) + '\n'));
+
+          await importer.scanAndImport(WORKSPACE);
+
+          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        });
+
+        it('keeps a real session whose leading summary parses but whose first turn is cut off', async () => {
+          // The reason the widened sidecar rule ALSO demands a short read.
+          // A resumed session opens with a short `summary` line and then a
+          // large pasted user turn: the summary parses, the user record is cut
+          // by the byte bound and dropped by `splitCompleteRecords`, so the
+          // prefix reads as "one parsed record, no session content" — the
+          // producer's refusal rule exactly. The producer answering that costs
+          // an unimported row; answering it HERE would delete a real
+          // conversation, and a row imported from `sessions-index.json` never
+          // passed the producer's parse in the first place.
+          await store.create('summary-then-cut', WORKSPACE, 'Resumed work');
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'summary',
+              summary: 'Earlier conversation',
+              leafUuid: 'leaf-1',
+            }) +
+              '\n' +
+              JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: 'P'.repeat(12000) },
+              }) +
+              '\n',
+          );
+          expect(content.length).toBeGreaterThan(8192);
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['summary-then-cut']);
+        });
+
         it('keeps a REAL session whose stored name is "Session <date>"', async () => {
           // The spec that fails the moment anyone reaches for a name
           // heuristic. This row is named exactly like a phantom and is real.
@@ -969,6 +1033,35 @@ describe('SessionImporterService', () => {
 
           const all = await store.getForWorkspace(WORKSPACE);
           expect(all.map((m) => m.sessionId)).toEqual(['truncated']);
+        });
+
+        it('keeps a SHORT file whose summary parses but whose last user line is half-flushed', async () => {
+          // The short-read cousin of `summary-then-cut`. The whole file fits
+          // the prefix, so `splitCompleteRecords` keeps the tail; the summary
+          // parses, the half-written user record does not. Counting only the
+          // parsed record would read this as a title-only sidecar and delete
+          // a real conversation mid-flush. An unparseable line inside a
+          // whole-file read is a record we cannot classify — never a proof
+          // of absence.
+          await store.create('summary-then-partial', WORKSPACE, 'Resumed work');
+          const content = Buffer.from(
+            JSON.stringify({
+              type: 'summary',
+              summary: 'Earlier conversation',
+              leafUuid: 'leaf-2',
+            }) +
+              '\n' +
+              '{"type":"user","message":{"role":"user","content":"partially flu',
+          );
+          expect(content.length).toBeLessThan(8192);
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['summary-then-partial']);
         });
 
         it('keeps an entry whose short backing file is corrupt but not empty', async () => {
