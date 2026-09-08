@@ -128,7 +128,26 @@ jobs:
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below
       # the floor fails the job; specs are free to increase coverage.
+      # `--maxWorkers=2`, because `--parallel=3` bounds the wrong thing. It caps
+      # Nx TASKS; each task then starts its own Jest coordinator, and no
+      # jest.config in this repo sets `maxWorkers`, so every pool defaults to
+      # `availableParallelism() - 1`. Three tasks on a runner therefore ask for
+      # three coordinators plus up to ~45 workers, under coverage
+      # instrumentation, beside the real `node` children cli-engine's auth specs
+      # spawn on purpose. That is the oversubscription behind suites running
+      # 114-250 s in CI against seconds locally (TASK_2026_392).
+      #
+      # Measured on one host, warm: cli-engine coverage 16.9 s → 9.2 s at
+      # `--maxWorkers=2`; agent-sdk 17.2 s → 8.1 s at `--maxWorkers=4`, and the
+      # "worker process failed to exit gracefully" warning stopped appearing.
+      # Capping is FASTER here, not a trade — an oversubscribed pool spends its
+      # time context-switching.
+      #
+      # `--forceExit` is deliberately NOT used. Jest already force-exits a
+      # worker that misses its 500 ms deadline, so the flag would only cut off
+      # the coordinator's own coverage write, and TASK_2026_392 measured no
+      # leaked handle for it to paper over.
       - name: Run affected tests with coverage
-        run: npx nx affected -t test --coverage --parallel=3
+        run: npx nx affected -t test --coverage --parallel=3 --maxWorkers=2
 
       - run: npx nx affected -t build
