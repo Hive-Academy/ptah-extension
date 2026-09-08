@@ -39,7 +39,6 @@
   "libs/frontend/chat-state": 2,
   "libs/frontend/chat-streaming": 2,
   "libs/frontend/chat-ui": 14,
-  "libs/frontend/core": 3,
   "libs/frontend/cron-scheduler-ui": 6,
   "libs/frontend/editor": 2,
   "libs/frontend/harness-builder": 3,

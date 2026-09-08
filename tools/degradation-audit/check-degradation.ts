@@ -698,7 +698,9 @@ function loadBaseline(): Baseline {
 
 function writeBaseline(baseline: Baseline): void {
   const sorted: Baseline = {};
-  for (const key of Object.keys(baseline).sort()) {
+  for (const key of Object.keys(baseline).sort((a, b) =>
+    a.localeCompare(b, 'en'),
+  )) {
     sorted[key] = baseline[key];
   }
   fs.writeFileSync(
@@ -809,7 +811,7 @@ async function runLint(updateBaseline: boolean): Promise<number> {
   const baseline = loadBaseline();
   const dirs = Array.from(
     new Set([...counts.keys(), ...Object.keys(baseline)]),
-  ).sort();
+  ).sort((a, b) => a.localeCompare(b, 'en'));
 
   let failed = false;
   const nextBaseline: Baseline = { ...baseline };

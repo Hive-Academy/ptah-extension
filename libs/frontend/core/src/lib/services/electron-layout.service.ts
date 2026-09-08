@@ -676,6 +676,11 @@ export class ElectronLayoutService implements MessageHandler {
         this.persistLayout();
       }
     } catch {
+      // degradation-audit: optional-capability - a failed workspace:getInfo or
+      // workspace:switch leaves the folder rail on the last persisted layout
+      // rather than blanking it, so nothing fabricates an empty workspace; the
+      // host stays authoritative and the next sync or explicit switch reports
+      // its own failure through the RPC result the user acted on.
       if (this._switchId !== syncId) return;
       if (cachedState) {
         this.restoreWorkspaceFoldersFromCache(cachedState);

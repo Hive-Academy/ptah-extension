@@ -109,6 +109,10 @@ export class WebviewNavigationService {
       this.setNavigating(false);
       return true;
     } catch (error) {
+      // degradation-audit: reported - handleNavigationError console-logs the
+      // failure, appends it to the `navigationErrors` signal and raises it on
+      // appState.handleError, so the `false` returned here is a caller signal
+      // that the view did not change, not the only trace of the failure.
       this.handleNavigationError(error, view);
       this.setNavigating(false);
       return false;

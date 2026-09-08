@@ -4,12 +4,18 @@ const path = require('node:path');
 
 const script = path.join(__dirname, 'check-degradation.ts');
 
+// Resolve an absolute ts-node CLI entry point instead of letting `npx`
+// resolve `ts-node` through PATH (javascript:S4036 — PATH-relative command
+// execution). Spawning `process.execPath` directly against this path means
+// no shell and no PATH lookup are involved.
+const tsNodeBin = require.resolve('ts-node/dist/bin.js');
+
 // Check 1: the main detector self-test. Passes only if the tool exits 1
 // (fixture violations detected).
 const mainResult = spawnSync(
-  'npx',
-  ['ts-node', '--transpile-only', script, '--self-test'],
-  { stdio: 'inherit', shell: true },
+  process.execPath,
+  [tsNodeBin, '--transpile-only', script, '--self-test'],
+  { stdio: 'inherit' },
 );
 
 if (mainResult.status === 0) {
@@ -39,9 +45,9 @@ console.error(
 // means the guard correctly raised a parse failure (PASS); exit 0 means it
 // did not (BROKEN).
 const guardResult = spawnSync(
-  'npx',
-  ['ts-node', '--transpile-only', script, '--self-test-parse-guard'],
-  { stdio: 'inherit', shell: true },
+  process.execPath,
+  [tsNodeBin, '--transpile-only', script, '--self-test-parse-guard'],
+  { stdio: 'inherit' },
 );
 
 if (guardResult.status === 2) {
