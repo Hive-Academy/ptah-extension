@@ -20,6 +20,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   CliSessionReference,
+  TabId,
   SessionId,
   FlatStreamEventUnion,
   SubagentRecord,
@@ -31,7 +32,10 @@ import {
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { createEmptyStreamingState } from '@ptah-extension/chat-types';
+import {
+  createEmptyStreamingState,
+  type TabState,
+} from '@ptah-extension/chat-types';
 
 /**
  * Cached session list state for a single workspace.
@@ -42,6 +46,12 @@ interface CachedSessionState {
   totalSessions: number;
   hasMoreSessions: boolean;
   sessionsOffset: number;
+}
+
+interface SwitchSessionOptions {
+  reason?: 'compaction';
+  activate?: boolean;
+  targetTabId?: TabId;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -67,10 +77,11 @@ export class SessionLoaderService {
   private _resumableSubagentsSessionId: string | null = null;
 
   /**
-   * Set of sessionIds currently being loaded via switchSession() or
+   * Set of load identities currently being loaded via switchSession() or
    * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
-   * calls when the same session is requested while a load is already in
-   * progress (e.g., from restored-session effect firing alongside switchSession).
+   * calls when the same destination is requested while a load is already in
+   * progress. Targeted loads use `(sessionId, tabId)` so sibling tabs sharing
+   * one session can be restored concurrently.
    */
   private readonly _inFlightSessions = new Set<string>();
 
@@ -536,9 +547,15 @@ export class SessionLoaderService {
    */
   async switchSession(
     sessionId: SessionId,
-    opts?: { reason?: 'compaction'; activate?: boolean },
+    opts?: SwitchSessionOptions,
   ): Promise<void> {
-    if (this._inFlightSessions.has(sessionId)) {
+    const targetTabId = opts?.targetTabId;
+    const loadKey = targetTabId ? `${sessionId}:${targetTabId}` : sessionId;
+    const targetedTab = targetTabId
+      ? this.requireTargetTab(sessionId, targetTabId)
+      : null;
+
+    if (this._inFlightSessions.has(loadKey)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
         sessionId,
@@ -546,7 +563,8 @@ export class SessionLoaderService {
       return;
     }
 
-    const existingTab = this.tabManager.findTabBySessionId(sessionId);
+    const existingTab =
+      targetedTab ?? this.tabManager.findTabBySessionId(sessionId);
     if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
       const inActiveWorkspace = this.tabManager
         .tabs()
@@ -557,7 +575,7 @@ export class SessionLoaderService {
       }
     }
 
-    this._inFlightSessions.add(sessionId);
+    this._inFlightSessions.add(loadKey);
     try {
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
@@ -584,18 +602,17 @@ export class SessionLoaderService {
       // yet in `_sessions()`).
       const title =
         session?.name || existingTab?.name || sessionId.substring(0, 50);
-      const activeTabId = this.tabManager.openSessionTab(sessionId, title);
+      const resolvedTabId = targetTabId
+        ? this.requireTargetTab(sessionId, targetTabId).id
+        : this.tabManager.openSessionTab(sessionId, title);
 
       // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
-      // repro is confirmed. Reveals the RELOAD TARGET: for a compaction reload,
-      // `openSessionTab(sessionId)` re-derives the tab from the session id. If
-      // `activeTabId` here does NOT equal the tile that was cleared in
-      // `handleCompactionComplete`, the reload is writing history into the
-      // wrong tab and the compacted tile stays stale.
+      // repro is confirmed. Reveals the explicit reload target so a missing or
+      // ownership-drifted tile can be correlated with the lifecycle fan-out.
       if (opts?.reason === 'compaction') {
         console.warn('[compaction-diag] switchSession reload target', {
           requestedSessionId: sessionId,
-          resolvedTabId: activeTabId,
+          resolvedTabId,
           existingTabId: existingTab?.id ?? null,
           openTabsForSession: this.tabManager
             .tabs()
@@ -603,7 +620,7 @@ export class SessionLoaderService {
             .map((t) => t.id),
         });
       }
-      this.tabManager.applyResumingSession(activeTabId, {
+      this.tabManager.applyResumingSession(resolvedTabId, {
         sessionId,
         name: title,
         title,
@@ -623,14 +640,24 @@ export class SessionLoaderService {
         'chat:resume',
         {
           sessionId,
-          tabId: activeTabId,
+          tabId: resolvedTabId,
           workspacePath,
-          ...(opts?.activate === true ? { activate: true } : {}),
+          ...(opts?.activate === true && !targetTabId
+            ? { activate: true }
+            : {}),
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );
-      if (opts?.activate === true && resumeResult.data?.activated === true) {
-        this.tabManager.markSessionActive(activeTabId);
+      if (
+        opts?.activate === true &&
+        !targetTabId &&
+        resumeResult.data?.activated === true
+      ) {
+        this.tabManager.markSessionActive(resolvedTabId);
+      }
+
+      if (targetTabId) {
+        this.requireTargetTab(sessionId, targetTabId);
       }
 
       const events = resumeResult.data?.events;
@@ -647,7 +674,7 @@ export class SessionLoaderService {
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
         this.tabManager.applyLoadedSessionStats(
-          activeTabId,
+          resolvedTabId,
           stats,
           stats.model ?? null,
         );
@@ -665,7 +692,7 @@ export class SessionLoaderService {
               contextWindow > 0
                 ? Math.round((contextUsed / contextWindow) * 1000) / 10
                 : 0;
-            this.tabManager.setLiveModelStats(activeTabId, {
+            this.tabManager.setLiveModelStats(resolvedTabId, {
               model: stats.model,
               contextUsed,
               contextWindow,
@@ -676,29 +703,33 @@ export class SessionLoaderService {
         if (stats.modelUsageList && stats.modelUsageList.length > 0) {
           const backendModelList = stats.modelUsageList;
           this.tabManager.setModelUsageList(
-            activeTabId,
+            resolvedTabId,
             backendModelList.map((entry) => ({
               ...entry,
               contextWindow: getModelContextWindow(entry.model),
             })),
           );
         }
-      } else {
-        this.tabManager.setPreloadedStats(activeTabId, null);
-        this.tabManager.setLiveModelStats(activeTabId, null);
-        this.tabManager.setModelUsageList(activeTabId, []);
+      } else if (
+        !targetTabId &&
+        resumeResult.success &&
+        ((events?.length ?? 0) > 0 || (messages?.length ?? 0) > 0)
+      ) {
+        this.tabManager.setPreloadedStats(resolvedTabId, null);
+        this.tabManager.setLiveModelStats(resolvedTabId, null);
+        this.tabManager.setModelUsageList(resolvedTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
         for (const event of events) {
           this.streamingHandler.processStreamEvent(
             event as FlatStreamEventUnion,
-            activeTabId,
+            resolvedTabId,
             sessionId,
-            { isReplay: true },
+            { isReplay: true, fanOut: false },
           );
         }
         this.streamingHandler.finalizeSessionHistory(
-          activeTabId,
+          resolvedTabId,
           resumableSubagents,
         );
 
@@ -714,12 +745,12 @@ export class SessionLoaderService {
           rawContent: msg.content,
           sessionId,
         }));
-        this.tabManager.applyResumedHistory(activeTabId, executionMessages);
+        this.tabManager.applyResumedHistory(resolvedTabId, executionMessages);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
       } else {
-        this.tabManager.applyResumeFailure(activeTabId);
+        this.tabManager.applyResumeFailure(resolvedTabId);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set([]);
         this._resumableSubagentsSessionId = sessionId;
@@ -734,8 +765,19 @@ export class SessionLoaderService {
       this._resumableSubagentsSessionId = null;
       throw error;
     } finally {
-      this._inFlightSessions.delete(sessionId);
+      this._inFlightSessions.delete(loadKey);
     }
+  }
+
+  private requireTargetTab(sessionId: SessionId, targetTabId: TabId): TabState {
+    const target =
+      this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
+    if (!target || target.claudeSessionId !== sessionId) {
+      throw new Error(
+        `[SessionLoaderService] Compaction reload target ${targetTabId} no longer owns session ${sessionId}`,
+      );
+    }
+    return target;
   }
 
   /**

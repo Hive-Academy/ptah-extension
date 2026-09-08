@@ -255,9 +255,8 @@ export class CompactionLifecycleService {
    * banner + stale messages until the user manually switched tabs. We now
    * resolve all tabs bound to the same `compactionSessionId` (or, fallback,
    * the same conversation as the originating tab) and apply the
-   * preloadedStats reset + `markTabIdle` to each. The disk reload via
-   * `switchSession` is fired once per unique `claudeSessionId` to avoid
-   * redundant JSONL re-reads.
+   * preserved stats + `markTabIdle` to each. Every cleared tab is reloaded by
+   * its explicit tab id so duplicate session representations recover in place.
    */
   handleCompactionComplete(result: {
     tabId: string;
@@ -358,32 +357,27 @@ export class CompactionLifecycleService {
     }
     const compactionTab = originatingTab;
     if (compactionTab) {
-      const priorPreloaded = compactionTab.preloadedStats ?? null;
-      const livePreCompactionSnapshot =
-        !priorPreloaded && compactionTab.messages.length > 0
-          ? calculateSessionCostSummary([...compactionTab.messages])
-          : null;
-
-      const lifetimeCost =
-        priorPreloaded?.totalCost ?? livePreCompactionSnapshot?.totalCost ?? 0;
-      const priorMessageCount =
-        priorPreloaded?.messageCount ??
-        livePreCompactionSnapshot?.messageCount ??
-        0;
-
-      const preloadedStats = {
-        totalCost: lifetimeCost,
-        tokens: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheCreation: 0,
-        },
-        messageCount: priorMessageCount,
-      };
       this._suppressAnimateOnce.set(true);
       queueMicrotask(() => this._suppressAnimateOnce.set(false));
       for (const t of fanoutTabs) {
+        const liveSummary =
+          !t.preloadedStats && t.messages.length > 0
+            ? calculateSessionCostSummary([...t.messages])
+            : null;
+        const preloadedStats =
+          t.preloadedStats ??
+          (liveSummary
+            ? {
+                totalCost: liveSummary.totalCost,
+                tokens: {
+                  input: liveSummary.totalTokens.input,
+                  output: liveSummary.totalTokens.output,
+                  cacheRead: liveSummary.totalTokens.cacheRead ?? 0,
+                  cacheCreation: liveSummary.totalTokens.cacheCreation ?? 0,
+                },
+                messageCount: liveSummary.messageCount,
+              }
+            : null);
         this.tabManager.applyCompactionComplete(t.id, {
           preloadedStats,
           compactionCount: (t.compactionCount ?? 0) + 1,
@@ -391,37 +385,34 @@ export class CompactionLifecycleService {
         this.tabManager.markTabIdle(t.id);
       }
       this.sessionManager.setStatus('loaded');
-      const reloadIds = new Set<SessionId>();
-      for (const t of fanoutTabs) {
-        const id =
-          t.claudeSessionId ?? SessionId.safeParse(result.compactionSessionId);
-        if (id) reloadIds.add(id);
-      }
+      const reloadTargets = fanoutTabs.map((tab) => ({
+        tabId: tab.id,
+        sessionId: tab.claudeSessionId ?? compactionSid,
+      }));
 
-      // [compaction-diag] TEMPORARY — the reload is keyed by SESSION ID, not
-      // tab id. `switchSession(sid)` re-derives its target tab via
-      // `openSessionTab(sid)`, which with >1 open session can land on a
-      // DIFFERENT tab than the one just cleared. Log the session ids we are
-      // about to reload; cross-reference with the session-loader diag that
-      // reports which tab each reload actually wrote into.
+      // [compaction-diag] TEMPORARY — retain visibility into the explicit
+      // session/tab pairs until the 2-tile stale-transcript repro is confirmed.
       console.warn('[compaction-diag] reload plan', {
-        reloadSessionIds: Array.from(reloadIds),
+        reloadSessionIds: reloadTargets.map((target) => target.sessionId),
         fanoutTabIds: fanoutTabs.map((t) => t.id),
       });
 
-      if (reloadIds.size === 0) {
+      if (reloadTargets.length === 0) {
         this.clearCompactionStateForFanout(fanoutTabs);
         return;
       }
-      let pending = reloadIds.size;
+      let pending = reloadTargets.length;
       const onSettle = (): void => {
         pending -= 1;
         if (pending > 0) return;
         this.clearCompactionStateForFanout(fanoutTabs);
       };
-      for (const sid of reloadIds) {
+      for (const target of reloadTargets) {
         this.sessionLoader
-          .switchSession(sid, { reason: 'compaction' })
+          .switchSession(target.sessionId, {
+            reason: 'compaction',
+            targetTabId: target.tabId,
+          })
           .catch((err) => {
             console.warn(
               '[ChatStore] Failed to reload session after compaction:',

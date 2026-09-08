@@ -174,19 +174,22 @@ export class ModelSelectorComponent {
   readonly activeIndex = this.keyboardNav.activeIndex;
 
   /**
-   * Effective model for this context: per-tab override when in canvas tile,
-   * otherwise global ModelStateService selection.
+   * Effective model for this context: the canvas tile's tab when present,
+   * otherwise the active main-panel tab. Intentional overrides take priority
+   * over the model restored with session history, then global state is the
+   * fallback for fresh tabs.
    */
   readonly effectiveModel = computed(() => {
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tabId = ctx();
-      if (tabId) {
-        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-        if (tab?.overrideModel) return tab.overrideModel;
-      }
-    }
-    return this.modelState.currentModel();
+    const contextTabId = this._sessionContext?.();
+    const tab = contextTabId
+      ? this.tabManager
+          .tabs()
+          .find((candidate) => candidate.id === contextTabId)
+      : this.tabManager.activeTab();
+
+    return (
+      tab?.overrideModel ?? tab?.sessionModel ?? this.modelState.currentModel()
+    );
   });
 
   /**

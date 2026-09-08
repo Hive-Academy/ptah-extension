@@ -297,6 +297,7 @@ describe('CompactionLifecycleService', () => {
       );
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
         reason: 'compaction',
+        targetTabId: 'tab-1',
       });
     });
 
@@ -334,7 +335,8 @@ describe('CompactionLifecycleService', () => {
     // Additional regression gates.
     // -----------------------------------------------------------------
 
-    it('B2 — resets preloadedStats.tokens to zero {0,0,0,0} while preserving totalCost (lifetime cost)', () => {
+    it('B2 — preserves lifetime stats when a targeted reload fails', async () => {
+      switchSessionMock.mockRejectedValueOnce(new Error('reload failed'));
       tabs = [
         makeTab({
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
@@ -373,15 +375,18 @@ describe('CompactionLifecycleService', () => {
         },
       ];
       expect(payload.preloadedStats.tokens).toEqual({
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheCreation: 0,
+        input: 1000,
+        output: 500,
+        cacheRead: 100,
+        cacheCreation: 50,
       });
-      // Cumulative session cost ($) survives the boundary — only context-fill
-      // tokens reset. messageCount is also preserved.
       expect(payload.preloadedStats.totalCost).toBeCloseTo(2.34);
       expect(payload.preloadedStats.messageCount).toBe(7);
+      await Promise.resolve();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] Failed to reload session after compaction:',
+        expect.any(Error),
+      );
     });
 
     it('B4 — flips suppressAnimateOnce true synchronously and resets it via microtask', async () => {
@@ -523,8 +528,7 @@ describe('CompactionLifecycleService', () => {
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-2');
     });
 
-    it('dedupes switchSession reload by unique claudeSessionId', () => {
-      // Both tiles share the same on-disk session — only one reload should fire.
+    it('reloads every cleared same-session tab by its explicit tab id', () => {
       tabs = [
         makeTab({
           id: 'tab-1',
@@ -539,13 +543,18 @@ describe('CompactionLifecycleService', () => {
       ];
 
       service.handleCompactionComplete({
-        tabId: 'tab-1',
+        tabId: 'tab-2',
         compactionSessionId: SESS_SHARED,
       });
 
-      expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledTimes(2);
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
         reason: 'compaction',
+        targetTabId: 'tab-1',
+      });
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
+        reason: 'compaction',
+        targetTabId: 'tab-2',
       });
     });
   });
@@ -605,6 +614,7 @@ describe('CompactionLifecycleService', () => {
       // The tile is reloaded from disk via its own (rotated) session id.
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_ROTATED, {
         reason: 'compaction',
+        targetTabId: 'tile-1',
       });
     });
 
@@ -678,6 +688,7 @@ describe('CompactionLifecycleService', () => {
       );
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_ROTATED, {
         reason: 'compaction',
+        targetTabId: 'tile-1',
       });
     });
 
@@ -710,6 +721,7 @@ describe('CompactionLifecycleService', () => {
       // ...and the null-session tile still reloads via the compaction session.
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
         reason: 'compaction',
+        targetTabId: 'tile-1',
       });
     });
   });
@@ -782,6 +794,7 @@ describe('CompactionLifecycleService', () => {
 
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_RELOAD, {
         reason: 'compaction',
+        targetTabId: 'tab-1',
       });
     });
   });
