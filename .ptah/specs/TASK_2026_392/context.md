@@ -143,7 +143,15 @@ main.cjs`), not `[node main.cjs]`.
 
 ## Follow-ups deliberately not done here
 
-- **`@hive-academy/ptah-cli` has the same class of gap, unfixed.** Scanning
+Three of these are now filed:
+
+| Task          | What                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| TASK_2026_393 | A `validate-deps` guard for `ptah-license-server`, plus the duplicate `marked` declaration |
+| TASK_2026_394 | The CLI's undeclared `@cursor/sdk` and `@sentry/node` imports                              |
+| TASK_2026_395 | Migrations as a deploy step instead of the container start command                         |
+
+- **`@hive-academy/ptah-cli` has the same class of gap, unfixed** (TASK_2026_394). Scanning
   `dist/apps/ptah-cli/{main,tui}.mjs` with the electron `collectExternalImports`
   helper finds 37 external imports against 37 declared in
   `apps/ptah-cli/package.json` — but they are not the same 37. Three are
@@ -163,16 +171,23 @@ main.cjs`), not `[node main.cjs]`.
   The CLI is a different release train (`publish-cli.yml`) and was deliberately
   left out of this task.
 
-- **`ptah-license-server` has no dependency guard.** `ptah-electron` runs
-  `validate-deps`, which scans its built bundle for external imports and fails
-  when one is not declared — that is precisely why this bug landed on the
-  license server and not on Electron. An equivalent target here would stop the
-  next misfiled dependency from reaching production.
+- **`ptah-license-server` has no dependency guard** (TASK_2026_393).
+  `ptah-electron` runs `validate-deps`, which scans its built bundle for
+  external imports and fails when one is not declared — that is precisely why
+  this bug landed on the license server and not on Electron. An equivalent
+  target here would stop the next misfiled dependency from reaching production.
 
 - **`marked` is declared in both `dependencies` and `devDependencies`** in the
   root `package.json` (lines 170 and 262). Pre-existing and harmless today —
   npm takes the `dependencies` entry — but it is the same classification
-  sloppiness that caused this outage.
+  sloppiness that caused this outage. Folded into TASK_2026_393.
+
+- **The container start command still couples migrations to boot**
+  (TASK_2026_395). `prisma migrate deploy && node main.cjs` is why a CLI that
+  could not parse its own command stopped the server from running at all. It is
+  also the only reason the image still hand-pins a package: `prisma` is never
+  imported by the bundle, so `generatePackageJson` can never emit it no matter
+  how it is classified.
 - No alert routing beyond a GitHub issue (no email, Slack or pager). The issue
   is the notification surface for now.
 - Sentry's blind spot before app bootstrap is unaddressed and unaddressable
