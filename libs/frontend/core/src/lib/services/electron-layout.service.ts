@@ -2,7 +2,9 @@
  * Electron Layout Service
  *
  * Signal-based state management for the Electron desktop 3-panel layout.
- * Manages workspace sidebar width, editor panel width/visibility,
+ * Manages workspace sidebar width, right-dock panel width/visibility
+ * (the `editor*`-named signals below are this dock's slot — the git dock
+ * fills it now that `@ptah-extension/editor` is gone, TASK_2026_385),
  * workspace folders, and layout persistence via state storage.
  *
  * Coordinates workspace switching, confirms active streams on close,
@@ -116,8 +118,8 @@ export class ElectronLayoutService implements MessageHandler {
   }
 
   /**
-   * Re-clamp editor panel width when the window is resized smaller.
-   * Prevents the editor from exceeding 50% of viewport after a window shrink.
+   * Re-clamp the right-dock panel width when the window is resized smaller.
+   * Prevents the dock from exceeding 50% of viewport after a window shrink.
    */
   private setupWindowResizeHandler(): void {
     const handler = () => {
@@ -271,7 +273,8 @@ export class ElectronLayoutService implements MessageHandler {
    * Before removal, checks for streaming tabs in the workspace.
    * If streaming tabs exist, shows a confirmation dialog. On confirm, sends
    * chat:abort RPC for each streaming session before proceeding with removal.
-   * After removal, cleans up TabManagerService and EditorService state.
+   * After removal, cleans up TabManagerService and git service state via the
+   * WORKSPACE_COORDINATOR.
    *
    * Handles edge case: removing the only workspace resets to "no workspace" state.
    */
@@ -363,7 +366,7 @@ export class ElectronLayoutService implements MessageHandler {
    * perceived switch. The backend RPC is debounced by 100ms to handle rapid
    * clicking. A switchId counter ensures stale RPC responses are discarded.
    *
-   * After RPC success: coordinates TabManagerService, EditorService, and
+   * After RPC success: coordinates TabManagerService, the git services, and
    * VSCodeService updates for the new workspace.
    */
   switchWorkspace(index: number): void {
@@ -443,7 +446,7 @@ export class ElectronLayoutService implements MessageHandler {
    * switching to a new active workspace.
    *
    * Uses WORKSPACE_COORDINATOR DI token (provided by chat library) to avoid
-   * circular dependencies between core and chat/editor.
+   * circular dependencies between core and chat/git-ui.
    *
    * If coordination fails,
    * reverts _activeWorkspaceIndex to the previous value to prevent leaving
@@ -571,7 +574,8 @@ export class ElectronLayoutService implements MessageHandler {
    * After restoring workspace folders and active index,
    * sends an initial workspace:switch RPC for the active workspace to ensure the
    * backend activates the correct child container on renderer load. Also
-   * coordinates TabManagerService and EditorService for the restored workspace.
+   * coordinates TabManagerService and the git services for the restored
+   * workspace.
    */
   private restoreLayout(): void {
     const state = this.vscodeService.getState<{
@@ -676,6 +680,11 @@ export class ElectronLayoutService implements MessageHandler {
         this.persistLayout();
       }
     } catch {
+      // degradation-audit: optional-capability - a failed workspace:getInfo or
+      // workspace:switch leaves the folder rail on the last persisted layout
+      // rather than blanking it, so nothing fabricates an empty workspace; the
+      // host stays authoritative and the next sync or explicit switch reports
+      // its own failure through the RPC result the user acted on.
       if (this._switchId !== syncId) return;
       if (cachedState) {
         this.restoreWorkspaceFoldersFromCache(cachedState);

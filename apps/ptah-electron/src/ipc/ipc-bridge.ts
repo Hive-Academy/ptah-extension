@@ -31,7 +31,6 @@ import {
   MESSAGE_TYPES,
   type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
-import type { PtyManagerService } from '../services/pty-manager.service';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
 
@@ -126,7 +125,6 @@ export class IpcBridge {
   constructor(
     private readonly container: DependencyContainer,
     private readonly getWindow: GetWindowFn,
-    private readonly ptyManager?: PtyManagerService,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
@@ -142,7 +140,6 @@ export class IpcBridge {
   initialize(): void {
     this.setupRpcHandler();
     this.setupStateHandlers();
-    this.setupTerminalHandlers();
     this.setupDiagnosticsHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
@@ -525,48 +522,6 @@ export class IpcBridge {
   }
 
   /**
-   * Setup terminal binary IPC handlers.
-   *
-   * Terminal data uses direct IPC channels for low-latency communication:
-   * - terminal:data-in  (renderer -> main): Keyboard input forwarded to PTY
-   * - terminal:resize    (renderer -> main): Terminal dimension changes
-   * - terminal:data-out  (main -> renderer): PTY output forwarded to xterm
-   * - terminal:exit      (main -> renderer): PTY process exit notification
-   *
-   * Only session lifecycle (terminal:create, terminal:kill) uses JSON RPC.
-   */
-  private setupTerminalHandlers(): void {
-    const ptyManager = this.ptyManager;
-    if (!ptyManager) return;
-    ipcMain.on(
-      'terminal:data-in',
-      (_event: IpcMainEvent, id: string, data: string) => {
-        ptyManager.write(id, data);
-      },
-    );
-    ipcMain.on(
-      'terminal:resize',
-      (_event: IpcMainEvent, id: string, cols: number, rows: number) => {
-        ptyManager.resize(id, cols, rows);
-      },
-    );
-    ptyManager.onData((id: string, data: string) => {
-      const win = this.getWindow();
-      if (win) {
-        win.webContents.send('terminal:data-out', id, data);
-      }
-    });
-    ptyManager.onExit((id: string, exitCode: number) => {
-      const win = this.getWindow();
-      if (win) {
-        win.webContents.send('terminal:exit', id, exitCode);
-      }
-    });
-
-    console.log('[IpcBridge] Terminal IPC handlers initialized');
-  }
-
-  /**
    * `diag:cpu-profile` — capture a CPU profile of the main process.
    *
    * A DIRECT `ipcMain.handle`, deliberately not an `rpc:` method. The whole
@@ -602,11 +557,8 @@ export class IpcBridge {
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');
-    ipcMain.removeAllListeners('terminal:data-in');
-    ipcMain.removeAllListeners('terminal:resize');
     // `handle` channels need removeHandler, not removeAllListeners.
     ipcMain.removeHandler('diag:cpu-profile');
-    this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }
 }

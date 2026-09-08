@@ -1,5 +1,6 @@
 /**
- * McpStatusChipComponent — the MCP chip in the chat header (TASK_2026_375 B4.4).
+ * McpStatusChipComponent — the MCP chip in the composer footer, beside the
+ * Agents / Effort / Autopilot controls (TASK_2026_375 B4.4).
  *
  * The CLI reports every MCP server's status once per session, in the SDK `init`
  * message. Before this task Ptah logged that at debug level and showed nothing,
@@ -57,7 +58,7 @@ export interface McpServerRow {
 const ACTIONABLE_STATUSES: readonly string[] = ['needs-auth', 'failed'];
 
 const CHIP_BASE_CLASSES =
-  'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ' +
+  'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] ' +
   'whitespace-nowrap cursor-pointer transition-colors';
 
 const PILL_BASE_CLASSES = 'rounded px-1.5 py-0.5 whitespace-nowrap';
@@ -94,96 +95,92 @@ function normalizeUrl(url: string): string {
   standalone: true,
   imports: [NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // `display: block` with no padding of its own, so the host collapses to zero
-  // height when the `@if` below renders nothing. The chip carries its own
-  // spacing INSIDE the guard rather than in a wrapper in `chat-view.html`,
-  // which would otherwise leave a padded empty strip on every session that
-  // reports no MCP servers.
-  styles: [':host { display: block; }'],
+  // `display: contents` so the host box disappears entirely. The chip lives in
+  // the composer footer row (TASK_2026_375 B4.4 placed it on its own row, which
+  // cost a full row of height for one badge). With `contents` the chip itself
+  // is the flex item, and a session that reports no MCP servers contributes no
+  // item at all — no stray gap next to the Agents button.
+  styles: [':host { display: contents; }'],
   template: `
     @if (rows().length > 0 || notices().length > 0) {
-      <div class="bg-base-200/30 px-1 pb-1">
-        <ptah-native-popover
-          [isOpen]="isOpen()"
-          [placement]="'bottom-end'"
-          [hasBackdrop]="true"
-          [backdropClass]="'transparent'"
-          (closed)="isOpen.set(false)"
+      <ptah-native-popover
+        [isOpen]="isOpen()"
+        [placement]="'top-end'"
+        [hasBackdrop]="true"
+        [backdropClass]="'transparent'"
+        (closed)="isOpen.set(false)"
+      >
+        <button
+          trigger
+          type="button"
+          [class]="chipClasses()"
+          [title]="chipTitle()"
+          [attr.aria-expanded]="isOpen()"
+          (click)="toggle()"
         >
-          <button
-            trigger
-            type="button"
-            [class]="chipClasses()"
-            [title]="chipTitle()"
-            [attr.aria-expanded]="isOpen()"
-            (click)="toggle()"
-          >
-            <span class="text-[10px] uppercase text-base-content-muted"
-              >MCP</span
+          <span class="text-[10px] uppercase text-base-content-muted">MCP</span>
+          <span class="tabular-nums">{{ chipLabel() }}</span>
+        </button>
+
+        <div content class="w-80 max-w-[90vw] p-3 text-xs">
+          <div class="mb-2 font-semibold">MCP servers</div>
+
+          @for (row of rows(); track row.key) {
+            <div
+              class="flex items-start gap-2 border-b border-base-content/10 py-1.5 last:border-b-0"
             >
-            <span class="tabular-nums">{{ chipLabel() }}</span>
-          </button>
-
-          <div content class="w-80 max-w-[90vw] p-3 text-xs">
-            <div class="mb-2 font-semibold">MCP servers</div>
-
-            @for (row of rows(); track row.key) {
-              <div
-                class="flex items-start gap-2 border-b border-base-content/10 py-1.5 last:border-b-0"
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="truncate font-medium" [title]="row.key">
-                    {{ row.label }}
-                  </div>
-                  @if (row.hint) {
-                    <div class="text-base-content-muted">{{ row.hint }}</div>
-                  }
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-medium" [title]="row.key">
+                  {{ row.label }}
                 </div>
-                <span [class]="pillClasses(row.status)">{{
-                  row.statusLabel
-                }}</span>
-                @if (row.needsAction) {
-                  <button
-                    type="button"
-                    class="rounded border border-warning/40 px-1.5 py-0.5 text-warning transition-colors hover:bg-warning/10"
-                    (click)="authorize(row)"
-                  >
-                    Authorize
-                  </button>
+                @if (row.hint) {
+                  <div class="text-base-content-muted">{{ row.hint }}</div>
                 }
               </div>
-            } @empty {
-              <div class="py-1.5 text-base-content-muted">
-                This session reports no MCP servers.
-              </div>
-            }
-
-            @for (notice of notices(); track notice.code) {
-              <div
-                class="mt-2 rounded border border-info/25 bg-info/10 p-2"
-                [title]="notice.message"
-              >
-                <div class="mb-1 font-medium text-info">
-                  claude.ai connectors are not loaded
-                </div>
-                <p class="mb-1 text-base-content-muted">
-                  Your claude.ai connectors (Gmail, Calendar, Drive…) are
-                  disabled because Ptah runs this session on
-                  {{ providerLabel() }}. Switch the provider to Claude login to
-                  load them.
-                </p>
+              <span [class]="pillClasses(row.status)">{{
+                row.statusLabel
+              }}</span>
+              @if (row.needsAction) {
                 <button
                   type="button"
-                  class="underline transition-colors hover:text-info"
-                  (click)="openProviderSettings()"
+                  class="rounded border border-warning/40 px-1.5 py-0.5 text-warning transition-colors hover:bg-warning/10"
+                  (click)="authorize(row)"
                 >
-                  Settings → Providers
+                  Authorize
                 </button>
+              }
+            </div>
+          } @empty {
+            <div class="py-1.5 text-base-content-muted">
+              This session reports no MCP servers.
+            </div>
+          }
+
+          @for (notice of notices(); track notice.code) {
+            <div
+              class="mt-2 rounded border border-info/25 bg-info/10 p-2"
+              [title]="notice.message"
+            >
+              <div class="mb-1 font-medium text-info">
+                claude.ai connectors are not loaded
               </div>
-            }
-          </div>
-        </ptah-native-popover>
-      </div>
+              <p class="mb-1 text-base-content-muted">
+                Your claude.ai connectors (Gmail, Calendar, Drive…) are disabled
+                because Ptah runs this session on
+                {{ providerLabel() }}. Switch the provider to Claude login to
+                load them.
+              </p>
+              <button
+                type="button"
+                class="underline transition-colors hover:text-info"
+                (click)="openProviderSettings()"
+              >
+                Settings → Providers
+              </button>
+            </div>
+          }
+        </div>
+      </ptah-native-popover>
     }
   `,
 })

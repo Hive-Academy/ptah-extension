@@ -41,7 +41,7 @@ import {
   CanvasSeedTab,
   RETAINED_WORKSPACE_CAP,
 } from './canvas.store';
-import { CanvasLayoutService } from './canvas-layout.service';
+import { DEFAULT_TILE_WEIGHT } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
 
 const makeSeed = (
@@ -69,23 +69,12 @@ describe('CanvasStore workspace partitioning', () => {
       forceCloseTab: jest.fn(),
     } as unknown as TabManagerService;
 
-    const layoutServiceMock = {
-      computeLayout: jest.fn((count: number) => ({
-        cellHeight: 120,
-        tiles: Array.from({ length: count }, (_, i) => ({
-          x: (i % 3) * 4,
-          y: Math.floor(i / 3) * 6,
-          w: 4,
-          h: 6,
-        })),
-      })),
-    } as unknown as CanvasLayoutService;
-
+    // No CanvasLayoutService provider: the store owns intent only and must
+    // resolve without the layout service. Its absence is the assertion.
     TestBed.configureTestingModule({
       providers: [
         CanvasStore,
         { provide: TabManagerService, useValue: tabManagerMock },
-        { provide: CanvasLayoutService, useValue: layoutServiceMock },
       ],
     });
     store = TestBed.inject(CanvasStore);
@@ -104,32 +93,150 @@ describe('CanvasStore workspace partitioning', () => {
     expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1', 'a-tab-2']);
   });
 
-  it('round-trip A->B->A preserves custom positions and focused tab', () => {
+  it('round-trip A->B->A preserves custom intent and focused tab', () => {
     store.switchWorkspaceTiles('/ws/a', []);
     store.adoptTab('a-tab-1');
     store.adoptTab('a-tab-2');
-    store.updateTilePosition('a-tab-1', { x: 7, y: 3, w: 5, h: 8 });
+    store.reorderTiles(['a-tab-2', 'a-tab-1']);
+    store.setTileWeights(new Map([['a-tab-1', 5]]));
     store.focusTile('a-tab-2');
 
     store.switchWorkspaceTiles('/ws/b', []);
     store.switchWorkspaceTiles('/ws/a', []);
 
     const restored = store.tiles().find((t) => t.tabId === 'a-tab-1');
-    expect(restored?.position).toEqual({ x: 7, y: 3, w: 5, h: 8 });
+    expect(restored).toEqual({ tabId: 'a-tab-1', order: 1, weight: 5 });
+    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-2', 'a-tab-1']);
     expect(store.focusedTabId()).toBe('a-tab-2');
   });
 
-  it('seeds first-visit workspace from activeTabs using layout positions', () => {
+  it('seeds first-visit workspace from activeTabs with dense order and default weight', () => {
     store.switchWorkspaceTiles('/ws/a', [
       makeSeed('t1'),
       makeSeed('t2'),
       makeSeed('t3'),
     ]);
 
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['t1', 't2', 't3']);
-    expect(store.tiles()[0].position).toEqual({ x: 0, y: 0, w: 4, h: 6 });
-    expect(store.tiles()[1].position).toEqual({ x: 4, y: 0, w: 4, h: 6 });
-    expect(store.tiles()[2].position).toEqual({ x: 8, y: 0, w: 4, h: 6 });
+    expect(store.tiles()).toEqual([
+      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT },
+      { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT },
+      { tabId: 't3', order: 2, weight: DEFAULT_TILE_WEIGHT },
+    ]);
+  });
+
+  it('appends tiles at the end of the reading order', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.adoptTab('a-tab-2');
+    store.adoptTab('a-tab-3');
+
+    expect(store.tiles().map((t) => t.order)).toEqual([0, 1, 2]);
+    expect(store.tiles().every((t) => t.weight === DEFAULT_TILE_WEIGHT)).toBe(
+      true,
+    );
+  });
+
+  describe('reorderTiles', () => {
+    beforeEach(() => {
+      store.switchWorkspaceTiles('/ws/a', []);
+      store.adoptTab('t1');
+      store.adoptTab('t2');
+      store.adoptTab('t3');
+    });
+
+    it('assigns dense order in the given sequence', () => {
+      store.reorderTiles(['t3', 't1', 't2']);
+
+      expect(store.tiles()).toEqual([
+        { tabId: 't3', order: 0, weight: DEFAULT_TILE_WEIGHT },
+        { tabId: 't1', order: 1, weight: DEFAULT_TILE_WEIGHT },
+        { tabId: 't2', order: 2, weight: DEFAULT_TILE_WEIGHT },
+      ]);
+    });
+
+    it('leaves weights untouched', () => {
+      store.setTileWeights(new Map([['t2', 7]]));
+      store.reorderTiles(['t2', 't3', 't1']);
+
+      expect(store.tiles().find((t) => t.tabId === 't2')?.weight).toBe(7);
+    });
+
+    it('ignores unknown ids and keeps unlisted tiles after the listed ones', () => {
+      store.reorderTiles(['ghost', 't3']);
+
+      expect(store.tiles().map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
+      expect(store.tiles().map((t) => t.order)).toEqual([0, 1, 2]);
+    });
+
+    it('returns the same array reference when nothing moved', () => {
+      const before = store.tiles();
+      store.reorderTiles(['t1', 't2', 't3']);
+      expect(store.tiles()).toBe(before);
+    });
+  });
+
+  describe('setTileWeights', () => {
+    beforeEach(() => {
+      store.switchWorkspaceTiles('/ws/a', []);
+      store.adoptTab('t1');
+      store.adoptTab('t2');
+    });
+
+    it('writes the listed weights and leaves others untouched', () => {
+      store.setTileWeights(new Map([['t1', 8]]));
+
+      expect(store.tiles()).toEqual([
+        { tabId: 't1', order: 0, weight: 8 },
+        { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT },
+      ]);
+    });
+
+    it('coerces a non-finite or non-positive weight to the default', () => {
+      store.setTileWeights(
+        new Map([
+          ['t1', Number.NaN],
+          ['t2', -3],
+        ]),
+      );
+
+      expect(store.tiles().map((t) => t.weight)).toEqual([
+        DEFAULT_TILE_WEIGHT,
+        DEFAULT_TILE_WEIGHT,
+      ]);
+    });
+
+    it('leaves order untouched', () => {
+      store.reorderTiles(['t2', 't1']);
+      store.setTileWeights(new Map([['t1', 4]]));
+
+      expect(store.tiles().map((t) => t.tabId)).toEqual(['t2', 't1']);
+      expect(store.tiles().map((t) => t.order)).toEqual([0, 1]);
+    });
+
+    it('returns the same array reference when every weight is unchanged', () => {
+      const before = store.tiles();
+      store.setTileWeights(
+        new Map([
+          ['t1', DEFAULT_TILE_WEIGHT],
+          ['ghost', 5],
+        ]),
+      );
+      expect(store.tiles()).toBe(before);
+    });
+  });
+
+  it('renumbers order densely after a tile is removed', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('t1');
+    store.adoptTab('t2');
+    store.adoptTab('t3');
+
+    store.removeTileOnly('t2');
+
+    expect(store.tiles()).toEqual([
+      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT },
+      { tabId: 't3', order: 1, weight: DEFAULT_TILE_WEIGHT },
+    ]);
   });
 
   it('removeWorkspaceTileState clears live signals when removing the active workspace', () => {
@@ -222,7 +329,7 @@ describe('CanvasStore workspace partitioning', () => {
 
     store.switchWorkspaceTiles('/ws/a', []);
     store.adoptTab('a-tab-1');
-    store.updateTilePosition('a-tab-1', { x: 5, y: 5, w: 5, h: 5 });
+    store.setTileWeights(new Map([['a-tab-1', 5]]));
     store.switchWorkspaceTiles('/ws/b', []);
     store.switchWorkspaceTiles('/ws/c', []);
     store.switchWorkspaceTiles('/ws/d', []);
@@ -242,11 +349,10 @@ describe('CanvasStore workspace partitioning', () => {
       '/ws/e',
     ]);
 
-    // returning re-mounts /ws/a with its saved tiles + positions intact
+    // returning re-mounts /ws/a with its saved tiles + intent intact
     store.switchWorkspaceTiles('/ws/a', []);
     expect(store.workspacePaths()).toContain('/ws/a');
-    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
-    expect(store.tiles()[0].position).toEqual({ x: 5, y: 5, w: 5, h: 5 });
+    expect(store.tiles()).toEqual([{ tabId: 'a-tab-1', order: 0, weight: 5 }]);
   });
 
   it('allTabIds returns tabIds across every retained workspace', () => {

@@ -115,6 +115,7 @@ import {
   ResolveSmitherySchema,
   InstallSmitherySchema,
   UninstallSmitherySchema,
+  UninstallMcpSchema,
   SmitheryServerKeySchema,
   deriveSmitheryConnectionId,
   ConnectOAuthSchema,
@@ -194,18 +195,6 @@ export class McpDirectoryRpcHandlers {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
 
-    // Installing an MCP server records an intent and asks the reconciler to
-    // apply it; the per-target config writers live behind `IHarnessMcpFacet`
-    // (TASK_2026_278 Batch 2). A host without `harness-sync` gets a service
-    // that reports a clear error per target rather than a second write path.
-    this.installService = new McpInstallService(
-      container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER)
-        ? container.resolve<HarnessReconcilerService>(
-            HARNESS_SYNC_TOKENS.RECONCILER,
-          )
-        : null,
-    );
-
     const getSmitheryApiKey = async (): Promise<string | null> =>
       (await this.authSecretsService.getProviderKey(
         SMITHERY_API_KEY_SECRET_ID,
@@ -235,6 +224,25 @@ export class McpDirectoryRpcHandlers {
         deleteProviderKey: (id) =>
           this.authSecretsService.deleteProviderKey(id),
       }),
+    );
+
+    // Installing an MCP server records an intent and asks the reconciler to
+    // apply it; the per-target config writers live behind `IHarnessMcpFacet`
+    // (TASK_2026_278 Batch 2). A host without `harness-sync` gets a service
+    // that reports a clear error per target rather than a second write path.
+    //
+    // It is constructed AFTER the two manifest stores because `listInstalled`
+    // reads through THOSE INSTANCES. A second store built inside the install
+    // service would be a parallel reader of the same file with its own
+    // staleness — the exact defect TASK_2026_375 fixed for the chat path.
+    this.installService = new McpInstallService(
+      container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER)
+        ? container.resolve<HarnessReconcilerService>(
+            HARNESS_SYNC_TOKENS.RECONCILER,
+          )
+        : null,
+      undefined,
+      { smithery: this.smitheryManifest, oauth: this.oauthManifest },
     );
 
     // Optional host-native redirect capture. Selection is purely DI: the VS
@@ -477,17 +485,20 @@ export class McpDirectoryRpcHandlers {
       McpDirectoryUninstallResult
     >('mcpDirectory:uninstall', async (params) => {
       try {
+        const input = UninstallMcpSchema.parse(params);
         this.logger.info('RPC: mcpDirectory:uninstall', {
-          serverKey: params.serverKey,
-          targets: params.targets,
+          serverKey: input.serverKey,
+          targets: input.targets,
+          force: input.force,
         });
 
         const workspaceRoot = this.getWorkspaceRoot();
 
         const results = await this.installService.uninstall(
-          params.serverKey,
-          params.targets,
+          input.serverKey,
+          input.targets,
           workspaceRoot,
+          { force: input.force },
         );
 
         return { results };

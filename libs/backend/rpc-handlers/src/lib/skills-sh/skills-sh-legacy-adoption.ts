@@ -155,6 +155,8 @@ async function readLock(
     );
     return parsed.success ? parsed.data : null;
   } catch {
+    // degradation-audit: optional-capability - the skills.sh lockfile is
+    // optional legacy state; null means there is nothing to adopt.
     // No lockfile is the normal case for a workspace that never used skills.sh.
     return null;
   }
@@ -200,6 +202,8 @@ async function isSkillDir(dir: string): Promise<boolean> {
     await fs.access(path.join(dir, 'SKILL.md'));
     return true;
   } catch {
+    // degradation-audit: optional-capability - the lstat/access pair is a
+    // skill-directory probe; false skips the entry as not a skill.
     return false;
   }
 }

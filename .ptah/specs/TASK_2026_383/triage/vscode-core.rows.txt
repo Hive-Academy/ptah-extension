@@ -1,0 +1,17 @@
+libs/backend/vscode-core/src/api-wrappers/file-system-manager.ts:363 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/output-manager.ts:189 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/output-manager.ts:213 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/output-manager.ts:236 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/output-manager.ts:301 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/output-manager.ts:318 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts:184 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts:213 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts:240 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts:324 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/error-handling/error-handler.ts:75 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/error-handling/error-handler.ts:345 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/logging/logger.ts:30 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/logging/logger.ts:98 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/services/git-info.service.ts:2269 [catch-return-sentinel] catch swallows error and returns a literal
+libs/backend/vscode-core/src/services/workspace-context-manager.ts:27 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+libs/backend/vscode-core/src/validation/message-validator.service.ts:569 [catch-return-sentinel] catch swallows error and returns a literal

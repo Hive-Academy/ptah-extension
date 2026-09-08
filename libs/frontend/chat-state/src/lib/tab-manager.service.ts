@@ -141,9 +141,18 @@ export class TabManagerService {
   private readonly _activeTabId = signal<string | null>(null);
 
   /**
-   * Streaming indicator signal - tracks which tabs are currently streaming.
-   * This is a VISUAL-ONLY indicator, completely isolated from tab.status state machine.
-   * Does not affect session management, message sending, or any backend communication.
+   * Spinner set — the tabs the backend `turn_state` stream says are generating.
+   * Written only by `applyTurnState` and by the optimistic `markTabStreaming`
+   * on send (which the next `generating` event confirms); isolated from the
+   * `tab.status` state machine, which it deliberately outlives.
+   *
+   * It is NOT visual-only. `MessageDispatchService.sendOrQueueMessage` reads it
+   * through `isTabStreaming` to decide send-vs-queue, because the SDK can
+   * pause/resume a turn and revert `status` to `loaded` while the stream is
+   * still in flight — sending in that window would install a fresh
+   * AbortController and kill it. That usage is deliberate and load-bearing; the
+   * older "VISUAL-ONLY … does not affect message sending" note it replaces was
+   * simply wrong (corrected TASK_2026_382).
    */
   private readonly _streamingTabIds = signal<Set<string>>(new Set());
 
@@ -1609,6 +1618,20 @@ export class TabManagerService {
   /**
    * Lighter error reset: only status + currentMessageId. Used by handlers
    * that don't own the queue (e.g. completion-handler legacy path).
+   *
+   * It deliberately does NOT clear `streamingState` — that tree holds the text
+   * the agent already produced, and dropping it here would be data loss (the
+   * sibling `applyCompactionTimeoutReset` clears it only because a stuck
+   * compaction has no partial output worth keeping). The caller therefore owes
+   * this a finalize FIRST: a tab left with `status: 'loaded'` and a live
+   * `streamingState` renders a streaming bubble that every busy-predicate
+   * reader calls idle. `CompletionHandlerService.handleChatError` calls
+   * `MessageFinalizationService.finalizeCurrentMessage(tabId, true)` ahead of
+   * this for exactly that reason (TASK_2026_382).
+   *
+   * Note the field this nulls is the TAB's `currentMessageId`, not
+   * `streamingState.currentMessageId` — finalization reads the latter
+   * (`message-finalization.service.ts:64`), so this call never blocks it.
    */
   applyStatusErrorReset(tabId: string): void {
     this.updateTabInternal(tabId, {

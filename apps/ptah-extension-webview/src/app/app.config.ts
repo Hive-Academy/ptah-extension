@@ -14,6 +14,8 @@ import {
   AutopilotStateService,
   AppStateManager,
   ElectronLayoutService,
+  BootStatusService,
+  BackOfficeActivityService,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
@@ -52,10 +54,11 @@ import {
   SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
-  provideEditorInternalState,
-  EditorService,
+  DiffTabsService,
+  GitBranchesService,
   GitStatusService,
-} from '@ptah-extension/editor/services';
+  WorktreeService,
+} from '@ptah-extension/git-ui';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
@@ -180,9 +183,10 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
-    ...provideEditorInternalState(),
-    { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,
@@ -245,6 +249,15 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: HarnessHealthStore,
+      multi: true,
+    },
+    // Boot readiness (TASK_2026_380). Registered for BOTH hosts on purpose:
+    // the service defaults to `ready`, so the VS Code webview — which never
+    // receives `boot:readinessChanged` — is unaffected by construction.
+    { provide: MESSAGE_HANDLERS, useExisting: BootStatusService, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: BackOfficeActivityService,
       multi: true,
     },
     provideMonacoEditor({

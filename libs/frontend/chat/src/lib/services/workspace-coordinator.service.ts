@@ -20,8 +20,8 @@ import { SessionLivenessReconcilerService } from './chat-store/session-liveness-
 import { FilePickerService } from './file-picker.service';
 
 /**
- * Common interface for editor services that support workspace partitioning.
- * Used to avoid static imports of the lazy-loaded editor library.
+ * Common interface for the git services that support workspace partitioning.
+ * Used to avoid a static import of `@ptah-extension/git-ui` at this layer.
  */
 interface WorkspaceAwareService {
   switchWorkspace(workspacePath: string): void;
@@ -32,16 +32,22 @@ interface WorkspaceAwareService {
  * Orchestrates workspace operations across TabManagerService (chat),
  * SessionLoaderService (session cache), FilePickerService (`@` picker file
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
- * command caches), EditorService (editor), GitStatusService /
- * GitBranchesService (git state), TerminalService (terminal state),
+ * command caches), GitStatusService / GitBranchesService (git state),
  * AppStateManager (which view/layout surface is on screen) and
  * ConfirmationDialogService.
  *
- * Editor services (EditorService, GitStatusService, GitBranchesService,
- * TerminalService) are resolved dynamically via Injector to avoid static
- * imports of the lazy-loaded editor library. Everything else —
+ * Git services (GitStatusService, GitBranchesService) are resolved
+ * dynamically via Injector to avoid a static import of
+ * `@ptah-extension/git-ui` at this layer. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
+ *
+ * `@ptah-extension/editor` (the former source of `EditorService`) was deleted
+ * in TASK_2026_385 Batch 4.1. Before that, this service resolved
+ * `EditorService` and the two git services in a single `Promise.all`, whose
+ * rejection semantics meant a missing editor chunk silently dropped the git
+ * notification too, with only a `console.warn` nobody read — see
+ * {@link resolveGitServices}.
  *
  * @see IWorkspaceCoordinator for the contract and dependency inversion rationale.
  */
@@ -73,49 +79,52 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly workspaceScope = inject(WorkspaceScopeService);
 
   /**
-   * Cached references to editor services, resolved on first use.
-   * These are providedIn: 'root' services from the editor library,
-   * loaded dynamically to respect lazy-load boundaries.
+   * Cached references to the git services, resolved on first use.
+   * These are providedIn: 'root' services from `@ptah-extension/git-ui`,
+   * resolved via dynamic import to avoid a static import at this layer.
    */
-  private editorServices: WorkspaceAwareService[] | null = null;
+  private gitServices: WorkspaceAwareService[] | null = null;
 
   /**
    * Monotonic switch counter. Incremented on every {@link switchWorkspace}
-   * call and re-checked after each `await` in that call — the editor-service
+   * call and re-checked after each `await` in that call — the git-service
    * resolution and the detached provider-state refresh — so a slower, older
-   * switch cannot apply its editor workspace or its auth/model/effort
+   * switch cannot apply its git workspace or its auth/model/effort
    * round-trips over a newer switch that has since superseded it (rapid
-   * A→B→A). Mirrors the stale-response guards already used in
-   * `GitStatusService.fetchGitInfo` (`workspaceAtFetchTime`) and
-   * `EditorWorkspaceHelper.loadFileTree` (request-id).
+   * A→B→A). Mirrors the stale-response guard already used in
+   * `GitStatusService.fetchGitInfo` (`workspaceAtFetchTime`).
    */
   private switchGeneration = 0;
 
   /**
-   * Lazily resolve editor services via dynamic import + Injector.
-   * Returns empty array if editor library hasn't been loaded yet.
+   * Lazily resolve the git services via dynamic import + Injector.
+   *
+   * Deliberately does NOT swallow a failed resolution to `[]`. Before
+   * TASK_2026_385 Batch 4.1 this method also imported the (now-deleted)
+   * `@ptah-extension/editor` module in the same `Promise.all`, so a missing
+   * editor chunk was an expected, swallowed state — but that meant ANY
+   * failure, including a genuinely broken git-ui import, silently dropped
+   * the workspace-switch notification to `GitStatusService` /
+   * `GitBranchesService` with only a `console.warn` nobody read. With only
+   * `@ptah-extension/git-ui` left — a library that is statically imported
+   * and eagerly bundled by `app.config.ts`, never lazy-loaded — a failed
+   * import here cannot legitimately mean "not loaded yet"; it is a real
+   * fault. Both call sites ({@link switchWorkspace}, {@link
+   * removeWorkspaceState}) already wrap this in their own `try`/`catch` with
+   * a loud `console.error`, so this method lets the error propagate to them
+   * instead of hiding it.
    */
-  private async resolveEditorServices(): Promise<WorkspaceAwareService[]> {
-    if (this.editorServices !== null && this.editorServices.length > 0) {
-      return this.editorServices;
+  private async resolveGitServices(): Promise<WorkspaceAwareService[]> {
+    if (this.gitServices !== null && this.gitServices.length > 0) {
+      return this.gitServices;
     }
 
-    try {
-      const editorModule = await import('@ptah-extension/editor/services');
-      this.editorServices = [
-        this.injector.get(editorModule.EditorService),
-        this.injector.get(editorModule.GitStatusService),
-        this.injector.get(editorModule.GitBranchesService),
-        this.injector.get(editorModule.TerminalService),
-      ];
-      return this.editorServices;
-    } catch (error) {
-      console.warn(
-        '[WorkspaceCoordinator] Editor services not available yet (editor chunk may not be loaded):',
-        error instanceof Error ? error.message : String(error),
-      );
-      return [];
-    }
+    const gitModule = await import('@ptah-extension/git-ui');
+    this.gitServices = [
+      this.injector.get(gitModule.GitStatusService),
+      this.injector.get(gitModule.GitBranchesService),
+    ];
+    return this.gitServices;
   }
 
   async switchWorkspace(newPath: string): Promise<void> {
@@ -127,7 +136,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // in order.
     //
     // The three picker caches MUST be reset here, before the awaited
-    // editor-service resolution below: any window in which they still hold the
+    // git-service resolution below: any window in which they still hold the
     // old root's data is a window in which a picker lies (TASK_2026_200,
     // criterion 11). All three own their invalidation rather than having their
     // signals cleared from here, because each must also discard the RPC
@@ -173,8 +182,8 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     });
 
     try {
-      const services = await this.resolveEditorServices();
-      // The editor chunk resolution above is the one `await` in this method, so
+      const services = await this.resolveGitServices();
+      // The git chunk resolution above is the one `await` in this method, so
       // it is the one place a superseded switch can regain control after a
       // newer one has already applied. Dropping the stale continuation here
       // also skips its `refreshWorkspaceProviderState` below, which is correct:
@@ -185,7 +194,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       }
     } catch (error) {
       console.error(
-        '[WorkspaceCoordinator] Failed to switch editor services workspace:',
+        '[WorkspaceCoordinator] Failed to switch git services workspace:',
         error,
       );
     }
@@ -217,13 +226,13 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
    * `ptah tui`), so that snapshot is exactly the thing not to trust.
    *
    * Two lines, and deliberately no more. The per-folder teardown — tabs,
-   * sessions, editor state — is already done by `removeWorkspaceState`, which
+   * sessions, git state — is already done by `removeWorkspaceState`, which
    * `ElectronLayoutService` calls for the folder being removed BEFORE it gets
    * here. What was missing is only the transition itself.
    */
   clearWorkspace(): void {
     // Supersede any switch still in flight. Without this, a `switchWorkspace`
-    // whose editor-chunk `await` resolves after the last folder closed would
+    // whose git-chunk `await` resolves after the last folder closed would
     // carry on and re-resolve auth/model/effort for a workspace that is gone.
     this.switchGeneration += 1;
     this.workspaceScope.switchTo(null);
@@ -280,13 +289,13 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     this.appState.removeWorkspaceState(workspacePath);
 
     try {
-      const services = await this.resolveEditorServices();
+      const services = await this.resolveGitServices();
       for (const svc of services) {
         svc.removeWorkspaceState(workspacePath);
       }
     } catch (error) {
       console.error(
-        '[WorkspaceCoordinator] Failed to remove editor services workspace state:',
+        '[WorkspaceCoordinator] Failed to remove git services workspace state:',
         error,
       );
     }

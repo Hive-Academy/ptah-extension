@@ -10,5 +10,5 @@
     "src/**/*.ts",
     "../../libs/backend/vscode-lm-tools/src/lib/code-execution/services/gifenc.d.ts"
   ],
-  "exclude": ["**/*.spec.ts"]
+  "exclude": ["**/*.spec.ts", "src/build-artifact-gate.ts"]
 }

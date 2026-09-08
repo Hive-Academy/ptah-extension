@@ -168,8 +168,15 @@ function skip(eventType: FlatStreamEventUnion['eventType']): AccumulatorResult {
  * background agent even when it was never registered in BackgroundAgentStore
  * (mid-run backgrounding currently arrives only as an `agent_status` patch,
  * not a `background_agent_started` event).
+ *
+ * Deliberately the bare phrase. Claude Code 2.1.259 spawns agents in the
+ * background by default, omits `run_in_background` from the tool input, and
+ * words the placeholder "The agent is working in the background" — the
+ * earlier "running in the background" no longer matched, so every such agent
+ * was terminalised the instant its placeholder arrived (session 665944b7,
+ * 2026-09-05).
  */
-const BACKGROUNDED_TOOL_RESULT_MARKER = 'running in the background';
+const BACKGROUNDED_TOOL_RESULT_MARKER = 'in the background';
 
 /** Whether a tool_result payload is the SDK's "running in the background"
  * placeholder. Only invoked for Task tool_results (guarded by a subagent-record

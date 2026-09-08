@@ -142,6 +142,8 @@ export class CandidateNamerService {
         outputSchema: CANDIDATE_NAMING_JSON_SCHEMA,
       });
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - Display-name generation is
+      // optional; null leaves the UI's slug fallback intact for retry.
       this.logger.warn('[skill-naming] lane call threw; leaving name unset', {
         candidateId: id,
         error: error instanceof Error ? error.message : String(error),

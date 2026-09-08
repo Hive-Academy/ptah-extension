@@ -125,6 +125,29 @@ connection is NOT evidence that the tools arrived — only a tool listing is.
 - **`SmitheryInstalledManifestStore` and `McpOAuthInstalledManifestStore` re-read their file on every call, not once at construction (TASK_2026_375).** Each keeps a `loadedSignature` (`mtimeMs:size`, not mtime alone — two writes inside one Windows/tmpfs millisecond must still be seen) and a private `refresh()` that re-parses only when the signature changed. `refresh()` runs at the top of every read AND every mutating method, because a mutation built on a stale in-memory map silently clobbers a record another instance just wrote. Before this, `ChatSessionService` built its own long-lived store instance, so an install the Marketplace RPC handler wrote was invisible until Ptah restarted.
 - **OAuth discovery in `mcp-oauth-metadata.ts` is path-aware, not origin-only (TASK_2026_375).** `discoverAuthorizationServer` tries the RFC 9728 §3.1 path form (`/.well-known/oauth-protected-resource<path>`) before the root document, then a live 401 probe that parses `WWW-Authenticate: … resource_metadata="<url>"`. `discoverAuthServerMetadata` tries the matching RFC 8414 §3.1 path-insert form before its own root fallback. Every Smithery-hosted server publishes its metadata only under the path form — origin-only discovery found nothing for any of them.
 - **A Connections-API Smithery install collapses to ONE session override, keyed `smithery`, not one override per server.** `SmitheryOverrideResolver` emits `{ type: 'http', url: 'https://mcp.smithery.run/<namespace>', headers: { Authorization: … } }` for every record that carries `namespace` + `connectionId`, and tools from all of them arrive prefixed `<connectionId>.<tool>` on that one server. A record without `namespace` (installed before this) keeps its own legacy per-server override untouched.
+- **`~/.claude.json` is READ-ONLY here and must never become a harness facet.**
+  `claude-user-mcp.reader.ts` exists because `listInstalled` was reading only the
+  six reconciler-owned config files, so the Installed tab reported eight servers
+  on a machine running about eleven — a Smithery install, an in-app OAuth
+  connection and anything added with `claude mcp add` were each real, connected
+  and invisible. The reader covers the last of those: the top-level `mcpServers`
+  map AND `projects[<root>].mcpServers`, which is where the servers actually
+  live on this machine (there is no top-level map at all). Adding it to
+  `mcp-facet.registry.ts` would put the reconciler in charge of a file the
+  `claude` CLI owns and whose schema carries history, trust and onboarding state
+  — so it has no `write`, and every row it produces is `removal: 'none'` with a
+  reason naming `claude mcp remove`. Project-key case is folded on `win32` and
+  `darwin` only, and every folded-matching key is read: this repo has TWO
+  project entries differing only in drive-letter case, both live.
+- **An uninstall that removed nothing now says so.** The reconciler deletes only
+  manifest-owned keys — a hand-written entry is `foreign` and correctly left
+  alone — but `McpInstallService.uninstall` used to report `success: true`
+  anyway, because it fails a target only when a write for that exact key failed
+  and no write was attempted. It now re-reads the config afterwards and reports
+  a refusal naming the key as user-owned. `force: true` is the deliberate way
+  out, and it goes through `IHarnessMcpFacet.remove` — never a hand-rolled
+  read-modify-write, because the facet owns the dialect and holds the
+  per-config-file lock.
 - Depend on `agent-sdk` only via its public barrel — no deep imports.
 - Same for `harness-sync`: public barrel only, and the dependency is ONE-WAY.
   `harness-sync` must never import this lib.

@@ -546,6 +546,9 @@ function safeJsonStringify(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
+    // degradation-audit: optional-capability - this renders a transcript
+    // detail line; a cyclic or unserialisable value yields '', the same as
+    // the null/undefined case above, and the event is still emitted.
     return '';
   }
 }

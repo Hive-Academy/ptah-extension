@@ -75,6 +75,9 @@ export class CodeSymbolPromptInjector {
         '---',
       ].join('\n');
     } catch (err: unknown) {
+      // degradation-audit: optional-capability - symbol-index enrichment is
+      // additive prompt context; '' omits the block and the session runs on
+      // the unenriched prompt, which is also the no-hits answer.
       this.logger.warn(
         '[CodeSymbolPromptInjector] Symbol search failed; skipping injection',
         { error: err instanceof Error ? err.message : String(err) },

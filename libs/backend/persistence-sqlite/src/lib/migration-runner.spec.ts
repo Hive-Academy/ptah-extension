@@ -172,7 +172,7 @@ describe('SqliteMigrationRunner', () => {
     const backupCalls: string[] = [];
     const rotateCalls: Array<[string, number]> = [];
     const fakeBackupService = {
-      backup: async (_db: unknown, kind: string) => {
+      backup: async (kind: string) => {
         backupCalls.push(kind);
         return '/fake/backup/path.sqlite';
       },
@@ -196,7 +196,7 @@ describe('SqliteMigrationRunner', () => {
     const db = new FakeSqliteDatabase();
     const backupCalls: string[] = [];
     const fakeBackupService = {
-      backup: async (_db: unknown, kind: string) => {
+      backup: async (kind: string) => {
         backupCalls.push(kind);
         return null;
       },
@@ -242,7 +242,7 @@ describe('SqliteMigrationRunner', () => {
   });
 
   it('D2 review fix: rotate() is NOT called when backup returns null', async () => {
-    // If backup() returns null (db.backup unavailable), rotate() must not run —
+    // If backup() returns null (worker unavailable or copy failed), rotate() must not run —
     // deleting old backups without writing a new one would silently shrink the archive.
     const db = new FakeSqliteDatabase();
     const rotateCalls: number[] = [];

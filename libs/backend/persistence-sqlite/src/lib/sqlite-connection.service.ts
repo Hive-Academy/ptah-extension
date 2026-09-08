@@ -211,7 +211,6 @@ export class SqliteConnectionService {
     this.unavailableReason = 'not_initialized';
     this.unavailableDetail = null;
     this.logConnectionHealth(db);
-    this.runBootChecks(db);
     this.migrationRunner = new SqliteMigrationRunner(
       db,
       this.logger,
@@ -588,47 +587,6 @@ export class SqliteConnectionService {
       });
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] logConnectionHealth failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  /**
-   * Run integrity checks after pragmas and before migrations.
-   * Runs `quick_check` then `foreign_key_check` sequentially; each is
-   * independent and non-fatal. Any failure logs and returns without throwing
-   * or marking the connection unavailable.
-   */
-  private runBootChecks(db: SqliteDatabase): void {
-    try {
-      const result = db.pragma('quick_check', { simple: true }) as string;
-      if (result === 'ok') {
-        this.logger.info('[persistence-sqlite] quick_check passed');
-      } else {
-        this.logger.error('[persistence-sqlite] quick_check FAILED', {
-          result,
-        });
-      }
-    } catch (err: unknown) {
-      this.logger.warn('[persistence-sqlite] quick_check error', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    try {
-      const rows = db.pragma('foreign_key_check') as Array<{
-        table: string;
-        rowid: number;
-        parent: string;
-        fkid: number;
-      }>;
-      if (rows.length > 0) {
-        this.logger.warn('[persistence-sqlite] foreign_key_check violations', {
-          count: rows.length,
-          sample: rows.slice(0, 3),
-        });
-      }
-    } catch (err: unknown) {
-      this.logger.warn('[persistence-sqlite] foreign_key_check error', {
         error: err instanceof Error ? err.message : String(err),
       });
     }

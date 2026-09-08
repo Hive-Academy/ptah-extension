@@ -1,6 +1,7 @@
 import crossSpawn from 'cross-spawn';
 import { spawn } from 'child_process';
 import which from 'which';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
 
 export const DEFAULT_GIT_TIMEOUT_MS = 10_000;
 export const WORKTREE_GIT_TIMEOUT_MS = 300_000;
@@ -95,6 +96,22 @@ export interface ExecGitOptions {
   stdin?: string | Buffer;
   /** Extra environment entries merged over {@link GIT_DETERMINISTIC_ENV}. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * When supplied, git is launched through the `IProcessSpawner` port instead
+   * of inline `crossSpawn`.
+   *
+   * `child_process.spawn` is not asynchronous: libuv's `uv_spawn` runs
+   * `CreateProcessW` on the CALLING thread, so an inline spawn freezes the
+   * Electron main process for the whole of it (TASK_2026_341 measured ~1.6 s
+   * per launch inline against a 29 ms host-loop max delay off-thread). Every
+   * `git:info` on the boot path paid that here.
+   *
+   * Optional on purpose. The Electron host binds
+   * `SDK_TOKENS.SDK_PROCESS_SPAWNER` and passes it down; the VS Code extension
+   * and the CLI bind nothing and keep the inline path unchanged, so this
+   * helper never depends on a host having wired a spawner.
+   */
+  spawner?: IProcessSpawner;
 }
 
 export interface ExecGitResult {
@@ -108,6 +125,88 @@ export interface ExecGitBufferResult {
   stdout: Buffer;
   stderr: string;
   exitCode: number;
+}
+
+/**
+ * The slice of a spawned git child this module actually uses.
+ *
+ * Written out explicitly rather than relying on `ChildProcess` and
+ * `SpawnedProcessHandle` being structurally compatible: their `on` overload
+ * sets differ, and an assignability accident there would be silent. Two tiny
+ * adapters below map each source onto this, so the run loop is written once.
+ */
+interface GitChildHandle {
+  readonly stdin: NodeJS.WritableStream | null;
+  readonly stdout: NodeJS.ReadableStream | null;
+  readonly stderr: NodeJS.ReadableStream | null;
+  /**
+   * The child's pid once the spawning thread reports it, `undefined` if it
+   * never started.
+   *
+   * A promise and not a field because off-thread the pid does not exist yet
+   * when the handle is returned, and the tree kill needs the real one.
+   */
+  readonly whenSpawned: Promise<number | undefined>;
+  isKilled(): boolean;
+  kill(signal: NodeJS.Signals): void;
+  onClose(listener: (code: number | null) => void): void;
+  onError(listener: (error: Error) => void): void;
+}
+
+function spawnGitChild(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  spawner: IProcessSpawner | undefined,
+): GitChildHandle {
+  if (spawner) {
+    const handle = spawner.spawnProcess({
+      command: gitCommand(),
+      args,
+      cwd,
+      env,
+    });
+    return {
+      stdin: handle.stdin,
+      stdout: handle.stdout,
+      stderr: handle.stderr,
+      whenSpawned: handle.whenSpawned.then(
+        (pid) => pid ?? undefined,
+        // The port documents `whenSpawned` as never rejecting; a spawn failure
+        // arrives as an `error` event. Absorbed anyway so a port implementation
+        // that breaks that promise cannot mint an unhandled rejection.
+        () => undefined,
+      ),
+      isKilled: () => handle.killed,
+      kill: (signal) => {
+        handle.kill(signal);
+      },
+      onClose: (listener) => handle.on('close', (code) => listener(code)),
+      onError: (listener) => handle.on('error', listener),
+    };
+  }
+
+  const child = crossSpawn(gitCommand(), args, {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env,
+  });
+  return {
+    stdin: child.stdin,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    whenSpawned: Promise.resolve(child.pid),
+    isKilled: () => child.killed,
+    kill: (signal) => {
+      child.kill(signal);
+    },
+    onClose: (listener) => {
+      child.on('close', (code: number | null) => listener(code));
+    },
+    onError: (listener) => {
+      child.on('error', listener);
+    },
+  };
 }
 
 function killProcessTree(pid: number | undefined): void {
@@ -145,11 +244,12 @@ export function execGitBuffer(
 ): Promise<ExecGitBufferResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
-    const child = crossSpawn(gitCommand(), args, {
+    const child = spawnGitChild(
+      args,
       cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...GIT_DETERMINISTIC_ENV, ...options?.env },
-    });
+      { ...process.env, ...GIT_DETERMINISTIC_ENV, ...options?.env },
+      options?.spawner,
+    );
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -159,9 +259,11 @@ export function execGitBuffer(
       if (settled) return;
       settled = true;
       child.kill('SIGTERM');
-      killProcessTree(child.pid);
+      // Off-thread the pid is not known synchronously, so the tree kill waits
+      // for it rather than reading a field that would still be `undefined`.
+      void child.whenSpawned.then((pid) => killProcessTree(pid));
       setTimeout(() => {
-        if (!child.killed) child.kill('SIGKILL');
+        if (!child.isKilled()) child.kill('SIGKILL');
       }, 2000).unref?.();
       reject(new Error(`git ${args[0]} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
@@ -175,7 +277,7 @@ export function execGitBuffer(
       stderrChunks.push(data);
     });
 
-    child.on('close', (code: number | null) => {
+    child.onClose((code: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -186,7 +288,7 @@ export function execGitBuffer(
       });
     });
 
-    child.on('error', (error: Error) => {
+    child.onError((error: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);

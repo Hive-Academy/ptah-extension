@@ -28,7 +28,6 @@ export interface RpcCallEnvelope {
  *   - 'get-state' / 'set-state' : webview state persistence (sync get, async set)
  *   - 'get-startup-config'   : sync read of license/workspace bootstrap
  *   - 'clipboard:read-text' / 'clipboard:write-text'
- *   - 'terminal:data-in' / 'terminal:data-out' / 'terminal:resize' / 'terminal:exit'
  *
  * NOTE: 'rpc' is fire-and-forget at the IPC layer -- responses come back on
  * 'to-renderer'. `sendRpc` here returns the matched response by correlationId.

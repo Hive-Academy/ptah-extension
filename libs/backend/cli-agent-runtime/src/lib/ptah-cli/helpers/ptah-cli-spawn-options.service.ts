@@ -278,6 +278,10 @@ export class PtahCliSpawnOptions {
   private resolveMcpPort(): number | undefined {
     try {
       return this.mcpServerStatus?.getPort() ?? undefined;
+      // degradation-audit: optional-capability - the in-process MCP server is
+      // an optional enhancement for this spawn; a status lookup failure means
+      // "treat MCP as unavailable", the documented undefined return, and the
+      // failure is logged below, not hidden.
     } catch (error: unknown) {
       this.logger.warn(
         `[PtahCliSpawnOptions] MCP server check failed: ${
@@ -303,6 +307,9 @@ export class PtahCliSpawnOptions {
           workspacePath,
         );
       return content ?? undefined;
+      // degradation-audit: optional-capability - project guidance content is an
+      // enrichment added to the spawn, not a required one; a resolution failure
+      // is logged below and the spawn proceeds without it.
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] Failed to resolve project guidance: ${

@@ -9,8 +9,8 @@
  * `TASK_WORKSPACE_SCOPING_REVIEW` issue 6), which is why every root-keyed map
  * MUST route through this helper.
  *
- * Lives in `platform-core/src/utils/` alongside `path-containment.ts`,
- * `workspace-path-guards.ts` and `shell-allowlist.ts`: pure, zero-dependency
+ * Lives in `platform-core/src/utils/` alongside `path-containment.ts` and
+ * `workspace-path-guards.ts`: pure, zero-dependency
  * path/platform predicates that several libs on both sides of the hexagon need.
  * It is NOT a port — no `PLATFORM_TOKENS` entry, no adapter, no I/O, no state.
  * The canonical implementation was promoted here from

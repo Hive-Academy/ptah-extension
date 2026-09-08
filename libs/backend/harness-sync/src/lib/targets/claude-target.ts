@@ -638,6 +638,8 @@ function lstatSyncOrNull(path: string): Stats | null {
   try {
     return lstatSync(path);
   } catch {
+    // degradation-audit: optional-capability - target stat is a presence probe,
+    // and null routes the path through the normal create-or-repair plan.
     return null;
   }
 }

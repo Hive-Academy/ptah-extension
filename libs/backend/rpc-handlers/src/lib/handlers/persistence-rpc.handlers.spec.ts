@@ -371,9 +371,56 @@ describe('PersistenceRpcHandlers', () => {
     // F-M3: backupPath is now basename only, not the full absolute path.
     expect(result.backupPath).toBe('backup.sqlite');
     expect(result.message).toContain('reset');
-    expect(backup.backup).toHaveBeenCalledWith(expect.anything(), 'reset');
+    expect(backup.backup).toHaveBeenCalledWith('reset');
     expect(conn.close).toHaveBeenCalled();
     expect(conn.openAndMigrate).toHaveBeenCalled();
+  });
+
+  // The backup is AWAITED, and that is the point of this caller (TASK_2026_383).
+  // The reset closes the connection and renames the file immediately after; a
+  // fire-and-forget backup would be racing a rename of its own source.
+  it('db:reset awaits the backup before closing the connection', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    const order: string[] = [];
+    let releaseBackup: (() => void) | undefined;
+    backup.backup.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseBackup = () => {
+            order.push('backup');
+            resolve('/path/to/backup.sqlite');
+          };
+        }),
+    );
+    const originalClose = conn.close.getMockImplementation();
+    conn.close.mockImplementation(() => {
+      order.push('close');
+      originalClose?.();
+    });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const pending = rpcHandler._call('db:reset', {
+      confirm: mintResetChallengeToken(),
+    }) as Promise<DbResetResult>;
+
+    // The backup has not settled yet, so nothing after it may have run.
+    await Promise.resolve();
+    expect(order).toEqual([]);
+
+    releaseBackup?.();
+    const result = await pending;
+
+    expect(result.success).toBe(true);
+    expect(order).toEqual(['backup', 'close']);
   });
 
   // ---- db:reset — guard: bad confirm ----

@@ -187,6 +187,9 @@ export class OutputManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - clearing an output channel is
+      // a cosmetic VS Code UI action; false reports the channel was left as it
+      // was and no logging state depends on it.
       return false;
     }
   }
@@ -211,6 +214,9 @@ export class OutputManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - revealing an output channel is
+      // a presentation-only request; false reports the panel was not focused
+      // while the channel itself keeps accepting writes.
       return false;
     }
   }
@@ -234,6 +240,9 @@ export class OutputManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - hiding an output channel is a
+      // presentation-only request; false reports the panel stayed visible and
+      // the channel remains registered and writable.
       return false;
     }
   }
@@ -299,6 +308,9 @@ export class OutputManager {
     try {
       channel.dispose();
     } catch {
+      // degradation-audit: optional-capability - channel disposal is
+      // best-effort resource teardown; false leaves the channel and its
+      // metrics tracked rather than dropping a handle that is still live.
       return false;
     }
     this.outputChannels.delete(channelName);
@@ -316,6 +328,9 @@ export class OutputManager {
       try {
         channel.dispose();
       } catch {
+        // degradation-audit: optional-capability - bulk teardown at extension
+        // deactivation; returning from this one channel's callback lets the
+        // remaining channels still be disposed instead of aborting the loop.
         return;
       }
     });

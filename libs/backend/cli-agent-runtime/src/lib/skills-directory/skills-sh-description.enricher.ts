@@ -205,6 +205,10 @@ export class SkillsShDescriptionEnricher {
       if (!response.ok && response.status !== 206) return null;
       const text = await response.text();
       return text.slice(0, MAX_BYTES);
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, any failure (network, abort/timeout) is the documented null
+      // return; descriptions are best-effort enrichment over skills.sh search
+      // results, and a probe failure just leaves the description empty.
     } catch {
       return null;
     } finally {

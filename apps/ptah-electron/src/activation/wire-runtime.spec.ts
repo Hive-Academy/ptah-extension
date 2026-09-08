@@ -4,6 +4,7 @@ import { container as rootContainer, Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
 import { TOKENS } from '@ptah-extension/vscode-core';
+import type { DegradationSnapshot } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
@@ -34,6 +35,11 @@ import {
   SKILL_SYNTHESIS_TOKENS,
   SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
+
+import {
+  logBootDegradationSummary,
+  reportStartupBootFailure,
+} from './wire-runtime';
 
 function buildTestContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -380,5 +386,253 @@ describe('wire-runtime DI resolution (TASK_2026_127 v2-17)', () => {
     expect(skillTrigger).toBeInstanceOf(SkillTriggerService);
     expect(() => skillTrigger.start()).not.toThrow();
     expect(() => skillTrigger.stop()).not.toThrow();
+  });
+});
+
+/**
+ * TASK_2026_383 Batch 2 — the boot summary (task 2.1) and the startup-boot
+ * swallow (task 2.2).
+ *
+ * These drive the two exported seams directly. `wireRuntimePreWindow` itself
+ * resolves two dozen tokens and builds an Electron menu, so standing it up
+ * would test the mock graph; what changed is the behaviour of two functions and
+ * the handler the reservation's `.catch` is wired to, and that is what runs
+ * here. The wiring itself is pinned textually by
+ * `wire-runtime.boot-order.spec.ts`.
+ */
+describe('logBootDegradationSummary (TASK_2026_383 task 2.1)', () => {
+  let summaryContainer: DependencyContainer;
+
+  function registerSnapshot(snapshot: DegradationSnapshot): void {
+    summaryContainer.register(TOKENS.DEGRADATION_REPORTER, {
+      useValue: { report: jest.fn(), snapshot: jest.fn(() => snapshot) },
+    });
+  }
+
+  function loggerOf(): { info: jest.Mock; warn: jest.Mock } {
+    return summaryContainer.resolve(TOKENS.LOGGER) as unknown as {
+      info: jest.Mock;
+      warn: jest.Mock;
+    };
+  }
+
+  beforeEach(() => {
+    summaryContainer = buildTestContainer();
+  });
+
+  afterEach(() => {
+    summaryContainer.clearInstances();
+  });
+
+  it('logs exactly one info line when the boot degraded nothing', () => {
+    registerSnapshot({
+      total: 0,
+      entries: [],
+      droppedReports: 0,
+      broadcastFailures: 0,
+    });
+
+    logBootDegradationSummary(summaryContainer);
+
+    const logger = loggerOf();
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[Degradation] Boot summary: no capability degraded during this boot.',
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('logs exactly one warn line naming the top codes and their counts', () => {
+    registerSnapshot({
+      total: 5,
+      entries: [
+        {
+          code: 'electron.boot.startOrJoin-failed',
+          source: 'boot',
+          severity: 'critical',
+          count: 3,
+          summary: 'The startup workspace never booted.',
+        },
+        {
+          code: 'database.backup.no-worker',
+          source: 'database',
+          severity: 'critical',
+          count: 2,
+          summary: 'No worker factory, so no backup was taken.',
+        },
+      ],
+      droppedReports: 0,
+      broadcastFailures: 0,
+    });
+
+    logBootDegradationSummary(summaryContainer);
+
+    const logger = loggerOf();
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[Degradation] Boot summary: 5 degradations across 2 codes — ' +
+        'electron.boot.startOrJoin-failed x3, database.backup.no-worker x2.',
+    );
+  });
+
+  it('emits ONE line for a boot with forty degradations, not forty', () => {
+    // The stated edge case: a summary that scaled with the tally would
+    // reproduce exactly the invisibility this task removes.
+    const entries = Array.from({ length: 40 }, (_, i) => ({
+      code: `lib.site-${String(i).padStart(2, '0')}`,
+      source: 'workspace' as const,
+      severity: 'degraded' as const,
+      count: 1,
+      summary: 'fell back',
+    }));
+    registerSnapshot({
+      total: 40,
+      entries,
+      droppedReports: 0,
+      broadcastFailures: 0,
+    });
+
+    logBootDegradationSummary(summaryContainer);
+
+    const logger = loggerOf();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const line = logger.warn.mock.calls[0][0] as string;
+    expect(line).not.toContain('\n');
+    expect(line).toContain('40 degradations across 40 codes');
+    expect(line).toContain('and 35 more');
+  });
+
+  it('names the dropped reports and the pushes that never landed', () => {
+    registerSnapshot({
+      total: 2,
+      entries: [
+        {
+          code: 'settings.keytar-unavailable',
+          source: 'settings',
+          severity: 'expected',
+          count: 1,
+          summary: 'No OS keyring.',
+        },
+      ],
+      droppedReports: 1,
+      broadcastFailures: 1,
+    });
+
+    logBootDegradationSummary(summaryContainer);
+
+    expect(loggerOf().warn).toHaveBeenCalledWith(
+      '[Degradation] Boot summary: 2 degradations across 1 code — ' +
+        'settings.keytar-unavailable x1. 1 report dropped past the code cap. ' +
+        '1 push never reached the renderer.',
+    );
+  });
+
+  it('stays silent, and does not throw, with no reporter registered', () => {
+    // A test host or a stripped boot registers neither; silence is the answer,
+    // never a throw on the boot's terminal transition.
+    expect(() => logBootDegradationSummary(summaryContainer)).not.toThrow();
+    expect(loggerOf().info).not.toHaveBeenCalled();
+    expect(loggerOf().warn).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when the reporter itself explodes', () => {
+    summaryContainer.register(TOKENS.DEGRADATION_REPORTER, {
+      useValue: {
+        report: jest.fn(),
+        snapshot: jest.fn(() => {
+          throw new Error('snapshot exploded');
+        }),
+      },
+    });
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+
+    expect(() => logBootDegradationSummary(summaryContainer)).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      '[Ptah Electron] Degradation summary skipped (non-fatal):',
+      'snapshot exploded',
+    );
+    warn.mockRestore();
+  });
+});
+
+describe('reportStartupBootFailure (TASK_2026_383 task 2.2)', () => {
+  let failureContainer: DependencyContainer;
+  let report: jest.Mock;
+  let errorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    failureContainer = buildTestContainer();
+    report = jest.fn();
+    failureContainer.register(TOKENS.DEGRADATION_REPORTER, {
+      useValue: { report, snapshot: jest.fn() },
+    });
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    failureContainer.clearInstances();
+  });
+
+  it('logs AND reports exactly once when the startup startOrJoin rejects', async () => {
+    // The real call site's shape: a rejecting reservation with this handler
+    // attached. Before this task the handler was `() => undefined`, so a failed
+    // startup boot left no trace anywhere at all.
+    const booter = {
+      startOrJoin: jest.fn().mockRejectedValue(new Error('SQLITE_BUSY')),
+    };
+
+    const reserved = booter.startOrJoin('/ws');
+    await reserved.catch((error: unknown) => {
+      reportStartupBootFailure(failureContainer, error);
+    });
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[Ptah Electron] Failed to boot heavy services for the startup workspace:',
+      expect.any(Error),
+    );
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith({
+      source: 'boot',
+      code: 'electron.boot.startOrJoin-failed',
+      severity: 'critical',
+      summary:
+        'The startup workspace never finished booting its heavy services.',
+      detail: 'SQLITE_BUSY',
+    });
+  });
+
+  it('carries a non-Error rejection through as its string form', () => {
+    reportStartupBootFailure(failureContainer, 'no workspace root');
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'no workspace root' }),
+    );
+  });
+
+  it('uses a string literal code, so the tally means something', () => {
+    reportStartupBootFailure(failureContainer, new Error('a'));
+    reportStartupBootFailure(failureContainer, new Error('b'));
+
+    // Two different errors, ONE code. An interpolated code would produce two
+    // buckets of one and a count nobody can read.
+    const codes = report.mock.calls.map(
+      (call) => (call[0] as { code: string }).code,
+    );
+    expect(new Set(codes).size).toBe(1);
+  });
+
+  it('still logs when no reporter is registered', () => {
+    const bare = buildTestContainer();
+    expect(() =>
+      reportStartupBootFailure(bare, new Error('boom')),
+    ).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(report).not.toHaveBeenCalled();
+    bare.clearInstances();
   });
 });

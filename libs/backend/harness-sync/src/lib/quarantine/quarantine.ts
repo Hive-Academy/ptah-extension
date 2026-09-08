@@ -246,6 +246,9 @@ async function pathExists(path: string): Promise<boolean> {
     await lstat(path);
     return true;
   } catch {
+    // degradation-audit: optional-capability - this is a
+    // destination-availability probe, and false makes the subsequent move
+    // surface any real collision or permission error.
     return false;
   }
 }

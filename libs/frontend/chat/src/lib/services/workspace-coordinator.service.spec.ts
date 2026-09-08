@@ -1,22 +1,32 @@
 /**
  * WorkspaceCoordinatorService specs — orchestrates workspace switching across
- * TabManager, SessionLoader, ConfirmationDialog and lazy-loaded editor services.
+ * TabManager, SessionLoader, ConfirmationDialog and dynamically-resolved git
+ * services (`GitStatusService`, `GitBranchesService` from `@ptah-extension/git-ui`).
  *
  * Coverage:
  *   - switchWorkspace delegates to tabManager + sessionLoader
  *   - removeWorkspaceState delegates to tabManager + sessionLoader
  *   - getStreamingSessionIds filters streaming tabs with claudeSessionId
  *   - confirm passes options through to ConfirmationDialogService
- *   - Editor-service resolution fails gracefully when the lazy chunk is absent
- *     (the dynamic import() throws in test env because the alias is not
- *     registered in the module resolver — we swallow and continue).
+ *   - A failed git-service resolution logs loudly (console.error) and lets the
+ *     switch resolve anyway — it does NOT swallow to `[]` silently. Before
+ *     TASK_2026_385 Batch 4.1 this also resolved the now-deleted
+ *     `@ptah-extension/editor` module in the same `Promise.all`, so ANY
+ *     failure — including a genuinely broken git-ui import — was swallowed
+ *     with only a `console.warn` nobody read. That bug is what a real
+ *     workspace switch now surfaces loudly instead of silently dropping.
  *   - switchWorkspace swaps AppStateManager's view slice, so the previous
  *     workspace's view does not survive the switch (TASK_2026_195), and
  *     neither does its Thoth tab or marketplace provider (TASK_2026_228).
- *   - The captured switchGeneration is re-checked after the awaited editor
+ *   - The captured switchGeneration is re-checked after the awaited git
  *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
+ *   - A workspace switch reaches the REAL `GitStatusService` /
+ *     `GitBranchesService` singletons resolved through `@ptah-extension/git-ui`
+ *     (regression guard for the `Promise.all` bug above — TASK_2026_385
+ *     Batch 4.1).
  */
 
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 import {
@@ -30,12 +40,31 @@ import {
   CommandDiscoveryFacade,
   EffortStateService,
   ModelStateService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { SessionLivenessReconcilerService } from './chat-store/session-liveness-reconciler.service';
 import { FilePickerService } from './file-picker.service';
 import type { TabState } from '@ptah-extension/chat-types';
+
+/**
+ * `rpcCall` mocked at the module boundary so the regression describe block
+ * below can resolve the REAL `GitStatusService` / `GitBranchesService`
+ * (rather than stubs) without a real webview RPC bridge. Every other export
+ * of `@ptah-extension/core` used elsewhere in this file — `AppStateManager`,
+ * `WorkspaceScopeService`, etc. — stays real via `requireActual`.
+ */
+const mockGitRpcCall = jest.fn();
+jest.mock('@ptah-extension/core', () => {
+  const actual = jest.requireActual<Record<string, unknown>>(
+    '@ptah-extension/core',
+  );
+  return {
+    ...actual,
+    rpcCall: (...args: unknown[]) => mockGitRpcCall(...args),
+  };
+});
 
 type AuthStateSlice = Pick<AuthStateService, 'refreshAuthStatus'>;
 type ModelStateSlice = Pick<ModelStateService, 'refreshModels'>;
@@ -81,21 +110,21 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 }
 
 /**
- * Structural view of a lazily-resolved editor service, mirroring the private
+ * Structural view of a lazily-resolved git service, mirroring the private
  * `WorkspaceAwareService` interface in the service under test.
  */
-interface EditorServiceStub {
+interface GitServiceStub {
   switchWorkspace: jest.Mock<void, [string]>;
   removeWorkspaceState: jest.Mock<void, [string]>;
 }
 
 /**
  * Handle onto the one private the stale-generation specs need: the awaited
- * editor-chunk resolution is the only suspension point in `switchWorkspace`,
+ * git-chunk resolution is the only suspension point in `switchWorkspace`,
  * so it is the only place a superseded switch can regain control.
  */
 interface CoordinatorInternals {
-  resolveEditorServices(): Promise<EditorServiceStub[]>;
+  resolveGitServices(): Promise<GitServiceStub[]>;
 }
 
 describe('WorkspaceCoordinatorService', () => {
@@ -268,7 +297,7 @@ describe('WorkspaceCoordinatorService', () => {
 
     it('invalidates every picker cache in the same synchronous fan-out', () => {
       // Deliberately NOT awaited: the pickers must be clean the instant the
-      // switch is dispatched, not after the dynamic editor import settles.
+      // switch is dispatched, not after the dynamic git-ui import settles.
       // Anything less leaves a window in which the @ or / dropdown can still be
       // opened against the previous workspace's cached list.
       void service.switchWorkspace('D:/repo/foo');
@@ -288,7 +317,7 @@ describe('WorkspaceCoordinatorService', () => {
       ]);
     });
 
-    it('invalidates the pickers even when the editor chunk is unavailable', async () => {
+    it('invalidates the pickers regardless of the git-chunk resolution outcome', async () => {
       await service.switchWorkspace('D:/repo/foo');
       expect(filePicker.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
       expect(agentDiscovery.clearCache).toHaveBeenCalled();
@@ -394,7 +423,7 @@ describe('WorkspaceCoordinatorService', () => {
       expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
     });
 
-    it('still re-resolves auth/model/effort even when editor services fail', async () => {
+    it('still re-resolves auth/model/effort regardless of the git-chunk resolution outcome', async () => {
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
       await flushMicrotasks();
       expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
@@ -402,13 +431,20 @@ describe('WorkspaceCoordinatorService', () => {
       expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
     });
 
-    it('resolves cleanly even when editor services are not yet loaded', async () => {
-      // The dynamic import('@ptah-extension/editor/services') may resolve in
-      // the Jest env (Nx registers path aliases) but the resulting services
-      // are not provided in the TestBed, so Injector.get either returns null
-      // or throws — either way the service must swallow and resolve.
+    it('resolves cleanly when this TestBed has no double for the git services', async () => {
+      // The dynamic import('@ptah-extension/git-ui') resolves in the Jest env
+      // (Nx registers path aliases), and `GitStatusService` /
+      // `GitBranchesService` are both `providedIn: 'root'` with only
+      // `VSCodeService` (also root-provided) as a dependency, so
+      // `Injector.get` constructs the REAL singletons here even though this
+      // TestBed never registered a double for them — proven directly, with
+      // spies on those real instances, in the
+      // 'WorkspaceCoordinatorService git regression' describe block below.
+      // This test only pins that the rest of the synchronous fan-out
+      // (tabManager, etc.) is not blocked by that resolution.
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/x');
+      expect(consoleError).not.toHaveBeenCalled();
     });
   });
 
@@ -482,44 +518,42 @@ describe('WorkspaceCoordinatorService', () => {
     });
   });
 
-  describe('stale-generation guard on the editor fan-out (TASK_2026_195)', () => {
-    let editorService: EditorServiceStub;
+  describe('stale-generation guard on the git fan-out (TASK_2026_195)', () => {
+    let gitService: GitServiceStub;
     let releaseResolution: Array<() => void>;
 
     beforeEach(() => {
-      editorService = {
+      gitService = {
         switchWorkspace: jest.fn(),
         removeWorkspaceState: jest.fn(),
       };
       releaseResolution = [];
       const internals = service as unknown as CoordinatorInternals;
-      jest.spyOn(internals, 'resolveEditorServices').mockImplementation(
+      jest.spyOn(internals, 'resolveGitServices').mockImplementation(
         () =>
-          new Promise<EditorServiceStub[]>((resolve) => {
-            releaseResolution.push(() => resolve([editorService]));
+          new Promise<GitServiceStub[]>((resolve) => {
+            releaseResolution.push(() => resolve([gitService]));
           }),
       );
     });
 
-    it('does not apply a superseded switch to the editor services when it resolves last', async () => {
+    it('does not apply a superseded switch to the git services when it resolves last', async () => {
       void service.switchWorkspace('D:/repo/A'); // generation 1
       void service.switchWorkspace('D:/repo/B'); // generation 2 (current)
 
-      // B's editor chunk resolves first and applies.
+      // B's git chunk resolves first and applies.
       releaseResolution[1]();
       await flushMicrotasks();
-      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(editorService.switchWorkspace).toHaveBeenCalledWith('D:/repo/B');
+      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(gitService.switchWorkspace).toHaveBeenCalledWith('D:/repo/B');
 
       // A's resolution lands afterwards. Without the generation re-check it
-      // would apply LAST and strand the editor on the workspace the user
-      // already navigated away from.
+      // would apply LAST and strand the git services on the workspace the
+      // user already navigated away from.
       releaseResolution[0]();
       await flushMicrotasks();
-      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(editorService.switchWorkspace).not.toHaveBeenCalledWith(
-        'D:/repo/A',
-      );
+      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(gitService.switchWorkspace).not.toHaveBeenCalledWith('D:/repo/A');
     });
 
     it("skips the superseded switch's provider refresh too (the newer switch owns it)", async () => {
@@ -541,10 +575,8 @@ describe('WorkspaceCoordinatorService', () => {
       releaseResolution[0]();
       await pending;
 
-      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(editorService.switchWorkspace).toHaveBeenCalledWith(
-        'D:/repo/solo',
-      );
+      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(gitService.switchWorkspace).toHaveBeenCalledWith('D:/repo/solo');
     });
   });
 
@@ -699,18 +731,15 @@ describe('WorkspaceCoordinatorService', () => {
     });
 
     it('supersedes a switch still in flight', async () => {
-      // A `switchWorkspace` whose editor-chunk await resolves after the last
+      // A `switchWorkspace` whose git-chunk await resolves after the last
       // folder closed must not carry on and re-resolve auth/model/effort for a
       // workspace that is gone.
-      let releaseEditorChunk: () => void = () => undefined;
+      let releaseGitChunk: () => void = () => undefined;
       jest
-        .spyOn(
-          service as unknown as CoordinatorInternals,
-          'resolveEditorServices',
-        )
+        .spyOn(service as unknown as CoordinatorInternals, 'resolveGitServices')
         .mockReturnValue(
-          new Promise<EditorServiceStub[]>((resolve) => {
-            releaseEditorChunk = () => resolve([]);
+          new Promise<GitServiceStub[]>((resolve) => {
+            releaseGitChunk = () => resolve([]);
           }),
         );
 
@@ -719,7 +748,7 @@ describe('WorkspaceCoordinatorService', () => {
       expect(authState.refreshAuthStatus).not.toHaveBeenCalled();
 
       service.clearWorkspace();
-      releaseEditorChunk();
+      releaseGitChunk();
       await pending;
       await flushMicrotasks();
 
@@ -728,5 +757,158 @@ describe('WorkspaceCoordinatorService', () => {
       expect(authState.refreshAuthStatus).not.toHaveBeenCalled();
       expect(modelState.refreshModels).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Regression guard for the `Promise.all` bug fixed alongside the
+ * `@ptah-extension/editor` deletion (TASK_2026_385 Batch 4.1).
+ *
+ * `Promise.all` rejects if EITHER of its imports fails. Before this batch,
+ * `resolveEditorServices` awaited `import('@ptah-extension/editor/services')`
+ * and `import('@ptah-extension/git-ui')` in the same `Promise.all`, so the
+ * moment the editor chunk failed to load, `GitStatusService` and
+ * `GitBranchesService` were never notified of a workspace switch either —
+ * the whole `Promise.all` rejected, was swallowed to `[]`, and the git
+ * surface silently stopped updating on workspace change, with nothing
+ * louder than a `console.warn`.
+ *
+ * Every other describe block above stubs the git services away entirely
+ * (`GitServiceStub`) or never resolves them at all, so none of it would have
+ * caught this — the bug lived entirely in whether the REAL
+ * `@ptah-extension/git-ui` singletons got called. This block wires the real
+ * `WorkspaceCoordinatorService` to the real `GitStatusService` /
+ * `GitBranchesService` through the same `Injector.get` path
+ * `resolveGitServices` uses, `rpcCall` mocked at the module boundary
+ * (mirrors `apps/ptah-extension-webview/src/app/git-dock-arming-identity.spec.ts`'s
+ * pattern for proving DI identity through a real provider graph).
+ */
+describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)', () => {
+  function makeVscodeStub() {
+    const config = signal({
+      isVSCode: false,
+      theme: 'dark',
+      workspaceRoot: '/ws/a',
+      workspaceName: 'a',
+      extensionUri: '',
+      baseUri: '',
+      iconUri: '',
+      userIconUri: '',
+      panelId: '',
+      isElectron: true,
+    });
+    return {
+      config: config.asReadonly(),
+      isConnected: signal(false).asReadonly(),
+      getState: jest.fn().mockReturnValue(null),
+      setState: jest.fn(),
+      postMessage: jest.fn(),
+      messages$: { pipe: jest.fn() },
+      handleMessage: jest.fn(),
+      handledMessageTypes: [],
+    };
+  }
+
+  // Dynamic import on purpose: `@ptah-extension/git-ui` is lazy-loaded
+  // elsewhere in THIS project (`electron-shell.component.ts`), so a static
+  // top-level `import ... from '@ptah-extension/git-ui'` here would trip
+  // `@nx/enforce-module-boundaries`'s `checkDynamicDependenciesExceptions`
+  // guard (the same guard `resolveGitServices` itself respects).
+  let service: WorkspaceCoordinatorService;
+  let gitStatus: InstanceType<
+    typeof import('@ptah-extension/git-ui').GitStatusService
+  >;
+  let gitBranches: InstanceType<
+    typeof import('@ptah-extension/git-ui').GitBranchesService
+  >;
+
+  beforeEach(async () => {
+    mockGitRpcCall.mockReset();
+    mockGitRpcCall.mockResolvedValue({ success: true, data: {} });
+    const gitUi = await import('@ptah-extension/git-ui');
+
+    TestBed.configureTestingModule({
+      providers: [
+        WorkspaceCoordinatorService,
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+        {
+          provide: TabManagerService,
+          useValue: {
+            switchWorkspace: jest.fn(),
+            removeWorkspaceState: jest.fn(),
+            getWorkspaceTabs: jest.fn(() => []),
+          },
+        },
+        {
+          provide: SessionLoaderService,
+          useValue: {
+            switchWorkspace: jest.fn(),
+            removeWorkspaceCache: jest.fn(),
+          },
+        },
+        {
+          provide: SessionLivenessReconcilerService,
+          useValue: { reconcileRestoredTabs: jest.fn(async () => undefined) },
+        },
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn() },
+        },
+        {
+          provide: FilePickerService,
+          useValue: { switchWorkspace: jest.fn() },
+        },
+        {
+          provide: AgentDiscoveryFacade,
+          useValue: { clearCache: jest.fn() },
+        },
+        {
+          provide: CommandDiscoveryFacade,
+          useValue: { clearCache: jest.fn() },
+        },
+        {
+          provide: AuthStateService,
+          useValue: { refreshAuthStatus: jest.fn(async () => undefined) },
+        },
+        {
+          provide: ModelStateService,
+          useValue: { refreshModels: jest.fn(async () => undefined) },
+        },
+        {
+          provide: EffortStateService,
+          useValue: { refreshEffort: jest.fn(async () => undefined) },
+        },
+        AppStateManager,
+      ],
+    });
+
+    service = TestBed.inject(WorkspaceCoordinatorService);
+    gitStatus = TestBed.inject(gitUi.GitStatusService);
+    gitBranches = TestBed.inject(gitUi.GitBranchesService);
+  });
+
+  afterEach(() => {
+    gitStatus.stopListening();
+    TestBed.resetTestingModule();
+  });
+
+  it('notifies the REAL GitStatusService and GitBranchesService singletons of a workspace switch', async () => {
+    const gitStatusSwitch = jest.spyOn(gitStatus, 'switchWorkspace');
+    const gitBranchesSwitch = jest.spyOn(gitBranches, 'switchWorkspace');
+
+    await service.switchWorkspace('/ws/regression');
+
+    expect(gitStatusSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(gitBranchesSwitch).toHaveBeenCalledWith('/ws/regression');
+  });
+
+  it('notifies the REAL git services of a workspace removal', async () => {
+    const gitStatusRemove = jest.spyOn(gitStatus, 'removeWorkspaceState');
+    const gitBranchesRemove = jest.spyOn(gitBranches, 'removeWorkspaceState');
+
+    await service.removeWorkspaceState('/ws/regression');
+
+    expect(gitStatusRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(gitBranchesRemove).toHaveBeenCalledWith('/ws/regression');
   });
 });

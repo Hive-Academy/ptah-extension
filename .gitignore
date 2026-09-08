@@ -221,3 +221,20 @@ libs/frontend/webview-e2e-harness/test-results/**
 # alone once silently un-linted a tracked file that merely started with `tmp-`.
 *.bak
 tmp-scratch-*
+
+# tools/video-editor is a local editorial workspace, ignored WHOLE.
+#
+# An earlier version of this block tried to track the editorial record — the
+# transcript, the cut lists, the graphics compositions — while ignoring the
+# media beside it. That is a per-directory allowlist maintained by hand, and it
+# had already failed once: `vendor/`, `raw/`, `outputs/` and the graphics
+# renders were listed, `export/` and `.scratch/` were not, and `export/` was
+# where the weight actually sat. Measured 2026-09-07: 2,216 MB untracked, of
+# which 2,103 MB was three MP4 cuts of 795, 787 and 513 MB. GitHub refuses any
+# blob over 100 MB, so one such file does not merely bloat the history — it
+# makes the branch unpushable, and the way back out is a history rewrite.
+#
+# A rule that must enumerate every directory a video tool might invent is a
+# rule that fails again on the next one. Ignoring the tree whole cannot.
+tools/video-editor/
+tools/video-editor/projects/*/graphics/**/node_modules/

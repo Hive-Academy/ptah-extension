@@ -148,6 +148,10 @@ export function extractDependencyInfo(
     };
     return JSON.stringify(relevantFields, Object.keys(relevantFields).sort());
   } catch {
+    // degradation-audit: optional-capability - a malformed package.json makes
+    // the dependency hash unavailable; callers (computeDependencyHash) then
+    // leave the cache-validity check unable to match, which conservatively
+    // forces a fresh generation rather than serving a stale cache entry.
     return null;
   }
 }
@@ -234,6 +238,10 @@ function matchGlobPattern(path: string, pattern: string): boolean {
   try {
     return new RegExp(regexPattern, 'i').test(path);
   } catch {
+    // degradation-audit: optional-capability - patterns come only from the
+    // fixed INVALIDATION_TRIGGER_FILES / INVALIDATION_IGNORE_PATTERNS lists
+    // above, so this should never fire; "does not match" is the safe default
+    // for a probe.
     return false;
   }
 }

@@ -166,6 +166,9 @@ export class HarnessStateStore {
       atomicWriteWithRetry(path, `${JSON.stringify(state, null, 2)}\n`);
       return true;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the warning reports the failed
+      // advisory state write, and false explicitly tells callers the decision
+      // is not durable.
       this.onWarn('[harness-sync] Could not persist state.json', {
         path,
         error: error instanceof Error ? error.message : String(error),

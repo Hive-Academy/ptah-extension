@@ -281,6 +281,10 @@ export class PtahCliRegistry {
       configs.push(newConfig);
       await this.configPersistence.saveConfigs(configs);
     } catch (err) {
+      // degradation-audit: optional-capability - best-effort rollback of the
+      // API key written above after the config save failed; the original error
+      // is rethrown below regardless, so the failure is never hidden from the
+      // caller — only a failed cleanup attempt is swallowed.
       await this.authSecrets
         .deleteProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`)
         .catch(() => {

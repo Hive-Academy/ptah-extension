@@ -1,0 +1,28 @@
+apps/ptah-electron/src/activation/plugin-activation.ts:240 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/activation/plugin-activation.ts:449 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/activation/plugin-activation.ts:472 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/activation/skill-repropagation.ts:76 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/activation/start-messaging-gateway.ts:87 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/di/electron-adapters.ts:268 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/di/phase-2-libraries.ts:129 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/di/phase-2-libraries.ts:151 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/di/phase-2-libraries.ts:408 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/ipc/ipc-bridge.ts:313 [floating-promise] bare call to async 'handleFireAndForgetMessage()' — not awaited, void-marked, or chained with .catch()
+apps/ptah-electron/src/main.ts:120 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+apps/ptah-electron/src/rpc-host-profile.ts:60 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/electron-browser-capabilities.ts:433 [floating-promise] bare call to async 'cleanup()' — not awaited, void-marked, or chained with .catch()
+apps/ptah-electron/src/services/electron-browser-capabilities.ts:497 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+apps/ptah-electron/src/services/electron-browser-capabilities.ts:513 [floating-promise] bare call to async 'cleanup()' — not awaited, void-marked, or chained with .catch()
+apps/ptah-electron/src/services/electron-browser-capabilities.ts:604 [promise-catch-sentinel] .catch() handler swallows the rejection with a literal
+apps/ptah-electron/src/services/electron-ide-capabilities.ts:277 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/electron-ide-capabilities.ts:471 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/electron-ide-capabilities.ts:495 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/git-watcher.service.ts:288 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/platform/electron-safe-storage-vault.ts:44 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/platform/electron-safe-storage-vault.ts:81 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/platform/electron-safe-storage-vault.ts:100 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/rpc/handlers/editor-rpc.handlers.ts:977 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/tray/tray.service.ts:192 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/services/update/update-manager.ts:184 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/windows/main-window.ts:50 [catch-return-sentinel] catch swallows error and returns a literal
+apps/ptah-electron/src/windows/main-window.ts:64 [catch-return-sentinel] catch swallows error and returns a literal

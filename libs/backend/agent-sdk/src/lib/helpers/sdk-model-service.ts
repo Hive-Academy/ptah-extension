@@ -13,7 +13,12 @@
 
 import { createHash } from 'node:crypto';
 import { injectable, inject } from 'tsyringe';
+import { z } from 'zod';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IStateStorage,
+} from '@ptah-extension/platform-core';
 import { AuthEnv, isDirectAnthropic } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -182,6 +187,63 @@ const SDK_MODELS_TIMEOUT_MS = 15_000;
 const NATIVE_MODELS_CACHE_KEY = 'native';
 
 /**
+ * `IStateStorage` key holding the cross-boot copy of {@link
+ * SdkModelService.modelsCache}.
+ *
+ * The in-memory map covers repeats WITHIN a boot; the first
+ * `config:models-list` of every boot still paid a full SDK-bridge spawn —
+ * 1175 ms median, the largest single per-boot handler cost measured in
+ * TASK_2026_383. This key is what makes that cost happen once per machine
+ * rather than once per launch.
+ */
+const MODEL_CATALOG_STATE_KEY = 'ptah.sdk.modelCatalog';
+
+/**
+ * How many auth identities keep a persisted catalog.
+ *
+ * The in-memory map dies with the process; this one does not, so it needs a
+ * bound as well as a validity token. Least-recently-written is evicted, and
+ * eight covers "every provider a user actually alternates between" with room
+ * to spare — a miss costs one fetch, not a wrong answer.
+ */
+const MAX_PERSISTED_CATALOGS = 8;
+
+/**
+ * One persisted catalog entry, validated on every read.
+ *
+ * The store is a file on disk that another process, a botched sync or an older
+ * build can have written, so it is an external boundary and gets a schema. A
+ * failed parse means the entry is IGNORED — never repaired, never partially
+ * salvaged — because a half-trusted model list is worse than one fetch.
+ */
+const persistedCatalogSchema = z
+  .array(
+    z.object({
+      value: z.string().min(1),
+      displayName: z.string(),
+      description: z.string(),
+      supportsEffort: z.boolean().optional(),
+      supportedEffortLevels: z
+        .array(z.enum(['low', 'medium', 'high', 'xhigh', 'max']))
+        .optional(),
+      supportsAdaptiveThinking: z.boolean().optional(),
+      supportsFastMode: z.boolean().optional(),
+      supportsAutoMode: z.boolean().optional(),
+    }),
+  )
+  .min(1);
+
+/**
+ * The store itself: cache key → catalog, each entry validated separately.
+ *
+ * Kept as `unknown` values on purpose. Validating the whole store at once
+ * would let ONE corrupt provider entry discard every other provider's catalog,
+ * which turns a single bad write into a boot-cost regression for identities
+ * that were never involved.
+ */
+const persistedStoreSchema = z.record(z.string(), z.unknown());
+
+/**
  * The AuthEnv keys that change which catalog the SDK reports.
  *
  * Credentials are hashed rather than concatenated: this string is a Map key and
@@ -263,6 +325,13 @@ export class SdkModelService {
     private readonly authProvider: IAuthEnvProvider,
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly processSpawner: OffThreadProcessSpawner,
+    /**
+     * Optional so a stripped container (the DI smoke specs build several, and
+     * `registerSdkServices` runs before some hosts have storage) resolves this
+     * service and simply runs without the cross-boot memo.
+     */
+    @inject(PLATFORM_TOKENS.STATE_STORAGE, { isOptional: true })
+    private readonly stateStorage?: IStateStorage,
   ) {}
 
   /**
@@ -319,6 +388,14 @@ export class SdkModelService {
     }
 
     const inFlight = this.pendingModels.get(key);
+    if (!inFlight) {
+      // Only when nothing is running: a fetch already in flight for this exact
+      // identity will settle with a fresher answer, and joining it costs no
+      // spawn.
+      const restored = this.restorePersistedCatalog(key);
+      if (restored) return restored;
+    }
+
     if (inFlight) {
       this.logger.debug(
         '[SdkModelService] Deduplicating concurrent getSupportedModels() call',
@@ -368,7 +445,119 @@ export class SdkModelService {
       return false;
     }
     this.modelsCache.set(key, models);
+    this.persistCatalog(key, models);
     return true;
+  }
+
+  /**
+   * Hydrate `key` from the cross-boot store, if a valid entry is there.
+   *
+   * Called only after the in-memory map missed, so a hit here is exactly the
+   * "first RPC of this boot" case. The restored list is written back into the
+   * in-memory map so the rest of the boot behaves identically to a fetch.
+   *
+   * No generation check: this is a read of state that was settled before the
+   * process started, not a fetch that could have been overtaken by a
+   * `clearCache()` — and `clearCache()` drops the persisted copy too, so there
+   * is nothing to restore after one.
+   */
+  private restorePersistedCatalog(key: string): ModelInfo[] | null {
+    const entry = this.readPersistedEntry(key);
+    if (!entry) return null;
+    this.modelsCache.set(key, entry);
+    this.logger.debug(
+      '[SdkModelService] Restored model catalog from persisted store',
+      { models: entry.length },
+    );
+    return entry;
+  }
+
+  private readPersistedEntry(key: string): ModelInfo[] | null {
+    if (!this.stateStorage) return null;
+    const store = this.readPersistedStore();
+    if (!store || !(key in store)) return null;
+
+    const parsed = persistedCatalogSchema.safeParse(store[key]);
+    if (!parsed.success) {
+      // Ignored, not repaired: a partially valid catalog is a wrong answer,
+      // while a miss is one fetch. The entry is left in place — the next
+      // successful fetch for this key overwrites it.
+      this.logger.warn(
+        '[SdkModelService] Ignoring a malformed persisted model catalog',
+      );
+      return null;
+    }
+    return parsed.data;
+  }
+
+  private readPersistedStore(): Record<string, unknown> | null {
+    if (!this.stateStorage) return null;
+    try {
+      const raw = this.stateStorage.get<unknown>(MODEL_CATALOG_STATE_KEY);
+      if (raw === undefined) return null;
+      const parsed = persistedStoreSchema.safeParse(raw);
+      return parsed.success ? { ...parsed.data } : null;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability — the cross-boot catalog memo is
+      // an optimization on top of a cache that already works in memory; a
+      // storage backend that cannot be read costs one SDK fetch, not an error.
+      this.logger.warn('[SdkModelService] Persisted model catalog unreadable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Write `key`'s catalog to the cross-boot store, evicting the oldest entries
+   * past {@link MAX_PERSISTED_CATALOGS}.
+   *
+   * Fire-and-forget: `IStateStorage.update` is async and nothing in the fetch
+   * path depends on the write landing. Insertion order IS recency here — the
+   * key is deleted before it is re-set, and every key is a non-numeric string,
+   * so `Object.keys` returns them oldest-first.
+   */
+  private persistCatalog(key: string, models: ModelInfo[]): void {
+    const storage = this.stateStorage;
+    if (!storage || models.length === 0) return;
+
+    const next = this.readPersistedStore() ?? {};
+    delete next[key];
+    next[key] = models;
+
+    const keys = Object.keys(next);
+    for (const stale of keys.slice(
+      0,
+      Math.max(0, keys.length - MAX_PERSISTED_CATALOGS),
+    )) {
+      delete next[stale];
+    }
+
+    void storage
+      .update(MODEL_CATALOG_STATE_KEY, next)
+      .catch((error: unknown) => {
+        // degradation-audit: optional-capability — see readPersistedStore; a
+        // failed write means the next boot fetches, which is today's behaviour.
+        this.logger.warn('[SdkModelService] Failed to persist model catalog', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  private clearPersistedCatalogs(): void {
+    const storage = this.stateStorage;
+    if (!storage) return;
+    void storage
+      .update(MODEL_CATALOG_STATE_KEY, undefined)
+      .catch((error: unknown) => {
+        // degradation-audit: optional-capability — a persisted entry that
+        // survives a clear is still keyed by auth fingerprint, so it can only
+        // ever answer for the identity that wrote it.
+        this.logger.warn(
+          '[SdkModelService] Failed to clear persisted model catalogs',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      });
   }
 
   /**
@@ -399,6 +588,9 @@ export class SdkModelService {
     if (inFlight) {
       return inFlight;
     }
+
+    const restored = this.restorePersistedCatalog(NATIVE_MODELS_CACHE_KEY);
+    if (restored) return restored;
 
     return this.startFetch(NATIVE_MODELS_CACHE_KEY, async () => {
       const generation = this.cacheGeneration;
@@ -725,6 +917,9 @@ export class SdkModelService {
 
       return models;
     } catch (error) {
+      // degradation-audit: optional-capability - this is one link in an
+      // explicit model-source chain; [] hands the decision to the next source
+      // (SDK tier slots), and the exhausted chain warns for itself.
       this.logger.warn(
         '[SdkModelService] /v1/models API fallback also failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -824,6 +1019,9 @@ export class SdkModelService {
 
       return models;
     } catch (error) {
+      // degradation-audit: optional-capability - /v1/models is an optional
+      // catalog source reached over the network; [] is the same answer as a
+      // response with no data and sends the caller to the SDK source.
       this.logger.warn(
         '[SdkModelService] Failed to fetch /v1/models',
         error instanceof Error ? error : new Error(String(error)),
@@ -873,8 +1071,14 @@ export class SdkModelService {
    * under — not "has any catalog ever been fetched".
    */
   hasCachedModels(): boolean {
-    const cached = this.modelsCache.get(this.authFingerprint());
-    return !!cached && cached.length > 0;
+    const key = this.authFingerprint();
+    const cached = this.modelsCache.get(key);
+    if (cached && cached.length > 0) return true;
+    // A persisted catalog is just as free as an in-memory one, and answering
+    // `false` beside one would send the pre-flight into a spawn it does not
+    // need. Restoring here is the same read the next `getSupportedModels()`
+    // would make.
+    return this.restorePersistedCatalog(key) !== null;
   }
 
   /**
@@ -889,6 +1093,11 @@ export class SdkModelService {
     this.modelsCache.clear();
     this.pendingModels.clear();
     this.clearApiModelsCache();
+    // The persisted copy goes with it. `clearCache()` is the "I have no idea
+    // what changed" entry point (a `claude login`/`logout` reaches it through
+    // `clearModelCache()`), and a cross-boot memo that survived it would
+    // outlive the only signal we get that the account itself moved.
+    this.clearPersistedCatalogs();
     this.logger.debug('[SdkModelService] Model cache cleared');
   }
 
@@ -915,6 +1124,14 @@ export class SdkModelService {
    * the active auth moves underneath it — discarding it would only cost the
    * next visitor to that provider another spawn, which is the exact defect this
    * method exists to remove.
+   */
+  /**
+   * The persisted copy is kept here for exactly the reason the in-memory one
+   * is: it is keyed by {@link authFingerprint}, so the new identity misses by
+   * construction and the old identity's catalog can only ever answer for the
+   * old identity. Dropping it on every switch would rebuild the A → B → A
+   * defect above and make the cross-boot memo worthless — a provider switch is
+   * the commonest thing a user does between two boots (TASK_2026_383 11.1).
    */
   invalidateForAuthChange(): void {
     this.clearApiModelsCache();

@@ -7,7 +7,7 @@
  *
  * **Why `cross-spawn` and not a platform-core port.** There is no process/exec
  * port in `platform-core` — it exposes `ICommandRegistry` (VS Code command
- * registration) and a pty host, neither of which is a one-shot subprocess. The
+ * registration), which is not a one-shot subprocess. The
  * precedent this follows is `probeCliVersion` in `cli-agent-runtime`, which
  * cannot be imported here without inverting the dependency graph. `cross-spawn`
  * rather than bare `node:child_process` because Node 18.20+/Electron 30+ refuse
@@ -117,6 +117,9 @@ function runProbe(
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       });
     } catch {
+      // degradation-audit: optional-capability - toolchain install probe;
+      // cross-spawn can throw synchronously on a malformed binary name, treated
+      // the same as "binary not found" so the toolchain reports not-installed.
       // cross-spawn can throw synchronously on a malformed binary name.
       resolve({ ok: false, text: '' });
       return;

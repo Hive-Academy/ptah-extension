@@ -119,6 +119,9 @@ export class HarnessPropagationService {
           : {}),
       });
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - propagation is best effort at
+      // trigger sites; the warning reports failure and null is the documented
+      // no-report result.
       this.logger.warn('[harness-sync] Propagation reconcile failed', {
         reason,
         error: error instanceof Error ? error.message : String(error),

@@ -120,6 +120,8 @@ function listSkillSlugs(root: string): string[] {
   try {
     entries = readdirSync(root);
   } catch {
+    // degradation-audit: optional-capability - the user-layer skills root is
+    // created on demand; an empty list offers no catalog entries for it.
     // An absent user layer is the ordinary cold-start state, not an error.
     return [];
   }

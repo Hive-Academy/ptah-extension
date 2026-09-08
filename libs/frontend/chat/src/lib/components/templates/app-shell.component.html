@@ -343,39 +343,54 @@
             }
           </li>
         } @empty {
-          <li
-            class="flex flex-col items-center justify-center p-6 text-center"
-            role="presentation"
-          >
-            @if (hasActiveFilters() && chatStore.sessions().length > 0) {
-              <lucide-angular
-                [img]="SearchIcon"
-                class="w-8 h-8 text-base-content/20 mb-2"
+          <!-- While the host is still booting the session import has not run
+               yet, so "No sessions yet" would be a lie. Skeleton rows say
+               "still arriving" instead (TASK_2026_380). -->
+          @if (bootStatus.isBooting()) {
+            <li class="p-1.5" role="presentation">
+              <ptah-skeleton-block
+                [rows]="5"
+                titleWidthClass="w-32"
+                subtitleWidthClass="w-20"
               />
-              <span class="text-sm text-base-content-muted"
-                >No matching sessions</span
-              >
-              <span class="text-xs text-base-content-muted mt-1">
-                Try adjusting your search or filters
-              </span>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
-                (click)="clearFilters()"
-              >
-                Clear filters
-              </button>
-            } @else {
-              <lucide-angular
-                [img]="MessageSquareIcon"
-                class="w-8 h-8 text-base-content/20 mb-2"
-              />
-              <span class="text-sm text-base-content-muted">No sessions yet</span>
-              <span class="text-xs text-base-content-muted mt-1"
-                >Create one to get started</span
-              >
-            }
-          </li>
+            </li>
+          } @else {
+            <li
+              class="flex flex-col items-center justify-center p-6 text-center"
+              role="presentation"
+            >
+              @if (hasActiveFilters() && chatStore.sessions().length > 0) {
+                <lucide-angular
+                  [img]="SearchIcon"
+                  class="w-8 h-8 text-base-content/20 mb-2"
+                />
+                <span class="text-sm text-base-content-muted"
+                  >No matching sessions</span
+                >
+                <span class="text-xs text-base-content-muted mt-1">
+                  Try adjusting your search or filters
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
+                  (click)="clearFilters()"
+                >
+                  Clear filters
+                </button>
+              } @else {
+                <lucide-angular
+                  [img]="MessageSquareIcon"
+                  class="w-8 h-8 text-base-content/20 mb-2"
+                />
+                <span class="text-sm text-base-content-muted"
+                  >No sessions yet</span
+                >
+                <span class="text-xs text-base-content-muted mt-1"
+                  >Create one to get started</span
+                >
+              }
+            </li>
+          }
         }
       </ul>
 
@@ -670,7 +685,23 @@
       <div class="h-full" [class.hidden]="layoutMode() !== 'grid'">
         @if (orchestraCanvasComponent) {
           <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
+        } @else if (bootStatus.isBooting()) {
+          <!-- The canvas is the Electron launch surface, so this fallback is
+               what the user stares at during a cold boot. A skeleton says
+               "tiles are coming"; the old spinner said nothing. -->
+          <div class="flex flex-col gap-3 p-4 h-full">
+            <ptah-skeleton-block
+              [rows]="4"
+              [showAction]="true"
+              titleWidthClass="w-40"
+              subtitleWidthClass="w-64"
+            />
+          </div>
         } @else {
+          <!-- Boot-independent fallback, unchanged. If ORCHESTRA_CANVAS_COMPONENT
+               is ever left unbound by a DI regression, this must keep looking
+               like the old broken-wiring spinner and NOT like a boot in
+               progress (TASK_2026_380 logic review, moderate note 4). -->
           <div class="flex items-center justify-center h-full">
             <span class="loading loading-spinner loading-md"></span>
           </div>

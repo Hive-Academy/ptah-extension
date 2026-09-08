@@ -74,6 +74,9 @@ export async function killProcessTree(
     const tick = (): void => {
       try {
         process.kill(pid, 0); // liveness probe — throws ESRCH once gone
+        // degradation-audit: optional-capability - ESRCH means the process has
+        // already exited, which is the awaited success outcome, not a failure;
+        // resolving here is the normal fast path this poll exists for.
       } catch {
         resolve();
         return;
@@ -144,6 +147,9 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
   try {
     return await whichLib(binary);
   } catch {
+    // degradation-audit: optional-capability - per the doc comment on this
+    // function, a missing binary on PATH is the documented "not installed"
+    // case; the null return is the intended contract, not a hidden failure.
     return null;
   }
 }

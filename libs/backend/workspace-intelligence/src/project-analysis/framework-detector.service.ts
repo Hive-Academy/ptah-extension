@@ -76,6 +76,10 @@ export class FrameworkDetectorService {
 
       return undefined;
     } catch (_error) {
+      // degradation-audit: optional-capability - framework detection is a
+      // best-effort sniff across config files, manifests and directory
+      // structure; any failure along that path means no framework was detected,
+      // the same as a clean miss.
       return undefined;
     }
   }
@@ -157,6 +161,9 @@ export class FrameworkDetectorService {
 
       return undefined;
     } catch (_error) {
+      // degradation-audit: optional-capability - package.json framework sniff;
+      // a missing or malformed file just means no framework signal from this
+      // source.
       return undefined;
     }
   }
@@ -311,6 +318,9 @@ export class FrameworkDetectorService {
     try {
       entries = await this.fileSystem.readDirectory(workspacePath);
     } catch {
+      // degradation-audit: optional-capability - .NET project-file sniff; an
+      // unreadable workspace root just yields no detected project files for
+      // this probe.
       return [];
     }
 

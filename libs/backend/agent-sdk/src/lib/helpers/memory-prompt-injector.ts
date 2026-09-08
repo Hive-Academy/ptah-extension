@@ -130,6 +130,9 @@ export class MemoryPromptInjector {
         '---',
       ].join('\n');
     } catch (err: unknown) {
+      // degradation-audit: optional-capability - recalled memory is additive
+      // prompt context; '' omits the block and the turn runs without recall,
+      // the same answer an empty or low-scoring search already produces.
       this.logger.warn(
         '[MemoryPromptInjector] Memory search failed; skipping injection',
         {
@@ -205,6 +208,9 @@ export class MemoryPromptInjector {
           .map((m) => (m.subject ?? '').trim())
           .filter((s) => s.length > 0);
       } catch (err: unknown) {
+        // degradation-audit: optional-capability - the SessionStart subject
+        // list is additive prompt context; '' omits the whole block and the
+        // session starts unprimed rather than with a partial listing.
         this.logger.warn(
           '[MemoryPromptInjector] SessionStart memory listing failed; skipping injection',
           { error: err instanceof Error ? err.message : String(err) },
@@ -265,6 +271,9 @@ export class MemoryPromptInjector {
       resolvedName = rec.name;
       members = this.corpus.getCorpusMemoriesForPriming(trimmedName);
     } catch (err: unknown) {
+      // degradation-audit: optional-capability - the knowledge-corpus block is
+      // additive prompt context whose documented contract already returns ''
+      // for an unwired reader or an absent corpus; '' omits the block.
       this.logger.warn(
         '[MemoryPromptInjector] Corpus lookup failed; skipping injection',
         { error: err instanceof Error ? err.message : String(err) },

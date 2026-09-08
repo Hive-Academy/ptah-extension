@@ -41,6 +41,22 @@
   contain-intrinsic-size: auto 120px;
 }
 
+/* Persistent per-message slot. Carries no padding and no containment of its
+   own, so its measured height equals the mounted bubble's height exactly and a
+   placeholder can reproduce it to the pixel. */
+.chat-msg-slot {
+  display: block;
+}
+
+/* An unmounted message: one contained box carrying the last measured height.
+   `contain: strict` keeps it out of layout/paint/style work; the explicit
+   min-height is what preserves the container's total scrollHeight. Inert —
+   aria-hidden in the template, no focusable content, no role. */
+.chat-msg-placeholder {
+  display: block;
+  contain: strict;
+}
+
 /* Webkit fallback */
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar,
 .chat-scroll-container::-webkit-scrollbar {

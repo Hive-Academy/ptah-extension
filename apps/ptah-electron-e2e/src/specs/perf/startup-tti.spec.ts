@@ -7,8 +7,9 @@ import { test, expect } from '../../support/fixtures';
  * This is NOT a substitute for a DevTools trace and does not assert a hard
  * budget — it follows the same "wall-clock spot-check, reported via
  * console.log, re-runnable and comparable across batches" pattern already
- * established by `specs/editor/perf-m1-diff-redisplay.spec.ts` and
- * `perf-m2-electron-spotcheck.spec.ts`. Nobody could re-run the one-off
+ * established by `specs/git/perf-m1-diff-redisplay.spec.ts` (and by the former
+ * `perf-m2-electron-spotcheck.spec.ts`, deleted with the editor panel in
+ * TASK_2026_385). Nobody could re-run the one-off
  * manual DevTools trace batch-2-report.md §10 asked for and never got; this
  * number can be re-run by any future batch with one command, against the
  * exact renderer bundle it built.

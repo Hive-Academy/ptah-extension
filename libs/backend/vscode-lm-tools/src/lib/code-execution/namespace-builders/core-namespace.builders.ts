@@ -97,6 +97,11 @@ export function buildWorkspaceNamespace(
   return {
     analyze: async () => {
       const root = resolveRootPerCall(workspaceProvider);
+      // degradation-audit: optional-capability - projectInfo is an enrichment
+      // on top of the required info/structure results (which are left to reject
+      // the whole call on failure); a missing package.json or manifest parse
+      // error degrades to "no project info" rather than failing the whole
+      // analyze() call.
       const [info, structure, projectInfo] = await Promise.all([
         workspaceAnalyzer.getCurrentWorkspaceInfo(root),
         workspaceAnalyzer.analyzeWorkspaceStructure(root),

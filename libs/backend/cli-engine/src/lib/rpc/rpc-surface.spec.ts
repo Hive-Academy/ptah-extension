@@ -4,9 +4,12 @@
  * `deriveRpcSurface(profile)` partitions the whole RPC registry into what this
  * host serves and what it excludes. The excluded list below is the frozen
  * baseline: it is exactly the hand-maintained exclusion list this host carried
- * before TASK_2026_171 replaced it with manifest x profile derivation, plus `editor:revertFiles`, `update:get-state` and `update:check-now`
- * — three methods the headless hosts never registered but had also never
- * declared, so every CLI boot reported them as registration drift.
+ * before TASK_2026_171 replaced it with manifest x profile derivation, plus
+ * `update:get-state` and `update:check-now` — two methods the headless hosts
+ * never registered but had also never declared, so every CLI boot reported
+ * them as registration drift. The editor RPC surface (including
+ * `editor:revertFiles`) was removed entirely in TASK_2026_385 Batch 4.4 and
+ * no longer appears in `RPC_METHOD_NAMES` at all.
  *
  * This doubles as the host's expected-ABSENT list — a method appearing here
  * must NOT be reachable on this host.
@@ -30,33 +33,16 @@ import {
   EXPECTED_ABSENT_CAPABILITIES,
 } from './expected-absent';
 
-/** Webview-only surfaces: pickers, command palette, editor pane, persisted
- *  layout, embedded PTY, desktop updater. Every backend subsystem stays on. */
+/** Webview-only surfaces: pickers, command palette, embedded PTY,
+ *  desktop updater. Every backend subsystem stays on. */
 export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'command:execute',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:deleteItem',
-  'editor:getDirectoryChildren',
-  'editor:getFileTree',
-  'editor:getSetting',
-  'editor:listAllFiles',
-  'editor:openFile',
-  'editor:renameItem',
-  'editor:revertFiles',
-  'editor:saveFile',
-  'editor:searchInFiles',
-  'editor:updateSetting',
   'file:exists',
   'file:open',
   'file:pick',
   'file:pick-images',
   'file:read',
   'file:save-dialog',
-  'layout:persist',
-  'layout:restore',
-  'terminal:create',
-  'terminal:kill',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',

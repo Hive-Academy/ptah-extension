@@ -123,30 +123,18 @@ import type {
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
 import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
+import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
+import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
-
-/**
- * Payload for MESSAGE_TYPES.FILE_TREE_CHANGED ('file:tree-changed').
- *
- * Deliberately empty: the push is a pure invalidation signal and the
- * renderer re-fetches the tree for whichever workspace is active.
- */
-export type FileTreeChangedPayload = Record<string, never>;
 
 /** Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed'). */
 export interface FileContentChangedPayload {
   /** Absolute path (forward-slash normalized) of the file that changed. */
   readonly filePath: string;
 }
-
-/**
- * Payload for MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS
- * ('editor:reread-open-tabs'). Empty — the renderer iterates its own tabs.
- */
-export type EditorRereadOpenTabsPayload = Record<string, never>;
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
 export interface VecStatusChangedPayload {
@@ -314,6 +302,8 @@ export interface MessagePayloadMap {
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
+  'activity:event': ActivityEventPayload;
+  'degradation:event': DegradationEventPayload;
   'memory:observationCaptured': MemoryObservationCapturedPayload;
   'memory:corpusChanged': MemoryCorpusChangedPayload;
   'memory:extracted': MemoryExtractedPayload;
@@ -327,9 +317,7 @@ export interface MessagePayloadMap {
   'harness:config-proposed': HarnessConfigProposedPayload;
   'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
-  'file:tree-changed': FileTreeChangedPayload;
   'file:content-changed': FileContentChangedPayload;
-  'editor:reread-open-tabs': EditorRereadOpenTabsPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

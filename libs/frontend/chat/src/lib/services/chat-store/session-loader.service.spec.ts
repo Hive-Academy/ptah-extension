@@ -844,4 +844,55 @@ describe('SessionLoaderService', () => {
       expect(loadCalls.length).toBe(1);
     }, 10000);
   });
+
+  describe('loadSessions single-flight (TASK_2026_383 Batch 10.3)', () => {
+    it('shares one session:list with a caller whose debounce fires while the read is in flight', async () => {
+      jest.useFakeTimers();
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      rpcCall.mockClear();
+      rpcCall.mockImplementation(async (method: string) => {
+        if (method === 'session:list') {
+          await gate;
+        }
+        return {
+          success: true,
+          data: { sessions: [], total: 0, hasMore: false },
+        };
+      });
+
+      const first = service.loadSessions();
+      // Debounce elapses -> the RPC starts and is now in flight.
+      jest.advanceTimersByTime(300);
+
+      // A second, independent caller arrives mid-flight. Before the
+      // single-flight it scheduled a second identical session:list.
+      const second = service.loadSessions();
+      jest.advanceTimersByTime(300);
+
+      jest.useRealTimers();
+      release?.();
+      await Promise.all([first, second]);
+
+      const loadCalls = rpcCall.mock.calls.filter(
+        (c) => c[0] === 'session:list',
+      );
+      expect(loadCalls.length).toBe(1);
+    }, 10000);
+
+    it('issues a fresh read for a caller that arrives after the previous one settled', async () => {
+      rpcCall.mockClear();
+
+      await service.loadSessions();
+      await service.loadSessions();
+
+      const loadCalls = rpcCall.mock.calls.filter(
+        (c) => c[0] === 'session:list',
+      );
+      expect(loadCalls.length).toBe(2);
+    }, 10000);
+  });
 });

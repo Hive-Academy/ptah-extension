@@ -23,6 +23,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
+import { capFinalizedTree } from './execution-tree-retention';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })
@@ -71,6 +72,11 @@ export class MessageFinalizationService {
         this.markStreamingNodesAsInterrupted(tree),
       );
     }
+    // The tree is about to be retained for the life of the tab. Bound its tool
+    // payloads before it is, with every drop marked — see
+    // `execution-tree-retention.ts`. Copy-on-write, so an under-budget tree
+    // comes back by reference and nothing the builder holds is mutated.
+    finalTree = finalTree.map((tree) => capFinalizedTree(tree));
     const completeEvent = [...streamingState.events.values()].find(
       (e) => e.eventType === 'message_complete' && e.messageId === messageId,
     ) as MessageCompleteEvent | undefined;
@@ -103,21 +109,38 @@ export class MessageFinalizationService {
     const newMessages: ExecutionChatMessage[] = [];
 
     if (finalTree.length === 0) {
-      if (existingIds.has(messageId)) {
-        this.tabManager.clearStreamingForLoaded(targetTabId);
+      // Nothing renderable reached a root message. This used to mint an
+      // assistant message with `streamingState: null` anyway, and that is
+      // exactly the empty "Assistant response" bubble: a background subagent
+      // keeps streaming after its parent turn ended, its nested messages are
+      // orphans in the next streaming state (their owning tool_start was
+      // finalized with the previous turn), and every settled background task
+      // then fired a terminal turn_state that finalized those orphans as an
+      // empty root message carrying the subagent's 2-5 token usage. A message
+      // with nothing to show is not a message. The turn's stats are still
+      // real, so they fold onto the last assistant message when there is one.
+      const last = existingMessages[existingMessages.length - 1];
+      if (
+        pendingStats &&
+        last?.role === 'assistant' &&
+        !existingIds.has(messageId)
+      ) {
+        this.tabManager.applyFinalizedTurn(targetTabId, [
+          ...existingMessages.slice(0, -1),
+          {
+            ...last,
+            tokens: finalTokens,
+            cost: finalCost,
+            duration: finalDuration,
+          },
+        ]);
+        if (this.tabManager.activeTabId() === targetTabId) {
+          this.sessionManager.setStatus('loaded');
+        }
         return;
       }
-      newMessages.push(
-        createExecutionChatMessage({
-          id: messageId,
-          role: 'assistant',
-          streamingState: null,
-          sessionId: targetTab?.claudeSessionId ?? undefined,
-          tokens: finalTokens,
-          cost: finalCost,
-          duration: finalDuration,
-        }),
-      );
+      this.tabManager.clearStreamingForLoaded(targetTabId);
+      return;
     } else {
       const lastIdx = finalTree.length - 1;
       for (let i = 0; i < finalTree.length; i++) {
@@ -152,6 +175,13 @@ export class MessageFinalizationService {
       ...existingMessages,
       ...newMessages,
     ]);
+    // The turn is committed, so the builder's memo for this tab now holds only
+    // the PRE-CAP nodes — the uncapped payloads this pass just bounded, kept
+    // alive by the identity maps. The next turn starts a fresh `streamingState`
+    // via `clearStreamingForLoaded` / `applyFinalizedTurn`, so the entry is
+    // dead weight either way. Third caller of an existing release
+    // (`TranscriptRetentionService.dispose`, `StreamRouter` on tab close).
+    this.treeBuilder.clearForTab(targetTabId);
     // `SessionManager` status is a global singleton scoped to the active
     // conversation. Only reflect 'loaded' when finalizing the ACTIVE tab —
     // finalizing a background tab must not flip the foreground UI's status.
@@ -277,8 +307,12 @@ export class MessageFinalizationService {
         const cleaned = this.markStreamingAgentsAsInterrupted(
           msg.streamingState,
         );
-        if (cleaned !== msg.streamingState) {
-          return { ...msg, streamingState: cleaned };
+        // Same bound as the live path. A restored tab whose nodes already carry
+        // a `retention` notice accumulates counts here rather than truncating
+        // an already-truncated payload.
+        const capped = capFinalizedTree(cleaned);
+        if (capped !== msg.streamingState) {
+          return { ...msg, streamingState: capped };
         }
       }
       return msg;

@@ -653,6 +653,11 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown or empty string>
 
       return result.structuredOutput;
     } catch (error) {
+      // degradation-audit: optional-capability - a null result here makes the
+      // caller ship the authored template fallback for every section (logged
+      // separately as "using template fallback"), one of the documented
+      // fallback paths; the warn below already surfaces the underlying stream
+      // failure.
       this.logger.warn('ContentGenerationService: Stream processing error', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1109,6 +1114,10 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown or empty string>
 
       return sections.join('\n\n');
     } catch {
+      // degradation-audit: optional-capability - the multi-phase analysis files
+      // are an enrichment; resolveAnalysisData falls back to
+      // formatAnalysisData(context) when they are missing or unreadable (e.g.
+      // analysis never ran in multi-phase mode).
       return '';
     }
   }

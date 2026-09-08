@@ -494,6 +494,9 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     if (method === 'Page.screencastFrame') {
       const data = params['data'] as string;
       const sessionId = params['sessionId'] as number;
+      // degradation-audit: optional-capability - the frame ack only asks Chrome
+      // for the next screencast frame; swallowing drops at most the remaining
+      // frames of an optional recording and never loses a captured one.
       this.sendCDP('Page.screencastFrameAck', { sessionId }).catch(
         (_ackError: unknown) => {},
       );
@@ -601,6 +604,9 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
     try {
       if (this.connected && this.window && !this.window.isDestroyed()) {
+        // degradation-audit: optional-capability - telling Chrome to stop
+        // screencasting is optional cleanup on a session being torn down
+        // anyway; swallowing lets the recorder still write out its frames.
         await this.sendCDP('Page.stopScreencast', {}).catch(
           (_stopError: unknown) => {},
         );

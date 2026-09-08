@@ -67,9 +67,14 @@ describe('MessageFinalizationService — background finalize outcome (Wave 2 rev
         ConfirmationDialogService,
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
         // Deterministic tree so the finalized message carries known content.
+        // `clearForTab` completes the double: finalizing a turn now releases
+        // the builder's memo for that tab.
         {
           provide: ExecutionTreeBuilderService,
-          useValue: { buildTree: jest.fn(() => [replyNode]) },
+          useValue: {
+            buildTree: jest.fn(() => [replyNode]),
+            clearForTab: jest.fn(),
+          },
         },
         { provide: BatchedUpdateService, useValue: { flushSync: jest.fn() } },
         { provide: SessionManager, useValue: { setStatus: jest.fn() } },

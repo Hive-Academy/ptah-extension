@@ -83,7 +83,7 @@ describe('RPC allowlist dual-registration guard', () => {
 
   it('every method in RPC_METHOD_NAMES has its prefix in ALLOWED_METHOD_PREFIXES', () => {
     // Covers app-local handlers (VS Code File/Editor/Command/Agent, Electron
-    // Workspace/Layout/Terminal) that are not part of SHARED_HANDLERS: every
+    // Workspace) that are not part of SHARED_HANDLERS: every
     // method name in the shared registry must be registrable at runtime, or
     // RpcHandler.registerMethod throws during activation.
     const missing: string[] = [];

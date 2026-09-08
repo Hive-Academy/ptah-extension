@@ -928,6 +928,27 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
     });
 
+    it('skips the Claude Code 2.1.259 "working in the background" placeholder (default background spawn)', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      backgroundAgentStore.isBackgroundAgent.mockReturnValue(false);
+      core.process(
+        state,
+        toolResult({
+          output: [
+            {
+              type: 'text',
+              text:
+                'Async agent launched successfully. (This tool result is internal metadata)\n' +
+                'agentId: a26543235eb9de974 (internal ID)\n' +
+                'The agent is working in the background. You will be notified automatically when it completes.',
+            },
+          ],
+        }),
+        makeCtx(),
+      );
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+    });
+
     it('forwards on the mutating occurrence but NOT behind a dedup skip', () => {
       agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
       // 'complete' is the definitive (mutating) occurrence — forwards.

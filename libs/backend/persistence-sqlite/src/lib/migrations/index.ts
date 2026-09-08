@@ -67,6 +67,7 @@ import { sql as sql0038GatewayMessageTurnState } from './0038_gateway_message_tu
 import { sql as sql0039ReapOrphanedQueueRows } from './0039_reap_orphaned_queue_rows';
 import { sql as sql0040SkillCandidateWorkspaceRoot } from './0040_skill_candidate_workspace_root';
 import { sql as sql0041SkillMdMigrationState } from './0041_skill_md_migration_state';
+import { sql as sql0042DbIntegrityCheckState } from './0042_db_integrity_check_state';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -316,5 +317,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 41,
     name: '0041_skill_md_migration_state',
     sql: sql0041SkillMdMigrationState,
+  },
+  {
+    version: 42,
+    name: '0042_db_integrity_check_state',
+    sql: sql0042DbIntegrityCheckState,
   },
 ];

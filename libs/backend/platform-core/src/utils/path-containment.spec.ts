@@ -4,7 +4,7 @@
  * Unit specs for the shared lexical containment predicate. `platform` is always
  * driven via the function argument so these assertions are OS-independent (they
  * run identically on the CI Linux box and a dev's win32 machine) — the same
- * posture as `shell-allowlist.spec.ts` in this directory.
+ * posture as `workspace-path-guards.ts`'s own specs.
  *
  * `path.resolve` still runs with host semantics, so fixtures use forward-slash
  * absolute paths and only ever compare containment RELATIONS (candidate vs root

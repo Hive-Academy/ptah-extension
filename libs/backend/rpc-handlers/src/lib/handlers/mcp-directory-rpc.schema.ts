@@ -49,6 +49,26 @@ export const InstallSmitherySchema = z.object({
 
 export type InstallSmitheryInput = z.infer<typeof InstallSmitherySchema>;
 
+/**
+ * Validated shape for the `mcpDirectory:uninstall` RPC method.
+ *
+ * `force` is the only field that can delete something Ptah did not write, so it
+ * is validated rather than read off an untyped payload, and it DEFAULTS TO
+ * FALSE — a caller that omits it gets the ordinary reconcile-based uninstall,
+ * which leaves a user-owned key alone.
+ */
+export const UninstallMcpSchema = z.object({
+  serverKey: z.string().min(1),
+  targets: z
+    .array(
+      z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+    )
+    .optional(),
+  force: z.boolean().optional().default(false),
+});
+
+export type UninstallMcpInput = z.infer<typeof UninstallMcpSchema>;
+
 /** Validated shape for the `mcpDirectory:uninstallSmithery` RPC method. */
 export const UninstallSmitherySchema = z.object({
   serverKey: z.string().min(1),

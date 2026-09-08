@@ -2,8 +2,19 @@ export { TOKENS } from './di/tokens';
 export { registerVsCodeCoreServices } from './di';
 export { registerVsCodeCorePlatformAgnostic } from './di/register-platform-agnostic';
 export type { PlatformAgnosticRegistrationOptions } from './di/register-platform-agnostic';
+export {
+  registerExtensionContextShim,
+  registerStateStorageAdapters,
+} from './di/register-storage-shims';
+export type { ExtensionContextShimPaths } from './di/register-storage-shims';
 export { Logger } from './logging';
 export type { LogLevel, LogContext, LogEntry } from './logging';
+export { DegradationReporter, MAX_TRACKED_DEGRADATION_CODES } from './logging';
+export type {
+  DegradationReport,
+  DegradationCount,
+  DegradationSnapshot,
+} from './logging';
 
 export { ErrorHandler } from './error-handling';
 export type {

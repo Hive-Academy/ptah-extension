@@ -59,6 +59,11 @@ export function createMcpOAuthTokenStore(secrets: {
         }
         return null;
       } catch {
+        // degradation-audit: optional-capability - an unparseable or
+        // shape-invalid token envelope is indistinguishable from no token at
+        // all to every caller, and both answers route to the same re-auth
+        // path, so `null` degrades to "not connected" rather than hiding a
+        // failure the caller could act on differently.
         return null;
       }
     },
