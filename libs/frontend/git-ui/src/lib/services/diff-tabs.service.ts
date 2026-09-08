@@ -232,6 +232,18 @@ export class DiffTabsService implements MessageHandler {
   }
 
   /**
+   * Show an already-open diff without re-reading it from git.
+   *
+   * File-row re-clicks intentionally go through {@link openDiff} so they
+   * revalidate. Tab-strip navigation must not: it only changes which cached
+   * tab is visible.
+   */
+  public activateDiff(key: string): void {
+    if (!this._diffTabs().some((tab) => tab.filePath === key)) return;
+    this._activeDiffKey.set(key);
+  }
+
+  /**
    * Close one diff tab. The dock falls back to the last remaining tab rather
    * than to nothing, so closing one of several does not empty the surface.
    */
