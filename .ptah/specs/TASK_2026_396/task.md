@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: 'Resuming a finished Codex agent fails with ENOENT from the Claude transcript probe'
 description: >-
