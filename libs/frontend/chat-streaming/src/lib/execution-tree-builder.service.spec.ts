@@ -451,6 +451,10 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(toolResult('msg-a', toolCallId));
     }
 
+    // Seed the cache outside the measurement. The first build constructs the
+    // whole tree from cold code; it is not one of the incremental rebuilds this
+    // benchmark compares with a full events sweep.
+    builder.buildTree(state, 'k');
     const startedAt = performance.now();
     let lastTree: ExecutionNode[] = [];
     let rebuilds = 0;
@@ -492,15 +496,11 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     // rebuild for this input, before the JSON.stringify fingerprint pass on
     // top. Measured here: ~1 sweep per rebuild.
     //
-    // The ceiling is 8 rather than the measured ~1 because the two sides are
-    // not measured under the same conditions and cannot be. `rebuildMs` sums
-    // the rebuilds from the FIRST one — cold code, small events map, JIT still
-    // collecting types — while `medianSweepMs` samples a sweep that the same
-    // loop has already run a hundred times, so the denominator is always the
-    // warmest number in the test. On a loaded CI runner that gap widens: this
-    // assertion failed at a ratio of 4.5 on a 3-way-parallel Jest run that
-    // measured 1.1 locally. Nothing between 4 and 8 is a regression anyone
-    // could act on, and the shape the assertion exists to exclude is 50×.
+    // The initial full build is deliberately untimed above, so `rebuildMs`
+    // contains only incremental rebuilds from an already populated cache. The
+    // sweep still runs after the loop and is therefore somewhat warmer; the
+    // ceiling remains 8 rather than the measured ~1–2 to absorb that residual
+    // JIT/load gap. The old regression is ~50×, so it remains well separated.
     const sweepMs = medianSweepMs(state);
     expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 8);
   });

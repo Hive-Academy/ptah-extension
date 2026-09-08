@@ -329,6 +329,7 @@ export class SessionTurnStateRegistry {
     if (!record || record.state.phase === 'generating') {
       return null;
     }
+    this.storeRecord(sessionId, record);
     const current = record.state;
     let phase = current.phase;
     if (phase === 'awaiting-background' && backgroundTasks.length === 0) {
@@ -441,8 +442,9 @@ export class SessionTurnStateRegistry {
       failure: null,
       generatingEmitted: false,
     };
-    // Every mutating path reaches the record through here, so this is the one
-    // place recency is refreshed. See `TURN_RECORD_MAP_LIMIT`.
+    // Mutating paths that create records or accept every phase reach them
+    // through here. `applySnapshot` preserves its do-not-create/phase guards
+    // and refreshes recency explicitly on its hit path.
     this.storeRecord(sessionId, record);
     return record;
   }

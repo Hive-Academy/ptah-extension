@@ -664,6 +664,26 @@ describe('SessionTurnStateRegistry', () => {
       expect(registry.get('session-0')?.phase).toBe('idle');
     });
 
+    it('keeps a session touched only by snapshots recently used', () => {
+      registry.forceIdle(SESSION);
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+
+      const snapshot = registry.applySnapshot(SESSION, [task('t1')]);
+      expect(snapshot).toMatchObject({
+        phase: 'awaiting-background',
+        revision: 2,
+        backgroundTasks: [task('t1')],
+      });
+
+      // This is the LIMIT-th other session touched since SESSION was created.
+      // The snapshot update must make other-0, not SESSION, the LRU victim.
+      registry.markGenerating(`other-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get(SESSION)).toBe(snapshot);
+    });
+
     // The accepted residue of a phase-BLIND eviction, pinned rather than
     // guarded (TASK_2026_374). The floor carries `state.revision` and nothing
     // else, so a record evicted mid-turn also loses `stopSnapshot`, `failure`
