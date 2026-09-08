@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_304
-status: backlog
+status: cancelled
 type: feature
 title: >-
   Per-session provider selection for interactive chat — two tabs in one

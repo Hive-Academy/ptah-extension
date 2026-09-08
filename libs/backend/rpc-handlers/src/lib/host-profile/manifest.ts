@@ -27,6 +27,7 @@ import type { Capability } from './capabilities';
 import {
   AgentRpcHandlers,
   AuthRpcHandlers,
+  BootRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
   CommandRpcHandlers,
@@ -43,7 +44,6 @@ import {
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
   IndexingRpcHandlers,
-  LayoutRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
   McpDirectoryRpcHandlers,
@@ -62,7 +62,6 @@ import {
   SkillsSynthesisRpcHandlers,
   SubagentRpcHandlers,
   TasksRpcHandlers,
-  TerminalRpcHandlers,
   UpdateRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
@@ -92,25 +91,6 @@ export interface RpcHandlerManifestEntry {
   readonly handler?: RpcHandlerCtor;
 }
 
-/**
- * Host-owned method tuples. These become `static readonly METHODS` on the
- * unified handler classes as each family moves into this library.
- */
-const EDITOR_PANE_METHODS = [
-  'editor:openFile',
-  'editor:saveFile',
-  'editor:getFileTree',
-  'editor:getDirectoryChildren',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:renameItem',
-  'editor:deleteItem',
-  'editor:getSetting',
-  'editor:updateSetting',
-  'editor:searchInFiles',
-  'editor:listAllFiles',
-] as const satisfies readonly RpcMethodName[];
-
 export const RPC_HANDLER_MANIFEST = [
   // --- library-owned, every host --------------------------------------------
   {
@@ -124,6 +104,17 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AuthRpcHandlers.METHODS,
     requires: [],
     handler: AuthRpcHandlers,
+  },
+  {
+    // `requires: []` on purpose. A readiness probe must answer on every host,
+    // and `vscode-core`'s always-ready null adapter guarantees the port
+    // resolves everywhere — so there is nothing for a capability to gate.
+    // Adding a `Capability` member would instead force every profile to opt in
+    // and make `resolveRpcHandlerPlan` throw for any that forgot.
+    key: 'boot',
+    methods: BootRpcHandlers.METHODS,
+    requires: [],
+    handler: BootRpcHandlers,
   },
   {
     key: 'autocomplete',
@@ -356,18 +347,6 @@ export const RPC_HANDLER_MANIFEST = [
     handler: WorkspaceRpcHandlers,
   },
   {
-    key: 'layout',
-    methods: LayoutRpcHandlers.METHODS,
-    requires: ['layoutPersistence'],
-    handler: LayoutRpcHandlers,
-  },
-  {
-    key: 'terminal',
-    methods: TerminalRpcHandlers.METHODS,
-    requires: ['pty'],
-    handler: TerminalRpcHandlers,
-  },
-  {
     key: 'update',
     methods: UpdateRpcHandlers.METHODS,
     requires: ['appUpdater'],
@@ -376,16 +355,6 @@ export const RPC_HANDLER_MANIFEST = [
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
-  {
-    key: 'host.editorRevert',
-    methods: ['editor:revertFiles'],
-    requires: ['editorRevert'],
-  },
-  {
-    key: 'host.editorPane',
-    methods: EDITOR_PANE_METHODS,
-    requires: ['editorHost'],
-  },
 ] as const satisfies readonly RpcHandlerManifestEntry[];
 
 /** Every manifest key, for typed `hostHandlers` maps on host profiles. */

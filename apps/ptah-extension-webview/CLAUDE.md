@@ -21,7 +21,7 @@ Angular 21 single-page application that renders inside the VS Code webview and t
 - `src/app/app.config.ts` is the cycle-breaking hub. It registers:
   - `provideZoneChangeDetection({ eventCoalescing: true })` (this app is NOT zoneless — Zone is required by `provideZoneChangeDetection`).
   - `provideVSCodeService()` + `provideMessageRouter()` from `@ptah-extension/core`.
-  - The `MESSAGE_HANDLERS` multi-token populated by 8+ services (`VSCodeService`, `ClaudeRpcService`, `AutopilotStateService`, `AppStateManager`, `ChatMessageHandler`, `AgentMonitorMessageHandler`, `EditorService`, `ElectronLayoutService`, `WorkspaceIndexingService`, `GatewayStateService`).
+  - The `MESSAGE_HANDLERS` multi-token populated by 8+ services (`VSCodeService`, `ClaudeRpcService`, `AutopilotStateService`, `AppStateManager`, `ChatMessageHandler`, `AgentMonitorMessageHandler`, `GitStatusService`, `GitBranchesService`, `ElectronLayoutService`, `WorkspaceIndexingService`, `GatewayStateService`).
   - Inversion tokens to break frontend lib cycles: `SESSION_DATA_PROVIDER`, `WORKSPACE_COORDINATOR`, `WIZARD_VIEW_COMPONENT`, `ORCHESTRA_CANVAS_COMPONENT`, `HARNESS_BUILDER_COMPONENT`, `SETUP_HUB_COMPONENT`.
   - `provideMonacoEditor({...})` with a Blob-URL `getWorker` shim so Monaco's `importScripts` works under Electron 35+ `file://`.
   - `provideMarkdownRendering({ extensions: 'full' })`.
@@ -29,14 +29,14 @@ Angular 21 single-page application that renders inside the VS Code webview and t
 
 ## Library Dependencies
 
-- `@ptah-extension/core`, `@ptah-extension/chat`, `@ptah-extension/setup-wizard`, `@ptah-extension/editor`, `@ptah-extension/canvas`, `@ptah-extension/messaging-gateway-ui`, `@ptah-extension/harness-builder`, `@ptah-extension/markdown`
-- External: `ngx-monaco-editor-v2`, `prismjs` (loaded as global scripts), `monaco-editor` (assets), `monaco-vim`
+- `@ptah-extension/core`, `@ptah-extension/chat`, `@ptah-extension/setup-wizard`, `@ptah-extension/git-ui`, `@ptah-extension/canvas`, `@ptah-extension/messaging-gateway-ui`, `@ptah-extension/harness-builder`, `@ptah-extension/markdown`
+- External: `ngx-monaco-editor-v2`, `prismjs` (loaded as global scripts), `monaco-editor` (assets)
 
 ## Build & Run
 
 - `nx build ptah-extension-webview` — `@angular/build:application`. Production budgets: initial bundle 2.5mb warn / 3.5mb error.
 - `nx serve ptah-extension-webview` — standalone dev server (Angular dev-server).
-- Build assets include `monaco-editor/min` -> `/assets/monaco` and `monaco-vim` UMD. Production replaces `environments/environment.ts` with `environment.production.ts`.
+- Build assets include `monaco-editor/min` -> `/assets/monaco`. Production replaces `environments/environment.ts` with `environment.production.ts`.
 - Output `dist/apps/ptah-extension-webview/browser/` is copied into the VS Code extension and Electron renderer by their respective post-build steps.
 
 ## Guidelines

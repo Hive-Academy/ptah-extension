@@ -26,10 +26,65 @@ import {
 } from '@ptah-extension/shared';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { filterCompactionNoise } from './transcript-filter.utils';
+import { TranscriptRenderWindow } from './transcript-render-window';
+import { TranscriptSlotDirective } from './transcript-slot.directive';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
+
+/**
+ * When a message entered the transcript.
+ *
+ * `msg.timestamp` alone is NOT usable as a sort key for a streaming bubble:
+ * `streamingMessages` builds those with no timestamp, so
+ * `createExecutionChatMessage` mints a fresh `Date.now()` on every recompute
+ * and the key moves under a burst of deltas. `ExecutionNode.startTime` is
+ * copied from the ROOT `message_start` event (`message-node.fn.ts`), and a
+ * finalized assistant message keeps the same tree
+ * (`message-finalization.service.ts`), so streaming and finalized assistant
+ * messages compare on one stable clock. User bubbles carry
+ * `streamingState: null` and fall back to their own timestamp, minted once at
+ * creation and then carried in the array.
+ */
+function transcriptOrderKey(msg: ExecutionChatMessage): number {
+  return msg.streamingState?.startTime ?? msg.timestamp;
+}
+
+/**
+ * Merge finalized and streaming messages in TIME order rather than in
+ * lifecycle order (TASK_2026_382 D1).
+ *
+ * Concatenating `[...finalized, ...streaming]` put every finalized message
+ * above every live tree — so a user message sent while a stream was still on
+ * screen rendered ABOVE the bubble it was answering. Ordering by time is
+ * correct whichever dispatch window is open.
+ *
+ * Both inputs are already ascending in their own key, so this is a linear
+ * two-way merge, not a sort: cheaper, and STABLE by construction — equal keys
+ * keep finalized-before-streaming, and neither list is reordered internally
+ * even if a producer ever hands over an unsorted one.
+ */
+function mergeByTime(
+  finalized: readonly ExecutionChatMessage[],
+  streaming: readonly ExecutionChatMessage[],
+): readonly ExecutionChatMessage[] {
+  const merged: ExecutionChatMessage[] = new Array(
+    finalized.length + streaming.length,
+  );
+  let f = 0;
+  let s = 0;
+  let out = 0;
+  while (f < finalized.length && s < streaming.length) {
+    merged[out++] =
+      transcriptOrderKey(finalized[f]) <= transcriptOrderKey(streaming[s])
+        ? finalized[f++]
+        : streaming[s++];
+  }
+  while (f < finalized.length) merged[out++] = finalized[f++];
+  while (s < streaming.length) merged[out++] = streaming[s++];
+  return merged;
+}
 
 /**
  * Frozen view snapshot consumed by the template. When the transcript is hidden
@@ -75,7 +130,12 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
  */
 @Component({
   selector: 'ptah-chat-transcript',
-  imports: [MessageBubbleComponent, ChatEmptyStateComponent],
+  imports: [
+    MessageBubbleComponent,
+    ChatEmptyStateComponent,
+    TranscriptSlotDirective,
+  ],
+  providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +153,13 @@ export class ChatTranscriptComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+
+  /**
+   * Mount decision for each message. Component-scoped (see `providers`), fed
+   * from the gated `vm()` so the freeze discipline extends to it. Template
+   * reads `isMounted()` / `placeholderHeight()`.
+   */
+  protected readonly renderWindow = inject(TranscriptRenderWindow);
 
   /** Frontend UUID of the tab whose transcript is rendered. */
   readonly tabId = input.required<string>();
@@ -299,7 +366,7 @@ export class ChatTranscriptComponent {
       return this._allMessagesCache;
     }
     const next =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+      streaming.length === 0 ? finalized : mergeByTime(finalized, streaming);
     this._allMessagesFinalizedRef = finalized;
     this._allMessagesStreamingRef = streaming;
     this._allMessagesCache = next;
@@ -400,8 +467,26 @@ export class ChatTranscriptComponent {
         this.wasStreaming = isStreaming;
       });
     });
+    // Feed the render window. Reads the GATED `vm` and `active` only, so a
+    // hidden transcript neither re-derives its tail nor processes callbacks —
+    // the same freeze the view model applies to the DOM.
+    effect(() => {
+      const view = this.vm();
+      const isActive = this.active();
+      untracked(() => {
+        this.renderWindow.setActive(isActive);
+        this.renderWindow.syncMessages(
+          view.messages.map((m) => m.id),
+          view.finalizedCount,
+        );
+      });
+    });
     afterNextRender(
       () => {
+        // Attach FIRST: an unattached render window mounts only its tail, and
+        // that is indistinguishable from data loss. The resize observer only
+        // costs a pinned transcript its auto-follow.
+        this.renderWindow.attach(this.scrollContainer()?.nativeElement ?? null);
         this.setupResizeObserver();
       },
       { injector: this.injector },

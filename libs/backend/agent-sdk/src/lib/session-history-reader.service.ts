@@ -620,6 +620,9 @@ export class SessionHistoryReaderService {
           const pricing = await this.pricingProvider.getPricing(modelId);
           return pricing ? ([modelId, pricing] as const) : null;
         } catch {
+          // degradation-audit: optional-capability - hydrating pricing for one
+          // unknown model is per-model and best effort; null is the same as
+          // "no pricing published" and the other models still hydrate.
           return null;
         }
       }),

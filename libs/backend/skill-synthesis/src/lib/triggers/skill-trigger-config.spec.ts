@@ -2,6 +2,7 @@ import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testi
 import {
   SKILL_TRIGGER_DEFAULTS,
   SKILL_TRIGGER_KEYS,
+  SKILL_TRIGGER_PREFIXES,
   flattenSkillTriggers,
   readSkillTriggers,
 } from './skill-trigger-config';
@@ -60,6 +61,42 @@ describe('skill-trigger-config', () => {
       expect(out.turnComplete).toEqual({
         enabled: SKILL_TRIGGER_DEFAULTS.turnComplete.enabled,
       });
+    });
+  });
+
+  describe('the boot-scan deferral knobs (TASK_2026_380)', () => {
+    it('declares both keys under the skillSynthesis.triggers namespace', () => {
+      expect(SKILL_TRIGGER_KEYS.bootScanDelayMs).toBe(
+        'skillSynthesis.triggers.bootScanDelayMs',
+      );
+      expect(SKILL_TRIGGER_KEYS.bootScanIdleBackoffMs).toBe(
+        'skillSynthesis.triggers.bootScanIdleBackoffMs',
+      );
+    });
+
+    it('defaults both to 5 minutes', () => {
+      expect(SKILL_TRIGGER_DEFAULTS.bootScanDelayMs).toBe(300000);
+      expect(SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs).toBe(300000);
+    });
+
+    it('keeps them OUT of the settings-panel DTO surface', () => {
+      // They are cost/latency tuning knobs, not per-trigger toggles. A key in
+      // `SKILL_TRIGGER_PREFIXES` is a key the panel round-trips, and
+      // `flattenSkillTriggers` would then have to answer for a field
+      // `SkillTriggersDto` does not declare.
+      expect(Object.values(SKILL_TRIGGER_PREFIXES)).not.toContain(
+        SKILL_TRIGGER_KEYS.bootScanDelayMs,
+      );
+      expect(Object.values(SKILL_TRIGGER_PREFIXES)).not.toContain(
+        SKILL_TRIGGER_KEYS.bootScanIdleBackoffMs,
+      );
+    });
+
+    it('leaves readSkillTriggers unchanged — it reads the DTO fields only', () => {
+      const ws = createMockWorkspaceProvider();
+      const out = readSkillTriggers(ws) as unknown as Record<string, unknown>;
+      expect(out['bootScanDelayMs']).toBeUndefined();
+      expect(out['bootScanIdleBackoffMs']).toBeUndefined();
     });
   });
 

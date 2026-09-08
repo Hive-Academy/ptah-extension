@@ -581,6 +581,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
             metadata: { timestamp: number };
             sessionId: number;
           }) => {
+            // degradation-audit: optional-capability - the CDP frame ack is a
+            // protocol courtesy to keep Chrome's screencast stream flowing; a
+            // single missed ack does not lose the frame, which is already
+            // handed to this.recorder.addFrame below.
             Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
               (_ackError: unknown) => {},
             );
@@ -623,6 +627,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       if (this._connected && this.client) {
         const { Page } = this.client;
+        // degradation-audit: optional-capability - the frames are already
+        // captured by this.recorder; failing to formally stop the CDP
+        // screencast (e.g. the browser session already closed) must not block
+        // returning the recording that was successfully captured.
         await Page.stopScreencast().catch((_stopError: unknown) => {});
       }
       const recordingDir = this.getRecordingDir();

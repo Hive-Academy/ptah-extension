@@ -163,6 +163,9 @@ export class SmitheryOverrideResolver {
         url: httpConfig.url,
         headers: httpConfig.headers,
       };
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, a resolution failure contributes no override rather than
+      // throwing into the chat path; both branches below log the reason.
     } catch (error: unknown) {
       if (error instanceof SmitheryKeyMissingError) {
         this.logger?.warn(

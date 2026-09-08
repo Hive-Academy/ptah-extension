@@ -250,8 +250,7 @@ export class ElectronLoggerAdapter {
     this.outputManager.show(ElectronLoggerAdapter.CHANNEL_NAME);
   }
 
-  dispose(): void {
-  }
+  dispose(): void {}
 
   private log(level: LogLevel, message: string, args: unknown[]): void {
     if (!this.shouldLog(level)) return;
@@ -266,6 +265,9 @@ export class ElectronLoggerAdapter {
             }
             return String(arg);
           } catch {
+            // degradation-audit: optional-capability - inlining a log argument
+            // is optional detail; the placeholder keeps the message itself
+            // intact rather than letting a cyclic object break logging.
             return '[Unserializable]';
           }
         })

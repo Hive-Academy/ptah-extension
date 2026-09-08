@@ -7,10 +7,10 @@
  *   2. Main app — users with a workspace get the 3-panel layout
  *
  * 3-panel layout:
- *   - Global navbar: Logo, theme toggle, settings, editor toggle
+ *   - Global navbar: Logo, theme toggle, settings, git toggle
  *   - Workspace sidebar (left) — folder list
  *   - Chat panel (center) — reuses AppShellComponent entirely
- *   - Editor panel (right, toggleable) — Monaco editor + file tree
+ *   - Git dock (right, toggleable) — git status, source control, diff view
  *
  * Resizable dividers between panels. macOS title bar drag region on navbar.
  */
@@ -41,6 +41,7 @@ import {
   ClipboardList,
 } from 'lucide-angular';
 import {
+  BackOfficeActivityService,
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
@@ -49,6 +50,7 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
+  ActivityTickerComponent,
   SidebarTabComponent,
   ElectronResizeHandleComponent,
   ThemeToggleComponent,
@@ -65,6 +67,7 @@ import {
     ElectronResizeHandleComponent,
     NgComponentOutlet,
     ThemeToggleComponent,
+    ActivityTickerComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -207,6 +210,13 @@ import {
 
         <!-- Global actions — theme only (navigation moved to pills) -->
         <div class="flex items-center gap-0.5 no-drag">
+          <!-- Back-office activity. Before the toggle on purpose, so the
+               toggle keeps its far-right position. -->
+          <ptah-activity-ticker
+            [items]="activity.recent()"
+            [idle]="activity.isIdle()"
+            (activate)="openThoth()"
+          />
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
         </div>
@@ -249,7 +259,7 @@ import {
             <ptah-app-shell class="h-full w-full" />
           </div>
 
-          <!-- Editor panel (lazy-loaded to keep xterm/monaco out of the VS Code extension bundle) -->
+          <!-- Git dock (lazy-loaded to keep monaco out of the initial Electron renderer bundle) -->
           @if (layout.editorPanelVisible()) {
             <!-- Resize handle: chat ↔ editor -->
             <ptah-electron-resize-handle
@@ -263,8 +273,23 @@ import {
               class="min-w-[300px] border-l border-base-content/10 overflow-hidden"
               [style.width.px]="layout.editorPanelWidth()"
             >
-              @if (editorComponent()) {
-                <ng-container *ngComponentOutlet="editorComponent()!" />
+              @if (dockComponent()) {
+                <ng-container *ngComponentOutlet="dockComponent()!" />
+              } @else if (dockLoadFailed()) {
+                <div
+                  class="flex flex-col items-center justify-center gap-2 h-full p-4 text-center"
+                >
+                  <span class="text-xs text-error"
+                    >Failed to load the git panel.</span
+                  >
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-outline"
+                    (click)="retryDockLoad()"
+                  >
+                    Retry
+                  </button>
+                </div>
               } @else {
                 <div class="flex items-center justify-center h-full">
                   <span class="loading loading-spinner loading-md"></span>
@@ -273,9 +298,9 @@ import {
             </div>
           }
 
-          <!-- Editor vertical tab (always visible when folders exist) -->
+          <!-- Git vertical tab (always visible when folders exist) -->
           <ptah-sidebar-tab
-            label="Editor"
+            label="Git"
             side="right"
             [isOpen]="layout.editorPanelVisible()"
             (toggled)="layout.toggleEditorPanel()"
@@ -289,9 +314,22 @@ export class ElectronShellComponent {
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
+  /** The header ticker's only source of items (TASK_2026_380). */
+  protected readonly activity = inject(BackOfficeActivityService);
 
-  /** Lazily loaded EditorPanelComponent — keeps xterm/monaco out of the initial bundle. */
-  readonly editorComponent = signal<Type<unknown> | null>(null);
+  /** Lazily loaded GitDockComponent — keeps xterm/monaco out of the initial bundle. */
+  readonly dockComponent = signal<Type<unknown> | null>(null);
+
+  /**
+   * Set when the `@ptah-extension/git-ui` chunk fails to load (network blip,
+   * corrupted build output, CSP block). Read as a tracked dependency in the
+   * load effect below so flipping it back to `false` (via
+   * {@link retryDockLoad}) re-triggers the import — without this the user
+   * had no way to recover short of closing and reopening the whole panel,
+   * and even that gave no visible indication anything had failed
+   * (TASK_2026_385 Batch 3.1 fix pass, FIX 1).
+   */
+  readonly dockLoadFailed = signal(false);
 
   constructor() {
     // Electron uses the canvas as its sole chat surface — the single-chat
@@ -302,13 +340,25 @@ export class ElectronShellComponent {
     effect(() => {
       if (
         this.layout.editorPanelVisible() &&
-        !untracked(this.editorComponent)
+        !untracked(this.dockComponent) &&
+        !this.dockLoadFailed()
       ) {
-        import('@ptah-extension/editor').then((m) =>
-          this.editorComponent.set(m.EditorPanelComponent),
-        );
+        import('@ptah-extension/git-ui')
+          .then((m) => this.dockComponent.set(m.GitDockComponent))
+          .catch((error: unknown) => {
+            console.error(
+              '[ElectronShellComponent] failed to load the git dock chunk:',
+              error instanceof Error ? error.message : String(error),
+            );
+            this.dockLoadFailed.set(true);
+          });
       }
     });
+  }
+
+  /** Manual retry for a failed git-dock chunk load (see {@link dockLoadFailed}). */
+  protected retryDockLoad(): void {
+    this.dockLoadFailed.set(false);
   }
   readonly SettingsIcon = Settings;
   readonly BarChart3Icon = BarChart3;

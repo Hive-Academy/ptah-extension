@@ -8,11 +8,11 @@
  * renderer-cache-key.spec.ts RI-1, and load-bearing for cache correctness).
  * Nx cannot tell a build-time edge from a runtime one, so the renderer's npm
  * packages land in the packaged app's production dependencies: @angular/*,
- * zone.js, monaco-editor, @xterm/*, gridstack, lucide-angular -- 20 packages,
- * ~164 MB, all of them already bundled into the renderer's own JS output. One
- * of them was `@angular-eslint/eslint-plugin-template`, a LINT plugin.
- *
- * That is not just waste. electron-builder walks the dependency tree from this
+ * zone.js, monaco-editor, gridstack, lucide-angular -- ~20 packages, ~164 MB,
+ * all of them already bundled into the renderer's own JS output. One of them
+ * was `@angular-eslint/eslint-plugin-template`, a LINT plugin. (`@xterm/*`
+ * shipped here too until the terminal feature was removed.) That is not just
+ * waste. electron-builder walks the dependency tree from this
  * manifest and validates each package's declared deps against what is
  * installed. monaco-editor pins `"dompurify": "3.2.7"` exactly, while the root
  * package.json deliberately overrides it to `^3.3.2`. npm honours the override
@@ -127,7 +127,6 @@ describe('packaged electron dependency set', () => {
     const rendererOnly = declared.filter(
       (name) =>
         name.startsWith('@angular/') ||
-        name.startsWith('@xterm/') ||
         name === 'zone.js' ||
         name === 'monaco-editor' ||
         name === 'ngx-monaco-editor-v2' ||

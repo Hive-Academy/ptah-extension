@@ -198,13 +198,26 @@ export class ThemeService {
   /**
    * Initialize theme from persisted state or VS Code theme setting.
    *
-   * Priority:
-   * 1. Persisted theme from VS Code state (user's last selection)
-   * 2. VS Code theme kind mapping (first-launch default)
-   * 3. Default 'anubis' (dark)
+   * Priority — the SAME source order the pre-paint script in
+   * `apps/ptah-extension-webview/src/index.html` uses, and it must stay that
+   * way:
+   * 1. Persisted theme from `vscode.getState()` (authoritative)
+   * 2. The `localStorage` mirror this service writes on every `setTheme`
+   * 3. VS Code theme kind mapping (first-launch default)
+   * 4. Default 'anubis' (dark)
+   *
+   * Step 2 is not redundant. The pre-paint script has already applied the
+   * user's theme from whichever of (1) or (2) answered first; if this service
+   * then resolved only (1) and found it empty, it would fall through to the
+   * default and its `data-theme` effect would REPAINT the correct pre-paint
+   * theme back to `anubis` a frame later. That is not hypothetical: VS Code
+   * discards a webview's `getState()` payload when the webview is disposed,
+   * while `localStorage` is keyed to the origin and survives — so the mirror
+   * is the only surviving record of the user's choice on exactly that path.
    */
   private initializeTheme(): void {
-    const persisted = this.vscode.getState<string>(THEME_STATE_KEY);
+    const authoritative = this.vscode.getState<string>(THEME_STATE_KEY);
+    const persisted = authoritative ?? this.readThemeHint();
     if (persisted && this.isValidTheme(persisted)) {
       this._currentTheme.set(persisted);
       // Re-arm the pre-paint hint. On the first launch after upgrade the
@@ -212,6 +225,11 @@ export class ThemeService {
       // themes gets one last frame of `anubis` — exactly what happens on every
       // launch today. Writing it here means it does not happen again.
       this.writeThemeHint(persisted);
+      if (authoritative === undefined) {
+        // Recovered from the mirror: repair the authoritative store so the
+        // choice does not depend on `localStorage` surviving alone.
+        this.vscode.setState(THEME_STATE_KEY, persisted);
+      }
       if (!EAGER_THEMES.has(persisted)) {
         // Sheet is normally already in the document (inserted render-blocking
         // by index.html). This covers the upgrade path above, where it is not.
@@ -225,6 +243,24 @@ export class ThemeService {
     const vscodeTheme = this.vscode.config().theme;
     if (vscodeTheme === 'light') {
       this._currentTheme.set('anubis-light');
+    }
+  }
+
+  /**
+   * Read the `localStorage` mirror written by {@link writeThemeHint}. Best
+   * effort for the same reasons: storage can be unavailable, and an absent or
+   * unreadable hint simply means the next fallback decides.
+   */
+  private readThemeHint(): string | undefined {
+    try {
+      return localStorage.getItem(THEME_HINT_KEY) ?? undefined;
+    } catch {
+      // degradation-audit: optional-capability - the localStorage hint only
+      // buys one pre-paint frame of the correct theme at launch; where storage
+      // is blocked, partitioned or over quota, `undefined` hands the decision
+      // to the vscode.setState mirror and then the theme-kind fallback, both
+      // of which already produce a correct theme without it.
+      return undefined;
     }
   }
 

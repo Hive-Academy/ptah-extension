@@ -534,7 +534,10 @@ export class PiCliAdapter implements CliAdapter {
     try {
       event = JSON.parse(trimmed) as PiEvent;
     } catch {
-      // Not a complete JSON object (partial line / non-JSON banner) — skip.
+      // degradation-audit: optional-capability - not a complete JSON object
+      // (partial line / non-JSON banner); pi's stream output is interleaved
+      // with plain text, so skipping the line is the documented defensive
+      // behaviour, not a hidden parse bug.
       return false;
     }
 

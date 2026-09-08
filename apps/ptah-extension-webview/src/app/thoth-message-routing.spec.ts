@@ -30,6 +30,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  BackOfficeActivityService,
   MESSAGE_HANDLERS,
   MessageRouterService,
   VSCodeService,
@@ -61,6 +62,7 @@ const WIRE = {
   skillSynthesisEvent: 'skillSynthesis:event',
   vecStatusChanged: 'db:vecStatusChanged',
   embedderStatusChanged: 'embedder:statusChanged',
+  activityEvent: 'activity:event',
 } as const;
 
 function makeVscodeStub() {
@@ -100,6 +102,7 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
   let skills: SkillSynthesisLiveService;
   let memory: VecEmbedderRecoveryService;
   let status: ThothStatusService;
+  let activity: BackOfficeActivityService;
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -128,6 +131,13 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
           useExisting: VecEmbedderRecoveryService,
           multi: true,
         },
+        // TASK_2026_380: the back-office ticker's only source of items. It is
+        // registered in app.config.ts with the same `useExisting` shape.
+        {
+          provide: MESSAGE_HANDLERS,
+          useExisting: BackOfficeActivityService,
+          multi: true,
+        },
       ],
     });
 
@@ -135,6 +145,7 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     skills = TestBed.inject(SkillSynthesisLiveService);
     memory = TestBed.inject(VecEmbedderRecoveryService);
     status = TestBed.inject(ThothStatusService);
+    activity = TestBed.inject(BackOfficeActivityService);
     // Constructing the router builds the handler map, which reads
     // handledMessageTypes off all four services. A dropped registration or a
     // barrel that no longer resolves the class explodes here.
@@ -236,6 +247,20 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     if (summary.gateway.available) {
       expect(summary.gateway.platforms.length).toBeGreaterThan(0);
     }
+  });
+
+  it('delivers a raw activity:event message to BackOfficeActivityService', () => {
+    expect(activity.recent()).toEqual([]);
+
+    dispatch(WIRE.activityEvent, {
+      source: 'cron',
+      kind: 'cron-run',
+      summary: 'Daily backup finished in 1.2 s',
+      timestamp: Date.now(),
+    });
+
+    expect(activity.recent()).toHaveLength(1);
+    expect(activity.latest()?.summary).toBe('Daily backup finished in 1.2 s');
   });
 
   it('fans a single gateway:statusChanged out to BOTH subscribed services', () => {

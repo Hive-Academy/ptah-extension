@@ -430,7 +430,7 @@ export class PersistenceRpcHandlers {
     try {
       if (this.connection.isOpen) {
         try {
-          rawBackupPath = await this.backup.backup(this.connection.db, 'reset');
+          rawBackupPath = await this.backup.backup('reset');
         } catch (err: unknown) {
           this.logger.warn('[persistence] db:reset backup error (non-fatal)', {
             error: err instanceof Error ? err.message : String(err),

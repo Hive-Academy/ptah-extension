@@ -51,54 +51,16 @@ async function collapseRails(page: Page): Promise<void> {
 }
 
 test.describe('docs screenshots — editor & git', () => {
-  test('file tree, git status bar, source control and diff', async ({
-    ui,
-    page,
-  }) => {
+  test('git status, source control and diff', async ({ ui, page }) => {
     test.setTimeout(300_000);
-    await ui.goto('editor');
+    await ui.goto('git');
 
-    await expect(page.locator('ptah-editor-panel')).toBeVisible();
-
-    // ── File tree ────────────────────────────────────────────────────────────
-    await expect(page.locator('ptah-file-tree')).toBeVisible();
-    // The panel mounts before the backend has walked the workspace, and its
-    // one-shot fetch can land on an empty root. Re-poke it until rows appear.
-    const nodes = page.locator('[data-testid="editor-file-node"]');
-    for (
-      let attempt = 0;
-      attempt < 10 && (await nodes.count()) === 0;
-      attempt++
-    ) {
-      await ui.pushEvent({ type: 'file:tree-changed', payload: {} });
-      await page.waitForTimeout(2_000);
-    }
-    await expect(nodes.first()).toBeVisible();
-    for (const folder of ['src', 'api']) {
-      const node = page
-        .locator('[data-testid="editor-file-node"]', { hasText: folder })
-        .first();
-      if (await node.isVisible().catch(() => false)) {
-        await node.click();
-        await page.waitForTimeout(500);
-      }
-    }
-    await shoot(page, 'file-tree-panel', {
-      crop: page.locator('ptah-sidebar'),
-    });
-
-    // ── Git status bar ───────────────────────────────────────────────────────
-    const statusBar = page.locator('ptah-git-status-bar');
-    await expect(statusBar).toBeVisible();
-    await shoot(page, 'git-status-bar', { crop: statusBar });
+    // ── Git dock header ──────────────────────────────────────────────────────
+    const dockHeader = page.locator('ptah-git-dock-header');
+    await expect(dockHeader).toBeVisible();
+    await shoot(page, 'git-dock-header', { crop: dockHeader });
 
     // ── Source control, with a commit message typed in ────────────────────────
-    // The tab's accessible name carries its change count ("Git 4"), so match on
-    // the prefix rather than the bare word.
-    await page
-      .getByRole('tab', { name: /^Git\b/ })
-      .first()
-      .click();
     const sourceControl = page.locator('ptah-source-control-panel');
     await expect(sourceControl).toBeVisible();
     await page.waitForTimeout(1_500);
@@ -126,7 +88,7 @@ test.describe('docs screenshots — editor & git', () => {
     await widenEditorPanel(page);
     await page.waitForTimeout(3_000);
     await shoot(page, 'diff-side-by-side', {
-      crop: page.locator('ptah-editor-panel'),
+      crop: page.locator('ptah-git-dock'),
     });
   });
 });

@@ -11,6 +11,7 @@ import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 
 import {
   AppStateManager,
+  BootStatusService,
   VSCodeService,
   WebviewNavigationService,
   ViewType,
@@ -21,6 +22,7 @@ import {
   ElectronShellComponent,
   UpdateDialogComponent,
 } from '@ptah-extension/chat';
+import { BootProgressComponent } from '@ptah-extension/chat-ui';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Component({
@@ -29,6 +31,7 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
     AppShellComponent,
     ElectronShellComponent,
     UpdateDialogComponent,
+    BootProgressComponent,
     LucideAngularModule,
   ],
   templateUrl: './app.html',
@@ -42,6 +45,12 @@ export class App implements OnInit, OnDestroy {
 
   public readonly appState = inject(AppStateManager);
   public readonly vscodeService = inject(VSCodeService);
+  /**
+   * Boot progress. Defaults to `ready`, so under VS Code — which never
+   * receives `boot:readinessChanged` — every branch below behaves exactly as
+   * it did before this service existed.
+   */
+  public readonly bootStatus = inject(BootStatusService);
   private readonly navigationService = inject(WebviewNavigationService);
   private readonly _streamRouter = inject(StreamRouter);
   public readonly isElectron = signal(this.vscodeService.isElectron);
@@ -53,7 +62,20 @@ export class App implements OnInit, OnDestroy {
   });
 
   public readonly hasError = computed(
-    () => this.initializationStatus() === 'error',
+    () =>
+      this.initializationStatus() === 'error' || this.bootStatus.hasFailed(),
+  );
+
+  /**
+   * The error branch's message. A failed boot is a real, specific failure the
+   * host already described, so its `detail` is shown rather than the generic
+   * "please refresh" line.
+   */
+  public readonly errorMessage = computed(() =>
+    this.bootStatus.hasFailed()
+      ? (this.bootStatus.detail() ??
+        'The desktop backend failed to start. Please restart Ptah.')
+      : 'Failed to initialize the application. Please try refreshing.',
   );
   public readonly isInitializing = computed(
     () => this.initializationStatus() === 'initializing',

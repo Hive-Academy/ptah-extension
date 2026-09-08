@@ -827,6 +827,10 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
       }
       return null;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - not a swallow: every branch
+      // below returns a machine-readable failure reason ('lock-timeout' |
+      // 'write-failed') that callers AND into mcpServerRunning, so the caller
+      // always learns the removal did not happen.
       // Distinguished for the same reason registration distinguishes it, and
       // with a sharper consequence: a lock timeout means the entry is STILL ON
       // DISK, pointing at a port that may be about to die. The record is

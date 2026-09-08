@@ -124,6 +124,9 @@ async function readProtectedResourceMetadata(
     const servers = body['authorization_servers'];
     if (!Array.isArray(servers) || servers.length === 0) return undefined;
     return str(servers[0]);
+    // degradation-audit: optional-capability - per the doc comment on this
+    // function, a missing protected-resource document is the normal case, not
+    // an error; the caller tries the next discovery candidate.
   } catch {
     return undefined;
   }
@@ -163,6 +166,9 @@ async function discoverPrmUrlFromChallenge(
       resp.headers?.get('www-authenticate') ??
       null;
     return parseResourceMetadataChallenge(header);
+    // degradation-audit: optional-capability - one candidate in the multi-step
+    // discovery chain documented on `discoverAuthorizationServer`; a probe
+    // failure here just means the caller falls through to the next candidate.
   } catch {
     return undefined;
   }

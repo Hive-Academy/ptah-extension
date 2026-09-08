@@ -2,7 +2,7 @@
  * VS Code RPC host profile — the only RPC artifact in this app.
  *
  * VS Code is the editor-embedded host: the IDE already owns the file tree,
- * settings, search, terminal and updates, so those surfaces stay off and Ptah
+ * settings, search and updates, so those surfaces stay off and Ptah
  * only adds what the webview needs. The SQLite/native-backed subsystems
  * (memory, skills, cron, gateway, voice, persistence) are Electron-only by
  * design — better-sqlite3 and the embedder worker are not available here.
@@ -15,7 +15,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 import { parseWorktreeList } from '@ptah-extension/shared';
 
-import { EditorRpcHandlers, FileRpcHandlers } from './services/rpc/handlers';
+import { FileRpcHandlers } from './services/rpc/handlers';
 
 export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
   return {
@@ -25,12 +25,10 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
       fileOpen: true,
       filePicker: true,
       filePickerImages: true,
-      editorRevert: true,
       commandExecution: true,
     }),
     hostHandlers: {
       'host.fileOpen': FileRpcHandlers,
-      'host.editorRevert': EditorRpcHandlers,
     },
     wiring: {
       worktree: true,

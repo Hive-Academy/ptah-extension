@@ -82,6 +82,9 @@
       ],
       "@ptah-extension/settings-core": [
         "../../libs/backend/settings-core/src/index.ts"
+      ],
+      "@ptah-extension/thoth-runtime": [
+        "../../libs/backend/thoth-runtime/src/index.ts"
       ]
     }
   }

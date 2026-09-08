@@ -1382,3 +1382,82 @@ describe('GitInfoService.getGitInfo() — failure logging', () => {
     expect(error).toBeInstanceOf(Error);
   });
 });
+
+// ===========================================================================
+// Spawner threading — TASK_2026_383 Batch 11.3.
+//
+// The service reaches `exec-git` through exactly two private seams, so an
+// injected `IProcessSpawner` has to reach every git invocation without any
+// call site opting in. These specs pin that: with a spawner, `crossSpawn` is
+// never called; without one, nothing about the inline path changes.
+// ===========================================================================
+describe('GitInfoService — IProcessSpawner threading', () => {
+  const WS = '/fake/workspace';
+
+  /** A `SpawnedProcessHandle` double that emits `stdout` then closes. */
+  function makeHandle(stdout: string, exitCode = 0) {
+    const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
+    return {
+      stdin: { on: jest.fn(), end: jest.fn(), write: jest.fn() },
+      stdout: {
+        on: jest.fn((event: string, cb: (chunk: Buffer) => void) => {
+          if (event === 'data') setTimeout(() => cb(Buffer.from(stdout)), 0);
+        }),
+      },
+      stderr: { on: jest.fn() },
+      whenSpawned: Promise.resolve(1234),
+      pid: 1234,
+      killed: false,
+      kill: jest.fn(),
+      on: jest.fn((event: string, cb: (...args: unknown[]) => void) => {
+        (listeners[event] ??= []).push(cb);
+        if (event === 'close') setTimeout(() => cb(exitCode), 10);
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('routes a read through the spawner instead of cross-spawn', async () => {
+    const spawnProcess = jest.fn(() => makeHandle('true\n'));
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess,
+      } as never,
+    );
+
+    await service.isGitRepo(WS);
+
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('routes the buffer seam through the spawner too', async () => {
+    const spawnProcess = jest.fn(() => makeHandle('file contents\n'));
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess,
+      } as never,
+    );
+
+    await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(spawnProcess).toHaveBeenCalled();
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('keeps the inline path when no spawner is supplied', async () => {
+    mockSpawn.mockImplementation(() =>
+      makeSpawnResult({ stdout: 'true\n', exitCode: 0 }),
+    );
+    const service = new GitInfoService(makeLogger() as never);
+
+    await service.isGitRepo(WS);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+});

@@ -19,13 +19,12 @@ import {
   PLATFORM_TOKENS,
   FILE_BASED_SETTINGS_KEYS,
   isFileBasedSettingKey,
-  type IStateStorage,
-  type ISecretStorage,
 } from '@ptah-extension/platform-core';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import {
   TOKENS,
   registerVsCodeCorePlatformAgnostic,
+  registerExtensionContextShim,
   ConfigManager,
   WorkspaceContextManager,
   WorkspaceAwareStateStorage,
@@ -85,57 +84,13 @@ export function registerPhase1Infra(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  try {
-    const globalState = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.STATE_STORAGE,
-    );
-    const secretStorage = container.resolve<ISecretStorage>(
-      PLATFORM_TOKENS.SECRET_STORAGE,
-    );
-    const extensionContextShim = {
-      globalState: {
-        get: <T>(key: string): T | undefined => globalState.get<T>(key),
-        update: async (key: string, value: unknown): Promise<void> => {
-          await globalState.update(key, value);
-        },
-        keys: () => [] as readonly string[],
-        setKeysForSync: () => {
-          /* no-op in Electron */
-        },
-      },
-      secrets: {
-        get: async (key: string): Promise<string | undefined> =>
-          secretStorage.get(key),
-        store: async (key: string, value: string): Promise<void> =>
-          secretStorage.store(key, value),
-        delete: async (key: string): Promise<void> => secretStorage.delete(key),
-        onDidChange: (_listener: unknown) => ({
-          dispose: () => {
-            /* no-op: Electron has no secret change events */
-          },
-        }),
-      },
-      subscriptions: [] as { dispose: () => void }[],
-      extensionUri: { fsPath: options.appPath, scheme: 'file' },
-      globalStorageUri: {
-        fsPath: options.userDataPath,
-        scheme: 'file',
-      },
-      extensionPath: options.appPath,
-      extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
-    };
-    container.register(TOKENS.EXTENSION_CONTEXT, {
-      useValue: extensionContextShim,
-    });
-    logger.info(
-      '[Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
-    );
-  } catch (error) {
-    logger.error(
-      '[Electron DI] Failed to register EXTENSION_CONTEXT shim — agent-sdk/llm services may fail',
-      { error: error instanceof Error ? error.message : String(error) },
-    );
-  }
+  // The shim itself — and its own try/catch — belongs to `vscode-core`, which
+  // owns the token and the shape `LicenseService` reads off it. Only the two
+  // paths are this host's.
+  registerExtensionContextShim(container, logger, {
+    appPath: options.appPath,
+    userDataPath: options.userDataPath,
+  });
   const defaultWorkspaceStoragePath = path.join(
     options.userDataPath,
     'workspace-storage',

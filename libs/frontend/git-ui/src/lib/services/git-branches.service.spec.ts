@@ -1,0 +1,727 @@
+/**
+ * GitBranchesService — unit specs.
+ *
+ * Coverage:
+ *   - Initial state: all signals empty/null/0/false
+ *   - refreshBranches(): calls rpcCall for git:branches, git:stashList, git:lastCommit
+ *     and updates the corresponding signals
+ *   - recordVisitedBranch(): prepends to list, deduplicates, caps at 5
+ *   - checkout(): passes GitCheckoutParams through; returns dirty:true from backend
+ *   - startListening(): a routed 'git:status-update' push triggers refreshForCauses()
+ *
+ * `rpcCall` is mocked at the module boundary.
+ * VSCodeService is provided as a minimal stub.
+ *
+ * Source-under-test:
+ *   libs/frontend/git-ui/src/lib/services/git-branches.service.ts
+ */
+
+import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { GitBranchesService } from './git-branches.service';
+
+// ---------------------------------------------------------------------------
+// Mock rpcCall from @ptah-extension/core
+// ---------------------------------------------------------------------------
+const mockRpcCall = jest.fn();
+jest.mock('@ptah-extension/core', () => {
+  // Preserve the original module's non-mocked exports (VSCodeService etc.)
+  const actual = jest.requireActual<Record<string, unknown>>(
+    '@ptah-extension/core',
+  );
+  return {
+    ...actual,
+    rpcCall: (...args: unknown[]) => mockRpcCall(...args),
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Minimal VSCodeService stub
+// ---------------------------------------------------------------------------
+function makeVscodeStub() {
+  const _config = signal({
+    isVSCode: false,
+    theme: 'dark',
+    workspaceRoot: '/test-workspace',
+    workspaceName: 'test',
+    extensionUri: '',
+    baseUri: '',
+    iconUri: '',
+    userIconUri: '',
+    panelId: '',
+    isElectron: false,
+  });
+
+  return {
+    config: _config.asReadonly(),
+    isConnected: signal(false).asReadonly(),
+    getState: jest.fn().mockReturnValue(null),
+    setState: jest.fn(),
+    postMessage: jest.fn(),
+    messages$: { pipe: jest.fn() },
+    handleMessage: jest.fn(),
+    handledMessageTypes: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+function makeRpcSuccess<T>(data: T): Promise<{ success: boolean; data: T }> {
+  return Promise.resolve({ success: true, data });
+}
+
+const EMPTY_BRANCHES = { current: '', local: [], remote: [] };
+const EMPTY_STASH = { count: 0, entries: [] };
+const EMPTY_COMMIT = {
+  hash: '',
+  shortHash: '',
+  subject: '',
+  body: '',
+  author: '',
+  authorEmail: '',
+  time: 0,
+};
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('GitBranchesService (TASK_2026_111)', () => {
+  let service: GitBranchesService;
+  let vscode: ReturnType<typeof makeVscodeStub>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    vscode = makeVscodeStub();
+
+    // Default: all rpcCalls succeed with empty results
+    mockRpcCall.mockResolvedValue({ success: true, data: EMPTY_BRANCHES });
+
+    TestBed.configureTestingModule({
+      providers: [
+        GitBranchesService,
+        { provide: VSCodeService, useValue: vscode },
+      ],
+    });
+
+    service = TestBed.inject(GitBranchesService);
+  });
+
+  afterEach(() => {
+    // Clean up any message listeners added during the test
+    service.stopListening();
+    TestBed.resetTestingModule();
+  });
+
+  // ==========================================================================
+  // Initial state
+  // ==========================================================================
+
+  describe('initial state', () => {
+    it('branches signal is empty', () => {
+      expect(service.branches()).toEqual(EMPTY_BRANCHES);
+    });
+
+    it('stashCount signal is 0', () => {
+      expect(service.stashCount()).toBe(0);
+    });
+
+    it('lastCommit signal is null', () => {
+      expect(service.lastCommit()).toBeNull();
+    });
+
+    it('remotes signal is empty array', () => {
+      expect(service.remotes()).toEqual([]);
+    });
+
+    it('isLoading signal is false', () => {
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('recentBranches signal is empty array', () => {
+      expect(service.recentBranches()).toEqual([]);
+    });
+
+    it('currentBranch computed returns empty string', () => {
+      expect(service.currentBranch()).toBe('');
+    });
+
+    it('localBranches computed returns empty array', () => {
+      expect(service.localBranches()).toEqual([]);
+    });
+
+    it('remoteBranches computed returns empty array', () => {
+      expect(service.remoteBranches()).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
+  // refreshBranches
+  // ==========================================================================
+
+  describe('refreshBranches()', () => {
+    it('calls rpcCall for git:branches with includeRemote:true', async () => {
+      mockRpcCall.mockResolvedValue({ success: true, data: EMPTY_BRANCHES });
+
+      await service.refreshBranches();
+
+      const branchesCall = mockRpcCall.mock.calls.find(
+        ([, method]: [unknown, string]) => method === 'git:branches',
+      );
+      expect(branchesCall).toBeDefined();
+      expect(branchesCall?.[2]).toMatchObject({ includeRemote: true });
+    });
+
+    it('calls rpcCall for git:stashList', async () => {
+      mockRpcCall.mockResolvedValue({ success: true, data: EMPTY_STASH });
+
+      await service.refreshBranches();
+
+      const stashCall = mockRpcCall.mock.calls.find(
+        ([, method]: [unknown, string]) => method === 'git:stashList',
+      );
+      expect(stashCall).toBeDefined();
+    });
+
+    it('calls rpcCall for git:lastCommit', async () => {
+      mockRpcCall.mockResolvedValue({ success: true, data: EMPTY_COMMIT });
+
+      await service.refreshBranches();
+
+      const commitCall = mockRpcCall.mock.calls.find(
+        ([, method]: [unknown, string]) => method === 'git:lastCommit',
+      );
+      expect(commitCall).toBeDefined();
+    });
+
+    it('updates _branches signal from git:branches result', async () => {
+      const branchData = {
+        current: 'feat/my-branch',
+        local: [
+          {
+            name: 'feat/my-branch',
+            isRemote: false,
+            ahead: 1,
+            behind: 0,
+            isCurrent: true,
+          },
+        ],
+        remote: [],
+      };
+      const stashData = { count: 2, entries: [] };
+
+      mockRpcCall.mockImplementation((_vscode: unknown, method: string) => {
+        if (method === 'git:branches') return makeRpcSuccess(branchData);
+        if (method === 'git:stashList') return makeRpcSuccess(stashData);
+        if (method === 'git:lastCommit') return makeRpcSuccess(EMPTY_COMMIT);
+        return makeRpcSuccess(null);
+      });
+
+      await service.refreshBranches();
+
+      expect(service.currentBranch()).toBe('feat/my-branch');
+      expect(service.localBranches()).toHaveLength(1);
+    });
+
+    it('updates _stashCount signal from git:stashList result', async () => {
+      const stashData = { count: 3, entries: [] };
+
+      mockRpcCall.mockImplementation((_vscode: unknown, method: string) => {
+        if (method === 'git:branches') return makeRpcSuccess(EMPTY_BRANCHES);
+        if (method === 'git:stashList') return makeRpcSuccess(stashData);
+        if (method === 'git:lastCommit') return makeRpcSuccess(EMPTY_COMMIT);
+        return makeRpcSuccess(null);
+      });
+
+      await service.refreshBranches();
+
+      expect(service.stashCount()).toBe(3);
+    });
+
+    it('updates _lastCommit signal from git:lastCommit result', async () => {
+      const commitData = {
+        hash: 'abc123',
+        shortHash: 'abc123',
+        subject: 'feat: branch picker',
+        body: '',
+        author: 'Dev',
+        authorEmail: 'dev@example.com',
+        time: 1700000000000,
+      };
+
+      mockRpcCall.mockImplementation((_vscode: unknown, method: string) => {
+        if (method === 'git:branches') return makeRpcSuccess(EMPTY_BRANCHES);
+        if (method === 'git:stashList') return makeRpcSuccess(EMPTY_STASH);
+        if (method === 'git:lastCommit') return makeRpcSuccess(commitData);
+        return makeRpcSuccess(null);
+      });
+
+      await service.refreshBranches();
+
+      expect(service.lastCommit()?.subject).toBe('feat: branch picker');
+      expect(service.lastCommit()?.time).toBe(1700000000000);
+    });
+
+    it('sets isLoading to true during refresh then false after', async () => {
+      const loadingStates: boolean[] = [];
+
+      // Intercept to capture loading state mid-flight
+      let resolveAll!: () => void;
+      const blocker = new Promise<void>((res) => {
+        resolveAll = res;
+      });
+
+      mockRpcCall.mockImplementation(async () => {
+        await blocker;
+        return { success: true, data: EMPTY_BRANCHES };
+      });
+
+      const refreshPromise = service.refreshBranches();
+      // At this point the refresh is in-flight
+      loadingStates.push(service.isLoading());
+
+      resolveAll();
+      await refreshPromise;
+      loadingStates.push(service.isLoading());
+
+      expect(loadingStates).toEqual([true, false]);
+    });
+
+    it('does not throw when an RPC call fails (resilient)', async () => {
+      mockRpcCall.mockRejectedValue(new Error('Network error'));
+
+      // Should not throw
+      await expect(service.refreshBranches()).resolves.toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
+  // recordVisitedBranch
+  // ==========================================================================
+
+  describe('recordVisitedBranch()', () => {
+    it('adds branch to the front of the list', () => {
+      service.recordVisitedBranch('feat/x');
+
+      expect(service.recentBranches()[0]).toBe('feat/x');
+    });
+
+    it('deduplicates: calling twice with the same name yields one entry', () => {
+      service.recordVisitedBranch('feat/x');
+      service.recordVisitedBranch('feat/x');
+
+      expect(service.recentBranches()).toHaveLength(1);
+      expect(service.recentBranches()[0]).toBe('feat/x');
+    });
+
+    it('moves existing entry to front when re-recorded', () => {
+      service.recordVisitedBranch('feat/a');
+      service.recordVisitedBranch('feat/b');
+      service.recordVisitedBranch('feat/a'); // re-record 'a'
+
+      expect(service.recentBranches()[0]).toBe('feat/a');
+      expect(service.recentBranches()[1]).toBe('feat/b');
+      expect(service.recentBranches()).toHaveLength(2);
+    });
+
+    it('caps list at 5 entries (max recent branches)', () => {
+      for (let i = 1; i <= 6; i++) {
+        service.recordVisitedBranch(`feat/branch-${i}`);
+      }
+
+      expect(service.recentBranches()).toHaveLength(5);
+      // Most recent (branch-6) should be first
+      expect(service.recentBranches()[0]).toBe('feat/branch-6');
+      // Oldest (branch-1) should be evicted
+      expect(service.recentBranches()).not.toContain('feat/branch-1');
+    });
+
+    it('persists the updated list to VSCodeService state', () => {
+      service.recordVisitedBranch('feat/x');
+
+      expect(vscode.setState).toHaveBeenCalled();
+    });
+
+    it('ignores empty branch name', () => {
+      service.recordVisitedBranch('');
+
+      expect(service.recentBranches()).toHaveLength(0);
+    });
+  });
+
+  // ==========================================================================
+  // checkout
+  // ==========================================================================
+
+  describe('checkout()', () => {
+    it('returns { success: true } on successful checkout', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: true },
+      });
+
+      const result = await service.checkout({ branch: 'main' });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('passes dirty:true through from backend without throwing', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: false, dirty: true },
+      });
+
+      const result = await service.checkout({ branch: 'feat/x', force: false });
+
+      expect(result.success).toBe(false);
+      expect(result.dirty).toBe(true);
+    });
+
+    it('returns { success: false, error } when RPC transport fails', async () => {
+      mockRpcCall.mockRejectedValueOnce(new Error('Connection refused'));
+
+      const result = await service.checkout({ branch: 'main' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Connection refused');
+    });
+  });
+
+  // ==========================================================================
+  // startListening / MessageHandler dispatch
+  // ==========================================================================
+
+  describe('startListening()', () => {
+    /** Route a status push exactly as MessageRouterService would. */
+    function push(payload?: unknown): void {
+      service.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload,
+      });
+    }
+
+    it('declares git:status-update as its only handled type', () => {
+      expect(service.handledMessageTypes).toEqual([
+        MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      ]);
+    });
+
+    it('registers NO global message listener', () => {
+      const addSpy = jest.spyOn(window, 'addEventListener');
+
+      service.startListening();
+
+      expect(
+        addSpy.mock.calls.filter(([type]) => type === 'message'),
+      ).toHaveLength(0);
+      addSpy.mockRestore();
+    });
+
+    it('triggers refreshForCauses() when a git:status-update push is routed', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      push({ causes: ['head'] });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(refreshSpy).toHaveBeenCalledWith(['head']);
+    });
+
+    it('drops a push that arrives BEFORE startListening()', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      push({ causes: ['head'] });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('does NOT trigger any refresh for unrelated message types', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      service.handleMessage({ type: 'file:content-changed', payload: {} });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('drops a push belonging to a different workspace folder', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      push({ causes: ['head'], workspaceRoot: '/other-workspace' });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent: calling startListening() twice does not double-handle', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      service.startListening();
+      push({ causes: ['head'] });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('stopListening() closes the gate so subsequent pushes are ignored', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+
+      service.startListening();
+      service.stopListening();
+      push({ causes: ['head'] });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // refreshForCauses — precision invalidation by cause kind
+  // ==========================================================================
+
+  describe('refreshForCauses()', () => {
+    function methodsCalled(): string[] {
+      return mockRpcCall.mock.calls.map(
+        ([, method]: [unknown, string]) => method,
+      );
+    }
+
+    it('workspace-only events do not fire ANY of the 3 RPCs', async () => {
+      await service.refreshForCauses(['workspace']);
+      expect(methodsCalled()).toEqual([]);
+    });
+
+    it("'index' alone does not fire branches/stash/lastCommit RPCs", async () => {
+      await service.refreshForCauses(['index']);
+      expect(methodsCalled()).toEqual([]);
+    });
+
+    it("'head' fires branches + lastCommit but NOT stash", async () => {
+      await service.refreshForCauses(['head']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:branches');
+      expect(methods).toContain('git:lastCommit');
+      expect(methods).not.toContain('git:stashList');
+    });
+
+    it("'refs-stash' fires only the stash RPC", async () => {
+      await service.refreshForCauses(['refs-stash']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:stashList');
+      expect(methods).not.toContain('git:branches');
+      expect(methods).not.toContain('git:lastCommit');
+    });
+
+    it("'refs' fires branches + stash but NOT lastCommit", async () => {
+      await service.refreshForCauses(['refs']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:branches');
+      expect(methods).toContain('git:stashList');
+      expect(methods).not.toContain('git:lastCommit');
+    });
+
+    it("'initial' fires all three RPCs (full refresh)", async () => {
+      await service.refreshForCauses(['initial']);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
+      );
+    });
+
+    it('undefined causes is treated as initial (back-compat with older backends)', async () => {
+      await service.refreshForCauses(undefined);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
+      );
+    });
+
+    it('empty causes array is treated as initial', async () => {
+      await service.refreshForCauses([]);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining([
+          'git:branches',
+          'git:stashList',
+          'git:lastCommit',
+        ]),
+      );
+    });
+
+    it('multiple causes union their RPCs without duplication', async () => {
+      await service.refreshForCauses(['head', 'refs-stash']);
+      const methods = methodsCalled();
+      expect(methods.filter((m) => m === 'git:branches')).toHaveLength(1);
+      expect(methods.filter((m) => m === 'git:stashList')).toHaveLength(1);
+      expect(methods.filter((m) => m === 'git:lastCommit')).toHaveLength(1);
+    });
+  });
+
+  // ==========================================================================
+  // Request coalescing (TASK_2026_343)
+  //
+  // A workspace switch produced THREE serialised `git:branches` RPCs —
+  // `switchWorkspace()`, the GitStatusBarComponent constructor, and the git
+  // watcher's initial push at +50 ms — measured at 6.9 + 6.1 + 11.7 s on a
+  // 15k-file repository (log.log:1252,1339,1352).
+  // ==========================================================================
+
+  describe('refresh coalescing', () => {
+    function countOf(method: string): number {
+      return mockRpcCall.mock.calls.filter(
+        ([, m]: [unknown, string]) => m === method,
+      ).length;
+    }
+
+    /**
+     * Wait until the coalescing window has closed and `method` has actually
+     * been dispatched. Polling beats sleeping past `REFRESH_COALESCE_MS`:
+     * these specs otherwise fail on a loaded machine, where the extra
+     * scheduling delay is unbounded.
+     */
+    async function waitForDispatch(method: string, count = 1): Promise<void> {
+      for (let i = 0; i < 200; i++) {
+        if (countOf(method) >= count) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(
+        `${method} was dispatched ${countOf(method)} times, expected ${count}`,
+      );
+    }
+
+    it('collapses the three requests a workspace switch produces into ONE git:branches call', async () => {
+      // 1. WorkspaceCoordinator → GitBranchesService.switchWorkspace()
+      service.switchWorkspace('/repo-b');
+      // 2. GitStatusBarComponent constructor
+      const barRequest = service.refreshBranches();
+      // 3. GitWatcherService's deferred initial push
+      const watcherRequest = service.refreshForCauses(['initial']);
+
+      await Promise.all([barRequest, watcherRequest]);
+
+      expect(countOf('git:branches')).toBe(1);
+      expect(countOf('git:stashList')).toBe(1);
+      expect(countOf('git:lastCommit')).toBe(1);
+    });
+
+    it('does not re-issue git:branches for a queued stash-only request', async () => {
+      let releaseFirst!: () => void;
+      const blocker = new Promise<void>((res) => {
+        releaseFirst = res;
+      });
+      let firstBranchCall = true;
+      mockRpcCall.mockImplementation(async (_v: unknown, method: string) => {
+        if (method === 'git:branches' && firstBranchCall) {
+          firstBranchCall = false;
+          await blocker;
+        }
+        return { success: true, data: EMPTY_BRANCHES };
+      });
+
+      const first = service.refreshForCauses(['head']);
+      await waitForDispatch('git:branches');
+      // Arrives while the branch RPC is still in flight.
+      const queued = service.refreshForCauses(['refs-stash']);
+
+      releaseFirst();
+      await Promise.all([first, queued]);
+
+      expect(countOf('git:branches')).toBe(1);
+      expect(countOf('git:stashList')).toBe(1);
+    });
+
+    it('drops a response that belongs to the workspace the user navigated away from', async () => {
+      const staleBranches = {
+        current: 'old-repo-branch',
+        local: [],
+        remote: [],
+      };
+
+      // BOTH branch rounds hang. /repo-b's round is still in flight when the
+      // assertion runs, so the ONLY write that could have reached `_branches`
+      // by then is /repo-a's stale response. An earlier version of this spec
+      // let /repo-b's round answer normally, which overwrote the stale value
+      // and made the spec pass with the `isStale` guard deleted.
+      let releaseA!: () => void;
+      let releaseB!: () => void;
+      const blockerA = new Promise<void>((res) => {
+        releaseA = res;
+      });
+      const blockerB = new Promise<void>((res) => {
+        releaseB = res;
+      });
+      let branchCalls = 0;
+      mockRpcCall.mockImplementation(async (_v: unknown, method: string) => {
+        if (method !== 'git:branches') {
+          return { success: true, data: EMPTY_STASH };
+        }
+        branchCalls++;
+        if (branchCalls === 1) {
+          await blockerA;
+          return { success: true, data: staleBranches };
+        }
+        await blockerB;
+        return { success: true, data: EMPTY_BRANCHES };
+      });
+
+      service.switchWorkspace('/repo-a');
+      const pass = service.refreshBranches();
+      await waitForDispatch('git:branches', 1);
+
+      // The user switches away while /repo-a's `git:branches` is still in
+      // flight. This resets `_branches` to EMPTY and queues /repo-b's round.
+      service.switchWorkspace('/repo-b');
+      releaseA();
+
+      // /repo-b's round being dispatched proves /repo-a's response has already
+      // settled and been handled — so the guard has had its chance to run.
+      await waitForDispatch('git:branches', 2);
+
+      expect(service.currentBranch()).toBe('');
+
+      releaseB();
+      await pass;
+    });
+
+    it('reports isLoading synchronously, before the coalescing window closes', () => {
+      void service.refreshBranches();
+
+      expect(service.isLoading()).toBe(true);
+      expect(mockRpcCall).not.toHaveBeenCalled();
+    });
+  });
+});

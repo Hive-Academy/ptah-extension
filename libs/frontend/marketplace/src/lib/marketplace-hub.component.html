@@ -55,6 +55,7 @@
         } @else if (provider.surface === McpSurface) {
           <ptah-mcp-directory-browser
             [refreshTrigger]="refreshTrigger()"
+            [connectorServers]="connectorServers()"
             (serverInstalled)="onContentChanged()"
             (serverUninstalled)="onContentChanged()"
           />

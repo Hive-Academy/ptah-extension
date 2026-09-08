@@ -812,6 +812,8 @@ export class WizardGenerationRpcHandlers {
       );
       return paths.length > 0 ? paths : undefined;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - plugin paths are an optional
+      // generation input; undefined generates with no plugin directories.
       this.logger.debug('Failed to resolve plugin paths for generation', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -826,6 +828,8 @@ export class WizardGenerationRpcHandlers {
         'WebviewManager',
       );
     } catch {
+      // degradation-audit: optional-capability - the webview manager is absent
+      // on headless hosts; null runs generation with no progress broadcasts.
       this.logger.warn(
         'WebviewManager not available for progress broadcasting. Generation will proceed without progress updates.',
       );

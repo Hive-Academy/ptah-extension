@@ -1,0 +1,1044 @@
+
+ NX   Running target e2e for project ptah-electron-e2e and 2 tasks it depends on:
+
+
+
+> nx run ptah-electron:copy-renderer-dev
+
+> nx build ptah-extension-webview --configuration=development
+
+(node:21404) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ NX   Running target build for project ptah-extension-webview and 3 tasks it depends on:
+
+
+
+> nx run @ptah-extension/shared:build  [existing outputs match the cache, left as is]
+
+
+> nx run @ptah-extension/markdown:build:development  [existing outputs match the cache, left as is]
+
+
+> nx run @ptah-extension/ui:build:development  [existing outputs match the cache, left as is]
+
+
+> nx run ptah-extension-webview:build:development  [existing outputs match the cache, left as is]
+
+[33m❯[39m Building...
+[32m✔[39m Building...
+[37m[1mInitial chunk files[22m[2m | [22m[1mNames[22m                     [2m | [22m [1mRaw size[22m
+[32mchunk-A6E25WMM.js[37m  [2m | [22m[2m-[22m                         [2m | [22m  [36m2.51 MB[37m[2m | [22m
+[32mchunk-I7WJ3JO3.js[37m  [2m | [22m[2m-[22m                         [2m | [22m  [36m1.68 MB[37m[2m | [22m
+[32mchunk-T5NGSWVT.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m990.29 kB[37m[2m | [22m
+[32mmain.js[37m            [2m | [22m[2mmain[22m                      [2m | [22m[36m609.52 kB[37m[2m | [22m
+[32mchunk-Z7G6I4JJ.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m520.71 kB[37m[2m | [22m
+[32mchunk-QDOVQVRH.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m332.75 kB[37m[2m | [22m
+[32mstyles.css[37m         [2m | [22m[2mstyles[22m                    [2m | [22m[36m276.21 kB[37m[2m | [22m
+[32mchunk-UIB2M4AU.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m263.68 kB[37m[2m | [22m
+[32mchunk-VCSOUP7R.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m228.54 kB[37m[2m | [22m
+[32mchunk-TPUUJNV5.js[37m  [2m | [22m[2m-[22m                         [2m | [22m[36m219.53 kB[37m[2m | [22m
+[32mpolyfills.js[37m       [2m | [22m[2mpolyfills[22m                 [2m | [22m [36m92.50 kB[37m[2m | [22m
+[32mchunk-QAC2YKK6.js[37m  [2m | [22m[2m-[22m                         [2m | [22m [36m92.49 kB[37m[2m | [22m
+[32mscripts.js[37m         [2m | [22m[2mscripts[22m                   [2m | [22m [36m84.66 kB[37m[2m | [22m
+[32mchunk-7GMV23XU.js[37m  [2m | [22m[2m-[22m                         [2m | [22m [36m72.64 kB[37m[2m | [22m
+[32mchunk-AJRLM5XZ.js[37m  [2m | [22m[2m-[22m                         [2m | [22m [36m57.01 kB[37m[2m | [22m
+[32mchunk-6FAWP5Q2.js[37m  [2m | [22m[2m-[22m                         [2m | [22m [36m[39m[37m50.59 kB[37m[2m | [22m
+[32mchunk-Q4KZE2KK.js[37m  [2m | [22m[2m-[22m                         [2m | [22m  [36m3.57 kB[37m[2m | [22m
+
+[1m [22m                  [2m | [22m[1mInitial total[22m             [2m | [22m  [1m8.08 MB[22m
+
+[1mLazy chunk files[22m   [2m | [22m[1mNames[22m                     [2m | [22m [1mRaw size[22m
+[32mchunk-VOJW7SLZ.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m  [36m1.06 MB[37m[2m | [22m
+[32mchunk-CQ7DYKM7.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m[36m581.10 kB[37m[2m | [22m
+[32mchunk-SJCR5APW.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m[36m434.75 kB[37m[2m | [22m
+[32mchunk-BI7SJJDM.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m[36m280.33 kB[37m[2m | [22m
+[32mchunk-EJIJV3XY.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m[36m190.75 kB[37m[2m | [22m
+[32mtheme-extra.css[37m    [2m | [22m[2mtheme-extra[22m               [2m | [22m [36m60.90 kB[37m[2m | [22m
+[32mchunk-S4PNKC3J.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m [36m19.54 kB[37m[2m | [22m
+[32mchunk-NLMFSANR.js[37m  [2m | [22m[2m-[22m                         [2m | [22m [36m14.74 kB[37m[2m | [22m
+[32mchunk-SLHSHFDY.js[37m  [2m | [22m[2m-[22m                         [2m | [22m  [36m1.61 kB[37m[2m | [22m
+[32mchunk-4L52J53Y.js[37m  [2m | [22m[2mindex[22m                     [2m | [22m[36m916 bytes[37m[2m | [22m
+[32mchunk-E5UYBOGJ.js[37m  [2m | [22m[2mservices[22m                  [2m | [22m[36m356 bytes[37m[2m | [22m
+[32mchunk-ZVG5QDMP.js[37m  [2m | [22m[2mmetadata-patch-schema-lazy[22m[2m | [22m[36m206 bytes[37m[2m | [22m
+
+Application bundle generation complete. [22.429 seconds] - 2026-09-07T08:49:12.030Z
+[39m
+[37mOutput location: D:\projects\ptah-extension\dist\apps\ptah-extension-webview
+[39m
+
+
+
+ NX   Successfully ran target build for project ptah-extension-webview and 3 tasks it depends on
+
+Nx read the output from the cache instead of running the command for 4 out of 4 tasks.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+
+> node apps/ptah-electron/scripts/copy-renderer.js
+
+[copy-renderer] Cleaned old renderer directory
+[copy-renderer] Copied D:\projects\ptah-extension\dist\apps\ptah-extension-webview\browser -> D:\projects\ptah-extension\dist\apps\ptah-electron\renderer
+[copy-renderer] Patched index.html: base href="/" -> "./"
+[copy-renderer] Done
+
+> nx run ptah-electron:build-dev
+
+> nx build-main ptah-electron --configuration=development
+
+(node:14748) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> nx run ptah-electron:build-main:development  [local cache]
+
+
+
+
+ NX   Successfully ran target build-main for project ptah-electron
+
+Nx read the output from the cache instead of running the command for 1 out of 1 tasks.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+
+> nx build-preload ptah-electron
+
+(node:36120) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> nx run ptah-electron:build-preload  [existing outputs match the cache, left as is]
+
+
+
+
+ NX   Successfully ran target build-preload for project ptah-electron
+
+Nx read the output from the cache instead of running the command for 1 out of 1 tasks.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+
+> nx build-embedder-worker ptah-electron
+
+(node:15176) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> nx run ptah-electron:build-embedder-worker  [existing outputs match the cache, left as is]
+
+
+
+
+ NX   Successfully ran target build-embedder-worker for project ptah-electron
+
+Nx read the output from the cache instead of running the command for 1 out of 1 tasks.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+
+> nx build-voice-worker ptah-electron
+
+(node:29900) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> nx run ptah-electron:build-voice-worker  [existing outputs match the cache, left as is]
+
+
+
+
+ NX   Successfully ran target build-voice-worker for project ptah-electron
+
+Nx read the output from the cache instead of running the command for 1 out of 1 tasks.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+
+> node scripts/copy-wasm.js dist/apps/ptah-electron
+
+  Copied web-tree-sitter.wasm (195.6 KB)
+  Copied tree-sitter-javascript.wasm (402.1 KB)
+  Copied tree-sitter-typescript.wasm (1380.7 KB)
+  Copied tree-sitter-python.wasm (447.2 KB)
+  Copied tree-sitter-go.wasm (212.1 KB)
+  Copied tree-sitter-c-sharp.wasm (4983.7 KB)
+WASM assets copied to D:\projects\ptah-extension\dist\apps\ptah-electron\wasm
+
+> nx run ptah-electron-e2e:e2e
+
+> npx playwright test --config=playwright.config.ts
+
+(node:3332) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 14 exit listeners added to [process]. MaxListeners is 13. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:32092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27100) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27100) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2mRunning [22m164[2m tests using [22m1[2m worker[22m
+
+(node:6260) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:6260) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[ptah-electron stdout] [Ptah Electron] Settings registered and migrations applied (1 custom providers)
+[Ptah Electron] DI verify: TOKENS.RPC_HANDLER -- OK
+[Ptah Electron] DI verify: TOKENS.LOGGER -- OK
+[ptah-electron stdout] [Ptah Electron] DI verify: PLATFORM_TOKENS.WORKSPACE_PROVIDER -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.STATE_STORAGE -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.SECRET_STORAGE -- OK
+[Ptah Electron] DI verification: 5/5 tokens resolved
+[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace
+[ptah-electron stdout] [IpcBridge] Diagnostics IPC handlers initialized
+[ptah-electron stdout] [IpcBridge] IPC listeners initialized
+[ptah-electron stdout] [Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized
+[ptah-electron stdout] [Ptah Electron] Membership status resolved (valid: false, tier: community)
+[ptah-electron stdout] [Ptah Electron] Agent adapters initialized successfully
+[ptah-electron stdout] [Ptah Electron] Subsystems brought up
+[ptah-electron stdout] [Ptah Electron] Startup config registered
+[ptah-electron stdout] [Ptah Electron] UpdateManager started
+[ptah-electron stderr] [Ptah Electron] Messaging gateway starting without persistence (degraded)
+[ptah-electron stdout] [Ptah Electron] Membership revalidation scheduled
+[ptah-electron stdout] [Ptah Electron] Messaging gateway started
+[ptah-electron stdout] [Ptah Electron] Gateway chat bridge started
+[ptah-electron stdout] [Ptah Electron] Saving window bounds: {"x":360,"y":116,"width":1200,"height":800}
+[ptah-electron stderr] Debugger ending on ws://127.0.0.1:63627/f8305112-471f-42a7-9876-0373c5470622
+For help, see: https://nodejs.org/en/docs/inspector
+  [32mok[39m [2m  1 [22msrc\specs\auto-updater.spec.ts:26:7 › Update detection › dev mode: auto-updater is NOT invoked (no completion log)[2m (10.7s)[22m
+[ptah-electron stdout] [INFO] [Electron DI] Starting service registration...
+[ptah-electron stdout] [INFO] [VS Code Core] Platform-agnostic services registered: {"services":["RPC_HANDLER","MESSAGE_VALIDATOR","SUBAGENT_REGISTRY_SERVICE","EVENT_LOOP_MONITOR","CPU_PROFILE_CAPTURE","SENTRY_SERVICE","PLATFORM_TOKENS.TRACER","LICENSE_SERVICE","AUTH_SECRETS_SERVICE"]}
+[ptah-electron stdout] [INFO] [Electron DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)
+[ptah-electron stdout] [INFO] [Electron DI] CONFIG_MANAGER registered (real ConfigManager + file-based settings routed via ElectronWorkspaceProvider.fileSettings)
+[ptah-electron stdout] [INFO] [Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)
+[ptah-electron stdout] [INFO] [Electron DI] WorkspaceAwareStateStorage and WorkspaceContextManager registered (TASK_2025_208)
+[ptah-electron stdout] [INFO] [Workspace Intelligence] Registering services...
+[ptah-electron stdout] [INFO] TreeSitterParserService created. Initialization required.
+[ptah-electron stdout] [INFO] [Quality Services] Registering quality assessment services...
+[ptah-electron stdout] [INFO] [Quality Services] Quality assessment services registered: {"services":["ANTI_PATTERN_DETECTION_SERVICE","FILE_HASH_CACHE_SERVICE","CODE_QUALITY_ASSESSMENT_SERVICE","PRESCRIPTIVE_GUIDANCE_SERVICE","PROJECT_INTELLIGENCE_SERVICE","QUALITY_HISTORY_SERVICE","QUALITY_EXPORT_SERVICE"]}
+[ptah-electron stdout] [INFO] [Workspace Intelligence] Services registered: {"services":["PATTERN_MATCHER_SERVICE","IGNORE_PATTERN_RESOLVER_SERVICE","FILE_TYPE_CLASSIFIER_SERVICE","FILE_SYSTEM_SERVICE","TOKEN_COUNTER_SERVICE","MONOREPO_DETECTOR_SERVICE","DEPENDENCY_ANALYZER_SERVICE","FRAMEWORK_DETECTOR_SERVICE","PROJECT_DETECTOR_SERVICE","WORKSPACE_INDEXER_SERVICE","WORKSPACE_FILE_INDEX_SERVICE","WORKSPACE_ANALYZER_SERVICE","WORKSPACE_SERVICE","CONTEXT_SERVICE","FILE_RELEVANCE_SCORER","CONTEXT_SIZE_OPTIMIZER","CONTEXT_ORCHESTRATION_SERVICE","CONTEXT_ENRICHMENT_SERVICE","TREE_SITTER_PARSER_SERVICE","AST_ANALYSIS_SERVICE","DEPENDENCY_GRAPH_SERVICE","AGENT_DISCOVERY_SERVICE","COMMAND_DISCOVERY_SERVICE","CODE_SYMBOL_INDEXER","ANTI_PATTERN_DETECTION_SERVICE","CODE_QUALITY_ASSESSMENT_SERVICE","PRESCRIPTIVE_GUIDANCE_SERVICE","PROJECT_INTELLIGENCE_SERVICE"]}
+[ptah-electron stdout] [INFO] [Phase 2] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider
+[ptah-electron stdout] [INFO] [auth-providers] Registering auth + provider services...
+[ptah-electron stdout] [INFO] [auth-providers] Services registered
+[ptah-electron stdout] [INFO] [OpenRouterPricing] Fetching catalog: GET https://openrouter.ai/api/v1/models
+[ptah-electron stdout] [INFO] [plugin-marketplace] registering services
+[ptah-electron stdout] [INFO] [plugin-marketplace] services registered
+[ptah-electron stdout] [INFO] [AgentSDK] Registering SDK services...
+[ptah-electron stdout] [DEBUG] [ConfigWatcher] Disposed all watchers
+[ptah-electron stdout] [INFO] [ConfigWatcher] Configuration changed (authMethod), emitting configChanged event...
+[ptah-electron stdout] [INFO] [ConfigWatcher] Configuration changed (anthropicProviderId), emitting configChanged event...
+[ptah-electron stdout] [DEBUG] [ConfigWatcher] Registered 2 config watchers + 1 secrets watcher (bus mode)
+[ptah-electron stdout] [INFO] [AgentSDK] SDK services registered successfully: {"services":["SDK_AGENT_ADAPTER","SDK_SESSION_METADATA_STORE","SDK_SESSION_IMPORTER","SDK_SESSION_HISTORY_READER","SDK_PERMISSION_HANDLER","SDK_MESSAGE_TRANSFORMER","SDK_SESSION_LIFECYCLE_MANAGER","SDK_CONFIG_WATCHER","SDK_STREAM_TRANSFORMER","SDK_CLI_DETECTOR","SDK_ATTACHMENT_PROCESSOR","SDK_SUBAGENT_HOOK_HANDLER","SDK_COMPACTION_CONFIG_PROVIDER","SDK_COMPACTION_HOOK_HANDLER","SDK_COMPACTION_CALLBACK_REGISTRY","SDK_SESSION_END_CALLBACK_REGISTRY","SDK_SESSION_ACTIVITY_REGISTRY","SDK_WORKTREE_HOOK_HANDLER","SDK_MESSAGE_FACTORY","SDK_QUERY_OPTIONS_BUILDER","SDK_QUERY_RUNNER","SDK_PROCESS_SPAWNER","SDK_MODULE_LOADER","SDK_MODEL_SERVICE","SDK_HISTORY_EVENT_FACTORY","SDK_JSONL_READER","SDK_AGENT_CORRELATION","SDK_SESSION_REPLAY","SDK_INTERNAL_QUERY_SERVICE","SDK_PLUGIN_LOADER","SDK_SLASH_COMMAND_INTERCEPTOR","SDK_SETTINGS_EXPORT","SDK_SETTINGS_IMPORT","SDK_LIVE_USAGE_TRACKER","SDK_MEMORY_PROMPT_INJECTOR","SDK_CODE_SYMBOL_PROMPT_INJECTOR","SDK_CURATOR_LLM_ADAPTER","SDK_PROVIDER_AUTH_RESOLVER","SDK_SUBAGENT_MESSAGE_DISPATCHER","SDK_SESSION_FORK_SERVICE","SDK_RUNTIME_STATE","SDK_ADAPTER_EVENTS","SDK_SUBAGENT_STOP_CALLBACK_REGISTRY","SDK_POST_TOOL_USE_CALLBACK_REGISTRY","SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY","SDK_USER_PROMPT_EXPANSION_REGISTRY","SDK_POST_TOOL_USE_HOOK_HANDLER","SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER","SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER","SDK_STOP_CALLBACK_REGISTRY","SDK_STOP_HOOK_HANDLER","SDK_STOP_FAILURE_HOOK_HANDLER","SDK_SUBAGENT_STOP_HOOK_HANDLER","SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER","SDK_SESSION_END_HOOK_CALLBACK_REGISTRY","SDK_SESSION_END_HOOK_HANDLER","SDK_TOOL_FAILURE_CALLBACK_REGISTRY","SDK_TOOL_FAILURE_HOOK_HANDLER","SDK_CURATOR_RATE_LIMIT","PRICING_PROVIDER","SDK_SESSION_START_CALLBACK_REGISTRY","SDK_SESSION_START_HOOK_HANDLER","SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY","SDK_SESSION_TURN_STATE_REGISTRY","SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY"]}
+[ptah-electron stdout] [INFO] [harness-sync] services registered: {"targets":["claude","codex","copilot","cursor","antigravity","vscode"]}
+[ptah-electron stdout] [INFO] [auth-providers] Registering curator auth services...
+[INFO] [auth-providers] Curator auth services registered
+[INFO] [CliAgentRuntime] Registering CLI agent runtime services...
+[INFO] [CliAgentRuntime] CLI agent runtime services registered: {"services":["SDK_PTAH_CLI_CONFIG_PERSISTENCE","SDK_PTAH_CLI_SPAWN_OPTIONS","SDK_PTAH_CLI_REGISTRY"]}
+[ptah-electron stdout] [INFO] [Electron DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered (TASK_2025_214)
+[INFO] [AgentGeneration] Registering agent-generation services...
+[INFO] [AgentGeneration] Agent-generation services registered: {"services":["OUTPUT_VALIDATION_SERVICE","TEMPLATE_STORAGE_SERVICE","ANALYSIS_STORAGE_SERVICE","AGENTIC_ANALYSIS_SERVICE","MULTI_PHASE_ANALYSIS_SERVICE","WIZARD_WEBVIEW_LIFECYCLE","AGENT_SELECTION_SERVICE","AGENT_RECOMMENDATION_SERVICE","CONTENT_GENERATION_SERVICE","AGENT_FILE_WRITER_SERVICE","AGENT_GENERATION_ORCHESTRATOR","SETUP_STATUS_SERVICE","SETUP_WIZARD_SERVICE","PROMPT_DESIGNER_AGENT","PROMPT_CACHE_SERVICE","ENHANCED_PROMPTS_SERVICE","USER_LAYER_MIRROR_SERVICE"]}
+[INFO] [Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)
+[ptah-electron stdout] [INFO] [persistence-sqlite] registering services
+[ptah-electron stdout] [INFO] [persistence-sqlite] SqliteConnectionService constructed: {"dbPath":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.sqlite"}
+[ptah-electron stdout] [INFO] [persistence-sqlite] services registered: {"tokens":["SQLITE_CONNECTION","SQLITE_MIGRATION_RUNNER","SQLITE_DB_PATH","EMBEDDER","EMBEDDER_WORKER_PATH","EMBEDDER_MODEL_CACHE_DIR","BACKUP_SERVICE","VEC_STATUS"]}
+[ptah-electron stdout] [INFO] [memory-curator] registering services
+[ptah-electron stdout] [INFO] [memory-curator] services registered
+[INFO] [Electron DI] Memory curator services registered (Track 1): {"dbPath":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.sqlite","workerEntry":"D:\\projects\\ptah-extension\\dist\\apps\\ptah-electron\\embedder-worker.mjs","modelCacheDir":"C:\\Users\\abdal\\.ptah\\models"}
+[ptah-electron stdout] [INFO] [skill-synthesis] registering services
+[ptah-electron stdout] [INFO] [skill-synthesis] services registered: {"tokens":["SKILL_SYNTHESIS_SERVICE","SKILL_PROMOTION_SERVICE","SKILL_INVOCATION_TRACKER","SKILL_CANDIDATE_STORE","SKILL_CLUSTER_DEDUP_SERVICE","SKILL_JUDGE_SERVICE","SKILL_CURATOR_SERVICE","SKILL_TRIGGER_SERVICE","SKILL_DIAGNOSTICS_SERVICE","SKILL_INVOCATION_RECORDER","SKILL_REGISTRY_STORE","SKILL_MD_MIGRATION_STATE_STORE","SKILL_REGISTRY_CATALOG_SERVICE","SKILL_ENHANCER_SERVICE","SKILL_SYNTHESIZER_SERVICE","SKILL_SUGGESTION_STORE","SKILL_CLUSTERING_SERVICE","SPEC_HARVESTER_SERVICE","SUBAGENT_METRICS_EXTRACTOR","SKILL_SCORECARD_SERVICE","SKILL_QUEUE_STORE","SKILL_BUDGET_STORE","SKILL_DRAIN_SERVICE","SKILL_STAGE_HANDLERS_SERVICE","FOREGROUND_ACTIVITY_TRACKER","LANE_RESOLVER_SERVICE","LANE_RUNNER_SERVICE","SESSION_VERDICT_STORE","SESSION_ARCHAEOLOGIST_SERVICE","CANDIDATE_NAMER_SERVICE","REPLAY_VALIDATOR_SERVICE","TRIGGER_EVAL_SERVICE","JUDGE_PANEL_SERVICE","SKILL_GAP_CURATOR_SERVICE"]}
+[ptah-electron stdout] [INFO] [task-specs] registering services
+[INFO] [task-specs] services registered: {"tokens":["TASK_SCANNER","TASK_WRITER","TASK_DOCTOR","REGISTRY_GENERATOR","TASK_INDEX_STORE","TASK_SWEEP","TASK_INDEX_SERVICE"]}
+[ptah-electron stdout] [INFO] [output-styles] registering services
+[ptah-electron stdout] [INFO] [output-styles] services registered: {"tokens":["DISCOVERY","FILE_WRITER","CLAUDE_SETTINGS_WRITER","ACTIVATION_RESOLVER","SESSION_ACTIVATION"]}
+[ptah-electron stdout] [INFO] [cron-scheduler] registering services
+[ptah-electron stdout] [INFO] [cron-scheduler] services registered: {"tokens":["CRON_SCHEDULER","CRON_JOB_RUNNER","CRON_CATCHUP_COORD","CRON_POWER_MONITOR","CRON_JOB_STORE","CRON_RUN_STORE","CRON_HANDLER_REGISTRY"]}
+[INFO] [Electron DI] Cron scheduler services registered (Track 3)
+[ptah-electron stdout] [INFO] [voice-providers] services registered
+[ptah-electron stdout] [INFO] [Electron DI] Voice providers registered: {"workerPath":"D:\\projects\\ptah-extension\\dist\\apps\\ptah-electron\\voice-worker.mjs","modelCacheDir":"C:\\Users\\abdal\\.ptah\\models","ffmpegConfigured":true}
+[ptah-electron stdout] [INFO] [messaging-gateway] registering services
+[INFO] [messaging-gateway] services registered: {"tokens":["GATEWAY_SERVICE","GATEWAY_ADAPTER_LIFECYCLE","GATEWAY_OUTBOUND_DELIVERY","GATEWAY_TOKEN_VAULT","GATEWAY_BINDING_STORE","GATEWAY_CONVERSATION_STORE","GATEWAY_MESSAGE_STORE","GATEWAY_STREAM_COALESCER","GATEWAY_ATTACHED_SESSION_REGISTRY","GATEWAY_SESSION_RESUMABILITY_CHECKER","GATEWAY_COMMAND_SERVICE","GATEWAY_TURN_TRACKER","GATEWAY_SESSION_LISTER","GATEWAY_SESSION_ACTIVITY_PROBE"]}
+[ptah-electron stdout] [INFO] [gateway-chat-bridge] service registered
+[INFO] [Electron DI] Messaging gateway services registered (Track 4)
+[ptah-electron stdout] [INFO] [Electron DI] Platform abstraction implementations registered (TASK_2025_203): {"services":["PLATFORM_COMMANDS","PLATFORM_AUTH_PROVIDER","SAVE_DIALOG_PROVIDER","MODEL_DISCOVERY"]}
+[ptah-electron stdout] [INFO] [Electron DI] ElectronPowerMonitor registered (Track 3)
+[ptah-electron stdout] [INFO] [VS Code LM Tools] Registering services...
+[INFO] [VS Code LM Tools] Services registered: {"services":["DIAGNOSTICS_CACHE_INVALIDATOR","PTAH_API_BUILDER","CODE_EXECUTION_MCP","MCP_SERVER_STATUS","PERMISSION_PROMPT_SERVICE"]}
+[ptah-electron stdout] [INFO] [Electron DI] ElectronIDECapabilities registered (LSP references/definitions via symbol index): {"symbolReader":true}
+[ptah-electron stdout] [INFO] [Electron DI] Shared RPC handler classes registered: {"handlers":["SessionRpcHandlers","ChatRpcHandlers","ConfigRpcHandlers","AuthRpcHandlers","ContextRpcHandlers","LicenseRpcHandlers","AutocompleteRpcHandlers","SubagentRpcHandlers","PluginRpcHandlers","PtahCliRpcHandlers","QualityRpcHandlers","ProviderRpcHandlers","WebSearchRpcHandlers","SetupRpcHandlers","WizardGenerationRpcHandlers","EnhancedPromptsRpcHandlers","LlmRpcHandlers","SessionLifecycleNotifier","HarnessRpcHandlers","McpDirectoryRpcHandlers","GitRpcHandlers","MemoryRpcHandlers","MemRpcHandlers","CorpusRpcHandlers","SkillsSynthesisRpcHandlers","CronRpcHandlers","GatewayRpcHandlers","VoiceRpcHandlers","IndexingRpcHandlers","TasksRpcHandlers","AgentRpcHandlers","FileSystemRpcHandlers","FilePickerRpcHandlers","ImagePickerRpcHandlers","ElectronFileOpenRpcHandlers"]}
+[ptah-electron stdout] [INFO] [Electron DI] Capability-gated RPC handler classes registered: {"handlers":["EditorRpcHandlers","CommandRpcHandlers","AgentRpcHandlers","SkillsShRpcHandlers","UpdateRpcHandlers"]}
+[INFO] [Electron DI] All services registered successfully
+[ptah-electron stdout] [Ptah Electron] Settings registered and migrations applied (1 custom providers)
+[ptah-electron stdout] [DEBUG] RpcHandler: Initialized
+[Ptah Electron] DI verify: TOKENS.RPC_HANDLER -- OK
+[ptah-electron stdout] [Ptah Electron] DI verify: TOKENS.LOGGER -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.WORKSPACE_PROVIDER -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.STATE_STORAGE -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.SECRET_STORAGE -- OK
+[Ptah Electron] DI verification: 5/5 tokens resolved
+[ptah-electron stdout] [Ptah Electron] Restored 2 workspace(s) from persisted state
+[ptah-electron stdout] [INFO] [LicenseService.constructor] Service initialized: {"serverUrl":"http://localhost:3000","cacheTtlMs":3600000,"gracePeriodMs":604800000}
+[ptah-electron stdout] [IpcBridge] Diagnostics IPC handlers initialized
+[ptah-electron stdout] [IpcBridge] IPC listeners initialized
+[ptah-electron stdout] [INFO] [AuthSecretsService.constructor] Service initialized
+[ptah-electron stdout] [DEBUG] [SubagentRegistryService.constructor] Service initialized
+[ptah-electron stdout] [INFO] [SdkPermissionHandler] Initializing permission event emitter...
+[ptah-electron stdout] [INFO] [SdkPermissionHandler] Permission event emitter initialized successfully
+[ptah-electron stdout] [INFO] [SdkAgentAdapter] Initializing SDK adapter...
+[ptah-electron stdout] [DEBUG] [AuthManager] Configuring auth method: claudeCli
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Cleared all tier environment variables
+[ptah-electron stdout] [DEBUG] [AuthManager] Resolved strategy: cli (provider: anthropic)
+[INFO] [CliStrategy] Configuring Claude CLI authentication
+[ptah-electron stdout] [INFO] [event-loop] monitor armed: {"warnThresholdMs":250,"sampleIntervalMs":2000,"resolutionMs":20}
+[ptah-electron stdout] [INFO] Loaded context state: 0 included, 0 excluded
+[ptah-electron stdout] [INFO] [EnhancedPrompts] Multi-phase analysis reader configured
+[ptah-electron stdout] [INFO] [CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi
+[ptah-electron stdout] [INFO] [PtahCliRegistry] Registry initialized
+[ptah-electron stdout] [INFO] [AgentProcessManager] Initialized
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:getConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:setConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:detectClis"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:listCliModels"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:permissionResponse"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:e2eSeedPermission"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:stop"
+[DEBUG] RpcHandler: Registered method "agent:continue"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "agent:resumeCliSession"
+[ptah-electron stdout] [DEBUG] Agent RPC handlers registered: {"methods":["agent:getConfig","agent:setConfig","agent:detectClis","agent:listCliModels","agent:permissionResponse","agent:e2eSeedPermission","agent:stop","agent:continue","agent:resumeCliSession"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:getHealth"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:getAuthStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:getStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:saveSettings"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:setApiKey"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:testConnection"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:copilotLogin"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:copilotLogout"
+[DEBUG] RpcHandler: Registered method "auth:copilotStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:codexLogin"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:getApiKeyStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:getScope"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "auth:clearWorkspaceOverride"
+[ptah-electron stdout] [DEBUG] Auth RPC handlers registered: {"methods":["auth:getHealth","auth:getAuthStatus","auth:getStatus","auth:saveSettings","auth:setApiKey","auth:testConnection","auth:copilotLogin","auth:copilotLogout","auth:copilotStatus","auth:codexLogin","auth:getApiKeyStatus","auth:getScope","auth:clearWorkspaceOverride"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "autocomplete:agents"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "autocomplete:commands"
+[ptah-electron stdout] [DEBUG] Autocomplete RPC handlers registered: {"methods":["autocomplete:agents","autocomplete:commands"]}
+[ptah-electron stdout] [INFO] [diagnostics-cache] invalidating diagnostics on agent writes
+[ptah-electron stdout] [INFO] PtahAPIBuilder initialized with 21 namespaces
+[ptah-electron stdout] [DEBUG] Building Ptah API with all namespaces
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "chat:start"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "chat:continue"
+[DEBUG] RpcHandler: Registered method "chat:resume"
+[DEBUG] RpcHandler: Registered method "chat:abort"
+[DEBUG] RpcHandler: Registered method "chat:pending-questions"
+[DEBUG] RpcHandler: Registered method "chat:running-agents"
+[DEBUG] RpcHandler: Registered method "agent:backgroundList"
+[DEBUG] Chat RPC handlers registered: {"methods":["chat:start","chat:continue","chat:resume","chat:abort","chat:pending-questions","chat:running-agents","agent:backgroundList","agent:backgroundStop"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:model-switch"
+[DEBUG] RpcHandler: Registered method "config:model-set"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:model-get"
+[DEBUG] RpcHandler: Registered method "config:autopilot-toggle"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:autopilot-get"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:models-list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:effort-get"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:effort-set"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "config:pricing-get"
+[ptah-electron stdout] [INFO] [SdkPermissionHandler] Permission level changed: ask → yolo
+[ptah-electron stdout] [DEBUG] Config RPC handlers registered: {"methods":["config:model-switch","config:model-set","config:model-get","config:autopilot-toggle","config:autopilot-get","config:models-list","config:effort-get","config:effort-set","config:pricing-get"],"initialPermissionLevel":"yolo"}
+[DEBUG] RpcHandler: Registered method "context:getAllFiles"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "context:getFileSuggestions"
+[ptah-electron stdout] [DEBUG] Context RPC handlers registered: {"methods":["context:getAllFiles","context:getFileSuggestions"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:getStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:runWizard"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:setEnabled"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:regenerate"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:getPromptContent"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "enhancedPrompts:download"
+[DEBUG] Enhanced Prompts RPC handlers registered: {"methods":["enhancedPrompts:getStatus","enhancedPrompts:runWizard","enhancedPrompts:setEnabled","enhancedPrompts:regenerate","enhancedPrompts:getPromptContent","enhancedPrompts:download"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:info"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:worktrees"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:addWorktree"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:removeWorktree"
+[DEBUG] RpcHandler: Registered method "git:stage"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:unstage"
+[DEBUG] RpcHandler: Registered method "git:discard"
+[DEBUG] RpcHandler: Registered method "git:commit"
+[DEBUG] RpcHandler: Registered method "git:showFile"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:diffFile"
+[DEBUG] RpcHandler: Registered method "git:applyHunks"
+[DEBUG] RpcHandler: Registered method "git:push"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:branches"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:checkout"
+[DEBUG] RpcHandler: Registered method "git:stashList"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:tags"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "git:remotes"
+[DEBUG] RpcHandler: Registered method "git:lastCommit"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:initialize"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:suggest-config"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:search-skills"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:create-skill"
+[DEBUG] RpcHandler: Registered method "harness:discover-mcp"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:generate-prompt"
+[DEBUG] RpcHandler: Registered method "harness:generate-claude-md"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:apply"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:save-preset"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:load-presets"
+[DEBUG] RpcHandler: Registered method "harness:design-agents"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:generate-skills"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:generate-document"
+[DEBUG] RpcHandler: Registered method "harness:analyze-intent"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:start-new-project"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:workflow-prompt"
+[DEBUG] RpcHandler: Registered method "harness:health"
+[DEBUG] RpcHandler: Registered method "harness:reconcile"
+[DEBUG] RpcHandler: Registered method "harness:remove"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "harness:repairBlocked"
+[DEBUG] RpcHandler: Registered method "harness:get-skill-selection"
+[DEBUG] RpcHandler: Registered method "harness:set-skill-selection"
+[DEBUG] Harness RPC handlers registered: {"methods":["harness:initialize","harness:suggest-config","harness:search-skills","harness:create-skill","harness:discover-mcp","harness:generate-prompt","harness:generate-claude-md","harness:apply","harness:save-preset","harness:load-presets","harness:design-agents","harness:generate-skills","harness:generate-document","harness:analyze-intent","harness:start-new-project","harness:workflow-prompt","harness:health","harness:reconcile","harness:remove","harness:repairBlocked","harness:get-skill-selection","harness:set-skill-selection"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "license:getStatus"
+[DEBUG] RpcHandler: Registered method "license:setKey"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "license:clearKey"
+[ptah-electron stdout] [DEBUG] License RPC handlers registered: {"methods":["license:getStatus","license:setKey","license:clearKey"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:getProviderStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:setApiKey"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:removeApiKey"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:getDefaultProvider"
+[DEBUG] RpcHandler: Registered method "llm:setDefaultProvider"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:setDefaultModel"
+[DEBUG] RpcHandler: Registered method "llm:validateApiKeyFormat"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:listVsCodeModels"
+[DEBUG] RpcHandler: Registered method "llm:listProviderModels"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:setProviderBaseUrl"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "llm:getProviderBaseUrl"
+[DEBUG] RpcHandler: Registered method "llm:clearProviderBaseUrl"
+[ptah-electron stdout] [DEBUG] LLM RPC handlers registered: {"methods":["llm:getProviderStatus","llm:setApiKey","llm:removeApiKey","llm:getDefaultProvider","llm:setDefaultProvider","llm:setDefaultModel","llm:validateApiKeyFormat","llm:listVsCodeModels","llm:listProviderModels","llm:setProviderBaseUrl","llm:getProviderBaseUrl","llm:clearProviderBaseUrl"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:search"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:getDetails"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:install"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:uninstall"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:listInstalled"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:getPopular"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:setSmitheryApiKey"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:getSmitheryKeyStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:resolveSmithery"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:installSmithery"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:uninstallSmithery"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:listSmitheryInstalled"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:smitheryAccount"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:listSmitheryConnections"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:smitheryConnectionStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:openSmitherySetup"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:connectOAuth"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:probeOAuthDiscovery"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:oauthStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mcpDirectory:disconnectOAuth"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:listOAuthConnected"
+[DEBUG] RpcHandler: Registered method "mcpDirectory:getOAuthRedirectUri"
+[DEBUG] MCP Directory RPC handlers registered: {"methods":["mcpDirectory:search","mcpDirectory:getDetails","mcpDirectory:install","mcpDirectory:uninstall","mcpDirectory:listInstalled","mcpDirectory:getPopular","mcpDirectory:setSmitheryApiKey","mcpDirectory:getSmitheryKeyStatus","mcpDirectory:resolveSmithery","mcpDirectory:installSmithery","mcpDirectory:uninstallSmithery","mcpDirectory:listSmitheryInstalled","mcpDirectory:smitheryAccount","mcpDirectory:listSmitheryConnections","mcpDirectory:smitheryConnectionStatus","mcpDirectory:openSmitherySetup","mcpDirectory:connectOAuth","mcpDirectory:probeOAuthDiscovery","mcpDirectory:oauthStatus","mcpDirectory:disconnectOAuth","mcpDirectory:listOAuthConnected","mcpDirectory:getOAuthRedirectUri"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "outputStyle:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "outputStyle:get"
+[DEBUG] RpcHandler: Registered method "outputStyle:activate"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "outputStyle:save"
+[DEBUG] RpcHandler: Registered method "outputStyle:delete"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "outputStyle:diagnose"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:list-available"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:get-config"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:save-config"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:list-skills"
+[DEBUG] RpcHandler: Registered method "plugins:list-marketplaces"
+[DEBUG] RpcHandler: Registered method "plugins:add-marketplace"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:remove-marketplace"
+[DEBUG] RpcHandler: Registered method "plugins:browse-marketplace"
+[DEBUG] RpcHandler: Registered method "plugins:install-external"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "plugins:uninstall-external"
+[DEBUG] Plugin RPC handlers registered: {"methods":["plugins:list-available","plugins:get-config","plugins:save-config","plugins:list-skills","plugins:list-marketplaces","plugins:add-marketplace","plugins:remove-marketplace","plugins:browse-marketplace","plugins:install-external","plugins:uninstall-external"]}
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"github-copilot"}
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"openai-codex"}
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"anthropic"}
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"claude-cli"}
+[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"ollama"}
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"ollama-cloud"}
+[DEBUG] [ProviderRpc] Registered eager Ollama dynamic fetchers
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:listModels"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:setModelTier"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:getModelTiers"
+[DEBUG] RpcHandler: Registered method "provider:clearModelTier"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:listCustomEntries"
+[DEBUG] RpcHandler: Registered method "provider:addCustomEntry"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:updateCustomEntry"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "provider:removeCustomEntry"
+[DEBUG] RpcHandler: Registered method "provider:testCustomEntry"
+[ptah-electron stdout] [DEBUG] Provider RPC handlers registered: {"methods":["provider:listModels","provider:setModelTier","provider:getModelTiers","provider:clearModelTier","provider:listCustomEntries","provider:addCustomEntry","provider:updateCustomEntry","provider:removeCustomEntry","provider:testCustomEntry"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "ptahCli:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "ptahCli:create"
+[DEBUG] RpcHandler: Registered method "ptahCli:update"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "ptahCli:delete"
+[DEBUG] RpcHandler: Registered method "ptahCli:testConnection"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "ptahCli:listModels"
+[ptah-electron stdout] [DEBUG] Ptah CLI RPC handlers registered: {"methods":["ptahCli:list","ptahCli:create","ptahCli:update","ptahCli:delete","ptahCli:testConnection","ptahCli:listModels"]}
+[ptah-electron stdout] [DEBUG] AntiPatternDetectionService initialized: {"ruleCount":25}
+[ptah-electron stdout] [DEBUG] FileHashCacheService initialized: {"maxSize":10000,"ttlMs":1800000}
+[ptah-electron stdout] [DEBUG] CodeQualityAssessmentService initialized
+[ptah-electron stdout] [DEBUG] PrescriptiveGuidanceService initialized
+[ptah-electron stdout] [DEBUG] ProjectIntelligenceService initialized
+[ptah-electron stdout] [DEBUG] QualityHistoryService initialized
+[DEBUG] QualityExportService initialized
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "quality:getAssessment"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "quality:getHistory"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "quality:export"
+[ptah-electron stdout] [DEBUG] Quality RPC handlers registered: {"methods":["quality:getAssessment","quality:getHistory","quality:export"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:load"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:delete"
+[DEBUG] RpcHandler: Registered method "session:rename"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:validate"
+[DEBUG] RpcHandler: Registered method "session:cli-sessions"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:stats-batch"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:forkSession"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:rewindFiles"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "session:status"
+[ptah-electron stdout] [DEBUG] Session RPC handlers registered: {"methods":["session:list","session:load","session:delete","session:rename","session:validate","session:cli-sessions","session:stats-batch","session:forkSession","session:rewindFiles","session:status"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "settings:get"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "settings:set"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "settings:export"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "settings:import"
+[ptah-electron stdout] [DEBUG] Settings RPC handlers registered: {"methods":["settings:get","settings:set","settings:export","settings:import"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "setup-status:get-status"
+[DEBUG] RpcHandler: Registered method "setup-wizard:launch"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:deep-analyze"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:get-resumable-run"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:recommend-agents"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:cancel-analysis"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:list-analyses"
+[DEBUG] RpcHandler: Registered method "wizard:load-analysis"
+[DEBUG] RpcHandler: Registered method "wizard:list-agent-packs"
+[DEBUG] RpcHandler: Registered method "wizard:install-pack-agents"
+[DEBUG] Setup RPC handlers registered: {"methods":["setup-status:get-status","setup-wizard:launch","wizard:deep-analyze","wizard:get-resumable-run","wizard:recommend-agents","wizard:cancel-analysis","wizard:list-analyses","wizard:load-analysis","wizard:list-agent-packs","wizard:install-pack-agents"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:search"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:listInstalled"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:install"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:uninstall"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:getPopular"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillsSh:detectRecommended"
+[ptah-electron stdout] [DEBUG] Skills.sh RPC handlers registered: {"methods":["skillsSh:search","skillsSh:listInstalled","skillsSh:install","skillsSh:uninstall","skillsSh:getPopular","skillsSh:detectRecommended"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "chat:subagent-query"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "subagent:send-message"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "subagent:stop"
+[DEBUG] RpcHandler: Registered method "subagent:interrupt"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "subagent:background"
+[DEBUG] RpcHandler: Registered method "subagent:transcript"
+[ptah-electron stdout] [DEBUG] Subagent RPC handlers registered: {"methods":["chat:subagent-query","subagent:send-message","subagent:stop","subagent:interrupt","subagent:background","subagent:transcript"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:get"
+[DEBUG] RpcHandler: Registered method "tasks:getArtifact"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:getRoundJudge"
+[DEBUG] RpcHandler: Registered method "tasks:create"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:sweepFinished"
+[DEBUG] RpcHandler: Registered method "tasks:updateStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:updateMetadata"
+[DEBUG] RpcHandler: Registered method "tasks:bulkUpdateStatus"
+[DEBUG] RpcHandler: Registered method "tasks:bulkUpdateLabel"
+[DEBUG] RpcHandler: Registered method "tasks:generateRegistry"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:board"
+[DEBUG] RpcHandler: Registered method "tasks:reindex"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:adopt"
+[DEBUG] RpcHandler: Registered method "tasks:doctorPlan"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "tasks:getViews"
+[DEBUG] RpcHandler: Registered method "tasks:saveViews"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "webSearch:getApiKeyStatus"
+[DEBUG] RpcHandler: Registered method "webSearch:setApiKey"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "webSearch:deleteApiKey"
+[DEBUG] RpcHandler: Registered method "webSearch:test"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "webSearch:getConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "webSearch:setConfig"
+[DEBUG] Web Search RPC handlers registered: {"methods":["webSearch:getApiKeyStatus","webSearch:setApiKey","webSearch:deleteApiKey","webSearch:test","webSearch:getConfig","webSearch:setConfig"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:submit-selection"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:cancel"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "wizard:retry-item"
+[DEBUG] Wizard generation RPC handlers registered: {"methods":["wizard:submit-selection","wizard:cancel","wizard:retry-item"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:search"
+[DEBUG] RpcHandler: Registered method "memory:get"
+[DEBUG] RpcHandler: Registered method "memory:pin"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:unpin"
+[DEBUG] RpcHandler: Registered method "memory:forget"
+[DEBUG] RpcHandler: Registered method "memory:rebuildIndex"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:stats"
+[DEBUG] RpcHandler: Registered method "memory:searchSymbols"
+[DEBUG] RpcHandler: Registered method "memory:purgeBySubjectPattern"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:purgeJunk"
+[DEBUG] RpcHandler: Registered method "memory:diagnostics"
+[DEBUG] RpcHandler: Registered method "memory:runNow"
+[DEBUG] RpcHandler: Registered method "memory:setTriggers"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "memory:getTriggers"
+[INFO] [memory] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mem:searchIndex"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "mem:timeline"
+[DEBUG] RpcHandler: Registered method "mem:getObservations"
+[ptah-electron stdout] [INFO] [mem] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "corpus:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "corpus:get"
+[DEBUG] RpcHandler: Registered method "corpus:build"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "corpus:prime"
+[DEBUG] RpcHandler: Registered method "corpus:query"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "corpus:reprime"
+[DEBUG] RpcHandler: Registered method "corpus:rebuild"
+[DEBUG] RpcHandler: Registered method "corpus:delete"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "corpus:suggest"
+[INFO] [corpus] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "embedder:status"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "embedder:retry"
+[INFO] [embedder] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "indexing:getStatus"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "indexing:start"
+[DEBUG] RpcHandler: Registered method "indexing:pause"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "indexing:resume"
+[DEBUG] RpcHandler: Registered method "indexing:cancel"
+[DEBUG] RpcHandler: Registered method "indexing:setPipelineEnabled"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "indexing:dismissStale"
+[DEBUG] RpcHandler: Registered method "indexing:acknowledgeDisclosure"
+[INFO] [indexing] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "file:pick"
+[DEBUG] RpcHandler: Registered method "file:pick-images"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "command:execute"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "file:read"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "file:exists"
+[DEBUG] RpcHandler: Registered method "file:save-dialog"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:listCandidates"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:getCandidate"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:promote"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:reject"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:invocations"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:stats"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:getSettings"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:updateSettings"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:pin"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:unpin"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:runCurator"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:diagnostics"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:analyzeNow"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:setTriggers"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:getTriggers"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:setLanes"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:getLanes"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:listClones"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:getClone"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:enhanceNow"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:previewEnhancement"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:applyProposal"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:getHistoryBody"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:revertEnhancement"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:rebaseClone"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:keepClone"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:invocationStats"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:getScorecards"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:getScorecardDetail"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:listSuggestions"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:acceptSuggestion"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:dismissSuggestion"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:getSuggestion"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:updateSuggestion"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:rejectBulk"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:promoteBulk"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:rejectByPattern"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:listSpecs"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:harvestSpecs"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:clearStaleSpecs"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "skillSynthesis:queue"
+[DEBUG] RpcHandler: Registered method "skillSynthesis:digest"
+[ptah-electron stdout] [DEBUG] Skill Synthesis RPC handlers registered: {"methods":["skillSynthesis:listCandidates","skillSynthesis:getCandidate","skillSynthesis:promote","skillSynthesis:reject","skillSynthesis:invocations","skillSynthesis:stats","skillSynthesis:getSettings","skillSynthesis:updateSettings","skillSynthesis:pin","skillSynthesis:unpin","skillSynthesis:runCurator","skillSynthesis:diagnostics","skillSynthesis:analyzeNow","skillSynthesis:setTriggers","skillSynthesis:getTriggers","skillSynthesis:setLanes","skillSynthesis:getLanes","skillSynthesis:listClones","skillSynthesis:getClone","skillSynthesis:enhanceNow","skillSynthesis:previewEnhancement","skillSynthesis:applyProposal","skillSynthesis:getHistoryBody","skillSynthesis:revertEnhancement","skillSynthesis:rebaseClone","skillSynthesis:keepClone","skillSynthesis:invocationStats","skillSynthesis:getScorecards","skillSynthesis:getScorecardDetail","skillSynthesis:listSuggestions","skillSynthesis:acceptSuggestion","skillSynthesis:dismissSuggestion","skillSynthesis:getSuggestion","skillSynthesis:updateSuggestion","skillSynthesis:rejectBulk","skillSynthesis:promoteBulk","skillSynthesis:rejectByPattern","skillSynthesis:listSpecs","skillSynthesis:harvestSpecs","skillSynthesis:clearStaleSpecs","skillSynthesis:queue","skillSynthesis:digest"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "cron:list"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "cron:get"
+[DEBUG] RpcHandler: Registered method "cron:create"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "cron:update"
+[DEBUG] RpcHandler: Registered method "cron:delete"
+[DEBUG] RpcHandler: Registered method "cron:toggle"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "cron:runNow"
+[DEBUG] RpcHandler: Registered method "cron:runs"
+[DEBUG] RpcHandler: Registered method "cron:nextFire"
+[INFO] [cron] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:status"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:start"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:stop"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:setToken"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:listBindings"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:approveBinding"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:blockBinding"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:listMessages"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:test"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:getAllowList"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:setAllowList"
+[DEBUG] RpcHandler: Registered method "gateway:getDiscordAppId"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:setDiscordAppId"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:registerDiscordCommands"
+[DEBUG] RpcHandler: Registered method "gateway:listDiscordGuilds"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:attachSession"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "gateway:detachSession"
+[ptah-electron stdout] [DEBUG] Gateway RPC handlers registered: {"methods":["gateway:status","gateway:start","gateway:stop","gateway:setToken","gateway:listBindings","gateway:approveBinding","gateway:blockBinding","gateway:listMessages","gateway:test","gateway:getAllowList","gateway:setAllowList","gateway:getDiscordAppId","gateway:setDiscordAppId","gateway:registerDiscordCommands","gateway:listDiscordGuilds","gateway:attachSession","gateway:detachSession"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:transcribe"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:getConfig"
+[DEBUG] RpcHandler: Registered method "voice:setConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:downloadModel"
+[DEBUG] RpcHandler: Registered method "voice:getTtsConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:setTtsConfig"
+[DEBUG] RpcHandler: Registered method "voice:downloadTtsModel"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:synthesize"
+[DEBUG] RpcHandler: Registered method "voice:listProviders"
+[DEBUG] RpcHandler: Registered method "voice:listVoices"
+[DEBUG] RpcHandler: Registered method "voice:getProviderConfig"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "voice:setProviderConfig"
+[DEBUG] RpcHandler: Registered method "voice:setApiKey"
+[DEBUG] RpcHandler: Registered method "voice:testConnection"
+[ptah-electron stdout] [DEBUG] Voice RPC handlers registered: {"methods":["voice:transcribe","voice:getConfig","voice:setConfig","voice:downloadModel","voice:getTtsConfig","voice:setTtsConfig","voice:downloadTtsModel","voice:synthesize","voice:listProviders","voice:listVoices","voice:getProviderConfig","voice:setProviderConfig","voice:setApiKey","voice:testConnection"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "db:health"
+[DEBUG] RpcHandler: Registered method "db:reset"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "db:reloadVec"
+[DEBUG] RpcHandler: Registered method "db:openBindingFolder"
+[ptah-electron stdout] [INFO] [persistence] RPC handlers registered
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "workspace:getInfo"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "workspace:addFolder"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "workspace:registerFolder"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "workspace:removeFolder"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "workspace:switch"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "update:get-state"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "update:check-now"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "update:mark-downloaded"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "file:open"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:openFile"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:revertFiles"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:saveFile"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:getFileTree"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:getDirectoryChildren"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:createFile"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:createFolder"
+[DEBUG] RpcHandler: Registered method "editor:renameItem"
+[ptah-electron stdout] [DEBUG] RpcHandler: Registered method "editor:deleteItem"
+[ptah-electron stdout] [INFO] [electron RPC] SDK callbacks wired (stats, sessionId, compaction, worktree)
+[ptah-electron stdout] [INFO] [electron RPC] Copilot SDK permission forwarding registered
+[ptah-electron stdout] [INFO] [electron RPC] Agent event listeners wired
+[ptah-electron stdout] [INFO] [RPC Verification] All 368 RPC methods correctly registered
+[ptah-electron stdout] [INFO] [electron RPC] RPC surface registered: {"methods":["agent:getConfig","agent:setConfig","agent:detectClis","agent:listCliModels","agent:permissionResponse","agent:e2eSeedPermission","agent:stop","agent:continue","agent:resumeCliSession","auth:getHealth","auth:getAuthStatus","auth:getStatus","auth:saveSettings","auth:setApiKey","auth:testConnection","auth:copilotLogin","auth:copilotLogout","auth:copilotStatus","auth:codexLogin","auth:getApiKeyStatus","auth:getScope","auth:clearWorkspaceOverride","autocomplete:agents","autocomplete:commands","chat:start","chat:continue","chat:resume","chat:abort","chat:pending-questions","chat:running-agents","agent:backgroundList","config:model-switch","config:model-set","config:model-get","config:autopilot-toggle","config:autopilot-get","config:models-list","config:effort-get","config:effort-set","config:pricing-get","context:getAllFiles","context:getFileSuggestions","enhancedPrompts:getStatus","enhancedPrompts:runWizard","enhancedPrompts:setEnabled","enhancedPrompts:regenerate","enhancedPrompts:getPromptContent","enhancedPrompts:download","git:info","git:worktrees","git:addWorktree","git:removeWorktree","git:stage","git:unstage","git:discard","git:commit","git:showFile","git:diffFile","git:applyHunks","git:push","git:branches","git:checkout","git:stashList","git:tags","git:remotes","git:lastCommit","harness:initialize","harness:suggest-config","harness:search-skills","harness:create-skill","harness:discover-mcp","harness:generate-prompt","harness:generate-claude-md","harness:apply","harness:save-preset","harness:load-presets","harness:design-agents","harness:generate-skills","harness:generate-document","harness:analyze-intent","harness:start-new-project","harness:workflow-prompt","harness:health","harness:reconcile","harness:remove","harness:repairBlocked","harness:get-skill-selection","harness:set-skill-selection","license:getStatus","license:setKey","license:clearKey","llm:getProviderStatus","llm:setApiKey","llm:removeApiKey","llm:getDefaultProvider","llm:setDefaultProvider","llm:setDefaultModel","llm:validateApiKeyFormat","llm:listVsCodeModels","llm:listProviderModels","llm:setProviderBaseUrl","llm:getProviderBaseUrl","llm:clearProviderBaseUrl","mcpDirectory:search","mcpDirectory:getDetails","mcpDirectory:install","mcpDirectory:uninstall","mcpDirectory:listInstalled","mcpDirectory:getPopular","mcpDirectory:setSmitheryApiKey","mcpDirectory:getSmitheryKeyStatus","mcpDirectory:resolveSmithery","mcpDirectory:installSmithery","mcpDirectory:uninstallSmithery","mcpDirectory:listSmitheryInstalled","mcpDirectory:smitheryAccount","mcpDirectory:listSmitheryConnections","mcpDirectory:smitheryConnectionStatus","mcpDirectory:openSmitherySetup","mcpDirectory:connectOAuth","mcpDirectory:probeOAuthDiscovery","mcpDirectory:oauthStatus","mcpDirectory:disconnectOAuth","mcpDirectory:listOAuthConnected","mcpDirectory:getOAuthRedirectUri","outputStyle:list","outputStyle:get","outputStyle:activate","outputStyle:save","outputStyle:delete","outputStyle:diagnose","plugins:list-available","plugins:get-config","plugins:save-config","plugins:list-skills","plugins:list-marketplaces","plugins:add-marketplace","plugins:remove-marketplace","plugins:browse-marketplace","plugins:install-external","plugins:uninstall-external","provider:listModels","provider:setModelTier","provider:getModelTiers","provider:clearModelTier","provider:listCustomEntries","provider:addCustomEntry","provider:updateCustomEntry","provider:removeCustomEntry","provider:testCustomEntry","ptahCli:list","ptahCli:create","ptahCli:update","ptahCli:delete","ptahCli:testConnection","ptahCli:listModels","quality:getAssessment","quality:getHistory","quality:export","session:list","session:load","session:delete","session:rename","session:validate","session:cli-sessions","session:stats-batch","session:forkSession","session:rewindFiles","session:status","settings:get","settings:set","settings:export","settings:import","setup-status:get-status","setup-wizard:launch","wizard:deep-analyze","wizard:get-resumable-run","wizard:recommend-agents","wizard:cancel-analysis","wizard:list-analyses","wizard:load-analysis","wizard:list-agent-packs","wizard:install-pack-agents","skillsSh:search","skillsSh:listInstalled","skillsSh:install","skillsSh:uninstall","skillsSh:getPopular","skillsSh:detectRecommended","chat:subagent-query","subagent:send-message","subagent:stop","subagent:interrupt","subagent:background","subagent:transcript","tasks:list","tasks:get","tasks:getArtifact","tasks:getRoundJudge","tasks:create","tasks:sweepFinished","tasks:updateStatus","tasks:updateMetadata","tasks:bulkUpdateStatus","tasks:bulkUpdateLabel","tasks:generateRegistry","tasks:board","tasks:reindex","tasks:adopt","tasks:doctorPlan","tasks:getViews","tasks:saveViews","webSearch:getApiKeyStatus","webSearch:setApiKey","webSearch:deleteApiKey","webSearch:test","webSearch:getConfig","webSearch:setConfig","wizard:submit-selection","wizard:cancel","wizard:retry-item","memory:list","memory:search","memory:get","memory:pin","memory:unpin","memory:forget","memory:rebuildIndex","memory:stats","memory:searchSymbols","memory:purgeBySubjectPattern","memory:purgeJunk","memory:diagnostics","memory:runNow","memory:setTriggers","memory:getTriggers","mem:searchIndex","mem:timeline","mem:getObservations","corpus:list","corpus:get","corpus:build","corpus:prime","corpus:query","corpus:reprime","corpus:rebuild","corpus:delete","corpus:suggest","embedder:status","embedder:retry","indexing:getStatus","indexing:start","indexing:pause","indexing:resume","indexing:cancel","indexing:setPipelineEnabled","indexing:dismissStale","indexing:acknowledgeDisclosure","file:pick","file:pick-images","command:execute","file:read","file:exists","file:save-dialog","skillSynthesis:listCandidates","skillSynthesis:getCandidate","skillSynthesis:promote","skillSynthesis:reject","skillSynthesis:invocations","skillSynthesis:stats","skillSynthesis:getSettings","skillSynthesis:updateSettings","skillSynthesis:pin","skillSynthesis:unpin","skillSynthesis:runCurator","skillSynthesis:diagnostics","skillSynthesis:analyzeNow","skillSynthesis:setTriggers","skillSynthesis:getTriggers","skillSynthesis:setLanes","skillSynthesis:getLanes","skillSynthesis:listClones","skillSynthesis:getClone","skillSynthesis:enhanceNow","skillSynthesis:previewEnhancement","skillSynthesis:applyProposal","skillSynthesis:getHistoryBody","skillSynthesis:revertEnhancement","skillSynthesis:rebaseClone","skillSynthesis:keepClone","skillSynthesis:invocationStats","skillSynthesis:getScorecards","skillSynthesis:getScorecardDetail","skillSynthesis:listSuggestions","skillSynthesis:acceptSuggestion","skillSynthesis:dismissSuggestion","skillSynthesis:getSuggestion","skillSynthesis:updateSuggestion","skillSynthesis:rejectBulk","skillSynthesis:promoteBulk","skillSynthesis:rejectByPattern","skillSynthesis:listSpecs","skillSynthesis:harvestSpecs","skillSynthesis:clearStaleSpecs","skillSynthesis:queue","skillSynthesis:digest","cron:list","cron:get","cron:create","cron:update","cron:delete","cron:toggle","cron:runNow","cron:runs","cron:nextFire","gateway:status","gateway:start","gateway:stop","gateway:setToken","gateway:listBindings","gateway:approveBinding","gateway:blockBinding","gateway:listMessages","gateway:test","gateway:getAllowList","gateway:setAllowList","gateway:getDiscordAppId","gateway:setDiscordAppId","gateway:registerDiscordCommands","gateway:listDiscordGuilds","gateway:attachSession","gateway:detachSession","voice:transcribe","voice:getConfig","voice:setConfig","voice:downloadModel","voice:getTtsConfig","voice:setTtsConfig","voice:downloadTtsModel","voice:synthesize","voice:listProviders","voice:listVoices","voice:getProviderConfig","voice:setProviderConfig","voice:setApiKey","voice:testConnection","db:health","db:reset","db:reloadVec","db:openBindingFolder","workspace:getInfo","workspace:addFolder","workspace:registerFolder","workspace:removeFolder","workspace:switch","update:get-state","update:check-now","update:mark-downloaded","file:open","editor:openFile","editor:revertFiles","editor:saveFile","editor:getFileTree","editor:getDirectoryChildren","editor:createFile","editor:createFolder","editor:renameItem","editor:deleteItem"],"excludedCount":0}
+[ptah-electron stdout] [Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized
+[ptah-electron stdout] [INFO] [SubsystemBringUp] Starting MCP server...
+[ptah-electron stdout] [INFO] [LicenseService.verifyLicense] No license key found, prompting registration
+[ptah-electron stdout] [Ptah Electron] Membership status resolved (valid: false, tier: community)
+[ptah-electron stdout] [DEBUG] [task-specs] index rebuild write skipped — store not ready yet
+[ptah-electron stdout] [INFO] CodeExecutionMCP server started on http://localhost:51821: CodeExecutionMCP
+[ptah-electron stderr] [WARN] MCP port 51820 (EADDRINUSE) unavailable; another running Ptah instance is most likely already listening there. Started on port 51821 instead.
+[ptah-electron stdout] [INFO] [SubsystemBringUp] MCP server started on port 51821
+[ptah-electron stdout] [INFO] [CliDetection] Detecting installed CLI agents...
+[ptah-electron stdout] [INFO] [OpenRouterPricing] Cached 430 model entries, 860 pricing key variants.
+[ptah-electron stdout] [INFO] [OpenRouterPricing] Registered 430 model(s) from OpenRouter (860 key variants).
+[ptah-electron stdout] [INFO] [CliStrategy] Claude CLI found at C:\Users\abdal\.local\bin\claude.EXE (v2.1.259)
+[ptah-electron stdout] [DEBUG] [ProviderModelsService] Cleared all tier environment variables
+[ptah-electron stdout] [INFO] [CliStrategy] Using Claude CLI authentication (credentials managed by CLI)
+[ptah-electron stdout] [INFO] [AuthManager] Authentication configured: Claude CLI v2.1.259 (credentials managed by CLI at C:\Users\abdal\.local\bin\claude.EXE)
+[DEBUG] [AuthManager] Env summary: ANTHROPIC_API_KEY=unset, ANTHROPIC_BASE_URL=unset, ANTHROPIC_AUTH_TOKEN=unset
+[ptah-electron stdout] [INFO] [SdkAgentAdapter] Detecting Claude CLI installation...
+[ptah-electron stdout] [INFO] [SdkAgentAdapter] Claude CLI found: {"path":"C:\\Users\\abdal\\.local\\bin\\claude.EXE","source":"which-where","cliJsPath":"C:\\Users\\abdal\\.local\\bin\\claude.EXE","useDirectExecution":false}
+[ptah-electron stdout] [INFO] [SdkAgentAdapter] Initialized successfully
+[ptah-electron stdout] [Ptah Electron] Agent adapters initialized successfully
+[ptah-electron stdout] [INFO] [SdkModuleLoader] Pre-loading SDK during activation...
+[ptah-electron stdout] [INFO] [SdkModuleLoader] Loading bundled Claude Agent SDK...
+[ptah-electron stdout] [INFO] [SdkModuleLoader] SDK query function cached (bundled, 73.44ms)
+[ptah-electron stdout] [INFO] [SdkModuleLoader] SDK pre-loaded successfully (74.21ms)
+[ptah-electron stdout] [INFO] [CliDetection] Codex CLI detected: {"path":"D:\\projects\\ptah-extension\\node_modules\\.bin\\codex.CMD","version":"codex-cli 0.147.0"}
+[ptah-electron stdout] [INFO] [CliDetection] Copilot CLI detected: {"path":"C:\\Users\\abdal\\AppData\\Roaming\\npm\\copilot.CMD","version":"GitHub Copilot CLI 1.0.80."}
+[ptah-electron stdout] [DEBUG] [CliDetection] Cursor not installed
+[ptah-electron stdout] [INFO] [CliDetection] Antigravity detected: {"path":"C:\\Users\\abdal\\AppData\\Local\\agy\\bin\\agy.EXE","version":"1.1.27"}
+[ptah-electron stdout] [DEBUG] [CliDetection] opencode not installed
+[ptah-electron stdout] [DEBUG] [CliDetection] Pi not installed
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for claude in D:\projects\qa3elhamor\.mcp.json (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for claude in D:\projects\property-hub\.mcp.json (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for codex in D:\projects\property-hub\.codex\config.toml (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for codex in C:\Users\abdal\.codex\config.toml (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for antigravity in D:\projects\qa3elhamor\.agents\mcp_config.json (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [INFO] [CodeExecutionMCP] Registered ptah for antigravity in D:\projects\property-hub\.agents\mcp_config.json (port 51821): CodeExecutionMCP
+[ptah-electron stdout] [Ptah Electron] Subsystems brought up
+[ptah-electron stdout] [Ptah Electron] Startup config registered
+[ptah-electron stdout] [INFO] [UpdateManager] Skipped — development mode
+[ptah-electron stdout] [Ptah Electron] UpdateManager started
+[Ptah Electron] Membership revalidation scheduled
+[ptah-electron stdout] [Ptah Electron] Booting deferred backend services for workspace...
+[ptah-electron stdout] [Ptah Electron] Resolving SQLite connection service...
+[ptah-electron stdout] [Ptah Electron] SQLite connection service resolved, calling openAndMigrate()...
+[ptah-electron stdout] [INFO] [persistence-sqlite] Starting openAndMigrate...: {"dbPath":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.sqlite"}
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] ensureParentDirectory: {"filePath":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.sqlite","dir":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh"}
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Directory already exists: {"dir":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh"}
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Parent directory ensured
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Database factory created
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Pragmas applied
+[ptah-electron stdout] [INFO] [persistence-sqlite] sqlite-vec loaded: {"strategy":"require-resolve-platform-pkg","extPath":"D:\\projects\\ptah-extension\\node_modules\\sqlite-vec-windows-x64\\vec0.dll","fsExists":true,"attemptedFallbacks":1}
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Vec extension loaded (or skipped)
+[ptah-electron stdout] [INFO] [persistence-sqlite] connection health: {"dbSizeMb":0,"pageCount":1,"pageSize":4096,"freelistCount":0,"journalMode":"wal","vecExtensionLoaded":true}
+[ptah-electron stdout] [INFO] [persistence-sqlite] quick_check passed
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] Migration runner created, applying migrations...
+[ptah-electron stdout] [INFO] [persistence-sqlite] backup completed: {"kind":"pre-migration","dest":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.pre-migration-20260907T094455Z.sqlite","validated":true}
+[ptah-electron stdout] [INFO] [persistence-sqlite] migrations applied: {"appliedVersions":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41],"skippedVersions":[],"finalVersion":41}
+[ptah-electron stdout] [INFO] [persistence-sqlite] openAndMigrate complete: {"dbPath":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\ptah-e2e.sqlite","vecExtensionLoaded":true,"applied":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41],"finalVersion":41}
+[ptah-electron stdout] [Ptah Electron] SQLite connection opened + migrated successfully
+[ptah-electron stdout] [persistence-sqlite] sqlite-vec diagnostic {
+  ok: [33mtrue[39m,
+  reason: [32m'ok'[39m,
+  attemptedPath: [32m'D:\\projects\\ptah-extension\\node_modules\\sqlite-vec-windows-x64\\vec0.dll'[39m,
+  packageName: [32m'sqlite-vec-windows-x64'[39m,
+  fsExists: [33mtrue[39m,
+  attempts: [33m1[39m
+}
+[ptah-electron stdout] [DEBUG] [memory-curator] boot scan armed: {"delayMs":300000}
+[ptah-electron stdout] [INFO] [memory-curator] trigger service started
+[Ptah Electron] Memory trigger service started
+[ptah-electron stdout] [Ptah Electron] Memory push-event bridges wired
+[Ptah Electron] Vec/embedder status bridges wired (2 subscriber(s))
+[ptah-electron stdout] [INFO] [skill-synthesis] SKILL.md migration complete (active root): {"migrated":0,"skipped":2574,"errors":[],"skippedByMarker":false}
+[ptah-electron stdout] [INFO] [skill-synthesis] SKILL.md migration complete (candidates root): {"migrated":0,"skipped":2573,"errors":[],"skippedByMarker":false}
+[ptah-electron stdout] [INFO] [skill-curator] scheduling periodic pass: {"intervalHours":24}
+[ptah-electron stdout] [INFO] [skill-synthesis] embedding backfill enqueued: {"outcome":"created"}
+[ptah-electron stdout] [INFO] [skill-synthesis] started: {"vecExtensionLoaded":true}
+[ptah-electron stdout] [Ptah Electron] Skill synthesis started
+[ptah-electron stdout] [INFO] [skill-synthesis] trigger service started
+[ptah-electron stdout] [Ptah Electron] Skill trigger service started
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Initialized: {"pluginsBasePath":"C:\\Users\\abdal\\.ptah\\plugins","hasWorkspaceState":true}
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [Ptah Electron] Plugin loader initialized (1 plugin paths)
+[ptah-electron stdout] [INFO] [gateway] master switch off; not starting adapters
+[ptah-electron stdout] [Ptah Electron] Messaging gateway started
+[ptah-electron stdout] [INFO] [gateway-chat-bridge] subscribed to inbound events
+[ptah-electron stdout] [Ptah Electron] Gateway chat bridge started
+[ptah-electron stderr] [WARN] [event-loop] lag: {"maxMs":965.7,"p99Ms":965.7}
+[ptah-electron stdout] [DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\qa3elhamor","escapedPath":"D--projects-qa3elhamor","dirCount":22,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Temp","C--Users-abdal-AppData-Local-Temp-ptah-spike","C--Users-abdal-AppData-Local-Temp-ptah-spike-ws","D--projects-angular-3d-showcase","D--projects-angular-3d-showcase-tribunal-claude-cli-0","D--projects-angular-3d-showcase-tribunal-ollama-glm-0","D--projects-angular-3d-showcase-tribunal-ollama-kimi-1","D--projects-community-platform","D--projects-property-hub"]}
+[ptah-electron stdout] [INFO] [memory-curator] boot-scan cold start — bounded to the last 7 days: {"pipeline":"skills","workspaceFingerprint":"2741ce1a7afd32ff","floor":1788169496539}
+[ptah-electron stdout] [INFO] [memory-curator] started — subscribed to PreCompact
+[ptah-electron stdout] [Ptah Electron] Memory curator started
+[ptah-electron stdout] [INFO] [WorkspaceFileIndex] Ready: 296 files, 66 directories: {"root":"D:\\projects\\qa3elhamor","durationMs":130}
+[ptah-electron stdout] [INFO] [skill-synthesis] session enqueued for synthesis: {"sessionId":"07427938-b95a-4dbc-9d7c-b11ff56a3353","stage":"prefilter","source":"boot","outcome":"created","turnCount":27}
+[ptah-electron stdout] [Ptah Electron] User-layer pass (activation)
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [INFO] [skill-synthesis] session enqueued for synthesis: {"sessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","stage":"prefilter","source":"boot","outcome":"created","turnCount":5}
+[ptah-electron stdout] [INFO] [UserLayerMirror] mirrorAll complete: {"skillsMirrored":0,"agentsMirrored":0,"commandsMirrored":0,"skipped":28,"conflicts":0,"errors":0}
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [INFO] [UserLayerMirror] reconcile complete: {"noop":25,"fastForwarded":0,"diverged":3,"missingSidecar":0,"errors":0}
+[ptah-electron stdout] [Ptah Electron] User-layer reconcile complete (noop: 25, fastForwarded: 0, diverged: 3, reaped: 0, orphaned: 0, missingSidecar: 0, errors: 0)
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:autopilot-get": {"correlationId":"bb545d05-aae0-4c81-bf5a-d10816f288f9"}
+[ptah-electron stdout] [DEBUG] RPC: config:autopilot-get called
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "config:autopilot-get" succeeded: {"correlationId":"bb545d05-aae0-4c81-bf5a-d10816f288f9"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:models-list": {"correlationId":"5191ddf4-9eea-456d-9bc2-a3fc8f566607"}
+[ptah-electron stdout] [DEBUG] RPC: config:models-list called
+[ptah-electron stdout] [INFO] [SdkModelService] Fetching models: {"authMethod":"claudeCli","hasApiKey":false,"hasBaseUrl":false}
+[ptah-electron stdout] [INFO] [SdkModuleLoader] CLI js path resolved: C:\Users\abdal\.local\bin\claude.EXE
+[ptah-electron stdout] [INFO] [SdkModelService] Fetching models via SDK supportedModels(): {"hasApiKey":false,"hasAuthToken":false,"hasBaseUrl":false,"cliJsPath":"C:\\Users\\abdal\\.local\\bin\\claude.EXE","note":"No env credentials — SDK will use CLI credential store"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:pricing-get": {"correlationId":"4f1869e1-1325-48b1-ace1-1a953adc3e66"}
+[ptah-electron stdout] [DEBUG] RPC: config:pricing-get called: {"entryCount":862,"hydrated":true}
+[DEBUG] RpcHandler: Method "config:pricing-get" succeeded: {"correlationId":"4f1869e1-1325-48b1-ace1-1a953adc3e66"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:effort-get": {"correlationId":"8e1edcab-1e39-4d41-b37f-e2bcedd767fe"}
+[ptah-electron stdout] [DEBUG] RPC: config:effort-get called
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "config:effort-get" succeeded: {"correlationId":"8e1edcab-1e39-4d41-b37f-e2bcedd767fe"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"655cccec-1cae-484b-941b-6b871af79bdb"}
+[ptah-electron stdout] [DEBUG] RPC: ptahCli:list called
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ptahCli.pc-85830910-3d81-4248-84c1-4fa52752dd19","hasValue":true}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ptahCli.pc-effaa2c4-0d41-4e95-980a-89d3bf971b4d","hasValue":true}
+[INFO] [PtahCliRegistry] Listed 2 agents
+[ptah-electron stdout] [DEBUG] RPC: ptahCli:list success: {"agentCount":2}
+[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"655cccec-1cae-484b-941b-6b871af79bdb"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"fa7bfd50-f857-4fe6-b37d-e71d9b06457a"}
+[ptah-electron stdout] [DEBUG] RPC: auth:getAuthStatus called: {"cacheHit":false}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getCredential] Retrieved status: {"type":"apiKey","hasValue":false}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"anthropic","hasValue":false}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openrouter","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"moonshot","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"z-ai","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openai-codex","hasValue":false}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama-cloud","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"lm-studio","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"claude-cli","hasValue":false}
+[ptah-electron stdout] [DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"sakana","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"requesty","hasValue":false}
+[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"sovereigneg","hasValue":false}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "license:getStatus": {"correlationId":"a949778c-410d-44c8-bd38-ff80b74e2d9a"}
+[ptah-electron stdout] [DEBUG] RPC: license:getStatus called
+[ptah-electron stdout] [DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"community","valid":false,"cacheAge":6748}
+[ptah-electron stdout] [DEBUG] RPC: license:getStatus success: {"tier":"community","isPremium":false,"isCommunity":true}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "license:getStatus" succeeded: {"correlationId":"a949778c-410d-44c8-bd38-ff80b74e2d9a"}
+[ptah-electron stdout] [DEBUG] RPC: auth:getAuthStatus result: {"hasApiKey":false,"hasOpenRouterKey":false,"hasAnyProviderKey":false,"authMethod":"claudeCli","anthropicProviderId":"anthropic","copilotAuthenticated":false,"codexAuthenticated":true,"codexTokenStale":false,"claudeCliInstalled":true}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"fa7bfd50-f857-4fe6-b37d-e71d9b06457a"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "workspace:getInfo": {"correlationId":"deb09457-036b-4ca0-b035-2202b8e00fff"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "workspace:getInfo" succeeded: {"correlationId":"deb09457-036b-4ca0-b035-2202b8e00fff"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "update:get-state": {"correlationId":"e4b9b814-cb94-4c18-9c1f-b6946ce0f2b2"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "update:get-state" succeeded: {"correlationId":"e4b9b814-cb94-4c18-9c1f-b6946ce0f2b2"}
+[ptah-electron stdout] [INFO] [skill-synthesis] skill_registry catalog synced: {"upserted":45,"linked":0}
+[ptah-electron stdout] [Ptah Electron] Skill registry catalog synced (upserted: 45, linked: 0)
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "auth:getScope": {"correlationId":"e6a33828-1665-4e49-a839-3d1d7a9d22cd"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "auth:getScope" succeeded: {"correlationId":"e6a33828-1665-4e49-a839-3d1d7a9d22cd"}
+[DEBUG] RpcHandler: Handling method "workspace:switch": {"correlationId":"0099e76e-473d-432c-a671-76ac819ab9aa"}
+[ptah-electron stdout] [INFO] [SessionImporter] Scanning for existing sessions: {"workspacePath":"D:\\projects\\qa3elhamor","limit":50}
+[ptah-electron stdout] [INFO] [RPC] workspace:switch re-indexing files for workspace: {"path":"D:\\projects\\qa3elhamor","cached":true}
+[ptah-electron stdout] [INFO] [RPC] workspace:switch: {"path":"D:\\projects\\qa3elhamor","encodedPath":"RDpccHJvamVjdHNccWEzZWxoYW1vcg"}
+[ptah-electron stdout] [INFO] [RPC] workspace:switch file re-index complete: {"path":"D:\\projects\\qa3elhamor","durationMs":0,"fileCount":296,"cached":true}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "workspace:switch" succeeded: {"correlationId":"0099e76e-473d-432c-a671-76ac819ab9aa"}
+[ptah-electron stdout] [DEBUG] [SessionImporter] findSessionsDirectory: {"workspacePath":"D:\\projects\\qa3elhamor","escapedPath":"D--projects-qa3elhamor"}
+[ptah-electron stdout] [INFO] [SessionImporter] Import complete: {"imported":0,"fromIndex":0}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "plugins:get-config": {"correlationId":"1f422a2b-3978-443e-9f08-b27afb1cf5dc"}
+[DEBUG] RPC: plugins:get-config called
+[DEBUG] RPC: plugins:get-config success: {"enabledCount":1,"lastUpdated":"2026-08-23T17:45:55.279Z"}
+[DEBUG] RpcHandler: Method "plugins:get-config" succeeded: {"correlationId":"1f422a2b-3978-443e-9f08-b27afb1cf5dc"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "plugins:list-available": {"correlationId":"a2ef9ecf-8dd6-4e8f-b82a-27664176ba41"}
+[DEBUG] RPC: plugins:list-available called
+[ptah-electron stderr] [WARN] [PluginLoaderService] Skipping skill without a readable SKILL.md: {"path":"C:\\Users\\abdal\\.ptah\\plugins\\ptah-skillssh-oso95-scroll-world\\skills\\scroll-world\\SKILL.md","code":"ENOENT","error":"ENOENT: no such file or directory, open 'C:\\Users\\abdal\\.ptah\\plugins\\ptah-skillssh-oso95-scroll-world\\skills\\scroll-world\\SKILL.md'"}
+[ptah-electron stdout] [DEBUG] RPC: plugins:list-available success: {"pluginCount":10}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "plugins:list-available" succeeded: {"correlationId":"a2ef9ecf-8dd6-4e8f-b82a-27664176ba41"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:list": {"correlationId":"f840ab80-04cc-4507-b4a3-8636fe63365a"}
+[ptah-electron stdout] [DEBUG] RPC: session:list called: {"workspacePath":"D:\\projects\\qa3elhamor","limit":30,"offset":0}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:status": {"correlationId":"a20a810f-3b9f-40d8-8502-28549ca9cc95"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:status" succeeded: {"correlationId":"a20a810f-3b9f-40d8-8502-28549ca9cc95"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "chat:resume": {"correlationId":"a1a6b828-6aca-4ec9-8624-a80015fdb1e1"}
+[ptah-electron stdout] [DEBUG] RPC: chat:resume called
+[ptah-electron stdout] [INFO] RPC: chat:resume called: {"sessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","workspacePath":"D:\\projects\\qa3elhamor","resolvedWorkspacePath":"D:\\projects\\qa3elhamor","usedFallback":false}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:cli-sessions": {"correlationId":"83af27de-059b-478b-8fb8-30bc1e81b631"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:cli-sessions" succeeded: {"correlationId":"83af27de-059b-478b-8fb8-30bc1e81b631"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:list" succeeded: {"correlationId":"f840ab80-04cc-4507-b4a3-8636fe63365a"}
+[ptah-electron stdout] [INFO] [JsonlReader] Scanning for agent files: {"sessionsDir":"C:\\Users\\abdal\\.claude\\projects\\D--projects-qa3elhamor","parentSessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","agentFilesFound":0,"source":"legacy"}
+[ptah-electron stdout] [INFO] [SessionHistoryReader] Loaded session with stats: {"sessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","eventCount":10,"hasStats":true,"totalCost":0.584357,"totalTokens":1938}
+[ptah-electron stdout] [DEBUG] [SubagentRegistryService.registerFromHistoryEvents] No agent_start events found: {"parentSessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","eventCount":10}
+[ptah-electron stdout] [DEBUG] [SubagentRegistryService.getResumable] Query result: {"totalRecords":0,"resumableCount":0}
+[INFO] [RPC] Session history loaded from JSONL: {"sessionId":"d5f76d11-28d7-4d94-85a2-1fbe7c7866ea","messageCount":2,"eventCount":10,"hasStats":true,"totalCost":0.584357,"resumableSubagentCount":0,"cliSessionCount":0}
+[DEBUG] RPC: chat:resume success
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "chat:resume" succeeded: {"correlationId":"a1a6b828-6aca-4ec9-8624-a80015fdb1e1"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:status": {"correlationId":"52add742-f78d-4598-a3aa-fd708286f494"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:status" succeeded: {"correlationId":"52add742-f78d-4598-a3aa-fd708286f494"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "plugins:get-config": {"correlationId":"99c56b54-8e1e-4993-9da6-50a5096d1c58"}
+[ptah-electron stdout] [DEBUG] RPC: plugins:get-config called
+[DEBUG] RPC: plugins:get-config success: {"enabledCount":1,"lastUpdated":"2026-08-23T17:45:55.279Z"}
+[DEBUG] RpcHandler: Method "plugins:get-config" succeeded: {"correlationId":"99c56b54-8e1e-4993-9da6-50a5096d1c58"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "plugins:list-available": {"correlationId":"405d9f6e-668f-459d-925c-41fff61c7047"}
+[DEBUG] RPC: plugins:list-available called
+[ptah-electron stdout] [DEBUG] RPC: plugins:list-available success: {"pluginCount":10}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "plugins:list-available" succeeded: {"correlationId":"405d9f6e-668f-459d-925c-41fff61c7047"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:status": {"correlationId":"1fec99a0-cec6-495f-a23c-3bb1508b99bd"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:status" succeeded: {"correlationId":"1fec99a0-cec6-495f-a23c-3bb1508b99bd"}
+[ptah-electron stdout] [Ptah Electron] User-layer pass (content-download-complete)
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [DEBUG] [harness-sync] Reconcile complete: {"reason":"activation","mode":"full","sources":"ok","collisions":0,"scope":"all-targets","targetCount":6,"expected":83,"found":83,"missing":0,"foreign":0,"removed":0,"writeFailed":0,"perTarget":[{"target":"claude","detected":true,"expected":19,"found":19,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"codex","detected":true,"expected":26,"found":26,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"copilot","detected":true,"expected":26,"found":26,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"cursor","detected":false,"expected":0,"found":0,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"antigravity","detected":true,"expected":11,"found":11,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"vscode","detected":true,"expected":1,"found":1,"missing":0,"foreign":0,"removed":0,"writeFailed":0}]}
+[ptah-electron stdout] [Ptah Electron] Harness reconciled (activation): sources=ok, detectedTargets=5/6, found=83/83 (all targets), claude=19/19, missing=0, foreign=0, writeFailed=0
+[Ptah Electron] Pricing pre-fetch initiated (background)
+[ptah-electron stdout] [INFO] [SessionImporter] Scanning for existing sessions: {"workspacePath":"D:\\projects\\qa3elhamor","limit":50}
+[Ptah Electron] CLI detection complete: 3/6 CLIs found
+[ptah-electron stdout] [DEBUG] [SessionImporter] findSessionsDirectory: {"workspacePath":"D:\\projects\\qa3elhamor","escapedPath":"D--projects-qa3elhamor"}
+[ptah-electron stdout] [INFO] [CliDetection] codex credential check: usable
+[ptah-electron stdout] [INFO] [CliDetection] cursor credential check: stale/unavailable
+[ptah-electron stdout] [INFO] [CliDetection] opencode credential check: stale/unavailable
+[ptah-electron stdout] [INFO] [CliDetection] pi credential check: stale/unavailable
+[ptah-electron stdout] [INFO] [SessionImporter] Import complete: {"imported":0,"fromIndex":0}
+[ptah-electron stdout] [INFO] [GitWatcher] Starting file system watchers: {"workspacePath":"D:\\projects\\qa3elhamor"}
+[ptah-electron stdout] [Ptah Electron] Git file system watcher started
+[ptah-electron stdout] [DEBUG] [cron-scheduler] job upserted: {"id":"@ptah/daily-backup","name":"Daily SQLite Backup"}
+[ptah-electron stdout] [Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)
+[ptah-electron stdout] [DEBUG] [cron-scheduler] job upserted: {"id":"@ptah/skills-drain-frequent","name":"Skill Synthesis Drain (frequent)"}
+[ptah-electron stdout] [DEBUG] [cron-scheduler] job upserted: {"id":"@ptah/skills-drain-nightly","name":"Skill Synthesis Drain (nightly)"}
+[ptah-electron stdout] [DEBUG] [cron-scheduler] job upserted: {"id":"@ptah/skills-drain-weekly","name":"Skill Synthesis Drain (weekly)"}
+[ptah-electron stdout] [Ptah Electron] Skill synthesis drain cron jobs registered (frequent/nightly/weekly)
+[ptah-electron stdout] [INFO] [cron-scheduler] started: {"armed":4,"maxConcurrent":3,"catchupWindowMs":86400000}
+[ptah-electron stdout] [Ptah Electron] Cron scheduler started { enabled: [33mtrue[39m, maxConcurrentJobs: [33m3[39m, catchupWindowMs: [33m86400000[39m }
+[ptah-electron stdout] [INFO] [persistence-sqlite] backup completed: {"kind":"daily","dest":"C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-e2e-db-fYMDXh\\backups\\ptah-e2e-2026-09-07.sqlite","validated":true}
+[ptah-electron stdout] [DEBUG] [cron-scheduler] run succeeded: {"jobId":"@ptah/daily-backup","runId":"01M1XM3C7SKNZQSZC4Y4R35PVC"}
+[ptah-electron stdout] [DEBUG] [skill-synthesis] foreground activity tracker started
+[ptah-electron stdout] [DEBUG] [skill-synthesis] drain finished: {"tier":"frequent","skipped":false,"reaped":0,"workspacesVisited":2,"claimed":0,"lostClaims":0,"done":0,"failed":0,"unscored":0,"skippedItems":0,"stalled":0,"budgetDeferred":0,"bootDeferred":3,"budgetExhausted":false,"durationMs":3}
+[ptah-electron stdout] [DEBUG] [cron-scheduler] run succeeded: {"jobId":"@ptah/skills-drain-frequent","runId":"01M1XM3CA336ZHE0C0YGKX2GXJ"}
+[ptah-electron stdout] [DEBUG] [skill-synthesis] drain finished: {"tier":"nightly","skipped":false,"reaped":0,"workspacesVisited":2,"claimed":0,"lostClaims":0,"done":0,"failed":0,"unscored":0,"skippedItems":0,"stalled":0,"budgetDeferred":0,"bootDeferred":3,"budgetExhausted":false,"durationMs":1}
+[ptah-electron stdout] [DEBUG] [cron-scheduler] run succeeded: {"jobId":"@ptah/skills-drain-nightly","runId":"01M1XM3CA9JMRWWA57EFCT2A79"}
+[ptah-electron stdout] [INFO] [UserLayerMirror] mirrorAll complete: {"skillsMirrored":0,"agentsMirrored":0,"commandsMirrored":0,"skipped":28,"conflicts":0,"errors":0}
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [INFO] [UserLayerMirror] reconcile complete: {"noop":25,"fastForwarded":0,"diverged":3,"missingSidecar":0,"errors":0}
+[ptah-electron stdout] [Ptah Electron] User-layer reconcile complete (noop: 25, fastForwarded: 0, diverged: 3, reaped: 0, orphaned: 0, missingSidecar: 0, errors: 0)
+[ptah-electron stdout] [INFO] [skill-synthesis] skill_registry catalog synced: {"upserted":45,"linked":0}
+[ptah-electron stdout] [Ptah Electron] Skill registry catalog synced (upserted: 45, linked: 0)
+[ptah-electron stdout] [DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":1,"resolvedCount":1,"pluginIds":["ptah-nx-saas"]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "session:list": {"correlationId":"332561cd-a507-464b-a76d-8c85de67adae"}
+[ptah-electron stdout] [DEBUG] RPC: session:list called: {"workspacePath":"D:/projects/qa3elhamor","limit":30,"offset":0}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "session:list" succeeded: {"correlationId":"332561cd-a507-464b-a76d-8c85de67adae"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"6031f7fc-e8a5-49e1-8cd4-d8f626ba8bb7"}
+[ptah-electron stdout] [DEBUG] RPC: auth:getAuthStatus called: {"cacheHit":true}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"6031f7fc-e8a5-49e1-8cd4-d8f626ba8bb7"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "editor:getFileTree": {"correlationId":"0f394ac1-ea1e-4453-a25f-330a8fc4938c"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "git:info": {"correlationId":"7c82e951-9086-4c2c-9c84-339ca4f9b3d6"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "auth:getScope": {"correlationId":"a54997fd-154b-4d1b-80b4-4263846dbd93"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "auth:getScope" succeeded: {"correlationId":"a54997fd-154b-4d1b-80b4-4263846dbd93"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "editor:getFileTree" succeeded: {"correlationId":"0f394ac1-ea1e-4453-a25f-330a8fc4938c"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:models-list": {"correlationId":"7ed05614-3102-42e9-b574-1252c85a0349"}
+[ptah-electron stdout] [DEBUG] RPC: config:models-list called
+[DEBUG] [SdkModelService] Deduplicating concurrent getSupportedModels() call
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "config:effort-get": {"correlationId":"0df3cea8-f885-4935-9427-d992204e79ee"}
+[ptah-electron stdout] [DEBUG] RPC: config:effort-get called
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "config:effort-get" succeeded: {"correlationId":"0df3cea8-f885-4935-9427-d992204e79ee"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "git:branches": {"correlationId":"fcbb47a4-7f8a-472f-ab4b-af27b673d4d1"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "git:stashList": {"correlationId":"c170756e-0533-4af4-b739-4d37a871c1cb"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Handling method "git:lastCommit": {"correlationId":"3b6b6eba-ad3a-48cf-86fe-a55ff6d38856"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "git:stashList" succeeded: {"correlationId":"c170756e-0533-4af4-b739-4d37a871c1cb"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "git:lastCommit" succeeded: {"correlationId":"3b6b6eba-ad3a-48cf-86fe-a55ff6d38856"}
+[ptah-electron stdout] [INFO] [SdkModelService] Fetched supported models from SDK: {"count":5,"models":["default: Default (recommended)","opus[1m]: Opus (1M context)","claude-fable-5-1[1m]: Fable","sonnet: Sonnet","haiku: Haiku"]}
+[ptah-electron stdout] [INFO] [SdkModelService] Models resolved: {"authMethod":"claudeCli","count":5,"models":[{"value":"default","displayName":"Default (recommended)"},{"value":"opus[1m]","displayName":"Opus (1M context)"},{"value":"claude-fable-5-1[1m]","displayName":"Fable"},{"value":"sonnet","displayName":"Sonnet"},{"value":"haiku","displayName":"Haiku"}]}
+[ptah-electron stdout] [DEBUG] [SdkModelService] No auth credentials for /v1/models
+[ptah-electron stdout] [DEBUG] [SdkModelService] No auth credentials for /v1/models
+[INFO] RPC: config:models-list sources: {"sdkCount":5,"apiCount":0,"sdkValues":["default","opus[1m]","claude-fable-5-1[1m]","sonnet","haiku"],"apiValues":[]}
+[ptah-electron stdout] [INFO] RPC: config:models-list tier context: {"activeProviderId":"anthropic","tierOverrides":"null","savedModel":"default"}
+[ptah-electron stdout] [INFO] [ModelDiag] config:models-list SENDING to frontend dropdown: {"savedModel":"default","tierOverrides":"none","models":[{"id":"default","name":"Default (recommended)","isSelected":true,"tier":"opus","providerModelId":"none"},{"id":"opus[1m]","name":"Opus (1M context)","isSelected":false,"tier":"opus","providerModelId":"none"},{"id":"claude-fable-5-1[1m]","name":"Fable","isSelected":false,"tier":"none","providerModelId":"none"},{"id":"sonnet","name":"Sonnet","isSelected":false,"tier":"sonnet","providerModelId":"none"},{"id":"haiku","name":"Haiku","isSelected":false,"tier":"haiku","providerModelId":"none"}]}
+[ptah-electron stdout] [INFO] RPC: config:models-list sources: {"sdkCount":5,"apiCount":0,"sdkValues":["default","opus[1m]","claude-fable-5-1[1m]","sonnet","haiku"],"apiValues":[]}
+[INFO] RPC: config:models-list tier context: {"activeProviderId":"anthropic","tierOverrides":"null","savedModel":"default"}
+[ptah-electron stdout] [INFO] [ModelDiag] config:models-list SENDING to frontend dropdown: {"savedModel":"default","tierOverrides":"none","models":[{"id":"default","name":"Default (recommended)","isSelected":true,"tier":"opus","providerModelId":"none"},{"id":"opus[1m]","name":"Opus (1M context)","isSelected":false,"tier":"opus","providerModelId":"none"},{"id":"claude-fable-5-1[1m]","name":"Fable","isSelected":false,"tier":"none","providerModelId":"none"},{"id":"sonnet","name":"Sonnet","isSelected":false,"tier":"sonnet","providerModelId":"none"},{"id":"haiku","name":"Haiku","isSelected":false,"tier":"haiku","providerModelId":"none"}]}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "config:models-list" succeeded: {"correlationId":"7ed05614-3102-42e9-b574-1252c85a0349"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "config:models-list" succeeded: {"correlationId":"5191ddf4-9eea-456d-9bc2-a3fc8f566607"}
+[ptah-electron stderr] [WARN] [RPC] slow handler: {"method":"config:models-list","durationMs":2026.8}
+[ptah-electron stdout] [DEBUG] [harness-sync] Reconcile complete: {"reason":"content-download-complete","mode":"full","sources":"ok","collisions":0,"scope":"all-targets","targetCount":6,"expected":83,"found":83,"missing":0,"foreign":0,"removed":0,"writeFailed":0,"perTarget":[{"target":"claude","detected":true,"expected":19,"found":19,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"codex","detected":true,"expected":26,"found":26,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"copilot","detected":true,"expected":26,"found":26,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"cursor","detected":false,"expected":0,"found":0,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"antigravity","detected":true,"expected":11,"found":11,"missing":0,"foreign":0,"removed":0,"writeFailed":0},{"target":"vscode","detected":true,"expected":1,"found":1,"missing":0,"foreign":0,"removed":0,"writeFailed":0}]}
+[Ptah Electron] Harness reconciled (content-download-complete): sources=ok, detectedTargets=5/6, found=83/83 (all targets), claude=19/19, missing=0, foreign=0, writeFailed=0
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "git:info" succeeded: {"correlationId":"7c82e951-9086-4c2c-9c84-339ca4f9b3d6"}
+[ptah-electron stdout] [DEBUG] RpcHandler: Method "git:branches" succeeded: {"correlationId":"fcbb47a4-7f8a-472f-ab4b-af27b673d4d1"}
+[ptah-electron stdout] [Ptah Electron] Saving window bounds: {"x":-36,"y":29,"width":1920,"height":1032}
+[ptah-electron stderr] Debugger ending on ws://127.0.0.1:60999/791c395a-9533-43d7-9015-7cc287c42a3d
+For help, see: https://nodejs.org/en/docs/inspector
+[ptah-electron stdout] [INFO] [skill-synthesis] trigger service stopped
+[ptah-electron stdout] [INFO] [cron-scheduler] stopped
+[ptah-electron stdout] [INFO] [memory-curator] trigger service stopped
+[ptah-electron stdout] [INFO] [memory-curator] stopped
+[ptah-electron stdout] [INFO] [gateway-chat-bridge] unsubscribed from inbound events
+[ptah-electron stdout] [DEBUG] [persistence-sqlite] WAL checkpoint (TRUNCATE) completed
+[ptah-electron stdout] [INFO] [AgentProcessManager] Disposing all agents...: {"agents":0,"running":0}
+[ptah-electron stdout] [INFO] [AgentProcessManager] Copilot SDK adapter disposed
+[INFO] [AgentProcessManager] 0 agents disposed
+[INFO] [PtahCliRegistry] disposeAll()
+[ptah-electron stderr] (node:15528) UnhandledPromiseRejectionWarning: TypeError: Object has been destroyed
+    at Object.send (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:170442:41)
+    at IpcBridge.sendToRenderer (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:169864:21)
+    at ElectronWebviewManagerAdapter.broadcastMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:170238:20)
+    at _GitWatcherService.broadcastFn (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:171816:26)
+    at _GitWatcherService.fetchAndPush (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:5437:16)
+[ptah-electron stderr] (node:15528) UnhandledPromiseRejectionWarning: Unhandled promise rejection. This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). To terminate the node process on unhandled promise rejection, use the CLI flag `--unhandled-rejections=strict` (see https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode). (rejection id: 57)
+  [32mok[39m [2m  2 [22msrc\specs\auto-updater.spec.ts:55:7 › Update detection › forced development NODE_ENV: updater is skipped entirely[2m (12.8s)[22m
+[ptah-electron stdout] [Ptah Electron] Settings registered and migrations applied (1 custom providers)
+[ptah-electron stdout] [Ptah Electron] DI verify: TOKENS.RPC_HANDLER -- OK
+[ptah-electron stdout] [Ptah Electron] DI verify: TOKENS.LOGGER -- OK
+[ptah-electron stdout] [Ptah Electron] DI verify: PLATFORM_TOKENS.WORKSPACE_PROVIDER -- OK
+[Ptah Electron] DI verify: PLATFORM_TOKENS.STATE_STORAGE -- OK
+[ptah-electron stdout] [Ptah Electron] DI verify: PLATFORM_TOKENS.SECRET_STORAGE -- OK
+[Ptah Electron] DI verification: 5/5 tokens resolved
+[ptah-electron stdout] [Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace
+[ptah-electron stdout] [IpcBridge] Diagnostics IPC handlers initialized
+[ptah-electron stdout] [IpcBridge] IPC listeners initialized
+[ptah-electron stdout] [Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized
+[ptah-electron stdout] [Ptah Electron] Membership status resolved (valid: false, tier: community)
+[ptah-electron stdout] [Ptah Electron] Agent adapters initialized successfully
+[ptah-electron stdout] [Ptah Electron] Subsystems brought up
+[ptah-electron stdout] [Ptah Electron] Startup config registered
+[ptah-electron stdout] [Ptah Electron] UpdateManager started
+[ptah-electron stdout] [Ptah Electron] Membership revalidation scheduled
+[ptah-electron stderr] [Ptah Electron] Messaging gateway starting without persistence (degraded)
+[ptah-electron stdout] [Ptah Electron] Messaging gateway started
+[ptah-electron stdout] [Ptah Electron] Gateway chat bridge started
+Warning: command "npx playwright test --config=playwright.config.ts" exited with non-zero status code
+
+
+ NX   Running target e2e for project ptah-electron-e2e and 2 tasks it depends on failed
+
+Failed tasks:
+
+- ptah-electron-e2e:e2e
+
+Hint: run the command with --verbose for more details.
+
+Your AI agent configuration is outdated. Run "nx configure-ai-agents" to update.
+

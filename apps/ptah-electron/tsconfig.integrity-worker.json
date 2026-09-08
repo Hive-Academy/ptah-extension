@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
+    "../../libs/backend/persistence-sqlite/src/lib/integrity/**/*.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

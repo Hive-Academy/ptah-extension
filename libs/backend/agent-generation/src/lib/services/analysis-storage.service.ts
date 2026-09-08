@@ -202,6 +202,9 @@ export class AnalysisStorageService {
     try {
       return await this.fs.readFile(join(slugDir, filename));
     } catch {
+      // degradation-audit: optional-capability - the doc comment above says a
+      // missing or unreadable phase file returns null; callers (loadMultiPhase)
+      // skip that phase's content instead of failing the whole analysis load.
       return null;
     }
   }
@@ -511,6 +514,9 @@ export class AnalysisStorageService {
     try {
       entries = await this.fs.readDirectory(analysisDir);
     } catch {
+      // degradation-audit: optional-capability - a read failure here almost
+      // always means `.ptah/analysis` does not exist yet (no analysis has ever
+      // run), which is correctly reported as "zero valid runs".
       return [];
     }
 
@@ -538,11 +544,17 @@ export class AnalysisStorageService {
     try {
       content = await this.fs.readFile(filePath);
     } catch {
+      // degradation-audit: optional-capability - a missing manifest file means
+      // "no manifest saved yet", which is this method's documented undefined
+      // return.
       return undefined;
     }
     try {
       return JSON.parse(content) as unknown;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - a malformed manifest is
+      // treated as absent (never deleted) per this method's documented
+      // contract; the warn above already surfaces the parse failure to the log.
       this.logger.warn(
         `${SERVICE_TAG} Manifest is not valid JSON; left as-is`,
         {

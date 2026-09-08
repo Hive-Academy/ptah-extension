@@ -4,7 +4,7 @@ Branch: `feat/video-studio-scene-production`. All changes below are UNCOMMITTED 
 
 ## Where this session ended
 
-The user reported three defects in the rendered videos. All three were root-caused; fixes for all are implemented but only partially validated, and the full 13-scene re-capture (explicitly approved by the user) has NOT been started.
+The user reported three defects in the rendered videos. All three were root-caused; fixes for all are implemented but only partially validated, and the full re-capture (explicitly approved by the user) has NOT been started. It covers 12 scenes since TASK_2026_385 retired `editor-tour` with the editor library it toured.
 
 ### Bug 1 — "Video completely off inside the Remotion frame" (FIXED, needs render verify)
 
@@ -14,10 +14,13 @@ Fix applied: `position: 'relative'` added to the card div.
 
 Also applied (defense-in-depth): `focusToTransform` in `src/lib/shots.ts` now clamps the pan so the scaled footage always covers the card (new `footageH` param, passed `videoDispH` from DeviceFrame) — no background bleed on edge pans.
 
-**NOT yet verified**: re-render `editor-tour` and eyeball frames AFTER this fix (the last verified render predates `position: relative`):
+**NOT yet verified**: re-render a scene and eyeball frames AFTER this fix (the
+last verified render predates `position: relative`). This originally named
+`editor-tour`, which was retired in TASK_2026_385 — use `chat-code-edit`, the
+scene that replaced it as the exemplar:
 
 ```bash
-node apps/ptah-video-studio/scripts/render-all.mjs --scene editor-tour --out-res 1080p
+node apps/ptah-video-studio/scripts/render-all.mjs --scene chat-code-edit --out-res 1080p
 # then extract frames (one ffmpeg call per timestamp!) and view:
 # f=$(node -e "console.log(require('ffmpeg-static'))")
 # "$f" -y -ss 5 -i dist/apps/ptah-electron-e2e/recordings/editor-tour/out/editor-tour.mp4 -frames:v 1 /tmp/et-5.png
@@ -32,7 +35,7 @@ Fix applied in `apps/ptah-video-studio/scripts/render-all.mjs`: lead-in trim —
 
 ### Bug 3 — flat narration, no hook/welcome (FIXED in scene sources, needs re-capture)
 
-All 13 scene files in `apps/ptah-electron-e2e/src/showcase/*.scene.ts` re-scripted to the series structure **HOOK → WARMUP (new beat) → benefit-led body → PAYOFF**, contraction-free spoken prose (TTS convention). editor-tour was hand-written as the exemplar; the other 12 were done by 4 subagents and reported faithful. Full per-scene script lists are in the transcript; spot-check a couple of files for voice consistency if desired.
+All scene files in `apps/ptah-electron-e2e/src/showcase/*.scene.ts` re-scripted to the series structure **HOOK → WARMUP (new beat) → benefit-led body → PAYOFF**, contraction-free spoken prose (TTS convention). `chat-code-edit` is the hand-written exemplar (editor-tour, its predecessor, was retired in TASK_2026_385 along with the whole editor library it toured — `chat-code-edit` is the closest structural analogue still standing: a single-surface walkthrough with a body and a payoff, ask → edit → see-the-diff mirroring editor-tour's open-file → edit → see-the-diff arc); the rest were done by subagents and reported faithful. Full per-scene script lists are in the transcript; spot-check a couple of files for voice consistency if desired.
 
 ### Sliver-shot quality fix (FIXED, both sides)
 
@@ -54,7 +57,7 @@ User flagged: session tiles persist in the profile, so canvas-orchestra re-captu
    - `b69ec6a7e feat(electron): hook-led narration rescript for all showcase scenes`
    - `2c1adf4a3 fix(electron): deterministic full-resolution showcase capture placement`
    - `01a786625 feat(electron): audio-first narration pipeline for showcase scenes`
-4. **Full re-capture batch (user-approved)** — run the serial driver at `C:/Users/abdal/AppData/Local/Temp/ptah-video-driver.sh` for ALL 13 scenes. **AUDIO-FIRST order (new):** per scene `narrate.mjs --scene <s> --engine elevenlabs` (reads `apps/ptah-electron-e2e/src/showcase/scripts/<s>.json`, generates wavs + real durations BEFORE capture) → `playwright showcase.config.ts <s>` (director.say() paces every beat to the real clip length) → `render-all.mjs --scene <s> --out-res 1080p`. NO caption.mjs stage — captions come from ElevenLabs character alignment in durations.json (`clips[].words`). Env: `PTAH_SHOWCASE_RES=1440p`, `PTAH_SHOWCASE_SILENT_CAPTIONS=1`. Scene list: dashboard-tour canvas-orchestra editor-tour settings-tour marketplace-tour gateway-tour setup-wizard-tour memory-recall chat-code-edit cron-tour skills-tour thoth-tour tribunal-tour.
+4. **Full re-capture batch (user-approved)** — run the serial driver at `C:/Users/abdal/AppData/Local/Temp/ptah-video-driver.sh` for all 12 scenes. **AUDIO-FIRST order (new):** per scene `narrate.mjs --scene <s> --engine elevenlabs` (reads `apps/ptah-electron-e2e/src/showcase/scripts/<s>.json`, generates wavs + real durations BEFORE capture) → `playwright showcase.config.ts <s>` (director.say() paces every beat to the real clip length) → `render-all.mjs --scene <s> --out-res 1080p`. NO caption.mjs stage — captions come from ElevenLabs character alignment in durations.json (`clips[].words`). Env: `PTAH_SHOWCASE_RES=1440p`, `PTAH_SHOWCASE_SILENT_CAPTIONS=1`. Scene list: dashboard-tour canvas-orchestra settings-tour marketplace-tour gateway-tour setup-wizard-tour memory-recall chat-code-edit cron-tour skills-tour thoth-tour tribunal-tour. (editor-tour retired in TASK_2026_385 with the editor library it toured; landing-page-tour is a separate, later addition not part of this original 13-scene batch.)
    - Narration skip logic reuses wavs when the script + voice settings are unchanged — re-running the batch does not re-bill unchanged scenes.
    - Pronunciation lives in `apps/ptah-video-studio/scripts/text-normalization.json` ("Ptah" → "puh-TAH" spoken; captions still show "Ptah"). Tune the respelling there if the read is off.
    - **Capture is now DETERMINISTIC & full-res.** The launcher (`showcase-launcher.ts`) picks a display that can host a `recordSize / scaleFactor` CSS window and sizes the window so the device buffer == the record size exactly. Watch stderr for `[showcase] capturing 2560x1440 device px … (full frame, no padding band)` — that's the success line. If instead you see `WARNING: best on-screen capture is …`, no display can host 1440p at its scale factor → the window would letterbox; drop to `PTAH_SHOWCASE_RES=1080p` or attach a 150%+/larger display. (This machine's 150%-scaled second monitor hosts 1440p via a 1708×960 CSS window; the 1080p primary at 100% cannot.)

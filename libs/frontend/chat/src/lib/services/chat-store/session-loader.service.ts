@@ -106,6 +106,22 @@ export class SessionLoaderService {
   private static readonly LOAD_SESSIONS_DEBOUNCE_MS = 300;
 
   /**
+   * The `session:list` round trip currently in flight, or `null`
+   * (TASK_2026_383 Batch 10.3).
+   *
+   * The 300 ms trailing debounce above only coalesces callers that arrive
+   * BEFORE the timer fires. `loadSessions()` has five callers
+   * (`ChatLifecycleService` x3, `SessionStatsAggregatorService`,
+   * `ChatMessageHandlerService`) driven by independent broadcasts, so a caller
+   * landing while the RPC is in flight scheduled a second identical read —
+   * measured at ~200 ms each. Callers that arrive during a read now share it.
+   *
+   * A plain field, not a signal: nothing renders from it, and it is written
+   * inside the async body its readers already await.
+   */
+  private loadSessionsInFlight: Promise<void> | null = null;
+
+  /**
    * Per-workspace session list cache.
    * Keyed by workspace folder path. Populated on load and updated on mutations.
    * Enables instant workspace switching without backend RPC round-trips.
@@ -170,7 +186,10 @@ export class SessionLoaderService {
 
   /**
    * Load sessions from backend via RPC (with pagination)
-   * Debounced (300ms) to coalesce rapid calls (e.g. SESSION_ID_RESOLVED + SESSION_STATS).
+   * Debounced (300ms) to coalesce rapid calls (e.g. SESSION_ID_RESOLVED + SESSION_STATS),
+   * then single-flighted so a caller whose timer fires while an earlier read is
+   * still in flight joins that read instead of issuing a second identical one
+   * (see {@link loadSessionsInFlight}).
    * Preserves pagination: reloads all pages up to the current offset instead of resetting to page 1.
    */
   async loadSessions(): Promise<void> {
@@ -182,13 +201,33 @@ export class SessionLoaderService {
       this.loadSessionsTimer = setTimeout(async () => {
         this.loadSessionsTimer = null;
         try {
-          await this._loadSessionsImmediate();
+          await this.runLoadSessions();
           resolve();
         } catch (error) {
           reject(error);
         }
       }, SessionLoaderService.LOAD_SESSIONS_DEBOUNCE_MS);
     });
+  }
+
+  /**
+   * Single-flight wrapper around {@link _loadSessionsImmediate}. Callers that
+   * arrive while a read is in flight share it; the next caller after it settles
+   * gets a fresh read.
+   */
+  private runLoadSessions(): Promise<void> {
+    const existing = this.loadSessionsInFlight;
+    if (existing !== null) {
+      return existing;
+    }
+
+    const promise = this._loadSessionsImmediate().finally(() => {
+      if (this.loadSessionsInFlight === promise) {
+        this.loadSessionsInFlight = null;
+      }
+    });
+    this.loadSessionsInFlight = promise;
+    return promise;
   }
 
   /**

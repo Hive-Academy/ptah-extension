@@ -479,6 +479,10 @@ export class CopilotSdkAdapter implements CliAdapter {
     try {
       event = JSON.parse(line) as CopilotCliEvent;
     } catch {
+      // degradation-audit: optional-capability - the Copilot CLI's stream-json
+      // output is interleaved with plain-text banners, stack traces and usage
+      // lines; a non-JSON line is filtered or emitted as raw text below rather
+      // than treated as a parse failure.
       if (
         !line ||
         line.startsWith('{') ||

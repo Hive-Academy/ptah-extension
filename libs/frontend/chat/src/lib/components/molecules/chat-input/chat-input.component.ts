@@ -59,8 +59,8 @@ import {
   SlashTriggerDirective,
   type SlashTriggerEvent,
 } from '../../../directives/slash-trigger.directive';
-import { AgentSelectorComponent } from '@ptah-extension/chat-ui';
 import { EffortSelectorComponent } from './effort-selector.component';
+import { McpStatusChipComponent } from '../mcp-status-chip.component';
 
 /** Pasted image data for UI display */
 interface PastedImage {
@@ -105,8 +105,8 @@ interface PastedImage {
     FileTagComponent,
     AtTriggerDirective,
     SlashTriggerDirective,
-    AgentSelectorComponent,
     EffortSelectorComponent,
+    McpStatusChipComponent,
   ],
   providers: [VoiceInputService],
   template: `
@@ -347,10 +347,16 @@ interface PastedImage {
           <ptah-model-selector />
         </div>
 
-        <!-- Right: Agent Selector, Effort Selector, Autopilot -->
+        <!-- Right: MCP chip, Effort Selector, Autopilot -->
         <div class="flex items-center gap-0.5 min-w-0">
-          <!-- Agent Selector - dedicated button for built-in sub-agents -->
-          <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
+          <!-- MCP status. Lives here, with the other session-scoped capability
+               controls, rather than on a row of its own above the transcript:
+               this row always renders, so the chip no longer has to buy a full
+               row of height for one badge. -->
+          <ptah-mcp-status-chip
+            [sessionId]="mcpSessionId()"
+            [tabId]="mcpTabId()"
+          />
 
           <!-- Effort Selector Component -->
           <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
@@ -451,6 +457,23 @@ export class ChatInputComponent implements OnInit {
     if (!tabId) return null;
     return this.tabManager.tabs().find((t) => t.id === tabId) ?? null;
   });
+
+  /**
+   * Tab and session ids for the MCP status chip, resolved exactly as
+   * `ChatViewComponent` resolves them: a canvas tile scopes to its own tab via
+   * SESSION_CONTEXT, the main panel falls back to the global active tab. Both
+   * ids are passed because the backend pushes MCP status under the tabId until
+   * the SDK reports the session UUID.
+   */
+  protected readonly mcpTabId = computed(
+    () => this._sessionContext?.() ?? this.tabManager.activeTabId(),
+  );
+
+  protected readonly mcpSessionId = computed(() =>
+    this._sessionContext
+      ? (this.resolvedTab()?.claudeSessionId ?? null)
+      : this.chatStore.currentSessionId(),
+  );
 
   /**
    * The messaging binding this tab's session is attached to, or null. When
@@ -1037,25 +1060,6 @@ export class ChatInputComponent implements OnInit {
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
     console.log('ChatInputComponent.onEffortChange called');
-  }
-
-  /**
-   * Handle agent selection from AgentSelectorComponent
-   * Appends agent-{name} to input (agent convention)
-   */
-  handleAgentSelected(agentName: string): void {
-    const currentValue = this._currentMessage();
-    const newValue =
-      currentValue +
-      (currentValue.endsWith(' ') || currentValue === '' ? '' : ' ') +
-      `agent-${agentName} `;
-    this._currentMessage.set(newValue);
-    const textarea = this.textareaRef()?.nativeElement;
-    if (textarea) {
-      textarea.value = newValue;
-      textarea.focus();
-      textarea.setSelectionRange(newValue.length, newValue.length);
-    }
   }
 
   /**

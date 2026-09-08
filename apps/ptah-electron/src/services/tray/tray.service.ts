@@ -190,6 +190,9 @@ export class PtahTrayService {
       );
       return service;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the tray is an optional
+      // keep-alive surface; null is the R10 fail-safe the caller reads as
+      // "no tray", so window-all-closed quits normally instead of hanging.
       options.logger.warn(
         '[Ptah Electron] Tray unavailable — keep-alive disabled, ' +
           'window-all-closed will quit normally (R10 fail-safe):',

@@ -148,6 +148,8 @@ export class SetupRpcHandlers {
       );
       return paths.length > 0 ? paths : undefined;
     } catch (error) {
+      // degradation-audit: optional-capability - plugin paths are an optional
+      // analysis input; undefined runs the analysis with no plugin dirs.
       this.logger.debug('Failed to resolve plugin paths for analysis', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -937,6 +939,9 @@ export class SetupRpcHandlers {
       );
       fingerprintResult = await deriveWorkspaceFingerprint(workspaceRoot, fs);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - workspace fingerprinting is
+      // the optional memory-seeding step; returning skips seeding and leaves
+      // the wizard's generated output intact.
       this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
         stage: 'fingerprint',
@@ -1026,6 +1031,8 @@ export class SetupRpcHandlers {
         PLATFORM_TOKENS.MEMORY_WRITER,
       );
     } catch {
+      // degradation-audit: optional-capability - the memory writer port is
+      // unregistered on hosts without SQLite; null makes seeding a no-op.
       return null;
     }
   }

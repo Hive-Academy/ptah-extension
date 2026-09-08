@@ -1911,6 +1911,9 @@ export class SkillsSynthesisRpcHandlers {
       const root = this.workspaceProvider.getWorkspaceRoot();
       return root && root.length > 0 ? root : undefined;
     } catch {
+      // degradation-audit: optional-capability - the workspace root is
+      // optional for this surface; undefined reads the unscoped agent clone
+      // base, which is what a host with no folder open gets anyway.
       return undefined;
     }
   }
@@ -1941,6 +1944,9 @@ export class SkillsSynthesisRpcHandlers {
       const entry = await mirror.readCloneOrigin(kind, slug, this.agentScope());
       return entry?.orphaned === true;
     } catch {
+      // degradation-audit: optional-capability - the origin sidecar is
+      // optional provenance metadata; false renders the clone as not
+      // orphaned, exactly as it rendered before the field existed.
       return false;
     }
   }
@@ -1966,6 +1972,8 @@ export class SkillsSynthesisRpcHandlers {
       if (!fs.existsSync(filePath)) return null;
       return fs.readFileSync(filePath, 'utf8');
     } catch {
+      // degradation-audit: optional-capability - the clone body is optional
+      // detail content; null renders the entry with no body preview.
       return null;
     }
   }
@@ -2246,6 +2254,9 @@ function toPanelRationales(
   try {
     parsed = JSON.parse(raw);
   } catch {
+    // degradation-audit: optional-capability - stored panel rationales are
+    // optional summary data; null reads as "no panel record" rather than a
+    // partially decoded panel, as the block comment above explains.
     return null;
   }
   if (!Array.isArray(parsed) || parsed.length === 0) return null;

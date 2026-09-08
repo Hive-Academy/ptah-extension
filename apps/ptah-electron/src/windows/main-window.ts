@@ -48,6 +48,9 @@ function isInternalNavigation(targetUrl: string): boolean {
   try {
     return new URL(targetUrl).protocol === 'file:';
   } catch {
+    // degradation-audit: optional-capability - parsing an untrusted navigation
+    // target is optional; false classifies an unparseable URL as external, so
+    // the shell refuses to let it replace the top-level window.
     return false;
   }
 }
@@ -62,6 +65,9 @@ function openExternalSafely(targetUrl: string): void {
   try {
     protocol = new URL(targetUrl).protocol;
   } catch {
+    // degradation-audit: optional-capability - opening a link externally is the
+    // optional action; returning early hands nothing to shell.openExternal,
+    // which is the safe answer for a URL whose scheme cannot be read.
     return;
   }
   if (EXTERNAL_SCHEMES.has(protocol)) {

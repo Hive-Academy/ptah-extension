@@ -29,8 +29,8 @@ import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
-import { ELECTRON_TOKENS } from '../di/electron-tokens';
-import type { PtyManagerService } from '../services/pty-manager.service';
+import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
+import type { BootCoordinator } from './boot-coordinator';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -125,6 +125,7 @@ export async function startAgentAdapterInitialization(
 
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
+  coordinator: Pick<BootCoordinator, 'snapshot'>,
 ): Promise<BootstrapResult> {
   fixPath();
   const workspacePath = process.argv.find(
@@ -301,32 +302,16 @@ export async function bootstrapElectron(
   // one feeds a card that has always had an unresolved state.
   void startMembershipVerification(container);
 
-  let ptyManager: PtyManagerService | undefined;
-  try {
-    ptyManager = container.resolve<PtyManagerService>(
-      ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
-    );
-  } catch (error: unknown) {
-    console.warn(
-      '[Ptah Electron] PtyManagerService resolve failed (continuing without pty):',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const ipcBridge = new IpcBridge(
-    container,
-    () => {
-      const win = getMainWindow();
-      if (!win) return null;
-      return {
-        webContents: {
-          send: (channel: string, ...args: unknown[]) =>
-            win.webContents.send(channel, ...args),
-        },
-      };
-    },
-    ptyManager,
-  );
+  const ipcBridge = new IpcBridge(container, () => {
+    const win = getMainWindow();
+    if (!win) return null;
+    return {
+      webContents: {
+        send: (channel: string, ...args: unknown[]) =>
+          win.webContents.send(channel, ...args),
+      },
+    };
+  });
 
   try {
     ipcBridge.initialize();
@@ -349,6 +334,16 @@ export async function bootstrapElectron(
     );
     throw error;
   }
+  // The boot readiness port, registered beside WEBVIEW_MANAGER because both are
+  // the same kind of thing: a host-owned object the runtime-agnostic RPC
+  // surface needs to reach. `useValue`, not `registerSingleton` — the
+  // coordinator is constructed in `main.ts` before this container exists, and
+  // this binding deliberately overrides `vscode-core`'s always-ready null
+  // adapter (last registration wins in tsyringe).
+  container.register(PLATFORM_TOKENS.BOOT_READINESS, {
+    useValue: new ElectronBootReadinessProvider(coordinator),
+  });
+
   try {
     activateSessionLifecycleNotifier(container);
   } catch (error: unknown) {

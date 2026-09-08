@@ -113,6 +113,8 @@ export function codexProjectTrusted(
   try {
     content = readFileSync(configPath, 'utf-8');
   } catch {
+    // degradation-audit: optional-capability - trust lookup is a scope probe,
+    // and false selects the home config that Codex reads unconditionally.
     // Unreadable reads as untrusted: the safe direction, since the caller then
     // writes the home config, which Codex reads unconditionally.
     return false;

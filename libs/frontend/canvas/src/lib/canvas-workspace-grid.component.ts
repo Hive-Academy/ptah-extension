@@ -5,18 +5,22 @@ import {
   input,
   effect,
   computed,
-  untracked,
   viewChild,
 } from '@angular/core';
 import { GridStackOptions } from 'gridstack';
 import {
   GridstackComponent,
   GridstackItemComponent,
-  nodesCB,
 } from 'gridstack/dist/angular';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
+
+/** Which gesture just ended, latched before Gridstack's `change` fires. */
+type GestureKind = 'drag' | 'resize';
+
+/** Fallback item geometry for a grid that has not been measured yet. */
+const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
 
 /**
  * CanvasWorkspaceGridComponent — one Gridstack container per workspace.
@@ -30,6 +34,10 @@ import { CanvasTileComponent } from './canvas-tile.component';
  *
  * Layout math is skipped while hidden (0-width container) and re-applied when
  * the grid becomes visible again.
+ *
+ * This is the only place in the lib that talks to Gridstack. Geometry flows one
+ * way — `CanvasStore` intent -> `CanvasLayoutService` -> `grid.update()` — and
+ * finished gestures flow back as intent, never as coordinates.
  */
 @Component({
   selector: 'ptah-canvas-workspace-grid',
@@ -47,22 +55,19 @@ import { CanvasTileComponent } from './canvas-tile.component';
     '[style.display]': "visible() ? 'block' : 'none'",
   },
   template: `
-    <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
-      @for (tile of tiles(); track tile.tabId) {
-        <gridstack-item
-          [options]="{
-            x: tile.position.x,
-            y: tile.position.y,
-            w: tile.position.w,
-            h: tile.position.h,
-            id: tile.tabId,
-          }"
-        >
+    <gridstack
+      [options]="gsOptions"
+      (changeCB)="onGridChange()"
+      (dragStopCB)="onDragStop()"
+      (resizeStopCB)="onResizeStop()"
+    >
+      @for (item of items(); track item.tabId) {
+        <gridstack-item [options]="item.options">
           <ptah-canvas-tile
             data-testid="canvas-tile"
-            [tabId]="tile.tabId"
+            [tabId]="item.tabId"
             [visible]="visible()"
-            [focused]="canvasStore.focusedTabId() === tile.tabId"
+            [focused]="canvasStore.focusedTabId() === item.tabId"
             (focusRequested)="canvasStore.focusTile($event)"
             (closeRequested)="canvasStore.removeTile($event)"
           />
@@ -98,10 +103,16 @@ export class CanvasWorkspaceGridComponent {
   readonly gsOptions: GridStackOptions = {
     column: 12,
     cellHeight: 120,
-    float: true,
+    // Gravity on: a dragged tile pushes its neighbours and the arrangement
+    // compacts up-and-left, which is also what the derived layout produces —
+    // so the projection and the live gesture agree.
+    float: false,
     margin: 8,
     draggable: { handle: '.tile-header' },
-    resizable: { handles: 'e, se, s, sw, w' },
+    // Horizontal only: intent carries a width share, and rows must stay
+    // height-aligned for the cellHeight scroll rule to hold. Vertical resize
+    // has no field to write into, so its handles are not offered.
+    resizable: { handles: 'e, w' },
     animate: true,
   };
 
@@ -109,56 +120,95 @@ export class CanvasWorkspaceGridComponent {
     this.canvasStore.tilesFor(this.workspacePath())(),
   );
 
-  /**
-   * Tile count as its own computed so the auto-layout below only re-flows when
-   * tiles are added/removed. Reading `tiles().length` directly inside `layout`
-   * would make the layout depend on the tile array itself, so every drag/resize
-   * (which writes positions back through `onGridChange`) would invalidate the
-   * layout and snap every tile back to its algorithmic slot.
-   */
-  private readonly tileCount = computed(() => this.tiles().length);
-
   private readonly layout = computed(() => {
     this.layoutService.containerWidth();
     this.layoutService.containerHeight();
-    return this.layoutService.computeLayout(this.tileCount());
+    return this.layoutService.computeLayout(this.tiles());
   });
+
+  /** Template view-model: derived geometry keyed by tabId, never by index. */
+  protected readonly items = computed(() => {
+    const derived = new Map(this.layout().tiles.map((t) => [t.tabId, t]));
+    return this.tiles().map((tile) => {
+      const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
+      return {
+        tabId: tile.tabId,
+        options: {
+          x: position.x,
+          y: position.y,
+          w: position.w,
+          h: position.h,
+          id: tile.tabId,
+        },
+      };
+    });
+  });
+
+  /**
+   * True for the synchronous window in which this component is writing derived
+   * geometry into Gridstack. `batchUpdate(false)` itself emits `change`
+   * (gridstack.js `_triggerChangeEvent`), so batching cannot suppress the
+   * write-back — this flag can, because Gridstack dispatches its events
+   * synchronously. Always cleared in a `finally`: a stuck flag would silently
+   * ignore every future user gesture.
+   */
+  private _applyingLayout = false;
+
+  /** Set by dragStop/resizeStop, consumed by the `change` that follows. */
+  private _gesture: GestureKind | null = null;
 
   private _wasVisible = false;
 
   constructor() {
-    // Responsive layout: keep tiles sized to the container. Skipped while hidden
-    // so Gridstack never runs layout math against a 0-width display:none grid.
+    // Responsive layout: project derived geometry into Gridstack. Skipped while
+    // hidden so Gridstack never runs layout math against a 0-width display:none
+    // grid, and while locked so a frozen arrangement stays frozen.
     effect(() => {
       if (!this.visible()) return;
-      const { cellHeight, tiles: tileLayouts } = this.layout();
+      const { cellHeight, tiles: positioned } = this.layout();
       const gridComp = this.gridComp();
-      if (!gridComp?.grid || tileLayouts.length === 0) return;
+      if (!gridComp?.grid || positioned.length === 0) return;
       if (this.locked()) return;
 
       const grid = gridComp.grid;
-      const tiles = untracked(() => this.tiles());
+      const derived = new Map(positioned.map((t) => [t.tabId, t]));
 
-      grid.batchUpdate(true);
-      grid.cellHeight(cellHeight);
+      this._applyingLayout = true;
+      try {
+        grid.batchUpdate(true);
+        grid.cellHeight(cellHeight);
 
-      for (const node of grid.engine.nodes) {
-        const idx = tiles.findIndex((t) => t.tabId === node.id);
-        if (idx >= 0 && tileLayouts[idx] && node.el) {
-          grid.update(node.el, tileLayouts[idx]);
+        for (const node of grid.engine.nodes) {
+          if (typeof node.id !== 'string' || !node.el) continue;
+          const target = derived.get(node.id);
+          if (!target) continue;
+          grid.update(node.el, {
+            x: target.x,
+            y: target.y,
+            w: target.w,
+            h: target.h,
+          });
         }
-      }
 
-      grid.batchUpdate(false);
+        grid.batchUpdate(false);
+      } finally {
+        this._applyingLayout = false;
+      }
     });
 
     // Re-measure geometry once when a hidden grid is shown again — display:none
-    // leaves Gridstack with a stale 0-width column measurement.
+    // leaves Gridstack with a stale 0-width column measurement. Wrapped in the
+    // same flag: the re-measure is the other non-gesture `change` source.
     effect(() => {
       const visible = this.visible();
       const grid = this.gridComp()?.grid;
       if (visible && !this._wasVisible && grid) {
-        (grid as unknown as { onResize?: () => void }).onResize?.();
+        this._applyingLayout = true;
+        try {
+          (grid as unknown as { onResize?: () => void }).onResize?.();
+        } finally {
+          this._applyingLayout = false;
+        }
       }
       this._wasVisible = visible;
     });
@@ -171,20 +221,60 @@ export class CanvasWorkspaceGridComponent {
     });
   }
 
-  /**
-   * Persist Gridstack drag/resize changes into CanvasStore. Only the visible
-   * (active) grid can emit changes, so writing the active workspace's tiles is
-   * always correct.
-   */
-  onGridChange(data: nodesCB): void {
-    for (const node of data.nodes) {
-      if (typeof node.id !== 'string') continue;
-      this.canvasStore.updateTilePosition(node.id, {
-        x: node.x ?? 0,
-        y: node.y ?? 0,
-        w: node.w ?? 4,
-        h: node.h ?? 6,
-      });
-    }
+  /** Latch a finished drag so the `change` that follows means "reorder". */
+  onDragStop(): void {
+    this._gesture = 'drag';
   }
+
+  /** Latch a finished resize so the `change` that follows means "reweight". */
+  onResizeStop(): void {
+    this._gesture = 'resize';
+  }
+
+  /**
+   * Translate a finished gesture back into stored intent.
+   *
+   * Reads `grid.engine.nodes` rather than the event's `nodes`: with
+   * `float: false` a drag pushes neighbours whose ids are filtered out of the
+   * dirty set Gridstack reports. A `change` with no latched gesture has no
+   * legitimate source, so it writes nothing rather than guessing.
+   */
+  onGridChange(): void {
+    if (this._applyingLayout) return;
+    if (this.locked()) return;
+
+    const gesture = this._gesture;
+    this._gesture = null;
+    const grid = this.gridComp()?.grid;
+    if (!gesture || !grid) return;
+
+    const nodes = grid.engine.nodes.filter(
+      (node): node is typeof node & { id: string } =>
+        typeof node.id === 'string',
+    );
+    if (nodes.length === 0) return;
+
+    if (gesture === 'drag') {
+      const ordered = [...nodes].sort(
+        (a, b) => coord(a.y) - coord(b.y) || coord(a.x) - coord(b.x),
+      );
+      this.canvasStore.reorderTiles(ordered.map((node) => node.id));
+      return;
+    }
+
+    const weights = new Map<string, number>();
+    for (const node of nodes) {
+      const width = node.w;
+      if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
+        continue;
+      }
+      weights.set(node.id, width);
+    }
+    if (weights.size > 0) this.canvasStore.setTileWeights(weights);
+  }
+}
+
+/** A grid coordinate that is safe to sort on. */
+function coord(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }

@@ -23,7 +23,12 @@ import * as path from 'path';
 import * as os from 'os';
 import crossSpawn from 'cross-spawn';
 import whichLib from 'which';
-import { injectable } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
+import { z } from 'zod';
+import {
+  PLATFORM_TOKENS,
+  type IStateStorage,
+} from '@ptah-extension/platform-core';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 import { SdkError } from '../errors';
 import { ClaudeCliPathResolver } from './claude-cli-path-resolver';
@@ -76,6 +81,48 @@ interface CommandResult {
 const VERSION_PROBE_TTL_MS = 30_000;
 
 /**
+ * `IStateStorage` key holding the detector's verdict across boots.
+ *
+ * Everything above collapses probes WITHIN one boot. Nothing survives a
+ * restart, so `auth:getAuthStatus` still measured 734 ms median on a cold
+ * launch (TASK_2026_383) — one 253 MB `CreateProcessW` on the boot path, every
+ * launch, forever. This key removes it.
+ */
+const CLI_VERDICT_STATE_KEY = 'ptah.sdk.claudeCliVerdict';
+
+/**
+ * The persisted verdict, validated on every read.
+ *
+ * `mtimeMs` + `size` of the resolved executable are the validity token. A CLI
+ * upgrade rewrites the binary and therefore changes at least one of them, so
+ * invalidation is EXACT and needs no TTL guess — which matters because the
+ * right TTL for "is the CLI still installed" is unknowable: too short and the
+ * spawn comes back, too long and an uninstall is invisible.
+ */
+const persistedVerdictSchema = z.object({
+  /** The path that was stat-ed. Same as `installation.path`, restated so a hand-edited file cannot desync the two. */
+  path: z.string().min(1),
+  mtimeMs: z.number().finite(),
+  size: z.number().finite(),
+  installation: z.object({
+    path: z.string().min(1),
+    version: z.string().optional(),
+    source: z.enum([
+      'config',
+      'path',
+      'npm-global',
+      'common-location',
+      'user-home',
+      'which-where',
+      'wsl',
+    ]),
+    isWSL: z.boolean().optional(),
+    cliJsPath: z.string().optional(),
+    useDirectExecution: z.boolean().optional(),
+  }),
+});
+
+/**
  * Claude CLI Detection Service with WSL-aware path resolution
  */
 @injectable()
@@ -110,7 +157,14 @@ export class ClaudeCliDetector {
     Promise<CommandResult>
   >();
 
-  constructor() {
+  constructor(
+    /**
+     * Optional so `new ClaudeCliDetector()` — how every spec and any host
+     * without storage builds it — keeps working, minus the cross-boot memo.
+     */
+    @inject(PLATFORM_TOKENS.STATE_STORAGE, { isOptional: true })
+    private readonly stateStorage?: IStateStorage,
+  ) {
     this.isWSLEnvironment = this.detectWSLEnvironment();
     this.pathResolver = new ClaudeCliPathResolver();
   }
@@ -147,6 +201,9 @@ export class ClaudeCliDetector {
 
       return false;
     } catch {
+      // degradation-audit: optional-capability - WSL detection is an
+      // environment probe over /proc/version; false means "not WSL", which
+      // is the same answer every non-Linux host already gets.
       return false;
     }
   }
@@ -167,7 +224,7 @@ export class ClaudeCliDetector {
       return running;
     }
 
-    const pending = this.runDetection().finally(() => {
+    const pending = this.restoreOrDetect().finally(() => {
       // By identity: a `clearCache()` during detection may already have let a
       // newer run claim the slot, and evicting that one un-coalesces the very
       // burst this exists to absorb.
@@ -177,6 +234,106 @@ export class ClaudeCliDetector {
     });
     this.detectionInFlight = pending;
     return pending;
+  }
+
+  /**
+   * The cross-boot memo, then the strategy chain.
+   *
+   * Deliberately INSIDE the single-flight promise rather than in front of it:
+   * the restore does file I/O, so checking it before `detectionInFlight` is
+   * claimed would let all four boot-time consumers pass the check and start
+   * four detections — the exact fan-out `detectionInFlight` exists to absorb.
+   */
+  private async restoreOrDetect(): Promise<ClaudeInstallation | null> {
+    const restored = await this.restorePersistedVerdict();
+    if (restored) {
+      this.cachedInstallation = restored;
+      return restored;
+    }
+    return this.runDetection();
+  }
+
+  /**
+   * Read the persisted verdict and re-validate it against the binary on disk.
+   *
+   * Returns `null` — i.e. today's behaviour, a full detection — for every
+   * uncertain case: no storage, no entry, a malformed entry, a configured path
+   * that disagrees with the memo, a `stat` that fails (the binary was
+   * uninstalled, or it lives inside WSL and is not visible from here), or a
+   * `mtimeMs`/`size` that moved. A key mismatch is IGNORED, never repaired.
+   */
+  private async restorePersistedVerdict(): Promise<ClaudeInstallation | null> {
+    const storage = this.stateStorage;
+    if (!storage) return null;
+
+    let entry: z.infer<typeof persistedVerdictSchema>;
+    try {
+      const raw = storage.get<unknown>(CLI_VERDICT_STATE_KEY);
+      if (raw === undefined) return null;
+      const parsed = persistedVerdictSchema.safeParse(raw);
+      if (!parsed.success) return null;
+      entry = parsed.data;
+    } catch {
+      // degradation-audit: optional-capability — the memo is an optimization
+      // over a detection that still works; an unreadable store costs one probe.
+      return null;
+    }
+
+    if (entry.path !== entry.installation.path) return null;
+    // A user-configured path outranks anything remembered: the memo must never
+    // answer for a binary the user has since pointed away from.
+    if (this.configuredPath && this.configuredPath !== entry.path) return null;
+
+    try {
+      const stats = await fs.promises.stat(entry.path);
+      if (stats.mtimeMs !== entry.mtimeMs || stats.size !== entry.size) {
+        return null;
+      }
+    } catch {
+      // degradation-audit: optional-capability — a stat failure means "no
+      // persisted entry", which is exactly the pre-memo behaviour.
+      return null;
+    }
+
+    return entry.installation;
+  }
+
+  /**
+   * Remember a verdict for the next boot, tokened by the binary's own
+   * `mtimeMs` and `size`.
+   *
+   * Fire-and-forget, and silent on failure: nothing in detection depends on
+   * the write landing, and a lost write costs one probe next launch.
+   */
+  private persistVerdict(installation: ClaudeInstallation): void {
+    const storage = this.stateStorage;
+    if (!storage) return;
+
+    void fs.promises
+      .stat(installation.path)
+      .then((stats) =>
+        storage.update(CLI_VERDICT_STATE_KEY, {
+          path: installation.path,
+          mtimeMs: stats.mtimeMs,
+          size: stats.size,
+          installation,
+        }),
+      )
+      .catch(() => {
+        // degradation-audit: optional-capability — a binary that cannot be
+        // stat-ed (a WSL path, a permissions edge) simply gets no memo, and the
+        // next boot detects it the way every boot did before this existed.
+      });
+  }
+
+  private clearPersistedVerdict(): void {
+    const storage = this.stateStorage;
+    if (!storage) return;
+    void storage.update(CLI_VERDICT_STATE_KEY, undefined).catch(() => {
+      // degradation-audit: optional-capability — a verdict that survives a
+      // clear is still re-validated against the binary's mtime and size on the
+      // next read, so it can never answer for a CLI that changed.
+    });
   }
 
   private async runDetection(): Promise<ClaudeInstallation | null> {
@@ -204,9 +361,11 @@ export class ClaudeCliDetector {
               cliJsPath: resolved.cliJsPath,
               useDirectExecution: resolved.requiresDirectExecution,
             };
+            this.persistVerdict(this.cachedInstallation);
             return this.cachedInstallation;
           }
           this.cachedInstallation = installation;
+          this.persistVerdict(installation);
           return installation;
         }
       }
@@ -235,6 +394,9 @@ export class ClaudeCliDetector {
       const output = result.stdout + result.stderr;
       return this.isValidClaudeOutput(output);
     } catch {
+      // degradation-audit: optional-capability - verifying a candidate binary
+      // is a probe; false means "this path is not a usable Claude CLI" and
+      // sends the caller on to the next detection strategy.
       return false;
     }
   }
@@ -311,6 +473,9 @@ export class ClaudeCliDetector {
     this.detectionInFlight = null;
     this.versionProbes.clear();
     this.versionProbesInFlight.clear();
+    // Same argument, one boot further out: the persisted verdict IS the
+    // evidence a caller asking for a fresh detection wants discarded.
+    this.clearPersistedVerdict();
   }
 
   /**
@@ -422,6 +587,9 @@ export class ClaudeCliDetector {
 
       return null;
     } catch {
+      // degradation-audit: optional-capability - the npm-global strategy is
+      // one of several; null means "not installed this way" and the chain
+      // moves on to common paths, which is the same as a missing prefix.
       return null;
     }
   }
@@ -485,6 +653,9 @@ export class ClaudeCliDetector {
         }
       }
     } catch {
+      // degradation-audit: optional-capability - PATH lookup is one detection
+      // strategy of several; null means "not on PATH" and the chain continues
+      // with the WSL and common-path strategies.
       return null;
     }
 

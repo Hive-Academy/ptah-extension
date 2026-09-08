@@ -133,9 +133,29 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
 /**
  * Attempt to require keytar at runtime. Returns null if it is not installed
  * or fails to load (common on headless Linux without a keyring daemon).
+ *
+ * ## Why this swallow is not a defect (TASK_2026_383, task 2.3)
+ *
+ * `keytar` is an OPTIONAL native dependency and its absence is the expected
+ * state on a large share of the CLI's hosts — a container, a CI runner, any
+ * headless Linux box with no D-Bus keyring daemon. The caller's fallback is
+ * `deriveFallbackKey()`, a real HKDF-derived key, not a stub: the capability
+ * that degrades is OS-keychain storage, not encryption. Deleting the fallback
+ * would make the CLI unusable everywhere keytar cannot load.
+ *
+ * It is classified rather than reported because `platform-cli` may import only
+ * `platform-core` (per this lib's CLAUDE.md, "Never import platform-vscode or
+ * platform-electron"; its one internal dependency is `platform-core`), and
+ * `DegradationReporter` lives in `vscode-core`. Reaching for it here would add
+ * an adapter → infrastructure edge to satisfy a diagnostic, which is a worse
+ * trade than the suppression. If a CLI-side report is ever wanted, the seam is
+ * the CALLER — which already knows whether it fell back — not this probe.
  */
 async function tryLoadKeytar(): Promise<KeytarApi | null> {
   try {
+    // degradation-audit: optional-capability — keytar is an optional native
+    // module; absent on headless hosts with no OS keyring, and the caller falls
+    // back to an HKDF-derived key.
     const kt = await import('keytar').catch(() => null);
     if (!kt) return null;
     if (
@@ -146,6 +166,9 @@ async function tryLoadKeytar(): Promise<KeytarApi | null> {
     }
     return kt as unknown as KeytarApi;
   } catch {
+    // degradation-audit: optional-capability — a synchronous module-resolution
+    // failure is the same absent-keytar case as the rejection above; same HKDF
+    // fallback, same reason it must not become a throw.
     return null;
   }
 }

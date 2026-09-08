@@ -148,6 +148,9 @@ export class HarnessFsService {
     try {
       return (await fs.readFile(filePath, 'utf-8')) === content;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the read is an
+      // is-it-already-there probe; false means "not identical", so the caller
+      // writes the file, which is the safe direction.
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.logger.warn(
           `RPC: harness:create-skill could not read the existing SKILL.md: ${error instanceof Error ? error.message : String(error)}`,

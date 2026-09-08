@@ -117,3 +117,22 @@ export type {
  * asks it to reconcile.
  */
 export { McpInstallService } from './mcp-install.service';
+export type {
+  McpInstallServiceOptions,
+  McpOAuthInstalledReader,
+  McpUninstallOptions,
+  SmitheryInstalledReader,
+} from './mcp-install.service';
+/**
+ * The READ-ONLY `~/.claude.json` reader. Deliberately not a harness facet —
+ * see the file header for why the reconciler must never write that file.
+ */
+export {
+  claudeUserConfigPath,
+  readClaudeUserMcpServers,
+} from './claude-user-mcp.reader';
+export type {
+  ClaudeUserMcpEntry,
+  ClaudeUserMcpReaderOptions,
+  ClaudeUserMcpScope,
+} from './claude-user-mcp.reader';

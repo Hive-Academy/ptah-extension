@@ -16,6 +16,8 @@ import { PERSISTENCE_TOKENS } from './tokens';
 import { SqliteConnectionService } from '../sqlite-connection.service';
 import { SqliteBackupService } from '../backup.service';
 import { VecStatusService } from '../vec-status.service';
+import { SqliteIntegrityService } from '../integrity/integrity-check.service';
+import { DbWorkerRunner } from '../integrity/db-worker-runner';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -34,6 +36,11 @@ export function registerPersistenceSqliteServices(
   logger: Logger,
 ): void {
   logger.info('[persistence-sqlite] registering services');
+  // The worker run loop, shared by the integrity check and the backup. A
+  // singleton because it holds NO per-run state — every run's worker, timer and
+  // settle latch live in the closure `run()` opens — so one instance serving
+  // both services cannot let one run settle another.
+  container.registerSingleton(DbWorkerRunner);
   container.registerSingleton(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
     SqliteConnectionService,
@@ -43,6 +50,14 @@ export function registerPersistenceSqliteServices(
     SqliteBackupService,
   );
   container.registerSingleton(PERSISTENCE_TOKENS.VEC_STATUS, VecStatusService);
+  // Singleton because its single-flight flag IS the "one spawn at a time"
+  // guarantee — two instances would be two flags and two workers. It resolves
+  // `INTEGRITY_WORKER_PROCESS_FACTORY` optionally, so registering it here is
+  // safe on a host that ships no worker; it simply never dispatches.
+  container.registerSingleton(
+    PERSISTENCE_TOKENS.SQLITE_INTEGRITY_SERVICE,
+    SqliteIntegrityService,
+  );
   const connection = container.resolve<SqliteConnectionService>(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
   );

@@ -828,6 +828,9 @@ export class PluginRpcHandlers {
         options,
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the harness copy is a derived
+      // artifact the next activation heals; null reports no health report while
+      // the user's plugin selection stays saved.
       this.logger.warn('Harness reconcile failed (non-fatal)', {
         reason,
         error: error instanceof Error ? error.message : String(error),

@@ -164,6 +164,9 @@ export class FilePickerRpcHandlers {
 
           const files: Array<{ path: string; size: number }> = [];
           for (const filePath of paths) {
+            // degradation-audit: optional-capability - the stat supplies a
+            // display size only; null still attaches the picked file, with a
+            // reported size of 0.
             const stat = await fs.stat(filePath).catch(() => null);
             files.push({ path: filePath, size: stat?.size ?? 0 });
           }

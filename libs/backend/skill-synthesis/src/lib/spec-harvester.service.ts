@@ -212,6 +212,8 @@ export class SpecHarvesterService implements SpecFindingsPort {
     try {
       root = this.resolveSpecsRoot();
     } catch {
+      // degradation-audit: optional-capability - Workspace spec findings are
+      // optional enhancement evidence; null means none can be resolved.
       return null;
     }
     const specs = (await this.readSpecs(root))
@@ -252,6 +254,8 @@ export class SpecHarvesterService implements SpecFindingsPort {
     try {
       entries = await readdir(root);
     } catch {
+      // degradation-audit: optional-capability - The specs directory is
+      // optional; an unreadable or absent root contains no harvest candidates.
       return [];
     }
     const specs: HarvestedSpec[] = [];
@@ -303,6 +307,8 @@ export class SpecHarvesterService implements SpecFindingsPort {
       const raw = await readFile(join(dir, HARVEST_MARKER_FILE), 'utf8');
       return JSON.parse(raw) as HarvestMarker;
     } catch {
+      // degradation-audit: optional-capability - The harvest marker is cache
+      // state; null safely treats the spec as not yet harvested.
       return null;
     }
   }

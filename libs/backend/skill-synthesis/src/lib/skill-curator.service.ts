@@ -638,6 +638,8 @@ export class SkillCuratorService {
     try {
       eligible = this.selectEnhancementCandidates(settings);
     } catch (err: unknown) {
+      // degradation-audit: optional-capability - Automatic clone enhancement is
+      // an optional curator pass, so selection failure skips only that pass.
       this.logger.warn('[skill-curator] enhancement selection failed', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -734,6 +736,8 @@ export class SkillCuratorService {
       }
       return results;
     } catch {
+      // degradation-audit: optional-capability - Curator output is heuristic
+      // LLM JSON; malformed output means there are no actionable findings.
       return [];
     }
   }

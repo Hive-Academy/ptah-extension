@@ -9,9 +9,6 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* Angular CDK Overlay Prebuilt Styles - MUST come before Tailwind directives */
 @import '@angular/cdk/overlay-prebuilt.css';
 
-/* xterm.js terminal styles */
-@import '@xterm/xterm/css/xterm.css';
-
 /* Gridstack drag-and-resize grid styles - required for Orchestra Canvas */
 @import 'gridstack/dist/gridstack.min.css';
 

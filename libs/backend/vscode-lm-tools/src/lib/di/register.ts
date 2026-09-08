@@ -90,6 +90,10 @@ export function registerVsCodeLmToolsServices(
           .resolve<CodeExecutionMCP>(TOKENS.CODE_EXECUTION_MCP)
           .getPort();
       } catch {
+        // degradation-audit: optional-capability - this shim only answers "what
+        // port is the MCP server on" for status display; the isRegistered guard
+        // above already covers the normal case, so a resolve failure here
+        // degrades to "port unknown" rather than throwing into a status query.
         return null;
       }
     },

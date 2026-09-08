@@ -29,8 +29,8 @@ const NOOP_LOGGER = {
   trace: jest.fn(),
 } as unknown as Parameters<typeof createVscodeRpcHostProfile>[0];
 
-/** Electron-only surfaces: desktop editor pane, raw FS, layout, PTY, updater,
- *  workspace lifecycle, and every SQLite/native-backed subsystem. */
+/** Electron-only surfaces: raw FS, PTY, updater, workspace lifecycle, and
+ *  every SQLite/native-backed subsystem. */
 export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'corpus:build',
   'corpus:delete',
@@ -54,18 +54,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'db:openBindingFolder',
   'db:reloadVec',
   'db:reset',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:deleteItem',
-  'editor:getDirectoryChildren',
-  'editor:getFileTree',
-  'editor:getSetting',
-  'editor:listAllFiles',
-  'editor:openFile',
-  'editor:renameItem',
-  'editor:saveFile',
-  'editor:searchInFiles',
-  'editor:updateSetting',
   'embedder:retry',
   'embedder:status',
   'file:exists',
@@ -96,8 +84,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'indexing:resume',
   'indexing:setPipelineEnabled',
   'indexing:start',
-  'layout:persist',
-  'layout:restore',
   'mem:getObservations',
   'mem:searchIndex',
   'mem:timeline',
@@ -167,8 +153,6 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:unpin',
   'skillSynthesis:updateSettings',
   'skillSynthesis:updateSuggestion',
-  'terminal:create',
-  'terminal:kill',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',

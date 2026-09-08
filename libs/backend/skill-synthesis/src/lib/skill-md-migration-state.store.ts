@@ -69,6 +69,8 @@ export class SkillMdMigrationStateStore implements SkillMdMigrationMarkerStore {
         lastScanAt: Number(row.last_scan_at),
       };
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - The migration marker is a
+      // cache; null safely forces a fresh filesystem walk.
       this.logger.debug(
         '[skill-synthesis] SKILL.md migration marker read failed; treating as absent',
         {

@@ -1,68 +1,28 @@
 /**
- * Workspace scan exclusions — the single source of truth for "which
- * directories does Ptah skip when walking or watching a workspace".
+ * Workspace scan exclusions — the single source of truth for "should a
+ * filesystem write under this name schedule a `git status` refresh".
  *
- * There are two named sets, not one, and they are deliberately different
- * sizes. The **mechanism** is unified (one module, one predicate); the
- * **policy** is not, because the two consumers answer different questions:
+ * There used to be two named sets answering two different questions:
+ * `TREE_HIDDEN_DIRS` gated what the file-explorer tree walk rendered (a
+ * user-visible decision), and `WATCH_IGNORED_DIRS` — a strict superset —
+ * gated the workspace watcher (an invisible one). The explorer is gone
+ * (`libs/frontend/editor` and its RPC surface, `EditorRpcHandlers`, deleted in
+ * TASK_2026_385 Phase 4), so there is only one question left, and one set.
  *
- * - The file-tree builder asks "should the user SEE this directory?".
- *   Changing that answer changes what the file explorer renders, which is a
- *   user-visible change. `TREE_HIDDEN_DIRS` therefore encodes exactly the
- *   directories the tree hides today — no more, no less.
- * - The workspace watcher asks "should a write here schedule a `git status`?".
- *   That answer is invisible to the user, so it can afford to be slightly
- *   broader. `WATCH_IGNORED_DIRS` is a strict superset.
+ * **Conservatism was a correctness requirement while the explorer used this
+ * set: an over-broad name hid a directory the user wanted to see.** That cost
+ * is gone. With no tree rendering off this set, the only remaining cost of an
+ * over-broad name is a missed `git status` refresh — invisible, and never
+ * data loss. `coverage` and `tmp` are included on that basis: both are
+ * conventionally git-ignored build/test output, so the corresponding risk —
+ * failing to notice a change under one — is low, and worth taking for one
+ * fewer noisy refresh per test run or coverage pass.
  *
- * The subset relation `TREE_HIDDEN_DIRS ⊆ WATCH_IGNORED_DIRS` is expressed in
- * code below (the watch set is *derived* from the tree set), not asserted in a
- * comment, so the two cannot drift apart.
- *
- * **Conservatism is a correctness requirement, not a style preference.** An
- * over-broad exclusion set makes Ptah miss a real source change — a
- * correctness defect — whereas an under-broad one merely causes redundant
- * `git status` invocations, an annoyance. `out`, `build`, `coverage`, `.next`
- * and `.turbo` are all plausible *source* directories in real projects and are
- * deliberately NOT excluded. Do not add a name here without evidence that it
- * can never hold source.
- *
- * ## Reachability: navigation is filtered, explicit access is not
- *
- * Both sets answer "which directories does a WALK skip". Neither is an access
- * control, and the difference between those two things is observable today:
- *
- * - **Navigation from the workspace root is filtered.** `editor:getFileTree`
- *   walks from the root and tests every entry it enumerates against
- *   `TREE_HIDDEN_DIRS`, at every depth. Clicking down the tree can therefore
- *   never arrive inside `node_modules`, `dist`, `.git` or any other member.
- * - **Explicit access is not filtered at all.** `buildFileTree` filters the
- *   entries it reads OUT of a directory — never the directory it was pointed
- *   AT. So `editor:getFileTree { rootPath: '<workspace>/node_modules' }`
- *   enumerates it happily, `editor:getDirectoryChildren { dirPath: … }` does
- *   the same, and `file:open` / `editor:openFile` apply no exclusion test
- *   whatsoever. The only gate on those three is `validatePathInWorkspace`.
- *
- * **This asymmetry is intentional and stays.** These sets exist to keep noise
- * out of a tree someone is browsing, not to make files unreadable. A caller
- * that passes an exact path has stated an intent that a default-hiding rule
- * should not override — the same way a file manager omits dotfiles from a
- * listing but still opens the one you name. Making it symmetric would break,
- * among other things, opening a file from a stack frame that points into
- * `node_modules`. So changing it is a PRODUCT decision, not a bug fix.
- *
- * Two consequences, stated out loud because they had been written down
- * nowhere at all before TASK_2026_208:
- *
- * 1. Adding a name here hides more from NAVIGATION. It denies nothing. Do not
- *    add one expecting it to protect anything — the containment boundary is
- *    the workspace check, and that is the only thing holding it.
- * 2. An agent, or any RPC caller, can read inside an excluded directory by
- *    naming it. Intended; see above.
- *
- * Both halves are pinned by executable tests in
- * `apps/ptah-electron/src/services/rpc/handlers/editor-rpc.handlers.spec.ts`,
- * so a change to either one lands as a red test rather than as silent drift
- * away from this comment.
+ * `out`, `build`, `.next` and `.turbo` remain deliberately excluded from this
+ * set: each is a plausible *source* directory in a real project (a Next.js
+ * `out` export, a hand-rolled `build/`), so the evidence bar for adding one is
+ * still "it can never hold source", not "it is usually generated". Do not add
+ * a name here without that evidence.
  *
  * Zero-dependency by construction: no `path`, no `fs`, no Node built-ins. This
  * module is compiled into the VS Code extension host, the Electron main
@@ -70,41 +30,16 @@
  */
 
 /**
- * Directory (and file) names the file-tree builder hides.
- *
- * This is the union of the two lists that previously lived, hand-maintained
- * and drifting, inside `editor-rpc.handlers.ts`: the nine-name `HIDDEN_SKIP`
- * set and the separate `node_modules`/`dist` check. Membership here is
- * equivalent to what the tree rendered before those two checks were merged.
- */
-export const TREE_HIDDEN_DIRS: ReadonlySet<string> = new Set([
-  // VCS metadata
-  '.git',
-  '.hg',
-  '.svn',
-  // OS / platform noise
-  '.DS_Store',
-  '.Trash',
-  // Generic caches and scratch space
-  '.cache',
-  '.tmp',
-  '.temp',
-  // Tooling caches
-  '.nx',
-  // Dependency and output trees
-  'node_modules',
-  'dist',
-]);
-
-/**
  * Directory names the workspace watcher ignores when deciding whether a
  * file-system event should schedule a `git status` refresh.
  *
- * Strict superset of {@link TREE_HIDDEN_DIRS}, derived from it so the subset
- * relation holds structurally. The single addition is `.angular`, the Angular
- * CLI's build cache — a high-frequency churn source during any webview build
- * that git never reports on (it is `.gitignore`d), so excluding it can never
- * cause a real change to be missed.
+ * The set below is the historical `TREE_HIDDEN_DIRS ∪ WATCH_IGNORED_DIRS`
+ * union — nothing either set covered before this collapse is missing — plus
+ * `coverage` and `tmp`, the two genuinely new names (see the module doc for
+ * why). `.angular`, the Angular CLI's build cache, was the original watch-only
+ * addition: a high-frequency churn source during any webview build that git
+ * never reports on (it is `.gitignore`d), so excluding it can never cause a
+ * real change to be missed.
  *
  * **That last clause is verified, not inferred.** Because the predicate below
  * matches at every path segment rather than only at the root, the safety
@@ -118,16 +53,28 @@ export const TREE_HIDDEN_DIRS: ReadonlySet<string> = new Set([
  * `libs/frontend/editor/.angular/cache/y`, `apps/ptah-electron/.angular/z` and
  * `some/deep/nested/pkg/.angular/w` all to the same `.gitignore:51` rule. This
  * repo also contains exactly one `.angular` directory today, at the root.
- *
- * The residual exposure is therefore not "nesting" but "a consumer whose
- * `.gitignore` anchors the entry (`/.angular`) or omits it entirely", which
- * would require deviating from the Angular CLI's own generator default. If
- * that assumption is ever revisited, re-run the `check-ignore` probe above
- * before widening this set further.
  */
 export const WATCH_IGNORED_DIRS: ReadonlySet<string> = new Set([
-  ...TREE_HIDDEN_DIRS,
+  // VCS metadata
+  '.git',
+  '.hg',
+  '.svn',
+  // OS / platform noise
+  '.DS_Store',
+  '.Trash',
+  // Generic caches and scratch space
+  '.cache',
+  '.tmp',
+  '.temp',
+  // Tooling caches
+  '.nx',
   '.angular',
+  // Dependency and output trees
+  'node_modules',
+  'dist',
+  // Test/coverage output — newly added by the Phase 4 collapse
+  'coverage',
+  'tmp',
 ]);
 
 /** Splits on both POSIX and Windows separators. Windows is the primary dev platform here. */
@@ -138,9 +85,7 @@ const PATH_SEPARATOR = /[\\/]/;
  *
  * Segment-level rather than prefix-level on purpose: in a monorepo the churn
  * lives at `packages/foo/node_modules/…` and `libs/bar/dist/…` just as much as
- * at the root, and the tree builder already hides those nested directories at
- * every depth. Testing every segment is what makes the watcher and the tree
- * agree.
+ * at the root, so testing every segment catches nested occurrences too.
  *
  * Both call shapes are supported and both are correct:
  * - a multi-segment workspace-relative path, as delivered by `fs.watch`
@@ -149,8 +94,7 @@ const PATH_SEPARATOR = /[\\/]/;
  * @param relativePath - Workspace-relative path, or a single path segment.
  *   Absolute paths work too, but the caller is then asserting that no segment
  *   of the workspace's own location collides with an excluded name.
- * @param dirs - Which policy to apply: {@link TREE_HIDDEN_DIRS} or
- *   {@link WATCH_IGNORED_DIRS}.
+ * @param dirs - Which exclusion set to apply, normally {@link WATCH_IGNORED_DIRS}.
  * @returns True when the path should be skipped.
  */
 export function isExcludedWorkspacePath(

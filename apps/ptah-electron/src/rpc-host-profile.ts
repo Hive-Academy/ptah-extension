@@ -10,9 +10,11 @@
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
-import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
-
-import { EditorRpcHandlers } from './services/rpc/handlers';
+import {
+  capabilities,
+  ElectronFileOpenRpcHandlers,
+  type HostProfile,
+} from '@ptah-extension/rpc-handlers';
 
 export function createElectronRpcHostProfile(
   container: DependencyContainer,
@@ -33,17 +35,11 @@ export function createElectronRpcHostProfile(
       filePicker: true,
       filePickerImages: true,
       fileSystemAccess: true,
-      editorRevert: true,
-      editorHost: true,
       commandExecution: true,
-      layoutPersistence: true,
-      pty: true,
       appUpdater: true,
     }),
     hostHandlers: {
-      'host.fileOpen': EditorRpcHandlers,
-      'host.editorRevert': EditorRpcHandlers,
-      'host.editorPane': EditorRpcHandlers,
+      'host.fileOpen': ElectronFileOpenRpcHandlers,
     },
     wiring: {
       worktree: true,
@@ -58,6 +54,9 @@ export function createElectronRpcHostProfile(
           const worktrees = await gitInfo.getWorktrees(data.cwd);
           return worktrees.find((w) => w.branch === data.name)?.path;
         } catch (error: unknown) {
+          // degradation-audit: optional-capability - worktree resolution is an
+          // enrichment over git metadata; undefined is the same answer as "no
+          // worktree matches that branch" and leaves the caller's own path.
           logger.warn(
             '[electron RPC] Failed to resolve worktree path',
             error instanceof Error ? error : new Error(String(error)),

@@ -24,7 +24,7 @@ ptah-extension/
 │                                      # ptah-landing-page | ptah-license-server
 │
 ├── libs/backend/                      # 29 runtime-agnostic libs (DI: tsyringe)
-│   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
+│   ├── platform-core/                 # ★ Port interfaces + 28 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
 │   ├── auth-providers/                # Auth strategies + provider trees (one-way → agent-sdk)
@@ -60,7 +60,6 @@ ptah-extension/
 │   ├── core/                          # VSCodeService, MESSAGE_HANDLERS, RPC client
 │   ├── ui/                            # Floating-UI primitives (Native*) + legacy CDK
 │   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
-│   ├── editor/                        # Monaco + xterm + node-pty bridge
 │   ├── chat/                          # Orchestrator + ChatStore facade
 │   ├── chat-{state,streaming,routing,ui,types,execution-tree}/
 │   ├── canvas/                        # Multi-tile orchestra (gridstack, 9-tile cap)
@@ -97,7 +96,7 @@ ptah-extension/
 - **AI**: `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, `@openai/codex-sdk`, Tavily, Exa
 - **Persistence**: better-sqlite3, sqlite-vec, Prisma 7 + PostgreSQL (license server only)
 - **DI**: tsyringe (`Symbol.for(...)` tokens, `register.ts` per lib)
-- **UI**: Tailwind 3, daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, xterm.js, gridstack
+- **UI**: Tailwind 3, daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, gridstack
 - **Validation**: Zod 4 at all external boundaries
 - **Build**: Nx 22.6, esbuild, ng-packagr, electron-builder, Astro 6
 
@@ -146,6 +145,16 @@ The project name is the one in `project.json`, which for a lib is the package
 alias (`@ptah-extension/thoth-shell`), not the folder name. A misspelled name is
 silently dropped from a `run-many` set, so read the `Running target test for N
 projects` header and check that N is the number you asked for.
+
+**After editing a `project.json`, run `npx nx reset` before you trust a target.**
+The Nx daemon serves the stale project graph even with `--skip-nx-cache` — that
+flag skips the computation cache, not the daemon's own snapshot — so a new or
+renamed target reads as missing and an edited one runs with its old options
+(TASK_2026_380 item 15 / TASK_2026_383 R-10). The reset is process-wide, though:
+**never run it while another executor is working in the same worktree**, because
+it kills their daemon and clears their cache mid-run. With parallel batches
+sharing a worktree, reset before the first command of a `project.json`-touching
+batch, not opportunistically.
 
 ## Coding Standards
 
@@ -220,7 +229,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 
 ### Backend Libs
 
-- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 22 PLATFORM_TOKENS
+- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 28 PLATFORM_TOKENS
 - [platform-cli](./libs/backend/platform-cli/CLAUDE.md) — CLI adapters
 - [platform-electron](./libs/backend/platform-electron/CLAUDE.md) — Electron adapters
 - [platform-vscode](./libs/backend/platform-vscode/CLAUDE.md) — VS Code adapters
@@ -248,7 +257,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [cron-scheduler](./libs/backend/cron-scheduler/CLAUDE.md) — SQLite cron loop
 - [task-specs](./libs/backend/task-specs/CLAUDE.md) — `.ptah/specs/` task.md contract
 - [skill-synthesis](./libs/backend/skill-synthesis/CLAUDE.md) — Trajectory extraction
-- thoth-runtime — Runtime-agnostic Thoth channel boot + cron start (no CLAUDE.md yet)
+- [thoth-runtime](./libs/backend/thoth-runtime/CLAUDE.md) — Runtime-agnostic Thoth channel boot + cron start
 
 ### API Libs
 
@@ -296,7 +305,6 @@ per-lib `CLAUDE.md` yet; each entry below is the whole of its documentation.
 - [core](./libs/frontend/core/CLAUDE.md) — VSCodeService, MESSAGE_HANDLERS, RPC
 - [ui](./libs/frontend/ui/CLAUDE.md) — Floating-UI Native\* primitives
 - [markdown](./libs/frontend/markdown/CLAUDE.md) — ★ DOMPurify XSS chokepoint
-- [editor](./libs/frontend/editor/CLAUDE.md) — Monaco + xterm + git
 - [chat](./libs/frontend/chat/CLAUDE.md) — Chat orchestrator + ChatStore
 - [chat-state](./libs/frontend/chat-state/CLAUDE.md) — TabManager + ConversationRegistry
 - [chat-streaming](./libs/frontend/chat-streaming/CLAUDE.md) — Streaming write path

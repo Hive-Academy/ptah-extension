@@ -205,7 +205,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'browser.allowLocalhost',
   'browser.recordingDir',
   'workflows.disabled',
-  'editor.vimMode',
+  'diff.renderSideBySide',
   'memory.curatorEnabled',
   'memory.tierLimits.core',
   'memory.tierLimits.recall',
@@ -342,6 +342,14 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.triggers.sessionEnd',
   'skillSynthesis.triggers.idleMs',
   'skillSynthesis.triggers.bootScan',
+  // The boot-scan deferral knobs (TASK_2026_380). Registered in BOTH tables on
+  // purpose: an unregistered key is silently DROPPED in the write direction, so
+  // a user who tunes one would see it read back at the default forever. The
+  // memory-curator pair (`memory.triggers.bootScanDelayMs` /
+  // `…IdleBackoffMs`) is missing from both tables and that is a latent bug of
+  // the same shape, not a precedent.
+  'skillSynthesis.triggers.bootScanDelayMs',
+  'skillSynthesis.triggers.bootScanIdleBackoffMs',
   'skillSynthesis.triggers.subagentStop.enabled',
   'skillSynthesis.triggers.postToolUse.enabled',
   'skillSynthesis.triggers.postToolUse.minEditCount',
@@ -477,7 +485,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'browser.allowLocalhost': false,
   'browser.recordingDir': '',
   'workflows.disabled': false,
-  'editor.vimMode': false,
+  'diff.renderSideBySide': true,
   'memory.curatorEnabled': true,
   'memory.tierLimits.core': 256,
   'memory.tierLimits.recall': 4096,
@@ -595,6 +603,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.triggers.sessionEnd': true,
   'skillSynthesis.triggers.idleMs': 600000,
   'skillSynthesis.triggers.bootScan': true,
+  // Match `SKILL_TRIGGER_DEFAULTS.bootScanDelayMs` /
+  // `.bootScanIdleBackoffMs` (5 min each).
+  'skillSynthesis.triggers.bootScanDelayMs': 300000,
+  'skillSynthesis.triggers.bootScanIdleBackoffMs': 300000,
   'skillSynthesis.triggers.subagentStop.enabled': true,
   'skillSynthesis.triggers.postToolUse.enabled': true,
   'skillSynthesis.triggers.postToolUse.minEditCount': 3,

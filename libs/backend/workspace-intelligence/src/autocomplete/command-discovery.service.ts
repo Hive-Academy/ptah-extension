@@ -422,6 +422,10 @@ export class CommandDiscoveryService {
 
       return commands.filter(Boolean) as CommandInfo[];
     } catch {
+      // degradation-audit: optional-capability - command directory scan for the
+      // / picker is best-effort; per-file and per-subdirectory read failures
+      // are already reported by parseCommandFile and getAllMarkdownFiles, so an
+      // empty list here just means no custom commands at this location.
       return [];
     }
   }

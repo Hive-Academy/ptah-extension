@@ -101,6 +101,9 @@ export class SessionControl {
       }
       return !timedOut;
     } catch (err) {
+      // degradation-audit: optional-capability - false is this method's
+      // reported "interrupt did not take", the same value the 3s timeout
+      // returns, and the turn claim is released above so the session lives on.
       this.registry.markTurnEnded(sessionId as string);
       this.logger.warn(
         `[SessionLifecycle] Turn interrupt failed for session ${sessionId}`,

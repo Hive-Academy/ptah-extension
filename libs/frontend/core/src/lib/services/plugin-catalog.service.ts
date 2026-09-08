@@ -206,6 +206,10 @@ export class PluginCatalogService {
       }
       this._snapshot.set({ scopeKey, plugins, config });
     } catch (error: unknown) {
+      // degradation-audit: reported - the thrown message is published on the
+      // `error()` signal, which the plugin status widget, the browser modal
+      // and the chat empty state each render beside a Retry button, so the
+      // failed config/list pair is visible and re-askable rather than silent.
       // Never rethrow: every caller is a lifecycle hook or a view effect, and
       // a rejected `ensureLoaded` there is an unhandled rejection in the
       // renderer. The failure is reported through `error()` instead.

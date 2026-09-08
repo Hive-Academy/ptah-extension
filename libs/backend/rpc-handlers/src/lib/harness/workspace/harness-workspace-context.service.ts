@@ -221,6 +221,9 @@ export class HarnessWorkspaceContextService {
     try {
       return await fs.readdir(workspaceRoot);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the root listing feeds
+      // language detection only; an empty list means "we learned nothing",
+      // the same answer the per-file checks it replaced would have given.
       this.logger.debug(
         'Failed to read workspace root for language detection',
         {
@@ -241,6 +244,9 @@ export class HarnessWorkspaceContextService {
     try {
       entries = await fs.readdir(workspaceRoot);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the emptiness check is a
+      // wizard hint; false treats an unreadable root as non-empty, which is
+      // the non-destructive answer.
       this.logger.debug('Failed to read workspace root for emptiness check', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -364,6 +370,9 @@ export class HarnessWorkspaceContextService {
         isActive: !disabledSkillIds.has(skill.skillId),
       }));
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - skill discovery is an
+      // optional harness input; an empty list offers the caller no skills to
+      // select rather than a partial catalog.
       this.logger.debug('Failed to discover skills for harness', {
         error: error instanceof Error ? error.message : String(error),
       });

@@ -28,6 +28,9 @@ function formatLogArg(arg: unknown): string {
     try {
       return JSON.stringify(arg);
     } catch {
+      // degradation-audit: optional-capability - rendering a log argument is
+      // presentation of an already-captured event; a cyclic value degrades to
+      // the '[Unserializable]' placeholder so the log line is still written.
       return '[Unserializable]';
     }
   }
@@ -96,6 +99,9 @@ export class Logger {
         process.env['PTAH_LOG_LEVEL'] === 'debug'
       );
     } catch {
+      // degradation-audit: optional-capability - development-mode detection is
+      // an environment probe, not a requirement; false selects the production
+      // log level and console defaults, which is the safe side to land on.
       return false;
     }
   }

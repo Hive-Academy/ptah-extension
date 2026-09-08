@@ -4,9 +4,9 @@
  * Both headless hosts expose full Electron parity for every *backend*
  * subsystem (memory, skills, cron, gateway, voice, persistence, workspace
  * lifecycle). What they cannot serve are the webview-only UI surfaces: raw
- * filesystem RPC, a command palette, an embedded editor pane, persisted tile
- * layout, an embedded PTY, and the desktop updater. Those capabilities stay
- * off and their methods fall out as derived exclusions.
+ * filesystem RPC, a command palette, an embedded editor pane, and the desktop
+ * updater. Those capabilities stay off and their methods fall out as derived
+ * exclusions.
  *
  * The two hosts diverge on exactly one capability. The TUI owns a terminal and
  * can put a selection list in front of the user, so it serves `file:pick`

@@ -164,6 +164,9 @@ export class SmitheryRegistrySource implements IMcpRegistrySource {
 
       const body = (await response.json()) as unknown;
       return this.mapDetailEntry(body);
+      // degradation-audit: optional-capability - matches the official
+      // registry's `getServerDetails` contract: null covers "not found or
+      // unreachable", and the failure is logged below, not hidden.
     } catch (error: unknown) {
       this.logger?.warn('Smithery getServerDetails failed', {
         error: error instanceof Error ? error.message : String(error),

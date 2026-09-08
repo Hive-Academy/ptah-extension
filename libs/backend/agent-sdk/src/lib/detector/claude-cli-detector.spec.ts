@@ -38,6 +38,12 @@ jest.mock('os', () => ({
 jest.mock('fs', () => ({
   ...jest.requireActual('fs'),
   existsSync: jest.fn(() => false),
+  // `promises.stat` is the validity token behind the cross-boot verdict memo
+  // (TASK_2026_383 11.2). Mocked so no spec touches a real binary.
+  promises: {
+    ...jest.requireActual('fs').promises,
+    stat: jest.fn(),
+  },
 }));
 
 // The resolver is a separate unit with its own child process; stubbing it keeps
@@ -59,6 +65,7 @@ const crossSpawnMock = crossSpawn as unknown as jest.Mock;
 const whichMock = whichLib as unknown as jest.Mock;
 const rawSpawnMock = rawSpawn as unknown as jest.Mock;
 const existsSyncMock = fs.existsSync as unknown as jest.Mock;
+const statMock = fs.promises.stat as unknown as jest.Mock;
 
 const CONFIGURED_CMD = 'C:\\Users\\test\\AppData\\Roaming\\npm\\claude.cmd';
 const VERSION_LINE = '2.1.247 (Claude Code)';
@@ -97,6 +104,7 @@ beforeEach(() => {
   spawnedChildren = [];
   defaultScript = { stdout: '', stderr: '', code: 1 };
   existsSyncMock.mockReturnValue(false);
+  statMock.mockRejectedValue(new Error('ENOENT'));
   whichMock.mockResolvedValue(null);
 
   crossSpawnMock.mockImplementation(() => {
@@ -341,5 +349,136 @@ describe('ClaudeCliDetector — probe coalescing', () => {
     await detector.findExecutable();
 
     expect(versionProbeCount()).toBe(2);
+  });
+});
+
+// ===========================================================================
+// Cross-boot verdict memo — TASK_2026_383 Batch 11.2.
+//
+// Everything else here collapses probes WITHIN one boot. Nothing survived a
+// restart, so `auth:getAuthStatus` still paid one 253 MB `CreateProcessW` on
+// every launch (734 ms median). The memo is keyed by the binary's own
+// (path, mtimeMs, size), so a CLI upgrade invalidates it exactly and no TTL is
+// guessed at.
+// ===========================================================================
+describe('ClaudeCliDetector — persisted verdict', () => {
+  /** An in-memory `IStateStorage`; sharing the map models a second boot. */
+  function makeStorage(state: Map<string, unknown>) {
+    return {
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        state.has(key) ? (state.get(key) as T) : defaultValue,
+      update: async (key: string, value: unknown): Promise<void> => {
+        if (value === undefined) state.delete(key);
+        else state.set(key, JSON.parse(JSON.stringify(value)) as unknown);
+      },
+      keys: () => [...state.keys()],
+    };
+  }
+
+  const STATE_KEY = 'ptah.sdk.claudeCliVerdict';
+
+  /** Make the configured path the one detection finds, and make it stat-able. */
+  function arrangeSuccessfulDetection(stats: {
+    mtimeMs: number;
+    size: number;
+  }) {
+    existsSyncMock.mockImplementation((p: string) => p === CONFIGURED_CMD);
+    scriptChildren({ stdout: VERSION_LINE, code: 0 });
+    statMock.mockResolvedValue(stats);
+  }
+
+  it('reuses the verdict on the next boot without spawning the CLI', async () => {
+    const state = new Map<string, unknown>();
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+
+    const first = new ClaudeCliDetector(makeStorage(state) as never);
+    first.configure({ configuredPath: CONFIGURED_CMD });
+    expect(await first.findExecutable()).not.toBeNull();
+    expect(crossSpawnMock).toHaveBeenCalled();
+    // The write is fire-and-forget behind a stat; let it land.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.has(STATE_KEY)).toBe(true);
+
+    crossSpawnMock.mockClear();
+    const second = new ClaudeCliDetector(makeStorage(state) as never);
+    second.configure({ configuredPath: CONFIGURED_CMD });
+    const installation = await second.findExecutable();
+
+    expect(installation?.path).toBe(CONFIGURED_CMD);
+    expect(crossSpawnMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores the verdict when the binary changed size or mtime', async () => {
+    const state = new Map<string, unknown>();
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+
+    const first = new ClaudeCliDetector(makeStorage(state) as never);
+    first.configure({ configuredPath: CONFIGURED_CMD });
+    await first.findExecutable();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // A CLI upgrade: same path, different bytes.
+    statMock.mockResolvedValue({ mtimeMs: 9999, size: 4096 });
+    crossSpawnMock.mockClear();
+
+    const second = new ClaudeCliDetector(makeStorage(state) as never);
+    second.configure({ configuredPath: CONFIGURED_CMD });
+    await second.findExecutable();
+
+    expect(crossSpawnMock).toHaveBeenCalled();
+  });
+
+  it('treats a stat failure as "no persisted entry"', async () => {
+    const state = new Map<string, unknown>();
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+
+    const first = new ClaudeCliDetector(makeStorage(state) as never);
+    first.configure({ configuredPath: CONFIGURED_CMD });
+    await first.findExecutable();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    statMock.mockRejectedValue(new Error('ENOENT'));
+    crossSpawnMock.mockClear();
+
+    const second = new ClaudeCliDetector(makeStorage(state) as never);
+    second.configure({ configuredPath: CONFIGURED_CMD });
+    await second.findExecutable();
+
+    expect(crossSpawnMock).toHaveBeenCalled();
+  });
+
+  it('ignores a corrupt persisted entry without throwing', async () => {
+    const state = new Map<string, unknown>([[STATE_KEY, { nonsense: true }]]);
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+
+    const detector = new ClaudeCliDetector(makeStorage(state) as never);
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    await expect(detector.findExecutable()).resolves.not.toBeNull();
+    expect(crossSpawnMock).toHaveBeenCalled();
+  });
+
+  it('drops the persisted verdict on clearCache()', async () => {
+    const state = new Map<string, unknown>();
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+
+    const detector = new ClaudeCliDetector(makeStorage(state) as never);
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+    await detector.findExecutable();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.has(STATE_KEY)).toBe(true);
+
+    detector.clearCache();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(state.has(STATE_KEY)).toBe(false);
+  });
+
+  it('works with no storage at all', async () => {
+    arrangeSuccessfulDetection({ mtimeMs: 1000, size: 2048 });
+    const detector = new ClaudeCliDetector();
+    detector.configure({ configuredPath: CONFIGURED_CMD });
+
+    await expect(detector.findExecutable()).resolves.not.toBeNull();
   });
 });

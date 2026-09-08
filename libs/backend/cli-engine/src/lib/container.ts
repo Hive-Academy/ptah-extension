@@ -44,7 +44,6 @@ import type {
   IFileDialog,
   IOutputChannel,
   IStateStorage,
-  ISecretStorage,
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
@@ -58,6 +57,8 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import {
   armDiagnostics,
   registerVsCodeCorePlatformAgnostic,
+  registerExtensionContextShim,
+  registerStateStorageAdapters,
 } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
@@ -67,7 +68,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   registerWorkspaceIntelligenceServices,
-  TypeScriptDiagnosticsProvider,
+  registerTypeScriptDiagnosticsProvider,
 } from '@ptah-extension/workspace-intelligence';
 import {
   registerPluginMarketplaceServices,
@@ -81,7 +82,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   registerHarnessSyncServices,
-  ALL_HARNESS_TARGET_FACTORIES,
   createPluginConfigSourceResolver,
   HARNESS_SYNC_TOKENS,
   type HarnessPluginConfigReader,
@@ -97,8 +97,7 @@ import { shutdownHostRuntime } from './bootstrap/shutdown-host-runtime.js';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import {
   registerCliAgentRuntimeServices,
-  createHarnessCliDetector,
-  type HarnessCliDetectionReader,
+  createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
@@ -559,55 +558,10 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-    try {
-      const globalState = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.STATE_STORAGE,
-      );
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      const extensionContextShim = {
-        globalState: {
-          get: <T>(key: string): T | undefined => globalState.get<T>(key),
-          update: async (key: string, value: unknown): Promise<void> => {
-            await globalState.update(key, value);
-          },
-          keys: () => [] as readonly string[],
-          setKeysForSync: () => {
-            /* no-op in CLI */
-          },
-        },
-        secrets: {
-          get: async (key: string): Promise<string | undefined> =>
-            secretStorage.get(key),
-          store: async (key: string, value: string): Promise<void> =>
-            secretStorage.store(key, value),
-          delete: async (key: string): Promise<void> =>
-            secretStorage.delete(key),
-          onDidChange: (_listener: unknown) => ({
-            dispose: () => {
-              /* no-op: CLI has no secret change events */
-            },
-          }),
-        },
-        subscriptions: [] as { dispose: () => void }[],
-        extensionUri: { fsPath: appPath, scheme: 'file' },
-        globalStorageUri: { fsPath: userDataPath, scheme: 'file' },
-        extensionPath: appPath,
-        extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
-      };
-      container.register(TOKENS.EXTENSION_CONTEXT, {
-        useValue: extensionContextShim,
-      });
-      logger.info(
-        '[CLI DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
-      );
-    } catch (error) {
-      logger.error(
-        '[CLI DI] Failed to register EXTENSION_CONTEXT shim',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-    }
+    // The shim itself — and its own try/catch — belongs to `vscode-core`, which
+    // owns the token and the shape `LicenseService` reads off it. Only the two
+    // paths are this host's.
+    registerExtensionContextShim(container, logger, { appPath, userDataPath });
     try {
       const licenseService = container.resolve<LicenseService>(
         TOKENS.LICENSE_SERVICE,
@@ -626,15 +580,7 @@ export class CliDIContainer {
     // Override the Phase 0 diagnostics stub with the real TypeScript compiler
     // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
     // registered. registerVsCodeLmToolsServices (Phase 4) runs later.
-    const tsDiagsProvider = new TypeScriptDiagnosticsProvider(
-      container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
-    );
-    container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
-      useValue: tsDiagsProvider,
-    });
-    logger.info(
-      '[CLI DI] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
-    );
+    registerTypeScriptDiagnosticsProvider(container, logger);
     registerAuthProvidersServices(container, logger);
     // MUST precede registerSdkServices: PluginLoaderService injects the
     // external consent store as its allowlist source.
@@ -643,18 +589,13 @@ export class CliDIContainer {
     // The CLI/TUI reconciler, its boot pass (`bootHarness`, fired from the
     // content-download callback below) and its session-start preflight.
     //
-    // Every target, in every host: a workspace is populated for the tools the
-    // USER has, not for the one running Ptah. Undetected CLIs are skipped at
-    // reconcile time, which is why the detector is the only host-specific part.
+    // Every target, in every host — the lib's own default. A workspace is
+    // populated for the tools the USER has, not for the one running Ptah, and
+    // undetected CLIs are skipped at reconcile time. The detector is likewise
+    // the lib's, and lazy, because `registerCliAgentRuntimeServices` (which
+    // owns `CLI_DETECTION_SERVICE`) runs below.
     registerHarnessSyncServices(container, logger, {
-      targets: ALL_HARNESS_TARGET_FACTORIES,
-      cliDetector: createHarnessCliDetector(() =>
-        container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
-          ? container.resolve<HarnessCliDetectionReader>(
-              TOKENS.CLI_DETECTION_SERVICE,
-            )
-          : null,
-      ),
+      cliDetector: createContainerHarnessCliDetector(container),
       sourceResolver: createPluginConfigSourceResolver(() =>
         container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
           ? container.resolve<HarnessPluginConfigReader>(
@@ -719,23 +660,9 @@ export class CliDIContainer {
 
     phaseEnd('2', phase2Start);
     const phase3Start = phaseStart('3');
-    const workspaceStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-    );
-    const storageAdapter = {
-      get: <T>(key: string, defaultValue?: T): T | undefined => {
-        const value = workspaceStateStorage.get<T>(key);
-        return value !== undefined ? value : defaultValue;
-      },
-      set: async <T>(key: string, value: T): Promise<void> => {
-        await workspaceStateStorage.update(key, value);
-      },
-    };
-    container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-    const globalStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.STATE_STORAGE,
-    );
-    container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
+    // The adapter and the pass-through both belong to `vscode-core`, which owns
+    // STORAGE_SERVICE and GLOBAL_STATE.
+    registerStateStorageAdapters(container);
 
     phaseEnd('3', phase3Start);
     const phase3_5Start = phaseStart('3.5');

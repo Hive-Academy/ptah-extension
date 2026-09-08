@@ -14,6 +14,7 @@ export { ErrorAlertComponent } from './lib/atoms/error-alert.component';
 export { ExpandableContentComponent } from './lib/atoms/expandable-content.component';
 export { FilePathLinkComponent } from './lib/atoms/file-path-link.component';
 export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
+export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
 export { StreamingTextRevealComponent } from './lib/atoms/streaming-text-reveal.component';
@@ -29,6 +30,8 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
+export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activity-ticker.component';
+export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
   BackgroundAgentStripComponent,
   type BackgroundAgentStripEntry,
@@ -39,7 +42,6 @@ export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.comp
 export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
-export { AgentSelectorComponent } from './lib/molecules/chat-input/agent-selector.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
 export { CompactSessionHeaderComponent } from './lib/molecules/compact-session/compact-session-header.component';
