@@ -29,6 +29,7 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
+import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
@@ -302,7 +303,8 @@ interface PastedImage {
         <!-- Button Stack: Stop (streaming only) + Send -->
         <div class="flex flex-col gap-1 pb-1">
           <!-- Stop Button (above send during streaming) -->
-          <!-- Use isActiveTabStreaming() which uses same signal as tab spinner -->
+          <!-- Gated on the same busy predicate the dispatcher queues on, so a
+               queued send always has a Stop to drain it -->
           @if (isActiveTabStreaming()) {
             <button
               class="btn btn-error btn-sm btn-square"
@@ -404,15 +406,29 @@ export class ChatInputComponent implements OnInit {
   readonly authMethodLabel = this.authState.authMethodLabel;
 
   /**
-   * Use the same streaming indicator as tab spinner.
-   * Previously, stop button used `chatStore.isStreaming()` which checks `tab.status`,
-   * while tab spinner used `tabManager.isTabStreaming()` which uses `_streamingTabIds`.
-   * These two signals could diverge, causing stop button to not appear even when
-   * tab shows streaming spinner. Now both use the visual streaming indicator.
+   * Stop-button visibility. Reads `isTabBusyGenerating` — the SAME predicate
+   * `MessageDispatchService` uses to decide send-vs-queue.
+   *
+   * This used to read `tabManager.isTabStreaming()` (the `_streamingTabIds`
+   * spinner set) alone, which is only one of that predicate's three sources.
+   * Whenever the other two said busy and the spinner set did not, every send
+   * was queued while Stop stayed hidden — and Stop is the only drain for a
+   * queue outside a root turn-end, so the tab was a dead end until reload
+   * (TASK_2026_382 review B5). Widening the busy predicate without widening the
+   * recovery affordance that reads the same state is what made that reachable;
+   * the two now cannot disagree by construction.
    */
   readonly isActiveTabStreaming = computed(() => {
     const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
-    return tabId ? this.tabManager.isTabStreaming(tabId) : false;
+    if (!tabId) return false;
+    // Resolved across workspaces, like the dispatcher: a canvas tile or a tab
+    // parked in a background workspace is absent from `tabs()`.
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null;
+    return isTabBusyGenerating({
+      status: tab?.status,
+      streamingState: tab?.streamingState,
+      isStreamingTab: this.tabManager.isTabStreaming(tabId),
+    });
   });
 
   /**

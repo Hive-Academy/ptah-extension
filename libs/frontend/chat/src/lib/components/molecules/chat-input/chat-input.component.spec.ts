@@ -81,13 +81,26 @@ describe('ChatInputComponent', () => {
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
   };
 
-  const tabsSignal = signal<Array<{ id: string; status: string }>>([]);
+  const tabsSignal = signal<
+    Array<{
+      id: string;
+      status: string;
+      streamingState?: { currentMessageId: string | null } | null;
+    }>
+  >([]);
   const activeTabIdSignal = signal<string | null>(null);
   const mockTabManager = {
     isTabStreaming: jest.fn().mockReturnValue(false),
     tabs: tabsSignal,
     activeTabId: activeTabIdSignal,
     activeTabQueuedContent: signal<string | null>(null),
+    // Production resolves the Stop-button tab across workspaces, so a canvas
+    // tile or a background-workspace tab is found. The fake mirrors the shape
+    // (`{ tab, workspacePath }`), reading from the same tabs signal.
+    findTabByIdAcrossWorkspaces: jest.fn((id: string) => {
+      const tab = tabsSignal().find((t) => t.id === id);
+      return tab ? { tab, workspacePath: '/ws' } : null;
+    }),
   };
 
   const mockAutopilotState = {
@@ -740,6 +753,68 @@ describe('ChatInputComponent', () => {
       tabsSignal.set([]);
       activeTabIdSignal.set('missing');
       expect(component.inputEnabled()).toBe(true);
+    });
+  });
+
+  // ============================================================================
+  // STOP BUTTON — reads the same busy predicate the dispatcher queues on
+  // ============================================================================
+
+  describe('isActiveTabStreaming (Stop affordance, TASK_2026_382 review B5)', () => {
+    it('shows Stop while a live tree is unsettled even though the spinner set is clear', () => {
+      // Exactly the window `MessageDispatchService` queues in: `status` reads
+      // `loaded` and `_streamingTabIds` is empty, but the transcript is still
+      // rendering a bubble from `streamingState`. Gated on `isTabStreaming`
+      // alone the button was hidden here — so every send queued and the only
+      // drain outside a root turn-end (Stop) was unreachable.
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        {
+          id: 'tab-x',
+          status: 'loaded',
+          streamingState: { currentMessageId: 'msg-live' },
+        },
+      ]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(true);
+    });
+
+    it('hides Stop once the tree is debris with no currentMessageId', () => {
+      // The bounded exit: the dispatcher sends in this state, so offering Stop
+      // would be an abort for a turn that is not running.
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        {
+          id: 'tab-x',
+          status: 'loaded',
+          streamingState: { currentMessageId: null },
+        },
+      ]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(false);
+    });
+
+    it('still shows Stop on the spinner set alone', () => {
+      mockTabManager.isTabStreaming.mockReturnValue(true);
+      tabsSignal.set([{ id: 'tab-x', status: 'loaded', streamingState: null }]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(true);
+    });
+
+    it('hides Stop for a settled tab', () => {
+      mockTabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([{ id: 'tab-x', status: 'loaded', streamingState: null }]);
+      activeTabIdSignal.set('tab-x');
+
+      expect(component.isActiveTabStreaming()).toBe(false);
+    });
+
+    it('hides Stop when there is no active tab at all', () => {
+      activeTabIdSignal.set(null);
+      expect(component.isActiveTabStreaming()).toBe(false);
     });
   });
 });

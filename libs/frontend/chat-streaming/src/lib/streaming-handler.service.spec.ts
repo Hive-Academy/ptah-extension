@@ -670,6 +670,40 @@ describe('StreamingHandlerService', () => {
       expect(tabManager.markStreaming).not.toHaveBeenCalled();
     });
 
+    it('does NOT mint a StreamingState for a settled tab on agent_progress (TASK_2026_382 review B5)', () => {
+      // The latch: `agent_progress` writes nothing into `StreamingState`, but
+      // minting one for it left a settled tab holding an empty tree with a null
+      // `currentMessageId` — which `finalizeCurrentMessage` early-returns on,
+      // so nothing could ever clear it, and every busy predicate read it as a
+      // live turn. The tab could then neither send nor stop.
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([makeTab({ status: 'loaded', streamingState: null })]);
+      tabManager.setStreamingState.mockClear();
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.processStreamEvent(agentProgress(), TAB_ID);
+
+      // The store still gets the event — only the tab write is gone.
+      expect(agentMonitorStore.onAgentProgress).toHaveBeenCalled();
+      expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+      expect(
+        tabsSignal().find((t) => t.id === TAB_ID)?.streamingState,
+      ).toBeNull();
+    });
+
+    it('still mints a StreamingState for an event that writes one (text_delta)', () => {
+      tabsSignal.set([makeTab({ status: 'streaming', streamingState: null })]);
+      tabManager.setStreamingState.mockClear();
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.setStreamingState).toHaveBeenCalled();
+      expect(
+        tabsSignal().find((t) => t.id === TAB_ID)?.streamingState,
+      ).not.toBeNull();
+    });
+
     it('binds the session on the fresh-tab hijack without writing status', () => {
       const freshTab = makeTab({
         claudeSessionId: undefined,

@@ -133,6 +133,14 @@ interface AgentOutcomeTile {
                   {{ data.failedCount }} failed
                 </span>
               }
+              @if (data.rejectedSections > 0) {
+                <span
+                  class="badge badge-warning badge-sm"
+                  data-testid="rejected-sections-count"
+                >
+                  {{ data.rejectedSections }} sections rejected
+                </span>
+              }
             </div>
             <div
               class="flex items-center gap-2 mb-4 text-xs text-base-content-muted"

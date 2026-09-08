@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_361
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Setup wizard: honest phase and generation outcomes, on-disk enhanced prompt,

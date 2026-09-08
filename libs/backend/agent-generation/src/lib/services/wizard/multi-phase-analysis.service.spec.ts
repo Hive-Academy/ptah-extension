@@ -13,6 +13,8 @@
  * - user pause => `paused`, active phase back to `pending`, slug kept
  * - resume skips completed phases, restarts a stale `running` phase, keeps
  *   the runId, never deletes
+ * - a phase file left by an earlier run never satisfies the resumed phase:
+ *   fresh text replaces it, and no text at all fails the phase
  * - resume without a resumable manifest falls back to a fresh run
  * - text capture ignores the throttled UI emitter
  */
@@ -413,7 +415,7 @@ describe('MultiPhaseAnalysisService', () => {
       expect(manifest.lifecycle).toBe('completed');
       expect(manifest.totalDurationMs).toBeGreaterThanOrEqual(5_000);
       expect(execute).toHaveBeenCalledTimes(3);
-      expect(fs.delete).not.toHaveBeenCalled();
+      expect(fs.delete).toHaveBeenCalledWith(join(SLUG_DIR, FILES[1]));
       expect(await fs.readFile(join(SLUG_DIR, FILES[0]))).toBe('OLD PROFILE');
       expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toContain(
         'agent wrote',
@@ -424,6 +426,198 @@ describe('MultiPhaseAnalysisService', () => {
         'pending',
       );
       expect(firstWrite.lifecycle).toBe('running');
+    });
+
+    // A FAILED or PAUSED run leaves its lossy diagnostic text on disk and
+    // nothing deletes it, so on resume the phase file is already there before
+    // the agent starts. It must never stand in for output this run produced.
+    const STALE_STUB = '# Architecture Assessment\n(run was interrupted)';
+
+    it('replaces the stale phase file when the resumed phase succeeds without writing it', async () => {
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        // Succeeds, returns text, writes NO file — the F2 failure mode.
+        streamOf([
+          assistant('fresh architecture text'),
+          success('fresh architecture text'),
+        ]),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      const phase = result.value!.phases['architecture-assessment'];
+      expect(phase.status).toBe('completed');
+      const file = await fs.readFile(join(SLUG_DIR, FILES[1]));
+      expect(file).toBe('fresh architecture text');
+      expect(file).not.toContain('run was interrupted');
+    });
+
+    it('completes an identical rewrite when its modification time advances without overwriting the file', async () => {
+      let phaseMtime = 100;
+      fs.stat.mockImplementation(async () => ({
+        type: 1,
+        ctime: 0,
+        mtime: phaseMtime,
+        size: STALE_STUB.length,
+      }));
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], async () => {
+          await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+          phaseMtime = 200;
+        }),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).not.toBe('Done.');
+    });
+
+    it('completes an identical rewrite when its modification time is unchanged without overwriting the file', async () => {
+      fs.stat.mockResolvedValue({
+        type: 1,
+        ctime: 0,
+        mtime: 100,
+        size: STALE_STUB.length,
+      });
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], () =>
+          storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB),
+        ),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).not.toBe('Done.');
+    });
+
+    it('rejects an unchanged stale file when the resumed phase writes nothing', async () => {
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        // Succeeds, writes no file, says nothing.
+        streamOf([success()]),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      const phase = result.value!.phases['architecture-assessment'];
+      expect(phase.status).toBe('failed');
+      expect(phase.error).toBe(
+        'Agent did not write the phase file and no text was captured',
+      );
+      expect(result.value!.lifecycle).toBe('failed');
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+    });
+
+    it('restores the stale phase file when a resumed phase is paused before writing', async () => {
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        hangingStream(() => {
+          service.cancelAnalysis();
+        }),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.lifecycle).toBe('paused');
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'pending',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+    });
+
+    it('retains the content and mtime fallback when stale-file removal is unavailable', async () => {
+      fs.delete.mockRejectedValue(new Error('delete unavailable'));
+      fs.stat.mockResolvedValue({
+        type: 1,
+        ctime: 0,
+        mtime: 100,
+        size: STALE_STUB.length,
+      });
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], () =>
+          storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB),
+        ),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe('Done.');
+    });
+
+    it('falls back to changed content when the provider cannot report modification times', async () => {
+      fs.stat.mockRejectedValue(new Error('stat unavailable'));
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      const rewrittenContent = '# Architecture Assessment\nComplete analysis';
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], () =>
+          storage.writePhaseFile(SLUG_DIR, FILES[1], rewrittenContent),
+        ),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(
+        rewrittenContent,
+      );
     });
 
     it('falls back to a fresh run when no resumable manifest exists', async () => {

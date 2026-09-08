@@ -837,6 +837,25 @@ export class AgentProcessManager {
   }
 
   /**
+   * Every tracked agent, in EVERY workspace — the unscoped bookkeeping view.
+   *
+   * `getStatus()` is the caller-facing list and is scoped to the calling MCP
+   * request's workspace (TASK_2026_364). Internal bookkeeping must not use it.
+   * `sdk-callbacks.ts` did, and it runs on the chat SDK stream — outside
+   * `runWithMcpRequestContext` — so the resolver answered `undefined`, the scope
+   * fell back to the process-global active folder, and every agent belonging to
+   * the non-focused window was filtered out. Its parent-session remap then
+   * re-persisted nothing, leaving those references keyed to the pre-resolution
+   * tab id and unfindable by `chat:resume` (the TASK_2026_323 "agent went dark
+   * on resume" failure). This accessor exists so a bookkeeping consumer states
+   * "unscoped" explicitly instead of inheriting a caller scope it has no caller
+   * for. It must never be reachable from the MCP tool surface.
+   */
+  listTrackedAgents(): AgentProcessInfo[] {
+    return Array.from(this.agents.values()).map((t) => ({ ...t.info }));
+  }
+
+  /**
    * Read agent output (stdout + stderr).
    *
    * `lineCount` describes the STRINGS THIS CALL RETURNS, not the buffers behind

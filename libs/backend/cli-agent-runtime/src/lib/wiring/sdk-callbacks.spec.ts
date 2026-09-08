@@ -19,8 +19,10 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { AgentProcessInfo } from '@ptah-extension/shared';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
+import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { wireSdkCallbacks } from './sdk-callbacks';
 
 const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
@@ -62,7 +64,7 @@ function buildHarness(options: {
   const agentProcessManager = {
     resolveParentSessionId: agentProcessManagerRemap,
     // No exited agents — the re-persist branch is covered by agent-events.spec.
-    getStatus: jest.fn().mockReturnValue([]),
+    listTrackedAgents: jest.fn().mockReturnValue([]),
   };
 
   const subagentRegistryRemap = jest.fn();
@@ -219,7 +221,7 @@ describe('wireSdkCallbacks — re-persist only what actually changed', () => {
           }
         }
       }),
-      getStatus: jest.fn(() => agents),
+      listTrackedAgents: jest.fn(() => agents),
       readOutputForPersistence: jest.fn().mockReturnValue(undefined),
     };
 
@@ -316,5 +318,145 @@ describe('wireSdkCallbacks — re-persist only what actually changed', () => {
     fire(REAL_SESSION_ID, REAL_SESSION_ID);
 
     expect(addCliSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_364 blocker B1 — the remap reads the UNSCOPED registry.
+ *
+ * The two harnesses above hand `wireSdkCallbacks` a hand-rolled manager, so no
+ * test in them can see the workspace filter that TASK_2026_364 added to
+ * `getStatus()`. This one drives the REAL `AgentProcessManager`.
+ *
+ * The scenario is the one the task was filed to fix: two folders open, the
+ * platform provider points at folder B (the focused window), and a chat session
+ * whose CLI agents live in folder A resolves its tab id to a real SDK UUID.
+ * This callback runs on the chat SDK stream, never inside
+ * `runWithMcpRequestContext`, so there is no caller workspace and the scope
+ * falls back to the provider root — folder B. Reading the list through
+ * `getStatus()` therefore returned NOTHING, the remapped-id set was empty, and
+ * the re-persist loop never ran, leaving folder A's session references keyed to
+ * the pre-resolution tab id and unfindable by `chat:resume`.
+ */
+describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
+  const ROOT_A = 'D:\\projects\\workspace-a';
+  const ROOT_B = 'D:\\projects\\workspace-b';
+
+  function makeManager(providerRoot: string): AgentProcessManager {
+    const workspaceProvider = {
+      getWorkspaceRoot: jest.fn().mockReturnValue(providerRoot),
+      getWorkspaceFolders: jest.fn().mockReturnValue([providerRoot]),
+      getConfiguration: jest.fn(
+        (_section: string, _key: string, dflt?: unknown) => dflt,
+      ),
+      setConfiguration: jest.fn(),
+      onDidChangeConfiguration: jest.fn(),
+      onDidChangeWorkspaceFolders: jest.fn(),
+    } as unknown as IWorkspaceProvider;
+
+    type Args = ConstructorParameters<typeof AgentProcessManager>;
+    return new AgentProcessManager(
+      createMockLogger() as unknown as Args[0],
+      { getAdapter: jest.fn() } as unknown as Args[1],
+      {
+        getRunningBySession: jest.fn().mockReturnValue([]),
+      } as unknown as Args[2],
+      workspaceProvider as unknown as Args[3],
+      { captureException: jest.fn() } as unknown as Args[4],
+      { effort: { get: jest.fn(() => '') } } as unknown as Args[5],
+      null,
+      null,
+      // No caller resolver: this host registers one, but the chat stream is not
+      // an MCP request, so it would answer `undefined` here anyway.
+      null,
+    );
+  }
+
+  function seedExitedAgent(
+    manager: AgentProcessManager,
+    agentId: string,
+    workingDirectory: string,
+  ): void {
+    const info: AgentProcessInfo = {
+      agentId: agentId as AgentId,
+      cli: 'codex',
+      task: 'work in the OTHER workspace',
+      workingDirectory,
+      status: 'completed',
+      startedAt: new Date(0).toISOString(),
+      parentSessionId: TAB_ID,
+      cliSessionId: `cli-${agentId}`,
+    };
+    (
+      manager as unknown as {
+        agents: Map<string, Record<string, unknown>>;
+      }
+    ).agents.set(agentId, {
+      info,
+      stdoutBuffer: '',
+      stderrBuffer: '',
+      accumulatedSegments: [],
+      accumulatedStreamEvents: [],
+    });
+  }
+
+  it('re-persists an exited agent living OUTSIDE the provider root (two folders open)', async () => {
+    const manager = makeManager(ROOT_B);
+    seedExitedAgent(manager, 'agent-in-a', `${ROOT_A}\\sub`);
+
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    let captured: SessionIdResolvedCallback | undefined;
+
+    const registry = new Map<symbol, unknown>([
+      [
+        TOKENS.AGENT_ADAPTER,
+        {
+          setResultStatsCallback: jest.fn(),
+          setSessionIdResolvedCallback: jest.fn(
+            (cb: SessionIdResolvedCallback) => {
+              captured = cb;
+            },
+          ),
+          setCompactionStartCallback: jest.fn(),
+        },
+      ],
+      [
+        TOKENS.WEBVIEW_MANAGER,
+        { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      ],
+      [TOKENS.AGENT_PROCESS_MANAGER, manager],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          saveAgentOutput: jest.fn().mockResolvedValue(undefined),
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+
+    wireSdkCallbacks(
+      {
+        isRegistered: (token: symbol) => registry.has(token),
+        resolve: (token: symbol) => registry.get(token),
+      } as unknown as DependencyContainer,
+      {
+        logger: createMockLogger() as unknown as Logger,
+        platform: 'electron',
+      },
+    );
+    if (!captured) throw new Error('setSessionIdResolvedCallback never wired');
+
+    // Sanity: the caller-facing list really does hide this agent, so the
+    // assertion below is measuring the fix and not a vacuous case.
+    expect(manager.getStatus() as AgentProcessInfo[]).toHaveLength(0);
+
+    captured(TAB_ID, REAL_SESSION_ID);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(addCliSession).toHaveBeenCalledWith(
+      REAL_SESSION_ID,
+      expect.objectContaining({ cliSessionId: 'cli-agent-in-a' }),
+    );
   });
 });

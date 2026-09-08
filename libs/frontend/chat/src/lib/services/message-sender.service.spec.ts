@@ -7,7 +7,9 @@
  *     there is no session, to continueConversation when one exists
  *   - startNewConversation (happy path): auto-name, chat:start RPC payload
  *     including effective model/effort, user message appended
- *   - startNewConversation (RPC failure): marks loaded + failSession()
+ *   - startNewConversation (RPC failure): marks loaded + failSession(), and
+ *     removes the tab from the streaming set on BOTH pre-stream failure exits
+ *     (structural rejection and throw) — TASK_2026_360 B1
  *   - startNewConversation (no workspace): still calls chat:start with
  *     workspacePath omitted so the backend can fall back to
  *     IWorkspaceProvider.getWorkspaceRoot() — fixes the bootstrap-restore
@@ -63,6 +65,7 @@ describe('MessageSenderService', () => {
     switchTab: jest.Mock;
     markTabStreaming: jest.Mock;
     markTabIdle: jest.Mock;
+    isTabStreaming: jest.Mock;
     // AbortController plumbing for tab-close → stream-cancel.
     createAbortController: jest.Mock;
     getAbortSignal: jest.Mock;
@@ -78,6 +81,14 @@ describe('MessageSenderService', () => {
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
   let backgroundTabsSignal: ReturnType<typeof signal<TabState[]>>;
+  /**
+   * Models `TabManagerService._streamingTabIds` (tab-manager.service.ts:157) —
+   * the spinner/send-vs-queue set. It is a SEPARATE store from `TabState.status`:
+   * `markLoaded` writes status alone (`:1104`) and only `markTabIdle` (`:2344`)
+   * or `applyTurnState` (`:1197`) removes a tab from it. Modelling it here lets
+   * the failure specs assert the set itself rather than a call count.
+   */
+  let streamingTabIds: Set<string>;
   let sessionManager: jest.Mocked<
     Pick<
       SessionManager,
@@ -97,6 +108,7 @@ describe('MessageSenderService', () => {
     tabsSignal = signal<TabState[]>([makeTab({ id: 'tab-1' })]);
     activeTabIdSignal = signal<string | null>('tab-1');
     backgroundTabsSignal = signal<TabState[]>([]);
+    streamingTabIds = new Set<string>();
 
     const applyPatch = (tabId: string, patch: Partial<TabState>): void => {
       if (backgroundTabsSignal().some((t) => t.id === tabId)) {
@@ -122,8 +134,13 @@ describe('MessageSenderService', () => {
       ),
       createTab: jest.fn(() => 'tab-new'),
       switchTab: jest.fn(),
-      markTabStreaming: jest.fn(),
-      markTabIdle: jest.fn(),
+      markTabStreaming: jest.fn((tabId: string) => {
+        streamingTabIds.add(tabId);
+      }),
+      markTabIdle: jest.fn((tabId: string) => {
+        streamingTabIds.delete(tabId);
+      }),
+      isTabStreaming: jest.fn((tabId: string) => streamingTabIds.has(tabId)),
       consumeFirstMessagePreamble: jest.fn(() => null),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
@@ -430,6 +447,55 @@ describe('MessageSenderService', () => {
       await service.send('hello');
       expect(sessionManager.failSession).toHaveBeenCalled();
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
+    });
+
+    /**
+     * TASK_2026_360 B1 — the optimistic `markTabStreaming` at
+     * message-sender.service.ts:377 fires BEFORE `chat:start`. A pre-stream
+     * failure creates no broadcaster, so no backend `turn_state` and no
+     * CHAT_ERROR can ever repair the spinner set; Stop cannot heal it either
+     * (the tab never bound a `claudeSessionId`). The send path must therefore
+     * pair its own optimistic write with `markTabIdle` on BOTH failure exits,
+     * exactly as `continueConversation` already does (`:653`, `:669`).
+     *
+     * These assert the SET, not the call: `markLoaded` alone leaves the tab in
+     * `_streamingTabIds`, which lights Stop and silently queues every later
+     * message (`tab-manager.service.ts:150-156`, TASK_2026_382).
+     */
+    it('leaves no tab in the streaming set after a structural chat:start rejection', async () => {
+      rpcCall.mockResolvedValue({
+        success: true,
+        data: { success: false, error: 'AUTH_REQUIRED' },
+      });
+
+      await service.send('hello');
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('leaves no tab in the streaming set after a transport-level chat:start failure', async () => {
+      rpcCall.mockResolvedValue({ success: false, error: 'nope' });
+
+      await service.send('hello');
+
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('leaves no tab in the streaming set when chat:start throws', async () => {
+      // AuthRequiredError raised inside sdkAdapter.startChatSession, before
+      // streamEventsToWebview — no broadcaster exists to emit a terminal
+      // turn_state. startNewConversation rethrows, so `send` rejects.
+      const authError = new Error('AUTH_REQUIRED');
+      rpcCall.mockRejectedValue(authError);
+
+      await expect(service.send('hello')).rejects.toThrow('AUTH_REQUIRED');
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
     });
 
     it('returns { success: true } on a started conversation (F-D2 contract)', async () => {
