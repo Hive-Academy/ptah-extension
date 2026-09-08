@@ -378,6 +378,11 @@ export class StreamingHandlerService {
     if (!lookup) return false;
 
     const { tab } = lookup;
+    // This is the background half of the `processEventForTab` ephemeral-state
+    // rule: store-only events still run, but their scratch state is not saved.
+    const ephemeralState =
+      !tab.streamingState &&
+      StreamingHandlerService.STORE_ONLY_EVENT_TYPES.has(event.eventType);
     let state: StreamingState =
       tab.streamingState ?? createEmptyStreamingState();
 
@@ -393,6 +398,7 @@ export class StreamingHandlerService {
     if (result.compactionComplete && result.replacementState) {
       state = result.replacementState;
     }
+    if (ephemeralState) return true;
 
     // Streaming state only. A cron- or gateway-triggered turn that starts on a
     // backgrounded tab gets its spinner and `status` from the backend

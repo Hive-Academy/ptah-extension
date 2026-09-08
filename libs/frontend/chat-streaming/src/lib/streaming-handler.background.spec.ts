@@ -18,7 +18,11 @@ import {
   type StreamingState,
   type TabState,
 } from '@ptah-extension/chat-types';
-import type { TextDeltaEvent, TurnStateEvent } from '@ptah-extension/shared';
+import type {
+  AgentProgressEvent,
+  TextDeltaEvent,
+  TurnStateEvent,
+} from '@ptah-extension/shared';
 import { SessionId } from '@ptah-extension/shared';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -66,6 +70,23 @@ function textDelta(overrides: Partial<TextDeltaEvent> = {}): TextDeltaEvent {
   } as TextDeltaEvent;
 }
 
+function agentProgress(): AgentProgressEvent {
+  return {
+    id: 'evt-progress-1',
+    eventType: 'agent_progress',
+    timestamp: 7,
+    sessionId: SESSION_ID,
+    messageId: 'msg-1',
+    parentToolUseId: 'toolu_agent_1',
+    taskId: 'task-1',
+    description: 'working',
+    totalTokens: 1,
+    toolUses: 1,
+    durationMs: 1,
+    source: 'stream',
+  } as AgentProgressEvent;
+}
+
 describe('StreamingHandlerService — background routing', () => {
   let service: StreamingHandlerService;
   let tabsSignal: ReturnType<typeof signal<TabState[]>>;
@@ -78,6 +99,7 @@ describe('StreamingHandlerService — background routing', () => {
   let markTabStreaming: jest.Mock;
   let isTabStreaming: jest.Mock<boolean, [string]>;
   let turnStateApply: jest.Mock;
+  let onAgentProgress: jest.Mock;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
 
@@ -92,6 +114,7 @@ describe('StreamingHandlerService — background routing', () => {
     markTabStreaming = jest.fn();
     isTabStreaming = jest.fn<boolean, [string]>().mockReturnValue(false);
     turnStateApply = jest.fn();
+    onAgentProgress = jest.fn();
 
     const tabManager = {
       tabs: computed(() => tabsSignal()),
@@ -149,7 +172,7 @@ describe('StreamingHandlerService — background routing', () => {
           useValue: { consumeHardDenyToolUseIds: jest.fn(() => new Set()) },
         },
         { provide: BackgroundAgentStore, useValue: {} },
-        { provide: AgentMonitorStore, useValue: {} },
+        { provide: AgentMonitorStore, useValue: { onAgentProgress } },
         { provide: StreamingAccumulatorCore, useValue: accumulatorCore },
         { provide: TurnStateApplier, useValue: { apply: turnStateApply } },
       ],
@@ -193,6 +216,81 @@ describe('StreamingHandlerService — background routing', () => {
       const stateArg = process.mock.calls[0][0] as StreamingState;
       expect(stateArg).toBeDefined();
       expect(stateArg.events).toBeInstanceOf(Map);
+    });
+
+    it('does not persist a StreamingState for a store-only event when the background tab has none', () => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab({ streamingState: null }),
+        workspacePath: '/ws/bg',
+      });
+      process.mockImplementation((_state, event, ctx) => {
+        (
+          ctx as { agentMonitorStore: AgentMonitorStore }
+        ).agentMonitorStore.onAgentProgress(event as AgentProgressEvent);
+        return {
+          stateMutated: true,
+          eventType: event.eventType,
+        } as AccumulatorResult;
+      });
+
+      service.processStreamEvent(agentProgress());
+
+      expect(updateBackgroundTab).not.toHaveBeenCalled();
+    });
+
+    it('still routes a store-only background event through the accumulator to its store', () => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab({ streamingState: null }),
+        workspacePath: '/ws/bg',
+      });
+      process.mockImplementation((_state, event, ctx) => {
+        (
+          ctx as { agentMonitorStore: AgentMonitorStore }
+        ).agentMonitorStore.onAgentProgress(event as AgentProgressEvent);
+        return {
+          stateMutated: true,
+          eventType: event.eventType,
+        } as AccumulatorResult;
+      });
+      const event = agentProgress();
+
+      service.processStreamEvent(event);
+
+      expect(process).toHaveBeenCalledTimes(1);
+      expect(onAgentProgress).toHaveBeenCalledWith(event);
+    });
+
+    it('creates and persists a StreamingState for a normal event when the background tab has none', () => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab({ streamingState: null }),
+        workspacePath: '/ws/bg',
+      });
+
+      service.processStreamEvent(textDelta());
+
+      const stateArg = process.mock.calls[0][0] as StreamingState;
+      expect(updateBackgroundTab).toHaveBeenCalledWith(BG_TAB_ID, {
+        streamingState: stateArg,
+      });
+    });
+
+    it('processes and persists a store-only event against an existing StreamingState', () => {
+      const existingState = createEmptyStreamingState();
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab({ streamingState: existingState }),
+        workspacePath: '/ws/bg',
+      });
+
+      service.processStreamEvent(agentProgress());
+
+      expect(process).toHaveBeenCalledWith(
+        existingState,
+        expect.objectContaining({ eventType: 'agent_progress' }),
+        expect.any(Object),
+      );
+      expect(updateBackgroundTab).toHaveBeenCalledWith(BG_TAB_ID, {
+        streamingState: existingState,
+      });
     });
 
     it('swaps to replacementState on compaction_complete before persisting', () => {
