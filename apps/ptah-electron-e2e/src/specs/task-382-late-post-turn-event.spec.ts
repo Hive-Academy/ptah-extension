@@ -72,7 +72,7 @@ const TEXTAREA = 'ptah-chat-input textarea[role="combobox"]';
 const SEND_BUTTON = '[data-testid="chat-send-btn"]';
 const STOP_BUTTON = '[data-testid="chat-stop-btn"]';
 const ASSISTANT_BUBBLE = '[data-testid="chat-tool-output"]';
-const USER_BUBBLE = '.chat-bubble-primary';
+const USER_BUBBLE = '[data-testid="chat-user-message"]';
 const QUEUED_BANNER_TEXT = 'Message queued';
 
 function chunk(sessionId: string, event: Record<string, unknown>) {
