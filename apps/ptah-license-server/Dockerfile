@@ -73,15 +73,31 @@ COPY package-lock.json ./root-package-lock.json
 # Install production dependencies
 # Note: We add the external packages that esbuild excludes but are needed at runtime
 # @sentry/nestjs: error tracking and performance monitoring (TASK_2025_251)
+#
+# EVERY VERSION HERE IS EXACT ON PURPOSE — DO NOT LOOSEN (TASK_2026_392).
+# This RUN does not consult the repo package.json or the lockfile, so an
+# unpinned name floats to whatever the registry serves at build time. The
+# versions below are the ones package-lock.json resolves for this app; keep
+# them in step with the lockfile when bumping.
+#
+# `prisma` (the CLI) MUST equal `@prisma/client` (7.7.0), which is bundled into
+# main.cjs from the lockfile and is NOT installed here. A major-version split
+# between the two breaks the container before the app boots:
+#   - 2026-09-04: unpinned `prisma` floated to 8.0.0-rc.12 against client 7.7.0.
+#     Prisma 8 renamed `migrate` to `migration`, so the CMD below exited 2 with
+#     CLI.UNKNOWN_COMMAND, `&&` short-circuited, and main.cjs never ran.
+#     Prisma 8 also cannot read the v7 prisma.config.ts (CLI.CONFIG_UNREADABLE).
+#   - caddy depends_on license-server: service_healthy, so it never bound
+#     :80/:443 and api.ptah.live refused TCP for 4 days.
 RUN npm install --omit=dev \
-    @workos-inc/node \
-    @nestjs/config \
-    @nestjs/jwt \
-    @paddle/paddle-node-sdk \
-    resend \
-    pg \
-    prisma \
-    @sentry/nestjs
+    @workos-inc/node@8.13.0 \
+    @nestjs/config@4.0.4 \
+    @nestjs/jwt@11.0.2 \
+    @paddle/paddle-node-sdk@2.8.0 \
+    resend@6.12.3 \
+    pg@8.21.0 \
+    prisma@7.7.0 \
+    @sentry/nestjs@9.47.1
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
@@ -134,4 +150,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Run migrations and start server
 # Note: Prisma migrate deploy is safe for production (only applies pending migrations)
+#
+# The `&&` is deliberate and stays. Serving an app against a schema whose
+# migrations did not apply is worse than not serving it: partial schema means
+# silent 500s and possible bad writes. Failing closed was NOT the 2026-09-04
+# bug — the bug was the unpinned CLI above, and the exact pins fix it at source.
+# The outage was invisible because nothing probed the deployed URL, which the
+# deploy-server.yml smoke check and uptime-probe.yml now cover.
 CMD ["sh", "-c", "npx prisma migrate deploy && node main.cjs"]
