@@ -15,9 +15,6 @@
  */
 
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -801,19 +798,10 @@ export class AgentRpcHandlers {
             'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
-          const cliSessionExists = await this.sessionFileExists(
-            params.cliSessionId,
-            workspaceRoot,
-          );
-          if (!cliSessionExists) {
-            this.logger.warn(
-              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
-            );
-          }
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
-            resumeSessionId: cliSessionExists ? params.cliSessionId : undefined,
+            resumeSessionId: params.cliSessionId,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
             resumedFromAgentId: params.previousAgentId,
@@ -872,11 +860,6 @@ export class AgentRpcHandlers {
     },
     workspaceRoot: string,
   ): Promise<SpawnAgentResult> {
-    const sessionFileExists = await this.sessionFileExists(
-      params.cliSessionId,
-      workspaceRoot,
-    );
-
     // The parent session must reach BOTH halves of the resume. spawnAgent used
     // to be called without it while spawnFromSdkHandle below received it, so
     // the SDK-side agent ran with no parent: its nested subagents registered
@@ -892,16 +875,10 @@ export class AgentRpcHandlers {
       params.task,
       {
         workingDirectory: workspaceRoot,
-        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+        resumeSessionId: params.cliSessionId,
         parentSessionId,
       },
     );
-
-    if (!sessionFileExists) {
-      this.logger.warn(
-        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
-      );
-    }
 
     if ('status' in spawnResult) {
       throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
@@ -930,7 +907,7 @@ export class AgentRpcHandlers {
         ptahCliName: spawnResult.agentName,
         ptahCliId: params.ptahCliId,
         resumedFromAgentId: params.previousAgentId,
-        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+        resumeSessionId: params.cliSessionId,
       },
     );
     spawnResult.setAgentId(result.agentId);
@@ -1067,38 +1044,4 @@ export class AgentRpcHandlers {
     }
   }
 
-  /**
-   * Check if a Claude SDK JSONL session file exists on disk.
-   * Returns true if the file is found, false otherwise.
-   */
-  private async sessionFileExists(
-    sessionId: string,
-    workspacePath: string,
-  ): Promise<boolean> {
-    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-    const dirs = await fs.readdir(projectsDir);
-
-    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-    const normalizedEscaped = normalize(escapedPath);
-    const matchedDir = dirs.find(
-      (d) =>
-        d === escapedPath ||
-        d.toLowerCase() === escapedPath.toLowerCase() ||
-        normalize(d) === normalizedEscaped,
-    );
-
-    if (matchedDir) {
-      const sessionFile = path.join(
-        projectsDir,
-        matchedDir,
-        `${sessionId}.jsonl`,
-      );
-
-      await fs.access(sessionFile);
-      return true;
-    }
-
-    return false;
-  }
 }
