@@ -27,6 +27,11 @@ export type { IUserInteraction } from './interfaces/user-interaction.interface';
 export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
+export type {
+  IEditorLauncher,
+  EditorTarget,
+  EditorTargetId,
+} from './interfaces/editor-launcher.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type {
   IDiagnosticsProvider,
@@ -89,6 +94,12 @@ export type {
   GlobWatchPlanOptions,
 } from './utils/glob-watch-plan';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
+export { detectEditorTargets } from './utils/editor-launcher-detection';
+export type {
+  EditorDetectionDefinition,
+  EditorDetectionOptions,
+  EditorInstallCandidate,
+} from './utils/editor-launcher-detection';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {
