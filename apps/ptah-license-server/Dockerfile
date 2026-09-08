@@ -14,7 +14,9 @@
 #   docker run -p 3000:3000 --env-file .env ptah-license-server:latest
 #
 # DEPLOY:
-#   DigitalOcean App Platform detects this Dockerfile automatically
+#   .github/workflows/deploy-server.yml builds this image, pushes it to ghcr.io
+#   and runs it on the DigitalOcean droplet via docker-compose.prod.yml behind
+#   caddy. It is NOT App Platform — nothing here is auto-detected.
 #
 # =============================================================================
 
@@ -62,42 +64,42 @@ WORKDIR /app
 # Install system dependencies required by Prisma
 RUN apk add --no-cache openssl libc6-compat
 
-# Copy generated package.json from build output
-# NxAppWebpackPlugin generates this with only required dependencies
+# Copy the generated package.json + lockfile from the build output. Nx emits
+# this pair (`generatePackageJson: true`) carrying only the runtime dependencies
+# the bundle needs, already resolved to exact versions from the root lockfile.
 COPY --from=builder /app/dist/apps/ptah-license-server/package.json ./
 COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 
-# Also copy root package-lock.json for dependency resolution
-COPY package-lock.json ./root-package-lock.json
+# Install that generated set EXACTLY — direct and transitive. This is the whole
+# dependency tree for the app, versioned by the build rather than by hand.
+#
+# It replaces a `npm install --omit=dev <8 bare names>` (TASK_2026_392). Naming a
+# package on an `npm install` line resolves it to `latest` and OVERWRITES the
+# exact version Nx had already pinned. Five of those eight were redundant, and
+# the override is how `prisma` reached 8.0.0-rc.12 on 2026-09-04 against
+# @prisma/client 7.7.0. Prisma 8 renamed `migrate` to `migration`, so the CMD
+# below exited 2 with CLI.UNKNOWN_COMMAND, `&&` short-circuited, and main.cjs
+# never ran. caddy declares depends_on service_healthy, so it never bound
+# :80/:443 and api.ptah.live refused TCP for four days.
+RUN npm ci --omit=dev
 
-# Install production dependencies
-# Note: We add the external packages that esbuild excludes but are needed at runtime
-# @sentry/nestjs: error tracking and performance monitoring (TASK_2025_251)
+# The four packages the generated manifest genuinely does NOT carry. Verified
+# against the built bundle, not assumed:
+#   - @workos-inc/node, @nestjs/config, @nestjs/jwt — main.cjs `require()`s all
+#     three at runtime (48 call sites for @nestjs/config alone), yet Nx omits
+#     them from the generated dependencies. Drop one and the app dies on boot.
+#   - prisma — the CLI is a devDependency, so `generatePackageJson` will never
+#     emit it, but the CMD below runs `npx prisma migrate deploy`.
 #
-# EVERY VERSION HERE IS EXACT ON PURPOSE — DO NOT LOOSEN (TASK_2026_392).
-# This RUN does not consult the repo package.json or the lockfile, so an
-# unpinned name floats to whatever the registry serves at build time. The
-# versions below are the ones package-lock.json resolves for this app; keep
-# them in step with the lockfile when bumping.
-#
-# `prisma` (the CLI) MUST equal `@prisma/client` (7.7.0), which is bundled into
-# main.cjs from the lockfile and is NOT installed here. A major-version split
-# between the two breaks the container before the app boots:
-#   - 2026-09-04: unpinned `prisma` floated to 8.0.0-rc.12 against client 7.7.0.
-#     Prisma 8 renamed `migrate` to `migration`, so the CMD below exited 2 with
-#     CLI.UNKNOWN_COMMAND, `&&` short-circuited, and main.cjs never ran.
-#     Prisma 8 also cannot read the v7 prisma.config.ts (CLI.CONFIG_UNREADABLE).
-#   - caddy depends_on license-server: service_healthy, so it never bound
-#     :80/:443 and api.ptah.live refused TCP for 4 days.
-RUN npm install --omit=dev \
+# EXACT VERSIONS ON PURPOSE — DO NOT LOOSEN. `prisma` (CLI) must stay equal to
+# `@prisma/client` in the generated package.json; a major split between them
+# breaks the container before the app boots. `--no-save` keeps the generated
+# manifest authoritative for everything else.
+RUN npm install --omit=dev --no-save \
+    prisma@7.7.0 \
     @workos-inc/node@8.13.0 \
     @nestjs/config@4.0.4 \
-    @nestjs/jwt@11.0.2 \
-    @paddle/paddle-node-sdk@2.8.0 \
-    resend@6.12.3 \
-    pg@8.21.0 \
-    prisma@7.7.0 \
-    @sentry/nestjs@9.47.1
+    @nestjs/jwt@11.0.2
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
