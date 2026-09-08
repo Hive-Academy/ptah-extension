@@ -441,6 +441,12 @@ export class SessionImporterService {
         try {
           msg = JSON.parse(line);
         } catch {
+          // degradation-audit: optional-capability - classifying the line is
+          // the capability, and when it is unavailable the prune declines to
+          // act. The parse error itself carries nothing a reader could use:
+          // the input is a half-written JSONL line, and the safe answer does
+          // not depend on why it failed.
+          //
           // The short read above means every line is in hand, so a line that
           // does not parse is a record we cannot classify — a partially
           // flushed user turn behind a `summary` line reads exactly like this.
