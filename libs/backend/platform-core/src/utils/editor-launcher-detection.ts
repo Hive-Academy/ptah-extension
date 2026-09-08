@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { access } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import type {
   EditorTarget,
   EditorTargetId,
@@ -20,13 +20,29 @@ export interface EditorDetectionDefinition {
 export interface EditorDetectionOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly platform?: NodeJS.Platform;
-  readonly exists?: (candidatePath: string) => Promise<boolean>;
+  readonly stat?: (candidatePath: string) => Promise<{
+    readonly mode: number;
+    isFile(): boolean;
+  }>;
 }
 
-async function defaultExists(candidatePath: string): Promise<boolean> {
+async function isExecutableCandidate(
+  candidatePath: string,
+  platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+  statCandidate: NonNullable<EditorDetectionOptions['stat']>,
+): Promise<boolean> {
   try {
-    await access(candidatePath);
-    return true;
+    const candidateStat = await statCandidate(candidatePath);
+    if (!candidateStat.isFile()) return false;
+    if (platform === 'win32') {
+      const extension = path.win32.extname(candidatePath).toUpperCase();
+      return pathExtensions(platform, env).some(
+        (executableExtension) =>
+          executableExtension.toUpperCase() === extension,
+      );
+    }
+    return (candidateStat.mode & 0o111) !== 0;
   } catch {
     return false;
   }
@@ -48,7 +64,7 @@ async function findOnPath(
   command: string,
   env: Readonly<Record<string, string | undefined>>,
   platform: NodeJS.Platform,
-  exists: (candidatePath: string) => Promise<boolean>,
+  statCandidate: NonNullable<EditorDetectionOptions['stat']>,
 ): Promise<string | undefined> {
   const pathValue = env['PATH'] ?? env['Path'] ?? '';
   const extensions = pathExtensions(platform, env);
@@ -57,7 +73,8 @@ async function findOnPath(
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     for (const extension of extensions) {
       const candidate = pathApi.resolve(directory, `${command}${extension}`);
-      if (await exists(candidate)) return candidate;
+      if (await isExecutableCandidate(candidate, platform, env, statCandidate))
+        return candidate;
     }
   }
   return undefined;
@@ -70,7 +87,7 @@ export async function detectEditorTargets(
 ): Promise<EditorTarget[]> {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
-  const exists = options.exists ?? defaultExists;
+  const statCandidate = options.stat ?? stat;
   const pathApi = platform === 'win32' ? path.win32 : path.posix;
   const targets: EditorTarget[] = [];
   const detected = new Set<EditorTargetId>();
@@ -80,7 +97,7 @@ export async function detectEditorTargets(
       definition.command,
       env,
       platform,
-      exists,
+      statCandidate,
     );
     if (!executablePath) continue;
     targets.push({
@@ -95,7 +112,15 @@ export async function detectEditorTargets(
     if (detected.has(definition.id)) continue;
     for (const candidate of definition.installCandidates) {
       const normalizedPath = pathApi.resolve(candidate.path);
-      if (!(await exists(normalizedPath))) continue;
+      if (
+        !(await isExecutableCandidate(
+          normalizedPath,
+          platform,
+          env,
+          statCandidate,
+        ))
+      )
+        continue;
       targets.push({
         id: definition.id,
         displayName: definition.displayName,

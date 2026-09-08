@@ -29,7 +29,10 @@ describe('VscodeEditorLauncher', () => {
             installCandidates: [],
           },
         ],
-        exists: async (candidate) => candidate === '/bin/cursor',
+        stat: jest.fn(async (candidate: string) => {
+          if (candidate !== '/bin/cursor') throw new Error('ENOENT');
+          return { isFile: () => true, mode: 0o755 };
+        }) as never,
       },
     );
     await expect(launcher.detect()).resolves.toEqual([

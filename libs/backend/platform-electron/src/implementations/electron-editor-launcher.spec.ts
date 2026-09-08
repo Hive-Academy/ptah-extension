@@ -33,8 +33,11 @@ describe('ElectronEditorLauncher', () => {
             ],
           },
         ],
-        exists: async (candidate) =>
-          candidate === '/bin/code' || candidate === '/apps/cursor',
+        stat: jest.fn(async (candidate: string) => {
+          if (candidate !== '/bin/code' && candidate !== '/apps/cursor')
+            throw new Error('ENOENT');
+          return { isFile: () => true, mode: 0o755 };
+        }) as never,
       },
     );
     await expect(launcher.detect()).resolves.toEqual([

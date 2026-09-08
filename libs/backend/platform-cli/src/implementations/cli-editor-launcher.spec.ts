@@ -24,7 +24,10 @@ describe('CliEditorLauncher', () => {
           installCandidates: [{ path: '/editors/code' }],
         },
       ],
-      exists: async (candidate) => candidate === '/editors/code',
+      stat: jest.fn(async () => ({
+        isFile: () => true,
+        mode: 0o755,
+      })) as never,
     });
     await expect(launcher.detect()).resolves.toEqual([
       { ...target, executablePath: '/editors/code' },
