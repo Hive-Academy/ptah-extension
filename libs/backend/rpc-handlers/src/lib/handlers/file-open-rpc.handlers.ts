@@ -59,7 +59,8 @@ export class ElectronFileOpenRpcHandlers {
       );
       const target =
         targets.find(({ id }) => id === remembered) ??
-        targets.find(({ id }) => id === 'vscode');
+        targets.find(({ id }) => id === 'vscode') ??
+        targets[0];
       if (!target) {
         return { success: false, error: 'No supported editor found' };
       }

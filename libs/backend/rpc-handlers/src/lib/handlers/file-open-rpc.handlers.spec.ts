@@ -72,6 +72,12 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     expect(openFile).toHaveBeenCalledWith(vscode, 'C:\\ws\\a.ts', undefined);
   });
 
+  it('falls back to the first detected editor when VS Code is unavailable', async () => {
+    const { method, openFile } = build({ targets: [cursor] });
+    await method({ path: 'C:\\ws\\a.ts' });
+    expect(openFile).toHaveBeenCalledWith(cursor, 'C:\\ws\\a.ts', undefined);
+  });
+
   it('refuses an outside path and never launches', async () => {
     const { method, openFile } = build();
     await expect(method({ path: 'C:\\other\\a.ts' })).resolves.toEqual({
