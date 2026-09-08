@@ -259,3 +259,76 @@ Conclusion: `cli-engine` CI slowness is most plausibly nested parallelism plus c
 - Actual CPU, RAM, disk, and process-count telemetry from the canceled jobs. Without it, resource contention is supported by timing and architecture but resource exhaustion cannot be proven.
 - Which individual suite caused the generic forced-worker warning in `cli-engine` or `agent-sdk`. Serial `--detectOpenHandles` found none, and reducing worker count removed the warning in the measured `agent-sdk` run. Jest's warning means a worker missed a 500 ms exit deadline; it does not include the worker PID or suite name. Identifying it would require per-suite worker lifecycle instrumentation or repeated bisection under the exact CI host load.
 - Whether the supplied CI per-suite durations are repeatable. I report them as repository/run evidence, not as measurements I took. My measured numbers are the whole-project local times quoted above.
+
+---
+
+## 8. Outcome (appended 2026-09-08, after the fix shipped)
+
+**The cause was oversubscription. `--maxWorkers=2` fixed it.**
+
+Sections 1-7 above were written before the fix ran, and they name the wrong
+front-runner. Section 4 committed to "an external cancellation" and kept the
+concurrency rule as the live candidate; section 6 ranked bounding parallelism
+as recommendation 2, a fix for the measured slowness rather than for the
+cancellation, and called resource exhaustion "a credible cause of slowness but
+a weak cause of the cancellation annotation." That ranking was inverted. The
+recommendation filed as the secondary one is what closed the incident. The
+analysis behind it was correct; only its position in the list was wrong.
+
+### The concurrency candidate is refuted, not merely unproven
+
+Section 4 was right that "one run per commit" is insufficient, and right that
+it needed the run inventory to decide. That inventory was fetched afterwards:
+
+```
+3019af337   created 18:27:02   killed 18:43:48
+ec2a30d7c   created 17:51:03   killed 18:05:35
+```
+
+No cancelled run has ANY later run on its pull request — the group `ci-<PR>`
+was empty for the whole window in every case. And the run conclusion is
+`failure`, not `cancelled`; a concurrency cancellation sets the latter.
+Concurrency is out.
+
+### The measurement that settles it
+
+One line changed in the CI test step:
+
+```
+npx nx affected -t test --coverage --parallel=3
+node node_modules/nx/bin/nx.js affected -t test --coverage --parallel=3 --maxWorkers=2
+```
+
+(The binary swap is unrelated — it answers `githubactions:S6505`, which fired
+because editing the line made it new code to the scanner.)
+
+| | Before | After |
+|---|---|---|
+| Runs where Nx SUCCEEDED | 4 of 4 ended `The operation was canceled.` | 0 |
+| PR #467 CI | cancelled | **pass** |
+| PR #468 CI | cancelled | **pass, 10m17s** |
+
+Both pull requests merged on the first run carrying the cap.
+
+### Why the 140 ms timing misled
+
+The gap between Nx's success line and the kill was 141-224 ms across six runs,
+which correctly ruled out a hang and therefore a leaked handle — section 1 and
+section 4 are sound on that, and the `--detectOpenHandles` evidence stands. But
+a short gap does not imply an EXTERNAL actor. It is equally consistent with the
+runner terminating a process tree that had, moments earlier, been holding three
+Jest coordinators and up to ~45 workers plus coverage writers. The peak is at
+the end of the run, not spread through it, which is why the kill always landed
+at the finish line and only on the successful path — a failing run tears down
+before reaching that peak.
+
+Resource telemetry, still unavailable, would name the exact mechanism. It is no
+longer needed to act.
+
+### What stays open
+
+Nothing blocking. The teardown defects catalogued in section 3 are real and
+unrelated to this incident: `SdkAgentAdapter.dispose()` is not awaitable,
+`PtahCliRegistry.disposeAll()` does not await proxy stops, and Cron timers are
+left armed when `start()` throws. They deserve their own task and did not cause
+these cancellations.

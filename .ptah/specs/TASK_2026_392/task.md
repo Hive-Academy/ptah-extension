@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_392
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   CI test step is killed ~150 ms after Nx reports success, and nested Jest
@@ -21,9 +21,12 @@ description: >-
   Nx tasks, not Jest workers, and with no `maxWorkers` anywhere each of the
   three coordinators defaults to `availableParallelism() - 1`, so one runner
   is asked for up to ~45 workers under coverage beside the real child
-  processes the cli-engine auth specs spawn. Capping workers is measurably
-  faster, so it ships as a fix on its own merits; whether it also stops the
-  kill is the open question this task carries.
+  processes the cli-engine auth specs spawn. RESOLVED: capping workers to 2 was
+  the fix. Every run where Nx succeeded had ended cancelled, 4 of 4; on the
+  first run carrying the cap both pull requests passed, #468 in 10m17s, and
+  both merged. The peak load sits at the END of a run, which is why the kill
+  always landed at the finish line and only on the successful path — a failing
+  run tears down before reaching it.
 executor: devops-engineer
 estimate: M
 labels:
