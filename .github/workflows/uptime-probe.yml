@@ -1,0 +1,171 @@
+name: API Uptime Probe
+
+on:
+  schedule:
+    # Every 15 minutes. api.ptah.live is a paid API and the 2026-09-04 outage
+    # ran 4 days unnoticed, so the detection window has to be minutes, not days.
+    # GitHub schedule triggers are best-effort and get delayed under load — the
+    # probe is therefore stateless and idempotent: each run judges only the
+    # current response, and a delayed or skipped run costs lateness, never a
+    # wrong verdict.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# Minimum needed: read the repo, and open/update/close the dedup issue.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime-probe
+  cancel-in-progress: false
+
+env:
+  HEALTH_URL: https://api.ptah.live/api/health
+  ISSUE_TITLE: '[uptime-probe] api.ptah.live is not serving'
+
+jobs:
+  probe-api-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # No checkout, no secrets, no SSH, no droplet IP. This probe is
+      # deliberately an unauthenticated external client hitting the public URL —
+      # that is the whole point. It exercises DNS, TLS, the caddy port bind and
+      # the app's database connection the same way a paying customer does. Give
+      # it droplet access and it starts proving something weaker.
+      - name: Probe the public health endpoint
+        id: probe
+        run: |
+          set -u
+          # Three attempts absorbs a single deploy restart or a transient blip
+          # without flapping the issue open. Sustained failure still reports on
+          # this run, so detection stays inside one 15-minute window.
+          healthy=false
+          for attempt in 1 2 3; do
+            status="$(curl --silent --show-error --output "${RUNNER_TEMP}/health.json" \
+              --write-out '%{http_code}' --max-time 15 "${HEALTH_URL}" || echo '000')"
+            body="$(cat "${RUNNER_TEMP}/health.json" 2>/dev/null || true)"
+
+            # Assert the contract, not merely HTTP 200. A 200 carrying
+            # database:"disconnected", or a proxy error page, is not "up".
+            if [[ "${status}" == '200' ]] && printf '%s' "${body}" | jq --exit-status \
+                '.status == "ok" and .database == "connected"' > /dev/null 2>&1; then
+              healthy=true
+              echo "attempt ${attempt}: healthy (HTTP ${status}) ${body}"
+              break
+            fi
+
+            echo "attempt ${attempt}: UNHEALTHY (HTTP ${status}) ${body:-<empty body>}"
+            printf 'HTTP status: %s\nBody: %s\n' "${status}" "${body:-<empty body>}" \
+              > "${RUNNER_TEMP}/last-failure.txt"
+            [[ "${attempt}" -lt 3 ]] && sleep 20
+          done
+
+          echo "healthy=${healthy}" >> "${GITHUB_OUTPUT}"
+
+      - name: Open or update the outage issue
+        if: steps.probe.outputs.healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body_file="${RUNNER_TEMP}/uptime-issue-body.md"
+
+          {
+            printf 'The scheduled uptime probe could not get a healthy response from `%s`.\n' \
+              "${HEALTH_URL}"
+            echo
+            echo 'Expected body: `{"status":"ok",...,"database":"connected"}` with HTTP 200.'
+            echo
+            printf -- '- Run: %s/%s/actions/runs/%s\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            printf -- '- Observed at: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo
+            echo '## Last observed response'
+            echo
+            echo '```text'
+            if [[ -f "${RUNNER_TEMP}/last-failure.txt" ]]; then
+              cat "${RUNNER_TEMP}/last-failure.txt"
+            else
+              echo 'No response was captured.'
+            fi
+            echo '```'
+            echo
+            echo '## First things to check'
+            echo
+            echo '1. `docker ps -a` on the droplet — is `ptah_caddy` in `Created`?'
+            echo '   It has `depends_on: license-server: service_healthy`, so it never'
+            echo '   binds :80/:443 while the app is unhealthy, and the failure looks'
+            echo '   like a refused TCP connection rather than a 502.'
+            echo '2. `docker logs --tail 50 ptah_license_server_prod` — a crash before'
+            echo '   NestJS boots (e.g. a failed `prisma migrate deploy`) is invisible'
+            echo '   to Sentry, because `instrument.ts` never runs.'
+          } > "${body_file}"
+
+          # Same open-or-update idiom as connectors-probe.yml: one long-lived
+          # issue, edited in place, so a sustained outage does not file 96
+          # issues a day.
+          mapfile -t matching_issues < <(
+            gh issue list --state open --limit 1000 --json number,title \
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              while IFS=$'\t' read -r issue_number candidate_title; do
+                if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
+                  printf '%s\n' "${issue_number}"
+                fi
+              done |
+              sort -n
+          )
+
+          if (( ${#matching_issues[@]} == 0 )); then
+            issue_url="$(
+              gh issue create --title "${ISSUE_TITLE}" --body-file "${body_file}"
+            )"
+            keeper_number="${issue_url##*/}"
+          else
+            keeper_number="${matching_issues[0]}"
+            gh issue edit "${keeper_number}" \
+              --title "${ISSUE_TITLE}" \
+              --body-file "${body_file}"
+          fi
+
+          for duplicate_number in "${matching_issues[@]:1}"; do
+            gh issue close "${duplicate_number}" --reason 'not planned'
+          done
+
+          echo "Outage recorded in issue #${keeper_number}."
+
+      - name: Close the outage issue on recovery
+        if: steps.probe.outputs.healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t matching_issues < <(
+            gh issue list --state open --limit 1000 --json number,title \
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              while IFS=$'\t' read -r issue_number candidate_title; do
+                if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
+                  printf '%s\n' "${issue_number}"
+                fi
+              done |
+              sort -n
+          )
+
+          # Comment before closing so the issue keeps the recovery timestamp —
+          # the gap between the open and this comment IS the outage duration.
+          for issue_number in "${matching_issues[@]}"; do
+            gh issue comment "${issue_number}" --body "$(
+              printf 'Recovered: `%s` returned `status: ok` / `database: connected` at %s.\n\nRun: %s/%s/actions/runs/%s' \
+                "${HEALTH_URL}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+                "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            )"
+            gh issue close "${issue_number}" --reason 'completed'
+            echo "Closed recovered outage issue #${issue_number}."
+          done
+
+      # Kept as the last step so the issue is always filed before the job goes
+      # red — a failing step would otherwise skip the reporting above.
+      - name: Fail the run when the API is not serving
+        if: steps.probe.outputs.healthy != 'true'
+        run: |
+          echo "::error::${HEALTH_URL} did not report status=ok / database=connected"
+          exit 1
