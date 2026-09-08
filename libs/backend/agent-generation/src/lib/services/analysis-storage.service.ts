@@ -209,6 +209,21 @@ export class AnalysisStorageService {
     }
   }
 
+  /**
+   * Read a phase output file's modification time.
+   * Returns null if the file doesn't exist or stats aren't available.
+   */
+  async readPhaseFileMtime(
+    slugDir: string,
+    filename: string,
+  ): Promise<number | null> {
+    try {
+      return (await this.fs.stat(join(slugDir, filename))).mtime;
+    } catch {
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Analysis manifest (version 3)
   // ---------------------------------------------------------------------------

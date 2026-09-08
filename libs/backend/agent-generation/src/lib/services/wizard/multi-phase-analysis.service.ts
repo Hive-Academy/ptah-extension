@@ -232,10 +232,10 @@ export class MultiPhaseAnalysisService {
         // deletes it — so a bare existence check after the run would let that
         // stale stub satisfy the file requirement and mark the phase
         // `completed`.
-        const priorFileContent = await this.storageService.readPhaseFile(
-          slugDir,
-          phaseConfig.file,
-        );
+        const [priorFileContent, priorFileMtime] = await Promise.all([
+          this.storageService.readPhaseFile(slugDir, phaseConfig.file),
+          this.storageService.readPhaseFileMtime(slugDir, phaseConfig.file),
+        ]);
 
         const phaseStart = Date.now();
         let outcome: PhaseExecutionOutcome;
@@ -279,6 +279,7 @@ export class MultiPhaseAnalysisService {
           outcome,
           Date.now() - phaseStart,
           priorFileContent,
+          priorFileMtime,
         );
 
         const statuses = checkpoint.statuses();
@@ -362,16 +363,16 @@ export class MultiPhaseAnalysisService {
   /**
    * Turn an execution outcome into the phase's terminal manifest state.
    *
-   * `completed` requires a successful result AND a phase file THIS RUN wrote —
-   * either one the agent wrote or one created from the complete captured text.
-   * A file left over from an earlier failed or paused run does not count: it
-   * is stale, lossy partial text and promoting it to `completed` would feed it
-   * to the enhanced-prompt designer. Everything else is `failed` with a
-   * non-empty error; captured text is still written to the phase file for
-   * diagnosis, but the manifest says failed.
+   * `completed` requires a successful result AND a phase file THIS RUN wrote,
+   * detected by an advanced modification time or changed content, or one
+   * created from the complete captured text. A stale file left by an earlier
+   * failed or paused run does not count. Everything else is `failed` with a
+   * non-empty error; captured text is still written for diagnosis.
    *
    * @param priorFileContent - The phase file's content immediately before this
    *   run executed the phase, or null when there was no readable file.
+   * @param priorFileMtime - The phase file's modification time immediately
+   *   before this run executed the phase, or null when unavailable.
    */
   private async recordPhaseOutcome(
     checkpoint: AnalysisRunCheckpoint,
@@ -380,13 +381,18 @@ export class MultiPhaseAnalysisService {
     outcome: PhaseExecutionOutcome,
     durationMs: number,
     priorFileContent: string | null,
+    priorFileMtime: number | null,
   ): Promise<void> {
-    const currentFileContent = await this.storageService.readPhaseFile(
-      checkpoint.slugDir,
-      filename,
-    );
+    const [currentFileContent, currentFileMtime] = await Promise.all([
+      this.storageService.readPhaseFile(checkpoint.slugDir, filename),
+      this.storageService.readPhaseFileMtime(checkpoint.slugDir, filename),
+    ]);
     const fileWrittenThisRun =
-      currentFileContent !== null && currentFileContent !== priorFileContent;
+      currentFileContent !== null &&
+      ((priorFileMtime !== null &&
+        currentFileMtime !== null &&
+        currentFileMtime > priorFileMtime) ||
+        currentFileContent !== priorFileContent);
     const succeeded =
       outcome.resultReceived && !outcome.timedOut && !outcome.error;
 

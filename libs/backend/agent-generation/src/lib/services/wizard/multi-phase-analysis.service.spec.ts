@@ -459,7 +459,38 @@ describe('MultiPhaseAnalysisService', () => {
       expect(file).not.toContain('run was interrupted');
     });
 
-    it('fails a resumed phase that writes no file and captures no text instead of trusting the stale one', async () => {
+    it('completes an identical rewrite when its modification time advances without overwriting the file', async () => {
+      let phaseMtime = 100;
+      fs.stat.mockImplementation(async () => ({
+        type: 1,
+        ctime: 0,
+        mtime: phaseMtime,
+        size: STALE_STUB.length,
+      }));
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], async () => {
+          await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+          phaseMtime = 200;
+        }),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).not.toBe('Done.');
+    });
+
+    it('rejects an unchanged stale file when the resumed phase writes nothing', async () => {
       await storage.writeManifest(SLUG_DIR, seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
@@ -481,6 +512,32 @@ describe('MultiPhaseAnalysisService', () => {
       );
       expect(result.value!.lifecycle).toBe('failed');
       expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(STALE_STUB);
+    });
+
+    it('falls back to changed content when the provider cannot report modification times', async () => {
+      fs.stat.mockRejectedValue(new Error('stat unavailable'));
+      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
+      await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
+      const rewrittenContent = '# Architecture Assessment\nComplete analysis';
+      scenarios = [
+        streamOf([assistant('Done.'), success('Done.')], () =>
+          storage.writePhaseFile(SLUG_DIR, FILES[1], rewrittenContent),
+        ),
+        ...FILES.slice(2).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.value!.phases['architecture-assessment'].status).toBe(
+        'completed',
+      );
+      expect(await fs.readFile(join(SLUG_DIR, FILES[1]))).toBe(
+        rewrittenContent,
+      );
     });
 
     it('falls back to a fresh run when no resumable manifest exists', async () => {
