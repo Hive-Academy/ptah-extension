@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: bugfix
 title: 'A ptah-cli resume discards the user typed follow-up message'
 description: >-
@@ -50,14 +50,38 @@ the user's words do reach the model on every system-CLI lane.
 
 ## Scope hint
 
-Do not simply delete the substitution. The canned prompt presumably exists
-because an empty follow-up needed something to send. Establish what a resume
-with an EMPTY task should do before changing the branch. A likely shape: use the
-user's task when it is non-empty, and fall back to the canned string only when
-it is not.
+**CORRECTED after implementation.** The original hint said "do not simply delete
+the substitution" and guessed that the canned prompt existed to cover an empty
+follow-up. That guess was wrong, and the acceptance sketch built on it was wrong
+too. Both are recorded here rather than silently rewritten, because the review
+disagreement they caused is the useful part.
+
+There is no empty-task case. `task` is non-empty on every path that can reach
+`PtahCliRegistry.spawnAgent`:
+
+| Entry point | Guard |
+| ----------- | ----- |
+| `agent:resumeCliSession` RPC | `agent-rpc.schema.ts` — `task: z.string().min(1)` |
+| MCP `ptah_agent_spawn` | `mcp-stdio/agent-tool.dispatcher.ts:48` — `task: z.string().min(1).max(MAX_TASK_LENGTH)` |
+| The follow-up box itself | `agent-continue-input.component.ts:166` — `submit()` returns on `message.length === 0` |
+
+`spawnAgent` is an internal method behind two validated boundaries, so an
+empty-string fallback would be exactly the defensive branch the repo standard
+forbids ("do not add error handling for scenarios that cannot happen; only
+validate at system boundaries"). Deleting the substitution outright is correct.
+
+Blame is uninformative: the line arrives in a squashed release commit
+(`chore(release): extension v0.2.32`) with the substitution already present. The
+better evidence is `cli-agent-delegation.md:324`, which instructs CALLERS to
+pass `"Continue the previous task. Pick up where you left off."` as their task
+when resuming. That string was always the caller's to supply, so the registry
+hard-coding it was redundant on the intended path and destructive on every other.
 
 ## Acceptance sketch
 
 - A ptah-cli resume carrying a non-empty task sends that task to the model.
-- A ptah-cli resume carrying an empty task keeps today's behavior.
-- A regression test pins both, asserting the prompt actually handed to the SDK.
+- A regression test pins it by asserting the exact prompt handed to the SDK. A
+  test asserting only that "a prompt was passed" stays green against this bug.
+
+The withdrawn third criterion — "an empty task keeps today's behavior" — asked
+for a branch no caller can reach.

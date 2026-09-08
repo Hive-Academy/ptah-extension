@@ -29,6 +29,7 @@ import type {
   SdkMessageTransformer,
   SdkPermissionHandler,
   Options,
+  SDKUserMessage,
 } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
 import type { PtahCliConfig } from '@ptah-extension/shared';
@@ -71,14 +72,17 @@ interface SpawnHarness {
   logger: ReturnType<typeof createMockLogger>;
   getCapturedModel: () => string | undefined;
   getCapturedOptions: () => Options | undefined;
+  getCapturedPrompt: () => AsyncGenerator<SDKUserMessage> | undefined;
 }
 
 function buildHarness(config: PtahCliConfig): SpawnHarness {
   const logger = createMockLogger();
 
   let capturedOptions: Options | undefined;
-  const queryFn = jest.fn((args: { options?: Options }) => {
+  let capturedPrompt: AsyncGenerator<SDKUserMessage> | undefined;
+  const queryFn = jest.fn((args: { options?: Options; prompt?: unknown }) => {
     capturedOptions = args.options;
+    capturedPrompt = args.prompt as AsyncGenerator<SDKUserMessage> | undefined;
     return emptyStream();
   });
 
@@ -146,6 +150,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     logger,
     getCapturedModel: () => capturedOptions?.model as string | undefined,
     getCapturedOptions: () => capturedOptions,
+    getCapturedPrompt: () => capturedPrompt,
   };
 }
 
@@ -283,5 +288,22 @@ describe('PtahCliRegistry.spawnAgent — headless agent spawn logging (C2)', () 
     expect(spawnedMsg).toContain('glm-5.2:cloud');
     expect(spawnedMsg).toContain('tier: opus');
     expect(spawnedMsg).not.toContain('kimi-k2.7-code:cloud');
+  });
+});
+
+describe('PtahCliRegistry.spawnAgent — resume prompt passes the caller task (TASK_2026_397)', () => {
+  it('hands the SDK the caller task, not the canned resume string, when resumeSessionId is set', async () => {
+    const harness = buildHarness(BASE_CONFIG);
+    const task = 'please review the auth module again';
+
+    await harness.registry.spawnAgent(BASE_CONFIG.id, task, {
+      resumeSessionId: 'prev-session-1',
+    });
+
+    const prompt = harness.getCapturedPrompt();
+    expect(prompt).toBeDefined();
+    const first = await prompt!.next();
+    expect(first.done).toBe(false);
+    expect(first.value.message.content).toBe(task);
   });
 });

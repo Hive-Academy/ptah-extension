@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: bugfix
 title: 'The follow-up box hides on continuation support when resume would serve'
 description: >-
