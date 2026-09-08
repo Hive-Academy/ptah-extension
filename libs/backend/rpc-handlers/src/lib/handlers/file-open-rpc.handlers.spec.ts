@@ -57,6 +57,18 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     expect(notifyFileOpened).toHaveBeenCalledWith('C:\\ws\\a.ts');
   });
 
+  it('opens a file without a line number when none is given', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: 'C:\\ws\\a.ts' })).resolves.toEqual({
+      success: true,
+    });
+    expect(openFile).toHaveBeenCalledWith(
+      vscode,
+      'C:\\ws\\a.ts',
+      undefined,
+    );
+  });
+
   it('uses a detected remembered target', async () => {
     const { method, openFile } = build({ remembered: 'cursor' });
     await method({ path: 'C:\\ws\\a.ts' });
@@ -104,6 +116,18 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     const result = (await method({})) as { success: boolean; error: string };
     expect(result.success).toBe(false);
     expect(result.error).toContain('path');
+    expect(launcher.detect).not.toHaveBeenCalled();
+  });
+
+  it('reports a line-specific error for an invalid line', async () => {
+    const { method, launcher } = build();
+    const result = (await method({ path: 'C:\\ws\\a.ts', line: 0 })) as {
+      success: boolean;
+      error: string;
+    };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('line');
+    expect(result.error).not.toContain('path');
     expect(launcher.detect).not.toHaveBeenCalled();
   });
 });
