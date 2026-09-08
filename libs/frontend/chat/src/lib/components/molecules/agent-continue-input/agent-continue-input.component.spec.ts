@@ -261,4 +261,128 @@ describe('AgentContinueInputComponent', () => {
       expect(component['subtitle']()).toBe('Send a follow-up');
     });
   });
+
+  describe('resume-only agents with a cliSessionId (TASK_2026_399)', () => {
+    it('renders the box when supportsContinuation is absent but a cliSessionId exists', () => {
+      // antigravity and opencode never declare supportsContinuation. Their
+      // finished agents are resumable via cliSessionId, so the box must show.
+      setup(
+        makeAgent({ supportsContinuation: undefined, cliSessionId: 'sess-a' }),
+      );
+      expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
+    });
+
+    it('renders nothing when neither supportsContinuation nor a cliSessionId is present', () => {
+      // Offering a box with no continuation path and no session to resume would
+      // lie to the user.
+      setup(
+        makeAgent({ supportsContinuation: undefined, cliSessionId: undefined }),
+      );
+      expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    });
+
+    it('resumes instead of continuing when continuation is unsupported but a session exists', async () => {
+      setup(
+        makeAgent({ supportsContinuation: undefined, cliSessionId: 'sess-a' }),
+      );
+      expect(component['subtitle']()).toBe(
+        'Send a follow-up — resumes the session',
+      );
+      component['draft'].set('my real follow up');
+
+      await component['submit']();
+
+      expect(continueAgent).not.toHaveBeenCalled();
+      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'agent-1' }),
+        'my real follow up',
+      );
+    });
+
+    it('still continues directly when continuation is supported and not expired', async () => {
+      // Paired isolation for the test above: without it, the resume-only test
+      // would pass even if the component always resumed.
+      setup(
+        makeAgent({
+          supportsContinuation: true,
+          continuationExpired: false,
+          cliSessionId: 'sess-a',
+        }),
+      );
+      expect(component['subtitle']()).toBe('Send a follow-up');
+      component['draft'].set('my real follow up');
+
+      await component['submit']();
+
+      expect(continueAgent).toHaveBeenCalledWith('agent-1', 'my real follow up');
+      expect(resumeAgentWithMessage).not.toHaveBeenCalled();
+    });
+
+    it('falls back to resume when continue answers unsupported, carrying the message', async () => {
+      // Before TASK_2026_399, 'unsupported' hit the generic error branch and the
+      // user's message was lost. It must now route to resume with the message.
+      setup(makeAgent({ supportsContinuation: true, cliSessionId: 'sess-a' }));
+      continueAgent.mockResolvedValueOnce({ ok: false, code: 'unsupported' });
+      component['draft'].set('my real follow up');
+
+      await component['submit']();
+
+      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'agent-1' }),
+        'my real follow up',
+      );
+      expect(component['draft']()).toBe('');
+      expect(component['error']()).toBeNull();
+    });
+
+    it('queues a follow-up while a resume-only agent is running, then flushes it by resume at turn end', async () => {
+      // antigravity and opencode never declare supportsContinuation. The
+      // widened visible gate now shows the box while they are still running,
+      // so a follow-up queues. When the run ends it must flush through
+      // resumeAgentWithMessage, not continueAgent — resumesInstead is true.
+      setup(
+        makeAgent({
+          supportsContinuation: undefined,
+          cliSessionId: 'sess-a',
+          status: 'running',
+        }),
+      );
+      // The widened gate: the box is visible while the agent is still running.
+      expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
+
+      component['draft'].set('my real follow up');
+      await component['submit']();
+
+      // Queued, not delivered yet: neither store method has been called and the
+      // draft is cleared.
+      expect(continueAgent).not.toHaveBeenCalled();
+      expect(resumeAgentWithMessage).not.toHaveBeenCalled();
+      expect(component['queued']()).toBe('my real follow up');
+      expect(component['draft']()).toBe('');
+
+      // The same flush mechanism the TASK_2026_294 queue tests use: update the
+      // agent input to leave running, then run change detection so the
+      // flushOnIdle effect fires.
+      fixture.componentRef.setInput(
+        'agent',
+        makeAgent({
+          supportsContinuation: undefined,
+          cliSessionId: 'sess-a',
+          status: 'completed',
+        }),
+      );
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      // Delivered by resume with the exact text. continueAgent is never called
+      // at any point — a regression that stranded the message or routed it to
+      // continueAgent fails here.
+      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'agent-1' }),
+        'my real follow up',
+      );
+      expect(continueAgent).not.toHaveBeenCalled();
+      expect(component['queued']()).toBeNull();
+    });
+  });
 });

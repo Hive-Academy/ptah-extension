@@ -679,13 +679,9 @@ export class PtahCliRegistry {
         hasSystemPrompt: !!assembly.systemPromptContent,
       },
     );
-    const isResume = !!options?.resumeSessionId;
-    const effectivePrompt = isResume
-      ? 'Continue working on the previous task. Pick up where you left off.'
-      : task;
     const queryFn = await this.moduleLoader.getQueryFunction();
     const abortController = new AbortController();
-    const mailbox = createPromptMailbox(effectivePrompt);
+    const mailbox = createPromptMailbox(task);
     abortController.signal.addEventListener('abort', () => {
       mailbox.close();
     });
