@@ -206,6 +206,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'browser.recordingDir',
   'workflows.disabled',
   'diff.renderSideBySide',
+  'editorLauncher.lastTarget',
   'memory.curatorEnabled',
   'memory.tierLimits.core',
   'memory.tierLimits.recall',

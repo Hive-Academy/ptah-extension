@@ -45,6 +45,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'session:',
   'chat:',
   'file:',
+  'editor:',
   'workspace:',
   'analytics:',
   'provider:',

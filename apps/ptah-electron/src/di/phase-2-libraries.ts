@@ -20,8 +20,10 @@ import {
 import {
   PLATFORM_TOKENS,
   type ContentDownloadService,
+  type IProcessSpawner,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { ElectronEditorLauncher } from '@ptah-extension/platform-electron';
 import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import {
   registerWorkspaceIntelligenceServices,
@@ -61,7 +63,7 @@ import {
   type SqliteVecPathResolver,
 } from '@ptah-extension/persistence-sqlite';
 import * as fs from 'node:fs';
-import { app } from 'electron';
+import { app, shell } from 'electron';
 import {
   registerMemoryCuratorServices,
   MEMORY_TOKENS,
@@ -179,6 +181,12 @@ export function registerPhase2Libraries(
   // plugin activation, next to `pluginLoader.initialize()`.
   registerPluginMarketplaceServices(container, logger);
   registerSdkServices(container, logger);
+  container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
+    useValue: new ElectronEditorLauncher(
+      container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+      shell,
+    ),
+  });
   // harness-sync AFTER registerSdkServices so the plugin loader token exists.
   // The resolver lambda is lazy anyway — the loader is only usable after
   // `initialize()` runs in plugin activation, long after this phase.

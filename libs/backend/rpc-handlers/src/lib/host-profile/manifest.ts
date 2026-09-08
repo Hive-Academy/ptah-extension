@@ -36,6 +36,7 @@ import {
   CorpusRpcHandlers,
   CronRpcHandlers,
   EmbedderRpcHandlers,
+  EditorRpcHandlers,
   EnhancedPromptsRpcHandlers,
   FilePickerRpcHandlers,
   FileSystemRpcHandlers,
@@ -145,6 +146,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: EnhancedPromptsRpcHandlers.METHODS,
     requires: [],
     handler: EnhancedPromptsRpcHandlers,
+  },
+  {
+    key: 'editor',
+    methods: EditorRpcHandlers.METHODS,
+    requires: ['fileOpen'],
+    handler: EditorRpcHandlers,
   },
   {
     key: 'git',
