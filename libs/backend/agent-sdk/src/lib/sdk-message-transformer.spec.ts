@@ -596,3 +596,110 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
     }
   });
 });
+
+/**
+ * TASK_2026_370 — the shared-state mechanism, and what `createIsolated` does
+ * about it.
+ *
+ * The streaming maps are keyed by `parent_tool_use_id || ''` — a CONTEXT, with
+ * no session dimension — so one instance serving two live sessions holds a
+ * single root slot for both. The first case below reproduces the corruption on
+ * the shared instance; the second pins that a per-stream copy removes it.
+ * `StreamTransformer` is what takes that copy (see its own spec).
+ */
+describe('SdkMessageTransformer — per-session isolation (TASK_2026_370)', () => {
+  function build(): SdkMessageTransformer {
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      makeSubagentRegistry() as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
+    );
+  }
+
+  const messageStart = (messageId: string): unknown => ({
+    type: 'stream_event',
+    uuid: `uuid-${messageId}`,
+    event: {
+      type: 'message_start',
+      message: { id: messageId, model: 'claude-opus' },
+    },
+  });
+
+  const textDelta = (text: string): unknown => ({
+    type: 'stream_event',
+    uuid: `uuid-delta-${text}`,
+    event: {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text },
+    },
+  });
+
+  function messageIdsOf(events: unknown[]): string[] {
+    return events
+      .filter((e) => (e as { eventType: string }).eventType === 'text_delta')
+      .map((e) => (e as { messageId: string }).messageId);
+  }
+
+  it('stamps one session text with the OTHER session message id when a single instance serves both', () => {
+    const shared = build();
+
+    shared.transform(messageStart('msg-A') as never, 'sess-a' as never);
+    // Session B opens its own root message a moment later. Same slot.
+    shared.transform(messageStart('msg-B') as never, 'sess-b' as never);
+
+    const events = shared.transform(
+      textDelta('text from A') as never,
+      'sess-a' as never,
+    );
+
+    // A's text carries B's message id, so it renders in B's bubble.
+    expect(messageIdsOf(events)).toEqual(['msg-B']);
+  });
+
+  it('keeps each session on its own message id when each stream takes createIsolated()', () => {
+    const shared = build();
+    const streamA = shared.createIsolated();
+    const streamB = shared.createIsolated();
+
+    streamA.transform(messageStart('msg-A') as never, 'sess-a' as never);
+    streamB.transform(messageStart('msg-B') as never, 'sess-b' as never);
+
+    expect(
+      messageIdsOf(
+        streamA.transform(textDelta('text from A') as never, 'sess-a' as never),
+      ),
+    ).toEqual(['msg-A']);
+    expect(
+      messageIdsOf(
+        streamB.transform(textDelta('text from B') as never, 'sess-b' as never),
+      ),
+    ).toEqual(['msg-B']);
+  });
+
+  it('confines a compact boundary clearStreamingState to the session that compacted', () => {
+    const shared = build();
+    const streamA = shared.createIsolated();
+    const streamB = shared.createIsolated();
+
+    streamA.transform(messageStart('msg-A') as never, 'sess-a' as never);
+    streamB.transform(messageStart('msg-B') as never, 'sess-b' as never);
+
+    // A compacts. On the shared singleton this wiped BOTH sessions' maps.
+    streamA.transform(
+      makeCompactBoundary({ sessionId: 'sess-a', trigger: 'manual' }) as never,
+      'sess-a' as never,
+    );
+
+    // B's open message survived, so its next delta still resolves.
+    expect(
+      messageIdsOf(
+        streamB.transform(textDelta('text from B') as never, 'sess-b' as never),
+      ),
+    ).toEqual(['msg-B']);
+  });
+});

@@ -17,6 +17,7 @@ import { isTurnStateEvent } from '@ptah-extension/shared';
 import {
   REVISION_FLOOR_MAP_LIMIT,
   SessionTurnStateRegistry,
+  TURN_RECORD_MAP_LIMIT,
   toTurnStateEvent,
 } from './session-turn-state.registry';
 
@@ -599,6 +600,133 @@ describe('SessionTurnStateRegistry', () => {
         expect(registry.markGenerating(`session-${i}`)?.revision).toBe(2);
         registry.clear(`session-${i}`);
       }
+    });
+  });
+
+  // TASK_2026_374. `clear` has ONE caller (`ChatStreamBroadcaster`'s loop exit)
+  // and it did not cover the record's other creators — the Stop / StopFailure /
+  // SubagentStop hooks, the harness stream, the Ptah-CLI stream loop, and every
+  // `result` the transformer settles — nor the user-abort path, where the
+  // broadcaster's own guard skipped both clears. The map grew for the life of
+  // the process and `session:status` answered with a `turnState` for sessions
+  // that had ended long ago.
+  describe('record map bound', () => {
+    it('bounds the record map, evicting the least recently used record', () => {
+      // One turn each for LIMIT + 1 distinct sessions and NO clear — the leak
+      // shape exactly: records created down a path that has no teardown.
+      const total = TURN_RECORD_MAP_LIMIT + 1;
+      for (let i = 0; i < total; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      expect(registry.get('session-0')).toBeUndefined();
+      expect(registry.get(`session-${total - 1}`)?.phase).toBe('generating');
+    });
+
+    // The coupling this bound must not break (TASK_2026_371 review F1). An
+    // evicted record re-seeds from the floor, so the floor is the ONLY thing
+    // keeping the counter ahead of a tab that is still open and still holds the
+    // revision it last accepted. `evictOldestRecord` writes the victim's
+    // revision to the floor before dropping it, which both guarantees the floor
+    // exists and moves it to the recent end of the floor map.
+    it('folds the evicted record revision into the floor, so the counter does not restart', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT + 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // session-0's record is gone. Its next turn must still issue 2, not 1 —
+      // a tab holding `lastTurnStateRevision: 1` drops everything at or below.
+      expect(registry.markGenerating('session-0')?.revision).toBe(2);
+    });
+
+    it('evicts the least recently USED record, not the first inserted', () => {
+      // Stop one short of the limit so the touch below lands on a map that is
+      // NOT full: on a full map a first-inserted-first-out eviction would drop
+      // the key it is about to re-insert and append it again, which imitates
+      // use-recency ordering for that one key and hides the difference.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // A second event on session-0: the most recently USED record, still the
+      // FIRST inserted one.
+      registry.settleTurn('session-0');
+
+      // Fill the last slot, then overflow by one.
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+      registry.markGenerating(`session-${TURN_RECORD_MAP_LIMIT}`);
+
+      // session-1 is the least recently used, so it is the victim.
+      expect(registry.get('session-1')).toBeUndefined();
+      // First-inserted-first-out would have evicted session-0 instead. It is
+      // the long-lived chat tab: in streaming-input mode its broadcast loop —
+      // and therefore its single record — is created once and never re-created.
+      expect(registry.get('session-0')?.phase).toBe('idle');
+    });
+
+    it('keeps a session touched only by snapshots recently used', () => {
+      registry.forceIdle(SESSION);
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT - 1; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+
+      const snapshot = registry.applySnapshot(SESSION, [task('t1')]);
+      expect(snapshot).toMatchObject({
+        phase: 'awaiting-background',
+        revision: 2,
+        backgroundTasks: [task('t1')],
+      });
+
+      // This is the LIMIT-th other session touched since SESSION was created.
+      // The snapshot update must make other-0, not SESSION, the LRU victim.
+      registry.markGenerating(`other-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get(SESSION)).toBe(snapshot);
+    });
+
+    // The accepted residue of a phase-BLIND eviction, pinned rather than
+    // guarded (TASK_2026_374). The floor carries `state.revision` and nothing
+    // else, so a record evicted mid-turn also loses `stopSnapshot`, `failure`
+    // and `generatingEmitted`. Making the victim choice skip `generating`
+    // records was rejected: the only non-generating entry in a busy map is
+    // typically the long-lived chat tab, and a record whose teardown never ran
+    // — the leak this bound collects — is exactly one stuck in `generating`.
+    // This spec is the thing that fails if that policy is changed quietly.
+    it("drops a mid-turn record's snapshots on eviction, keeping only its revision", () => {
+      registry.markGenerating(SESSION);
+      registry.recordStop(SESSION, {
+        backgroundTasks: [task('t1')],
+        sessionCrons: [],
+        terminalReason: 'completed',
+      });
+
+      // LIMIT other ids touched before this session's `result` arrives.
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`other-${i}`);
+      }
+      expect(registry.get(SESSION)).toBeUndefined();
+
+      // The floor survived, so the counter is still ahead of anything the tab
+      // accepted — that half is the invariant and is NOT residue.
+      const settled = registry.settleTurn(SESSION);
+      expect(settled.revision).toBe(2);
+
+      // The snapshot did not. `awaiting-background` is the answer the dropped
+      // `stopSnapshot` would have produced.
+      expect(settled.phase).toBe('idle');
+      expect(settled.backgroundTasks).toEqual([]);
+    });
+
+    it('a touch on an EXISTING record in a full map evicts nothing', () => {
+      for (let i = 0; i < TURN_RECORD_MAP_LIMIT; i++) {
+        registry.markGenerating(`session-${i}`);
+      }
+
+      // An update, not an insertion. `storeRecord` shrinks the map before it
+      // tests the limit, so this path can never evict.
+      registry.settleTurn(`session-${TURN_RECORD_MAP_LIMIT - 1}`);
+
+      expect(registry.get('session-0')?.phase).toBe('generating');
     });
   });
 

@@ -37,9 +37,9 @@
  * budget. Inside the tick the check runs again PER ITEM, because a lane can
  * exhaust the budget halfway through: once it is exhausted, token-spending
  * stages are left untouched (still `queued`, eligible next tick) while the free
- * stages — prefilter, embedding, clustering — keep draining. Those three are the
- * WHOLE free list; `trigger-eval` used to be read as a fourth and is not (see
- * `TOKEN_SPENDING_STAGES`). From 80 % of the budget onward the eligible window
+ * stages — embedding, clustering — keep draining. Those TWO are the WHOLE free
+ * list; `trigger-eval` and `prefilter` were both read as members of it and
+ * neither is (see `TOKEN_SPENDING_STAGES`). From 80 % of the budget onward the eligible window
  * is ordered cheap-stages-first, so the last of the budget buys the most work.
  *
  * The drain is also where a spend LEARNS ITS STAGE: `runItem` dispatches the
@@ -496,14 +496,40 @@ export const DRAIN_TIER_LIMITS: Record<
 /**
  * Stages that consume the token budget, and therefore stop when it is gone.
  *
- * ## The complement is exactly THREE stages, and the list is the reason
+ * ## The complement is exactly TWO stages, and the list is the reason
  *
- * `prefilter` is a regex pass, `embedding` runs the local `IEmbedder`, and
- * `clustering` is cosine arithmetic over vectors those two already produced.
- * None of the three can reach an endpoint, so none of them can be gated by a
- * token budget and all three keep draining after the budget is gone.
+ * `embedding` runs the local `IEmbedder` and `clustering` is cosine arithmetic
+ * over the vectors it already produced. Neither can reach an endpoint, so
+ * neither can be gated by a token budget and both keep draining after the
+ * budget is gone.
  *
- * ## `trigger-eval` is NOT a fourth, and reading it as one was the defect
+ * ## `prefilter` is NOT a third, and reading it as one was the defect
+ *
+ * The complement used to name `prefilter` first and describe it as "a regex
+ * pass". The regex is real but it is the ELIGIBILITY test, not the stage: the
+ * handler's whole job after it passes is to draft a candidate with a model.
+ * `SkillStageHandlersService.runPrefilterStage` calls `workers.analyzeSession`,
+ * and `SkillSynthesisService.analyzeSession` calls
+ * `SkillSynthesizerService.synthesize`, which runs on a lane through
+ * `LaneRunnerService.run`. One drafting call per eligible session is not zero —
+ * measured at $0.077 on a single boot, the LARGEST single line of that boot's
+ * ~$0.19 (TASK_2026_356).
+ *
+ * The one prefilter run that genuinely spends nothing is `source === 'boot'`,
+ * which takes the template-only path and logs that it is skipping synthesis.
+ * The gate below keys on STAGE and not on `source`, deliberately: `source` is a
+ * property of one row, the budget is a property of the day, and a per-source
+ * exemption would re-open the same hole for the boot backlog — which is exactly
+ * the traffic that produced the measurement above.
+ *
+ * The behaviour change is the point, and it is larger than `trigger-eval`'s.
+ * An over-budget host now stops running `prefilter` rows entirely, and because
+ * `archaeology`, `judge-panel` and `trigger-eval` rows are all chained off a
+ * SUCCESSFUL prefilter, it stops minting the downstream spend those rows carry
+ * as well. The rows stay `queued` and are eligible again next tick; nothing is
+ * dropped, the day's ceiling is simply a ceiling.
+ *
+ * ## `trigger-eval` is NOT a third either, and reading it as one was the defect
  *
  * The gate's SCORING path is genuinely local — that is its defining property and
  * its header says so at length. But scoring needs a probe set, and the probe set
@@ -528,6 +554,7 @@ export const DRAIN_TIER_LIMITS: Record<
  */
 const TOKEN_SPENDING_STAGES: ReadonlySet<SkillQueueStage> =
   new Set<SkillQueueStage>([
+    'prefilter',
     'synthesis',
     'cluster-synthesis',
     'judge',
@@ -544,14 +571,28 @@ const TOKEN_SPENDING_STAGES: ReadonlySet<SkillQueueStage> =
  * `trigger-eval` sits between `judge` and `digest`: one lane call plus local
  * embedder arithmetic is dearer than a single bare judge call, and cheaper than
  * `judge-panel`'s two calls plus a possible escalation.
+ *
+ * `prefilter` ranked `0` until TASK_2026_356 — cheapest of all eleven — which
+ * made this table the second half of the same defect the set above records. It
+ * drafts a candidate with a model, so above `CHEAP_FIRST_BUDGET_FRACTION` the
+ * tail of the budget did not merely fail to gate the most expensive stage in
+ * the subsystem: it actively PREFERRED it, ordering it ahead of the bare
+ * `judge` call it dwarfs. It now sits between `digest` and `synthesis` — one
+ * drafting call over one session's trajectory is dearer than a single judge or
+ * probe-set call and than the digest pass, and cheaper than `synthesis` and
+ * `cluster-synthesis`, which draft over a whole cluster.
+ *
+ * Both halves matter and neither substitutes for the other: the set decides
+ * WHETHER an over-budget host runs a stage, this table decides which stages the
+ * last 20 % of the budget buys.
  */
 const STAGE_COST_RANK: Record<SkillQueueStage, number> = {
-  prefilter: 0,
-  embedding: 1,
-  clustering: 2,
-  judge: 3,
-  'trigger-eval': 4,
-  digest: 5,
+  embedding: 0,
+  clustering: 1,
+  judge: 2,
+  'trigger-eval': 3,
+  digest: 4,
+  prefilter: 5,
   synthesis: 6,
   'cluster-synthesis': 7,
   'judge-panel': 8,

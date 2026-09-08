@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_340
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Phantom session entries already written before the TASK_2026_308 fix are never

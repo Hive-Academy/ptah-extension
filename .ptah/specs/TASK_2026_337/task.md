@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_337
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   fingerprintNode does not fold summaryContent or toolCount, so a node can be

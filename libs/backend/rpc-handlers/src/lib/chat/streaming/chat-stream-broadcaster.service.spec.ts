@@ -314,7 +314,12 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
   // record's controller and the slash command died with "Operation aborted".
   it('does NOT end the session when a newer record owns the id before the stream throws (slash follow-up race)', async () => {
     const h = makeHarness();
-    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
+    // Two reads, two records: `T1` is what this loop streamed, `T2` is the
+    // replacement registered under the same id. A token is minted per
+    // registration, so two registrations never share one.
+    h.sdkAdapter.getSessionToken
+      .mockReturnValueOnce('T1')
+      .mockReturnValue('T2');
     h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
@@ -799,7 +804,11 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
 
   it('keeps the registry entry when a newer record owns the id (slash follow-up race)', async () => {
     const h = makeHarness();
-    h.sdkAdapter.getSessionToken.mockReturnValue({} as never);
+    // `T1` is the record this loop streamed; `T2` is the replacement that now
+    // owns the id and is about to publish turn state of its own.
+    h.sdkAdapter.getSessionToken
+      .mockReturnValueOnce('T1')
+      .mockReturnValue('T2');
     h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
     h.turnState.markGenerating(SESSION_ID);
     h.turnState.settleTurn(SESSION_ID);
@@ -811,6 +820,57 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
     expect(h.turnState.get(SESSION_ID)?.phase).toBe('idle');
+  });
+
+  // TASK_2026_374. `endSessionIfTokenMatches` returns false for TWO different
+  // situations and the guard read both as "replaced": a newer record owns the
+  // id (above), or NOTHING is registered — which is exactly what a user abort
+  // produces, since `chat:abort` already ended the record. Both
+  // `turnState.clear` calls were skipped, so the `TurnRecord` survived for the
+  // life of the process, one per abort, and `session:status` kept answering
+  // with a `turnState` for a session that had ended.
+  it('clears the registry entry after a user abort, where nothing is registered under the id any more', async () => {
+    const h = makeHarness();
+    // The record existed at loop start and is gone by the time the finally
+    // block runs — `chat:abort` tore it down.
+    h.sdkAdapter.getSessionToken.mockReturnValueOnce('T1').mockReturnValue(null);
+    h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('Request aborted by user');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    // Non-vacuity: the abort path itself commits a `forceIdle` state, so a
+    // record definitely existed when the guard was evaluated.
+    expect(turnStateChunks(h).at(-1)?.phase).toBe('idle');
+    expect(h.turnState.get(SESSION_ID)).toBeUndefined();
+  });
+
+  // The floor is what makes the clear above safe. Dropping the record must not
+  // restart the counter under an id the tab is still holding a revision for
+  // (TASK_2026_371 D1 / review F1) — the coupling that made 374 unfixable on
+  // its own.
+  it('leaves the aborted session above the revision its last turn ended on', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.getSessionToken.mockReturnValueOnce('T1').mockReturnValue(null);
+    h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
+    h.turnState.markGenerating(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('Request aborted by user');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const lastRevision = turnStateChunks(h).at(-1)?.revision ?? 0;
+    expect(h.turnState.markGenerating(SESSION_ID)?.revision).toBeGreaterThan(
+      lastRevision,
+    );
   });
 
   // TASK_2026_371 D1. The clean loop exit above CLEARS the registry record,

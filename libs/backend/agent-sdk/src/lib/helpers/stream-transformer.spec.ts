@@ -62,12 +62,23 @@ function makeLogger(): jest.Mocked<Logger> {
   } as unknown as jest.Mocked<Logger>;
 }
 
+/**
+ * The DI singleton's stand-in. `createIsolated` returns the same object here so
+ * the assertions in this file can keep reading one `transform` mock; the
+ * isolation contract itself is pinned separately, with distinct isolates, in
+ * the "per-stream isolation" block at the bottom.
+ */
 function makeMessageTransformer(): jest.Mocked<
-  Pick<SdkMessageTransformer, 'transform'>
+  Pick<SdkMessageTransformer, 'transform' | 'createIsolated'>
 > {
-  return {
+  const mock = {
     transform: jest.fn().mockReturnValue([]),
-  };
+    createIsolated: jest.fn(),
+  } as unknown as jest.Mocked<
+    Pick<SdkMessageTransformer, 'transform' | 'createIsolated'>
+  >;
+  mock.createIsolated.mockReturnValue(mock as unknown as SdkMessageTransformer);
+  return mock;
 }
 
 function makeModelResolver(): jest.Mocked<
@@ -930,5 +941,87 @@ describe('StreamTransformer — session MCP status (TASK_2026_375)', () => {
     );
 
     expect(mcpEvents).toHaveLength(1);
+  });
+});
+
+/**
+ * TASK_2026_370 — per-stream isolation of the message transformer.
+ *
+ * `SdkMessageTransformer` is a DI singleton whose streaming bookkeeping is keyed
+ * by `parent_tool_use_id || ''` with NO session dimension, so every root
+ * assistant turn of every session wrote the same slot. `StreamTransformer` was
+ * the one caller that used the injected instance directly instead of taking a
+ * `createIsolated()` copy per stream, and it is the caller that serves every
+ * interactive chat session — the only place where two streams are live at once.
+ */
+describe('StreamTransformer — per-stream isolation (TASK_2026_370)', () => {
+  async function drainAll(iterable: AsyncIterable<unknown>): Promise<void> {
+    for await (const _ of iterable) {
+      // Consuming the stream is the point.
+    }
+  }
+
+  it('takes a fresh isolated transformer per stream and never uses the shared instance', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const isolates: Array<jest.Mock> = [];
+    messageTransformer.createIsolated.mockImplementation(() => {
+      const isolate = { transform: jest.fn().mockReturnValue([]) };
+      isolates.push(isolate.transform);
+      return isolate as unknown as SdkMessageTransformer;
+    });
+
+    await drainAll(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 1 })]),
+        sessionId: 'sess-a' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+    await drainAll(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 2 })]),
+        sessionId: 'sess-b' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+      }),
+    );
+
+    expect(messageTransformer.createIsolated).toHaveBeenCalledTimes(2);
+    // Two streams, two instances — not one shared root-message slot.
+    expect(isolates).toHaveLength(2);
+    expect(isolates[0]).not.toBe(isolates[1]);
+    // Each stream's messages went to ITS OWN isolate...
+    expect(isolates[0]).toHaveBeenCalledTimes(1);
+    expect(isolates[0]).toHaveBeenCalledWith(expect.anything(), 'sess-a');
+    expect(isolates[1]).toHaveBeenCalledTimes(1);
+    expect(isolates[1]).toHaveBeenCalledWith(expect.anything(), 'sess-b');
+    // ...and the DI singleton transformed nothing at all.
+    expect(messageTransformer.transform).not.toHaveBeenCalled();
+  });
+
+  it('isolates the stream before the first message, so two concurrent streams never share one', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+
+    // Both iterables are created before either is consumed, which is the real
+    // shape: `ChatSessionService` starts a stream per session and the broadcast
+    // loops interleave.
+    const first = transformer.transform({
+      sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 1 })]),
+      sessionId: 'sess-a' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    const second = transformer.transform({
+      sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 2 })]),
+      sessionId: 'sess-b' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+
+    expect(messageTransformer.createIsolated).toHaveBeenCalledTimes(2);
+
+    await drainAll(first);
+    await drainAll(second);
   });
 });

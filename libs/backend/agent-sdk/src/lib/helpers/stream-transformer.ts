@@ -255,7 +255,25 @@ export class StreamTransformer {
       activityWatchdog,
     } = config;
     const logger = this.logger;
-    const messageTransformer = this.messageTransformer;
+    // ONE transformer per stream, never the DI singleton (TASK_2026_370).
+    //
+    // `SdkMessageTransformer` keys its streaming bookkeeping on
+    // `parent_tool_use_id || ''` — a context, with no session dimension — and is
+    // registered `Lifecycle.Singleton`. Every root assistant turn of every
+    // session therefore wrote the same `''` slot: with two chat sessions live,
+    // session A's `content_block_start` resolved to session B's message id (so
+    // A's text landed on B's bubble), `onMessageDelta` attributed A's token
+    // usage to B's message, and a compact boundary in either session called
+    // `clearStreamingState()` on the maps of BOTH.
+    //
+    // `createIsolated()` is the mechanism that already existed for exactly this;
+    // `HarnessStreamBroadcaster` and the Ptah-CLI stream loop each take one per
+    // stream, and the interactive chat path was the one caller that did not.
+    // `transform()` is called once per session stream, so this is the per-stream
+    // seam. The shared collaborators (`usageTracker`, `turnState`,
+    // `sessionLifecycle`) are passed through by `createIsolated` and stay
+    // shared — they are keyed by session id already.
+    const messageTransformer = this.messageTransformer.createIsolated();
     const authEnv = this.authEnv;
     const modelResolver = this.modelResolver;
     const pricingProvider = this.pricingProvider;
