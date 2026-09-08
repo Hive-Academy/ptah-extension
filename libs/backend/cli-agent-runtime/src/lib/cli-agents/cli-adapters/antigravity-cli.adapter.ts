@@ -368,7 +368,8 @@ export class AntigravityCliAdapter implements CliAdapter {
       );
       return prior;
     } catch {
-      // MCP tools won't be available this run; CLI still functions.
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, MCP tools won't be available this run; CLI still functions.
       return undefined;
     }
   }
@@ -618,6 +619,10 @@ export class AntigravityCliAdapter implements CliAdapter {
     try {
       event = JSON.parse(trimmed) as AgyEvent;
     } catch {
+      // degradation-audit: optional-capability - agy prints banners and crash
+      // dumps outside the JSON event stream; a non-JSON line is emitted
+      // verbatim as text instead of being treated as a parse failure, per the
+      // doc comment on this method.
       emitOutput(trimmed + '\n');
       emitSegment({ type: 'text', content: trimmed });
       return;

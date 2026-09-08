@@ -19,6 +19,7 @@ import type {
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import type { IModelResolver, IAuthEnvProvider } from '../auth-env.port';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 
 type AuthMethod = 'claudeCli' | 'apiKey' | 'thirdParty';
 
@@ -42,6 +43,8 @@ interface Harness {
   setProviderId: (providerId: string) => void;
   /** Records every call the service routes through `OffThreadProcessSpawner`. */
   offThreadSpawns: SpawnOptions[];
+  /** The backing map of the in-memory `IStateStorage` this harness supplies. */
+  state: Map<string, unknown>;
 }
 
 function makeHarness(opts: {
@@ -49,6 +52,8 @@ function makeHarness(opts: {
   authEnv?: AuthEnv;
   sdkModels: ModelInfo[];
   tiers?: Record<string, string>;
+  /** Pre-seeded persisted state, shared across two harnesses to model a reboot. */
+  state?: Map<string, unknown>;
 }): Harness {
   const logger = {
     info: jest.fn(),
@@ -95,6 +100,19 @@ function makeHarness(opts: {
 
   const authEnv: AuthEnv = opts.authEnv ?? {};
 
+  // An in-memory IStateStorage. Sharing the map between two harnesses is what
+  // makes a "second boot" testable without a real backend.
+  const state = opts.state ?? new Map<string, unknown>();
+  const stateStorage: IStateStorage = {
+    get: <T>(key: string, defaultValue?: T): T | undefined =>
+      state.has(key) ? (state.get(key) as T) : defaultValue,
+    update: async (key: string, value: unknown): Promise<void> => {
+      if (value === undefined) state.delete(key);
+      else state.set(key, JSON.parse(JSON.stringify(value)) as unknown);
+    },
+    keys: () => [...state.keys()],
+  };
+
   return {
     service: new SdkModelService(
       logger,
@@ -103,6 +121,7 @@ function makeHarness(opts: {
       modelResolver,
       authProvider,
       processSpawner,
+      stateStorage,
     ),
     spawnEnvs,
     queryOptions,
@@ -114,6 +133,7 @@ function makeHarness(opts: {
       providerId = id;
     },
     offThreadSpawns,
+    state,
   };
 }
 
@@ -500,5 +520,124 @@ describe('SdkModelService', () => {
 
       expect(h.offThreadSpawns).toEqual([spawnOptions]);
     });
+  });
+});
+
+// ===========================================================================
+// Cross-boot catalog persistence — TASK_2026_383 Batch 11.1.
+//
+// The in-memory map only covers repeats within one boot, so the FIRST
+// `config:models-list` of every launch paid a full SDK-bridge spawn (1175 ms
+// median). These specs pin the memo, its fingerprint keying, and its refusal
+// to trust a corrupt entry.
+// ===========================================================================
+describe('SdkModelService — persisted catalog', () => {
+  const MODELS: ModelInfo[] = [
+    { value: 'opus', displayName: 'Opus', description: '' },
+    { value: 'sonnet', displayName: 'Sonnet', description: '' },
+  ];
+
+  it('answers the first call of a second boot without spawning the SDK bridge', async () => {
+    const state = new Map<string, unknown>();
+
+    const first = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    await first.service.getSupportedModels();
+    expect(first.spawnEnvs).toHaveLength(1);
+
+    // A fresh service over the same storage is the next launch.
+    const second = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    const models = await second.service.getSupportedModels();
+
+    expect(second.spawnEnvs).toHaveLength(0);
+    expect(models.map((m) => m.value)).toEqual(['opus', 'sonnet']);
+  });
+
+  it('does not let one auth identity answer for another', async () => {
+    const state = new Map<string, unknown>();
+
+    const first = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    await first.service.getSupportedModels();
+
+    // Different credential => different fingerprint => a miss by construction.
+    const second = makeHarness({
+      authMethod: 'apiKey',
+      authEnv: { ANTHROPIC_API_KEY: 'sk-different' },
+      sdkModels: MODELS,
+      state,
+    });
+    second.setProviderId('other-provider');
+    await second.service.getSupportedModels().catch(() => undefined);
+
+    expect(
+      second.spawnEnvs.length + second.offThreadSpawns.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('ignores a corrupt persisted entry instead of repairing it', async () => {
+    const state = new Map<string, unknown>();
+    const seeded = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    await seeded.service.getSupportedModels();
+
+    // Corrupt every entry in place, keeping the store's own shape intact.
+    const store = state.get('ptah.sdk.modelCatalog') as Record<string, unknown>;
+    for (const key of Object.keys(store)) store[key] = [{ value: 42 }];
+
+    const next = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    const models = await next.service.getSupportedModels();
+
+    // Fetched, not served from the corrupt entry.
+    expect(next.spawnEnvs).toHaveLength(1);
+    expect(models.map((m) => m.value)).toEqual(['opus', 'sonnet']);
+  });
+
+  it('drops the persisted copy on clearCache()', async () => {
+    const state = new Map<string, unknown>();
+    const h = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    await h.service.getSupportedModels();
+    expect(state.has('ptah.sdk.modelCatalog')).toBe(true);
+
+    h.service.clearCache();
+
+    expect(state.has('ptah.sdk.modelCatalog')).toBe(false);
+  });
+
+  it('keeps the persisted copy across an auth change', async () => {
+    const state = new Map<string, unknown>();
+    const h = makeHarness({
+      authMethod: 'claudeCli',
+      sdkModels: MODELS,
+      state,
+    });
+    await h.service.getSupportedModels();
+
+    // Per-identity keying already isolates the catalogs; wiping them on every
+    // provider switch is the A -> B -> A defect TASK_2026_353 removed.
+    h.service.invalidateForAuthChange();
+
+    expect(state.has('ptah.sdk.modelCatalog')).toBe(true);
   });
 });

@@ -266,6 +266,9 @@ export class McpInstallService {
     if (facet === undefined) return null;
     try {
       return facet.configPath(workspaceRoot ?? '');
+      // degradation-audit: optional-capability - per the doc comment on this
+      // method, an unresolvable config path is the documented null return, not
+      // a hidden failure.
     } catch {
       return null;
     }
@@ -331,6 +334,9 @@ export class McpInstallService {
     try {
       records = reader.list();
     } catch {
+      // degradation-audit: optional-capability - the Smithery rows are one of
+      // several sources the Installed tab concatenates, so an unreadable
+      // store costs that section and leaves every other source rendered.
       // One unreadable store must not empty the whole Installed tab.
       return [];
     }
@@ -358,6 +364,9 @@ export class McpInstallService {
     try {
       records = reader.list();
     } catch {
+      // degradation-audit: optional-capability - same contract as the
+      // Smithery rows above: the OAuth section drops out of the Installed
+      // tab, the sections backed by readable stores still render.
       return [];
     }
 

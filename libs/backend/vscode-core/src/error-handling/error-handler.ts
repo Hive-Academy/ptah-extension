@@ -73,6 +73,10 @@ export class ErrorHandler {
     try {
       return await promise;
     } catch (error) {
+      // degradation-audit: optional-capability - this IS the reporting path:
+      // handleError logs the failure with its context and (by default) shows
+      // the user a notification, so the optional part is only the caller's
+      // result, and undefined is this boundary's documented outcome.
       this.handleError(
         error instanceof Error ? error : String(error),
         context,
@@ -343,6 +347,10 @@ export class ErrorHandler {
       try {
         return JSON.stringify(error);
       } catch {
+        // degradation-audit: optional-capability - serialising a non-Error
+        // throwable is a formatting nicety; a cyclic or unserialisable value
+        // degrades to the 'Unknown error object' text while the surrounding
+        // handleError call still logs and surfaces the failure.
         return 'Unknown error object';
       }
     }

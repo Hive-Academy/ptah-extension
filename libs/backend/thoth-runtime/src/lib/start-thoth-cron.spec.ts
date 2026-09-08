@@ -152,10 +152,7 @@ describe('startThothCron', () => {
     expect(handler).toBeDefined();
     const result = await (handler as () => Promise<{ summary: string }>)();
 
-    expect(backupService.backup).toHaveBeenCalledWith(
-      refs.sqliteConnection?.db,
-      'daily',
-    );
+    expect(backupService.backup).toHaveBeenCalledWith('daily');
     expect(backupService.rotate).toHaveBeenCalledWith('daily', 7);
     const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
     expect(pragma).toHaveBeenCalledWith('incremental_vacuum(100)');
@@ -163,8 +160,55 @@ describe('startThothCron', () => {
     expect(result.summary).toBe('backup written to /backups/daily.db');
   });
 
-  it('backup handler is a no-op when the connection was torn down before the run', async () => {
+  // R-1 (TASK_2026_383). The connection check used to sit ABOVE the backup, so
+  // a host whose connection was gone took no daily backup at all. The worker
+  // opens the database file itself, so the backup no longer needs the handle
+  // and the check now gates only the two write pragmas.
+  it('still takes the backup when the connection was torn down before the run, and skips only the pragmas', async () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
+    const backupService = {
+      backup: jest.fn().mockResolvedValue('/backups/daily.db'),
+      rotate: jest.fn(),
+    };
+    const refs = refsWithSqlite();
+    const pragma = refs.sqliteConnection?.db.pragma as jest.Mock;
+    const container = makeContainer([
+      [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
+      [CRON_TOKENS.CRON_JOB_STORE, { upsert: jest.fn() }],
+      [
+        CRON_TOKENS.CRON_HANDLER_REGISTRY,
+        {
+          has: (name: string) => handlers.has(name),
+          register: (name: string, fn: () => Promise<{ summary: string }>) => {
+            handlers.set(name, fn);
+          },
+        },
+      ],
+      [PERSISTENCE_TOKENS.BACKUP_SERVICE, backupService],
+      [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+    ]);
+
+    await startThothCron(container, refs);
+    refs.sqliteConnection = null;
+
+    const handler = handlers.get('backup:daily') as () => Promise<{
+      summary: string;
+    }>;
+    await expect(handler()).resolves.toEqual({
+      summary:
+        'backup written to /backups/daily.db; pragmas skipped: no sqlite connection',
+    });
+    expect(backupService.backup).toHaveBeenCalledWith('daily');
+    expect(backupService.rotate).toHaveBeenCalledWith('daily', 7);
+    expect(pragma).not.toHaveBeenCalled();
+  });
+
+  it('reports the backup as not taken when the worker produced nothing and there is no connection', async () => {
+    const handlers = new Map<string, () => Promise<{ summary: string }>>();
+    const backupService = {
+      backup: jest.fn().mockResolvedValue(null),
+      rotate: jest.fn(),
+    };
     const refs = refsWithSqlite();
     const container = makeContainer([
       [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
@@ -178,6 +222,7 @@ describe('startThothCron', () => {
           },
         },
       ],
+      [PERSISTENCE_TOKENS.BACKUP_SERVICE, backupService],
       [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
     ]);
 
@@ -188,7 +233,7 @@ describe('startThothCron', () => {
       summary: string;
     }>;
     await expect(handler()).resolves.toEqual({
-      summary: 'skipped: no sqlite connection',
+      summary: 'backup not taken; pragmas skipped: no sqlite connection',
     });
   });
 

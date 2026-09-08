@@ -165,6 +165,9 @@ function tryCreate(path: string): boolean {
     }
     return true;
   } catch {
+    // degradation-audit: optional-capability - exclusive creation is a
+    // lock-acquisition probe; false sends the caller through stale detection
+    // and bounded retry.
     return false;
   }
 }
@@ -200,6 +203,8 @@ function breakIfStale(
     rmSync(path, { force: true });
     return true;
   } catch {
+    // degradation-audit: optional-capability - stale-lock cleanup is best
+    // effort, and false keeps the caller on the bounded contention retry path.
     return false;
   }
 }

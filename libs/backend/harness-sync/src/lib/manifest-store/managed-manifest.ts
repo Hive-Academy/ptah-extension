@@ -191,6 +191,9 @@ export class ManagedManifestStore {
       atomicWriteWithRetry(path, `${JSON.stringify(manifest, null, 2)}\n`);
       return true;
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the warning reports the failed
+      // ownership write, and false is surfaced by the reconciler as writeFailed
+      // health.
       this.warn('[harness-sync] Failed to persist managed manifest', {
         path,
         error: error instanceof Error ? error.message : String(error),

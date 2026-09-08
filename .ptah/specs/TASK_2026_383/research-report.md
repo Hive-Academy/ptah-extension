@@ -75,12 +75,12 @@ named remedies, not a comparison of implementation options. Per-item status:
   integrity-check-off-boot-path work — none of it is the five Track C items.
   The actual explanation for the collapsed numbers is a **different, earlier**
   set of fixes already merged into `main` before both #380 and #383 branched:
-  TASK_2026_353 (off-thread SDK model/version spawns), TASK_2026_341 (off-thread
+  TASK*2026_353 (off-thread SDK model/version spawns), TASK_2026_341 (off-thread
   CLI process spawns generally) and the CLI-detector/auth-status coalescing
   commit `f7c8d6c7a`. Batches.md's own file annotations (e.g. "PC-5", "PC-1")
   already anticipated some of this by pointing at exact still-open line numbers
   — the batch plan is not stale on autocomplete:agents/config:models-list/
-  session:list being _partially_ fixed elsewhere, it is stale on assuming the
+  session:list being \_partially* fixed elsewhere, it is stale on assuming the
   fix routes were the ones Track C names.
 
 ## Local consequences

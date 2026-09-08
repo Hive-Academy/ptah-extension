@@ -26,13 +26,22 @@ export {
 } from './lib/vec-load-diagnostic';
 
 export type { IBackupService, BackupKind } from './lib/backup.service';
-export { SqliteBackupService } from './lib/backup.service';
+export {
+  SqliteBackupService,
+  BACKUP_WORKER_BUDGET_MS,
+} from './lib/backup.service';
 
 export {
   SqliteIntegrityService,
   DB_INTEGRITY_CHECK_INTERVAL_MS,
   INTEGRITY_WORKER_BUDGET_MS,
 } from './lib/integrity/integrity-check.service';
+export { DbWorkerRunner } from './lib/integrity/db-worker-runner';
+export type {
+  DbWorkerRun,
+  DbWorkerOutcome,
+  DbWorkerRunOptions,
+} from './lib/integrity/db-worker-runner';
 export { IntegrityCheckStateStore } from './lib/integrity/integrity-check-state.store';
 export type { IntegrityCheckState } from './lib/integrity/integrity-check-state.store';
 export type {
@@ -44,12 +53,18 @@ export type {
   IntegrityCheckRequest,
   IntegrityCheckResponse,
   IntegrityErrorResponse,
+  BackupRequest,
+  BackupResponse,
   IntegrityWorkerInbound,
+  IntegrityCheckOutbound,
   IntegrityWorkerOutbound,
 } from './lib/integrity/integrity-worker-protocol';
 export {
   classifyQuickCheck,
   isIntegrityCheckRequest,
+  isBackupRequest,
+  validateBackupDestination,
+  resolveRealBackupDestination,
 } from './lib/integrity/integrity-worker-protocol';
 
 export { VecStatusService } from './lib/vec-status.service';

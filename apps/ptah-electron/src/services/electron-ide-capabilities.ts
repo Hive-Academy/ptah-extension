@@ -275,6 +275,9 @@ export class ElectronIDECapabilities implements IIDECapabilities {
         this.normalize(cursorPath) as string,
       );
     } catch {
+      // degradation-audit: optional-capability - AST analysis is an enrichment
+      // over the cursor file; null means "no relative import resolved", the
+      // same answer a package or alias import gives, and lookup continues.
       return null;
     }
     if (!result.isOk() || !result.value) return null;
@@ -469,6 +472,9 @@ export class ElectronIDECapabilities implements IIDECapabilities {
         })),
       );
     } catch {
+      // degradation-audit: optional-capability - excluding comment and string
+      // ranges is an optional filter; an empty list KEEPS every match rather
+      // than dropping one, which is the documented safe direction above.
       return [];
     }
   }
@@ -493,6 +499,9 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     try {
       return await this.fs.readFile(filePath);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - every caller treats a file it
+      // cannot read as one with no symbol in it; null skips that candidate and
+      // the surrounding search still reports whatever the other files gave.
       this.logger.warn('[ElectronIDECapabilities] Could not read file', {
         file: filePath,
         error: error instanceof Error ? error.message : String(error),

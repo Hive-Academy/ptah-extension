@@ -370,6 +370,10 @@ export class AgentDiscoveryService {
 
       return agents.filter(Boolean) as AgentInfo[];
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - agent directory scan for the @
+      // picker is best-effort; a missing or unreadable directory just means no
+      // agents to list, and reportScanFailure already logs real (non-ENOENT)
+      // failures at warn.
       this.reportScanFailure(dir, error);
       return [];
     }

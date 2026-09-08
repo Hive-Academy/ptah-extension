@@ -88,7 +88,7 @@ export class SqliteMigrationRunner {
     if (pending.length > 0 && this.backupService) {
       let backupDest: string | null = null;
       try {
-        backupDest = await this.backupService.backup(this.db, 'pre-migration');
+        backupDest = await this.backupService.backup('pre-migration');
       } catch (err: unknown) {
         this.logger.warn(
           '[persistence-sqlite] pre-migration backup failed (non-fatal)',

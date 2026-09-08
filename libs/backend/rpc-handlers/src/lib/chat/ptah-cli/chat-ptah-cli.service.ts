@@ -382,6 +382,9 @@ export class ChatPtahCliService {
     try {
       dirs = await fs.readdir(projectsDir);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - reading the Claude projects
+      // directory is a transcript-location probe; 'indeterminate' tells the
+      // caller the subagent transcript could not be judged either way.
       this.logger.warn(
         '[ChatPtahCliService.probeSubagentTranscript] Could not read projects directory',
         {
@@ -421,6 +424,9 @@ export class ChatPtahCliService {
       await fs.access(transcriptPath);
       return 'present';
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - transcript access is an
+      // existence probe; ENOENT answers 'absent' and any other failure is
+      // warned and answers 'indeterminate'.
       const code =
         error instanceof Error && 'code' in error
           ? (error as NodeJS.ErrnoException).code

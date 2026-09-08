@@ -6,9 +6,12 @@
  * launches at all catches a class of bugs (missing dependency, ESM resolution
  * failure, broken main.mjs shebang).
  *
- * Tests are SKIPPED automatically when `dist/apps/ptah-cli/main.mjs` is not
- * present (i.e. local dev mode without a build) so the dev-loop test runs
- * stay fast. After `nx build ptah-cli`, the suite runs and asserts on stdout.
+ * `dist/apps/ptah-cli/main.mjs` must exist to run this suite. Skipping when
+ * it does not is permitted ONLY under `PTAH_ALLOW_SKIP_UNBUILT=1` (local dev
+ * mode without a build, so the dev-loop test run stays fast); unset, a
+ * missing dist FAILS the suite naming `nx build ptah-cli` (TASK_2026_383
+ * Task 4.2 -- a skip and a pass look identical in CI output). After
+ * `nx build ptah-cli`, the suite runs and asserts on stdout.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -16,15 +19,14 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
+import { describeIfBuiltOrFail } from './test-utils/build-artifact-gate';
 
 // Resolve repo root from this test file: apps/ptah-cli/src/smoke.spec.ts
 // → ../../../  is the repo root (D:/projects/ptah-extension).
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const DIST_BIN = path.join(REPO_ROOT, 'dist', 'apps', 'ptah-cli', 'main.mjs');
 
-const distExists = existsSync(DIST_BIN);
-
-const describeIfBuilt = distExists ? describe : describe.skip;
+const describeIfBuilt = describeIfBuiltOrFail(DIST_BIN, 'nx build ptah-cli');
 
 jest.setTimeout(60_000);
 
@@ -153,6 +155,20 @@ describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
     itPosix('removes the registry entry after SIGTERM teardown', async () => {
       await rm(REGISTRY_PATH, { force: true });
 
+      // `proxy start` boots `withEngine({ mode: 'full' })`, which initializes
+      // the SDK adapter and aborts with `sdk_init_failed` when no provider
+      // credential is configured — the state of every CI runner. This test
+      // asserts on registry teardown and never sends a request THROUGH the
+      // proxy, so a placeholder key is enough to get past bootstrap. A real
+      // key on the machine wins.
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NO_COLOR: '1',
+        FORCE_COLOR: '0',
+      };
+      env['ANTHROPIC_API_KEY'] =
+        process.env['ANTHROPIC_API_KEY'] ?? 'sk-ant-smoke-placeholder';
+
       const child = spawn(
         process.execPath,
         [
@@ -165,9 +181,17 @@ describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
         ],
         {
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+          env,
         },
       );
+
+      // Capture stderr from the FIRST byte. Attaching the listener only after
+      // the wait expires reads an empty buffer, because the failure output was
+      // already emitted and dropped — the diagnostic said `stderr=` every time.
+      let stderrBuf = '';
+      child.stderr?.on('data', (c) => {
+        stderrBuf += c.toString('utf8');
+      });
 
       try {
         // Wait for the proxy to register itself in `~/.ptah/proxies/`.
@@ -178,11 +202,6 @@ describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
         );
         // If the proxy never registered, surface stderr for diagnosis.
         if (!registered) {
-          let stderrBuf = '';
-          child.stderr?.on('data', (c) => {
-            stderrBuf += c.toString('utf8');
-          });
-          await new Promise((r) => setTimeout(r, 200));
           throw new Error(
             `proxy never registered ${REGISTRY_PATH}; stderr=${stderrBuf}`,
           );

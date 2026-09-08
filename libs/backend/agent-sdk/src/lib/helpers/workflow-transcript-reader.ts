@@ -35,6 +35,9 @@ async function readdirOrEmpty(dir: string): Promise<string[]> {
   try {
     return await fs.readdir(dir);
   } catch {
+    // degradation-audit: optional-capability - this walks a speculative
+    // workflow-run tree that mostly does not exist; [] means "no entries
+    // here" so the search moves to the next candidate directory.
     return [];
   }
 }

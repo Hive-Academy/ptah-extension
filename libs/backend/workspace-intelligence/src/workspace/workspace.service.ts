@@ -827,6 +827,9 @@ export class WorkspaceService implements IDisposable {
         description: packageJson.description,
       };
     } catch {
+      // degradation-audit: optional-capability - package.json is read only for
+      // optional display metadata (version/description); a read or parse
+      // failure just leaves that metadata unset.
       return undefined;
     }
   }
@@ -859,6 +862,9 @@ export class WorkspaceService implements IDisposable {
         description: descriptionMatch?.[1],
       };
     } catch {
+      // degradation-audit: optional-capability - Cargo.toml is read only for
+      // optional display metadata (version/description); a read or parse
+      // failure just leaves that metadata unset.
       return undefined;
     }
   }

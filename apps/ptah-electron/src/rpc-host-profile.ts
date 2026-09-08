@@ -54,6 +54,9 @@ export function createElectronRpcHostProfile(
           const worktrees = await gitInfo.getWorktrees(data.cwd);
           return worktrees.find((w) => w.branch === data.name)?.path;
         } catch (error: unknown) {
+          // degradation-audit: optional-capability - worktree resolution is an
+          // enrichment over git metadata; undefined is the same answer as "no
+          // worktree matches that branch" and leaves the caller's own path.
           logger.warn(
             '[electron RPC] Failed to resolve worktree path',
             error instanceof Error ? error : new Error(String(error)),

@@ -38,6 +38,9 @@ export const WizardSubmitSelectionParamsSchema = z.object({
   selectedAgentIds: z.array(WizardAgentIdSchema).max(200).optional(),
   threshold: z.number().min(0).max(100).optional(),
   variableOverrides: z.record(z.string().min(1), z.string()).optional(),
+  // degradation-audit: optional-capability - a malformed analysis payload is
+  // dropped so the orchestrator analyzes the workspace itself; the handler
+  // warns whenever it drops one, and analysisDir fully specifies generation.
   analysisData: ProjectAnalysisResultSchema.optional().catch(undefined),
   model: z.string().min(1).max(200).optional(),
   analysisDir: z.string().min(1).max(4096).optional(),

@@ -60,6 +60,9 @@ export class ChatSdkContextService {
         );
       return content ?? undefined;
     } catch (error) {
+      // degradation-audit: optional-capability - enhanced prompts are an
+      // opt-in prompt overlay; undefined falls the session back to the
+      // default system prompt.
       this.logger.debug(
         'Failed to resolve enhanced prompts content, using fallback',
         {
@@ -95,6 +98,8 @@ export class ChatSdkContextService {
       });
       return paths;
     } catch (error) {
+      // degradation-audit: optional-capability - plugin paths are an optional
+      // session input; undefined runs the session with no plugin directories.
       this.logger.debug('Failed to resolve plugin paths', {
         error: error instanceof Error ? error.message : String(error),
       });

@@ -42,6 +42,9 @@ export class ElectronSafeStorageVault implements ITokenVault {
     try {
       return safeStorage.isEncryptionAvailable();
     } catch {
+      // degradation-audit: optional-capability - OS-backed encryption is the
+      // optional path; false selects the documented AES-256-GCM fallback keyed
+      // by the machine seed, so a token is still encrypted at rest.
       return false;
     }
   }
@@ -79,6 +82,9 @@ export class ElectronSafeStorageVault implements ITokenVault {
       const buf = Buffer.from(ciphertext, 'base64');
       return safeStorage.decryptString(buf);
     } catch {
+      // degradation-audit: optional-capability - null IS this port's decrypt
+      // failure signal (see the header, architecture 9.4); the gateway turns
+      // it into a one-time RPC error asking the user to re-enter the token.
       return null;
     }
   }
@@ -98,6 +104,9 @@ export class ElectronSafeStorageVault implements ITokenVault {
       const plain = Buffer.concat([decipher.update(ct), decipher.final()]);
       return plain.toString('utf8');
     } catch {
+      // degradation-audit: optional-capability - a wrong key or a failed GCM
+      // auth tag is exactly the decrypt failure this port reports as null, and
+      // the gateway asks the user to re-enter the token rather than crashing.
       return null;
     }
   }

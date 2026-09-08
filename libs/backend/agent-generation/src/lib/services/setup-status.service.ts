@@ -68,7 +68,7 @@ export class SetupStatusService {
     @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
     private readonly agentDiscovery: AgentDiscoveryService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug('SetupStatusService initialized');
   }
@@ -109,7 +109,7 @@ export class SetupStatusService {
       const agents = discoveryResult.agents.filter(
         (agent) =>
           (agent.scope === 'project' || agent.scope === 'user') &&
-          agent.name?.trim()
+          agent.name?.trim(),
       );
 
       const projectAgents = agents
@@ -138,7 +138,7 @@ export class SetupStatusService {
       this.lastWorkspaceUri = workspacePath;
 
       this.logger.debug(
-        `Setup status: ${agentCount} agents (${projectAgents.length} project, ${userAgents.length} user)`
+        `Setup status: ${agentCount} agents (${projectAgents.length} project, ${userAgents.length} user)`,
       );
 
       return Result.ok(status);
@@ -147,7 +147,7 @@ export class SetupStatusService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to get setup status: ${errorMessage}`);
       return Result.err(
-        new Error(`Failed to get agent setup status: ${errorMessage}`)
+        new Error(`Failed to get agent setup status: ${errorMessage}`),
       );
     }
   }
@@ -191,15 +191,18 @@ export class SetupStatusService {
    * @returns Last modified Date or null
    */
   private async getLastModifiedDate(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Date | null> {
     try {
       const agentsDir = path.join(workspacePath, '.claude', 'agents');
       const stats = await fs.stat(agentsDir);
       return stats.mtime;
     } catch (error) {
+      // degradation-audit: optional-capability - doc comment above documents
+      // null as ".claude/agents/ doesn't exist or cannot be accessed", which is
+      // the normal state before the wizard has ever generated agents.
       this.logger.debug(
-        `.claude/agents/ directory not found or not accessible`
+        `.claude/agents/ directory not found or not accessible`,
       );
       return null;
     }

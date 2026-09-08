@@ -14,7 +14,11 @@
 
 import type { DependencyContainer } from 'tsyringe';
 
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type IProcessSpawner,
+} from '@ptah-extension/platform-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   TOKENS,
   GitInfoService,
@@ -95,7 +99,16 @@ export function registerPhase4Handlers(
   registerSharedRpcHandlers(container);
   container.registerSingleton(HarnessRpcHandlers);
   container.registerSingleton(McpDirectoryRpcHandlers);
-  const gitInfoService = new GitInfoService(logger);
+  // Hand GitInfoService the off-thread spawner phase 2 already bound. Every
+  // `git:*` call otherwise runs `CreateProcessW` inline on the main thread,
+  // which is the one synchronous main-thread spawn left on the boot path
+  // (TASK_2026_383 Batch 11.3). Guarded by `isRegistered` so a stripped
+  // container — the DI smoke specs build several — falls back to the inline
+  // path instead of throwing during registration.
+  const gitSpawner = container.isRegistered(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    ? container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    : undefined;
+  const gitInfoService = new GitInfoService(logger, gitSpawner);
   container.register(TOKENS.GIT_INFO_SERVICE, {
     useValue: gitInfoService,
   });

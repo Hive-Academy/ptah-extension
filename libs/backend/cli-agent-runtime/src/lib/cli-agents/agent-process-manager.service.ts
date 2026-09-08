@@ -2077,6 +2077,10 @@ export class AgentProcessManager {
         port,
       });
       return port;
+      // degradation-audit: optional-capability - the in-process MCP server is
+      // an optional enhancement for CLI agent spawns; a status lookup failure
+      // means "treat MCP as unavailable for this run", which is the documented
+      // undefined return, and the exception is still reported to Sentry above.
     } catch (error: unknown) {
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),

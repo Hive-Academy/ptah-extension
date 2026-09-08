@@ -74,6 +74,9 @@ export class ElectronSkillRepropagation implements SkillRepropagationPort {
     try {
       return this.container.resolve<Logger>(TOKENS.LOGGER);
     } catch {
+      // degradation-audit: optional-capability - logging is optional here; null
+      // makes every call site's `logger?.` a no-op rather than turning an
+      // unresolvable logger into a failed re-propagation.
       return null;
     }
   }

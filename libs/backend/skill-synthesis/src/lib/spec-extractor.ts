@@ -107,6 +107,8 @@ async function readFileSafe(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
   } catch {
+    // degradation-audit: optional-capability - Spec files include optional
+    // reviews and legacy batches; null consistently means no readable artifact.
     return null;
   }
 }
@@ -116,6 +118,8 @@ async function fileExists(path: string): Promise<boolean> {
     await stat(path);
     return true;
   } catch {
+    // degradation-audit: optional-capability - This is an existence probe for
+    // an optional harvest marker; false means it is absent or inaccessible.
     return false;
   }
 }

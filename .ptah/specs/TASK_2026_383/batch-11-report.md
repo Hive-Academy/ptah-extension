@@ -127,11 +127,11 @@ does not clear it.**
 
 Reason, from source: `sdk-model-service.ts:1090-1112` documents — and
 `libs/backend/agent-sdk/CLAUDE.md` records as a judge round-1 finding of
-TASK_2026_353 — that `invalidateForAuthChange` must NOT wipe the per-identity
+TASK*2026_353 — that `invalidateForAuthChange` must NOT wipe the per-identity
 catalogs, because they are already isolated by fingerprint, so wiping them is not
 protection but a guaranteed extra multi-second SDK-bridge spawn on every switch back
 (A → B → A paid three spawns for two providers). The persisted copy is keyed by the
-_same_ fingerprint, so the batch's own safety requirement — "a stale catalog must
+\_same* fingerprint, so the batch's own safety requirement — "a stale catalog must
 never outlive an auth change" — is already satisfied by the key. Clearing it on every
 provider switch would reproduce the exact defect that task removed, one boot further
 out, and would make the cross-boot memo close to worthless: a provider switch is the

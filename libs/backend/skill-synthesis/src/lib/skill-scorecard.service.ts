@@ -235,6 +235,10 @@ export class SkillScorecardService {
       if (!excerpt) return null;
       return excerpt.slice(0, MAX_FINDINGS_CHARS);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - review findings are optional
+      // scorecard enrichment behind an injected-provider check; null is the
+      // same "no excerpt" answer the empty-result branch above returns, and the
+      // read failure is already logged at warn.
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[skill-synthesis] scorecard findings read failed', {
         error: message,

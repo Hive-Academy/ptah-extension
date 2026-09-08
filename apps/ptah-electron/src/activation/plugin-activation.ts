@@ -238,6 +238,9 @@ export async function mirrorUserLayer(
     // that disagreed would hand the caller a directory nothing was written to.
     return mirror.getUserLayerRoots(sources.workspaceRoot);
   } catch (error) {
+    // degradation-audit: optional-capability - the user-layer mirror is a
+    // best-effort refresh of ~/.ptah/user; null tells the caller no roots were
+    // resolved, so the harness pass reconciles the previously mirrored layer.
     console.warn(
       '[Ptah Electron] User-layer mirror failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
@@ -447,6 +450,9 @@ function isSqliteOpen(container: DependencyContainer): boolean {
     );
     return connection.isOpen === true;
   } catch {
+    // degradation-audit: optional-capability - SQLite is optional for this
+    // probe; false means "no usable database", which is the same answer an
+    // unregistered connection gives and sends callers down the degraded path.
     return false;
   }
 }
@@ -470,6 +476,9 @@ export function readDormantSkillSlugs(
     );
     return store.listDormantPromotedSlugs();
   } catch (error) {
+    // degradation-audit: optional-capability - the skill-candidate store is
+    // Electron/Thoth-only and optional; an empty list means no slug is folded
+    // into disabledSkillIds, so every promoted skill stays propagated.
     console.warn(
       '[Ptah Electron] Failed to read dormant skill slugs (non-fatal):',
       error instanceof Error ? error.message : String(error),

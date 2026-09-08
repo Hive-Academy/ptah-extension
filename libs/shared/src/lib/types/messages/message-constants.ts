@@ -224,6 +224,16 @@ export const MESSAGE_TYPES = {
    */
   ACTIVITY_EVENT: 'activity:event',
   /**
+   * Backend → Frontend: a capability degraded to a default (TASK_2026_383).
+   *
+   * Distinct from `activity:event` on purpose. An activity item narrates work
+   * that HAPPENED; this narrates work that did NOT happen because a capability
+   * was missing, and carries the stable `code` a per-boot count is keyed on.
+   * Emitted only through `DegradationReporter` — see `rpc-degradation.types.ts`
+   * for why `code` must be a literal.
+   */
+  DEGRADATION_EVENT: 'degradation:event',
+  /**
    * Backend → Frontend: the harness reconciler finished a pass whose SUMMARY
    * differs from the last one pushed (TASK_2026_278 Batch 4).
    *

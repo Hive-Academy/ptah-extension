@@ -531,6 +531,8 @@ export class ReplayValidatorService {
       );
       return typeof raw === 'boolean' ? raw : true;
     } catch {
+      // degradation-audit: optional-capability - Configuration access is
+      // optional; true is the registered default for replay validation.
       return true;
     }
   }
@@ -710,6 +712,8 @@ function readAlignment(run: LaneRun): number | null {
   try {
     return toAlignment(pick(JSON.parse(match[0])));
   } catch {
+    // degradation-audit: optional-capability - This is a heuristic JSON
+    // fallback, and malformed text means no usable alignment candidate.
     return null;
   }
 }

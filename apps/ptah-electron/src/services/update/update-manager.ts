@@ -182,6 +182,10 @@ export class UpdateManager implements IAppUpdater {
     try {
       releases = await this.fetchReleasesWithRetry();
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - the GitHub update check is
+      // optional and offline-tolerant; the early return leaves the installed
+      // build running and broadcasts the `error` lifecycle state below, which
+      // `update:get-state` reads back, so the failure is not silent.
       // Log-only. A failed update *check* is not something the user can act
       // on — being offline, behind a proxy, or over the GitHub rate limit all
       // land here — so the renderer keeps this state out of the UI. The

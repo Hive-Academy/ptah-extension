@@ -190,6 +190,10 @@ export class SmitheryInstalledManifestStore {
       const parsed: unknown = JSON.parse(raw);
       return isPlainObject(parsed) ? parsed : {};
     } catch {
+      // degradation-audit: optional-capability - the guarded returns above
+      // already answer `{}` for "no encrypted config" and "nothing stored",
+      // so a corrupt payload joins an existing, handled shape instead of
+      // introducing one callers do not expect.
       return {};
     }
   }
@@ -244,6 +248,9 @@ function statSignature(manifestPath: string): string | null {
   try {
     const stat = fs.statSync(manifestPath);
     return `${stat.mtimeMs}:${stat.size}`;
+    // degradation-audit: optional-capability - per the doc comment on this
+    // function, a missing or unstat-able file just means "re-parse on next
+    // read", the documented null signature.
   } catch {
     return null;
   }

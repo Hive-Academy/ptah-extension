@@ -550,6 +550,8 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     try {
       return transformer.isPtahOutput(await readFile(absolute, 'utf-8'));
     } catch {
+      // degradation-audit: optional-capability - writer-signature detection is
+      // an ownership probe, and false preserves the unproven file as foreign.
       return false;
     }
   }
@@ -772,6 +774,8 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     try {
       dir = reap.dir();
     } catch {
+      // degradation-audit: optional-capability - locating legacy home entries
+      // is best-effort cleanup, so failure leaves every home file untouched.
       return;
     }
 
@@ -779,6 +783,8 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     try {
       names = readdirSync(dir);
     } catch {
+      // degradation-audit: optional-capability - legacy home reaping is
+      // best-effort cleanup, so an unreadable directory is left untouched.
       return;
     }
 
@@ -990,6 +996,8 @@ function lstatSyncOrNull(path: string): Stats | null {
   try {
     return lstatSync(path);
   } catch {
+    // degradation-audit: optional-capability - target stat is a presence probe,
+    // and null routes the path through the normal create-or-repair plan.
     return null;
   }
 }
@@ -1013,6 +1021,9 @@ function hasPtahWriterSignature(path: string): boolean {
   try {
     content = readFileSync(path, 'utf-8');
   } catch {
+    // degradation-audit: optional-capability - signature detection is an
+    // ownership probe, and false prevents deletion when provenance cannot be
+    // proven.
     return false;
   }
   const frontmatter = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(content);
@@ -1029,6 +1040,9 @@ function readLegacyNames(path: string, key: 'skills' | 'commands'): string[] {
     if (!Array.isArray(list)) return [];
     return list.filter((name): name is string => typeof name === 'string');
   } catch {
+    // degradation-audit: optional-capability - the legacy manifest is only
+    // migration evidence, and an unreadable list adopts nothing rather than
+    // guessing ownership.
     return [];
   }
 }

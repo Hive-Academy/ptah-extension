@@ -310,17 +310,16 @@ export async function startThothCron(
               emitActivity,
               BACKUP_HANDLER_NAME,
               async () => {
-                const sqliteConn = refs.sqliteConnection;
-                if (!sqliteConn) {
-                  return { summary: 'skipped: no sqlite connection' };
-                }
+                // The backup runs OUT OF PROCESS and takes no database handle
+                // (TASK_2026_383): the worker opens the file itself, read-only.
+                // So it is attempted FIRST, before any connection check — the
+                // old guard sat above this call and silently skipped the daily
+                // backup on every host with no live connection, which is
+                // exactly the host that most needs one.
                 const backupSvc = container.resolve<IBackupService>(
                   PERSISTENCE_TOKENS.BACKUP_SERVICE,
                 );
-                const backupPath = await backupSvc.backup(
-                  sqliteConn.db,
-                  'daily',
-                );
+                const backupPath = await backupSvc.backup('daily');
                 try {
                   backupSvc.rotate('daily', 7);
                 } catch (rotateErr: unknown) {
@@ -330,6 +329,17 @@ export async function startThothCron(
                       ? rotateErr.message
                       : String(rotateErr),
                   );
+                }
+                // The two write pragmas below are the ONLY part of this job
+                // that still needs the live handle, so the connection check
+                // now gates them alone.
+                const sqliteConn = refs.sqliteConnection;
+                if (!sqliteConn) {
+                  return {
+                    summary: backupPath
+                      ? `backup written to ${backupPath}; pragmas skipped: no sqlite connection`
+                      : 'backup not taken; pragmas skipped: no sqlite connection',
+                  };
                 }
                 try {
                   sqliteConn.db.pragma('incremental_vacuum(100)');
@@ -354,7 +364,7 @@ export async function startThothCron(
                 return {
                   summary: backupPath
                     ? `backup written to ${backupPath}`
-                    : 'backup skipped (db.backup unavailable)',
+                    : 'backup not taken; see the database.backup degradation report',
                 };
               },
             );

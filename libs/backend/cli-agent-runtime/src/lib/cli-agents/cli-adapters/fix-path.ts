@@ -82,6 +82,9 @@ function readShellPath(): string | null {
     if (!match || !match[1]) return null;
 
     return match[1].trim() || null;
+    // degradation-audit: optional-capability - this is a best-effort probe of
+    // the user's login-shell PATH; a spawn or parse failure means the PATH
+    // repair for this source is skipped, which is the documented null return.
   } catch {
     return null;
   }

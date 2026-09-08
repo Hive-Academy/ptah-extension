@@ -255,6 +255,11 @@ export class ThemeService {
     try {
       return localStorage.getItem(THEME_HINT_KEY) ?? undefined;
     } catch {
+      // degradation-audit: optional-capability - the localStorage hint only
+      // buys one pre-paint frame of the correct theme at launch; where storage
+      // is blocked, partitioned or over quota, `undefined` hands the decision
+      // to the vscode.setState mirror and then the theme-kind fallback, both
+      // of which already produce a correct theme without it.
       return undefined;
     }
   }

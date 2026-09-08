@@ -1211,6 +1211,8 @@ export class SessionRpcHandlers {
       await fs.access(sessionFilePath);
       return sessionFilePath;
     } catch {
+      // degradation-audit: optional-capability - the access call is a
+      // transcript existence probe; null means no session file for this id.
       return null;
     }
   }
@@ -1239,6 +1241,9 @@ export class SessionRpcHandlers {
     try {
       await fs.access(projectsDir);
     } catch {
+      // degradation-audit: optional-capability - the Claude CLI creates the
+      // projects directory on first use; null means there is no sessions
+      // directory to resolve for this workspace.
       return null;
     }
 
@@ -1292,6 +1297,9 @@ export class SessionRpcHandlers {
           .map((e) => e.slice(0, -'.jsonl'.length)),
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - transcript indexing is an
+      // optional enrichment; null leaves hasTranscript undefined rather than
+      // marking every session expired.
       this.logger.debug('RPC: session:list could not index transcripts', {
         workspacePath,
         error: error instanceof Error ? error.message : String(error),

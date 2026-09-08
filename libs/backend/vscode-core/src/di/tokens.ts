@@ -178,6 +178,16 @@ export const EVENT_LOOP_MONITOR = Symbol.for('EventLoopMonitor');
 export const CPU_PROFILE_CAPTURE = Symbol.for('CpuProfileCapture');
 
 /**
+ * DegradationReporter — per-boot count of capabilities that fell back to a
+ * default (TASK_2026_383). Grouped with the diagnostics tokens above
+ * (EVENT_LOOP_MONITOR, CPU_PROFILE_CAPTURE) because it is the same kind of
+ * always-on instrument. It lives in this lib rather than one of its own
+ * because every backend lib already injects TOKENS.LOGGER from here, so the
+ * new token adds no dependency edge anywhere in the graph.
+ */
+export const DEGRADATION_REPORTER = Symbol.for('DegradationReporter');
+
+/**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
  */
@@ -257,6 +267,7 @@ export const TOKENS = {
   GIT_INFO_SERVICE,
   EVENT_LOOP_MONITOR,
   CPU_PROFILE_CAPTURE,
+  DEGRADATION_REPORTER,
 } as const;
 
 /**

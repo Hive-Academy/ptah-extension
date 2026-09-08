@@ -167,6 +167,8 @@ export class TrajectoryExtractor {
     try {
       messages = await this.jsonlReader.readJsonlMessages(filePath);
     } catch (err) {
+      // degradation-audit: optional-capability - Session extraction probes
+      // historical JSONL; null means no readable trajectory candidate.
       this.logger.warn('[skill-synthesis] could not read session JSONL', {
         sessionId,
         error: err instanceof Error ? err.message : String(err),

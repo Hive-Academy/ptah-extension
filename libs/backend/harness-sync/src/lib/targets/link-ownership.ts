@@ -45,6 +45,8 @@ export function resolveLinkTarget(linkPath: string): string | null {
     const raw = readlinkSync(linkPath);
     return isAbsolute(raw) ? resolve(raw) : resolve(dirname(linkPath), raw);
   } catch {
+    // degradation-audit: optional-capability - unresolved link ownership
+    // returns null so the link remains foreign and is never removed.
     return null;
   }
 }

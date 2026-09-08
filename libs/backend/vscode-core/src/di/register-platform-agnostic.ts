@@ -9,7 +9,7 @@
  *   permitted. Any runtime `vscode` import here breaks the Electron build.
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from './tokens';
@@ -24,6 +24,7 @@ import { NullSessionAttachmentGuard } from '../services/null-session-attachment-
 import { NullBootReadinessProvider } from '../services/null-boot-readiness';
 import { EventLoopMonitor } from '../diagnostics/event-loop-monitor';
 import { CpuProfileCapture } from '../diagnostics/cpu-profile-capture';
+import { DegradationReporter } from '../logging/degradation-reporter';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -97,6 +98,22 @@ export function registerVsCodeCorePlatformAgnostic(
   container.registerSingleton(TOKENS.EVENT_LOOP_MONITOR, EventLoopMonitor);
   container.registerSingleton(TOKENS.CPU_PROFILE_CAPTURE, CpuProfileCapture);
 
+  // Degradation counting (TASK_2026_383). Registered here rather than in the
+  // VS Code-only `register.ts` because the reporter has zero vscode surface and
+  // its first consumers are the Electron boot summary and the CLI — a binding
+  // behind `registerVsCodeCoreServices` would be invisible to both.
+  //
+  // `instanceCachingFactory` rather than `registerSingleton`: the reporter is
+  // constructed with the CONTAINER (it resolves the webview manager lazily, per
+  // report, so a manager registered after boot is still found), which a
+  // decorator-injected constructor cannot express. A bare `useFactory` would
+  // re-run on every resolve and hand each caller its own empty tally.
+  if (!container.isRegistered(TOKENS.DEGRADATION_REPORTER)) {
+    container.register(TOKENS.DEGRADATION_REPORTER, {
+      useFactory: instanceCachingFactory((c) => new DegradationReporter(c)),
+    });
+  }
+
   if (includeLicensingAndAuth) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
     if (!container.isRegistered(PLATFORM_TOKENS.TRACER)) {
@@ -116,6 +133,7 @@ export function registerVsCodeCorePlatformAgnostic(
       'SUBAGENT_REGISTRY_SERVICE',
       'EVENT_LOOP_MONITOR',
       'CPU_PROFILE_CAPTURE',
+      'DEGRADATION_REPORTER',
       ...(includeLicensingAndAuth
         ? [
             'SENTRY_SERVICE',

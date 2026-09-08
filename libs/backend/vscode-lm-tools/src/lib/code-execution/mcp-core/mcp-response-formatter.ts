@@ -1234,6 +1234,11 @@ function fallbackJson(data: unknown): string {
   try {
     return JSON.stringify(data, null, 2);
   } catch {
+    // degradation-audit: optional-capability - this is already the last-resort
+    // raw dump after the primary markdown formatter failed; a
+    // circular-reference or BigInt payload that even JSON.stringify rejects has
+    // no further representation, so the placeholder string is the intended
+    // final fallback.
     return '[Unable to serialize result]';
   }
 }

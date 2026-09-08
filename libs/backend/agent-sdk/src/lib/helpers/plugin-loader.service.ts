@@ -1073,6 +1073,9 @@ export class PluginLoaderService {
     try {
       entries = fs.readdirSync(baseDir);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - a harness-plugin root is
+      // create-on-demand, so ENOENT is the ordinary empty case; [] means "no
+      // prefixed plugins here" and any other errno is warned before it.
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.logger.warn(
           '[PluginLoaderService] Failed to read plugins directory',

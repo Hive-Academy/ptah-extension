@@ -117,6 +117,9 @@ if (!gotLock) {
           );
           if (sentryService.isInitialized()) {
             event.preventDefault();
+            // degradation-audit: optional-capability - flushing buffered Sentry
+            // events is best effort on quit; swallowing lets the `.finally`
+            // below call app.quit() so a dead DSN cannot wedge the shutdown.
             void sentryService
               .flush(2000)
               .catch(() => undefined)

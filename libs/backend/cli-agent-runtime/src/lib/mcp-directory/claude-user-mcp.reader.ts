@@ -156,6 +156,10 @@ function readJsonObject(configPath: string): Record<string, unknown> | null {
     const parsed: unknown = JSON.parse(readFileSync(configPath, 'utf-8'));
     return isPlainObject(parsed) ? parsed : null;
   } catch {
+    // degradation-audit: optional-capability - the file belongs to another
+    // tool and this reader only feeds a display list, so an absent or
+    // malformed config drops that one source from the list rather than
+    // failing the surface that shows every other source.
     // Deliberately silent and unbound, exactly as the manifest stores' `load()`
     // is: the caller is a display list, the file belongs to another tool, and
     // "Claude's config is malformed" is not this surface's error to raise.

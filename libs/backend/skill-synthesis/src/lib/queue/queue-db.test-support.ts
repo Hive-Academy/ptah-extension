@@ -112,6 +112,8 @@ export function resolveOpener(): DbOpener | null {
     new DatabaseSync(':memory:').close();
     return (file) => new DatabaseSync(file);
   } catch {
+    // degradation-audit: optional-capability - test-only database binding
+    // probe; null tells tests that neither optional driver is available.
     return null;
   }
 }

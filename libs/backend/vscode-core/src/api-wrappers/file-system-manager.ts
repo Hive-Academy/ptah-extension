@@ -361,6 +361,9 @@ export class FileSystemManager {
 
       return true;
     } catch {
+      // degradation-audit: optional-capability - disposing a VS Code file
+      // watcher is best-effort teardown; false tells the caller the watcher
+      // is still tracked and no file event was lost by returning it.
       return false;
     }
   }

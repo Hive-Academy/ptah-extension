@@ -217,6 +217,11 @@
     },
     "test": {
       "executor": "@nx/jest:jest",
+      "dependsOn": [
+        "build-esbuild",
+        "build-embedder-worker",
+        "build-integrity-worker"
+      ],
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
         "jestConfig": "apps/ptah-cli/jest.config.cjs",

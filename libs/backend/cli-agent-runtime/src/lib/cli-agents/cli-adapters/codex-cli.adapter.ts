@@ -415,6 +415,9 @@ function tryParseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
   } catch {
+    // degradation-audit: optional-capability - used only to render MCP tool
+    // arguments for display (see `mcpToolInput`); a non-JSON string falls back
+    // to being shown as a raw summary line instead of a parsed object.
     return undefined;
   }
 }
@@ -554,6 +557,9 @@ export class CodexCliAdapter implements CliAdapter {
         accessToken: auth.tokens.access_token,
         lastRefresh: auth.last_refresh,
       });
+      // degradation-audit: optional-capability - this is a presence probe over
+      // `~/.codex/auth.json` per the doc comment above; a missing or malformed
+      // file means "no usable credentials found", the documented false return.
     } catch {
       return false;
     }

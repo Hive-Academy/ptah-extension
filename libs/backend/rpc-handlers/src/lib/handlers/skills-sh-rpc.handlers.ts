@@ -700,6 +700,8 @@ export class SkillsShRpcHandlers {
       await fs.access(filePath);
       return true;
     } catch {
+      // degradation-audit: optional-capability - the access call is a
+      // marker-file existence probe; false means the file is not present.
       return false;
     }
   }

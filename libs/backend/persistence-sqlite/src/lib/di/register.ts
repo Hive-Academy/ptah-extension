@@ -17,6 +17,7 @@ import { SqliteConnectionService } from '../sqlite-connection.service';
 import { SqliteBackupService } from '../backup.service';
 import { VecStatusService } from '../vec-status.service';
 import { SqliteIntegrityService } from '../integrity/integrity-check.service';
+import { DbWorkerRunner } from '../integrity/db-worker-runner';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -35,6 +36,11 @@ export function registerPersistenceSqliteServices(
   logger: Logger,
 ): void {
   logger.info('[persistence-sqlite] registering services');
+  // The worker run loop, shared by the integrity check and the backup. A
+  // singleton because it holds NO per-run state — every run's worker, timer and
+  // settle latch live in the closure `run()` opens — so one instance serving
+  // both services cannot let one run settle another.
+  container.registerSingleton(DbWorkerRunner);
   container.registerSingleton(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
     SqliteConnectionService,
