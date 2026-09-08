@@ -29,10 +29,8 @@ import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
-import { ELECTRON_TOKENS } from '../di/electron-tokens';
 import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
 import type { BootCoordinator } from './boot-coordinator';
-import type { PtyManagerService } from '../services/pty-manager.service';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -304,32 +302,16 @@ export async function bootstrapElectron(
   // one feeds a card that has always had an unresolved state.
   void startMembershipVerification(container);
 
-  let ptyManager: PtyManagerService | undefined;
-  try {
-    ptyManager = container.resolve<PtyManagerService>(
-      ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
-    );
-  } catch (error: unknown) {
-    console.warn(
-      '[Ptah Electron] PtyManagerService resolve failed (continuing without pty):',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const ipcBridge = new IpcBridge(
-    container,
-    () => {
-      const win = getMainWindow();
-      if (!win) return null;
-      return {
-        webContents: {
-          send: (channel: string, ...args: unknown[]) =>
-            win.webContents.send(channel, ...args),
-        },
-      };
-    },
-    ptyManager,
-  );
+  const ipcBridge = new IpcBridge(container, () => {
+    const win = getMainWindow();
+    if (!win) return null;
+    return {
+      webContents: {
+        send: (channel: string, ...args: unknown[]) =>
+          win.webContents.send(channel, ...args),
+      },
+    };
+  });
 
   try {
     ipcBridge.initialize();

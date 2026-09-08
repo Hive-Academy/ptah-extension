@@ -10,9 +10,11 @@
 import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
-import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
-
-import { EditorRpcHandlers } from './services/rpc/handlers';
+import {
+  capabilities,
+  ElectronFileOpenRpcHandlers,
+  type HostProfile,
+} from '@ptah-extension/rpc-handlers';
 
 export function createElectronRpcHostProfile(
   container: DependencyContainer,
@@ -33,17 +35,11 @@ export function createElectronRpcHostProfile(
       filePicker: true,
       filePickerImages: true,
       fileSystemAccess: true,
-      editorRevert: true,
-      editorHost: true,
       commandExecution: true,
-      layoutPersistence: true,
-      pty: true,
       appUpdater: true,
     }),
     hostHandlers: {
-      'host.fileOpen': EditorRpcHandlers,
-      'host.editorRevert': EditorRpcHandlers,
-      'host.editorPane': EditorRpcHandlers,
+      'host.fileOpen': ElectronFileOpenRpcHandlers,
     },
     wiring: {
       worktree: true,

@@ -203,6 +203,9 @@ describe('ExternalPluginMcpService.install', () => {
         configPath: 'C:\\ws\\.vscode\\mcp.json',
         config: { type: 'stdio', command: 'the-users-own-binlog' },
         managedByPtah: false,
+        origin: 'harness-config',
+        originLabel: 'Config file',
+        removal: 'direct',
       },
     ];
     const { service } = makeService(installer);
@@ -235,6 +238,9 @@ describe('ExternalPluginMcpService.install', () => {
         configPath: 'C:\\ws\\.vscode\\mcp.json',
         config: { type: 'stdio', command: 'dotnet' },
         managedByPtah: true,
+        origin: 'harness-config',
+        originLabel: 'Config file',
+        removal: 'ptah-managed',
       },
     ];
     const { service } = makeService(installer);

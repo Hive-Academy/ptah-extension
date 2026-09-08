@@ -47,14 +47,14 @@ export class CliDetectionService {
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly spawner: IProcessSpawner,
   ) {
-    this.adapters.set('codex', new CodexCliAdapter());
+    this.adapters.set('codex', new CodexCliAdapter(this.logger));
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set(
       'copilot',
       new CopilotSdkAdapter(permissionBridge, this.spawner),
     );
 
-    this.adapters.set('cursor', new CursorCliAdapter());
+    this.adapters.set('cursor', new CursorCliAdapter(this.logger));
     this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
     this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
     this.adapters.set('pi', new PiCliAdapter(this.spawner));

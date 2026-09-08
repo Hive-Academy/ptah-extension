@@ -24,7 +24,7 @@ ptah-extension/
 │                                      # ptah-landing-page | ptah-license-server
 │
 ├── libs/backend/                      # 29 runtime-agnostic libs (DI: tsyringe)
-│   ├── platform-core/                 # ★ Port interfaces + 27 PLATFORM_TOKENS
+│   ├── platform-core/                 # ★ Port interfaces + 28 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
 │   ├── auth-providers/                # Auth strategies + provider trees (one-way → agent-sdk)
@@ -60,7 +60,6 @@ ptah-extension/
 │   ├── core/                          # VSCodeService, MESSAGE_HANDLERS, RPC client
 │   ├── ui/                            # Floating-UI primitives (Native*) + legacy CDK
 │   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
-│   ├── editor/                        # Monaco + xterm + node-pty bridge
 │   ├── chat/                          # Orchestrator + ChatStore facade
 │   ├── chat-{state,streaming,routing,ui,types,execution-tree}/
 │   ├── canvas/                        # Multi-tile orchestra (gridstack, 9-tile cap)
@@ -97,7 +96,7 @@ ptah-extension/
 - **AI**: `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, `@openai/codex-sdk`, Tavily, Exa
 - **Persistence**: better-sqlite3, sqlite-vec, Prisma 7 + PostgreSQL (license server only)
 - **DI**: tsyringe (`Symbol.for(...)` tokens, `register.ts` per lib)
-- **UI**: Tailwind 3, daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, xterm.js, gridstack
+- **UI**: Tailwind 3, daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, gridstack
 - **Validation**: Zod 4 at all external boundaries
 - **Build**: Nx 22.6, esbuild, ng-packagr, electron-builder, Astro 6
 
@@ -220,7 +219,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 
 ### Backend Libs
 
-- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 27 PLATFORM_TOKENS
+- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 28 PLATFORM_TOKENS
 - [platform-cli](./libs/backend/platform-cli/CLAUDE.md) — CLI adapters
 - [platform-electron](./libs/backend/platform-electron/CLAUDE.md) — Electron adapters
 - [platform-vscode](./libs/backend/platform-vscode/CLAUDE.md) — VS Code adapters
@@ -296,7 +295,6 @@ per-lib `CLAUDE.md` yet; each entry below is the whole of its documentation.
 - [core](./libs/frontend/core/CLAUDE.md) — VSCodeService, MESSAGE_HANDLERS, RPC
 - [ui](./libs/frontend/ui/CLAUDE.md) — Floating-UI Native\* primitives
 - [markdown](./libs/frontend/markdown/CLAUDE.md) — ★ DOMPurify XSS chokepoint
-- [editor](./libs/frontend/editor/CLAUDE.md) — Monaco + xterm + git
 - [chat](./libs/frontend/chat/CLAUDE.md) — Chat orchestrator + ChatStore
 - [chat-state](./libs/frontend/chat-state/CLAUDE.md) — TabManager + ConversationRegistry
 - [chat-streaming](./libs/frontend/chat-streaming/CLAUDE.md) — Streaming write path

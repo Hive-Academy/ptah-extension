@@ -25,7 +25,7 @@ import type { DependencyContainer, InjectionToken } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
@@ -35,7 +35,6 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
-import { ELECTRON_TOKENS } from './electron-tokens';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -77,10 +76,15 @@ function buildMinimalContainer(): DependencyContainer {
       getCodexModels: jest.fn(async () => []),
     },
   });
+  // `watch` / `onDidChange` are here for `registerSdkServices`, which EAGERLY
+  // resolves `SDK_CONFIG_WATCHER` (`agent-sdk/src/lib/di/register.ts:502`) and
+  // whose constructor subscribes to both. The shared handler describe never
+  // touches them.
   c.register(TOKENS.CONFIG_MANAGER, {
     useValue: {
       get: jest.fn(() => undefined),
       set: jest.fn(async () => undefined),
+      watch: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
   c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
@@ -88,6 +92,7 @@ function buildMinimalContainer(): DependencyContainer {
       get: jest.fn(async () => undefined),
       store: jest.fn(async () => undefined),
       delete: jest.fn(async () => undefined),
+      onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
   c.register(TOKENS.AUTH_SECRETS_SERVICE, {
@@ -182,8 +187,8 @@ describe('Electron DI — shared RPC handler resolution', () => {
 });
 
 /**
- * Both aliasing describes below call `registerPhase4Handlers` on its own, so
- * they have to satisfy phase 4's phase-2 precondition themselves.
+ * The aliasing describe below calls `registerPhase4Handlers` on its own, so it
+ * has to satisfy phase 4's phase-2 precondition itself.
  *
  * `registerPhase4Handlers` calls `registerChatServices`, which THROWS at
  * registration time — not at resolve time — unless
@@ -214,31 +219,32 @@ function buildPhase4Container(): { c: DependencyContainer; logger: Logger } {
 }
 
 /**
- * Risk R2 — duplicate `PtyManagerService` instance.
+ * `SDK_TOKENS.SDK_PROCESS_SPAWNER` must be resolvable by a phase-4 handler
+ * (TASK_2026_385, plan Assumption 1).
  *
- * `PLATFORM_TOKENS.PTY_HOST` must be an ALIAS of
- * `ELECTRON_TOKENS.PTY_MANAGER_SERVICE`, never a second registration. IpcBridge
- * holds the concrete instance and owns the `sessions` Map
- * (`activation/bootstrap.ts` -> `ipc/ipc-bridge.ts`), while `terminal:create`
- * resolves the port. A second instance would hand back session ids that the
- * binary write/resize channel cannot find — terminals open and silently accept
- * no input — and `disposeAll` would leak the real PTYs on quit.
+ * The Electron boot registers it in phase 2 (`phase-2-libraries.ts` ->
+ * `registerSdkServices`), several phases before `registerPhase4Handlers` runs,
+ * so a handler constructed in phase 4 can `@inject` it. This asserts that
+ * ordering against the REAL `registerSdkServices`, not a hand-written
+ * `container.register` copy of it — a copy would keep passing after the
+ * production registration moved or was dropped.
  *
- * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
- * of it, and it asserts reference identity (`toBe`): a `registerSingleton`
- * would still satisfy a structural comparison.
+ * `OffThreadProcessSpawner` is the one implementation and its only dependency
+ * is `TOKENS.LOGGER`, which the minimal container already provides.
  */
-describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
-  it('resolves PTY_HOST to the very same instance as PTY_MANAGER_SERVICE', () => {
-    const { c, logger } = buildPhase4Container();
+describe('Electron DI — SDK process spawner (plan Assumption 1)', () => {
+  it('resolves SDK_PROCESS_SPAWNER from a container that has run phase 2', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
 
-    registerPhase4Handlers(c, logger);
+    registerSdkServices(c, logger);
 
-    const viaPort = c.resolve(PLATFORM_TOKENS.PTY_HOST);
-    const viaConcreteToken = c.resolve(ELECTRON_TOKENS.PTY_MANAGER_SERVICE);
+    const spawner = c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER);
 
-    expect(viaPort).toBeDefined();
-    expect(viaPort).toBe(viaConcreteToken);
+    expect(spawner).toBeDefined();
+    expect(typeof (spawner as { spawnProcess: unknown }).spawnProcess).toBe(
+      'function',
+    );
   });
 });
 

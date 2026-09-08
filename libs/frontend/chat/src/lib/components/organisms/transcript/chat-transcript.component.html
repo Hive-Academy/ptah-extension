@@ -9,17 +9,29 @@
       track trackByMessageId($index, msg);
       let i = $index
     ) {
-      <ptah-message-bubble
-        class="block px-2 pb-3 chat-msg-cv"
-        [message]="msg"
-        [messageIndex]="i"
-        [totalMessages]="vm().totalCount"
-        [isStreaming]="i >= vm().finalizedCount"
-        [isFinalizing]="isFinalizingTransition()"
-        [isSessionActive]="vm().isSessionActive"
-        (branchRequested)="branchRequested.emit($event)"
-        (rewindRequested)="rewindRequested.emit($event)"
-      />
+      <!-- Persistent slot: stays observed while its bubble is unmounted, so a
+           scrolled-away message can be observed back into the render window. -->
+      <div class="chat-msg-slot" [ptahTranscriptSlot]="msg.id">
+        @if (renderWindow.isMounted(msg.id)) {
+          <ptah-message-bubble
+            class="block px-2 pb-3 chat-msg-cv"
+            [message]="msg"
+            [messageIndex]="i"
+            [totalMessages]="vm().totalCount"
+            [isStreaming]="i >= vm().finalizedCount"
+            [isFinalizing]="isFinalizingTransition()"
+            [isSessionActive]="vm().isSessionActive"
+            (branchRequested)="branchRequested.emit($event)"
+            (rewindRequested)="rewindRequested.emit($event)"
+          />
+        } @else {
+          <div
+            class="chat-msg-placeholder"
+            aria-hidden="true"
+            [style.min-height.px]="renderWindow.placeholderHeight(msg.id)"
+          ></div>
+        }
+      </div>
     }
   </div>
 </div>

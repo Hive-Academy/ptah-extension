@@ -51,40 +51,6 @@ contextBridge.exposeInMainWorld('ptahClipboard', {
     ipcRenderer.send('clipboard:write-text', text);
   },
 });
-contextBridge.exposeInMainWorld('ptahTerminal', {
-  /** Write data to terminal (renderer -> main) */
-  write: (id: string, data: string) => {
-    ipcRenderer.send('terminal:data-in', id, data);
-  },
-  /** Resize terminal (renderer -> main) */
-  resize: (id: string, cols: number, rows: number) => {
-    ipcRenderer.send('terminal:resize', id, cols, rows);
-  },
-  /** Listen for terminal data output (main -> renderer). Returns cleanup function. */
-  onData: (callback: (id: string, data: string) => void) => {
-    const handler = (
-      _event: Electron.IpcRendererEvent,
-      id: string,
-      data: string,
-    ) => callback(id, data);
-    ipcRenderer.on('terminal:data-out', handler);
-    return () => {
-      ipcRenderer.removeListener('terminal:data-out', handler);
-    };
-  },
-  /** Listen for terminal exit events (main -> renderer). Returns cleanup function. */
-  onExit: (callback: (id: string, exitCode: number) => void) => {
-    const handler = (
-      _event: Electron.IpcRendererEvent,
-      id: string,
-      exitCode: number,
-    ) => callback(id, exitCode);
-    ipcRenderer.on('terminal:exit', handler);
-    return () => {
-      ipcRenderer.removeListener('terminal:exit', handler);
-    };
-  },
-});
 /**
  * Hang diagnostics (TASK_2026_323). Exposed with no UI behind it on purpose —
  * the intended caller is a developer typing into the DevTools console of an app

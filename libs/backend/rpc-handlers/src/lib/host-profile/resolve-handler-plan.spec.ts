@@ -11,11 +11,17 @@
  * Uses the real manifest — a synthetic one would not prove the guards fire
  * against the shapes hosts actually build.
  *
- * The host-owned fixture key is deliberately an EDITOR entry. Every P3
- * handler move shrinks `HostOwnedRpcHandlerKey`, so a fixture pinned to a
- * family that is still migrating stops compiling the moment that family
- * lands in this library. The editor entries are the last ones out
- * (TASK_2026_173), which makes them the stable choice here.
+ * The host-owned fixture key was the EDITOR entries until TASK_2026_385
+ * Batch 4.4 deleted the whole editor RPC surface. `host.fileOpen` is now the
+ * ONLY entry in `HostOwnedRpcHandlerKey` — every other P3 handler family has
+ * already moved into this library — so the "constructs each class once"
+ * dedup test below can no longer exercise two distinct host-owned keys
+ * sharing one class. It instead proves the same `seen`-set dedup branch
+ * (`register-rpc-surface.ts`) fires across a lib-owned and a host-owned
+ * entry that happen to share a constructor: `'agent'` has no capability
+ * requirement (`requires: []`), so it is always in the plan, and assigning
+ * its real class as the `host.fileOpen` override forces both entries onto
+ * the same ctor.
  */
 
 jest.mock('@ptah-extension/workspace-intelligence', () =>
@@ -38,6 +44,7 @@ import {
   type HostProfile,
   type RpcHandlerCtor,
 } from './index';
+import { AgentRpcHandlers } from '../handlers';
 
 class FakeHandler {
   register(): void {
@@ -71,12 +78,14 @@ function profile(overrides: Partial<HostProfile> = {}): HostProfile {
 
 describe('resolveRpcHandlerPlan', () => {
   it('constructs each class once even when it serves several entries', () => {
-    const shared = OtherFakeHandler as unknown as RpcHandlerCtor;
+    // `agent` is lib-owned with no capability requirement, so it is always in
+    // the plan. Assigning its real class as the `host.fileOpen` override too
+    // means both manifest entries resolve to the same ctor.
+    const shared = AgentRpcHandlers as unknown as RpcHandlerCtor;
     const plan = resolveRpcHandlerPlan(
       profile({
-        // Electron's real shape: one EditorRpcHandlers serves several keys.
-        capabilities: capabilities({ fileOpen: true, editorRevert: true }),
-        hostHandlers: { 'host.fileOpen': shared, 'host.editorRevert': shared },
+        capabilities: capabilities({ fileOpen: true }),
+        hostHandlers: { 'host.fileOpen': shared },
       }),
     );
 
@@ -86,9 +95,9 @@ describe('resolveRpcHandlerPlan', () => {
   it('throws when a capability is on but nothing implements the entry', () => {
     expect(() =>
       resolveRpcHandlerPlan(
-        profile({ capabilities: capabilities({ editorHost: true }) }),
+        profile({ capabilities: capabilities({ fileOpen: true }) }),
       ),
-    ).toThrow(/'host.editorPane' is enabled but no handler is available/);
+    ).toThrow(/'host.fileOpen' is enabled but no handler is available/);
   });
 
   it('throws when a handler is supplied for a switched-off entry', () => {
@@ -96,11 +105,11 @@ describe('resolveRpcHandlerPlan', () => {
       resolveRpcHandlerPlan(
         profile({
           hostHandlers: {
-            'host.editorPane': FakeHandler as unknown as RpcHandlerCtor,
+            'host.fileOpen': FakeHandler as unknown as RpcHandlerCtor,
           },
         }),
       ),
-    ).toThrow(/supplies a handler for 'host.editorPane'/);
+    ).toThrow(/supplies a handler for 'host.fileOpen'/);
   });
 
   it('marks library-owned entries so their failures stay fatal', () => {

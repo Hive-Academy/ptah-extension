@@ -1,10 +1,18 @@
 /**
  * Settings RPC Handlers
  *
- * Handles `settings:export` and `settings:import` for every host (VS Code,
- * Electron, CLI). Native dialogs go through `ISaveDialogProvider` (export) and
- * `IUserInteraction.showOpenDialog?` (import); the import file is read with
- * `node:fs/promises` since every host runs in a Node-capable process.
+ * Handles `settings:get`, `settings:set`, `settings:export` and
+ * `settings:import` for every host (VS Code, Electron, CLI). Native dialogs go
+ * through `ISaveDialogProvider` (export) and `IUserInteraction.showOpenDialog?`
+ * (import); the import file is read with `node:fs/promises` since every host
+ * runs in a Node-capable process.
+ *
+ * `settings:get` / `settings:set` read and write ONE `ptah` configuration key
+ * through `IWorkspaceProvider`, which transparently routes file-based keys to
+ * `~/.ptah/settings.json`. They were `editor:getSetting` / `editor:updateSetting`
+ * on the Electron-only editor handler; nothing about reading a setting is an
+ * editor concern or needs the `editorHost` capability, so they moved here where
+ * every host serves them.
  *
  * Platform-agnostic settings collection / import is delegated to
  * `SettingsExportService` and `SettingsImportService` from `@ptah-extension/agent-sdk`.
@@ -37,7 +45,14 @@ import {
   PtahSettingsExportSchema,
   CURRENT_SETTINGS_EXPORT_VERSION,
 } from './settings-export.schema';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  parseSettingsGetParams,
+  parseSettingsSetParams,
+} from './settings-rpc.schema';
+import {
+  PLATFORM_TOKENS,
+  isFileBasedSettingKey,
+} from '@ptah-extension/platform-core';
 import type {
   IPlatformCommands,
   ISaveDialogProvider,
@@ -49,6 +64,8 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 @injectable()
 export class SettingsRpcHandlers {
   static readonly METHODS = [
+    'settings:get',
+    'settings:set',
     'settings:export',
     'settings:import',
   ] as const satisfies readonly RpcMethodName[];
@@ -73,11 +90,85 @@ export class SettingsRpcHandlers {
   ) {}
 
   register(): void {
+    this.registerGet();
+    this.registerSet();
     this.registerExport();
     this.registerImport();
 
     this.logger.debug('Settings RPC handlers registered', {
-      methods: ['settings:export', 'settings:import'],
+      methods: [...SettingsRpcHandlers.METHODS],
+    });
+  }
+
+  /**
+   * settings:get — read one configuration value.
+   *
+   * `IWorkspaceProvider.getConfiguration` transparently routes file-based keys
+   * to `~/.ptah/settings.json` and falls back to
+   * `FILE_BASED_SETTINGS_DEFAULTS` for a key that has never been written, so an
+   * unset key answers with its default rather than `undefined`.
+   */
+  private registerGet(): void {
+    this.rpcHandler.registerMethod('settings:get', async (rawParams) => {
+      const params = parseSettingsGetParams(rawParams);
+      if (!params) {
+        return { success: false, error: 'key is required' };
+      }
+      try {
+        const value = this.workspaceProvider.getConfiguration(
+          'ptah',
+          params.key,
+        );
+        return { success: true, value };
+      } catch (error: unknown) {
+        this.logger.error('[RPC] settings:get failed', {
+          key: params.key,
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  /**
+   * settings:set — write one configuration value.
+   *
+   * The `isFileBasedSettingKey` guard is the write allow-list: only a key the
+   * registry knows about may be written, so a renderer cannot mint arbitrary
+   * entries in `~/.ptah/settings.json`.
+   */
+  private registerSet(): void {
+    this.rpcHandler.registerMethod('settings:set', async (rawParams) => {
+      const params = parseSettingsSetParams(rawParams);
+      if (!params) {
+        return { success: false, error: 'key is required' };
+      }
+      if (!isFileBasedSettingKey(params.key)) {
+        return {
+          success: false,
+          error: `Setting key '${params.key}' is not writable`,
+        };
+      }
+      try {
+        await this.workspaceProvider.setConfiguration(
+          'ptah',
+          params.key,
+          params.value,
+        );
+        return { success: true };
+      } catch (error: unknown) {
+        this.logger.error('[RPC] settings:set failed', {
+          key: params.key,
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     });
   }
 

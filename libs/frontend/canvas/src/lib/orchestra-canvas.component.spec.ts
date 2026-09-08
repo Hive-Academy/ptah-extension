@@ -135,12 +135,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     } as unknown as TabManagerService;
 
     canvasStoreMock = {
-      tiles: signal<
-        Array<{
-          tabId: string;
-          position: { x: number; y: number; w: number; h: number };
-        }>
-      >([]),
+      tiles: signal<Array<{ tabId: string; order: number; weight: number }>>(
+        [],
+      ),
       focusedTabId: signal<string | null>(null),
       tileCount: signal(0),
       canAddTile: signal(true),
@@ -156,14 +153,20 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       adoptTab: jest.fn(),
       focusTile: jest.fn(),
       removeTile: jest.fn(),
-      updateTilePosition: jest.fn(),
+      reorderTiles: jest.fn(),
+      setTileWeights: jest.fn(),
     } as unknown as CanvasStore;
 
     const layoutServiceMock = {
       observe: jest.fn(),
       containerWidth: signal(0),
       containerHeight: signal(0),
-      computeLayout: jest.fn(() => ({ cellHeight: 120, tiles: [] })),
+      columnsFor: jest.fn(() => 1),
+      computeLayout: jest.fn(() => ({
+        cellHeight: 120,
+        columns: 1,
+        tiles: [],
+      })),
     } as unknown as CanvasLayoutService;
 
     const chatStoreMock = {
@@ -390,9 +393,12 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
       observe: jest.fn(),
       containerWidth: signal(0),
       containerHeight: signal(0),
-      computeLayout: jest.fn((count: number) => ({
+      columnsFor: jest.fn(() => 3),
+      computeLayout: jest.fn((tiles: ReadonlyArray<{ tabId: string }>) => ({
         cellHeight: 120,
-        tiles: Array.from({ length: count }, (_, i) => ({
+        columns: 3,
+        tiles: tiles.map((tile, i) => ({
+          tabId: tile.tabId,
           x: (i % 3) * 4,
           y: Math.floor(i / 3) * 6,
           w: 4,

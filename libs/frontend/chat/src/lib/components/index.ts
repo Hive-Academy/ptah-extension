@@ -96,10 +96,7 @@ export * from './molecules/send-to-messaging/send-to-messaging.component';
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
  */
-export {
-  AgentSelectorComponent,
-  AutopilotPopoverComponent,
-} from '@ptah-extension/chat-ui';
+export { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

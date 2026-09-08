@@ -5,10 +5,11 @@
  *   - Phase 4.1: the RPC handler classes Electron shares with every other host,
  *                plus GitInfoService.
  *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
- *                two host services they depend on (PtyManagerService behind
- *                PLATFORM_TOKENS.PTY_HOST, UpdateManager behind
- *                PLATFORM_TOKENS.APP_UPDATER). EditorRpcHandlers is the only
- *                handler class still declared in this app (TASK_2026_173).
+ *                host service they depend on (UpdateManager behind
+ *                PLATFORM_TOKENS.APP_UPDATER). `EditorRpcHandlers`, the last
+ *                app-local handler class (TASK_2026_173), was deleted in
+ *                TASK_2026_385 Batch 4.2 — its file explorer/Monaco methods
+ *                had no caller left once `libs/frontend/editor` was deleted.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -51,19 +52,14 @@ import {
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
-  LayoutRpcHandlers,
-  TerminalRpcHandlers,
+  ElectronFileOpenRpcHandlers,
   UpdateRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-import { EditorRpcHandlers } from '../services/rpc/handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
-
-import { PtyManagerService } from '../services/pty-manager.service';
-import { ELECTRON_TOKENS } from './electron-tokens';
 
 /**
  * Phase 4: Register all RPC handler classes with the container.
@@ -73,9 +69,9 @@ import { ELECTRON_TOKENS } from './electron-tokens';
  * when `registerRpcSurface()` runs in `wire-runtime.ts`.
  *
  * NOTE: Factory-based registrations (SetupRpcHandlers, WizardGenerationRpcHandlers,
- * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers) exist because
- * these handlers need the DependencyContainer interface itself (no reflection
- * metadata) or resolve WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
+ * EnhancedPromptsRpcHandlers, LlmRpcHandlers) exist because these handlers need
+ * the DependencyContainer interface itself (no reflection metadata) or resolve
+ * WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
  */
 export function registerPhase4Handlers(
   container: DependencyContainer,
@@ -117,6 +113,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(FileSystemRpcHandlers);
   container.registerSingleton(FilePickerRpcHandlers);
   container.registerSingleton(ImagePickerRpcHandlers);
+  container.registerSingleton(ElectronFileOpenRpcHandlers);
 
   logger.info('[Electron DI] Shared RPC handler classes registered', {
     handlers: [
@@ -156,33 +153,12 @@ export function registerPhase4Handlers(
       'FileSystemRpcHandlers',
       'FilePickerRpcHandlers',
       'ImagePickerRpcHandlers',
+      'ElectronFileOpenRpcHandlers',
     ],
-  });
-  container.register(EditorRpcHandlers, {
-    useFactory: (c) =>
-      new EditorRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c.resolve(PLATFORM_TOKENS.EDITOR_PROVIDER),
-        c.resolve(TOKENS.WEBVIEW_MANAGER),
-      ),
   });
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
-  container.registerSingleton(LayoutRpcHandlers);
-  const ptyManagerService = new PtyManagerService(logger);
-  container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
-    useValue: ptyManagerService,
-  });
-  // Alias: the RPC handler depends on the port, IpcBridge on the concrete class.
-  // Same instance — a second PtyManagerService would own a separate session map.
-  container.register(PLATFORM_TOKENS.PTY_HOST, {
-    useToken: ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
-  });
-  container.registerSingleton(TerminalRpcHandlers);
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   // Alias, NOT a second registerSingleton — see Risk R1. post-window starts the
   // instance behind UPDATE_MANAGER_TOKEN and main.ts disposes it; a second
@@ -193,17 +169,14 @@ export function registerPhase4Handlers(
   container.registerSingleton(UpdateRpcHandlers);
 
   logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
-    // EditorRpcHandlers is the last app-local handler class (TASK_2026_173).
-    // The rest live in @ptah-extension/rpc-handlers and are registered here
+    // These live in @ptah-extension/rpc-handlers and are registered here
     // because their capabilities are Electron-only, not because they are
-    // Electron code.
+    // Electron code. EditorRpcHandlers, the last app-local handler class
+    // (TASK_2026_173), was deleted in TASK_2026_385 Batch 4.2.
     handlers: [
-      'EditorRpcHandlers',
       'CommandRpcHandlers',
       'AgentRpcHandlers',
       'SkillsShRpcHandlers',
-      'LayoutRpcHandlers',
-      'TerminalRpcHandlers',
       'UpdateRpcHandlers',
     ],
   });
