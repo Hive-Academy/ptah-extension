@@ -147,6 +147,10 @@ export class SessionHistoryReaderService {
       };
       messageCount: number;
       model?: string;
+      contextSnapshot?: {
+        model: string;
+        contextTokens: number;
+      };
       /** Number of agent/subagent JSONL files found for this session */
       agentSessionCount?: number;
       /** Per-model token and cost breakdown for multi-model sessions */
@@ -667,6 +671,10 @@ export class SessionHistoryReaderService {
     };
     messageCount: number;
     model?: string;
+    contextSnapshot?: {
+      model: string;
+      contextTokens: number;
+    };
     agentSessionCount?: number;
     modelUsageList?: Array<{
       model: string;
@@ -691,6 +699,12 @@ export class SessionHistoryReaderService {
         hasCostContribution: boolean;
       }
     >();
+    let contextSnapshot:
+      | {
+          model: string;
+          contextTokens: number;
+        }
+      | undefined;
 
     const accumulatePerModel = (
       rawModel: string,
@@ -698,7 +712,7 @@ export class SessionHistoryReaderService {
       output: number,
       cacheRead: number,
       cacheCreation: number,
-    ): void => {
+    ): string => {
       const priced = this.modelResolver.resolveForCost(rawModel);
       const resolvedModel = priced.modelId;
       const modelKey = resolvedModel || rawModel || 'unknown';
@@ -725,6 +739,7 @@ export class SessionHistoryReaderService {
         existing.hasCostContribution = true;
       }
       perModelUsage.set(modelKey, existing);
+      return modelKey;
     };
     let statsStartIndex = 0;
     for (let i = mainMessages.length - 1; i >= 0; i--) {
@@ -763,13 +778,22 @@ export class SessionHistoryReaderService {
               ? msg.message?.model || detectedModel || ''
               : detectedModel || '';
           if (msgModel) {
-            accumulatePerModel(
+            const modelKey = accumulatePerModel(
               msgModel,
               tokens.input,
               tokens.output,
               tokens.cacheRead ?? 0,
               tokens.cacheCreation ?? 0,
             );
+            if (msg.type === 'assistant') {
+              contextSnapshot = {
+                model: modelKey,
+                contextTokens:
+                  tokens.input +
+                  (tokens.cacheRead ?? 0) +
+                  (tokens.cacheCreation ?? 0),
+              };
+            }
           }
         }
       }
@@ -858,6 +882,7 @@ export class SessionHistoryReaderService {
       },
       messageCount,
       model: primaryModel,
+      ...(contextSnapshot && { contextSnapshot }),
       agentSessionCount: agentSessions.length,
       ...(modelUsageList.length > 0 && { modelUsageList }),
     };

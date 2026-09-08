@@ -805,6 +805,37 @@ describe('StreamingHandlerService', () => {
       );
     });
 
+    it('target-only replay writes only to the explicit tab', () => {
+      const tabA = makeTab({
+        id: 'tab-a',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      const tabB = makeTab({
+        id: 'tab-b',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      tabsSignal.set([tabA, tabB]);
+      tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
+
+      service.processStreamEvent(textDelta(), 'tab-b', SESSION_ID, {
+        isReplay: true,
+        fanOut: false,
+      });
+
+      expect(tabA.streamingState?.events.size).toBe(0);
+      expect(tabB.streamingState?.events.size).toBeGreaterThan(0);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalledWith(
+        'tab-a',
+        expect.anything(),
+      );
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-b',
+        expect.anything(),
+      );
+    });
+
     it('handleSessionStats stashes pendingStats on every bound streaming tab and does not finalize', () => {
       const tabA = makeTab({
         id: 'tab-a',

@@ -97,6 +97,22 @@ jobs:
         if: steps.cache-prisma.outputs.cache-hit != 'true'
         run: npx nx run ptah-license-server:prisma:generate
 
+      # Nx task cache. `affected` only picks the task LIST; the cache decides
+      # which of those tasks actually execute. Without this, every run starts
+      # cold, so a PR that touches `libs/shared` re-runs ~80 projects from
+      # scratch even though their own test/build inputs never changed
+      # (measured on PR #464: 73 of 97 projects affected by the source files
+      # alone, 97 once the root eslint.config.mjs is counted). The key carries
+      # the SHA because GitHub cache entries are immutable — the prefix
+      # restore-key is what actually reuses the previous run's results.
+      - name: Cache Nx task results
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-
+
       - name: Set NX SHAs
         uses: nrwl/nx-set-shas@v4
         with:

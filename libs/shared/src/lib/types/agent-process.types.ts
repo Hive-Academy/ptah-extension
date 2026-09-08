@@ -111,7 +111,12 @@ export interface SpawnAgentRequest {
   readonly cli?: CliType;
   /** Working directory (defaults to workspace root) */
   readonly workingDirectory?: string;
-  /** Timeout in milliseconds (default: 3600000 = 1hr, max: 3600000 = 1hr) */
+  /**
+   * Inactivity window in milliseconds — how long the agent may produce NO
+   * output before it is treated as hung (default: 3600000 = 1hr). The window is
+   * re-armed by every output flush, so a working agent never hits it. `0`
+   * disables the watchdog. There is no maximum.
+   */
   readonly timeout?: number;
   /** Files the agent should focus on */
   readonly files?: string[];

@@ -91,6 +91,11 @@ export class StreamingHandlerService {
     this.warnedNoTargetSessions.delete(sessionId);
   }
 
+  /** Drop queued tab writes before replacing its state from session history. */
+  clearPendingUpdates(tabId: string): void {
+    this.batchedUpdate.clearPendingUpdates(tabId);
+  }
+
   /**
    * Process flat streaming event from SDK
    *
@@ -106,7 +111,7 @@ export class StreamingHandlerService {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
-    options?: { isReplay?: boolean },
+    options?: { isReplay?: boolean; fanOut?: boolean },
   ): {
     tabId: string;
     queuedContent?: string;
@@ -201,9 +206,10 @@ export class StreamingHandlerService {
         sessionId,
         isReplay,
       );
-      const allBoundTabs = eventSession
-        ? this.tabManager.findTabsBySessionId(eventSession)
-        : [];
+      const allBoundTabs =
+        eventSession && options?.fanOut !== false
+          ? this.tabManager.findTabsBySessionId(eventSession)
+          : [];
       if (allBoundTabs.length > 1) {
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;

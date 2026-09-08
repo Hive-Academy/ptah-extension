@@ -59,9 +59,6 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
 
-/** Maximum number of simultaneously expanded agent cards */
-const MAX_EXPANDED_AGENTS = 3;
-
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
@@ -87,8 +84,6 @@ export interface MonitoredAgent {
   stderr: string;
   exitCode?: number;
   expanded: boolean;
-  /** Order in which this card was expanded (for auto-collapse of oldest). */
-  expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
   /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering.
@@ -267,8 +262,6 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _panelOpen = signal(false);
   /** Tracks whether the user explicitly closed the panel (prevents auto-reopen) */
   private _userExplicitlyClosed = false;
-  /** Monotonic counter for tracking expand order (oldest = lowest value) */
-  private _expandOrder = 0;
 
   /**
    * Buffer for permission requests that arrive before the agent spawn event.
@@ -664,7 +657,6 @@ export class AgentMonitorStore implements OnDestroy {
           stdout: '',
           stderr: '',
           expanded: oldCard.expanded,
-          expandedAt: oldCard.expandedAt,
           segments: [],
           streamEvents: [],
           streamRevision: 0,
@@ -684,7 +676,6 @@ export class AgentMonitorStore implements OnDestroy {
         );
       }
 
-      const order = this._expandOrder++;
       const fresh: MonitoredAgent = {
         agentId: info.agentId,
         cli: info.cli,
@@ -694,7 +685,6 @@ export class AgentMonitorStore implements OnDestroy {
         stdout: '',
         stderr: '',
         expanded: true,
-        expandedAt: order,
         segments: [],
         streamEvents: [],
         streamRevision: 0,
@@ -708,7 +698,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
       };
-      return this.enforceMaxExpanded(insertAgentSorted(list, fresh));
+      return insertAgentSorted(list, fresh);
     });
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
@@ -906,19 +896,14 @@ export class AgentMonitorStore implements OnDestroy {
       }
 
       const agent = list[foundIndex];
-      const needsExpand = !agent.expanded;
-      const order = needsExpand ? this._expandOrder++ : agent.expandedAt;
-
       const next = [...list];
       next[foundIndex] = {
         ...agent,
         permissionQueue: [...agent.permissionQueue, request],
         expanded: true,
-        expandedAt: order,
       };
 
-      const result = needsExpand ? this.enforceMaxExpanded(next) : next;
-      return result;
+      return next;
     });
     this._panelOpen.set(true);
   }
@@ -961,13 +946,8 @@ export class AgentMonitorStore implements OnDestroy {
       const agent = list[foundIndex];
       const next = [...list];
 
-      if (agent.expanded) {
-        next[foundIndex] = { ...agent, expanded: false, expandedAt: undefined };
-        return next;
-      }
-      const order = this._expandOrder++;
-      next[foundIndex] = { ...agent, expanded: true, expandedAt: order };
-      return this.enforceMaxExpanded(next);
+      next[foundIndex] = { ...agent, expanded: !agent.expanded };
+      return next;
     });
   }
 
@@ -1014,32 +994,6 @@ export class AgentMonitorStore implements OnDestroy {
     }
 
     return null;
-  }
-
-  /**
-   * Enforce that at most MAX_EXPANDED_AGENTS are expanded at once.
-   * Collapses the oldest expanded card(s) when the limit is exceeded.
-   * Returns a new array (does not mutate the input).
-   */
-  private enforceMaxExpanded(
-    list: readonly MonitoredAgent[],
-  ): MonitoredAgent[] {
-    const expanded = list.filter((a) => a.expanded);
-    if (expanded.length <= MAX_EXPANDED_AGENTS) return [...list];
-    const sortedExpanded = [...expanded].sort(
-      (a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0),
-    );
-    const toCollapse = sortedExpanded.length - MAX_EXPANDED_AGENTS;
-    const collapseIds = new Set<string>();
-    for (let i = 0; i < toCollapse; i++) {
-      collapseIds.add(sortedExpanded[i].agentId);
-    }
-
-    return list.map((a) =>
-      collapseIds.has(a.agentId)
-        ? { ...a, expanded: false, expandedAt: undefined }
-        : a,
-    );
   }
 
   /**

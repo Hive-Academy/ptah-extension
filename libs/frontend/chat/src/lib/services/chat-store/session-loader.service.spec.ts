@@ -22,14 +22,33 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  BatchedUpdateService,
+  BackgroundAgentStore,
+  EventDeduplicationService,
+  ExecutionTreeBuilderService,
+  MessageFinalizationService,
   SessionManager,
+  StreamingAccumulatorCore,
   StreamingHandlerService,
   AgentMonitorStore,
+  TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
-import type {
-  ChatSessionSummary,
+import {
+  ConfirmationDialogService,
+  ConversationRegistry,
+  MODEL_REFRESH_CONTROL,
+  TabSessionBinding,
+  TabWorkspacePartitionService,
+  type ModelRefreshControl,
+} from '@ptah-extension/chat-state';
+import type { StreamingState } from '@ptah-extension/chat-types';
+import {
   SessionId,
-  SubagentRecord,
+  TabId,
+  type ChatSessionSummary,
+  type ExecutionNode,
+  type FlatStreamEventUnion,
+  type SubagentRecord,
 } from '@ptah-extension/shared';
 
 function makeSummary(
@@ -54,6 +73,10 @@ describe('SessionLoaderService', () => {
   let activeTabSessionIdSignal: ReturnType<typeof signal<string | null>>;
   let activeTabStatusSignal: ReturnType<typeof signal<string | null>>;
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
+  let applyLoadedSessionStats: jest.Mock;
+  let setPreloadedStats: jest.Mock;
+  let setLiveModelStats: jest.Mock;
+  let setModelUsageList: jest.Mock;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -68,6 +91,10 @@ describe('SessionLoaderService', () => {
     activeTabSessionIdSignal = signal<string | null>(null);
     activeTabStatusSignal = signal<string | null>(null);
     activeTabIdSignal = signal<string | null>(null);
+    applyLoadedSessionStats = jest.fn();
+    setPreloadedStats = jest.fn();
+    setLiveModelStats = jest.fn();
+    setModelUsageList = jest.fn();
 
     const tabManagerMock = {
       pendingSessionLoad: computed(() => pendingSessionLoadSignal()),
@@ -75,6 +102,19 @@ describe('SessionLoaderService', () => {
       activeTabSessionId: computed(() => activeTabSessionIdSignal()),
       activeTabStatus: computed(() => activeTabStatusSignal()),
       activeTabId: computed(() => activeTabIdSignal()),
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const sessionId = activeTabSessionIdSignal();
+        return sessionId
+          ? {
+              tab: { id: tabId, claudeSessionId: sessionId },
+              workspacePath: 'D:/repo',
+            }
+          : null;
+      }),
+      applyLoadedSessionStats,
+      setPreloadedStats,
+      setLiveModelStats,
+      setModelUsageList,
     } as unknown as TabManagerService;
 
     const sessionManagerMock = {
@@ -179,8 +219,9 @@ describe('SessionLoaderService', () => {
     });
 
     it('skips the fetch when the session was already hydrated by chat:resume', async () => {
+      const restoredTabId = TabId.from('72f04290-94d6-497a-81b4-c096e7e7a2b4');
       activeTabSessionIdSignal.set(SESSION);
-      activeTabIdSignal.set('tab-1');
+      activeTabIdSignal.set(restoredTabId);
       rpcCall.mockImplementation(async (method: string) =>
         method === 'chat:resume'
           ? { success: true, data: { cliSessions: refs } }
@@ -196,6 +237,123 @@ describe('SessionLoaderService', () => {
       await service.restoreCliSessionsForSession(SESSION);
 
       expect(cliSessionCalls()).toHaveLength(0);
+    });
+
+    it('replaces a restored loaded tab stale stats from the resume snapshot', async () => {
+      const restoredTabId = TabId.from('15fe87b7-9888-456d-a125-74e31307780e');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        totalCost: 12,
+        tokens: {
+          input: 700_000,
+          output: 20_000,
+          cacheRead: 100_000,
+          cacheCreation: 0,
+        },
+        messageCount: 90,
+        model: 'claude-sonnet-4-5',
+        modelUsageList: [
+          {
+            model: 'claude-sonnet-4-5',
+            inputTokens: 700_000,
+            outputTokens: 20_000,
+            costUSD: 12,
+          },
+        ],
+        contextSnapshot: {
+          model: 'claude-opus-5',
+          contextTokens: 11_016,
+        },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).toHaveBeenCalledWith(
+        restoredTabId,
+        stats,
+        stats.model,
+      );
+      expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
+        model: 'claude-opus-5',
+        contextUsed: 11_016,
+        contextWindow: 1_000_000,
+        contextPercent: 1.1,
+      });
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
+        {
+          model: 'claude-sonnet-4-5',
+          inputTokens: 700_000,
+          outputTokens: 20_000,
+          costUSD: 12,
+          contextWindow: 200_000,
+        },
+      ]);
+    });
+
+    it('clears stale restored-tab stats when a successful resume has no stats', async () => {
+      const restoredTabId = TabId.from('c74b7af0-4c5c-4336-821c-e2fe28cd921d');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      rpcCall.mockResolvedValue({ success: true, data: { stats: null } });
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setPreloadedStats).toHaveBeenCalledWith(restoredTabId, null);
+      expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, null);
+      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, []);
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+    });
+
+    it('does not apply an old resume response after the tab is rebound', async () => {
+      const restoredTabId = TabId.from('6c7172a6-1f48-48c8-a3af-33e627e8bb55');
+      let resolveResume!: (value: {
+        success: true;
+        data: { stats: typeof stats };
+      }) => void;
+      const stats = {
+        totalCost: 1,
+        tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        contextSnapshot: { model: 'claude-opus-5', contextTokens: 12 },
+      };
+      const resume = new Promise<{
+        success: true;
+        data: { stats: typeof stats };
+      }>((resolve) => {
+        resolveResume = resolve;
+      });
+      rpcCall.mockImplementation((method: string) =>
+        method === 'chat:resume'
+          ? resume
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+
+      activeTabSessionIdSignal.set('different-session');
+      resolveResume({ success: true, data: { stats } });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(setPreloadedStats).not.toHaveBeenCalled();
+      expect(setLiveModelStats).not.toHaveBeenCalled();
+      expect(setModelUsageList).not.toHaveBeenCalled();
     });
   });
 
@@ -325,7 +483,7 @@ describe('SessionLoaderService', () => {
       // Trigger refreshResumableSubagentsForSession via restored-session effect.
       activeTabSessionIdSignal.set('sess-1');
       activeTabStatusSignal.set('loaded');
-      activeTabIdSignal.set('tab-1');
+      activeTabIdSignal.set(TabId.from('61a250e8-805c-4f1c-823a-791e06784980'));
       // Flush the async refresh.
       await Promise.resolve();
       await Promise.resolve();
@@ -829,6 +987,359 @@ describe('SessionLoaderService', () => {
     });
   });
 
+  describe('tab-targeted compaction reload', () => {
+    const SESSION = 'session-targeted' as SessionId;
+    const TAB_A = 'tab-target-a' as TabId;
+    const TAB_B = 'tab-target-b' as TabId;
+
+    function makeTargetedService(
+      initialTabs = [
+        { id: TAB_A, claudeSessionId: SESSION, name: 'A' },
+        { id: TAB_B, claudeSessionId: SESSION, name: 'B' },
+      ],
+    ) {
+      let tabs = initialTabs;
+      const openSessionTab = jest.fn().mockReturnValue(TAB_A);
+      const applyResumingSession = jest.fn();
+      const applyLoadedSessionStats = jest.fn();
+      const applyResumedHistory = jest.fn();
+      const processStreamEvent = jest.fn();
+      const finalizeSessionHistory = jest.fn();
+      const clearPendingUpdates = jest.fn();
+      const markSessionActive = jest.fn();
+      const setPreloadedStats = jest.fn();
+      const setLiveModelStats = jest.fn();
+
+      const tabManagerMock = {
+        pendingSessionLoad: computed(() => null),
+        clearPendingSessionLoad: jest.fn(),
+        activeTabSessionId: computed(() => null),
+        activeTabStatus: computed(() => null),
+        activeTabId: computed(() => null),
+        tabs: () => tabs,
+        findTabByIdAcrossWorkspaces: jest.fn((tabId: TabId) => {
+          const tab = tabs.find((candidate) => candidate.id === tabId);
+          return tab ? { tab, workspacePath: 'D:/repo' } : null;
+        }),
+        findTabBySessionId: jest.fn(),
+        switchTab: jest.fn(),
+        openSessionTab,
+        applyResumingSession,
+        applyResumeFailure: jest.fn(),
+        applyResumedHistory,
+        applyLoadedSessionStats,
+        setLiveModelStats,
+        setModelUsageList: jest.fn(),
+        setPreloadedStats,
+        markSessionActive,
+      } as unknown as TabManagerService;
+      const sessionManagerMock = {
+        setStatus: jest.fn(),
+        setSessionId: jest.fn(),
+        setNodeMaps: jest.fn(),
+      } as unknown as SessionManager;
+      const streamingHandlerMock = {
+        cleanupSessionDeduplication: jest.fn(),
+        clearPendingUpdates,
+        processStreamEvent,
+        finalizeSessionHistory,
+      } as unknown as StreamingHandlerService;
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          SessionLoaderService,
+          { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+          {
+            provide: VSCodeService,
+            useValue: { config: () => ({ workspaceRoot: 'D:/repo' }) },
+          },
+          { provide: TabManagerService, useValue: tabManagerMock },
+          { provide: SessionManager, useValue: sessionManagerMock },
+          { provide: StreamingHandlerService, useValue: streamingHandlerMock },
+          {
+            provide: AgentMonitorStore,
+            useValue: { loadCliSessions: jest.fn() },
+          },
+        ],
+      });
+      return {
+        service: TestBed.inject(SessionLoaderService),
+        setTabs: (next: typeof tabs) => {
+          tabs = next;
+        },
+        openSessionTab,
+        applyResumingSession,
+        applyLoadedSessionStats,
+        applyResumedHistory,
+        processStreamEvent,
+        finalizeSessionHistory,
+        clearPendingUpdates,
+        markSessionActive,
+        setPreloadedStats,
+        setLiveModelStats,
+      };
+    }
+
+    it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
+      const harness = makeTargetedService();
+      const stats = {
+        totalCost: 4.2,
+        tokens: { input: 10, output: 5, cacheRead: 2, cacheCreation: 1 },
+        messageCount: 3,
+        model: 'claude-sonnet-4-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { events: [{ type: 'noop' }], stats } }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        activate: true,
+        targetTabId: TAB_B,
+      });
+
+      expect(harness.openSessionTab).not.toHaveBeenCalled();
+      expect(harness.markSessionActive).not.toHaveBeenCalled();
+      expect(rpcCall).toHaveBeenCalledWith(
+        'chat:resume',
+        expect.objectContaining({ sessionId: SESSION, tabId: TAB_B }),
+        expect.anything(),
+      );
+      const resumePayload = rpcCall.mock.calls.find(
+        ([method]) => method === 'chat:resume',
+      )?.[1] as { activate?: boolean };
+      expect(resumePayload.activate).toBeUndefined();
+      expect(harness.applyResumingSession).toHaveBeenCalledWith(
+        TAB_B,
+        expect.anything(),
+      );
+      expect(harness.applyLoadedSessionStats).toHaveBeenCalledWith(
+        TAB_B,
+        stats,
+        stats.model,
+      );
+      expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, null);
+      expect(harness.processStreamEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        TAB_B,
+        SESSION,
+        { isReplay: true, fanOut: false },
+      );
+      expect(harness.finalizeSessionHistory).toHaveBeenCalledWith(
+        TAB_B,
+        undefined,
+      );
+    });
+
+    it('uses the dedicated context snapshot model instead of aggregate resume stats for the gauge', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                events: [{ type: 'noop' }],
+                stats: {
+                  totalCost: 35.668,
+                  tokens: {
+                    input: 896_000,
+                    output: 300,
+                    cacheRead: 0,
+                    cacheCreation: 0,
+                  },
+                  messageCount: 250,
+                  model: 'claude-sonnet-4-5',
+                  modelUsageList: [
+                    {
+                      model: 'claude-sonnet-4-5',
+                      inputTokens: 896_000,
+                      outputTokens: 300,
+                      costUSD: 35.668,
+                    },
+                  ],
+                  contextSnapshot: {
+                    model: 'claude-opus-5',
+                    contextTokens: 11_016,
+                  },
+                },
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+
+      expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, {
+        model: 'claude-opus-5',
+        contextUsed: 11_016,
+        contextWindow: 1_000_000,
+        contextPercent: 1.1,
+      });
+    });
+
+    it('uses the explicit target for the legacy-message fallback', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                messages: [
+                  {
+                    id: 'm1',
+                    role: 'assistant',
+                    timestamp: 1,
+                    content: 'restored',
+                  },
+                ],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+
+      expect(harness.applyResumedHistory).toHaveBeenCalledWith(
+        TAB_B,
+        expect.arrayContaining([expect.objectContaining({ id: 'm1' })]),
+      );
+      expect(harness.setPreloadedStats).not.toHaveBeenCalled();
+    });
+
+    it('fails loudly when the target does not own the requested session', async () => {
+      const harness = makeTargetedService([
+        {
+          id: TAB_A,
+          claudeSessionId: 'another-session' as SessionId,
+          name: 'A',
+        },
+      ]);
+
+      await expect(
+        harness.service.switchSession(SESSION, {
+          reason: 'compaction',
+          targetTabId: TAB_A,
+        }),
+      ).rejects.toThrow(/no longer owns session/i);
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    it('fails before writing when the target disappears during session load', async () => {
+      let resolveLoad!: (value: { success: true; data: object }) => void;
+      const load = new Promise<{ success: true; data: object }>((resolve) => {
+        resolveLoad = resolve;
+      });
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? load
+          : Promise.resolve({
+              success: true,
+              data: { events: [{ type: 'noop' }] },
+            }),
+      );
+
+      const pending = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+      await Promise.resolve();
+      harness.setTabs([]);
+      resolveLoad({ success: true, data: {} });
+
+      await expect(pending).rejects.toThrow(/no longer owns session/i);
+      expect(harness.applyResumingSession).not.toHaveBeenCalled();
+    });
+
+    it('stops downstream writes when the target disappears during chat resume', async () => {
+      let resolveResume!: (value: {
+        success: true;
+        data: { events: Array<{ type: string }>; stats: object };
+      }) => void;
+      const resume = new Promise<{
+        success: true;
+        data: { events: Array<{ type: string }>; stats: object };
+      }>((resolve) => {
+        resolveResume = resolve;
+      });
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'chat:resume'
+          ? resume
+          : Promise.resolve({ success: true, data: {} }),
+      );
+
+      const pending = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      harness.setTabs([]);
+      resolveResume({
+        success: true,
+        data: { events: [{ type: 'noop' }], stats: {} },
+      });
+
+      await expect(pending).rejects.toThrow(/no longer owns session/i);
+      expect(harness.applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(harness.processStreamEvent).not.toHaveBeenCalled();
+      expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
+    });
+
+    it('keys in-flight targeted loads by both session and tab', async () => {
+      let resolveLoad!: (value: { success: true; data: object }) => void;
+      const load = new Promise<{ success: true; data: object }>((resolve) => {
+        resolveLoad = resolve;
+      });
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? load
+          : Promise.resolve({
+              success: true,
+              data: {
+                messages: [
+                  { id: 'm1', role: 'assistant', timestamp: 1, content: 'ok' },
+                ],
+              },
+            }),
+      );
+
+      const first = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_A,
+      });
+      const second = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB_B,
+      });
+      expect(
+        rpcCall.mock.calls.filter(([method]) => method === 'session:load'),
+      ).toHaveLength(2);
+
+      resolveLoad({ success: true, data: {} });
+      await Promise.all([first, second]);
+      expect(harness.applyResumedHistory).toHaveBeenCalledWith(
+        TAB_A,
+        expect.anything(),
+      );
+      expect(harness.applyResumedHistory).toHaveBeenCalledWith(
+        TAB_B,
+        expect.anything(),
+      );
+    });
+  });
+
   describe('loadSessions debouncing', () => {
     it.skip('coalesces rapid calls into a single RPC', async () => {
       rpcCall.mockClear();
@@ -894,5 +1405,221 @@ describe('SessionLoaderService', () => {
       );
       expect(loadCalls.length).toBe(2);
     }, 10000);
+  });
+});
+
+describe('SessionLoaderService targeted replay with the real streaming state pipeline', () => {
+  const restoredText = 'Restored assistant content after compaction';
+  let visibilityDescriptor: PropertyDescriptor | undefined;
+  let requestAnimationFrameSpy: jest.SpyInstance;
+  let cancelAnimationFrameSpy: jest.SpyInstance;
+
+  function event(
+    sessionId: SessionId,
+    id: string,
+    eventType: 'message_start' | 'text_delta' | 'message_complete',
+    messageId: string,
+    details: Record<string, unknown> = {},
+  ): FlatStreamEventUnion {
+    return {
+      id,
+      eventType,
+      timestamp: Date.now(),
+      sessionId,
+      messageId,
+      source: 'stream',
+      ...details,
+    } as FlatStreamEventUnion;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    visibilityDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      'visibilityState',
+    );
+    requestAnimationFrameSpy = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation(() => 17);
+    cancelAnimationFrameSpy = jest
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
+    if (visibilityDescriptor) {
+      Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+    } else {
+      delete (
+        document as Document & { visibilityState?: DocumentVisibilityState }
+      ).visibilityState;
+    }
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  it('discards a deferred live compaction state before replaying assistant history into that exact tab', async () => {
+    const sessionId = SessionId.create();
+
+    const replayEvents: FlatStreamEventUnion[] = [
+      event(sessionId, 'replay-user-start', 'message_start', 'replay-user', {
+        role: 'user',
+      }),
+      event(sessionId, 'replay-user-text', 'text_delta', 'replay-user', {
+        blockIndex: 0,
+        delta: 'original user prompt',
+      }),
+      event(
+        sessionId,
+        'replay-assistant-start',
+        'message_start',
+        'replay-assistant',
+        { role: 'assistant' },
+      ),
+      event(
+        sessionId,
+        'replay-assistant-text',
+        'text_delta',
+        'replay-assistant',
+        { blockIndex: 0, delta: restoredText },
+      ),
+      event(
+        sessionId,
+        'replay-assistant-complete',
+        'message_complete',
+        'replay-assistant',
+        {
+          stopReason: 'end_turn',
+          tokenUsage: { input: 10, output: 20 },
+        },
+      ),
+    ];
+    const rpcCall = jest.fn(async (method: string) =>
+      method === 'chat:resume'
+        ? { success: true, data: { events: replayEvents } }
+        : { success: true, data: {} },
+    );
+    const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
+      refreshModels: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<ModelRefreshControl>;
+    const treeBuilder = {
+      buildTree: jest.fn(
+        (state: StreamingState): ExecutionNode[] =>
+          [...state.events.values()]
+            .filter(
+              (candidate) =>
+                candidate.eventType === 'message_start' &&
+                candidate.role === 'assistant',
+            )
+            .map((start) => ({
+              id: start.id,
+              type: 'text',
+              status: 'complete',
+              content: [...state.textAccumulators.entries()]
+                .filter(([key]) => key.startsWith(`${start.messageId}-`))
+                .map(([, text]) => text)
+                .join(''),
+              children: [],
+            })) as ExecutionNode[],
+      ),
+      clearForTab: jest.fn(),
+    };
+    const agentMonitorStore = {
+      clearAgents: jest.fn(),
+      loadCliSessions: jest.fn(),
+      markAgentNodesResumed: jest.fn(),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        SessionLoaderService,
+        TabManagerService,
+        TabWorkspacePartitionService,
+        ConversationRegistry,
+        TabSessionBinding,
+        BatchedUpdateService,
+        StreamingHandlerService,
+        StreamingAccumulatorCore,
+        EventDeduplicationService,
+        MessageFinalizationService,
+        SessionManager,
+        BackgroundAgentStore,
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn().mockResolvedValue(true) },
+        },
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+        {
+          provide: VSCodeService,
+          useValue: { config: () => ({ workspaceRoot: 'D:/repo' }) },
+        },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
+      ],
+    });
+
+    const loader = TestBed.inject(SessionLoaderService);
+    const tabManager = TestBed.inject(TabManagerService);
+    const streamingHandler = TestBed.inject(StreamingHandlerService);
+    const batchedUpdate = TestBed.inject(BatchedUpdateService);
+    tabManager.switchWorkspace('D:/repo');
+    const targetTabId = tabManager.openSessionTab(
+      sessionId,
+      'compacted session',
+    ) as TabId;
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    const staleEvents: FlatStreamEventUnion[] = [
+      event(sessionId, 'stale-user-1-start', 'message_start', 'stale-user-1', {
+        role: 'user',
+      }),
+      event(sessionId, 'stale-user-1-text', 'text_delta', 'stale-user-1', {
+        blockIndex: 0,
+        delta: 'Continued from previous conversation (compacted)',
+      }),
+      event(sessionId, 'stale-user-2-start', 'message_start', 'stale-user-2', {
+        role: 'user',
+      }),
+      event(sessionId, 'stale-user-2-text', 'text_delta', 'stale-user-2', {
+        blockIndex: 0,
+        delta: '/compact compact',
+      }),
+    ];
+    for (const staleEvent of staleEvents) {
+      streamingHandler.processStreamEvent(staleEvent, targetTabId, sessionId, {
+        fanOut: false,
+      });
+    }
+    expect(batchedUpdate.hasPendingUpdates(targetTabId)).toBe(true);
+
+    // The window becomes visible before resume, but no visibility event has
+    // drained the old live-state entry yet. Replay now queues a newer state;
+    // the finalization flush exposes whether the older deferred entry wins.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await loader.switchSession(sessionId, {
+      reason: 'compaction',
+      targetTabId,
+    });
+
+    const target = tabManager.tabs().find((tab) => tab.id === targetTabId);
+    expect(target?.messages.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
+    expect(JSON.stringify(target?.messages)).toContain(restoredText);
+    expect(JSON.stringify(target?.messages)).not.toContain(
+      'Continued from previous conversation (compacted)',
+    );
+    expect(JSON.stringify(target?.messages)).not.toContain('/compact compact');
   });
 });

@@ -97,8 +97,9 @@ import {
 import {
   BUFFER_LOW_WATER_SIZE,
   COMPLETED_AGENT_TTL,
-  DEFAULT_TIMEOUT,
+  DEFAULT_INACTIVITY_TIMEOUT,
   MAX_BUFFER_SIZE,
+  OUTPUT_FLUSH_INTERVAL,
   MIN_SDK_IDLE_RELEASE_MS,
   SDK_IDLE_RELEASE_MS,
   countNewlines,
@@ -639,13 +640,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('timeout for SDK agents', () => {
-    it('should trigger handleTimeout when timeout expires for SDK agent', async () => {
+  describe('inactivity watchdog for SDK agents', () => {
+    it('should trigger handleTimeout when the agent is silent for the whole window', async () => {
       const result = await manager.spawn({
         task: 'Slow task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
-        timeout: 5000, // 5 second timeout
+        timeout: 5000, // 5 second inactivity window
       });
 
       // Advance past the timeout
@@ -657,6 +658,71 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'timeout');
+    });
+
+    // The window is SILENCE, not wall clock. A job that keeps working outlives
+    // any window, which is the whole point: the predecessor killed a healthy
+    // agent one hour after spawn and reported it as a timeout.
+    it('re-arms the window on output, so a working agent outlives it', async () => {
+      const result = await manager.spawn({
+        task: 'Long task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 5000,
+      });
+
+      // Five windows' worth of wall clock, each broken by output before the
+      // window elapses. The flush that re-arms is itself throttled, so let it
+      // fire between the chunks.
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(4000);
+        sdkControls.emitOutput(`still working ${i}\n`);
+        jest.advanceTimersByTime(OUTPUT_FLUSH_INTERVAL);
+      }
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
+    });
+
+    it('arms no watchdog at all when the caller passes timeout: 0', async () => {
+      const result = await manager.spawn({
+        task: 'Unbounded task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 0,
+      });
+
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT * 3);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
+    });
+
+    // The old ceiling clamped a larger request back down to one hour and said
+    // nothing, so a caller asking for four hours got one.
+    it('honours a window larger than the default instead of clamping it', async () => {
+      const result = await manager.spawn({
+        task: 'Very long task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: DEFAULT_INACTIVITY_TIMEOUT * 4,
+      });
+
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT * 2);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getStatus(result.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
     });
   });
 
@@ -1127,7 +1193,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       await manager.continueConversation(agentId, 'long-running follow-up');
 
-      jest.advanceTimersByTime(DEFAULT_TIMEOUT);
+      jest.advanceTimersByTime(DEFAULT_INACTIVITY_TIMEOUT);
       await Promise.resolve();
       await Promise.resolve();
 
