@@ -1,4 +1,5 @@
 import { test, expect } from '../../support/fixtures';
+import { gitDiffFileMock } from '../../support/git-diff-mock';
 
 /**
  * Git dock (TASK_2026_385 Batch 3.3).
@@ -116,6 +117,133 @@ test.describe('Git dock', () => {
     );
 
     // File count updates — the dock lists one row per changed file.
+    const changedFiles = page.getByRole('list', {
+      name: 'Changed files',
+      exact: true,
+    });
+    const changedSrc = changedFiles.getByRole('button', {
+      name: 'Toggle src folder',
+      exact: true,
+    });
+    await expect(changedSrc).toHaveAttribute('aria-expanded', 'false');
+    await changedSrc.click();
+    await expect(changedSrc).toHaveAttribute('aria-expanded', 'true');
+    await expect(
+      changedFiles.getByRole('button', { name: 'Open diff for a.ts' }),
+    ).toBeVisible();
+    await expect(
+      changedFiles.getByRole('button', { name: 'Open diff for c.ts' }),
+    ).toBeVisible();
+    expect(await ui.getObservedCalls('git:diffFile')).toEqual([]);
+    await expect(page.locator('ptah-diff-view')).toHaveCount(0);
+    await expect(page.locator('[data-testid="diff-error-overlay"]')).toHaveCount(
+      0,
+    );
+
+    await changedSrc.click();
+    await expect(changedSrc).toHaveAttribute('aria-expanded', 'false');
+    await expect(
+      changedFiles.getByRole('button', { name: 'Open diff for a.ts' }),
+    ).toHaveCount(0);
+
+    await changedSrc.click();
+    const stagedSrc = page
+      .getByRole('list', { name: 'Staged files', exact: true })
+      .getByRole('button', { name: 'Toggle src folder', exact: true });
+    await stagedSrc.click();
     await expect(page.locator('ptah-source-control-file')).toHaveCount(3);
+  });
+
+  test('opens, switches, and closes independent diff tabs', async ({ ui }) => {
+    await ui.goto('git');
+    const page = ui.page;
+
+    await ui.pushEvent({
+      type: 'git:status-update',
+      payload: {
+        branch: {
+          branch: 'main',
+          upstream: 'origin/main',
+          ahead: 0,
+          behind: 0,
+        },
+        files: [
+          { path: 'alpha.ts', status: 'M', staged: false, isDirectory: false },
+          { path: 'beta.ts', status: 'M', staged: false, isDirectory: false },
+        ],
+        isGitRepo: true,
+      },
+    });
+
+    const changedFiles = page.getByRole('list', {
+      name: 'Changed files',
+      exact: true,
+    });
+
+    await ui.mockRpc({
+      'git:diffFile': gitDiffFileMock({
+        path: 'alpha.ts',
+        comparison: 'worktree',
+        original: "export const value = 'alpha original';\n",
+        modified: "export const value = 'alpha modified';\n",
+        snapshotToken: 'alpha-snapshot',
+      }),
+    });
+    await changedFiles
+      .getByRole('button', { name: 'Open diff for alpha.ts', exact: true })
+      .click();
+
+    const alphaTab = page.getByRole('tab', {
+      name: 'alpha.ts (working tree)',
+      exact: true,
+    });
+    await expect(alphaTab).toBeVisible();
+    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
+      'alpha modified',
+    );
+
+    await ui.mockRpc({
+      'git:diffFile': gitDiffFileMock({
+        path: 'beta.ts',
+        comparison: 'worktree',
+        original: "export const value = 'beta original';\n",
+        modified: "export const value = 'beta modified';\n",
+        snapshotToken: 'beta-snapshot',
+      }),
+    });
+    await changedFiles
+      .getByRole('button', { name: 'Open diff for beta.ts', exact: true })
+      .click();
+
+    const betaTab = page.getByRole('tab', {
+      name: 'beta.ts (working tree)',
+      exact: true,
+    });
+    const diffTablist = page.getByRole('tablist', { name: 'Open diffs' });
+    await expect(diffTablist).toBeVisible();
+    await expect(diffTablist.getByRole('tab')).toHaveCount(2);
+    await expect(betaTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
+      'beta modified',
+    );
+
+    await alphaTab.click();
+    await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
+      'alpha modified',
+    );
+
+    await page
+      .getByRole('button', {
+        name: 'Close diff for alpha.ts (working tree)',
+        exact: true,
+      })
+      .click();
+    await expect(alphaTab).toHaveCount(0);
+    await expect(diffTablist.getByRole('tab')).toHaveCount(1);
+    await expect(betaTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
+      'beta modified',
+    );
   });
 });

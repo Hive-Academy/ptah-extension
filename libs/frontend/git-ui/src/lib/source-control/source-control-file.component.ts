@@ -56,7 +56,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
                focus-visible:outline-[oklch(var(--s))]"
         [title]="rowTitle()"
         [attr.aria-label]="'Open diff for ' + fileName()"
-        (click)="openDiff.emit(diffRequest())"
+        (click)="onOpenDiff()"
       >
         <!-- Status icon -->
         <lucide-angular
@@ -68,7 +68,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
         <!-- File name + parent dir -->
         <span class="flex items-center gap-1 min-w-0 flex-1">
           <span class="font-medium truncate">{{ fileName() }}</span>
-          @if (parentDir()) {
+          @if (showParentDir() && parentDir()) {
             <span class="opacity-40 text-[10px] truncate">{{
               parentDir()
             }}</span>
@@ -129,9 +129,12 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
       </span>
 
       <!-- Status badge -->
-      <span class="text-[10px] font-mono opacity-40 flex-shrink-0">{{
-        file().status
-      }}</span>
+      <span
+        class="text-[10px] font-mono opacity-40 flex-shrink-0"
+        [title]="statusLabel()"
+        [attr.aria-label]="statusLabel()"
+        >{{ statusBadge() }}</span
+      >
     </div>
   `,
   // The component HOST sits between the panel's role="list" and this row's
@@ -143,6 +146,7 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
 export class SourceControlFileComponent {
   readonly file = input.required<GitFileStatus>();
   readonly staged = input.required<boolean>();
+  readonly showParentDir = input(true);
 
   readonly stage = output<string>();
   readonly unstage = output<string>();
@@ -223,6 +227,36 @@ export class SourceControlFileComponent {
         return 'opacity-60';
     }
   });
+
+  protected readonly statusBadge = computed(() =>
+    this.file().status === '??' ? 'U' : this.file().status,
+  );
+
+  protected readonly statusLabel = computed(() => {
+    const status = this.file().status;
+    switch (status) {
+      case 'M':
+        return 'Modified';
+      case 'A':
+        return 'Added';
+      case 'D':
+        return 'Deleted';
+      case '??':
+        return 'Untracked';
+      case 'R':
+        return 'Renamed';
+      case 'C':
+        return 'Copied';
+      default:
+        return status;
+    }
+  });
+
+  /** Directory-shaped legacy rows are never valid diff targets. */
+  protected onOpenDiff(): void {
+    if (this.file().isDirectory) return;
+    this.openDiff.emit(this.diffRequest());
+  }
 
   /**
    * Inline row action. Takes no event: the three action buttons are SIBLINGS
