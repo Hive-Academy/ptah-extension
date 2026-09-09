@@ -17,15 +17,12 @@ import type {
   ICallerWorkspaceResolver,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { promises as fsPromises } from 'fs';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
 
-// The roots below are synthetic Windows paths that exist on no machine.
-// `validateWorkingDirectory` skips `realpath` on win32 but calls it everywhere
-// else, so without this mock the whole file passes on a developer's Windows box
-// and fails on the ubuntu CI runner with ENOENT. Identity-resolve, so the
-// `startsWith` prefix check downstream still measures what it is here to
-// measure. Same mock, same reason, as `agent-process-manager.service.spec.ts`.
+// Synthetic roots exist on no machine. Identity-resolve by default; focused
+// tests override this to model symlink/junction escapes and resolution errors.
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
   return {
@@ -39,6 +36,9 @@ jest.mock('fs', () => {
 
 const ROOT_A = 'D:\\projects\\workspace-a';
 const ROOT_B = 'D:\\projects\\workspace-b';
+const mockedRealpath = fsPromises.realpath as jest.MockedFunction<
+  typeof fsPromises.realpath
+>;
 
 function makeManager(options: {
   providerRoot: string | undefined;
@@ -112,6 +112,9 @@ function validateWorkingDirectory(
 }
 
 describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
+  beforeEach(() => {
+    mockedRealpath.mockImplementation(async (p) => String(p));
+  });
   describe('no resolver registered — the CLI host, and every pre-port caller', () => {
     it('validates the working directory against the platform provider root, as before', async () => {
       const manager = makeManager({ providerRoot: ROOT_A });
@@ -123,6 +126,27 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
       );
     });
 
+    it('rejects a symlink or junction whose physical target escapes the workspace', async () => {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      mockedRealpath.mockImplementation(async (input) => {
+        const value = String(input);
+        if (value === `${ROOT_A}\\linked-out`) return 'D:\\outside\\payload';
+        return value;
+      });
+
+      await expect(
+        validateWorkingDirectory(manager, `${ROOT_A}\\linked-out`),
+      ).rejects.toThrow(/within workspace root/);
+    });
+
+    it('fails closed when physical path resolution fails', async () => {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      mockedRealpath.mockRejectedValueOnce(new Error('ENOENT'));
+
+      await expect(
+        validateWorkingDirectory(manager, `${ROOT_A}\\missing`),
+      ).rejects.toThrow(/Cannot resolve working directory scope: ENOENT/);
+    });
     it('rejects a Windows sibling whose path only shares the workspace prefix', async () => {
       const manager = makeManager({ providerRoot: ROOT_A });
       await expect(

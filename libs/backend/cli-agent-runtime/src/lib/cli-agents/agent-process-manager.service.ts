@@ -14,6 +14,7 @@ import {
   type IHarnessPreflight,
 } from '@ptah-extension/agent-sdk';
 import { ChildProcess } from 'child_process';
+import { promises as fsPromises } from 'fs';
 import { EventEmitter } from 'eventemitter3';
 import {
   TOKENS,
@@ -2101,10 +2102,22 @@ export class AgentProcessManager {
     if (!dir || dir.trim() === '') {
       throw new Error('Working directory is required but was empty.');
     }
-    if (!isPathWithinRoots(dir, [workspaceRoot])) {
+    let realDirectory: string;
+    let realWorkspaceRoot: string;
+    try {
+      [realDirectory, realWorkspaceRoot] = await Promise.all([
+        fsPromises.realpath(dir),
+        fsPromises.realpath(workspaceRoot),
+      ]);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Cannot resolve working directory scope: ${message}`);
+    }
+
+    if (!isPathWithinRoots(realDirectory, [realWorkspaceRoot])) {
       throw new Error(
         `Working directory must be within workspace root. ` +
-          `Got: ${dir}, Expected prefix: ${workspaceRoot}`,
+          `Got: ${dir}, Expected root: ${workspaceRoot}`,
       );
     }
   }

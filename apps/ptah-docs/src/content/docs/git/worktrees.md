@@ -35,7 +35,7 @@ From an agent, using the MCP tool:
 }
 ```
 
-Omit `path` to use Ptah's default: `<workspace>/.claude-worktrees/<safe-branch-name>`. For example, `feature/x` becomes `.claude-worktrees/feature-x`. Relative custom paths must remain inside the workspace; use an absolute path when another location or volume is required.
+Omit `path` to use Ptah's default: `<workspace>/.claude-worktrees/<safe-branch-name>`. For example, `feature/x` becomes a bounded name such as `.claude-worktrees/feature-x-<hash>`; the hash keeps similar and long branch names distinct. Relative custom paths must remain inside the workspace; use an absolute path when another location or volume is required.
 
 Equivalent shell:
 

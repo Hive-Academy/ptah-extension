@@ -36,6 +36,7 @@
  */
 
 import 'reflect-metadata';
+import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // Mock cross-spawn so we control stdout/stderr/exitCode per test.
@@ -116,6 +117,53 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // getBranches
   // ==========================================================================
 
+  describe('worktree paths', () => {
+    it('uses the shared nested default for UI/backend creation', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+      const branch = 'feature/ui-default';
+
+      const result = await service.addWorktree(WS, { branch });
+
+      expect(result.success).toBe(true);
+      expect(result.worktreePath).toContain(
+        `${path.sep}.claude-worktrees${path.sep}`,
+      );
+      expect((mockSpawn.mock.calls[0][1] as string[]).at(-1)).toBe(branch);
+    });
+
+    it('rejects an escaping relative custom path before spawning git', async () => {
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: '../workspace-evil',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Relative worktree path must stay/);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('retains an explicit absolute custom path', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+      const explicit = path.resolve('/worktrees/ui-explicit');
+
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: explicit,
+      });
+
+      expect(result).toEqual({ success: true, worktreePath: explicit });
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'worktree',
+        'add',
+        explicit,
+        'feature/x',
+      ]);
+    });
+  });
   describe('getBranches()', () => {
     /**
      * One `for-each-ref` line, in the field order of

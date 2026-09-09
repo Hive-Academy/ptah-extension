@@ -191,9 +191,9 @@ test.describe('Git dock', () => {
     ).toBeVisible();
     expect(await ui.getObservedCalls('git:diffFile')).toEqual([]);
     await expect(page.locator('ptah-diff-view')).toHaveCount(0);
-    await expect(page.locator('[data-testid="diff-error-overlay"]')).toHaveCount(
-      0,
-    );
+    await expect(
+      page.locator('[data-testid="diff-error-overlay"]'),
+    ).toHaveCount(0);
 
     await changedSrc.click();
     await expect(changedSrc).toHaveAttribute('aria-expanded', 'false');
@@ -253,9 +253,9 @@ test.describe('Git dock', () => {
       exact: true,
     });
     await expect(alphaTab).toBeVisible();
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
-      'alpha modified',
-    );
+    await expect(
+      page.locator('ptah-diff-view .view-lines').last(),
+    ).toContainText('alpha modified');
 
     await ui.mockRpc({
       'git:diffFile': gitDiffFileMock({
@@ -278,15 +278,15 @@ test.describe('Git dock', () => {
     await expect(diffTablist).toBeVisible();
     await expect(diffTablist.getByRole('tab')).toHaveCount(2);
     await expect(betaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
-      'beta modified',
-    );
+    await expect(
+      page.locator('ptah-diff-view .view-lines').last(),
+    ).toContainText('beta modified');
 
     await alphaTab.click();
     await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
-      'alpha modified',
-    );
+    await expect(
+      page.locator('ptah-diff-view .view-lines').last(),
+    ).toContainText('alpha modified');
 
     await page
       .getByRole('button', {
@@ -297,8 +297,8 @@ test.describe('Git dock', () => {
     await expect(alphaTab).toHaveCount(0);
     await expect(diffTablist.getByRole('tab')).toHaveCount(1);
     await expect(betaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toContainText(
-      'beta modified',
-    );
+    await expect(
+      page.locator('ptah-diff-view .view-lines').last(),
+    ).toContainText('beta modified');
   });
 });

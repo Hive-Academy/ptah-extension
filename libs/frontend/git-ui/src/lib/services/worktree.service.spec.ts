@@ -32,7 +32,7 @@ jest.mock('@ptah-extension/core', () => {
   };
 });
 
-function makeVscodeStub() {
+function makeVscodeStub(platform = 'linux') {
   return {
     config: signal({
       isVSCode: false,
@@ -45,6 +45,7 @@ function makeVscodeStub() {
       userIconUri: '',
       panelId: '',
       isElectron: true,
+      platform,
     }).asReadonly(),
     isConnected: signal(false).asReadonly(),
     getState: jest.fn().mockReturnValue(null),
@@ -57,7 +58,7 @@ function makeLayoutStub() {
   return {
     workspaceFolders: signal<{ path: string; name: string }[]>([]),
     addFolderByPath: jest.fn().mockResolvedValue(undefined),
-    removeFolder: jest.fn().mockResolvedValue(undefined),
+    removeFolder: jest.fn().mockResolvedValue(true),
   };
 }
 
@@ -226,6 +227,151 @@ describe('WorktreeService as a MessageHandler', () => {
     );
   });
 
+  it('reports partial failure when Git removes an open worktree but workspace close is cancelled', async () => {
+    layout.workspaceFolders.set([
+      { path: '/repo/.claude-worktrees/open', name: 'open' },
+    ]);
+    layout.removeFolder.mockResolvedValue(false);
+    mockRpcCall.mockImplementation((_vscode, method: string) => {
+      if (method === 'git:removeWorktree') {
+        return Promise.resolve({
+          success: true,
+          data: { success: true, pending: false },
+        });
+      }
+      return Promise.resolve({ success: true, data: { worktrees: [] } });
+    });
+
+    await expect(
+      service.removeWorktree('/repo/.claude-worktrees/open'),
+    ).resolves.toEqual({
+      success: false,
+      error:
+        'Open worktree workspace could not be closed; Git removal was cancelled.',
+    });
+  });
+
+  it('reports partial failure when workspace removal throws', async () => {
+    layout.workspaceFolders.set([
+      { path: '/repo/.claude-worktrees/open', name: 'open' },
+    ]);
+    layout.removeFolder.mockRejectedValue(new Error('workspace RPC failed'));
+    mockRpcCall.mockImplementation((_vscode, method: string) => {
+      if (method === 'git:removeWorktree') {
+        return Promise.resolve({
+          success: true,
+          data: { success: true, pending: false },
+        });
+      }
+      return Promise.resolve({ success: true, data: { worktrees: [] } });
+    });
+
+    await expect(
+      service.removeWorktree('/repo/.claude-worktrees/open'),
+    ).resolves.toEqual({ success: false, error: 'workspace RPC failed' });
+  });
+
+  it('keeps an already-deleted open worktree registered when notification cleanup is cancelled', async () => {
+    layout.workspaceFolders.set([
+      { path: '/repo/.claude-worktrees/open', name: 'open' },
+    ]);
+    layout.removeFolder.mockResolvedValue(false);
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: { worktrees: [] },
+    });
+
+    service.handleMessage({
+      type: WORKTREE_CHANGED_MESSAGE_TYPE,
+      payload: {
+        action: 'removed',
+        path: '/repo/.claude-worktrees/open',
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(layout.removeFolder).toHaveBeenCalledWith(0);
+    expect(layout.workspaceFolders()).toEqual([
+      { path: '/repo/.claude-worktrees/open', name: 'open' },
+    ]);
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:worktrees',
+      {},
+    );
+  });
+  it('ignores an unknown failed removal event without unregistering a valid folder', async () => {
+    layout.workspaceFolders.set([
+      { path: '/repo/.claude-worktrees/valid', name: 'valid' },
+    ]);
+
+    service.handleMessage({
+      type: WORKTREE_CHANGED_MESSAGE_TYPE,
+      payload: {
+        action: 'removed',
+        operationId: 'unknown-operation',
+        success: false,
+        path: '/repo/.claude-worktrees/valid',
+      },
+    });
+    await Promise.resolve();
+
+    expect(layout.removeFolder).not.toHaveBeenCalled();
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('keeps POSIX paths case-sensitive when reconciling removal', async () => {
+    TestBed.resetTestingModule();
+    layout = makeLayoutStub();
+    layout.workspaceFolders.set([{ path: '/repo/Open', name: 'Open' }]);
+    TestBed.configureTestingModule({
+      providers: [
+        WorktreeService,
+        { provide: VSCodeService, useValue: makeVscodeStub('linux') },
+        { provide: ElectronLayoutService, useValue: layout },
+      ],
+    });
+    service = TestBed.inject(WorktreeService);
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: { worktrees: [] },
+    });
+
+    service.handleMessage({
+      type: WORKTREE_CHANGED_MESSAGE_TYPE,
+      payload: { action: 'removed', path: '/repo/open' },
+    });
+    await Promise.resolve();
+
+    expect(layout.removeFolder).not.toHaveBeenCalled();
+  });
+
+  it('matches Windows paths case- and separator-insensitively', async () => {
+    TestBed.resetTestingModule();
+    layout = makeLayoutStub();
+    layout.workspaceFolders.set([{ path: 'D:\\Repo\\Open', name: 'Open' }]);
+    TestBed.configureTestingModule({
+      providers: [
+        WorktreeService,
+        { provide: VSCodeService, useValue: makeVscodeStub('win32') },
+        { provide: ElectronLayoutService, useValue: layout },
+      ],
+    });
+    service = TestBed.inject(WorktreeService);
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: { worktrees: [] },
+    });
+
+    service.handleMessage({
+      type: WORKTREE_CHANGED_MESSAGE_TYPE,
+      payload: { action: 'removed', path: 'd:/repo/open/' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(layout.removeFolder).toHaveBeenCalledWith(0);
+  });
   it('unregisters an uncorrelated removed worktree only when it is open', async () => {
     layout.workspaceFolders.set([
       { path: '/repo', name: 'repo' },

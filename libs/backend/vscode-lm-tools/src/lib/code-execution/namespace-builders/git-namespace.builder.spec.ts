@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { createHash } from 'crypto';
 import * as path from 'path';
 
 // Must mock before importing the SUT.
@@ -29,6 +30,47 @@ jest.mock('@ptah-extension/vscode-core', () => {
   return {
     WORKTREE_GIT_TIMEOUT_MS: 300_000,
     DEFAULT_GIT_TIMEOUT_MS: 10_000,
+    resolveWorktreePath: (
+      workspaceRoot: string,
+      branch: string,
+      requestedPath?: string,
+    ) => {
+      const { createHash } = require('crypto');
+      const nodePath = require('path');
+      if (requestedPath) {
+        if (
+          nodePath.isAbsolute(requestedPath) ||
+          nodePath.win32.isAbsolute(requestedPath)
+        ) {
+          return requestedPath;
+        }
+        const resolved = nodePath.resolve(workspaceRoot, requestedPath);
+        const relative = nodePath.relative(workspaceRoot, resolved);
+        if (relative === '..' || relative.startsWith(`..${nodePath.sep}`)) {
+          throw new Error(
+            'Relative worktree path must stay within the workspace root.',
+          );
+        }
+        return resolved;
+      }
+      const hash = createHash('sha256')
+        .update(branch, 'utf8')
+        .digest('hex')
+        .slice(0, 12);
+      const stem = branch
+        .normalize('NFKC')
+        .replace(/[\\/]+/g, '-')
+        .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+        .replace(/[-_.]{2,}/g, '-')
+        .replace(/^[-_.]+|[-_.]+$/g, '')
+        .slice(0, 51)
+        .replace(/[-_.]+$/g, '');
+      return nodePath.join(
+        workspaceRoot,
+        '.claude-worktrees',
+        `${stem || 'worktree'}-${hash}`,
+      );
+    },
     execGit: (args: string[], cwd: string) =>
       new Promise((resolve, reject) => {
         const child = crossSpawn('git', args, {
@@ -172,32 +214,76 @@ describe('buildGitNamespace — worktreeList', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGitNamespace — worktreeAdd', () => {
-  it('defaults to a sanitized path nested under the workspace', async () => {
+  it('defaults to a bounded hashed path nested under the workspace', async () => {
     queueFakeChild({ exitCode: 0 });
     const root = path.resolve('/repo');
+    const branch = 'feature/deep-change';
     const out = await buildGitNamespace(
       makeDeps({ getWorkspaceRoot: () => root }),
-    ).worktreeAdd({ branch: 'feature/deep-change' });
+    ).worktreeAdd({ branch });
 
+    const hash = createHash('sha256')
+      .update(branch, 'utf8')
+      .digest('hex')
+      .slice(0, 12);
     const expected = path.join(
       root,
       '.claude-worktrees',
-      'feature-deep-change',
+      `feature-deep-change-${hash}`,
     );
     expect(out).toEqual({ success: true, worktreePath: expected });
     const [, args] = crossSpawnMock.mock.calls[0];
-    expect(args).toEqual(['worktree', 'add', expected, 'feature/deep-change']);
+    expect(args).toEqual(['worktree', 'add', expected, branch]);
   });
 
-  it('rejects unsafe branch traversal before creating a default path', async () => {
+  it('keeps formerly-colliding branch refs on distinct default paths', async () => {
+    queueFakeChild({ exitCode: 0 });
+    queueFakeChild({ exitCode: 0 });
+    const root = path.resolve('/repo');
+    const namespace = buildGitNamespace(
+      makeDeps({ getWorkspaceRoot: () => root }),
+    );
+
+    const hyphenated = await namespace.worktreeAdd({ branch: 'feature/a-b' });
+    const nested = await namespace.worktreeAdd({ branch: 'feature/a/b' });
+
+    expect(hyphenated.success).toBe(true);
+    expect(nested.success).toBe(true);
+    expect(hyphenated.worktreePath).not.toBe(nested.worktreePath);
+  });
+
+  it.each([
+    ['long', `feature/${'a'.repeat(180)}`],
+    ['Unicode', 'feature/修复-ёж'],
+  ])(
+    'supports a legitimate %s branch with a bounded default path',
+    async (_name, branch) => {
+      queueFakeChild({ exitCode: 0 });
+      const root = path.resolve('/repo');
+      const out = await buildGitNamespace(
+        makeDeps({ getWorkspaceRoot: () => root }),
+      ).worktreeAdd({ branch });
+
+      expect(out.success).toBe(true);
+      expect(path.basename(out.worktreePath ?? '').length).toBeLessThanOrEqual(
+        64,
+      );
+      const [, args] = crossSpawnMock.mock.calls[0];
+      expect(args.at(-1)).toBe(branch);
+    },
+  );
+
+  it('turns traversal-looking refs into one safe hashed directory segment', async () => {
+    queueFakeChild({ exitCode: 0 });
     const root = path.resolve('/repo');
     const out = await buildGitNamespace(
       makeDeps({ getWorkspaceRoot: () => root }),
     ).worktreeAdd({ branch: '../escape' });
 
-    expect(out.success).toBe(false);
-    expect(out.error).toMatch(/Branch name may contain only/);
-    expect(crossSpawnMock).not.toHaveBeenCalled();
+    expect(out.success).toBe(true);
+    const target = out.worktreePath ?? '';
+    expect(path.dirname(target)).toBe(path.join(root, '.claude-worktrees'));
+    expect(path.basename(target)).not.toContain('..');
   });
   it('rejects a relative custom path that traverses outside the workspace', async () => {
     const root = path.resolve('/repo');

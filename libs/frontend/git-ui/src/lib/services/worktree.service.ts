@@ -145,7 +145,9 @@ export class WorktreeService implements MessageHandler {
   }
 
   /**
-   * Remove a worktree. Async-pending semantics mirror addWorktree above.
+   * Remove a worktree. An explicitly opened workspace must close first; a
+   * cancelled or failed close prevents destructive Git removal. Async-pending
+   * semantics otherwise mirror addWorktree above.
    */
   async removeWorktree(
     path: string,
@@ -153,6 +155,15 @@ export class WorktreeService implements MessageHandler {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
+    try {
+      await this.unregisterOpenWorktree(path);
+    } catch (error: unknown) {
+      this._isLoading.set(false);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     const operationId = this.generateOperationId();
     const pendingPromise = this.registerPendingOperation(operationId);
 
@@ -175,7 +186,6 @@ export class WorktreeService implements MessageHandler {
       this.cancelPendingOperation(operationId);
       if (ack.data.success) {
         this.removeWorktreeLocally(path);
-        await this.unregisterOpenWorktree(path);
         this._isLoading.set(false);
         return { success: true };
       }
@@ -189,7 +199,6 @@ export class WorktreeService implements MessageHandler {
     const outcome = await pendingPromise;
     if (outcome.success) {
       this.removeWorktreeLocally(path);
-      await this.unregisterOpenWorktree(path);
       this._isLoading.set(false);
       return { success: true };
     }
@@ -207,7 +216,7 @@ export class WorktreeService implements MessageHandler {
   }
 
   /**
-   * Unregister a removed worktree only when the user had explicitly opened it.
+   * Close a worktree workspace only when the user had explicitly opened it.
    * Creation notifications never register folders; selecting a row is the sole
    * opt-in path into ElectronLayoutService.addFolderByPath().
    */
@@ -215,23 +224,37 @@ export class WorktreeService implements MessageHandler {
     const index = this.layoutService
       .workspaceFolders()
       .findIndex((folder) => this.pathsEqual(folder.path, path));
-    if (index >= 0) {
-      await this.layoutService.removeFolder(index);
+    if (index < 0) return;
+
+    const removed = await this.layoutService.removeFolder(index);
+    if (!removed) {
+      throw new Error(
+        'Open worktree workspace could not be closed; Git removal was cancelled.',
+      );
     }
   }
 
   private pathsEqual(left: string, right: string): boolean {
     const normalize = (value: string): string =>
-      value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-    return normalize(left) === normalize(right);
+      value.replace(/\\/g, '/').replace(/\/+$/, '');
+    const platform = this.vscodeService.config().platform;
+    return platform === 'win32'
+      ? normalize(left).toLowerCase() === normalize(right).toLowerCase()
+      : normalize(left) === normalize(right);
   }
-
   private async reconcileRemovedWorktree(path?: string): Promise<void> {
+    let closeError: unknown;
     if (path) {
-      await this.unregisterOpenWorktree(path);
+      try {
+        await this.unregisterOpenWorktree(path);
+      } catch (error: unknown) {
+        closeError = error;
+      }
     }
     await this.loadWorktrees();
+    if (closeError !== undefined) throw closeError;
   }
+
   private generateOperationId(): string {
     const cryptoRef = globalThis.crypto as Crypto | undefined;
     if (cryptoRef?.randomUUID) {
@@ -293,10 +316,15 @@ export class WorktreeService implements MessageHandler {
       }
     }
 
+    if (payload.success === false) return;
+
     if (payload.action === 'created') {
       void this.loadWorktrees();
     } else if (payload.action === 'removed') {
-      void this.reconcileRemovedWorktree(payload.path);
+      void this.reconcileRemovedWorktree(payload.path).catch(() => {
+        // Git already removed this worktree. Keep the still-open workspace and
+        // let the user close it after active sessions or transient RPC failure.
+      });
     }
   }
 }
