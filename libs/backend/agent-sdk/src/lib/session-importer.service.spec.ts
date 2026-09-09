@@ -432,6 +432,81 @@ describe('SessionImporterService', () => {
         expect(all[0].name).toMatch(/^Session /);
       });
 
+      it.each(['', '﻿'])(
+        'keeps metadata-prefixed giant user turns across scans (BOM=%j)',
+        async (bom) => {
+          const content = Buffer.from(
+            bom +
+              [
+                { type: 'ai-title', title: 'Conversation title' },
+                { type: 'queue-operation', operation: 'enqueue' },
+                { type: 'queue-operation', operation: 'dequeue' },
+                { type: 'user', message: { content: 'U'.repeat(12000) } },
+              ]
+                .map((record) => JSON.stringify(record))
+                .join('\n') +
+              '\n',
+          );
+          expect(content.length).toBeGreaterThan(8192);
+          mockPositionalRead(content);
+          const deleteSpy = jest.spyOn(store, 'delete');
+
+          primeFlatScan('metadata-first.jsonl');
+          expect(await importer.scanAndImport(WORKSPACE)).toBe(1);
+          primeFlatScan('metadata-first.jsonl');
+          expect(await importer.scanAndImport(WORKSPACE)).toBe(0);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((entry) => entry.sessionId)).toEqual([
+            'metadata-first',
+          ]);
+          expect(all[0].name).toMatch(/^Session /);
+          expect(deleteSpy).not.toHaveBeenCalled();
+          expect(fsPromises.readFile).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each([false, true])(
+        'keeps an exact-boundary metadata prefix (later turn=%s)',
+        async (laterTurn) => {
+          const record =
+            JSON.stringify({ type: 'ai-title', title: 'Boundary' }) + '\n';
+          const prefix =
+            record + ' '.repeat(8192 - Buffer.byteLength(record) - 1) + '\n';
+          expect(Buffer.byteLength(prefix)).toBe(8192);
+          const content = Buffer.from(
+            prefix +
+              (laterTurn
+                ? JSON.stringify({
+                    type: 'user',
+                    message: { content: 'Beyond prefix' },
+                  }) + '\n'
+                : ''),
+          );
+          primeFlatScan('boundary-metadata.jsonl');
+          mockPositionalRead(content);
+
+          expect(await importer.scanAndImport(WORKSPACE)).toBe(1);
+          expect(
+            (await store.getForWorkspace(WORKSPACE)).map(
+              (entry) => entry.sessionId,
+            ),
+          ).toEqual(['boundary-metadata']);
+        },
+      );
+
+      it.each([
+        'ai-title',
+        'queue-operation',
+        'permission-mode',
+        'file-history-snapshot',
+      ])('still skips a complete %s sidecar', async (type) => {
+        primeFlatScan('complete-sidecar.jsonl');
+        mockPositionalRead(Buffer.from(JSON.stringify({ type }) + '\n'));
+        expect(await importer.scanAndImport(WORKSPACE)).toBe(0);
+        expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+      });
+
       it('falls back to the filename when the first record alone exceeds the prefix', async () => {
         // One 12 KB record: the prefix contains no newline at all, so after
         // dropping the cut tail there is no complete record to judge from.

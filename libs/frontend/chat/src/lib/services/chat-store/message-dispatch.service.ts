@@ -178,7 +178,10 @@ export class MessageDispatchService {
       }
       this.conversation.queueOrAppendMessage(content, options);
     } else {
-      await this.messageSender.send(content, options);
+      const outcome = await this.messageSender.send(content, options);
+      if (outcome && !outcome.success && resolvedTabId) {
+        this.showSendFailure(resolvedTabId, outcome.error);
+      }
     }
   }
 
@@ -198,6 +201,7 @@ export class MessageDispatchService {
    * @param content - Message content to send
    */
   async sendQueuedMessage(tabId: string, content: string): Promise<void> {
+    let queuedOptions: SendMessageOptions | undefined;
     try {
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       const sessionId = tab?.claudeSessionId;
@@ -213,17 +217,47 @@ export class MessageDispatchService {
         this.tabManager.setQueuedContent(tabId, content);
         return;
       }
-      const queuedOptions = tab?.queuedOptions ?? undefined;
+      queuedOptions = tab?.queuedOptions ?? undefined;
       this.tabManager.clearQueuedContentAndOptions(tabId);
-      await this.messageSender.continueExistingSessionForQueueFlush(
+      const outcome = await this.messageSender.continueExistingSessionForQueueFlush(
         content,
         sessionId,
         { ...queuedOptions, tabId },
       );
+      if (outcome && !outcome.success) {
+        this.restoreFailedQueue(tabId, content, queuedOptions);
+        this.showSendFailure(tabId, outcome.error);
+      }
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
-      this.tabManager.setQueuedContent(tabId, content);
+      this.restoreFailedQueue(tabId, content, queuedOptions);
+      this.showSendFailure(tabId, error instanceof Error ? error.message : undefined);
     }
+  }
+
+  private restoreFailedQueue(tabId: string, content: string, options?: SendMessageOptions): void {
+    const current = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const newer = current?.queuedContent;
+    const newerOptions = current?.queuedOptions;
+    // Restore before newer arrivals, preserving attachments from both. No retry
+    // is dispatched here: delivery requires another explicit flush action.
+    this.tabManager.setQueuedContentAndOptions(tabId, newer ? `${content}
+${newer}` : content, {
+      ...options, ...newerOptions, tabId,
+      files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
+      images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
+    });
+  }
+
+  private showSendFailure(tabId: string, error?: string): void {
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    // Existing transcript channel; rendered through the normal markdown path.
+    this.tabManager.setMessages(tabId, [...tab.messages, createExecutionChatMessage({
+      id: `send_failure_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      role: 'assistant',
+      rawContent: `Message delivery failed. ${error ?? 'Please retry.'}`,
+    })]);
   }
 
   /**

@@ -420,27 +420,19 @@ describe('SdkQueryOptionsBuilder.build — activityHold forwarded to subagent ho
     return createHooksSpy;
   }
 
-  it('passes activityHold as the third argument to subagentHookHandler.createHooks', async () => {
+  it('does not give child registration ownership of the parent watchdog', async () => {
     const activityHold = { hold: jest.fn(), release: jest.fn() };
 
     const createHooksSpy = await buildWithHold(activityHold);
 
     expect(createHooksSpy).toHaveBeenCalledTimes(1);
-    expect(createHooksSpy).toHaveBeenCalledWith(
-      'D:/tmp/ws',
-      'sess-1',
-      activityHold,
-    );
+    expect(createHooksSpy).toHaveBeenCalledWith('D:/tmp/ws', 'sess-1');
   });
 
   it('passes undefined when the caller has no watchdog', async () => {
     const createHooksSpy = await buildWithHold(undefined);
 
-    expect(createHooksSpy).toHaveBeenCalledWith(
-      'D:/tmp/ws',
-      'sess-1',
-      undefined,
-    );
+    expect(createHooksSpy).toHaveBeenCalledWith('D:/tmp/ws', 'sess-1');
   });
 });
 

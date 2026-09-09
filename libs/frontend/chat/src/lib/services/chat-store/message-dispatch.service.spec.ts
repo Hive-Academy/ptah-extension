@@ -77,6 +77,27 @@ describe('MessageDispatchService', () => {
   let handlePermissionResponseMock: jest.Mock;
   let isTabStreamingMock: jest.Mock;
 
+  it('shows a resolved direct-send failure in transcript state', async () => {
+    sendMock.mockResolvedValue({ success: false, error: 'Your follow-up was not sent.' });
+    await service.sendOrQueueMessage('stop');
+    expect(JSON.stringify(tabs[0].messages)).toContain('Your follow-up was not sent.');
+  });
+
+  it('restores resolved queue failure with attachments without overwriting newer arrivals', async () => {
+    tabs = [makeTab({ queuedContent: 'old', queuedOptions: { files: ['old.ts'], effort: 'high' } })];
+    continueExistingSessionForQueueFlushMock.mockImplementation(async () => {
+      tabs = [makeTab({ queuedContent: 'new', queuedOptions: { files: ['new.ts'] } })];
+      return { success: false, error: 'not sent' };
+    });
+    await service.sendQueuedMessage('tab-1', 'old');
+    expect(tabs[0].queuedContent).toBe(`old
+new`);
+    expect(tabs[0].queuedOptions?.files).toEqual(['old.ts', 'new.ts']);
+    expect(tabs[0].queuedOptions?.effort).toBe('high');
+    expect(JSON.stringify(tabs[0].messages)).toContain('not sent');
+    expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     tabs = [makeTab()];
     backgroundTabs = [];
@@ -111,6 +132,10 @@ describe('MessageDispatchService', () => {
       tabs: () => tabs,
       setMessages: setMessagesMock,
       setQueuedContent: setQueuedContentMock,
+      setQueuedContentAndOptions: (id: string, content: string, options: TabState['queuedOptions']) => {
+        setQueuedContentMock(id, content);
+        tabs = tabs.map(t => t.id === id ? { ...t, queuedOptions: options } : t);
+      },
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),

@@ -1,31 +1,16 @@
+import type {
+  HookCallbackMatcher,
+  HookEvent,
+  HookInput,
+  SDKMessage,
+} from '../types/sdk-types/claude-sdk.types';
+
 /**
- * NoActivityWatchdog — a resettable stream-inactivity timer.
- *
- * Fires `onTimeout` exactly once when `timeoutMs` elapses without a `kick()`.
- * Any `kick()` before the deadline pushes the deadline out by another full
- * window, so a stream that keeps producing ANY event (message, partial /
- * streaming delta, tool_use, tool_result, thinking) never trips it, while a
- * stream that goes fully silent for the whole window does.
- *
- * This replaces the old stderr-pattern "provider error" heuristic: instead of
- * guessing "stuck" from stderr text (brittle in both directions), we treat a
- * turn that emits zero stream activity for the window as stuck and surface it.
- *
- * Lifecycle: `start()` arms it, `kick()` resets it, `stop()` disarms it
- * permanently. After `stop()` — or after it has fired once — `start()`/`kick()`
- * are no-ops, so the callback can never fire late or twice. Callers MUST call
- * `stop()` in a `finally` so the timer can neither leak nor fire after the turn
- * ends (success, error, or abort).
- *
- * `hold()` / `release()` suspend the window for silence Ptah itself caused.
- * A turn parked on `canUseTool` — a permission prompt, an AskUserQuestion card,
- * an ExitPlanMode confirmation — emits zero SDK messages by construction, so
- * without a hold the watchdog reads "a human is reading the prompt" as "the
- * provider is stuck" and aborts a perfectly healthy session out from under the
- * user. The UI's own bound for that wait is 5 minutes
- * (`ASK_USER_QUESTION_IDLE_TIMEOUT_MS`); this watchdog's 3 minutes used to win,
- * which is how a New Project run died mid-question (TASK_2026_317).
- * Reference-counted, because concurrent tool calls (subagents) overlap.
+ * Query-local root activity accounting. Silence is not evidence of failure while
+ * a known tool or compaction is running: report uncertainty, never impose a
+ * runtime limit. Only unaccounted root silence invokes the recovery callback.
+ * Idle/permission holds remain reference counted; operation ownership is keyed
+ * and idempotent instead. Child registration never owns a parent hold.
  */
 export class NoActivityWatchdog {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -33,88 +18,203 @@ export class NoActivityWatchdog {
   private stopped = false;
   private started = false;
   private holds = 0;
+  private turnOpen = true;
+
+  beginTurn(): void {
+    if (this.stopped || this.fired) return;
+    this.turnOpen = true;
+    this.kick();
+  }
+  private readonly tools = new Map<string, string>();
+  private compacting = false;
+  private readonly tasks = new Map<string, string>();
 
   constructor(
     private readonly timeoutMs: number,
     private readonly onTimeout: () => void,
+    private readonly onOverdue: (operations: readonly string[]) => void = () =>
+      undefined,
   ) {}
 
-  /** Arm the inactivity timer. No-op once the watchdog has fired or stopped. */
   start(): void {
-    if (this.stopped || this.fired) {
-      return;
-    }
+    if (this.stopped || this.fired) return;
     this.started = true;
     this.arm();
   }
 
-  /**
-   * Reset the inactivity window on stream activity. No-op once the watchdog
-   * has fired or stopped.
-   */
   kick(): void {
-    if (this.stopped || this.fired) {
-      return;
-    }
+    if (this.stopped || this.fired || !this.started) return;
     this.arm();
   }
 
-  /**
-   * Suspend the inactivity window while the turn is legitimately blocked on a
-   * user decision. Nestable — the window stays suspended until every matching
-   * `release()` has landed.
-   */
   hold(): void {
-    if (this.stopped || this.fired) {
-      return;
-    }
+    if (this.stopped || this.fired) return;
     this.holds += 1;
     this.clear();
   }
 
-  /**
-   * Drop one hold. When the last one goes, the turn is running again and a
-   * fresh FULL window starts — time spent waiting on the user is never counted
-   * against the provider. Idempotent below zero, so an unbalanced release from
-   * a teardown path cannot re-arm a watchdog that was never held.
-   */
   release(): void {
-    if (this.holds === 0) {
-      return;
-    }
+    if (this.holds === 0) return;
     this.holds -= 1;
-    if (this.holds > 0 || this.stopped || this.fired || !this.started) {
-      return;
-    }
-    this.arm();
+    this.kick();
   }
 
-  /** True while at least one hold is outstanding. Exposed for tests/diagnostics. */
   get isHeld(): boolean {
     return this.holds > 0;
   }
 
-  /** Disarm permanently. Idempotent — safe to call from every teardown path. */
+  /** Root result/interrupt is authoritative even when a terminal hook is lost. */
+  endTurn(): void {
+    this.turnOpen = false;
+    this.tools.clear();
+    this.tasks.clear();
+    this.compacting = false;
+    this.kick();
+  }
+
   stop(): void {
     this.stopped = true;
+    this.holds = 0;
+    this.endTurn();
     this.clear();
   }
 
-  private arm(): void {
-    if (this.holds > 0) {
-      // Held: stay disarmed. `release()` starts the fresh window.
-      this.clear();
-      return;
+  /** SDK hooks are scoped to this query, never a mutable session-id lookup. */
+  lifecycleHooks(): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+    const events: HookEvent[] = [
+      'PreToolUse',
+      'PostToolUse',
+      'PostToolUseFailure',
+      'PreCompact',
+      'PostCompact',
+      'Stop',
+      'StopFailure',
+      'SessionEnd',
+    ];
+    const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
+    for (const event of events) {
+      hooks[event] = [
+        {
+          hooks: [
+            async (input, _toolId, options) => {
+              if (!options.signal.aborted) this.observeHook(input);
+              return { continue: true };
+            },
+          ],
+        },
+      ];
     }
+    return hooks;
+  }
+
+  private observeHook(input: HookInput): void {
+    // SDK BaseHookInput: agent_id, not agent_type, identifies nested hooks.
+    if (this.stopped || this.fired || !this.turnOpen || input.agent_id) return;
+    switch (input.hook_event_name) {
+      case 'PreToolUse':
+        if (input.tool_use_id)
+          this.tools.set(input.tool_use_id, input.tool_name);
+        break;
+      case 'PostToolUse':
+      case 'PostToolUseFailure':
+        this.tools.delete(input.tool_use_id);
+        break;
+      case 'PreCompact':
+        this.compacting = true;
+        break;
+      case 'PostCompact':
+        this.compacting = false;
+        break;
+      case 'Stop':
+      case 'StopFailure':
+        // Do not release the pump or publish idle from a hook: final assistant
+        // messages may still be buffered. The result owns the turn boundary.
+        this.endTurn();
+        break;
+      case 'SessionEnd':
+        this.stop();
+        break;
+    }
+    this.kick();
+  }
+
+  /** Only root activity extends the root deadline. Background chatter cannot. */
+  observe(message: SDKMessage): void {
+    if (this.stopped || this.fired) return;
+    if ('parent_tool_use_id' in message && message.parent_tool_use_id) return;
+    if (
+      message.type === 'tool_progress' &&
+      !this.tools.has(message.tool_use_id)
+    )
+      return;
+    if (message.type === 'system') {
+      if (message.subtype === 'task_started') {
+        if (message.tool_use_id && this.tools.has(message.tool_use_id)) {
+          this.tasks.set(message.task_id, message.tool_use_id);
+        }
+        return;
+      }
+      if (message.subtype === 'task_updated') {
+        const toolId = this.tasks.get(message.task_id);
+        if (
+          toolId &&
+          (message.patch.is_backgrounded ||
+            ['completed', 'failed', 'killed'].includes(
+              message.patch.status ?? '',
+            ))
+        ) {
+          const wasWaiting = this.tools.delete(toolId);
+          this.tasks.delete(message.task_id);
+          if (wasWaiting) this.kick();
+        }
+        return;
+      }
+      if (message.subtype === 'task_notification') {
+        const toolId = message.tool_use_id ?? this.tasks.get(message.task_id);
+        if (toolId && this.tools.delete(toolId)) this.kick();
+        this.tasks.delete(message.task_id);
+        return;
+      }
+      if (message.subtype === 'task_progress') return;
+      if (message.subtype === 'status') {
+        if (message.status === 'compacting') this.compacting = true;
+        // null alone is not proof of completion; compact_result is explicit.
+        if (message.compact_result) this.compacting = false;
+      }
+      if (message.subtype === 'compact_boundary') this.compacting = false;
+    }
+    if (message.type === 'user' && Array.isArray(message.message.content)) {
+      for (const block of message.message.content) {
+        if (block.type === 'tool_result') this.tools.delete(block.tool_use_id);
+      }
+    }
+    if (message.type === 'result') this.endTurn();
+    this.kick();
+  }
+
+  private arm(): void {
     this.clear();
+    if (this.holds > 0 || this.stopped || this.fired || !this.started) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.stopped || this.fired) {
+      if (this.stopped || this.fired) return;
+      const operations = [...this.tools.values()];
+      if (this.compacting) operations.push('compaction');
+      if (operations.length > 0) {
+        // One timer, no polling I/O and no invented failure verdict. A missing
+        // terminal hook is reconciled by result/interrupt/cancel/stream failure.
+        // Re-arm even if a diagnostic sink throws.
+        try {
+          this.onOverdue(operations);
+        } finally {
+          this.arm();
+        }
         return;
       }
       this.fired = true;
       this.onTimeout();
     }, this.timeoutMs);
+    this.timer.unref?.();
   }
 
   private clear(): void {
@@ -125,30 +225,14 @@ export class NoActivityWatchdog {
   }
 }
 
-/**
- * How long a turn may produce NO stream activity before the watchdog treats the
- * session as stuck and aborts it.
- *
- * 180s (3 minutes) is deliberately generous: the timer resets on ANY stream
- * event, so this is the ceiling on a *fully silent* gap, not a turn cap. It
- * must clear the legitimate silent gaps —
- *   - p99 first-token latency for reasoning models and cold local Ollama loads
- *     (the old first-response timeout used 90s for this alone),
- *   - a long-running tool call whose only stream events are the tool_use at the
- *     start and the tool_result at the end (e.g. a multi-minute shell build),
- *   - extended thinking (which, with includePartialMessages on, streams deltas
- *     that keep kicking the timer anyway).
- * A turn that emits zero events for 3 full minutes is stuck, not slow, so we
- * surface it instead of hanging the UI forever.
- */
+/** Unaccounted silence recovery window, NOT a tool or compaction runtime cap. */
 export const NO_ACTIVITY_TIMEOUT_MS = 180_000;
 
-/**
- * The `hold()` / `release()` half of {@link NoActivityWatchdog}, as consumed by
- * code that only needs to suspend the window (the `canUseTool` wrapper) and has
- * no business starting, kicking or stopping it.
- */
 export interface ActivityHold {
   hold(): void;
   release(): void;
+  /** Implemented by the query watchdog; plain permission holds need neither. */
+  lifecycleHooks?(): Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  endTurn?(): void;
+  beginTurn?(): void;
 }

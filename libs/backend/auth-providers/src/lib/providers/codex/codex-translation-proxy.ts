@@ -130,4 +130,11 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   protected override shouldUseResponsesApi(_modelId: string): boolean {
     return true;
   }
+
+  /** The subscription Responses route requires SSE, independently of caller intent. */
+  protected override requiresResponsesStream(target: URL): boolean {
+    return target.protocol === 'https:' &&
+      target.hostname === 'chatgpt.com' &&
+      target.pathname.replace(/\/$/, '') === '/backend-api/codex/responses';
+  }
 }

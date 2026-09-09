@@ -818,10 +818,11 @@ export class SessionImporterService {
       // Nothing here said "session". Three ways to arrive in that state, and
       // they do NOT get the same answer:
       //
-      //   1. Complete records were present and none was a system/user line
-      //      (`parsedRecords > 0`). That is a sidecar — the CLI's title-only
-      //      `{"type":"ai-title",...}` file. Skip it, or it imports as a
-      //      phantom "Session <date>" entry in the session list.
+      //   1. The WHOLE FILE is in hand, complete records were present and
+      //      none was a system/user line (`parsedRecords > 0`). Skip that
+      //      sidecar, or it imports as a phantom "Session <date>" entry.
+      //      A full prefix is inconclusive: metadata records can precede a
+      //      user turn cut off at byte 8192. Keep the filename fallback then.
       //   2. The WHOLE FILE is in hand and holds no non-whitespace byte at
       //      all. There is nothing in this file to BE a session. Skip it —
       //      this is TASK_2026_308 F3-1, the case that used to walk straight
@@ -863,7 +864,8 @@ export class SessionImporterService {
       const prefixHasContent = content.trim().length > 0;
       if (
         !sawSessionContent &&
-        (parsedRecords > 0 || (!prefixHasContent && wholeFileInHand))
+        wholeFileInHand &&
+        (parsedRecords > 0 || !prefixHasContent)
       ) {
         return null;
       }
