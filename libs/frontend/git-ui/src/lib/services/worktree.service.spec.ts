@@ -272,6 +272,9 @@ describe('WorktreeService as a MessageHandler', () => {
   });
 
   it('keeps an already-deleted open worktree registered when notification cleanup is cancelled', async () => {
+    const consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
     layout.workspaceFolders.set([
       { path: '/repo/.claude-worktrees/open', name: 'open' },
     ]);
@@ -288,8 +291,7 @@ describe('WorktreeService as a MessageHandler', () => {
         path: '/repo/.claude-worktrees/open',
       },
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(layout.removeFolder).toHaveBeenCalledWith(0);
     expect(layout.workspaceFolders()).toEqual([
@@ -300,6 +302,14 @@ describe('WorktreeService as a MessageHandler', () => {
       'git:worktrees',
       {},
     );
+    expect(consoleError).toHaveBeenCalledWith(
+      '[WorktreeService] Failed to close removed worktree workspace',
+      expect.objectContaining({
+        message:
+          'Open worktree workspace could not be closed; Git removal was cancelled.',
+      }),
+    );
+    consoleError.mockRestore();
   });
   it('ignores an unknown failed removal event without unregistering a valid folder', async () => {
     layout.workspaceFolders.set([

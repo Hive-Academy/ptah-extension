@@ -321,10 +321,16 @@ export class WorktreeService implements MessageHandler {
     if (payload.action === 'created') {
       void this.loadWorktrees();
     } else if (payload.action === 'removed') {
-      void this.reconcileRemovedWorktree(payload.path).catch(() => {
-        // Git already removed this worktree. Keep the still-open workspace and
-        // let the user close it after active sessions or transient RPC failure.
-      });
+      void this.reconcileRemovedWorktree(payload.path).catch(
+        (error: unknown) => {
+          // Git already removed this worktree. Keep the still-open workspace and
+          // let the user close it after active sessions or transient RPC failure.
+          console.error(
+            '[WorktreeService] Failed to close removed worktree workspace',
+            error,
+          );
+        },
+      );
     }
   }
 }
