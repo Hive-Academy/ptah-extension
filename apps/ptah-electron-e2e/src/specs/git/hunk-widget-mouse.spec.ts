@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
+import { sourceControlFileButton } from '../../support/source-control';
 
 /**
  * The in-editor hunk action widget, driven by the mouse — TASK_2026_221.
@@ -36,8 +37,6 @@ const SCREENSHOT_DIR = path.resolve(
   'ptah-electron-e2e',
   'hunk-widget',
 );
-
-const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
 
 /**
  * Widen the OS window so the git dock's diff pane clears its own vertical
@@ -109,9 +108,7 @@ test.describe('in-editor hunk action widget (TASK_2026_221)', () => {
     await ui.goto('git');
     await widenWindow(electronApp);
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 
@@ -222,9 +219,7 @@ test.describe('in-editor hunk action widget (TASK_2026_221)', () => {
     // step that followed goto('editor') is gone.
     await ui.goto('git');
     await widenWindow(electronApp);
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
     await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
