@@ -16,6 +16,61 @@ import { gitDiffFileMock } from '../../support/git-diff-mock';
  * (see `git-dock.component.ts`'s constructor doc).
  */
 test.describe('Git dock', () => {
+  test('background worktree creation refreshes the list without switching workspace', async ({
+    ui,
+  }) => {
+    const workspacePath = 'C:\\ptah-e2e-ws';
+    const worktreePath = `${workspacePath}\\.claude-worktrees\\agent-task`;
+    await ui.mockRpc({
+      'git:worktrees': {
+        worktrees: [
+          {
+            path: workspacePath,
+            branch: 'main',
+            head: 'abc1234',
+            isMain: true,
+            isBare: false,
+          },
+          {
+            path: worktreePath,
+            branch: 'agent/task',
+            head: 'def5678',
+            isMain: false,
+            isBare: false,
+          },
+        ],
+      },
+    });
+    await ui.goto('git');
+    await ui.page
+      .getByRole('button', { name: 'Toggle worktrees section' })
+      .click();
+
+    const switchCallsBefore = (await ui.getObservedCalls('workspace:switch'))
+      .length;
+    const registerCallsBefore = (
+      await ui.getObservedCalls('workspace:registerFolder')
+    ).length;
+
+    await ui.pushEvent({
+      type: 'git:worktreeChanged',
+      payload: {
+        action: 'created',
+        name: 'agent-task',
+        path: worktreePath,
+      },
+    });
+
+    await expect(
+      ui.page.getByRole('button', { name: `Switch to ${worktreePath}` }),
+    ).toBeVisible();
+    expect(await ui.getObservedCalls('workspace:switch')).toHaveLength(
+      switchCallsBefore,
+    );
+    expect(await ui.getObservedCalls('workspace:registerFolder')).toHaveLength(
+      registerCallsBefore,
+    );
+  });
   test('git dock header hides the push button when there is nothing to push', async ({
     ui,
   }) => {

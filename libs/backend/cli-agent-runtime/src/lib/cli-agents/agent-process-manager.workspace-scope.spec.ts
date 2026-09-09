@@ -123,6 +123,12 @@ describe('AgentProcessManager workspace scoping (TASK_2026_364)', () => {
       );
     });
 
+    it('rejects a Windows sibling whose path only shares the workspace prefix', async () => {
+      const manager = makeManager({ providerRoot: ROOT_A });
+      await expect(
+        validateWorkingDirectory(manager, `${ROOT_A}-evil\\sub`),
+      ).rejects.toThrow(/within workspace root/);
+    });
     it('getStatus() scoped by the provider root hides nothing the provider owns', () => {
       const manager = makeManager({ providerRoot: ROOT_A });
       seedAgent(manager, 'agent-1', `${ROOT_A}\\sub`);

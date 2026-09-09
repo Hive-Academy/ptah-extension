@@ -14,7 +14,6 @@ import {
   type IHarnessPreflight,
 } from '@ptah-extension/agent-sdk';
 import { ChildProcess } from 'child_process';
-import { promises as fsPromises } from 'fs';
 import { EventEmitter } from 'eventemitter3';
 import {
   TOKENS,
@@ -22,7 +21,10 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  isPathWithinRoots,
+} from '@ptah-extension/platform-core';
 import type {
   ICallerWorkspaceResolver,
   IMcpServerStatus,
@@ -2099,25 +2101,7 @@ export class AgentProcessManager {
     if (!dir || dir.trim() === '') {
       throw new Error('Working directory is required but was empty.');
     }
-    let normalizedDir: string;
-    let normalizedRoot: string;
-    if (process.platform === 'win32') {
-      const asciiLower = (s: string): string =>
-        s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
-      normalizedDir = asciiLower(dir.replace(/\\/g, '/'));
-      normalizedRoot = asciiLower(workspaceRoot.replace(/\\/g, '/'));
-    } else {
-      let realDir = dir;
-      let realRoot = workspaceRoot;
-
-      realDir = await fsPromises.realpath(dir);
-
-      realRoot = await fsPromises.realpath(workspaceRoot);
-      normalizedDir = realDir;
-      normalizedRoot = realRoot;
-    }
-
-    if (!normalizedDir.startsWith(normalizedRoot)) {
+    if (!isPathWithinRoots(dir, [workspaceRoot])) {
       throw new Error(
         `Working directory must be within workspace root. ` +
           `Got: ${dir}, Expected prefix: ${workspaceRoot}`,

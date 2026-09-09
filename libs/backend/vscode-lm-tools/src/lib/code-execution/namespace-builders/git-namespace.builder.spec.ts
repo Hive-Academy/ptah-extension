@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'events';
+import * as path from 'path';
 
 // Must mock before importing the SUT.
 jest.mock('cross-spawn', () => jest.fn());
@@ -171,6 +172,56 @@ describe('buildGitNamespace — worktreeList', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildGitNamespace — worktreeAdd', () => {
+  it('defaults to a sanitized path nested under the workspace', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const root = path.resolve('/repo');
+    const out = await buildGitNamespace(
+      makeDeps({ getWorkspaceRoot: () => root }),
+    ).worktreeAdd({ branch: 'feature/deep-change' });
+
+    const expected = path.join(
+      root,
+      '.claude-worktrees',
+      'feature-deep-change',
+    );
+    expect(out).toEqual({ success: true, worktreePath: expected });
+    const [, args] = crossSpawnMock.mock.calls[0];
+    expect(args).toEqual(['worktree', 'add', expected, 'feature/deep-change']);
+  });
+
+  it('rejects unsafe branch traversal before creating a default path', async () => {
+    const root = path.resolve('/repo');
+    const out = await buildGitNamespace(
+      makeDeps({ getWorkspaceRoot: () => root }),
+    ).worktreeAdd({ branch: '../escape' });
+
+    expect(out.success).toBe(false);
+    expect(out.error).toMatch(/Branch name may contain only/);
+    expect(crossSpawnMock).not.toHaveBeenCalled();
+  });
+  it('rejects a relative custom path that traverses outside the workspace', async () => {
+    const root = path.resolve('/repo');
+    const out = await buildGitNamespace(
+      makeDeps({ getWorkspaceRoot: () => root }),
+    ).worktreeAdd({ branch: 'feature/x', path: '../repo-evil' });
+
+    expect(out.success).toBe(false);
+    expect(out.error).toMatch(/Relative worktree path must stay/);
+    expect(crossSpawnMock).not.toHaveBeenCalled();
+  });
+
+  it('retains an explicit absolute path outside the workspace', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const root = path.resolve('/repo');
+    const explicit = path.resolve('/worktrees/feature-x');
+    const out = await buildGitNamespace(
+      makeDeps({ getWorkspaceRoot: () => root }),
+    ).worktreeAdd({ branch: 'feature/x', path: explicit });
+
+    expect(out).toEqual({ success: true, worktreePath: explicit });
+    const [, args] = crossSpawnMock.mock.calls[0];
+    expect(args).toEqual(['worktree', 'add', explicit, 'feature/x']);
+  });
   it('invokes `git worktree add <path> <branch>` by default', async () => {
     queueFakeChild({ exitCode: 0 });
     const out = await buildGitNamespace(makeDeps()).worktreeAdd({

@@ -39,6 +39,77 @@ export interface GitNamespaceDependencies {
   onWorktreeChanged?: WorktreeChangeCallback;
 }
 
+const WORKTREE_DIRECTORY = '.claude-worktrees';
+const MAX_WORKTREE_NAME_LENGTH = 64;
+
+/**
+ * Convert a branch ref into one stable directory name without allowing path
+ * traversal. Branch hierarchy remains readable while separators and unsafe
+ * characters are rejected. Ref separators collapse to hyphens.
+ */
+function safeWorktreeName(branch: string): string {
+  const segments = branch.trim().split(/[\\/]+/);
+  if (
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === '.' ||
+        segment === '..' ||
+        !/^[A-Za-z0-9._-]+$/.test(segment),
+    )
+  ) {
+    throw new Error(
+      'Branch name may contain only letters, digits, dots, underscores, hyphens, and ref separators.',
+    );
+  }
+
+  const normalized = segments.join('-');
+  if (normalized.length > MAX_WORKTREE_NAME_LENGTH) {
+    throw new Error(
+      `Safe worktree name must be at most ${MAX_WORKTREE_NAME_LENGTH} characters.`,
+    );
+  }
+  return normalized;
+}
+
+/**
+ * Explicit worktree paths may be absolute or workspace-relative, but relative
+ * traversal may not escape the workspace root. Absolute paths remain supported
+ * because callers use them to keep worktrees on another volume.
+ */
+function resolveWorktreePath(
+  workspaceRoot: string,
+  branch: string,
+  requestedPath?: string,
+): string {
+  if (!requestedPath) {
+    return path.join(
+      workspaceRoot,
+      WORKTREE_DIRECTORY,
+      safeWorktreeName(branch),
+    );
+  }
+
+  if (path.win32.isAbsolute(requestedPath)) {
+    return requestedPath;
+  }
+  if (path.isAbsolute(requestedPath)) {
+    return path.normalize(requestedPath);
+  }
+  const resolved = path.resolve(workspaceRoot, requestedPath);
+  const relative = path.relative(workspaceRoot, resolved);
+  if (
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(
+      'Relative worktree path must stay within the workspace root. Use an absolute path for another location.',
+    );
+  }
+  return resolved;
+}
+
 /**
  * Build the git namespace with worktree operations.
  *
@@ -96,9 +167,17 @@ export function buildGitNamespace(
       createBranch?: boolean;
     }): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
       try {
-        const worktreePath =
-          params.path ||
-          path.join(path.dirname(getWorkspaceRoot()), params.branch);
+        const workspaceRoot = getWorkspaceRoot();
+        if (!workspaceRoot) {
+          throw new Error(
+            'Cannot add worktree: workspace root is not resolved. Open a workspace folder first.',
+          );
+        }
+        const worktreePath = resolveWorktreePath(
+          workspaceRoot,
+          params.branch,
+          params.path,
+        );
 
         const args = ['worktree', 'add'];
         if (params.createBranch) {

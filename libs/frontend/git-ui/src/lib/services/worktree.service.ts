@@ -120,7 +120,6 @@ export class WorktreeService implements MessageHandler {
     if (!ack.data.pending) {
       this.cancelPendingOperation(operationId);
       if (ack.data.success && ack.data.worktreePath) {
-        await this.layoutService.addFolderByPath(ack.data.worktreePath);
         await this.loadWorktrees();
         this._isLoading.set(false);
         return { success: true };
@@ -134,7 +133,6 @@ export class WorktreeService implements MessageHandler {
 
     const outcome = await pendingPromise;
     if (outcome.success && outcome.path) {
-      await this.layoutService.addFolderByPath(outcome.path);
       await this.loadWorktrees();
       this._isLoading.set(false);
       return { success: true };
@@ -177,6 +175,7 @@ export class WorktreeService implements MessageHandler {
       this.cancelPendingOperation(operationId);
       if (ack.data.success) {
         this.removeWorktreeLocally(path);
+        await this.unregisterOpenWorktree(path);
         this._isLoading.set(false);
         return { success: true };
       }
@@ -190,6 +189,7 @@ export class WorktreeService implements MessageHandler {
     const outcome = await pendingPromise;
     if (outcome.success) {
       this.removeWorktreeLocally(path);
+      await this.unregisterOpenWorktree(path);
       this._isLoading.set(false);
       return { success: true };
     }
@@ -202,10 +202,36 @@ export class WorktreeService implements MessageHandler {
 
   private removeWorktreeLocally(path: string): void {
     this._worktrees.update((worktrees) =>
-      worktrees.filter((w) => w.path !== path),
+      worktrees.filter((w) => !this.pathsEqual(w.path, path)),
     );
   }
 
+  /**
+   * Unregister a removed worktree only when the user had explicitly opened it.
+   * Creation notifications never register folders; selecting a row is the sole
+   * opt-in path into ElectronLayoutService.addFolderByPath().
+   */
+  private async unregisterOpenWorktree(path: string): Promise<void> {
+    const index = this.layoutService
+      .workspaceFolders()
+      .findIndex((folder) => this.pathsEqual(folder.path, path));
+    if (index >= 0) {
+      await this.layoutService.removeFolder(index);
+    }
+  }
+
+  private pathsEqual(left: string, right: string): boolean {
+    const normalize = (value: string): string =>
+      value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    return normalize(left) === normalize(right);
+  }
+
+  private async reconcileRemovedWorktree(path?: string): Promise<void> {
+    if (path) {
+      await this.unregisterOpenWorktree(path);
+    }
+    await this.loadWorktrees();
+  }
   private generateOperationId(): string {
     const cryptoRef = globalThis.crypto as Crypto | undefined;
     if (cryptoRef?.randomUUID) {
@@ -242,8 +268,8 @@ export class WorktreeService implements MessageHandler {
    *
    * A push carrying an `operationId` settles the matching pending operation
    * and stops there — {@link addWorktree} / {@link removeWorktree} own the
-   * follow-up. An uncorrelated push (another surface created or removed a
-   * worktree) reconciles the local list instead.
+   * follow-up. An uncorrelated push reconciles the local list; a removed path
+   * is also unregistered if the user had explicitly opened that worktree.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
     if (message.type !== WORKTREE_CHANGED_MESSAGE_TYPE) return;
@@ -263,17 +289,14 @@ export class WorktreeService implements MessageHandler {
           error: payload.error,
           path: payload.path,
         });
+        return;
       }
-      return;
     }
 
     if (payload.action === 'created') {
-      if (payload.path) {
-        void this.layoutService.addFolderByPath(payload.path);
-      }
       void this.loadWorktrees();
     } else if (payload.action === 'removed') {
-      void this.loadWorktrees();
+      void this.reconcileRemovedWorktree(payload.path);
     }
   }
 }

@@ -799,7 +799,7 @@ export function buildWorktreeAddTool(): MCPToolDefinition {
         path: {
           type: 'string',
           description:
-            'Custom path for the worktree directory (defaults to ../<branch>)',
+            'Custom path. Omit to use <workspace>/.claude-worktrees/<safe-branch-name>. Relative paths must stay inside the workspace; absolute paths may select another location.',
         },
         createBranch: {
           type: 'boolean',
