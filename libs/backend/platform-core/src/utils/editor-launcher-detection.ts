@@ -28,6 +28,23 @@ export interface EditorDetectionDefinition {
   readonly installCandidates: readonly EditorInstallCandidate[];
 }
 
+export interface EditorDescriptor {
+  readonly id: EditorTargetId;
+  readonly displayName: string;
+  readonly command: string;
+}
+
+export const EDITOR_DESCRIPTORS = [
+  { id: 'vscode', displayName: 'VS Code', command: 'code' },
+  { id: 'cursor', displayName: 'Cursor', command: 'cursor' },
+  {
+    id: 'antigravity',
+    displayName: 'Antigravity',
+    command: 'antigravity',
+  },
+  { id: 'zed', displayName: 'Zed', command: 'zed' },
+] as const satisfies readonly EditorDescriptor[];
+
 export interface EditorDetectionOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly platform?: NodeJS.Platform;
@@ -91,6 +108,26 @@ export function editorExecutableCandidates(
     `/usr/local/bin/${command}`,
     `/usr/bin/${command}`,
   ];
+}
+
+/** Build executable-only detection definitions from the shared editor facts. */
+export function createExecutableEditorDefinitions(
+  platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): readonly EditorDetectionDefinition[] {
+  return EDITOR_DESCRIPTORS.map((descriptor) => ({
+    ...descriptor,
+    installCandidates: editorExecutableCandidates(
+      descriptor.id,
+      platform,
+      env,
+      homeDir,
+    ).map((candidatePath) => ({
+      kind: 'executable' as const,
+      path: candidatePath,
+    })),
+  }));
 }
 
 async function isCandidateAvailable(

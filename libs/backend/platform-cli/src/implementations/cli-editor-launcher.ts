@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import {
+  createExecutableEditorDefinitions,
   detectEditorTargets,
-  editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
@@ -22,64 +22,7 @@ function installCandidates(
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): readonly EditorDetectionDefinition[] {
-  return [
-    {
-      id: 'vscode',
-      displayName: 'VS Code',
-      command: 'code',
-      installCandidates: editorExecutableCandidates(
-        'vscode',
-        platform,
-        env,
-        homeDir,
-      ).map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-    {
-      id: 'cursor',
-      displayName: 'Cursor',
-      command: 'cursor',
-      installCandidates: editorExecutableCandidates(
-        'cursor',
-        platform,
-        env,
-        homeDir,
-      ).map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-    {
-      id: 'antigravity',
-      displayName: 'Antigravity',
-      command: 'antigravity',
-      installCandidates: editorExecutableCandidates(
-        'antigravity',
-        platform,
-        env,
-        homeDir,
-      ).map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-    {
-      id: 'zed',
-      displayName: 'Zed',
-      command: 'zed',
-      installCandidates: editorExecutableCandidates(
-        'zed',
-        platform,
-        env,
-        homeDir,
-      ).map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-  ];
+  return createExecutableEditorDefinitions(platform, env, homeDir);
 }
 
 export class CliEditorLauncher implements IEditorLauncher {

@@ -1,8 +1,8 @@
 import * as os from 'node:os';
 import * as vscode from 'vscode';
 import {
+  createExecutableEditorDefinitions,
   detectEditorTargets,
-  editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
@@ -51,37 +51,9 @@ function definitionsFor(
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): readonly EditorDetectionDefinition[] {
-  const candidates = (id: 'cursor' | 'antigravity' | 'zed') =>
-    editorExecutableCandidates(id, platform, env, homeDir);
-  return [
-    {
-      id: 'cursor',
-      displayName: 'Cursor',
-      command: 'cursor',
-      installCandidates: candidates('cursor').map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-    {
-      id: 'antigravity',
-      displayName: 'Antigravity',
-      command: 'antigravity',
-      installCandidates: candidates('antigravity').map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-    {
-      id: 'zed',
-      displayName: 'Zed',
-      command: 'zed',
-      installCandidates: candidates('zed').map((candidatePath) => ({
-        kind: 'executable',
-        path: candidatePath,
-      })),
-    },
-  ];
+  return createExecutableEditorDefinitions(platform, env, homeDir).filter(
+    (definition) => definition.id !== 'vscode',
+  );
 }
 
 export class VscodeEditorLauncher implements IEditorLauncher {

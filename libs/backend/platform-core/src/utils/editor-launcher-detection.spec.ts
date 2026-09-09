@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import {
   detectEditorTargets,
+  EDITOR_DESCRIPTORS,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
   spawnEditorProcess,
@@ -161,15 +162,26 @@ describe('detectEditorTargets', () => {
 });
 
 describe('editor process launch', () => {
+  it('defines each supported editor identity and command once', () => {
+    expect(EDITOR_DESCRIPTORS).toEqual([
+      { id: 'vscode', displayName: 'VS Code', command: 'code' },
+      { id: 'cursor', displayName: 'Cursor', command: 'cursor' },
+      {
+        id: 'antigravity',
+        displayName: 'Antigravity',
+        command: 'antigravity',
+      },
+      { id: 'zed', displayName: 'Zed', command: 'zed' },
+    ]);
+  });
+
   it('builds conventional executable candidates for each operating system', () => {
     expect(
       editorExecutableCandidates('vscode', 'win32', {}, 'C:\\Users\\ptah'),
     ).toContain('C:\\Program Files\\Microsoft VS Code\\Code.exe');
     expect(
       editorExecutableCandidates('cursor', 'darwin', {}, '/Users/ptah'),
-    ).toEqual([
-      '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-    ]);
+    ).toEqual(['/Applications/Cursor.app/Contents/Resources/app/bin/cursor']);
     expect(
       editorExecutableCandidates('zed', 'linux', {}, '/home/ptah'),
     ).toContain('/home/ptah/.local/bin/zed');
@@ -192,7 +204,9 @@ describe('editor process launch', () => {
 
   it('reports a spawner that cannot start the detected executable', async () => {
     const executablePath = path.resolve('editors/code');
-    const spawnProcess = jest.fn(() => ({ whenSpawned: Promise.resolve(null) }));
+    const spawnProcess = jest.fn(() => ({
+      whenSpawned: Promise.resolve(null),
+    }));
 
     await expect(
       spawnEditorProcess(

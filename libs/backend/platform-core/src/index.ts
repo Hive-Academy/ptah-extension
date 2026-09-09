@@ -95,7 +95,9 @@ export type {
 } from './utils/glob-watch-plan';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export {
+  createExecutableEditorDefinitions,
   detectEditorTargets,
+  EDITOR_DESCRIPTORS,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
@@ -104,6 +106,7 @@ export {
 export type {
   EditorDetectionDefinition,
   EditorDetectionOptions,
+  EditorDescriptor,
   EditorApplicationMarkerCandidate,
   EditorExecutableCandidate,
   EditorFileLaunch,

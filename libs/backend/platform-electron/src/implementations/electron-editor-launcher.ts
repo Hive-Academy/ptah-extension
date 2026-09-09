@@ -1,14 +1,16 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  createExecutableEditorDefinitions,
   detectEditorTargets,
-  editorExecutableCandidates,
   prepareEditorFileLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
+  type EditorApplicationMarkerCandidate,
   type EditorDetectionDefinition,
   type EditorDetectionOptions,
   type EditorTarget,
+  type EditorTargetId,
   type IEditorLauncher,
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
@@ -29,10 +31,6 @@ function definitionsFor(
 ): readonly EditorDetectionDefinition[] {
   const localAppData =
     env['LOCALAPPDATA'] ?? path.join(homeDir, 'AppData', 'Local');
-  const executableCandidates = (
-    id: 'vscode' | 'cursor' | 'antigravity' | 'zed',
-  ): readonly string[] =>
-    editorExecutableCandidates(id, platform, env, homeDir);
   const appMarker = (id: 'vscode' | 'cursor'): string[] => {
     if (platform === 'darwin')
       return [
@@ -44,35 +42,25 @@ function definitionsFor(
     }
     return [];
   };
-  const definition = (
-    id: 'vscode' | 'cursor' | 'antigravity' | 'zed',
-    displayName: string,
-    command: string,
-  ): EditorDetectionDefinition => ({
-    id,
-    displayName,
-    command,
-    installCandidates: [
-      ...executableCandidates(id).map((candidatePath) => ({
-        kind: 'executable' as const,
-        path: candidatePath,
-      })),
-      ...(id === 'vscode' || id === 'cursor'
-          ? appMarker(id).map((candidatePath) => ({
-            kind: 'application-marker' as const,
-            path: candidatePath,
-            deepLinkScheme:
-              id === 'vscode' ? ('vscode' as const) : ('cursor' as const),
-          }))
-        : []),
-    ],
-  });
-  return [
-    definition('vscode', 'VS Code', 'code'),
-    definition('cursor', 'Cursor', 'cursor'),
-    definition('antigravity', 'Antigravity', 'antigravity'),
-    definition('zed', 'Zed', 'zed'),
-  ];
+  const applicationMarkers = (
+    id: EditorTargetId,
+  ): readonly EditorApplicationMarkerCandidate[] => {
+    if (id !== 'vscode' && id !== 'cursor') return [];
+    return appMarker(id).map((candidatePath) => ({
+      kind: 'application-marker',
+      path: candidatePath,
+      deepLinkScheme: id,
+    }));
+  };
+  return createExecutableEditorDefinitions(platform, env, homeDir).map(
+    (definition) => ({
+      ...definition,
+      installCandidates: [
+        ...definition.installCandidates,
+        ...applicationMarkers(definition.id),
+      ],
+    }),
+  );
 }
 
 function deepLink(
