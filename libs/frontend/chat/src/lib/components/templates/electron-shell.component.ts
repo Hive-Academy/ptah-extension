@@ -85,6 +85,28 @@ import {
     .no-drag {
       -webkit-app-region: no-drag;
     }
+
+    /* Toast entry only — the ticker owns the per-line transition. */
+    .activity-toast {
+      animation: activityToastIn 160ms ease-out both;
+    }
+
+    @keyframes activityToastIn {
+      from {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .activity-toast {
+        animation: none !important;
+      }
+    }
   `,
   template: `
     <div class="flex flex-col h-screen w-screen bg-base-100">
@@ -208,18 +230,45 @@ import {
         <!-- Spacer (right) -->
         <div class="flex-1"></div>
 
-        <!-- Global actions — theme only (navigation moved to pills) -->
+        <!-- Global actions — theme only (navigation moved to pills).
+             The back-office activity ticker used to sit here; it moved to the
+             floating toast below so an arriving message stops resizing this
+             cluster and shifting the tab strip (TASK_2026_405). -->
         <div class="flex items-center gap-0.5 no-drag">
-          <!-- Back-office activity. Before the toggle on purpose, so the
-               toggle keeps its far-right position. -->
-          <ptah-activity-ticker
-            [items]="activity.recent()"
-            [idle]="activity.isIdle()"
-            (activate)="openThoth()"
-          />
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
         </div>
+      </div>
+
+      <!--
+        Back-office activity toast (TASK_2026_405).
+
+        Fixed and out of flow, so the navbar row above keeps a constant width
+        no matter how long the current activity summary is. The outer layer is
+        the full-time click pass-through: it is pointer-events-none and stays
+        that way, so nothing under the top-right corner is ever blocked. Only
+        the rendered card opts back in with pointer-events-auto, which keeps
+        the ticker's own button clickable.
+
+        top-11 clears the h-10 navbar row by 4px. Positioning lives here, not
+        in ActivityTickerComponent, which stays presentational.
+      -->
+      <div
+        class="pointer-events-none fixed top-11 right-3 z-50 no-drag"
+        data-testid="activity-toast-layer"
+      >
+        @if (!activity.isIdle()) {
+          <div
+            class="activity-toast pointer-events-auto rounded-lg border border-base-content/10 bg-base-200/95 shadow-lg backdrop-blur-sm px-1 py-0.5"
+            data-testid="activity-toast"
+          >
+            <ptah-activity-ticker
+              [items]="activity.recent()"
+              [idle]="activity.isIdle()"
+              (activate)="openThoth()"
+            />
+          </div>
+        }
       </div>
 
       <!-- Content: Workspace gate → 3-panel layout -->
@@ -314,7 +363,7 @@ export class ElectronShellComponent {
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
-  /** The header ticker's only source of items (TASK_2026_380). */
+  /** The floating activity toast's only source of items (TASK_2026_380). */
   protected readonly activity = inject(BackOfficeActivityService);
 
   /** Lazily loaded GitDockComponent — keeps xterm/monaco out of the initial bundle. */

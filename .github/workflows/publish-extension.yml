@@ -47,6 +47,7 @@ permissions:
 env:
   NODE_VERSION: 22
   NX_TUI: 'false'
+  VSCODE_E2E_VERSION: '1.137.0'
 
 jobs:
   publish:
@@ -194,7 +195,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: apps/ptah-extension-vscode-e2e/.vscode-test
-          key: vscode-test-${{ runner.os }}-stable
+          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_E2E_VERSION }}
 
       - name: Run VS Code E2E gate against the packaged dist
         run: xvfb-run --auto-servernum node apps/ptah-extension-vscode-e2e/src/runner.mjs
