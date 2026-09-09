@@ -111,6 +111,13 @@ function buildMinimalContainer(): DependencyContainer {
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
+  c.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
+    useValue: {
+      detect: jest.fn(async () => []),
+      openFile: jest.fn(async () => undefined),
+      openWorkspace: jest.fn(async () => undefined),
+    },
+  });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
     useValue: {

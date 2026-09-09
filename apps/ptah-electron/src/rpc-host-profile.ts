@@ -31,6 +31,7 @@ export function createElectronRpcHostProfile(
       voice: true,
       persistence: true,
       workspaceLifecycle: true,
+      editorLauncher: true,
       fileOpen: true,
       filePicker: true,
       filePickerImages: true,

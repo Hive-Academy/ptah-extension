@@ -21,6 +21,7 @@ import {
   AgentRpcHandlers,
   CommandRpcHandlers,
   FilePickerRpcHandlers,
+  EditorRpcHandlers,
   ImagePickerRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
@@ -72,6 +73,7 @@ export function registerPhase3Handlers(
   container.registerSingleton(PluginRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(FilePickerRpcHandlers);
+  container.registerSingleton(EditorRpcHandlers);
   container.registerSingleton(ImagePickerRpcHandlers);
   container.registerSingleton(PtahCliRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);

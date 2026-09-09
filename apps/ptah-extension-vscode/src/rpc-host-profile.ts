@@ -22,6 +22,7 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
     platform: 'vscode',
     host: 'vscode',
     capabilities: capabilities({
+      editorLauncher: true,
       fileOpen: true,
       filePicker: true,
       filePickerImages: true,

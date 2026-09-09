@@ -41,3 +41,35 @@ export interface SessionMetadataChangedNotification {
   /** Workspace path the session belongs to. */
   workspaceId: string;
 }
+
+export type EditorTargetId = 'vscode' | 'cursor' | 'antigravity' | 'zed';
+
+/** Wire-safe projection of a detected editor target. */
+export interface EditorTarget {
+  id: EditorTargetId;
+  displayName: string;
+  executablePath?: string;
+}
+
+export type EditorDetectTargetsParams = Record<string, never>;
+export interface EditorDetectTargetsResult {
+  success: boolean;
+  targets: EditorTarget[];
+  error?: string;
+}
+
+export interface EditorOpenFileParams {
+  target: EditorTargetId;
+  path: string;
+  line?: number;
+}
+
+export interface EditorOpenWorkspaceParams {
+  target: EditorTargetId;
+  root: string;
+}
+
+export interface EditorOpenResult {
+  success: boolean;
+  error?: string;
+}

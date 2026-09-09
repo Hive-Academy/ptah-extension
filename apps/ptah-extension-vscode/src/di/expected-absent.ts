@@ -26,6 +26,7 @@ import {
   SkillsSynthesisRpcHandlers,
   VoiceRpcHandlers,
   WorkspaceRpcHandlers,
+  ElectronFileOpenRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 /** Handler classes the VS Code host must never construct. */
@@ -41,6 +42,7 @@ export const EXPECTED_ABSENT_HANDLERS = [
   VoiceRpcHandlers,
   PersistenceRpcHandlers,
   WorkspaceRpcHandlers,
+  ElectronFileOpenRpcHandlers,
 ] as const;
 
 /**
