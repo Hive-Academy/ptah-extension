@@ -158,7 +158,7 @@ test.describe('webview > thoth > activity ticker', () => {
     await expect(
       page.locator('[role="tablist"] [data-testid="activity-ticker-line"]'),
     ).toHaveCount(0);
-    const tabStrip = page.locator('[role="tablist"]');
+    const tabStrip = page.locator('[role="tablist"].electron-tabs');
     const beforeBox = await tabStrip.boundingBox();
 
     await bridge.inject({
