@@ -82,7 +82,9 @@ const PTAH_CLI_ENTRY =
   /[\\/](@hive-academy[\\/]ptah-cli|dist[\\/]apps[\\/]ptah-(cli|tui)|apps[\\/]ptah-(cli|tui)[\\/]src)[\\/](main|tui)\.(mjs|js|tsx?)(?:["'\s]|$)/i;
 
 const WINDOWS_OFFLINE_INSPECTION =
-  "$ErrorActionPreference='Stop';$paths=@(ConvertFrom-Json $env:PTAH_BACKUP_DB_PATHS_JSON);$locked=@();foreach($file in $paths){try{$handle=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$handle.Dispose()}catch{$locked+=$file}};$processes=@(Get-CimInstance Win32_Process|Select-Object ProcessId,Name,ExecutablePath,CommandLine);[pscustomobject]@{Processes=$processes;LockedDatabaseFiles=$locked}|ConvertTo-Json -Depth 3 -Compress";
+  // Windows PowerShell 5.1 emits the JSON array as one object. Assign it
+  // directly so foreach visits file paths instead of a nested array.
+  "$ErrorActionPreference='Stop';$paths=ConvertFrom-Json $env:PTAH_BACKUP_DB_PATHS_JSON;$locked=@();foreach($file in $paths){try{$handle=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$handle.Dispose()}catch{$locked+=$file}};$processes=@(Get-CimInstance Win32_Process|Select-Object ProcessId,Name,ExecutablePath,CommandLine);[pscustomobject]@{Processes=$processes;LockedDatabaseFiles=$locked}|ConvertTo-Json -Depth 3 -Compress";
 
 function findPotentialWriters(processes) {
   const writers = [];
@@ -135,7 +137,12 @@ function assertPtahClosed(
   let inspection;
   try {
     const powershell = resolveExecutable(
-      path.win32.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      path.win32.join(
+        'System32',
+        'WindowsPowerShell',
+        'v1.0',
+        'powershell.exe',
+      ),
     );
     const output = run(
       powershell,
@@ -171,9 +178,7 @@ function assertPtahClosed(
       `Ptah data may be in use by ${details}. Close Ptah, Ptah CLI/TUI, and all VS Code windows before backing up`,
     );
   }
-  if (
-    inspection.LockedDatabaseFiles.some((file) => typeof file !== 'string')
-  ) {
+  if (inspection.LockedDatabaseFiles.some((file) => typeof file !== 'string')) {
     throw new Error('Windows process inspection returned malformed data');
   }
   if (inspection.LockedDatabaseFiles.length > 0) {
