@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import { resolveWorktreePath } from '../utils/worktree-path';
 import { createHash } from 'crypto';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
@@ -431,8 +432,11 @@ export class GitInfoService {
     params: { branch: string; path?: string; createBranch?: boolean },
   ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
     try {
-      const worktreePath =
-        params.path || path.join(path.dirname(workspacePath), params.branch);
+      const worktreePath = resolveWorktreePath(
+        workspacePath,
+        params.branch,
+        params.path,
+      );
 
       const args = ['worktree', 'add'];
       if (params.createBranch) {

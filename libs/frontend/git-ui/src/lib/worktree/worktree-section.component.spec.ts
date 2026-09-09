@@ -35,9 +35,11 @@ const FEATURE = worktree('D:\\repos\\app-feature', 'feature/x', false);
 describe('WorktreeSectionComponent — active highlight tracks ElectronLayoutService', () => {
   let fixture: ComponentFixture<WorktreeSectionComponent>;
   let activeWorkspace: ReturnType<typeof signal<WorkspaceFolder | null>>;
+  let addFolderByPath: jest.Mock;
 
   beforeEach(async () => {
     activeWorkspace = signal<WorkspaceFolder | null>(null);
+    addFolderByPath = jest.fn(async () => undefined);
 
     const worktreeStub = {
       worktrees: signal<GitWorktreeInfo[]>([MAIN, FEATURE]),
@@ -49,7 +51,7 @@ describe('WorktreeSectionComponent — active highlight tracks ElectronLayoutSer
 
     const layoutStub = {
       activeWorkspace,
-      addFolderByPath: jest.fn(async () => undefined),
+      addFolderByPath,
     } as unknown as ElectronLayoutService;
 
     await TestBed.configureTestingModule({
@@ -106,6 +108,22 @@ describe('WorktreeSectionComponent — active highlight tracks ElectronLayoutSer
     expect(activeRowBranches()).toEqual([`Switch to ${FEATURE.path}`]);
   });
 
+  it('opens a worktree only after the user explicitly clicks its row', async () => {
+    activeWorkspace.set({ path: MAIN.path, name: 'app' });
+    fixture.detectChanges();
+
+    expect(addFolderByPath).not.toHaveBeenCalled();
+    const featureRow = Array.from(
+      fixture.nativeElement.querySelectorAll('button[title^="Switch to "]'),
+    ).find(
+      (row) => (row as HTMLButtonElement).title === `Switch to ${FEATURE.path}`,
+    ) as HTMLButtonElement;
+    featureRow.click();
+    await fixture.whenStable();
+
+    expect(addFolderByPath).toHaveBeenCalledTimes(1);
+    expect(addFolderByPath).toHaveBeenCalledWith(FEATURE.path);
+  });
   it('falls back to the main worktree when there is no active workspace', () => {
     activeWorkspace.set(null);
     fixture.detectChanges();
