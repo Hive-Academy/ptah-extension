@@ -633,6 +633,60 @@ describe('DiffTabsService.onFileContentChanged', () => {
   });
 });
 
+describe('DiffTabsService tab selection and closing', () => {
+  async function openTwo(service: DiffTabsService): Promise<[string, string]> {
+    mockRpcCall
+      .mockResolvedValueOnce(ok(makeResult({ path: 'a.ts' })))
+      .mockResolvedValueOnce(ok(makeResult({ path: 'b.ts' })));
+    await openDiff(service, { path: 'a.ts' });
+    await openDiff(service, { path: 'b.ts' });
+    return [diffTabKey('worktree', 'a.ts'), diffTabKey('worktree', 'b.ts')];
+  }
+
+  it('activates an existing tab without re-fetching its diff', async () => {
+    const { service } = makeService();
+    const [firstKey, secondKey] = await openTwo(service);
+    expect(service.activeDiffKey()).toBe(secondKey);
+    mockRpcCall.mockClear();
+
+    service.activateDiff(firstKey);
+
+    expect(service.activeDiffKey()).toBe(firstKey);
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('ignores activation for a key that is not open', async () => {
+    const { service } = makeService();
+    const [, secondKey] = await openTwo(service);
+
+    service.activateDiff('diff:worktree:missing.ts');
+
+    expect(service.activeDiffKey()).toBe(secondKey);
+  });
+
+  it('falls back to the last remaining tab when the active tab closes', async () => {
+    const { service } = makeService();
+    const [firstKey, secondKey] = await openTwo(service);
+
+    service.closeDiff(secondKey);
+
+    expect(service.openDiffKeys()).toEqual([firstKey]);
+    expect(service.activeDiffKey()).toBe(firstKey);
+  });
+
+  it('clears the active surface when the final tab closes', async () => {
+    const { service } = makeService();
+    const [firstKey, secondKey] = await openTwo(service);
+    service.closeDiff(secondKey);
+
+    service.closeDiff(firstKey);
+
+    expect(service.diffTabs()).toEqual([]);
+    expect(service.activeDiffKey()).toBeNull();
+    expect(service.activeDiffTab()).toBeNull();
+  });
+});
+
 // ============================================================================
 // Push routing. In the editor lib these two arrived through the coordinator's
 // `handleMessage`; here the service registers for them itself, so the routing

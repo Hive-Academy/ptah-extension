@@ -7,6 +7,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -20,6 +21,68 @@ import type { OpenDiffRequest } from '../types/diff-tab.types';
 import { SourceControlService } from '../services/source-control.service';
 import { SourceControlFileComponent } from './source-control-file.component';
 import { WorktreeSectionComponent } from '../worktree/worktree-section.component';
+
+interface GitFileTreeFileNode {
+  readonly kind: 'file';
+  readonly key: string;
+  readonly file: GitFileStatus;
+}
+
+interface GitFileTreeFolderNode {
+  readonly kind: 'folder';
+  readonly key: string;
+  readonly name: string;
+  readonly path: string;
+  readonly children: GitFileTreeNode[];
+}
+
+type GitFileTreeNode = GitFileTreeFileNode | GitFileTreeFolderNode;
+
+interface GitFileTreeFolderBuilder extends GitFileTreeFolderNode {
+  readonly foldersByName: Map<string, GitFileTreeFolderBuilder>;
+}
+
+/** Build the presentation tree in one pass while preserving Git's row order. */
+function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
+  const root: GitFileTreeNode[] = [];
+  const rootFolders = new Map<string, GitFileTreeFolderBuilder>();
+
+  for (const file of files) {
+    const parts = file.path.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts.length === 0) continue;
+
+    const folderParts = file.isDirectory ? parts : parts.slice(0, -1);
+    let children = root;
+    let foldersByName = rootFolders;
+    let parentPath = '';
+
+    for (const name of folderParts) {
+      const path = parentPath ? `${parentPath}/${name}` : name;
+      let folder = foldersByName.get(name);
+      if (!folder) {
+        folder = {
+          kind: 'folder',
+          key: `folder:${path}`,
+          name,
+          path,
+          children: [],
+          foldersByName: new Map<string, GitFileTreeFolderBuilder>(),
+        };
+        foldersByName.set(name, folder);
+        children.push(folder);
+      }
+      children = folder.children;
+      foldersByName = folder.foldersByName;
+      parentPath = path;
+    }
+
+    if (!file.isDirectory) {
+      children.push({ kind: 'file', key: `file:${file.path}`, file });
+    }
+  }
+
+  return root;
+}
 
 /**
  * SourceControlPanelComponent - Main source control panel with commit UI and file groups.
@@ -40,6 +103,7 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
   standalone: true,
   imports: [
     FormsModule,
+    NgTemplateOutlet,
     LucideAngularModule,
     SourceControlFileComponent,
     WorktreeSectionComponent,
@@ -128,16 +192,14 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
         </div>
         @if (stagedExpanded()) {
           <div [id]="stagedListId" role="list" aria-label="Staged files">
-            @for (file of stagedFiles(); track file.path) {
-              <ptah-source-control-file
-                [file]="file"
-                [staged]="true"
-                (unstage)="onUnstageFile($event)"
-                (discard)="onDiscardFile($event)"
-                (openDiff)="diffRequested.emit($event)"
-                (openFile)="fileClicked.emit($event)"
-              />
-            }
+            <ng-container
+              [ngTemplateOutlet]="treeNodes"
+              [ngTemplateOutletContext]="{
+                $implicit: stagedTree(),
+                staged: true,
+                section: 'staged',
+              }"
+            />
             <!-- role="listitem" is load-bearing, not decoration. This div is a
                  CHILD of the role="list" region above, and the list role
                  declares listitem as its required owned role — so a plain
@@ -199,16 +261,14 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
         </div>
         @if (unstagedExpanded()) {
           <div [id]="unstagedListId" role="list" aria-label="Changed files">
-            @for (file of unstagedFiles(); track file.path) {
-              <ptah-source-control-file
-                [file]="file"
-                [staged]="false"
-                (stage)="onStageFile($event)"
-                (discard)="onDiscardFile($event)"
-                (openDiff)="diffRequested.emit($event)"
-                (openFile)="fileClicked.emit($event)"
-              />
-            }
+            <ng-container
+              [ngTemplateOutlet]="treeNodes"
+              [ngTemplateOutletContext]="{
+                $implicit: unstagedTree(),
+                staged: false,
+                section: 'unstaged',
+              }"
+            />
             <!-- role="listitem" for the same reason as the staged empty state
                  above — see that comment (TASK_2026_211). -->
             @if (unstagedFiles().length === 0) {
@@ -225,6 +285,71 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
 
       <!-- Worktrees section (collapsible, below Changes) -->
       <ptah-worktree-section />
+
+      <ng-template
+        #treeNodes
+        let-nodes
+        let-staged="staged"
+        let-section="section"
+      >
+        @for (node of nodes; track trackTreeNode($index, node)) {
+          @if (node.kind === 'folder') {
+            <div role="listitem">
+              <button
+                type="button"
+                class="flex items-center gap-1.5 w-full px-2 py-0.5 text-left text-xs
+                       hover:bg-base-content/10 transition-colors cursor-pointer
+                       focus-visible:outline focus-visible:outline-2
+                       focus-visible:outline-offset-[-2px]
+                       focus-visible:outline-[oklch(var(--s))]"
+                [attr.aria-expanded]="isFolderExpanded(section, node.path)"
+                [attr.aria-controls]="folderListId(section, node.path)"
+                [attr.aria-label]="folderToggleLabel(node.name)"
+                (click)="toggleFolder(section, node.path)"
+              >
+                <lucide-angular
+                  [img]="
+                    isFolderExpanded(section, node.path)
+                      ? ChevronDownIcon
+                      : ChevronRightIcon
+                  "
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="font-medium truncate">{{ node.name }}</span>
+              </button>
+              @if (isFolderExpanded(section, node.path)) {
+                <div
+                  [id]="folderListId(section, node.path)"
+                  role="list"
+                  [attr.aria-label]="node.name + ' folder'"
+                  class="ml-3 border-l border-base-300/60"
+                >
+                  <ng-container
+                    [ngTemplateOutlet]="treeNodes"
+                    [ngTemplateOutletContext]="{
+                      $implicit: node.children,
+                      staged: staged,
+                      section: section,
+                    }"
+                  />
+                </div>
+              }
+            </div>
+          } @else {
+            <ptah-source-control-file
+              [file]="node.file"
+              [staged]="staged"
+              [showParentDir]="false"
+              (stage)="onStageFile($event)"
+              (unstage)="onUnstageFile($event)"
+              (discard)="onDiscardFile($event)"
+              (openDiff)="diffRequested.emit($event)"
+              (openFile)="fileClicked.emit($event)"
+            />
+          }
+        }
+      </ng-template>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -241,6 +366,7 @@ export class SourceControlPanelComponent {
   protected readonly isCommitting = signal(false);
   protected readonly stagedExpanded = signal(true);
   protected readonly unstagedExpanded = signal(true);
+  private readonly expandedFolders = signal<ReadonlySet<string>>(new Set());
 
   /**
    * Per-instance ids for the two `role="list"` regions, so each disclosure
@@ -262,6 +388,40 @@ export class SourceControlPanelComponent {
   protected readonly unstagedFiles = computed(() =>
     this.files().filter((f) => !f.staged),
   );
+
+  protected readonly stagedTree = computed(() =>
+    buildFileTree(this.stagedFiles()),
+  );
+
+  protected readonly unstagedTree = computed(() =>
+    buildFileTree(this.unstagedFiles()),
+  );
+
+  protected readonly trackTreeNode = (
+    _index: number,
+    node: GitFileTreeNode,
+  ): string => node.key;
+
+  protected isFolderExpanded(section: string, path: string): boolean {
+    return this.expandedFolders().has(`${section}:${path}`);
+  }
+
+  protected toggleFolder(section: string, path: string): void {
+    const key = `${section}:${path}`;
+    const next = new Set(this.expandedFolders());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.expandedFolders.set(next);
+  }
+
+  protected folderListId(section: string, path: string): string {
+    const listId = section === 'staged' ? this.stagedListId : this.unstagedListId;
+    return `${listId}-folder-${encodeURIComponent(path)}`;
+  }
+
+  protected folderToggleLabel(name: string): string {
+    return `Toggle ${name} folder`;
+  }
 
   /**
    * Whether the commit button should be enabled.

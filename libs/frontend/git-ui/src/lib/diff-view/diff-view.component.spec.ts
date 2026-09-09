@@ -39,6 +39,7 @@ import type {
   HunkApplyFn,
 } from '../types/diff-tab.types';
 import { diffTabKey } from '../types/diff-tab.types';
+import * as Core from '@ptah-extension/core';
 
 /**
  * jsdom implements no HTMLDialogElement methods, so the revert dialog's
@@ -970,11 +971,13 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     );
 
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(editor.options['useInlineViewWhenSpaceIsLimited']).toBe(false);
 
     toggle.click();
     fixture.detectChanges();
 
     expect(editor.options['renderSideBySide']).toBe(false);
+    expect(editor.options['useInlineViewWhenSpaceIsLimited']).toBe(false);
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     expect(monaco.diffEditors).toHaveLength(1);
 
@@ -984,6 +987,35 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     expect(editor.options['renderSideBySide']).toBe(true);
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
     expect(monaco.diffEditors).toHaveLength(1);
+  });
+
+  it('loads and persists the explicit layout choice through settings RPC', async () => {
+    const rpc = jest.spyOn(Core, 'rpcCall').mockImplementation(
+      async (_service, method) =>
+        method === 'settings:get'
+          ? { success: true, data: { value: false } }
+          : { success: true },
+    );
+
+    const { fixture, monaco } = await createLiveFixture();
+    expect(monaco.diffEditors[0].options['renderSideBySide']).toBe(false);
+    expect(rpc).toHaveBeenCalledWith(
+      expect.anything(),
+      'settings:get',
+      { key: 'diff.renderSideBySide' },
+    );
+
+    fixture.nativeElement
+      .querySelector<HTMLButtonElement>('[data-testid="diff-layout-toggle"]')
+      ?.click();
+    fixture.detectChanges();
+
+    expect(rpc).toHaveBeenCalledWith(
+      expect.anything(),
+      'settings:set',
+      { key: 'diff.renderSideBySide', value: true },
+    );
+    rpc.mockRestore();
   });
 
   it('preserves scroll position across a layout toggle (D3)', async () => {
