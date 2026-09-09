@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_409
-status: in_progress
+status: done
 type: BUGFIX
 title: Repair and run local production installer workflow
 description: >-

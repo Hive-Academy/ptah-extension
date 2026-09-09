@@ -9,3 +9,5 @@ Production backup succeeded with 5813 SHA-256-verified files at D:/ptah-backups/
 Commit hooks passed formatting, affected lint, Electron main build, and dependency validation. Installer packaging is the remaining operational verification.
 
 Followup: signature verification now requires unsigned Ptah artifacts and allows Valid vendor signatures only for byte-identical, contained upstream dependency files. PS5 uses its verified system Modules directory to avoid inherited PS7 module conflicts. All 30 focused tests pass. Actual installer verification passed for 11 executables; SQLite ABI, tree-sitter WASM, and ONNX gates passed. Local winCodeSign cache was populated from the downloaded archive excluding non-Windows directories to avoid macOS symlink privilege failures.
+
+Final result: npx nx package-local-production ptah-electron exited 0. Installer: dist/release/local-production/Ptah-Local-1ea605915cc4-0.1.70.exe. All signature/source-identity, SQLite ABI, WASM, and ONNX gates passed. Installer was not launched; sidebar recovery remains separate.
