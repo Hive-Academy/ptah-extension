@@ -22,11 +22,17 @@ import type {
 import type { TransformerHelpers } from './transformer-helpers';
 
 export class UserMessageTransformer {
+  /**
+   * @param inboundPeer - Set only when the turn arrived from another session.
+   *   Stamped onto `message_start` so the UI can render it as a message from a
+   *   named sender instead of as the user's own words.
+   */
   transform(
     sdkMessage: SDKUserMessage,
     state: TransformerState,
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
+    inboundPeer?: { readonly label: string },
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
     const events: FlatStreamEventUnion[] = [];
@@ -123,6 +129,9 @@ export class UserMessageTransformer {
       messageId: uuid || `user-${Date.now()}`,
       role: 'user',
       parentToolUseId,
+      // Absent for an ordinary turn — the key is only present when the turn
+      // came from outside this session.
+      ...(inboundPeer ? { inboundPeer } : {}),
     };
     events.push(messageStartEvent);
 

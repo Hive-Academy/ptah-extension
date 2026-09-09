@@ -33,7 +33,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { SessionId, InlineImageAttachment } from '@ptah-extension/shared';
 
 import { SdkError } from '../../errors';
-import type { SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
+import type {
+  SDKMessageOrigin,
+  SDKUserMessage,
+} from '../../types/sdk-types/claude-sdk.types';
 import type { SdkMessageFactory } from '../sdk-message-factory';
 import type { SessionRegistry } from './session-registry.service';
 
@@ -176,12 +179,18 @@ export class SessionStreamPump {
    * @param content - Message content
    * @param files - Optional file attachments
    * @param images - Optional inline images (pasted/dropped)
+   * @param options - Provenance of the turn. Absent means an interactive human
+   *   turn; `SdkMessageFactory` defaults it to `{ kind: 'human' }`. A caller
+   *   injecting a turn on someone else's behalf (a peer session, a channel, a
+   *   coordinator) must pass an explicit origin, because that origin is the
+   *   only thing that stops the message rendering as the user's own words.
    */
   async sendMessage(
     sessionId: SessionId,
     content: string,
     files?: string[],
     images?: InlineImageAttachment[],
+    options?: { origin?: SDKMessageOrigin },
   ): Promise<void> {
     const session = this.registry.find(sessionId as string);
     if (!session) {
@@ -193,6 +202,7 @@ export class SessionStreamPump {
       contentLength: content.length,
       fileCount: files?.length || 0,
       imageCount: images?.length || 0,
+      originKind: options?.origin?.kind,
     });
 
     const sdkUserMessage = await this.messageFactory.createUserMessage({
@@ -200,6 +210,7 @@ export class SessionStreamPump {
       sessionId,
       files,
       images,
+      origin: options?.origin,
     });
     session.messageQueue.push(sdkUserMessage);
     if (session.resolveNext) {

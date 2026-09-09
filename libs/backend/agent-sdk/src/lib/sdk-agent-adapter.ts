@@ -960,6 +960,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
       content,
       options?.files,
       options?.images as { data: string; mediaType: string }[] | undefined,
+      // Forwarded verbatim. The factory defaults an absent origin to
+      // `{ kind: 'human' }`, so an interactive turn is unaffected.
+      { origin: options?.origin },
     );
   }
 

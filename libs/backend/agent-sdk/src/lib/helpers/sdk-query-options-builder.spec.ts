@@ -289,20 +289,32 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   it("sets extraArgs['replay-user-messages'] = null when checkpointing is on by default", async () => {
     const opts = await buildWith();
     expect(opts.enableFileCheckpointing).toBe(true);
-    expect(opts.extraArgs).toEqual({ 'replay-user-messages': null });
+    expect(opts.extraArgs?.['replay-user-messages']).toBeNull();
   });
 
-  it('omits extraArgs when checkpointing is explicitly disabled', async () => {
+  it('keeps the session name when checkpointing is explicitly disabled', async () => {
+    // The two flags share one extraArgs object but not one condition. They did
+    // share a conditional spread once, which made disabling checkpointing
+    // silently take the session name with it.
     const opts = await buildWith({ enableFileCheckpointing: false });
     expect(opts.enableFileCheckpointing).toBe(false);
-    expect(opts.extraArgs).toBeUndefined();
+    expect(opts.extraArgs).not.toHaveProperty('replay-user-messages');
+    expect(opts.extraArgs?.['name']).toEqual(expect.any(String));
+  });
+
+  it('names the session deliberately rather than letting the CLI derive one', async () => {
+    const opts = await buildWith();
+    expect(opts.extraArgs?.['name']).toMatch(/^ptah-[a-z0-9-]+$/);
   });
 
   it('disables the SDK built-in auto-memory subsystem (Ptah uses its own indexed memory)', async () => {
     const opts = await buildWith();
-    expect(opts.settings).toEqual({
+    // Serialized, because `crossSessionInbound` is a key the installed
+    // `Settings` interface does not model. See `buildFlagSettingsArg`.
+    expect(JSON.parse(opts.settings as string)).toEqual({
       autoMemoryEnabled: false,
       autoDreamEnabled: false,
+      crossSessionInbound: 'accept',
     });
   });
 

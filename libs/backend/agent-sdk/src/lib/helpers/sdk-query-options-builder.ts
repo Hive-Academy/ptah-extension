@@ -17,6 +17,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
+import { buildSessionName, deriveWorkspaceLabel } from './session-name.builder';
 import type { ActivityHold } from './no-activity-watchdog';
 import {
   AISessionConfig,
@@ -385,6 +386,73 @@ export function buildFlagSettings(
     ...(styleName ? { outputStyle: styleName } : {}),
     ...autoCompactKeys,
   };
+}
+
+/**
+ * The closed set of values the CLI accepts for `crossSessionInbound`.
+ *
+ * `accept` is what Ptah asks for: an inbound turn from a peer session is
+ * delivered instead of being held until it expires. `hold` and `refuse` are the
+ * CLI's other two settings and are listed so a value read from a settings file
+ * can be validated against the real set rather than against a guess.
+ */
+export const CROSS_SESSION_INBOUND_VALUES = [
+  'accept',
+  'hold',
+  'refuse',
+] as const;
+
+export type CrossSessionInbound = (typeof CROSS_SESSION_INBOUND_VALUES)[number];
+
+/**
+ * Serialize the flag tier for `Options.settings`.
+ *
+ * This is the ONE place the flag-tier object becomes a string, and it builds no
+ * settings object of its own — `buildFlagSettings` stays the single object
+ * builder (and keeps returning the frozen shared constant by identity when no
+ * style is active).
+ *
+ * **Why a string and not an object.** The installed `Settings` interface models
+ * no `crossSessionInbound` key and carries no index signature, so an object
+ * literal with that key does not typecheck and the only object-shaped fixes are
+ * a cast, a `@ts-ignore`, or a temp settings file with a lifecycle to own.
+ * `Options.settings?: string | Settings` makes the string form type-legal, and
+ * the SDK passes a non-object settings value straight through to `--settings`.
+ *
+ * **Why the parameter is `string` and not `CrossSessionInbound`.** The value is
+ * validated against the closed set and OMITTED when it does not match, with a
+ * warn. An unrecognised value is worse than no value: the CLI would then hold
+ * every inbound message even when a higher-precedence source says `accept`. A
+ * TS union alone would not protect a value that arrives from a settings file at
+ * runtime.
+ *
+ * With no style and no inbound value the result is
+ * `JSON.stringify(PTAH_DISABLE_SDK_AUTO_MEMORY)` byte for byte — today's
+ * behaviour, unchanged.
+ */
+export function buildFlagSettingsArg(
+  sessionConfig?: OutputStyleActivationFields,
+  crossSessionInbound?: string,
+  logger?: Pick<Logger, 'warn'>,
+  autoCompact?: AutoCompactSettings,
+): string {
+  const settings = buildFlagSettings(sessionConfig, autoCompact);
+  if (crossSessionInbound === undefined) {
+    return JSON.stringify(settings);
+  }
+  const isKnown = (CROSS_SESSION_INBOUND_VALUES as readonly string[]).includes(
+    crossSessionInbound,
+  );
+  if (!isKnown) {
+    logger?.warn(
+      '[SdkQueryOptionsBuilder] Ignoring unrecognised crossSessionInbound value — ' +
+        'the session starts with the default inbound behaviour rather than an ' +
+        'unknown one',
+      { crossSessionInbound, allowed: CROSS_SESSION_INBOUND_VALUES },
+    );
+    return JSON.stringify(settings);
+  }
+  return JSON.stringify({ ...settings, crossSessionInbound });
 }
 
 /**
@@ -786,6 +854,11 @@ export class SdkQueryOptionsBuilder {
       enabled: compactionConfig.enabled,
       windowTokens: compactionConfig.contextTokenThreshold,
     });
+    const extraArgs = this.buildExtraArgs(
+      enableFileCheckpointing ?? true,
+      cwd,
+      routingId,
+    );
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
       model,
@@ -820,7 +893,17 @@ export class SdkQueryOptionsBuilder {
         // and the `outputStyle` key is absent entirely when no style is
         // chosen so a CLI-chosen style is not clobbered (G4b). Auto-compaction
         // keys ride the same tier under the same absence rule.
-        settings: buildFlagSettings(sessionConfig, autoCompact),
+        //
+        // Serialized because `crossSessionInbound: 'accept'` rides along and
+        // the installed `Settings` interface does not model that key — see
+        // `buildFlagSettingsArg`. `accept` is what makes a turn injected by a
+        // peer session arrive instead of being held until it expires.
+        settings: buildFlagSettingsArg(
+          sessionConfig,
+          'accept',
+          this.logger,
+          autoCompact,
+        ),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -913,12 +996,56 @@ export class SdkQueryOptionsBuilder {
         pathToClaudeCodeExecutable,
         betas: this.buildBetas(effectiveAuthEnv),
         enableFileCheckpointing: enableFileCheckpointing ?? true,
-        ...((enableFileCheckpointing ?? true)
-          ? { extraArgs: { 'replay-user-messages': null } }
-          : {}),
+        // ONE merged extraArgs object. `--name` cannot be appended beside the
+        // checkpointing spread this replaced: a user who disables file
+        // checkpointing would lose their session name with it.
+        ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
+  }
+
+  /**
+   * Build the ONE `extraArgs` object for a session.
+   *
+   * Two independent flags live here and neither may switch the other off:
+   * `--replay-user-messages` is tied to file checkpointing, while `--name` is
+   * tied to nothing. Before this method they shared a single conditional
+   * spread, so disabling checkpointing would silently have taken the session
+   * name with it.
+   *
+   * A name that cannot be composed is logged at `warn` and the key is omitted —
+   * a naming problem never costs a session.
+   */
+  private buildExtraArgs(
+    fileCheckpointingEnabled: boolean,
+    cwd: string,
+    routingId?: string,
+  ): Record<string, string | null> {
+    const extraArgs: Record<string, string | null> = {};
+    if (fileCheckpointingEnabled) {
+      extraArgs['replay-user-messages'] = null;
+    }
+
+    const sessionName = buildSessionName({
+      // The main interactive session. A spawned agent names its own role.
+      role: 'chat',
+      workspaceLabel: deriveWorkspaceLabel(cwd),
+      // The routing id is unique per session, so the name is too. Six
+      // characters is enough to separate the sessions one workspace holds.
+      uniqueSuffix: (routingId ?? '').slice(0, 6),
+    });
+    if (sessionName) {
+      extraArgs['name'] = sessionName;
+    } else {
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Could not compose a session name — starting ' +
+          'the session without --name, so the CLI derives one',
+        { cwd, hasRoutingId: !!routingId },
+      );
+    }
+
+    return extraArgs;
   }
 
   /**
