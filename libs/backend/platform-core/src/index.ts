@@ -94,11 +94,19 @@ export type {
   GlobWatchPlanOptions,
 } from './utils/glob-watch-plan';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
-export { detectEditorTargets } from './utils/editor-launcher-detection';
+export {
+  detectEditorTargets,
+  editorExecutableCandidates,
+  prepareEditorFileLaunch,
+  prepareEditorWorkspaceLaunch,
+  spawnEditorProcess,
+} from './utils/editor-launcher-detection';
 export type {
   EditorDetectionDefinition,
   EditorDetectionOptions,
+  EditorFileLaunch,
   EditorInstallCandidate,
+  EditorWorkspaceLaunch,
 } from './utils/editor-launcher-detection';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';

@@ -4,6 +4,7 @@ import type {
   EditorTarget,
   EditorTargetId,
 } from '../interfaces/editor-launcher.interface';
+import type { IProcessSpawner } from '../interfaces/process-spawner.interface';
 
 export interface EditorInstallCandidate {
   readonly path: string;
@@ -24,6 +25,62 @@ export interface EditorDetectionOptions {
     readonly mode: number;
     isFile(): boolean;
   }>;
+}
+
+export interface EditorFileLaunch {
+  readonly normalizedPath: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+}
+
+export interface EditorWorkspaceLaunch {
+  readonly normalizedRoot: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+}
+
+const EDITOR_APP_NAMES: Readonly<Record<EditorTargetId, string>> = {
+  vscode: 'Visual Studio Code',
+  cursor: 'Cursor',
+  antigravity: 'Antigravity',
+  zed: 'Zed',
+};
+
+/** Return conventional executable locations for an editor on the host OS. */
+export function editorExecutableCandidates(
+  id: EditorTargetId,
+  platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): readonly string[] {
+  const command = id === 'vscode' ? 'code' : id;
+  const appName =
+    id === 'vscode' && platform === 'win32'
+      ? 'Microsoft VS Code'
+      : EDITOR_APP_NAMES[id];
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  if (platform === 'darwin') {
+    const relative =
+      id === 'zed'
+        ? 'Contents/MacOS/cli'
+        : `Contents/Resources/app/bin/${command}`;
+    return [`/Applications/${appName}.app/${relative}`];
+  }
+  if (platform === 'win32') {
+    const localAppData =
+      env['LOCALAPPDATA'] ?? pathApi.join(homeDir, 'AppData', 'Local');
+    const programFiles = env['ProgramFiles'] ?? 'C:\\Program Files';
+    const executableName = id === 'vscode' ? 'Code' : appName;
+    return [
+      pathApi.join(localAppData, 'Programs', appName, `${executableName}.exe`),
+      pathApi.join(programFiles, appName, `${executableName}.exe`),
+    ];
+  }
+  return [
+    pathApi.join(homeDir, '.local', 'bin', command),
+    `/usr/local/bin/${command}`,
+    `/usr/bin/${command}`,
+  ];
 }
 
 async function isExecutableCandidate(
@@ -135,4 +192,61 @@ export async function detectEditorTargets(
   }
 
   return targets;
+}
+
+function normalizeAbsolute(candidatePath: string, label: string): string {
+  if (!path.isAbsolute(candidatePath))
+    throw new Error(`${label} must be absolute`);
+  return path.normalize(candidatePath);
+}
+
+/** Validate a file request and build the argv used by external editor CLIs. */
+export function prepareEditorFileLaunch(
+  target: EditorTarget,
+  filePath: string,
+  line?: number,
+): EditorFileLaunch {
+  const normalizedPath = normalizeAbsolute(filePath, 'File path');
+  if (line !== undefined && (!Number.isInteger(line) || line < 1))
+    throw new Error('Line must be a positive integer');
+  const location =
+    line === undefined ? normalizedPath : `${normalizedPath}:${line}`;
+  return {
+    normalizedPath,
+    args: target.id === 'zed' ? [location] : ['-g', location],
+    cwd: path.dirname(normalizedPath),
+  };
+}
+
+/** Validate a workspace request and build the argv used by editor CLIs. */
+export function prepareEditorWorkspaceLaunch(
+  workspaceRoot: string,
+): EditorWorkspaceLaunch {
+  const normalizedRoot = normalizeAbsolute(workspaceRoot, 'Workspace root');
+  return {
+    normalizedRoot,
+    args: [normalizedRoot],
+    cwd: normalizedRoot,
+  };
+}
+
+/** Launch a detected editor executable using argv, never a shell command. */
+export async function spawnEditorProcess(
+  spawner: IProcessSpawner,
+  target: EditorTarget,
+  args: readonly string[],
+  cwd: string,
+): Promise<void> {
+  if (!target.executablePath)
+    throw new Error(`${target.displayName} has no executable launch path`);
+  const handle = spawner.spawnProcess({
+    command: normalizeAbsolute(target.executablePath, 'Editor executable'),
+    args,
+    cwd,
+    env: process.env,
+    detached: process.platform !== 'win32',
+    needsConsole: false,
+  });
+  if ((await handle.whenSpawned) === null)
+    throw new Error(`Failed to launch ${target.displayName}`);
 }

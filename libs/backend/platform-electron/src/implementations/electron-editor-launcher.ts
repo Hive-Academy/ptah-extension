@@ -2,6 +2,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   detectEditorTargets,
+  editorExecutableCandidates,
+  prepareEditorFileLaunch,
+  prepareEditorWorkspaceLaunch,
+  spawnEditorProcess,
   type EditorDetectionDefinition,
   type EditorDetectionOptions,
   type EditorTarget,
@@ -25,43 +29,10 @@ function definitionsFor(
 ): readonly EditorDetectionDefinition[] {
   const localAppData =
     env['LOCALAPPDATA'] ?? path.join(homeDir, 'AppData', 'Local');
-  const programFiles = env['ProgramFiles'] ?? 'C:\\Program Files';
   const executableCandidates = (
     id: 'vscode' | 'cursor' | 'antigravity' | 'zed',
-  ): string[] => {
-    if (platform === 'darwin') {
-      const appName = {
-        vscode: 'Visual Studio Code',
-        cursor: 'Cursor',
-        antigravity: 'Antigravity',
-        zed: 'Zed',
-      }[id];
-      const relative =
-        id === 'zed'
-          ? 'Contents/MacOS/cli'
-          : `Contents/Resources/app/bin/${id === 'vscode' ? 'code' : id}`;
-      return [`/Applications/${appName}.app/${relative}`];
-    }
-    if (platform === 'win32') {
-      const appName = {
-        vscode: 'Microsoft VS Code',
-        cursor: 'Cursor',
-        antigravity: 'Antigravity',
-        zed: 'Zed',
-      }[id];
-      const exeName = id === 'vscode' ? 'Code' : appName;
-      return [
-        path.join(localAppData, 'Programs', appName, `${exeName}.exe`),
-        path.join(programFiles, appName, `${exeName}.exe`),
-      ];
-    }
-    const command = id === 'vscode' ? 'code' : id;
-    return [
-      path.join(homeDir, '.local', 'bin', command),
-      `/usr/local/bin/${command}`,
-      `/usr/bin/${command}`,
-    ];
-  };
+  ): readonly string[] =>
+    editorExecutableCandidates(id, platform, env, homeDir);
   const appMarker = (id: 'vscode' | 'cursor'): string[] => {
     if (platform === 'darwin')
       return [
@@ -102,12 +73,6 @@ function definitionsFor(
   ];
 }
 
-function normalizeAbsolute(candidatePath: string, label: string): string {
-  if (!path.isAbsolute(candidatePath))
-    throw new Error(`${label} must be absolute`);
-  return path.normalize(candidatePath);
-}
-
 function deepLink(
   scheme: 'vscode' | 'cursor',
   resourcePath: string,
@@ -142,54 +107,27 @@ export class ElectronEditorLauncher implements IEditorLauncher {
     filePath: string,
     line?: number,
   ): Promise<void> {
-    const normalizedPath = normalizeAbsolute(filePath, 'File path');
-    if (line !== undefined && (!Number.isInteger(line) || line < 1))
-      throw new Error('Line must be a positive integer');
+    const launch = prepareEditorFileLaunch(target, filePath, line);
     if (target.deepLinkScheme) {
       await this.shell.openExternal(
-        deepLink(target.deepLinkScheme, normalizedPath, line),
+        deepLink(target.deepLinkScheme, launch.normalizedPath, line),
       );
       return;
     }
-    const location =
-      line === undefined ? normalizedPath : `${normalizedPath}:${line}`;
-    await this.spawn(
-      target,
-      target.id === 'zed' ? [location] : ['-g', location],
-      path.dirname(normalizedPath),
-    );
+    await spawnEditorProcess(this.spawner, target, launch.args, launch.cwd);
   }
 
   async openWorkspace(
     target: EditorTarget,
     workspaceRoot: string,
   ): Promise<void> {
-    const normalizedRoot = normalizeAbsolute(workspaceRoot, 'Workspace root');
+    const launch = prepareEditorWorkspaceLaunch(workspaceRoot);
     if (target.deepLinkScheme) {
       await this.shell.openExternal(
-        deepLink(target.deepLinkScheme, normalizedRoot),
+        deepLink(target.deepLinkScheme, launch.normalizedRoot),
       );
       return;
     }
-    await this.spawn(target, [normalizedRoot], normalizedRoot);
-  }
-
-  private async spawn(
-    target: EditorTarget,
-    args: readonly string[],
-    cwd: string,
-  ): Promise<void> {
-    if (!target.executablePath)
-      throw new Error(`${target.displayName} has no launch route`);
-    const handle = this.spawner.spawnProcess({
-      command: normalizeAbsolute(target.executablePath, 'Editor executable'),
-      args,
-      cwd,
-      env: process.env,
-      detached: process.platform !== 'win32',
-      needsConsole: false,
-    });
-    if ((await handle.whenSpawned) === null)
-      throw new Error(`Failed to launch ${target.displayName}`);
+    await spawnEditorProcess(this.spawner, target, launch.args, launch.cwd);
   }
 }

@@ -1,4 +1,10 @@
-import { detectEditorTargets } from './editor-launcher-detection';
+import * as path from 'node:path';
+import {
+  detectEditorTargets,
+  editorExecutableCandidates,
+  prepareEditorFileLaunch,
+  spawnEditorProcess,
+} from './editor-launcher-detection';
 
 describe('detectEditorTargets', () => {
   const executableFile = {
@@ -125,5 +131,56 @@ describe('detectEditorTargets', () => {
     );
 
     expect(result).toEqual([]);
+  });
+});
+
+describe('editor process launch', () => {
+  it('builds conventional executable candidates for each operating system', () => {
+    expect(
+      editorExecutableCandidates('vscode', 'win32', {}, 'C:\\Users\\ptah'),
+    ).toContain('C:\\Program Files\\Microsoft VS Code\\Code.exe');
+    expect(
+      editorExecutableCandidates('cursor', 'darwin', {}, '/Users/ptah'),
+    ).toEqual([
+      '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+    ]);
+    expect(
+      editorExecutableCandidates('zed', 'linux', {}, '/home/ptah'),
+    ).toContain('/home/ptah/.local/bin/zed');
+  });
+
+  it('prepares editor-specific argv without constructing a shell command', () => {
+    const filePath = path.resolve('workspace/file.ts');
+    expect(
+      prepareEditorFileLaunch(
+        { id: 'zed', displayName: 'Zed', executablePath: '/editors/zed' },
+        filePath,
+        5,
+      ),
+    ).toEqual({
+      normalizedPath: filePath,
+      args: [`${filePath}:5`],
+      cwd: path.dirname(filePath),
+    });
+  });
+
+  it('reports a spawner that cannot start the detected executable', async () => {
+    const executablePath = path.resolve('editors/code');
+    const spawnProcess = jest.fn(() => ({ whenSpawned: Promise.resolve(null) }));
+
+    await expect(
+      spawnEditorProcess(
+        { spawnProcess } as never,
+        { id: 'vscode', displayName: 'VS Code', executablePath },
+        ['-g', '/workspace/file.ts'],
+        '/workspace',
+      ),
+    ).rejects.toThrow('Failed to launch VS Code');
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: executablePath,
+        args: ['-g', '/workspace/file.ts'],
+      }),
+    );
   });
 });
