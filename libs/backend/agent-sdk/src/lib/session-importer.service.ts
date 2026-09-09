@@ -352,9 +352,12 @@ export class SessionImporterService {
     }
 
     if (pruned > 0) {
-      this.logger.info('[SessionImporter] Pruned contentless phantom sessions', {
-        pruned,
-      });
+      this.logger.info(
+        '[SessionImporter] Pruned contentless phantom sessions',
+        {
+          pruned,
+        },
+      );
     }
 
     return pruned;
@@ -421,8 +424,14 @@ export class SessionImporterService {
     try {
       const fd = await fs.promises.open(filePath, 'r');
       const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
-      const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
-      await fd.close();
+      let bytesRead: number;
+      try {
+        ({ bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0));
+      } finally {
+        // A failed read makes the probe inconclusive, but must not leave one
+        // file handle behind for every stored session examined on a scan.
+        await fd.close();
+      }
 
       // A full read cannot prove the whole file is in the buffer (a file of
       // exactly METADATA_PREFIX_BYTES also fills it), so anything concluded

@@ -73,6 +73,8 @@
     "electron:build": "nx build ptah-electron --skip-nx-cache",
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
+    "electron:package:local-production": "nx package-local-production ptah-electron",
+    "electron:backup:production-data": "node apps/ptah-electron/scripts/backup-local-production-data.js",
     "electron:rebuild": "node apps/ptah-electron/scripts/rebuild-native.js",
     "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js && node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js",
     "cli:build": "nx build ptah-cli",

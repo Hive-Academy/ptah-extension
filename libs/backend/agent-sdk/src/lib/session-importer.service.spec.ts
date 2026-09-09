@@ -1010,19 +1010,23 @@ describe('SessionImporterService', () => {
             'file-history-snapshot',
             { type: 'file-history-snapshot', files: { 'a.ts': 'abc123' } },
           ],
-        ])('prunes an entry whose backing file is a %s sidecar', async (
-          label,
-          record,
-        ) => {
-          await store.create(`sidecar-${label}`, WORKSPACE, 'Session 1/1/2026');
+        ])(
+          'prunes an entry whose backing file is a %s sidecar',
+          async (label, record) => {
+            await store.create(
+              `sidecar-${label}`,
+              WORKSPACE,
+              'Session 1/1/2026',
+            );
 
-          primePruneOnlyScan();
-          mockPositionalRead(Buffer.from(JSON.stringify(record) + '\n'));
+            primePruneOnlyScan();
+            mockPositionalRead(Buffer.from(JSON.stringify(record) + '\n'));
 
-          await importer.scanAndImport(WORKSPACE);
+            await importer.scanAndImport(WORKSPACE);
 
-          expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
-        });
+            expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+          },
+        );
 
         it('keeps a real session whose leading summary parses but whose first turn is cut off', async () => {
           // The reason the widened sidecar rule ALSO demands a short read.
@@ -1057,6 +1061,62 @@ describe('SessionImporterService', () => {
 
           const all = await store.getForWorkspace(WORKSPACE);
           expect(all.map((m) => m.sessionId)).toEqual(['summary-then-cut']);
+        });
+
+        it('keeps a titled real session whose oversized first user record is cut off', async () => {
+          // Production-shaped regression for the 2026-09-09 deletion: the
+          // prefix contains a parseable ai-title and queue records, while the
+          // first user record is much larger than the remaining 8 KB. The old
+          // predicate saw the title, dropped the cut user line and deleted the
+          // metadata as a title-only phantom.
+          await store.create('title-then-cut', WORKSPACE, 'Real titled work');
+          const content = Buffer.from(
+            JSON.stringify({ type: 'ai-title', title: 'Real titled work' }) +
+              '\n' +
+              JSON.stringify({
+                type: 'queue-operation',
+                operation: 'enqueue',
+              }) +
+              '\n' +
+              JSON.stringify({
+                type: 'queue-operation',
+                operation: 'dequeue',
+              }) +
+              '\n' +
+              JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: 'P'.repeat(20_000) },
+              }) +
+              '\n',
+          );
+          expect(content.length).toBeGreaterThan(8192);
+
+          primePruneOnlyScan();
+          mockPositionalRead(content);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['title-then-cut']);
+        });
+
+        it('keeps metadata when the transcript probe read fails and closes the file', async () => {
+          await store.create('read-failed', WORKSPACE, 'Real work');
+          const close = jest.fn(async () => undefined);
+
+          primePruneOnlyScan();
+          fsPromises.open.mockResolvedValue({
+            read: jest.fn(async () => {
+              throw new Error('EIO');
+            }),
+            close,
+          } as unknown as Awaited<ReturnType<typeof fsPromises.open>>);
+
+          await importer.scanAndImport(WORKSPACE);
+
+          const all = await store.getForWorkspace(WORKSPACE);
+          expect(all.map((m) => m.sessionId)).toEqual(['read-failed']);
+          expect(close).toHaveBeenCalledTimes(1);
         });
 
         it('keeps a REAL session whose stored name is "Session <date>"', async () => {
