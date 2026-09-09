@@ -24,6 +24,10 @@ import {
   TASK_INDEX_NOTIFIER_TOKEN,
   type ITaskIndexNotifier,
 } from './task-index.port';
+import {
+  TASK_FOLDER_VISIBILITY_TOKEN,
+  type ITaskFolderVisibility,
+} from './task-folder-visibility.port';
 
 export interface CreateTaskInput {
   title: string;
@@ -236,6 +240,8 @@ export class TaskWriterService {
     private readonly logger: Logger,
     @inject(TASK_INDEX_NOTIFIER_TOKEN)
     private readonly indexNotifier: ITaskIndexNotifier,
+    @inject(TASK_FOLDER_VISIBILITY_TOKEN)
+    private readonly visibility: ITaskFolderVisibility,
   ) {}
 
   async create(
@@ -268,11 +274,23 @@ export class TaskWriterService {
       let claimedId: string | undefined;
       const contended: string[] = [];
 
+      // The cross-checkout half of the union, fetched ONCE per create and never
+      // per attempt (TASK_2026_403). Sibling worktrees and `origin/main` cannot
+      // change inside a five-attempt loop, and the port is allowed to spawn git,
+      // so re-fetching it would buy nothing at the price of up to five git
+      // round-trips on a user-initiated create. It never throws — an unreachable
+      // source contributes nothing — so this method adds no new catch.
+      const beyondWorkspace = await this.visibility.listBeyondWorkspace(root);
+
       for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
-        // Re-scan every attempt. This is what makes the retry converge rather
-        // than re-propose the same losing id.
+        // Re-scan the LOCAL folders every attempt. This is what makes the retry
+        // converge rather than re-propose the same losing id: the winner of the
+        // race we just lost is visible to the next allocation.
         const id = allocateTaskId(
-          await this.listFolderNames(specsDir),
+          [...(await this.listFolderNames(specsDir)), ...beyondWorkspace],
+          // A FRESH suffix per attempt. Reusing one would lose the same race
+          // twice; a new draw resolves an EEXIST even when the number is
+          // unchanged, which is the stale-scan case.
           randomIdSuffix(),
         );
         try {

@@ -27,6 +27,8 @@ import {
 } from '../task-index.store';
 import { TaskIndexService } from '../task-index.service';
 import { TASK_INDEX_NOTIFIER_TOKEN } from '../task-index.port';
+import { TASK_FOLDER_VISIBILITY_TOKEN } from '../task-folder-visibility.port';
+import { GitTaskFolderVisibility } from '../git-task-folder-visibility.service';
 import { TASK_SPECS_TOKENS } from './tokens';
 
 export function registerTaskSpecsServices(
@@ -89,6 +91,18 @@ export function registerTaskSpecsServices(
   // mutating `task.md` so the derived index reparses the changed folder.
   container.register(TASK_INDEX_NOTIFIER_TOKEN, {
     useToken: TaskIndexService,
+  });
+
+  // Cross-checkout visibility seam (TASK_2026_403): `TaskWriterService.create`
+  // allocates against sibling worktrees and `origin/main` as well as its own
+  // `.ptah/specs`. Registered here and nowhere else — the git-backed reader is
+  // host-agnostic, so no `apps/**` file binds anything. Electron's off-thread
+  // spawner reaches it through the optional mirrored `SdkProcessSpawner` token
+  // that host already binds; VS Code and the CLI bind none and take `execGit`'s
+  // inline path, which is what they did before this seam existed.
+  container.registerSingleton(GitTaskFolderVisibility);
+  container.register(TASK_FOLDER_VISIBILITY_TOKEN, {
+    useToken: GitTaskFolderVisibility,
   });
 
   logger.info('[task-specs] services registered', {

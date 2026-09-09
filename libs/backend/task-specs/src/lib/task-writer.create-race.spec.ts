@@ -35,6 +35,10 @@ import {
 import type { Logger } from '@ptah-extension/vscode-core';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { NoOpTaskIndexNotifier } from './task-index.port';
+import {
+  NoOpTaskFolderVisibility,
+  type ITaskFolderVisibility,
+} from './task-folder-visibility.port';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
 
@@ -58,12 +62,15 @@ function carrierPath(id: string): string {
   return path.join(specsDir(), id, 'task.md');
 }
 
-function makeWriter() {
+function makeWriter(
+  visibility: ITaskFolderVisibility = new NoOpTaskFolderVisibility(),
+) {
   const fs = createMockFileSystemProvider();
   const writer = new TaskWriterService(
     fs,
     makeLogger(),
     new NoOpTaskIndexNotifier(),
+    visibility,
   );
   return { fs, writer };
 }
@@ -158,5 +165,35 @@ describe('TaskWriterService.create — concurrent allocation cannot clobber (TAS
     expect(aCarrierAfter).toBe(aCarrierBefore);
     expect(aCarrierAfter).toContain('winner A');
     expect(aCarrierAfter).not.toContain('loser B');
+  });
+
+  /**
+   * The cross-CHECKOUT half of the same race (TASK_2026_403).
+   *
+   * `.ptah/**` is gitignored, so a sibling worktree's task folders are visible
+   * only through `git worktree list` + a directory read, and a branch pushed to
+   * `origin/main` only through `git ls-tree`. Without either, this checkout's
+   * local scan is empty and it happily re-proposes a NUMBER another checkout
+   * already owns — the exclusive `mkdir` cannot save it, because the two
+   * folders live on different paths and both claims succeed.
+   */
+  it('does not re-propose a number that only another checkout can see', async () => {
+    const elsewhere: ITaskFolderVisibility = {
+      async listBeyondWorkspace() {
+        return [`TASK_${YEAR}_001_aaaa`];
+      },
+    };
+    const { writer } = makeWriter(elsewhere);
+
+    const created = await writer.create(ROOT, {
+      title: 'second checkout',
+      type: 'FEATURE',
+    });
+
+    expect(created.success).toBe(true);
+    if (!created.success) return;
+    expect(created.task.id).toMatch(
+      new RegExp(`^TASK_${YEAR}_002_[0-9a-f]{4}$`),
+    );
   });
 });
