@@ -15,6 +15,7 @@ import type {
   CliAdapter,
   CliModelInfo,
 } from './cli-adapters/cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
@@ -122,7 +123,7 @@ export class CliDetectionService {
         results.set(name, {
           cli: name,
           installed: false,
-          supportsSteer: false,
+          messagingMode: bestMessagingCapability(adapter.capabilities()),
         });
       }
     }

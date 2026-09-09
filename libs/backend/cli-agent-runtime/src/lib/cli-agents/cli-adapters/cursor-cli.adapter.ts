@@ -23,12 +23,14 @@ import type {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -211,13 +213,17 @@ export class CursorCliAdapter implements CliAdapter {
   async detect(): Promise<CliDetectionResult> {
     const apiKey = resolveCursorApiKey();
     if (!apiKey) {
-      return { cli: 'cursor', installed: false, supportsSteer: false };
+      return {
+        cli: 'cursor',
+        installed: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
+      };
     }
     return {
       cli: 'cursor',
       installed: true,
       version: 'sdk',
-      supportsSteer: false,
+      messagingMode: bestMessagingCapability(this.capabilities()),
     };
   }
 
@@ -229,8 +235,13 @@ export class CursorCliAdapter implements CliAdapter {
     return resolveCursorApiKey() !== undefined;
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * `@cursor/sdk` rejects a concurrent `send` on a busy agent, so there is no
+   * mid-turn steer — but the run is cancellable without ending the agent, which
+   * makes interrupt-then-resume on the SAME agent id the best mechanism here.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: true, continuation: true };
   }
 
   parseOutput(raw: string): string {
@@ -275,6 +286,7 @@ export class CursorCliAdapter implements CliAdapter {
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
     let activeRun: CursorRun | undefined;
+    let activeTurn: Promise<number> | undefined;
     let agent: CursorSdkAgent | undefined;
 
     const output = createBufferedEmitter<string>();
@@ -374,7 +386,57 @@ export class CursorCliAdapter implements CliAdapter {
       }
     };
 
-    const done = runTurn(taskPrompt);
+    /**
+     * Start a turn and keep a handle on it, so `interrupt` can wait for the
+     * stream consumer to unwind before the caller resumes on the same agent.
+     */
+    const startTurn = (prompt: string): Promise<number> => {
+      const turn = runTurn(prompt);
+      activeTurn = turn;
+      void turn.finally(() => {
+        // Only the newest turn clears the slots — an older turn settling after
+        // a follow-up already started must not erase the live run.
+        if (activeTurn === turn) {
+          activeTurn = undefined;
+          activeRun = undefined;
+        }
+      });
+      return turn;
+    };
+
+    /**
+     * Cancel the CURRENT run only. The `agent` object stays open and its
+     * `agentId` stays addressable, so `continue` lands the follow-up on the same
+     * agent and session. Deliberately touches neither `abortController` nor
+     * `agent.close()` — that is the whole-agent abort path above, and racing it
+     * would end the session this is trying to preserve.
+     */
+    const interrupt = async (): Promise<void> => {
+      const run = activeRun;
+      if (!run) {
+        // Nothing in flight: the caller falls through to a next-turn delivery,
+        // which is the honest outcome rather than a fabricated interrupt.
+        return;
+      }
+      activeRun = undefined;
+      const turn = activeTurn;
+      try {
+        await run.cancel();
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger?.error('[CursorCliAdapter] run.cancel() failed', {
+          detail,
+        });
+        // Rethrow: the router must report `unsupported` with this reason rather
+        // than a false `interrupt-resume` for a turn that is still running.
+        throw error instanceof Error ? error : new Error(detail);
+      }
+      if (turn) {
+        await turn;
+      }
+    };
+
+    const done = startTurn(taskPrompt);
 
     return {
       abort: abortController,
@@ -385,7 +447,9 @@ export class CursorCliAdapter implements CliAdapter {
       setAgentId: () => {},
       supportsContinuation: () => true,
       continue: (message: string): Promise<ContinuationOutcome> =>
-        Promise.resolve({ done: runTurn(message) }),
+        Promise.resolve({ done: startTurn(message) }),
+      supportsInterrupt: () => true,
+      interrupt,
     };
   }
 

@@ -236,7 +236,7 @@ describe('CodexCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/codex');
       expect(result.version).toBe('1.2.3');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('should return installed: false when codex binary is not found', async () => {
@@ -246,14 +246,18 @@ describe('CodexCliAdapter', () => {
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('queue');
       expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
   });
 
-  describe('supportsSteer()', () => {
-    it('should return false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities()', () => {
+    it('reports continuation only', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: true,
+      });
     });
   });
 

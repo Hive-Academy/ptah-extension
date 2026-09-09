@@ -397,7 +397,7 @@ describe('buildAgentNamespace — list', () => {
   it('returns raw CLI results annotated with preferredRank: 0 when no registry', async () => {
     const { deps, mocks } = makeDeps({ registry: undefined });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
@@ -405,7 +405,7 @@ describe('buildAgentNamespace — list', () => {
       {
         cli: 'codex',
         installed: true,
-        supportsSteer: false,
+        messagingMode: 'queue',
         preferredRank: 0,
       },
     ]);
@@ -420,8 +420,8 @@ describe('buildAgentNamespace — list', () => {
       getDisabledClis: () => ['copilot'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
-      { cli: 'copilot', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
+      { cli: 'copilot', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
@@ -436,7 +436,7 @@ describe('buildAgentNamespace — list', () => {
       getDisabledClis: () => ['ptah-alice'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
@@ -461,7 +461,7 @@ describe('buildAgentNamespace — list', () => {
       getPreferredAgentOrder: () => ['ptah-alice', 'codex'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
@@ -492,7 +492,7 @@ describe('buildAgentNamespace — list', () => {
   it('falls back to cli results when registry.listAgents throws', async () => {
     const { deps, mocks } = makeDeps();
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockRejectedValue(new Error('registry down'));

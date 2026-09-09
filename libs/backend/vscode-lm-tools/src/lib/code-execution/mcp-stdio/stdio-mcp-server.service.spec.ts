@@ -373,7 +373,7 @@ describe('StdioMcpServerService', () => {
 
     it('routes agent_list to PtahAPI.agent.list', async () => {
       const listResult = [
-        { cli: 'codex', installed: true, supportsSteer: false },
+        { cli: 'codex', installed: true, messagingMode: 'queue' },
       ];
       const { svc, api } = makeService({
         list: jest.fn().mockResolvedValue(listResult) as never,

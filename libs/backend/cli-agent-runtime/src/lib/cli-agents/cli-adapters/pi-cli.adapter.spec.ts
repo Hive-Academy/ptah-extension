@@ -7,7 +7,7 @@
  * turn on the RPC-only `agent_settled` event, then kills the child so no
  * persistent process leaks. Tests mock cli-adapter.utils (spawnCli /
  * resolveCliPath / probeCliVersion) and fs/promises (auth.json) so no real
- * process or disk access happens. Covers: detect() (installed/not, supportsSteer
+ * process or disk access happens. Covers: detect() (installed/not, capabilities
  * true), listModels() parsing, runSdk() arg construction (--mode rpc / -a /
  * --model / --thinking, NO positional prompt), initial prompt + get_state written
  * to stdin, session id capture (session header + get_state response),
@@ -174,7 +174,7 @@ describe('PiCliAdapter (RPC mode)', () => {
   });
 
   describe('detect()', () => {
-    it('reports installed and supportsSteer true when the binary is found', async () => {
+    it('reports installed and a steer messagingMode when the binary is found', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/pi');
       mockProbeCliVersion.mockResolvedValue('pi 0.80.10');
 
@@ -183,14 +183,14 @@ describe('PiCliAdapter (RPC mode)', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/pi');
       expect(result.version).toBe('pi 0.80.10');
-      expect(result.supportsSteer).toBe(true);
+      expect(result.messagingMode).toBe('steer');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
       mockResolveCliPath.mockResolvedValue(null);
       const result = await adapter.detect();
       expect(result.installed).toBe(false);
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('steer');
     });
   });
 
@@ -710,9 +710,13 @@ describe('PiCliAdapter (RPC mode)', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput() / supportsMcp', () => {
-    it('reports supportsSteer() true and supportsMcp false', () => {
-      expect(adapter.supportsSteer()).toBe(true);
+  describe('capabilities() / parseOutput() / supportsMcp', () => {
+    it('reports a steering capability and supportsMcp false', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: true,
+        interrupt: false,
+        continuation: true,
+      });
       expect(adapter.supportsMcp).toBe(false);
     });
 

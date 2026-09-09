@@ -42,12 +42,14 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -178,7 +180,11 @@ export class CopilotSdkAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('copilot');
       if (!binaryPath) {
-        return { cli: 'copilot', installed: false, supportsSteer: false };
+        return {
+          cli: 'copilot',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -192,19 +198,24 @@ export class CopilotSdkAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'copilot',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * A fresh process per turn: there is no live run to steer and no run-scoped
+   * abort that keeps the agent addressable. `continue` resumes the captured
+   * session, so a message is delivered as the next full turn.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {

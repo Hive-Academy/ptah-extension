@@ -1005,7 +1005,7 @@ export class AgentProcessManager {
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
-    if (!adapter?.supportsSteer()) {
+    if (!adapter?.capabilities().steer) {
       throw new Error(
         `Steering is not supported for ${tracked.info.cli} CLI. ` +
           `The agent will complete its task based on the original prompt.`,

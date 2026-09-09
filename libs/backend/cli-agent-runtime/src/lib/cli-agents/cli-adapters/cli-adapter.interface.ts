@@ -6,6 +6,7 @@
  * 2. Register in CliDetectionService
  */
 import type {
+  AgentMessagingCapability,
   CliType,
   CliDetectionResult,
   CliOutputSegment,
@@ -78,9 +79,55 @@ export interface SdkHandle {
    *  in preference to the legacy `tracked.process.stdin` path.
    *  No-op if the run no longer has a writable channel. */
   readonly steer?: (message: string) => void;
+  /** Abort the CURRENT run/turn without ending the session/agent, and resolve
+   *  once the run has torn down (the stream consumer has unwound).
+   *
+   *  **Distinct from `abort`**, which ends the whole handle: after `interrupt()`
+   *  the session and agent id stay addressable, so `continue(message)` re-enters
+   *  the same conversation. Resolves immediately when there is no active run —
+   *  the caller then falls through to a next-turn delivery, which is the honest
+   *  outcome. */
+  readonly interrupt?: () => Promise<void>;
+  /** Whether this handle's run can be interrupted without ending the agent. */
+  readonly supportsInterrupt?: () => boolean;
   /** PID of the live child process, if this handle spawned one. Lets the
    *  manager tree-kill the real process group on abort/timeout. */
   readonly getPid?: () => number | undefined;
+}
+
+/**
+ * What an adapter's vendor surface can do with a message aimed at a live agent.
+ *
+ * Declared once per adapter and read by the message router and by agent
+ * listings, so a mode is never inferred from a CLI name.
+ */
+export interface AgentMessagingCapabilities {
+  /** Inject mid-turn into a run already in flight (a live input channel). */
+  readonly steer: boolean;
+  /** Abort the current run without ending the agent, then resume on it. */
+  readonly interrupt: boolean;
+  /** Deliver as a new turn on the same session (`SdkHandle.continue`). */
+  readonly continuation: boolean;
+}
+
+/**
+ * Collapse a capability declaration to the single best mechanism, in the same
+ * preference order the message router selects with. Kept beside the declaration
+ * so a detection row and the router can never disagree about what a CLI offers.
+ */
+export function bestMessagingCapability(
+  capabilities: AgentMessagingCapabilities,
+): AgentMessagingCapability {
+  if (capabilities.steer) {
+    return 'steer';
+  }
+  if (capabilities.interrupt) {
+    return 'interrupt';
+  }
+  if (capabilities.continuation) {
+    return 'queue';
+  }
+  return 'none';
 }
 
 export interface ContinuationOutcome {
@@ -100,9 +147,11 @@ export interface CliAdapter {
   detect(): Promise<CliDetectionResult>;
 
   /**
-   * Whether this CLI supports stdin steering (interactive input while running)
+   * Which messaging mechanisms this CLI supports for a message aimed at a live
+   * agent. Required — an adapter that does not answer it is a compile error, so
+   * a new adapter cannot silently inherit "no messaging at all".
    */
-  supportsSteer(): boolean;
+  capabilities(): AgentMessagingCapabilities;
 
   /**
    * Strip ANSI escape codes, progress bars, and other non-content output

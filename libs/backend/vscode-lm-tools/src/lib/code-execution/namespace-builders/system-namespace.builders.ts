@@ -304,7 +304,7 @@ LIFECYCLE:
 
 DISCOVERY:
 - list() - List available CLI agents with installation status
-  returns: [{ cli, installed, path?, version?, supportsSteer }]
+  returns: [{ cli, installed, path?, version?, messagingMode }]
 
 WAITING:
 - waitFor(agentId, { pollInterval?, timeout? }) - Block until agent completes

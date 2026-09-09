@@ -837,7 +837,7 @@ export class AgentRpcHandlers {
         .map((a) => ({
           cli: 'ptah-cli' as const,
           installed: true,
-          supportsSteer: false,
+          messagingMode: 'queue',
           ptahCliId: a.id,
           ptahCliName: a.name,
           providerName: a.providerName,

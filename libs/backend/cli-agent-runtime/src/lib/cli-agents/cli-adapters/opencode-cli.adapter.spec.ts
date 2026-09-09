@@ -164,7 +164,7 @@ describe('OpencodeCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/opencode');
       expect(result.version).toBe('opencode 0.4.2');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('none');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
@@ -607,9 +607,13 @@ describe('OpencodeCliAdapter', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput() / supportsMcp', () => {
-    it('reports supportsSteer() false and supportsMcp true', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities() / parseOutput() / supportsMcp', () => {
+    it('reports no messaging capability and supportsMcp true', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
       expect(adapter.supportsMcp).toBe(true);
     });
 

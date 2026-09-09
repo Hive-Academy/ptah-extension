@@ -147,7 +147,7 @@ describe('AntigravityCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/agy');
       expect(result.version).toBe('agy 1.1.3');
-      expect(result.supportsSteer).toBe(false);
+      expect(result.messagingMode).toBe('none');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
@@ -667,9 +667,13 @@ describe('AntigravityCliAdapter', () => {
     });
   });
 
-  describe('supportsSteer() / parseOutput()', () => {
-    it('reports supportsSteer() false', () => {
-      expect(adapter.supportsSteer()).toBe(false);
+  describe('capabilities() / parseOutput()', () => {
+    it('reports no messaging capability at all', () => {
+      expect(adapter.capabilities()).toEqual({
+        steer: false,
+        interrupt: false,
+        continuation: false,
+      });
     });
 
     it('strips ANSI escape codes', () => {

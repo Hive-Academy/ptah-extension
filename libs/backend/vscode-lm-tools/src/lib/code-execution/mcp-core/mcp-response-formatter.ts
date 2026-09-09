@@ -496,7 +496,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         Agent: agent.cli,
         Type: 'cli',
         Status: status,
-        Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
+        Capabilities: `messaging: ${agent.messagingMode}`,
       };
     });
 

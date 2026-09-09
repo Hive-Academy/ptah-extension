@@ -16,12 +16,14 @@ import type {
 import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -450,7 +452,11 @@ export class CodexCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('codex');
       if (!binaryPath) {
-        return { cli: 'codex', installed: false, supportsSteer: false };
+        return {
+          cli: 'codex',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(binaryPath);
 
@@ -459,19 +465,24 @@ export class CodexCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'codex',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return false;
+  /**
+   * The installed `@openai/codex-sdk` Thread API exposes no mid-turn steer and
+   * no run-scoped interrupt; `continue` on the handle resumes the same thread,
+   * so a message is delivered as the next full turn.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: false, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {

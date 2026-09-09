@@ -70,12 +70,14 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessagingCapabilities,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
@@ -162,7 +164,11 @@ export class PiCliAdapter implements CliAdapter {
     try {
       const binaryPath = await resolveCliPath('pi');
       if (!binaryPath) {
-        return { cli: 'pi', installed: false, supportsSteer: false };
+        return {
+          cli: 'pi',
+          installed: false,
+          messagingMode: bestMessagingCapability(this.capabilities()),
+        };
       }
       const version = await probeCliVersion(
         binaryPath,
@@ -176,20 +182,24 @@ export class PiCliAdapter implements CliAdapter {
         installed: true,
         path: binaryPath,
         version,
-        // RPC mode exposes a live stdin channel for mid-run steering.
-        supportsSteer: true,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
       return {
         cli: 'pi',
         installed: false,
-        supportsSteer: false,
+        messagingMode: bestMessagingCapability(this.capabilities()),
       };
     }
   }
 
-  supportsSteer(): boolean {
-    return true;
+  /**
+   * RPC mode exposes a live stdin channel, so a message can be injected into a
+   * turn already in flight. `continue` is on the handle too, but steering wins.
+   * No run-scoped abort exists that keeps the agent alive.
+   */
+  capabilities(): AgentMessagingCapabilities {
+    return { steer: true, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {

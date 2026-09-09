@@ -197,12 +197,12 @@ describe('mcp-response-formatter › agent namespace', () => {
       {
         cli: 'codex',
         installed: true,
-        supportsSteer: true,
+        messagingMode: 'steer',
       },
       {
         cli: 'copilot',
         installed: false,
-        supportsSteer: false,
+        messagingMode: 'queue',
       },
     ] as unknown as CliDetectionResult[];
 
@@ -216,8 +216,13 @@ describe('mcp-response-formatter › agent namespace', () => {
 
   it('formatAgentList marks a disabled-but-installed agent as disabled', () => {
     const agents = [
-      { cli: 'codex', installed: true, supportsSteer: true, disabled: true },
-      { cli: 'cursor', installed: false, supportsSteer: false, disabled: true },
+      { cli: 'codex', installed: true, messagingMode: 'steer', disabled: true },
+      {
+        cli: 'cursor',
+        installed: false,
+        messagingMode: 'interrupt',
+        disabled: true,
+      },
     ] as unknown as CliDetectionResult[];
 
     const out = formatAgentList(agents);

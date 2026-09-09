@@ -223,9 +223,11 @@ function createSdkAdapter(
       installed: true,
       path: '/usr/local/bin/codex',
       version: '1.0.0',
-      supportsSteer: false,
+      messagingMode: 'queue',
     }),
-    supportsSteer: jest.fn().mockReturnValue(false),
+    capabilities: jest
+      .fn()
+      .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
       .fn<Promise<SdkHandle>, []>()
@@ -245,7 +247,7 @@ function createMockCliDetection(
     installed: true,
     path: '/usr/local/bin/codex',
     version: '1.0.0',
-    supportsSteer: false,
+    messagingMode: 'queue',
   };
 
   return {
@@ -824,11 +826,15 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     it('routes steering to sdkHandle.steer when the handle exposes it', async () => {
       // Simulate a steer-capable SDK adapter (e.g. Pi RPC mode): the adapter
-      // reports supportsSteer() true and the handle owns a live steer channel.
+      // declares a steer capability and the handle owns a live steer channel.
       const steerSpy = jest.fn();
       (sdkControls.handle as { steer?: (message: string) => void }).steer =
         steerSpy;
-      sdkAdapter.supportsSteer.mockReturnValue(true);
+      sdkAdapter.capabilities.mockReturnValue({
+        steer: true,
+        interrupt: false,
+        continuation: true,
+      });
 
       const result = await manager.spawn({
         task: 'Task',
