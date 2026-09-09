@@ -22,14 +22,18 @@ describe('detectEditorTargets', () => {
       id: 'vscode' as const,
       displayName: 'VS Code',
       command: 'code',
-      installCandidates: [{ path: '/apps/code' }],
+      installCandidates: [{ kind: 'executable' as const, path: '/apps/code' }],
     },
     {
       id: 'cursor' as const,
       displayName: 'Cursor',
       command: 'cursor',
       installCandidates: [
-        { path: '/apps/cursor', deepLinkScheme: 'cursor' as const },
+        {
+          kind: 'application-marker' as const,
+          path: '/apps/cursor',
+          deepLinkScheme: 'cursor' as const,
+        },
       ],
     },
   ];
@@ -57,7 +61,7 @@ describe('detectEditorTargets', () => {
   });
 
   it('never reports an install location that does not exist', async () => {
-    const result = await detectEditorTargets(definitions, {
+    const result = await detectEditorTargets(definitions.slice(0, 1), {
       env: { PATH: '' },
       platform: 'linux',
       stat: jest.fn(async () => {
@@ -68,12 +72,32 @@ describe('detectEditorTargets', () => {
     expect(result).toEqual([]);
   });
 
-  it('returns a verified deep-link fallback without inventing an executable', async () => {
-    const result = await detectEditorTargets(definitions, {
-      env: { PATH: '' },
-      platform: 'linux',
-      stat: statFrom(new Set(['/apps/cursor'])),
-    });
+  it('detects a macOS application bundle as a deep-link target', async () => {
+    const bundlePath = '/Applications/Cursor.app';
+    const result = await detectEditorTargets(
+      [
+        {
+          id: 'cursor',
+          displayName: 'Cursor',
+          command: 'cursor',
+          installCandidates: [
+            {
+              kind: 'application-marker',
+              path: bundlePath,
+              deepLinkScheme: 'cursor',
+            },
+          ],
+        },
+      ],
+      {
+        env: { PATH: '' },
+        platform: 'darwin',
+        stat: jest.fn(async (candidate: string) => {
+          if (candidate !== bundlePath) throw new Error('ENOENT');
+          return { isFile: () => false, mode: 0o755 };
+        }),
+      },
+    );
 
     expect(result).toEqual([
       {
@@ -84,8 +108,8 @@ describe('detectEditorTargets', () => {
     ]);
   });
 
-  it('rejects a directory candidate', async () => {
-    const result = await detectEditorTargets(definitions, {
+  it('rejects a plain directory that is declared as an executable', async () => {
+    const result = await detectEditorTargets(definitions.slice(0, 1), {
       env: { PATH: '' },
       platform: 'linux',
       stat: jest.fn(async () => ({
@@ -98,7 +122,7 @@ describe('detectEditorTargets', () => {
   });
 
   it('rejects a POSIX file without execute permission', async () => {
-    const result = await detectEditorTargets(definitions, {
+    const result = await detectEditorTargets(definitions.slice(0, 1), {
       env: { PATH: '' },
       platform: 'linux',
       stat: jest.fn(async () => ({
@@ -117,7 +141,9 @@ describe('detectEditorTargets', () => {
           id: 'vscode',
           displayName: 'VS Code',
           command: 'code',
-          installCandidates: [{ path: 'C:\\apps\\code.txt' }],
+          installCandidates: [
+            { kind: 'executable', path: 'C:\\apps\\code.txt' },
+          ],
         },
       ],
       {

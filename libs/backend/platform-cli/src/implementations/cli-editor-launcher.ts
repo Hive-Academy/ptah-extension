@@ -32,7 +32,10 @@ function installCandidates(
         platform,
         env,
         homeDir,
-      ).map((candidatePath) => ({ path: candidatePath })),
+      ).map((candidatePath) => ({
+        kind: 'executable',
+        path: candidatePath,
+      })),
     },
     {
       id: 'cursor',
@@ -43,7 +46,10 @@ function installCandidates(
         platform,
         env,
         homeDir,
-      ).map((candidatePath) => ({ path: candidatePath })),
+      ).map((candidatePath) => ({
+        kind: 'executable',
+        path: candidatePath,
+      })),
     },
     {
       id: 'antigravity',
@@ -54,7 +60,10 @@ function installCandidates(
         platform,
         env,
         homeDir,
-      ).map((candidatePath) => ({ path: candidatePath })),
+      ).map((candidatePath) => ({
+        kind: 'executable',
+        path: candidatePath,
+      })),
     },
     {
       id: 'zed',
@@ -65,7 +74,10 @@ function installCandidates(
         platform,
         env,
         homeDir,
-      ).map((candidatePath) => ({ path: candidatePath })),
+      ).map((candidatePath) => ({
+        kind: 'executable',
+        path: candidatePath,
+      })),
     },
   ];
 }

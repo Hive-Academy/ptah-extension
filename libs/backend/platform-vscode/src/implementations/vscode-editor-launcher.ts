@@ -59,6 +59,7 @@ function definitionsFor(
       displayName: 'Cursor',
       command: 'cursor',
       installCandidates: candidates('cursor').map((candidatePath) => ({
+        kind: 'executable',
         path: candidatePath,
       })),
     },
@@ -67,6 +68,7 @@ function definitionsFor(
       displayName: 'Antigravity',
       command: 'antigravity',
       installCandidates: candidates('antigravity').map((candidatePath) => ({
+        kind: 'executable',
         path: candidatePath,
       })),
     },
@@ -75,6 +77,7 @@ function definitionsFor(
       displayName: 'Zed',
       command: 'zed',
       installCandidates: candidates('zed').map((candidatePath) => ({
+        kind: 'executable',
         path: candidatePath,
       })),
     },

@@ -54,10 +54,12 @@ function definitionsFor(
     command,
     installCandidates: [
       ...executableCandidates(id).map((candidatePath) => ({
+        kind: 'executable' as const,
         path: candidatePath,
       })),
       ...(id === 'vscode' || id === 'cursor'
-        ? appMarker(id).map((candidatePath) => ({
+          ? appMarker(id).map((candidatePath) => ({
+            kind: 'application-marker' as const,
             path: candidatePath,
             deepLinkScheme:
               id === 'vscode' ? ('vscode' as const) : ('cursor' as const),

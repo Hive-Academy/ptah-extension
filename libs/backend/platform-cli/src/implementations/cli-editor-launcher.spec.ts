@@ -21,7 +21,9 @@ describe('CliEditorLauncher', () => {
           id: 'vscode',
           displayName: 'VS Code',
           command: 'code',
-          installCandidates: [{ path: '/editors/code' }],
+          installCandidates: [
+            { kind: 'executable', path: '/editors/code' },
+          ],
         },
       ],
       stat: jest.fn(async () => ({

@@ -6,10 +6,20 @@ import type {
 } from '../interfaces/editor-launcher.interface';
 import type { IProcessSpawner } from '../interfaces/process-spawner.interface';
 
-export interface EditorInstallCandidate {
+export interface EditorExecutableCandidate {
+  readonly kind: 'executable';
   readonly path: string;
-  readonly deepLinkScheme?: 'vscode' | 'cursor';
 }
+
+export interface EditorApplicationMarkerCandidate {
+  readonly kind: 'application-marker';
+  readonly path: string;
+  readonly deepLinkScheme: 'vscode' | 'cursor';
+}
+
+export type EditorInstallCandidate =
+  | EditorExecutableCandidate
+  | EditorApplicationMarkerCandidate;
 
 export interface EditorDetectionDefinition {
   readonly id: EditorTargetId;
@@ -83,7 +93,8 @@ export function editorExecutableCandidates(
   ];
 }
 
-async function isExecutableCandidate(
+async function isCandidateAvailable(
+  candidate: EditorInstallCandidate,
   candidatePath: string,
   platform: NodeJS.Platform,
   env: Readonly<Record<string, string | undefined>>,
@@ -91,6 +102,7 @@ async function isExecutableCandidate(
 ): Promise<boolean> {
   try {
     const candidateStat = await statCandidate(candidatePath);
+    if (candidate.kind === 'application-marker') return true;
     if (!candidateStat.isFile()) return false;
     if (platform === 'win32') {
       const extension = path.win32.extname(candidatePath).toUpperCase();
@@ -131,7 +143,15 @@ async function findOnPath(
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     for (const extension of extensions) {
       const candidate = pathApi.resolve(directory, `${command}${extension}`);
-      if (await isExecutableCandidate(candidate, platform, env, statCandidate))
+      if (
+        await isCandidateAvailable(
+          { kind: 'executable', path: candidate },
+          candidate,
+          platform,
+          env,
+          statCandidate,
+        )
+      )
         return candidate;
     }
   }
@@ -171,7 +191,8 @@ export async function detectEditorTargets(
     for (const candidate of definition.installCandidates) {
       const normalizedPath = pathApi.resolve(candidate.path);
       if (
-        !(await isExecutableCandidate(
+        !(await isCandidateAvailable(
+          candidate,
           normalizedPath,
           platform,
           env,
@@ -182,7 +203,7 @@ export async function detectEditorTargets(
       targets.push({
         id: definition.id,
         displayName: definition.displayName,
-        ...(candidate.deepLinkScheme
+        ...(candidate.kind === 'application-marker'
           ? { deepLinkScheme: candidate.deepLinkScheme }
           : { executablePath: normalizedPath }),
       });

@@ -104,6 +104,8 @@ export {
 export type {
   EditorDetectionDefinition,
   EditorDetectionOptions,
+  EditorApplicationMarkerCandidate,
+  EditorExecutableCandidate,
   EditorFileLaunch,
   EditorInstallCandidate,
   EditorWorkspaceLaunch,

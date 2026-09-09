@@ -29,7 +29,11 @@ describe('ElectronEditorLauncher', () => {
             displayName: 'Cursor',
             command: 'cursor',
             installCandidates: [
-              { path: '/apps/cursor', deepLinkScheme: 'cursor' },
+              {
+                kind: 'application-marker',
+                path: '/apps/cursor',
+                deepLinkScheme: 'cursor',
+              },
             ],
           },
         ],
