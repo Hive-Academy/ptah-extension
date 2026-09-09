@@ -20,6 +20,19 @@ const { assertUnsignedStatuses } =
       paths: string[],
     ) => void;
   };
+const { resolveWindowsSystemExecutable } =
+  require('../../scripts/windows-system-executable.js') as {
+    resolveWindowsSystemExecutable: (
+      relativePath: string,
+      options: {
+        platform: NodeJS.Platform;
+        environment: NodeJS.ProcessEnv;
+        existsSync: (file: string) => boolean;
+        statSync: (file: string) => { isFile: () => boolean };
+        realpathSync: (file: string) => string;
+      },
+    ) => string;
+  };
 
 describe('local-production packaging guard', () => {
   it('preserves production identity and rejects signing hooks', () => {
@@ -87,5 +100,35 @@ describe('local-production packaging guard', () => {
         files,
       ),
     ).toThrow('Expected unsigned');
+  });
+
+  it('resolves system tools below matching absolute Windows roots only', () => {
+    const options = {
+      platform: 'win32' as NodeJS.Platform,
+      environment: {
+        SystemRoot: 'C:\\Windows',
+        WINDIR: 'c:\\windows',
+      },
+      existsSync: () => true,
+      statSync: () => ({ isFile: () => true }),
+      realpathSync: (file: string) => file,
+    };
+    expect(
+      resolveWindowsSystemExecutable(
+        'System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        options,
+      ),
+    ).toBe(
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    );
+    expect(() =>
+      resolveWindowsSystemExecutable('..\\fake.exe', options),
+    ).toThrow('outside SystemRoot');
+    expect(() =>
+      resolveWindowsSystemExecutable('System32\\tool.exe', {
+        ...options,
+        environment: { SystemRoot: 'relative-windows' },
+      }),
+    ).toThrow('absolute Windows directory');
   });
 });

@@ -4,6 +4,9 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const asar = require('@electron/asar');
+const {
+  resolveWindowsSystemExecutable,
+} = require('./windows-system-executable.js');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const OUTPUT = path.join(ROOT, 'dist', 'release', 'local-production');
@@ -73,7 +76,9 @@ function main(args = process.argv.slice(2)) {
   const command =
     '$p=ConvertFrom-Json $env:PTAH_VERIFY_PATHS_JSON;$r=@($p|ForEach-Object{$s=Get-AuthenticodeSignature -LiteralPath $_;[pscustomobject]@{Path=$s.Path;Status=$s.Status.ToString()}});$r|ConvertTo-Json -Compress';
   const raw = execFileSync(
-    'powershell.exe',
+    resolveWindowsSystemExecutable(
+      path.win32.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ),
     ['-NoProfile', '-NonInteractive', '-Command', command],
     {
       encoding: 'utf8',

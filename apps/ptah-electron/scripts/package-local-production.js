@@ -33,7 +33,7 @@ function validateBaseConfig(configText) {
     );
   }
   for (const hook of FORBIDDEN_HOOKS) {
-    if (new RegExp(`^\\s*${hook}\\s*:`, 'm').test(configText)) {
+    if (new RegExp(String.raw`^\s*${hook}\s*:`, 'm').test(configText)) {
       throw new Error(
         `Production builder hook ${hook} could sign or mutate artifacts`,
       );

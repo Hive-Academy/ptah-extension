@@ -5,6 +5,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {
+  resolveWindowsSystemExecutable,
+} = require('./windows-system-executable.js');
 
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   'cache',
@@ -69,17 +72,114 @@ function assertSourceRootsAreDirectories(sources) {
   }
 }
 
-function assertPtahClosed() {
-  if (process.platform !== 'win32') {
+const VSCODE_PROCESS_NAMES = new Set([
+  'code.exe',
+  'code - insiders.exe',
+  'vscodium.exe',
+]);
+const NODE_PROCESS_NAMES = new Set(['node.exe', 'node']);
+const PTAH_CLI_ENTRY =
+  /[\\/](@hive-academy[\\/]ptah-cli|dist[\\/]apps[\\/]ptah-(cli|tui)|apps[\\/]ptah-(cli|tui)[\\/]src)[\\/](main|tui)\.(mjs|js|tsx?)(?:["'\s]|$)/i;
+
+const WINDOWS_OFFLINE_INSPECTION =
+  "$ErrorActionPreference='Stop';$paths=@(ConvertFrom-Json $env:PTAH_BACKUP_DB_PATHS_JSON);$locked=@();foreach($file in $paths){try{$handle=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$handle.Dispose()}catch{$locked+=$file}};$processes=@(Get-CimInstance Win32_Process|Select-Object ProcessId,Name,ExecutablePath,CommandLine);[pscustomobject]@{Processes=$processes;LockedDatabaseFiles=$locked}|ConvertTo-Json -Depth 3 -Compress";
+
+function findPotentialWriters(processes) {
+  const writers = [];
+  for (const processRecord of processes) {
+    if (
+      !processRecord ||
+      typeof processRecord.ProcessId !== 'number' ||
+      typeof processRecord.Name !== 'string' ||
+      !(
+        processRecord.CommandLine === null ||
+        typeof processRecord.CommandLine === 'string'
+      ) ||
+      !(
+        processRecord.ExecutablePath === null ||
+        typeof processRecord.ExecutablePath === 'string'
+      )
+    ) {
+      throw new Error('Windows process inspection returned malformed data');
+    }
+
+    const name = processRecord.Name.toLowerCase();
+    if (name === 'ptah.exe' || VSCODE_PROCESS_NAMES.has(name)) {
+      writers.push(processRecord);
+      continue;
+    }
+    if (NODE_PROCESS_NAMES.has(name)) {
+      if (processRecord.CommandLine === null) {
+        throw new Error(
+          `Cannot verify whether Node process ${processRecord.ProcessId} is a Ptah writer`,
+        );
+      }
+      if (PTAH_CLI_ENTRY.test(processRecord.CommandLine)) {
+        writers.push(processRecord);
+      }
+    }
+  }
+  return writers;
+}
+
+function assertPtahClosed(
+  sources,
+  run = execFileSync,
+  resolveExecutable = resolveWindowsSystemExecutable,
+  platform = process.platform,
+) {
+  if (platform !== 'win32') {
     throw new Error('This backup command currently supports Windows only');
   }
-  const output = execFileSync(
-    'tasklist.exe',
-    ['/FI', 'IMAGENAME eq Ptah.exe', '/FO', 'CSV', '/NH'],
-    { encoding: 'utf8', windowsHide: true },
-  );
-  if (/"Ptah\.exe"/i.test(output)) {
-    throw new Error('Ptah is running. Close it completely before backing up');
+  const databasePaths = [...snapshotDatabaseFiles(sources).keys()];
+  let inspection;
+  try {
+    const powershell = resolveExecutable(
+      path.win32.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    );
+    const output = run(
+      powershell,
+      ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_OFFLINE_INSPECTION],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PTAH_BACKUP_DB_PATHS_JSON: JSON.stringify(databasePaths),
+        },
+      },
+    );
+    inspection = JSON.parse(output);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not verify that Ptah data is offline: ${detail}`);
+  }
+  if (
+    !inspection ||
+    !Array.isArray(inspection.Processes) ||
+    !Array.isArray(inspection.LockedDatabaseFiles)
+  ) {
+    throw new Error('Windows process inspection returned malformed data');
+  }
+
+  const writers = findPotentialWriters(inspection.Processes);
+  if (writers.length > 0) {
+    const details = writers
+      .map((record) => `${record.Name} (PID ${record.ProcessId})`)
+      .join(', ');
+    throw new Error(
+      `Ptah data may be in use by ${details}. Close Ptah, Ptah CLI/TUI, and all VS Code windows before backing up`,
+    );
+  }
+  if (
+    inspection.LockedDatabaseFiles.some((file) => typeof file !== 'string')
+  ) {
+    throw new Error('Windows process inspection returned malformed data');
+  }
+  if (inspection.LockedDatabaseFiles.length > 0) {
+    throw new Error(
+      `Ptah database files are locked; close every process using Ptah data: ${inspection.LockedDatabaseFiles.join(', ')}`,
+    );
   }
 }
 
@@ -133,7 +233,6 @@ function createBackup({
   sources,
   checkClosed = assertPtahClosed,
 }) {
-  checkClosed();
   assertOutsideSources(destination, sources);
   if (fs.existsSync(destination))
     throw new Error('Backup destination already exists');
@@ -141,6 +240,7 @@ function createBackup({
   if (available.length === 0)
     throw new Error('No Ptah data directories were found');
   assertSourceRootsAreDirectories(available);
+  checkClosed(available);
 
   const before = snapshotDatabaseFiles(available);
   const staging = `${destination}.incomplete-${process.pid}`;
@@ -207,6 +307,7 @@ module.exports = {
   assertPtahClosed,
   assertSourceRootsAreDirectories,
   createBackup,
+  findPotentialWriters,
   isExcluded,
 };
 

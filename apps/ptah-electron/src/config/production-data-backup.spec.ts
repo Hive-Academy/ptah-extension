@@ -9,14 +9,38 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const { createBackup } =
+const { assertPtahClosed, createBackup, findPotentialWriters } =
   require('../../scripts/backup-local-production-data.js') as {
+    assertPtahClosed: (
+      sources: Array<{ label: string; path: string }>,
+      run: (
+        file: string,
+        args: string[],
+        options: { env: NodeJS.ProcessEnv },
+      ) => string,
+      resolveExecutable: (relativePath: string) => string,
+      platform: NodeJS.Platform,
+    ) => void;
     createBackup: (options: {
       destination: string;
       sources: Array<{ label: string; path: string }>;
       checkClosed: () => void;
     }) => { files: Record<string, string> };
+    findPotentialWriters: (
+      processes: Array<{
+        ProcessId: number;
+        Name: string;
+        ExecutablePath: string | null;
+        CommandLine: string | null;
+      }>,
+    ) => Array<{ ProcessId: number; Name: string }>;
   };
+
+const processRecord = (
+  Name: string,
+  CommandLine: string | null,
+  ProcessId = 42,
+) => ({ ProcessId, Name, ExecutablePath: null, CommandLine });
 
 describe('production data backup', () => {
   it('copies profile, settings, database and WAL together while excluding caches/backups', () => {
@@ -126,5 +150,130 @@ describe('production data backup', () => {
       }),
     ).toThrow('Ptah is running');
     expect(existsSync(join(root, 'backup'))).toBe(false);
+  });
+
+  it.each([
+    ['Electron', processRecord('Ptah.exe', '"C:\\Program Files\\Ptah\\Ptah.exe"')],
+    [
+      'installed CLI',
+      processRecord(
+        'node.exe',
+        'node "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@hive-academy\\ptah-cli\\main.mjs" session',
+      ),
+    ],
+    [
+      'workspace TUI',
+      processRecord(
+        'node.exe',
+        'node D:\\repo\\dist\\apps\\ptah-tui\\tui.mjs',
+      ),
+    ],
+    [
+      'workspace TUI source',
+      processRecord(
+        'node.exe',
+        'node D:\\repo\\apps\\ptah-tui\\src\\main.tsx',
+      ),
+    ],
+    [
+      'VS Code host',
+      processRecord('Code.exe', 'Code.exe --type=utility'),
+    ],
+  ])('identifies the %s host as a potential writer', (_label, record) => {
+    expect(findPotentialWriters([record])).toEqual([record]);
+  });
+
+  it('refuses unavailable Node command lines and malformed process records', () => {
+    expect(() =>
+      findPotentialWriters([processRecord('node.exe', null)]),
+    ).toThrow('Cannot verify whether Node process');
+    expect(() =>
+      findPotentialWriters([
+        {
+          ...processRecord('node.exe', 'node harmless.js'),
+          ProcessId: 'not-a-pid',
+        } as never,
+      ]),
+    ).toThrow('malformed data');
+  });
+
+  it('uses an absolute system PowerShell path and accepts a healthy offline fixture', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-backup-test-'));
+    const state = join(root, 'state');
+    mkdirSync(state);
+    const database = join(state, 'ptah.sqlite');
+    writeFileSync(database, 'fixture');
+    const resolveExecutable = jest.fn(
+      () => 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    );
+    const run = jest.fn(
+      (_file: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+        const databasePathsJson = options.env['PTAH_BACKUP_DB_PATHS_JSON'];
+        expect(databasePathsJson).toBeDefined();
+        expect(JSON.parse(databasePathsJson ?? '')).toEqual([database]);
+        return JSON.stringify({
+          Processes: [processRecord('node.exe', 'node harmless.js')],
+          LockedDatabaseFiles: [],
+        });
+      },
+    );
+
+    expect(() =>
+      assertPtahClosed(
+        [{ label: 'ptah-home', path: root }],
+        run,
+        resolveExecutable,
+        'win32',
+      ),
+    ).not.toThrow();
+    expect(run).toHaveBeenCalledWith(
+      expect.stringMatching(/^C:\\Windows\\System32\\/),
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(resolveExecutable).toHaveBeenCalledWith(
+      'System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    );
+  });
+
+  it('fails closed when inspection fails, is malformed, or finds a database lock', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-backup-test-'));
+    const source = [{ label: 'ptah-home', path: root }];
+    const executable = () =>
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+
+    expect(() =>
+      assertPtahClosed(
+        source,
+        () => {
+          throw new Error('CIM unavailable');
+        },
+        executable,
+        'win32',
+      ),
+    ).toThrow('Could not verify that Ptah data is offline');
+    expect(() =>
+      assertPtahClosed(source, () => '{bad json', executable, 'win32'),
+    ).toThrow('Could not verify that Ptah data is offline');
+    expect(() =>
+      assertPtahClosed(
+        source,
+        () => JSON.stringify({ Processes: {}, LockedDatabaseFiles: [] }),
+        executable,
+        'win32',
+      ),
+    ).toThrow('malformed data');
+    expect(() =>
+      assertPtahClosed(
+        source,
+        () =>
+          JSON.stringify({
+            Processes: [],
+            LockedDatabaseFiles: ['C:\\Users\\me\\.ptah\\state\\ptah.sqlite'],
+          }),
+        executable,
+        'win32',
+      ),
+    ).toThrow('database files are locked');
   });
 });
