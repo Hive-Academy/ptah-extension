@@ -7,3 +7,5 @@ Focused Jest run: production-data-backup.spec.ts, local-production-build.spec.ts
 Production backup succeeded with 5813 SHA-256-verified files at D:/ptah-backups/before-local-2026-09-10-01. Source and installed app versions are both 0.1.70.
 
 Commit hooks passed formatting, affected lint, Electron main build, and dependency validation. Installer packaging is the remaining operational verification.
+
+Followup: signature verification now requires unsigned Ptah artifacts and allows Valid vendor signatures only for byte-identical, contained upstream dependency files. PS5 uses its verified system Modules directory to avoid inherited PS7 module conflicts. All 30 focused tests pass. Actual installer verification passed for 11 executables; SQLite ABI, tree-sitter WASM, and ONNX gates passed. Local winCodeSign cache was populated from the downloaded archive excluding non-Windows directories to avoid macOS symlink privilege failures.

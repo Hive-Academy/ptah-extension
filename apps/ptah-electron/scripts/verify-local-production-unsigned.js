@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const asar = require('@electron/asar');
@@ -23,15 +24,111 @@ function collectExecutables(root) {
   return results;
 }
 
-function assertUnsignedStatuses(records, expectedPaths) {
+function isUnmodifiedDependency(executable, unpackedRoot, sourceNodeModules) {
+  if (!unpackedRoot || !sourceNodeModules) return false;
+  const packedModules = path.resolve(
+    unpackedRoot,
+    'resources',
+    'app.asar.unpacked',
+    'node_modules',
+  );
+  const relative = path.relative(packedModules, path.resolve(executable));
+  if (
+    !relative ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    return false;
+  const source = path.resolve(sourceNodeModules, relative);
+  const isContainedFile = (file, root) => {
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+    const canonicalRelative = path.relative(
+      fs.realpathSync(root),
+      fs.realpathSync(file),
+    );
+    return (
+      canonicalRelative !== '' &&
+      canonicalRelative !== '..' &&
+      !canonicalRelative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(canonicalRelative)
+    );
+  };
+  if (
+    !isContainedFile(executable, packedModules) ||
+    !isContainedFile(source, sourceNodeModules)
+  )
+    return false;
+  const hash = (file) =>
+    crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return hash(executable) === hash(source);
+}
+
+function assertUnsignedStatuses(
+  records,
+  expectedPaths,
+  { unpackedRoot, sourceNodeModules } = {},
+) {
   const byPath = new Map(
     records.map((record) => [path.resolve(record.Path), record.Status]),
   );
   for (const executable of expectedPaths) {
-    if (byPath.get(path.resolve(executable)) !== 'NotSigned') {
-      throw new Error(`Expected unsigned executable: ${executable}`);
-    }
+    const status = byPath.get(path.resolve(executable));
+    if (status === 'NotSigned') continue;
+    // Upstream binaries retain their vendor signatures only when packaging
+    // copied the exact installed dependency. Ptah's own artifacts never qualify.
+    if (
+      status === 'Valid' &&
+      isUnmodifiedDependency(executable, unpackedRoot, sourceNodeModules)
+    )
+      continue;
+    throw new Error(
+      `Expected unsigned executable or unchanged signed dependency: ${executable}`,
+    );
   }
+}
+
+function inspectSignatures(
+  executables,
+  run = execFileSync,
+  environment = process.env,
+) {
+  const powershell = resolveWindowsSystemExecutable(
+    path.win32.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+  );
+  const modules = path.join(path.dirname(powershell), 'Modules');
+  const canonicalModules = fs.realpathSync(modules);
+  if (
+    !fs.statSync(modules).isDirectory() ||
+    path
+      .relative(path.dirname(fs.realpathSync(powershell)), canonicalModules)
+      .toLowerCase() !== 'modules'
+  ) {
+    throw new Error('Windows PowerShell system Modules directory is invalid');
+  }
+  // PS7 module paths inherited by PS5 can load incompatible Security TypeData.
+  const env = Object.fromEntries(
+    Object.entries(environment).filter(
+      ([key]) => key.toLowerCase() !== 'psmodulepath',
+    ),
+  );
+  const command =
+    "$ErrorActionPreference='Stop';$p=ConvertFrom-Json $env:PTAH_VERIFY_PATHS_JSON;$r=@($p|ForEach-Object{$s=Get-AuthenticodeSignature -LiteralPath $_;[pscustomobject]@{Path=$s.Path;Status=$s.Status.ToString()}});$r|ConvertTo-Json -Compress";
+  const raw = run(
+    powershell,
+    ['-NoProfile', '-NonInteractive', '-Command', command],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...env,
+        PSModulePath: canonicalModules,
+        PTAH_VERIFY_PATHS_JSON: JSON.stringify(executables),
+      },
+    },
+  );
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [parsed];
 }
 
 function main(args = process.argv.slice(2)) {
@@ -73,24 +170,11 @@ function main(args = process.argv.slice(2)) {
   // the newly packed app, not only files whose timestamps look fresh.
   const executables = [installers[0], ...collectExecutables(unpacked)];
 
-  const command =
-    '$p=ConvertFrom-Json $env:PTAH_VERIFY_PATHS_JSON;$r=@($p|ForEach-Object{$s=Get-AuthenticodeSignature -LiteralPath $_;[pscustomobject]@{Path=$s.Path;Status=$s.Status.ToString()}});$r|ConvertTo-Json -Compress';
-  const raw = execFileSync(
-    resolveWindowsSystemExecutable(
-      path.win32.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    ),
-    ['-NoProfile', '-NonInteractive', '-Command', command],
-    {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PTAH_VERIFY_PATHS_JSON: JSON.stringify(executables),
-      },
-    },
-  );
-  const parsed = JSON.parse(raw);
-  const records = Array.isArray(parsed) ? parsed : [parsed];
-  assertUnsignedStatuses(records, executables);
+  const records = inspectSignatures(executables);
+  assertUnsignedStatuses(records, executables, {
+    unpackedRoot: unpacked,
+    sourceNodeModules: path.join(ROOT, 'node_modules'),
+  });
 
   const packageJson = JSON.parse(
     asar
@@ -107,11 +191,15 @@ function main(args = process.argv.slice(2)) {
     );
   }
   console.log(
-    `[verify] unsigned local-production installer and app verified (${executables.length} executables)`,
+    `[verify] unsigned Ptah installer/app and unchanged signed dependencies verified (${executables.length} executables inspected)`,
   );
 }
 
-module.exports = { assertUnsignedStatuses, collectExecutables };
+module.exports = {
+  assertUnsignedStatuses,
+  collectExecutables,
+  inspectSignatures,
+};
 
 if (require.main === module) {
   try {
