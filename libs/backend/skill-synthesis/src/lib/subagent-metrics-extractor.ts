@@ -43,9 +43,10 @@ const NULL_METRICS: SubagentRunMetrics = {
  * `/ptah/specs/TASK_...`, or `ptah\specs\TASK_...` (Windows). Immune to
  * incidental task-id mentions elsewhere in the prompt (e.g. `depends_on`).
  */
-const SPECS_PATH_TASK_ID = /[\\/.]?ptah[\\/]specs[\\/](TASK_\d{4}_\d{3})\b/i;
+const SPECS_PATH_TASK_ID =
+  /[\\/.]?ptah[\\/]specs[\\/](TASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?)\b/i;
 /** Bare task-id token, used only when the specs-path anchor is absent. */
-const BARE_TASK_ID = /\bTASK_\d{4}_\d{3}\b/gi;
+const BARE_TASK_ID = /\bTASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?\b/gi;
 
 /**
  * Derive the exact task id a subagent was working on from its first user
@@ -62,14 +63,14 @@ export function extractTaskIdFromPrompt(text: string): string | null {
 
   const anchored = SPECS_PATH_TASK_ID.exec(text);
   if (anchored) {
-    return anchored[1].toUpperCase();
+    return anchored[1];
   }
 
   const matches = text.match(BARE_TASK_ID);
   if (!matches || matches.length === 0) return null;
   const distinct = new Set(matches.map((m) => m.toUpperCase()));
   if (distinct.size === 1) {
-    return distinct.values().next().value ?? null;
+    return matches[0];
   }
   return null;
 }
