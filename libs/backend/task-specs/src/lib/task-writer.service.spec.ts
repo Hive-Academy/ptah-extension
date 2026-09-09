@@ -45,7 +45,8 @@ describe('TaskWriterService.create', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.task.id).toBe(`TASK_${YEAR}_001`);
+    expect(result.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_001_`));
     expect(result.task.status).toBe('backlog');
     expect(result.task.type).toBe('FEATURE');
     expect(result.task.frontmatterValid).toBe(true);
@@ -91,7 +92,8 @@ describe('TaskWriterService.create', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.task.id).toBe(`TASK_${YEAR}_004`);
+    expect(result.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_004_`));
   });
 
   it('claims the folder with the exclusive-create CAS, never a recursive createDirectory', async () => {

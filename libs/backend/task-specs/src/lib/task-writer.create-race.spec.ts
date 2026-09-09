@@ -90,10 +90,8 @@ describe('TaskWriterService.create — concurrent allocation cannot clobber (TAS
     // THE property criterion 1 demands: two ids, not one.
     expect(a.task.id).not.toBe(b.task.id);
     expect(new Set([a.task.id, b.task.id]).size).toBe(2);
-    expect([a.task.id, b.task.id].sort()).toEqual([
-      `TASK_${YEAR}_001`,
-      `TASK_${YEAR}_002`,
-    ]);
+    expect(a.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(b.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
 
     // Both carriers exist on disk and round-trip cleanly — neither create left a
     // half-written or clobbered folder behind.
@@ -113,22 +111,23 @@ describe('TaskWriterService.create — concurrent allocation cannot clobber (TAS
     expect(rawB).toContain('session B');
   });
 
-  it('a stale scan that re-proposes an already-claimed id retries to the next id and leaves the winner untouched', async () => {
+  it('a stale scan still produces a distinct id and leaves the winner untouched', async () => {
     const { fs, writer } = makeWriter();
 
     // Session A wins _001 first, the honest way.
     const a = await writer.create(ROOT, { title: 'winner A', type: 'FEATURE' });
     expect(a.success).toBe(true);
     if (!a.success) return;
-    expect(a.task.id).toBe(`TASK_${YEAR}_001`);
+    expect(a.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(a.task.id).toMatch(new RegExp(`^TASK_${YEAR}_001_`));
 
     // Snapshot A's carrier so we can prove B never writes over it.
     const aCarrierBefore = await fs.readFile(carrierPath(a.task.id));
 
     // Session B scans a STALE listing: its first `readDirectory` returns empty,
     // as if B read `.ptah/specs` before A's folder was visible (a network share,
-    // an FS cache). So B proposes `_001` too — the exact interleaving that lost
-    // 188/189. Every later scan is real, so B's retry sees A's folder.
+    // an FS cache). B therefore proposes numeric sequence `_001` too, while its
+    // independently drawn suffix keeps the full id distinct.
     const realReadDirectory = fs.readDirectory.getMockImplementation();
     if (!realReadDirectory) throw new Error('mock readDirectory missing');
     let stale = true;
@@ -142,17 +141,16 @@ describe('TaskWriterService.create — concurrent allocation cannot clobber (TAS
 
     const b = await writer.create(ROOT, { title: 'loser B', type: 'BUGFIX' });
 
-    // B did NOT clobber and did NOT fail: it walked past A's folder to the next
-    // free id. That is the whole fix — a lost race is a retry, not a loss.
+    // B did NOT clobber and did NOT fail: the discriminator makes its full id
+    // distinct even though the stale scan selected the same numeric sequence.
     expect(b.success).toBe(true);
     if (!b.success) return;
-    expect(b.task.id).toBe(`TASK_${YEAR}_002`);
+    expect(b.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
     expect(b.task.id).not.toBe(a.task.id);
 
-    // B tried to claim _001 and was rejected by the exclusive create before it
-    // could touch A's folder.
+    // B claimed only its own suffixed folder and never touched A's folder.
     expect(fs.createDirectoryExclusive).toHaveBeenCalledWith(
-      path.join(specsDir(), `TASK_${YEAR}_001`),
+      path.join(specsDir(), b.task.id),
     );
 
     // Criterion 2: A's carrier is byte-for-byte what A wrote. No overwrite.

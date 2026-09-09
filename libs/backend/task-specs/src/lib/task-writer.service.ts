@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { allocateTaskId } from './id-allocator';
+import { randomIdSuffix } from './id-suffix';
 import { parseTaskFile } from './task-frontmatter';
 import { updateFrontmatter, type TaskFrontmatter } from './task-frontmatter';
 import {
@@ -270,7 +271,10 @@ export class TaskWriterService {
       for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
         // Re-scan every attempt. This is what makes the retry converge rather
         // than re-propose the same losing id.
-        const id = allocateTaskId(await this.listFolderNames(specsDir));
+        const id = allocateTaskId(
+          await this.listFolderNames(specsDir),
+          randomIdSuffix(),
+        );
         try {
           await this.fs.createDirectoryExclusive(path.join(specsDir, id));
           claimedId = id;
