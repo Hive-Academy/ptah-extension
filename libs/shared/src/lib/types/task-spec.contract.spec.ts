@@ -436,6 +436,16 @@ describe('renderSpecsReadme', () => {
     expect(readme).toContain('invisible to the Tasks board');
     expect(readme).toContain('registry.md');
   });
+
+  it('states the cross-checkout allocation and suffix contract', () => {
+    const readme = renderSpecsReadme();
+    expect(readme).toContain('origin/main');
+    expect(readme).toContain('git worktree list');
+    expect(readme).toContain('zero-pad to at least three digits');
+    expect(readme).toContain('TASK_YYYY_NNN_xxxx');
+    expect(readme).toContain('exclusive, fail-if-exists');
+    expect(readme).toContain('Never rename an existing folder');
+  });
 });
 
 /**
@@ -488,6 +498,17 @@ describe('renderTaskSpecAgentBlock', () => {
     expect(block).toContain(SPEC_ROOT);
     expect(block).toContain(CARRIER_FILE);
     expect(block).toContain(CONTEXT_FILE);
+  });
+
+  it('states the cross-checkout allocation and suffix contract', () => {
+    const block = renderTaskSpecAgentBlock();
+    const oneLine = block.replace(/\s+/g, ' ');
+    expect(oneLine).toContain('origin/main');
+    expect(oneLine).toContain('git worktree list');
+    expect(oneLine).toContain('zero-pad to at least three digits');
+    expect(oneLine).toContain('TASK_YYYY_NNN_xxxx');
+    expect(oneLine).toContain('exclusive, fail-if-exists');
+    expect(oneLine).toContain('Never rename an existing folder');
   });
 
   it('leaves no unresolved template slot for the partial resolver to trip on', () => {
