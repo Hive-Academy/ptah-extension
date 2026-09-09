@@ -33,6 +33,7 @@ import {
   registerCliSettings,
   CliStateStorage,
   CliWorkspaceProvider,
+  CliEditorLauncher,
   type CliPlatformOptions,
 } from '@ptah-extension/platform-cli';
 import {
@@ -44,6 +45,7 @@ import type {
   IFileDialog,
   IOutputChannel,
   IStateStorage,
+  IProcessSpawner,
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
@@ -586,6 +588,11 @@ export class CliDIContainer {
     // external consent store as its allowlist source.
     registerPluginMarketplaceServices(container, logger);
     registerSdkServices(container, logger);
+    container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
+      useValue: new CliEditorLauncher(
+        container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+      ),
+    });
     // The CLI/TUI reconciler, its boot pass (`bootHarness`, fired from the
     // content-download callback below) and its session-start preflight.
     //

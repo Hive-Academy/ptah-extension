@@ -150,7 +150,7 @@ export const RPC_HANDLER_MANIFEST = [
   {
     key: 'editor',
     methods: EditorRpcHandlers.METHODS,
-    requires: ['fileOpen'],
+    requires: ['editorLauncher'],
     handler: EditorRpcHandlers,
   },
   {

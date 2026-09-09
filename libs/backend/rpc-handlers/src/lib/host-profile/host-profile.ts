@@ -72,6 +72,7 @@ const ALL_DISABLED: HostCapabilities = {
   voice: false,
   persistence: false,
   workspaceLifecycle: false,
+  editorLauncher: false,
   fileOpen: false,
   filePicker: false,
   filePickerImages: false,
