@@ -38,7 +38,7 @@ interface ProcessManagerMock {
   spawnFromSdkHandle: jest.Mock;
   getStatus: jest.Mock;
   readOutput: jest.Mock;
-  steer: jest.Mock;
+  sendToAgent: jest.Mock;
   stop: jest.Mock;
 }
 
@@ -57,7 +57,7 @@ function createProcessManager(): ProcessManagerMock {
     spawnFromSdkHandle: jest.fn(),
     getStatus: jest.fn(),
     readOutput: jest.fn(),
-    steer: jest.fn(),
+    sendToAgent: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
     stop: jest.fn(),
   };
 }
@@ -370,10 +370,13 @@ describe('buildAgentNamespace — thin delegates', () => {
     expect(mocks.processManager.readOutput).toHaveBeenCalledWith('x', 50);
   });
 
-  it('steer() fires-and-forgets instruction to steer()', async () => {
+  it('steer() routes the instruction through sendToAgent()', async () => {
     const { deps, mocks } = makeDeps();
     await buildAgentNamespace(deps).steer('x', 'go left');
-    expect(mocks.processManager.steer).toHaveBeenCalledWith('x', 'go left');
+    expect(mocks.processManager.sendToAgent).toHaveBeenCalledWith(
+      'x',
+      'go left',
+    );
   });
 
   it('stop() awaits and returns the manager result', async () => {

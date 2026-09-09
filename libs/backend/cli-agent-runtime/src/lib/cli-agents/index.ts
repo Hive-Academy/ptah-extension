@@ -18,6 +18,16 @@ export type {
   AgentContinueErrorCode,
   AgentReleaseReason,
 } from './agent-process-manager.service';
+export {
+  AgentMessageError,
+  AgentMessageRouter,
+  MAX_PENDING_MESSAGES,
+} from './agent-message-router.service';
+export type {
+  AgentMessageErrorCode,
+  ContinuationDispatcher,
+  MessageRoutableAgent,
+} from './agent-message-router.service';
 export * from './cli-adapters';
 export {
   createContainerHarnessCliDetector,

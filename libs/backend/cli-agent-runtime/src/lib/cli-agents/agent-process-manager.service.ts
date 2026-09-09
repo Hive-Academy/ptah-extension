@@ -46,11 +46,16 @@ import {
   normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import type {
+  AgentMessageOutcome,
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
+import {
+  AgentMessageError,
+  AgentMessageRouter,
+} from './agent-message-router.service';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -156,6 +161,21 @@ interface TrackedAgent {
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
   streamCapLogged: boolean;
+  /**
+   * Settles when the turn currently in flight has torn down. Written in
+   * {@link AgentProcessManager.trackSdkHandle} from `SdkHandle.done` and
+   * re-written in {@link AgentProcessManager.continueConversation} from the
+   * continued turn's `done`. The `interrupt-resume` path awaits it: without it
+   * the router re-enters `continueConversation` while the record is still
+   * `running` and is refused as `busy`.
+   */
+  currentTurnDone?: Promise<number>;
+  /**
+   * Messages waiting for the current turn to end, in arrival order. In-memory,
+   * capped at `MAX_PENDING_MESSAGES`, never persisted, and cleared when
+   * the record's subprocess is released or the record is dropped.
+   */
+  pendingMessages: string[];
   /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.
@@ -322,6 +342,18 @@ export class AgentProcessManager {
      */
     @inject(PLATFORM_TOKENS.CALLER_WORKSPACE_RESOLVER, { isOptional: true })
     private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
+    /**
+     * Owns mode selection and the pending queue for {@link sendToAgent}
+     * (TASK_2026_402 R-8). Stateless — every per-agent field it touches lives
+     * on the tracked record — so the default keeps direct construction (tests,
+     * and the wiring paths that build this manager by hand) working unchanged
+     * while tsyringe injects the container's instance in a real host.
+     */
+    @inject(AgentMessageRouter)
+    private readonly messageRouter: AgentMessageRouter = new AgentMessageRouter(
+      logger,
+      cliDetection,
+    ),
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -614,6 +646,7 @@ export class AgentProcessManager {
       accumulatedSegments: [],
       accumulatedStreamEvents: [],
       streamCapLogged: false,
+      pendingMessages: [],
     };
 
     this.agents.set(agentId, tracked);
@@ -656,6 +689,18 @@ export class AgentProcessManager {
         });
         this.handleExit(agentId, 1, null);
       },
+    );
+
+    // Registered AFTER the exit handler above, deliberately: both are
+    // continuations of the same `done` promise and they run in registration
+    // order, so anything awaiting `currentTurnDone` observes a record
+    // handleExit has already moved out of `running`. Its rejection is folded
+    // into a non-zero code here — the exit handler above owns the reporting,
+    // and an unhandled rejection on a promise nobody may await is not a
+    // failure mode worth having.
+    tracked.currentTurnDone = sdkHandle.done.then(
+      (exitCode) => exitCode,
+      () => 1,
     );
 
     const spawnResult: SpawnAgentResult = {
@@ -777,6 +822,7 @@ export class AgentProcessManager {
         accumulatedSegments: ref.segments ? [...ref.segments] : [],
         accumulatedStreamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
         streamCapLogged: false,
+        pendingMessages: [],
         restored: true,
       });
 
@@ -981,16 +1027,36 @@ export class AgentProcessManager {
   }
 
   /**
-   * Write instruction to agent's stdin (steering)
+   * Deliver one message to a spawned agent by the best mechanism it supports,
+   * and report which mechanism actually fired.
+   *
+   * This replaces the old `steer()`, which could only ever answer "steering is
+   * not supported" for five of the six CLIs. Mode selection and the pending
+   * queue live in {@link AgentMessageRouter}; this method owns the three record
+   * states no mechanism can serve, because they are states of the MAP, not of
+   * the agent's messaging surface.
+   *
+   * A completed-but-alive continuation-capable agent is deliberately NOT one of
+   * them: the honest answer there is "this message starts a new turn", which is
+   * what the router returns.
+   *
+   * @throws {AgentMessageError} `not_found`, `restored` or `not_running`.
    */
-  steer(agentId: string, instruction: string): void {
+  async sendToAgent(
+    agentId: string,
+    message: string,
+  ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(`Agent not found: ${agentId}`);
+      throw new AgentMessageError(
+        'not_found',
+        AgentProcessManager.noSuchAgentMessage(agentId),
+      );
     }
 
     if (tracked.restored) {
-      throw new Error(
+      throw new AgentMessageError(
+        'restored',
         AgentProcessManager.restoredRecordMessage(
           agentId,
           tracked.info.cliSessionId,
@@ -998,39 +1064,36 @@ export class AgentProcessManager {
       );
     }
 
-    if (tracked.info.status !== 'running') {
-      throw new Error(
-        `Agent ${agentId} is not running (status: ${tracked.info.status})`,
+    if (
+      tracked.info.status !== 'running' &&
+      !AgentProcessManager.canStartNewTurn(tracked)
+    ) {
+      throw new AgentMessageError(
+        'not_running',
+        `Agent ${agentId} is not running (status: ${tracked.info.status}) and ` +
+          `its handle cannot start a new turn — the run is over and its ` +
+          `process is gone. Resume the conversation instead: spawn with ` +
+          `resume_session_id: ${tracked.info.cliSessionId ?? '<unknown>'}.`,
       );
     }
 
-    const adapter = this.cliDetection.getAdapter(tracked.info.cli);
-    if (!adapter?.capabilities().steer) {
-      throw new Error(
-        `Steering is not supported for ${tracked.info.cli} CLI. ` +
-          `The agent will complete its task based on the original prompt.`,
-      );
-    }
-    // SDK-based agents that own a live input channel (e.g. Pi RPC mode) route
-    // steering through the handle, which writes to the current child's stdin.
-    // This is preferred over the legacy `tracked.process.stdin` path below.
-    const sdkSteer = tracked.sdkHandle?.steer;
-    if (sdkSteer) {
-      sdkSteer(instruction);
-      return;
-    }
+    return this.messageRouter.route(agentId, tracked, message, this);
+  }
 
-    if (!tracked.process) {
-      throw new Error(
-        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
-      );
-    }
-
-    if (!tracked.process.stdin?.writable) {
-      throw new Error(`Agent ${agentId} stdin is not writable`);
-    }
-
-    tracked.process.stdin.write(instruction + '\n');
+  /**
+   * Whether a record that is no longer running can still be handed a new turn.
+   *
+   * Read from the handle's own declarations, never from the CLI name: a handle
+   * that kept its subprocess alive after finishing is exactly the case the
+   * prompt mailbox exists for.
+   */
+  private static canStartNewTurn(tracked: TrackedAgent): boolean {
+    const handle = tracked.sdkHandle;
+    return (
+      !tracked.subprocessReleased &&
+      handle?.supportsContinuation?.() === true &&
+      typeof handle.continue === 'function'
+    );
   }
 
   async continueConversation(agentId: string, message: string): Promise<void> {
@@ -1133,6 +1196,14 @@ export class AgentProcessManager {
         });
         this.handleExit(agentId, 1, null);
       },
+    );
+
+    // Same ordering rule as the first turn in trackSdkHandle: registered after
+    // the exit handler, so an `interrupt-resume` awaiting this observes a
+    // settled record rather than racing the `busy` check.
+    tracked.currentTurnDone = outcome.done.then(
+      (exitCode) => exitCode,
+      () => 1,
     );
   }
 
@@ -1703,6 +1774,9 @@ export class AgentProcessManager {
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    // Nothing can deliver a queued message once the process is gone. Say so in
+    // the log rather than leaving entries that look pending forever.
+    this.messageRouter.discardPending(agentId, tracked);
 
     const idleMs = tracked.idleSince ? Date.now() - tracked.idleSince : 0;
     this.clearIdleRelease(tracked);
@@ -1782,6 +1856,12 @@ export class AgentProcessManager {
         });
       }, GRACEFUL_EXIT_DELAY_MS),
     );
+
+    // The single settle point, and therefore the only place a queued message
+    // can be delivered: the status is now terminal, so `continueConversation`
+    // will not refuse it as `busy`. One entry per settle — the turn this
+    // starts settles again and drains the next.
+    void this.messageRouter.flushPending(agentId, tracked, this);
   }
 
   /**

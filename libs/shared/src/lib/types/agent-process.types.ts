@@ -196,6 +196,18 @@ export type AgentMessagingMode =
  */
 export type AgentMessagingCapability = 'steer' | 'interrupt' | 'queue' | 'none';
 
+/**
+ * What actually happened to a message aimed at a live agent.
+ *
+ * `mode` is never inferred by the caller and never omitted: an `unsupported`
+ * outcome means NOTHING was delivered, and `detail` carries the reason in
+ * words the caller (often a model) can act on.
+ */
+export interface AgentMessageOutcome {
+  readonly mode: AgentMessagingMode;
+  readonly detail?: string;
+}
+
 export interface CliDetectionResult {
   readonly cli: CliType;
   readonly installed: boolean;

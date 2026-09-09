@@ -229,7 +229,10 @@ export function buildAgentNamespace(
     },
 
     steer: async (agentId, instruction) => {
-      agentProcessManager.steer(agentId, instruction);
+      // `steer` is still the PtahAPI method name and still the MCP tool name;
+      // only the delivery changed. Batch 5 of TASK_2026_402 renames both and
+      // surfaces the outcome, which this signature cannot carry yet.
+      await agentProcessManager.sendToAgent(agentId, instruction);
     },
 
     stop: async (agentId) => {
