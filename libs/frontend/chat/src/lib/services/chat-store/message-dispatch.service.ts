@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
-import { createExecutionChatMessage } from '@ptah-extension/shared';
+import { createExecutionChatMessage, MessageId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import type {
@@ -254,7 +254,7 @@ ${newer}` : content, {
     if (!tab) return;
     // Existing transcript channel; rendered through the normal markdown path.
     this.tabManager.setMessages(tabId, [...tab.messages, createExecutionChatMessage({
-      id: `send_failure_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      id: MessageId.create(),
       role: 'assistant',
       rawContent: `Message delivery failed. ${error ?? 'Please retry.'}`,
     })]);

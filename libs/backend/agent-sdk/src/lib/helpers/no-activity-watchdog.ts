@@ -147,49 +147,69 @@ export class NoActivityWatchdog {
       !this.tools.has(message.tool_use_id)
     )
       return;
-    if (message.type === 'system') {
-      if (message.subtype === 'task_started') {
-        if (message.tool_use_id && this.tools.has(message.tool_use_id)) {
-          this.tasks.set(message.task_id, message.tool_use_id);
-        }
-        return;
+    if (message.type === 'system' && this.observeSystem(message)) return;
+    this.observeToolResults(message);
+    if (message.type === 'result') this.endTurn();
+    this.kick();
+  }
+
+  /** Task chatter only extends the deadline when it releases a root tool. */
+  private observeSystem(
+    message: Extract<SDKMessage, { type: 'system' }>,
+  ): boolean {
+    if (message.subtype === 'task_started') {
+      if (message.tool_use_id && this.tools.has(message.tool_use_id)) {
+        this.tasks.set(message.task_id, message.tool_use_id);
       }
-      if (message.subtype === 'task_updated') {
-        const toolId = this.tasks.get(message.task_id);
-        if (
-          toolId &&
-          (message.patch.is_backgrounded ||
-            ['completed', 'failed', 'killed'].includes(
-              message.patch.status ?? '',
-            ))
-        ) {
-          const wasWaiting = this.tools.delete(toolId);
-          this.tasks.delete(message.task_id);
-          if (wasWaiting) this.kick();
-        }
-        return;
-      }
-      if (message.subtype === 'task_notification') {
-        const toolId = message.tool_use_id ?? this.tasks.get(message.task_id);
-        if (toolId && this.tools.delete(toolId)) this.kick();
-        this.tasks.delete(message.task_id);
-        return;
-      }
-      if (message.subtype === 'task_progress') return;
-      if (message.subtype === 'status') {
-        if (message.status === 'compacting') this.compacting = true;
-        // null alone is not proof of completion; compact_result is explicit.
-        if (message.compact_result) this.compacting = false;
-      }
-      if (message.subtype === 'compact_boundary') this.compacting = false;
+      return true;
     }
+    if (message.subtype === 'task_updated') {
+      this.observeTaskUpdate(message);
+      return true;
+    }
+    if (message.subtype === 'task_notification') {
+      const toolId = message.tool_use_id ?? this.tasks.get(message.task_id);
+      if (toolId && this.tools.delete(toolId)) this.kick();
+      this.tasks.delete(message.task_id);
+      return true;
+    }
+    if (message.subtype === 'task_progress') return true;
+    this.observeCompaction(message);
+    return false;
+  }
+
+  private observeCompaction(
+    message: Extract<SDKMessage, { type: 'system' }>,
+  ): void {
+    if (message.subtype === 'status') {
+      if (message.status === 'compacting') this.compacting = true;
+      // null alone is not proof of completion; compact_result is explicit.
+      if (message.compact_result) this.compacting = false;
+    }
+    if (message.subtype === 'compact_boundary') this.compacting = false;
+  }
+
+  private observeTaskUpdate(
+    message: Extract<SDKMessage, { subtype: 'task_updated' }>,
+  ): void {
+    const toolId = this.tasks.get(message.task_id);
+    if (
+      toolId &&
+      (message.patch.is_backgrounded ||
+        ['completed', 'failed', 'killed'].includes(message.patch.status ?? ''))
+    ) {
+      const wasWaiting = this.tools.delete(toolId);
+      this.tasks.delete(message.task_id);
+      if (wasWaiting) this.kick();
+    }
+  }
+
+  private observeToolResults(message: SDKMessage): void {
     if (message.type === 'user' && Array.isArray(message.message.content)) {
       for (const block of message.message.content) {
         if (block.type === 'tool_result') this.tools.delete(block.tool_use_id);
       }
     }
-    if (message.type === 'result') this.endTurn();
-    this.kick();
   }
 
   private arm(): void {

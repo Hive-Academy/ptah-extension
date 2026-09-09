@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { MAX_BODY_SIZE } from './translation-proxy-helpers';
 
@@ -32,6 +32,51 @@ const eventSchema = z.object({
   type: z.string().optional(),
   response: z.unknown().optional(),
 });
+
+function collectMessageContent(item: z.infer<typeof outputItem>): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  for (const part of item.content ?? []) {
+    if (part.type === 'output_text' && part.text !== undefined) {
+      content.push({ type: 'text', text: part.text });
+    } else if (part.type === 'refusal') {
+      if (!part.refusal) throw new Error('Invalid refusal content');
+      content.push({ type: 'text', text: part.refusal });
+    }
+  }
+  return content;
+}
+
+function collectFunctionCall(item: z.infer<typeof outputItem>, status: string): Record<string, unknown> {
+  if (!item.call_id || !item.name) throw new Error('Invalid function call');
+  let input: Record<string, unknown>;
+  try {
+    if (typeof item.arguments !== 'string') throw new Error('Missing function arguments');
+    input = z.record(z.string(), z.unknown()).parse(JSON.parse(item.arguments));
+  } catch (error: unknown) {
+    // Anthropic JSON tool_use requires an object; fabricating {} or
+    // dropping the truncated call could execute the wrong operation.
+    if (status === 'incomplete') throw new ResponsesStreamError('upstream_incomplete');
+    throw error;
+  }
+  return { type: 'tool_use', id: item.call_id, name: item.name, input };
+}
+
+function collectOutputContent(response: z.infer<typeof responseSchema>): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  for (const item of response.output) {
+    if (item.type === 'message') {
+      for (const part of collectMessageContent(item)) content.push(part);
+    } else if (item.type === 'function_call') {
+      content.push(collectFunctionCall(item, response.status));
+    }
+  }
+  return content;
+}
+
+function responseStopReason(response: z.infer<typeof responseSchema>, content: Array<Record<string, unknown>>): string {
+  if (response.status === 'incomplete') return 'max_tokens';
+  return content.some((item) => item['type'] === 'tool_use') ? 'tool_use' : 'end_turn';
+}
 
 /**
  * Non-streaming callers of a stream-only Responses endpoint still need one
@@ -136,38 +181,12 @@ export function collectResponsesStream(
         }
         // SSE dispatch requires a blank line; never treat truncated JSON as success.
         if (buffer || data.length || !response) throw new Error('Incomplete Responses stream');
-        const content: Array<Record<string, unknown>> = [];
-        for (const item of response.output) {
-          if (item.type === 'message') {
-            for (const part of item.content ?? []) {
-              if (part.type === 'output_text' && part.text !== undefined) {
-                content.push({ type: 'text', text: part.text });
-              } else if (part.type === 'refusal') {
-                if (!part.refusal) throw new Error('Invalid refusal content');
-                content.push({ type: 'text', text: part.refusal });
-              }
-            }
-          } else if (item.type === 'function_call') {
-            if (!item.call_id || !item.name) throw new Error('Invalid function call');
-            let input: Record<string, unknown>;
-            try {
-              if (typeof item.arguments !== 'string') throw new Error('Missing function arguments');
-              input = z.record(z.string(), z.unknown()).parse(JSON.parse(item.arguments));
-            } catch (error: unknown) {
-              // Anthropic JSON tool_use requires an object; fabricating {} or
-              // dropping the truncated call could execute the wrong operation.
-              if (response.status === 'incomplete') throw new ResponsesStreamError('upstream_incomplete');
-              throw error;
-            }
-            content.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
-          }
-        }
+        const content = collectOutputContent(response);
         settled = true;
         cleanup();
         resolve({
           id: `msg_${requestId}`, type: 'message', role: 'assistant', model, content,
-          stop_reason: response.status === 'incomplete' ? 'max_tokens' :
-            content.some((item) => item['type'] === 'tool_use') ? 'tool_use' : 'end_turn',
+          stop_reason: responseStopReason(response, content),
           stop_sequence: null,
           usage: {
             input_tokens: Math.max(0, (response.usage?.input_tokens ?? 0) -
