@@ -44,6 +44,7 @@ async function isExecutableCandidate(
     }
     return (candidateStat.mode & 0o111) !== 0;
   } catch {
+    // degradation-audit: optional-capability — an unreadable candidate cannot be safely launched
     return false;
   }
 }
