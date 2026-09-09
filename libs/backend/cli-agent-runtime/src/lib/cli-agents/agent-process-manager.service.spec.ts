@@ -70,17 +70,19 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   SentryService: class {},
 }));
 
-// Mock platform-core for the PLATFORM_TOKENS.WORKSPACE_PROVIDER injection.
+// Keep platform-core's real path guards while replacing DI tokens used by this
+// manually-constructed unit. A closed mock hides new runtime exports and makes
+// the suite fail before SDK-path assertions can run.
 jest.mock('@ptah-extension/platform-core', () => {
   const actual = jest.requireActual<
     typeof import('@ptah-extension/platform-core')
   >('@ptah-extension/platform-core');
   return {
+    ...actual,
     PLATFORM_TOKENS: {
       WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
       MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
     },
-    isPathWithinRoots: actual.isPathWithinRoots,
   };
 });
 

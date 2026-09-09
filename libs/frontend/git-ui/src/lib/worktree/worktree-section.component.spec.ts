@@ -88,6 +88,14 @@ describe('WorktreeSectionComponent — active highlight tracks ElectronLayoutSer
     fixture.detectChanges();
 
     expect(activeRowBranches()).toEqual([`Switch to ${FEATURE.path}`]);
+    const featureRow = Array.from(
+      fixture.nativeElement.querySelectorAll('button[title^="Switch to "]'),
+    ).find(
+      (row) => (row as HTMLButtonElement).title === `Switch to ${FEATURE.path}`,
+    ) as HTMLButtonElement;
+    expect(featureRow.getAttribute('aria-label')).toBe(
+      `Switch to ${FEATURE.path}`,
+    );
   });
 
   it('moves the highlight when the active workspace changes', () => {
