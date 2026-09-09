@@ -3,57 +3,48 @@ import * as path from 'node:path';
 
 describe('ElectronEditorLauncher', () => {
   const spawnProcess = jest.fn(() => ({ whenSpawned: Promise.resolve(7) }));
-  const openExternal = jest.fn(async () => undefined);
 
   beforeEach(() => {
     spawnProcess.mockClear();
-    openExternal.mockClear();
   });
 
-  it('detects a verified binary before an installed deep-link fallback', async () => {
-    const launcher = new ElectronEditorLauncher(
-      { spawnProcess } as never,
-      { openExternal },
-      {
-        platform: 'linux',
-        env: { PATH: '/bin' },
-        definitions: [
-          {
-            id: 'vscode',
-            displayName: 'VS Code',
-            command: 'code',
-            installCandidates: [],
-          },
-          {
-            id: 'cursor',
-            displayName: 'Cursor',
-            command: 'cursor',
-            installCandidates: [
-              {
-                kind: 'application-marker',
-                path: '/apps/cursor',
-                deepLinkScheme: 'cursor',
-              },
-            ],
-          },
-        ],
-        stat: jest.fn(async (candidate: string) => {
-          if (candidate !== '/bin/code' && candidate !== '/apps/cursor')
-            throw new Error('ENOENT');
-          return { isFile: () => true, mode: 0o755 };
-        }) as never,
-      },
-    );
+  it('detects only verified executable routes', async () => {
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never, {
+      platform: 'linux',
+      env: { PATH: '/bin' },
+      definitions: [
+        {
+          id: 'vscode',
+          displayName: 'VS Code',
+          command: 'code',
+          installCandidates: [],
+        },
+        {
+          id: 'cursor',
+          displayName: 'Cursor',
+          command: 'cursor',
+          installCandidates: [
+            {
+              kind: 'executable',
+              path: '/apps/cursor',
+            },
+          ],
+        },
+      ],
+      stat: jest.fn(async (candidate: string) => {
+        if (candidate !== '/bin/code' && candidate !== '/apps/cursor')
+          throw new Error('ENOENT');
+        return { isFile: () => true, mode: 0o755 };
+      }) as never,
+    });
     await expect(launcher.detect()).resolves.toEqual([
       { id: 'vscode', displayName: 'VS Code', executablePath: '/bin/code' },
-      { id: 'cursor', displayName: 'Cursor', deepLinkScheme: 'cursor' },
+      { id: 'cursor', displayName: 'Cursor', executablePath: '/apps/cursor' },
     ]);
   });
 
   it('uses the argv spawner for a detected binary', async () => {
-    const launcher = new ElectronEditorLauncher({ spawnProcess } as never, {
-      openExternal,
-    });
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
     const executablePath = path.resolve('editors/zed');
     const filePath = path.resolve('workspace/a.ts');
     await launcher.openFile(
@@ -67,21 +58,39 @@ describe('ElectronEditorLauncher', () => {
         args: [`${filePath}:4`],
       }),
     );
-    expect(openExternal).not.toHaveBeenCalled();
   });
 
-  it('uses a verified deep-link route when no binary was detected', async () => {
-    const launcher = new ElectronEditorLauncher({ spawnProcess } as never, {
-      openExternal,
-    });
-    const filePath = path.resolve('workspace/a file.ts');
-    await launcher.openFile(
-      { id: 'cursor', displayName: 'Cursor', deepLinkScheme: 'cursor' },
-      filePath,
-      2,
+  it('opens a workspace with the normalized root as argv and cwd', async () => {
+    const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+    const executablePath = path.resolve('editors/cursor');
+    const workspaceRoot = path.resolve('workspace');
+
+    await launcher.openWorkspace(
+      { id: 'cursor', displayName: 'Cursor', executablePath },
+      workspaceRoot,
     );
-    const encoded = encodeURI(filePath.replace(/\\/g, '/'));
-    expect(openExternal).toHaveBeenCalledWith(`cursor://file/${encoded}:2`);
-    expect(spawnProcess).not.toHaveBeenCalled();
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: executablePath,
+        args: [workspaceRoot],
+        cwd: workspaceRoot,
+      }),
+    );
+  });
+
+  it('propagates a launch failure', async () => {
+    const failedSpawn = jest.fn(() => ({ whenSpawned: Promise.resolve(null) }));
+    const launcher = new ElectronEditorLauncher({
+      spawnProcess: failedSpawn,
+    } as never);
+    const executablePath = path.resolve('editors/code');
+
+    await expect(
+      launcher.openWorkspace(
+        { id: 'vscode', displayName: 'VS Code', executablePath },
+        path.resolve('workspace'),
+      ),
+    ).rejects.toThrow('Failed to launch VS Code');
   });
 });

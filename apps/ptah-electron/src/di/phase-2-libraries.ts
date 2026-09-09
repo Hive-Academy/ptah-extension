@@ -63,7 +63,7 @@ import {
   type SqliteVecPathResolver,
 } from '@ptah-extension/persistence-sqlite';
 import * as fs from 'node:fs';
-import { app, shell } from 'electron';
+import { app } from 'electron';
 import {
   registerMemoryCuratorServices,
   MEMORY_TOKENS,
@@ -184,7 +184,6 @@ export function registerPhase2Libraries(
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new ElectronEditorLauncher(
       container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
-      shell,
     ),
   });
   // harness-sync AFTER registerSdkServices so the plugin loader token exists.

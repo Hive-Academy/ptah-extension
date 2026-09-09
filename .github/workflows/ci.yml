@@ -106,7 +106,7 @@ jobs:
       # the SHA because GitHub cache entries are immutable — the prefix
       # restore-key is what actually reuses the previous run's results.
       - name: Cache Nx task results
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .nx/cache
           key: nx-${{ runner.os }}-${{ github.sha }}

@@ -49,7 +49,6 @@ export interface EditorTarget {
   id: EditorTargetId;
   displayName: string;
   executablePath?: string;
-  deepLinkScheme?: 'vscode' | 'cursor';
 }
 
 export type EditorDetectTargetsParams = Record<string, never>;

@@ -1,9 +1,11 @@
 import * as path from 'node:path';
 import {
+  createExecutableEditorDefinitions,
   detectEditorTargets,
   EDITOR_DESCRIPTORS,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
+  prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
 } from './editor-launcher-detection';
 
@@ -30,11 +32,7 @@ describe('detectEditorTargets', () => {
       displayName: 'Cursor',
       command: 'cursor',
       installCandidates: [
-        {
-          kind: 'application-marker' as const,
-          path: '/apps/cursor',
-          deepLinkScheme: 'cursor' as const,
-        },
+        { kind: 'executable' as const, path: '/apps/cursor' },
       ],
     },
   ];
@@ -71,42 +69,6 @@ describe('detectEditorTargets', () => {
     });
 
     expect(result).toEqual([]);
-  });
-
-  it('detects a macOS application bundle as a deep-link target', async () => {
-    const bundlePath = '/Applications/Cursor.app';
-    const result = await detectEditorTargets(
-      [
-        {
-          id: 'cursor',
-          displayName: 'Cursor',
-          command: 'cursor',
-          installCandidates: [
-            {
-              kind: 'application-marker',
-              path: bundlePath,
-              deepLinkScheme: 'cursor',
-            },
-          ],
-        },
-      ],
-      {
-        env: { PATH: '' },
-        platform: 'darwin',
-        stat: jest.fn(async (candidate: string) => {
-          if (candidate !== bundlePath) throw new Error('ENOENT');
-          return { isFile: () => false, mode: 0o755 };
-        }),
-      },
-    );
-
-    expect(result).toEqual([
-      {
-        id: 'cursor',
-        displayName: 'Cursor',
-        deepLinkScheme: 'cursor',
-      },
-    ]);
   });
 
   it('rejects a plain directory that is declared as an executable', async () => {
@@ -159,6 +121,44 @@ describe('detectEditorTargets', () => {
 
     expect(result).toEqual([]);
   });
+
+  it('rejects a Windows executable candidate that is not a file', async () => {
+    const result = await detectEditorTargets(
+      [
+        {
+          id: 'vscode',
+          displayName: 'VS Code',
+          command: 'code',
+          installCandidates: [
+            { kind: 'executable', path: 'C:\\apps\\Code.exe' },
+          ],
+        },
+      ],
+      {
+        env: { PATH: '' },
+        platform: 'win32',
+        stat: jest.fn(async () => ({
+          isFile: () => false,
+          mode: 0o755,
+        })),
+      },
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it('honours Windows Path casing and configured PATHEXT entries', async () => {
+    const executablePath = 'C:\\Tools\\code.CMD';
+    const result = await detectEditorTargets(definitions.slice(0, 1), {
+      env: { Path: 'C:\\Tools', PATHEXT: '.CMD' },
+      platform: 'win32',
+      stat: statFrom(new Set([executablePath])),
+    });
+
+    expect(result).toEqual([
+      { id: 'vscode', displayName: 'VS Code', executablePath },
+    ]);
+  });
 });
 
 describe('editor process launch', () => {
@@ -175,16 +175,55 @@ describe('editor process launch', () => {
     ]);
   });
 
-  it('builds conventional executable candidates for each operating system', () => {
+  it('builds conventional Windows candidates from environment and defaults', () => {
     expect(
-      editorExecutableCandidates('vscode', 'win32', {}, 'C:\\Users\\ptah'),
-    ).toContain('C:\\Program Files\\Microsoft VS Code\\Code.exe');
+      editorExecutableCandidates(
+        'vscode',
+        'win32',
+        {
+          LOCALAPPDATA: 'D:\\Local',
+          ProgramFiles: 'E:\\Programs',
+        },
+        'C:\\Users\\ptah',
+      ),
+    ).toEqual([
+      'D:\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+      'E:\\Programs\\Microsoft VS Code\\Code.exe',
+    ]);
+    expect(
+      editorExecutableCandidates('cursor', 'win32', {}, 'C:\\Users\\ptah'),
+    ).toEqual([
+      'C:\\Users\\ptah\\AppData\\Local\\Programs\\Cursor\\Cursor.exe',
+      'C:\\Program Files\\Cursor\\Cursor.exe',
+    ]);
+  });
+
+  it('builds conventional macOS CLI candidates inside application bundles', () => {
     expect(
       editorExecutableCandidates('cursor', 'darwin', {}, '/Users/ptah'),
     ).toEqual(['/Applications/Cursor.app/Contents/Resources/app/bin/cursor']);
     expect(
-      editorExecutableCandidates('zed', 'linux', {}, '/home/ptah'),
-    ).toContain('/home/ptah/.local/bin/zed');
+      editorExecutableCandidates('zed', 'darwin', {}, '/Users/ptah'),
+    ).toEqual(['/Applications/Zed.app/Contents/MacOS/cli']);
+  });
+
+  it('creates executable-only definitions for every supported editor', () => {
+    const definitions = createExecutableEditorDefinitions(
+      'linux',
+      {},
+      '/home/ptah',
+    );
+
+    expect(definitions).toHaveLength(EDITOR_DESCRIPTORS.length);
+    expect(
+      definitions.flatMap(({ installCandidates }) => installCandidates),
+    ).toEqual(
+      expect.arrayContaining([
+        { kind: 'executable', path: '/home/ptah/.local/bin/code' },
+        { kind: 'executable', path: '/usr/local/bin/cursor' },
+        { kind: 'executable', path: '/usr/bin/zed' },
+      ]),
+    );
   });
 
   it('prepares editor-specific argv without constructing a shell command', () => {
@@ -199,6 +238,81 @@ describe('editor process launch', () => {
       normalizedPath: filePath,
       args: [`${filePath}:5`],
       cwd: path.dirname(filePath),
+    });
+  });
+
+  it('prepares VS Code argv without a line suffix when no line is requested', () => {
+    const filePath = path.resolve('workspace/file.ts');
+
+    expect(
+      prepareEditorFileLaunch(
+        {
+          id: 'vscode',
+          displayName: 'VS Code',
+          executablePath: '/editors/code',
+        },
+        filePath,
+      ),
+    ).toEqual({
+      normalizedPath: filePath,
+      args: ['-g', filePath],
+      cwd: path.dirname(filePath),
+    });
+  });
+
+  it('rejects relative file and workspace paths and invalid line numbers', () => {
+    const target = {
+      id: 'vscode' as const,
+      displayName: 'VS Code',
+      executablePath: '/editors/code',
+    };
+    const filePath = path.resolve('workspace/file.ts');
+
+    expect(() => prepareEditorFileLaunch(target, 'relative.ts')).toThrow(
+      'File path must be absolute',
+    );
+    expect(() => prepareEditorWorkspaceLaunch('relative')).toThrow(
+      'Workspace root must be absolute',
+    );
+    expect(() => prepareEditorFileLaunch(target, filePath, 0)).toThrow(
+      'Line must be a positive integer',
+    );
+    expect(() => prepareEditorFileLaunch(target, filePath, 1.5)).toThrow(
+      'Line must be a positive integer',
+    );
+  });
+
+  it('prepares workspace argv and cwd from the normalized root', () => {
+    const workspaceRoot = path.resolve('workspace', '..', 'workspace');
+
+    expect(prepareEditorWorkspaceLaunch(workspaceRoot)).toEqual({
+      normalizedRoot: path.normalize(workspaceRoot),
+      args: [path.normalize(workspaceRoot)],
+      cwd: path.normalize(workspaceRoot),
+    });
+  });
+
+  it('resolves after the detected executable starts successfully', async () => {
+    const executablePath = path.resolve('editors/code');
+    const spawnProcess = jest.fn(() => ({
+      whenSpawned: Promise.resolve(123),
+    }));
+
+    await expect(
+      spawnEditorProcess(
+        { spawnProcess } as never,
+        { id: 'vscode', displayName: 'VS Code', executablePath },
+        ['-g', '/workspace/file.ts'],
+        '/workspace',
+      ),
+    ).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith({
+      command: executablePath,
+      args: ['-g', '/workspace/file.ts'],
+      cwd: '/workspace',
+      env: process.env,
+      detached: process.platform !== 'win32',
+      needsConsole: false,
     });
   });
 

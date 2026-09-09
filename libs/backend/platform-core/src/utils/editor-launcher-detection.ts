@@ -11,21 +11,11 @@ export interface EditorExecutableCandidate {
   readonly path: string;
 }
 
-export interface EditorApplicationMarkerCandidate {
-  readonly kind: 'application-marker';
-  readonly path: string;
-  readonly deepLinkScheme: 'vscode' | 'cursor';
-}
-
-export type EditorInstallCandidate =
-  | EditorExecutableCandidate
-  | EditorApplicationMarkerCandidate;
-
 export interface EditorDetectionDefinition {
   readonly id: EditorTargetId;
   readonly displayName: string;
   readonly command: string;
-  readonly installCandidates: readonly EditorInstallCandidate[];
+  readonly installCandidates: readonly EditorExecutableCandidate[];
 }
 
 export interface EditorDescriptor {
@@ -131,7 +121,6 @@ export function createExecutableEditorDefinitions(
 }
 
 async function isCandidateAvailable(
-  candidate: EditorInstallCandidate,
   candidatePath: string,
   platform: NodeJS.Platform,
   env: Readonly<Record<string, string | undefined>>,
@@ -139,7 +128,6 @@ async function isCandidateAvailable(
 ): Promise<boolean> {
   try {
     const candidateStat = await statCandidate(candidatePath);
-    if (candidate.kind === 'application-marker') return true;
     if (!candidateStat.isFile()) return false;
     if (platform === 'win32') {
       const extension = path.win32.extname(candidatePath).toUpperCase();
@@ -180,15 +168,7 @@ async function findOnPath(
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     for (const extension of extensions) {
       const candidate = pathApi.resolve(directory, `${command}${extension}`);
-      if (
-        await isCandidateAvailable(
-          { kind: 'executable', path: candidate },
-          candidate,
-          platform,
-          env,
-          statCandidate,
-        )
-      )
+      if (await isCandidateAvailable(candidate, platform, env, statCandidate))
         return candidate;
     }
   }
@@ -229,7 +209,6 @@ export async function detectEditorTargets(
       const normalizedPath = pathApi.resolve(candidate.path);
       if (
         !(await isCandidateAvailable(
-          candidate,
           normalizedPath,
           platform,
           env,
@@ -240,9 +219,7 @@ export async function detectEditorTargets(
       targets.push({
         id: definition.id,
         displayName: definition.displayName,
-        ...(candidate.kind === 'application-marker'
-          ? { deepLinkScheme: candidate.deepLinkScheme }
-          : { executablePath: normalizedPath }),
+        executablePath: normalizedPath,
       });
       detected.add(definition.id);
       break;

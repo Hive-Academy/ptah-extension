@@ -107,10 +107,8 @@ export type {
   EditorDetectionDefinition,
   EditorDetectionOptions,
   EditorDescriptor,
-  EditorApplicationMarkerCandidate,
   EditorExecutableCandidate,
   EditorFileLaunch,
-  EditorInstallCandidate,
   EditorWorkspaceLaunch,
 } from './utils/editor-launcher-detection';
 export { PtahFileSettingsManager } from './file-settings-manager';

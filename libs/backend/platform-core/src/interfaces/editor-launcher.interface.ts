@@ -2,14 +2,13 @@
 export type EditorTargetId = 'vscode' | 'cursor' | 'antigravity' | 'zed';
 
 /**
- * A detected editor and the concrete launch route that proved it exists.
- * Exactly one of `executablePath` and `deepLinkScheme` is present.
+ * A detected editor and the concrete executable path that proved it exists.
+ * The host VS Code adapter may also use an in-process target without a path.
  */
 export interface EditorTarget {
   readonly id: EditorTargetId;
   readonly displayName: string;
   readonly executablePath?: string;
-  readonly deepLinkScheme?: 'vscode' | 'cursor';
 }
 
 /** Opens workspace resources in an installed external editor. */
