@@ -296,7 +296,7 @@ export class StreamTransformer {
           for await (const sdkMessage of sdkQuery) {
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
-            activityWatchdog?.kick();
+            activityWatchdog?.observe(sdkMessage);
             sdkMessageCount++;
 
             if (isStreamEvent(sdkMessage)) {
