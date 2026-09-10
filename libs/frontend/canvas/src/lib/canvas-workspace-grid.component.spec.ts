@@ -151,8 +151,9 @@ function createFakeGrid(): FakeGrid {
       engine.nodes.length = 0;
       for (const node of nodes) {
         const complete = { ...node, el: document.createElement('div') };
-        (complete.el as HTMLElement & { gridstackNode?: FakeNode }).gridstackNode =
-          complete;
+        (
+          complete.el as HTMLElement & { gridstackNode?: FakeNode }
+        ).gridstackNode = complete;
         engine.nodes.push(complete);
       }
     },
@@ -324,7 +325,15 @@ describe('CanvasWorkspaceGridComponent', () => {
     });
   };
 
-  const engineGeometry = (): Array<[unknown, number | undefined, number | undefined, number | undefined, number | undefined]> =>
+  const engineGeometry = (): Array<
+    [
+      unknown,
+      number | undefined,
+      number | undefined,
+      number | undefined,
+      number | undefined,
+    ]
+  > =>
     grid.engine.nodes.map((node) => [node.id, node.x, node.y, node.w, node.h]);
 
   describe('grid options', () => {
@@ -412,7 +421,11 @@ describe('CanvasWorkspaceGridComponent', () => {
       });
       grid.emitChange();
       expect(reorderSpy).not.toHaveBeenCalled();
-      expect(store.tiles().map((tile) => tile.tabId)).toEqual(['t1', 't2', 't3']);
+      expect(store.tiles().map((tile) => tile.tabId)).toEqual([
+        't1',
+        't2',
+        't3',
+      ]);
       // Reconcile only nodes that still exist in the engine. The newly adopted
       // t3 is not resurrected through Gridstack from an incomplete observation.
       expect(engineGeometry()).toEqual([
@@ -805,6 +818,80 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.onResize).toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
       expect(weightsSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('singleton session and 1->2->1 keep-alive', () => {
+    it('sets noMove and noResize on singleton items and applies singleton class', () => {
+      mount(['tab-1']);
+      const items = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items();
+      expect(items).toHaveLength(1);
+      expect(items[0].options.noMove).toBe(true);
+      expect(items[0].options.noResize).toBe(true);
+
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
+    });
+
+    it('suppresses gestures on a singleton session', () => {
+      mount(['tab-1']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      // onGestureStart aborts early when isSingleton is true
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+    });
+
+    it('preserves tile identity and creation options across 1 -> 2 -> 1 tile transitions', () => {
+      mount(['tab-1']);
+      const itemsFn = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items;
+      const initialOptions = itemsFn()[0].options;
+      expect(initialOptions.noMove).toBe(true);
+      expect(initialOptions.noResize).toBe(true);
+
+      // 1 -> 2: Add second tile
+      store.adoptTab('tab-2');
+      flush();
+
+      const items2 = itemsFn();
+      expect(items2).toHaveLength(2);
+      expect(items2[0].options).toBe(initialOptions); // Same object reference preserved (keep-alive)
+      expect(items2[0].options.noMove).toBe(false);
+      expect(items2[0].options.noResize).toBe(false);
+      expect(items2[1].options.noMove).toBe(false);
+      expect(items2[1].options.noResize).toBe(false);
+
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
+      expect(gridstackEl.nativeElement.classList).not.toContain('singleton');
+
+      // 2 -> 1: Remove second tile
+      store.removeTileOnly('tab-2');
+      flush();
+
+      const items1Again = itemsFn();
+      expect(items1Again).toHaveLength(1);
+      expect(items1Again[0].options).toBe(initialOptions); // Still same reference
+      expect(items1Again[0].options.noMove).toBe(true);
+      expect(items1Again[0].options.noResize).toBe(true);
+      expect(gridstackEl.nativeElement.classList).toContain('singleton');
     });
   });
 });
