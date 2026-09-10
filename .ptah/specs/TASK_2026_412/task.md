@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Reduce observation notification noise and multi-session overhead
 description: >-
