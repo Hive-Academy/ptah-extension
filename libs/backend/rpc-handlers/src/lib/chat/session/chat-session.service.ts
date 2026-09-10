@@ -719,7 +719,13 @@ export class ChatSessionService {
             'RPC: chat:continue - stop intent detected, interrupting current turn',
             { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
           );
-          await this.sdkAdapter.interruptCurrentTurn(sessionId);
+          const interrupted = await this.sdkAdapter.interruptCurrentTurn(sessionId);
+          if (!interrupted) {
+            return {
+              success: false,
+              error: 'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
+            };
+          }
         }
       }
       const images = params.images ?? [];

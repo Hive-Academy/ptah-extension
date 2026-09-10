@@ -106,7 +106,7 @@ jobs:
       # the SHA because GitHub cache entries are immutable — the prefix
       # restore-key is what actually reuses the previous run's results.
       - name: Cache Nx task results
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .nx/cache
           key: nx-${{ runner.os }}-${{ github.sha }}
@@ -151,7 +151,7 @@ jobs:
       # three coordinators plus up to ~45 workers, under coverage
       # instrumentation, beside the real `node` children cli-engine's auth specs
       # spawn on purpose. That is the oversubscription behind suites running
-      # 114-250 s in CI against seconds locally (TASK_2026_392).
+      # 114-250 s in CI against seconds locally (TASK_2026_404_edeb).
       #
       # Measured on one host, warm: cli-engine coverage 16.9 s → 9.2 s at
       # `--maxWorkers=2`; agent-sdk 17.2 s → 8.1 s at `--maxWorkers=4`, and the
@@ -161,7 +161,7 @@ jobs:
       #
       # `--forceExit` is deliberately NOT used. Jest already force-exits a
       # worker that misses its 500 ms deadline, so the flag would only cut off
-      # the coordinator's own coverage write, and TASK_2026_392 measured no
+      # the coordinator's own coverage write, and TASK_2026_404_edeb measured no
       # leaked handle for it to paper over.
       # Invoked through the local nx binary rather than `npx` for the same
       # reason the degradation-audit step above is (githubactions:S6505, S8543

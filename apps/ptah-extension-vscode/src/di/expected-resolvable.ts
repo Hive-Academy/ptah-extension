@@ -3,6 +3,7 @@ import {
   LlmRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
+  EditorRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
@@ -10,4 +11,5 @@ export const EXPECTED_RESOLVABLE = [
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
+  EditorRpcHandlers,
 ] as const;

@@ -36,12 +36,13 @@ Stop before writing if the plan or handoff leaves two or more materially differe
 
 Otherwise, proceed — a question you can answer by reading code is work, not a blocker.
 
-## Task specs folder (`TASK_YYYY_NNN/`)
+## Task specs folder (`TASK_YYYY_NNN_xxxx/`)
 
 - `task.md` carries frontmatter (`status`, `type`, `title`) and a pointer. Folder name is the canonical ID.
 - To change status, `Edit` only the `status:` line. Never `Write` the whole file — Ptah co-writes it.
 - `description` and any `title` with a colon MUST use `>-` block scalar syntax, else the file becomes unparseable and the task vanishes.
 - `context.md` holds narrative and intent. `batches.md` holds the implementation breakdown — different file from `task.md`.
+- Allocate a new id by scanning `.ptah/specs` on `origin/main` (run `git fetch`, then `git ls-tree`), every path from `git worktree list`, and the local folder. Take the highest `NNN` for the current year, add one, zero-pad to at least three digits, and append an underscore plus four random lowercase hex characters (`TASK_YYYY_NNN_xxxx`). Claim the folder with an exclusive, fail-if-exists `mkdir`; it is the lock. Never read the id from `registry.md` — it is generated and can be stale. Never rename an existing folder.
 
 ## Code discipline
 

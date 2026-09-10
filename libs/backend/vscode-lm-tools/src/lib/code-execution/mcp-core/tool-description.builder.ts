@@ -42,7 +42,7 @@ export function buildTaskCreateTool(): MCPToolDefinition {
   return {
     name: 'ptah_task_create',
     description:
-      `Create a task under .ptah/specs/. Allocates the next TASK_YYYY_NNN id, ` +
+      `Create a task under .ptah/specs/. Allocates the next TASK_YYYY_NNN_xxxx id, ` +
       `claims the folder atomically, and writes a valid carrier — use this ` +
       `instead of creating the folder and its metadata by hand, which is how ` +
       `task folders end up invisible to the Tasks board. ${CARRIER_OWNERSHIP_NOTE}`,
@@ -799,7 +799,7 @@ export function buildWorktreeAddTool(): MCPToolDefinition {
         path: {
           type: 'string',
           description:
-            'Custom path for the worktree directory (defaults to ../<branch>)',
+            'Custom path. Omit to use <workspace>/.claude-worktrees/<safe-branch-name>-<hash>. Relative paths must stay inside the workspace; absolute paths may select another location.',
         },
         createBranch: {
           type: 'boolean',

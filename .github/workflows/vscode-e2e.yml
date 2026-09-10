@@ -43,6 +43,7 @@ env:
   # The publish-* workflows stay on 22 deliberately -- they match release targets.
   NODE_VERSION: 24
   NX_TUI: false
+  VSCODE_E2E_VERSION: '1.137.0'
 
 jobs:
   vscode-e2e:
@@ -102,7 +103,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: apps/ptah-extension-vscode-e2e/.vscode-test
-          key: vscode-test-${{ runner.os }}-stable
+          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_E2E_VERSION }}
 
       - name: Set NX SHAs
         uses: nrwl/nx-set-shas@v4

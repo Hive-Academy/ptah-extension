@@ -6,8 +6,8 @@
  * the session host so the frontend can refresh its worktree list.
  *
  * Key behaviors:
- * - Hook NEVER throws (would break SDK)
- * - Always returns { continue: true } for non-blocking
+ * - WorktreeCreate returns a concrete path or throws the underlying failure
+ * - Child worktrees are siblings beneath the repository's main worktree
  * - Uses callback pattern (EventBus is deleted from codebase)
  * - Logging for worktree events (info level)
  *
@@ -16,14 +16,18 @@
  * 2. WorktreeHookHandler receives hook input with worktree details
  * 3. Callback is invoked to notify session host of worktree change
  * 4. Session host sends RPC notification to frontend
- * 5. Hook returns { continue: true } to allow SDK to proceed
+ * 5. Hook returns the created path required by the SDK contract
  *
  */
 
 import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
 import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  resolveWorktreePath,
+  worktreeDirectoryName,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
   HookEvent,
@@ -63,6 +67,29 @@ export type WorktreeRemovedCallback = (data: {
   timestamp: number;
 }) => void;
 
+function resolveSiblingWorktreePath(
+  repositoryRoot: string,
+  branch: string,
+): string {
+  const pathApi = path.posix.isAbsolute(repositoryRoot)
+    ? path.posix
+    : path.win32.isAbsolute(repositoryRoot)
+      ? path.win32
+      : null;
+  if (!pathApi) {
+    throw new Error(
+      `Main repository worktree path must be absolute: ${repositoryRoot}`,
+    );
+  }
+
+  const absoluteTarget = pathApi.join(
+    repositoryRoot,
+    '.claude-worktrees',
+    worktreeDirectoryName(branch),
+  );
+  return resolveWorktreePath(repositoryRoot, branch, absoluteTarget);
+}
+
 /**
  * WorktreeHookHandler Service
  *
@@ -97,13 +124,13 @@ export class WorktreeHookHandler {
    * Create hooks configuration for SDK query options
    *
    * Returns a hooks object that can be merged with existing hooks (like subagent
-   * and compaction hooks). The hook callbacks are wrapped with error handling
-   * to ensure the SDK is never blocked by hook failures.
+   * and compaction hooks). WorktreeCreate owns creation, so failures must reject
+   * instead of masquerading as a successful response without a worktree path.
    *
    * Note: The AbortSignal parameter is part of the SDK hook callback signature
    * but is intentionally not used in worktree hooks. WorktreeCreate/Remove events
-   * are informational and complete instantly - there's no long-running
-   * operation to abort. The signal is preserved for SDK API compliance.
+   * are short operations delegated to GitInfoService. The signal is preserved
+   * for SDK API compliance.
    *
    * @param onWorktreeCreated - Callback to invoke when a worktree is created (optional)
    * @param onWorktreeRemoved - Callback to invoke when a worktree is removed (optional)
@@ -146,12 +173,26 @@ export class WorktreeHookHandler {
                       received: input.hook_event_name,
                     },
                   );
-                  return { continue: true };
+                  throw new Error(
+                    `Unexpected hook input for WorktreeCreate: ${input.hook_event_name}`,
+                  );
                 }
 
-                const worktreePath = path.join(
-                  input.cwd,
-                  '.claude-worktrees',
+                const worktrees = await this.gitInfo.getWorktrees(input.cwd);
+                const repositoryRoot = worktrees.find(
+                  (worktree) => worktree.isMain,
+                )?.path;
+                if (!repositoryRoot) {
+                  throw new Error(
+                    `Unable to resolve the main repository worktree from ${input.cwd}`,
+                  );
+                }
+
+                // Resolve beneath the main worktree, but execute from the parent
+                // session cwd so `git worktree add -b` bases the branch on the
+                // parent's current HEAD, including when the parent is linked.
+                const worktreePath = resolveSiblingWorktreePath(
+                  repositoryRoot,
                   input.name,
                 );
                 const result = await this.gitInfo.addWorktree(input.cwd, {
@@ -162,7 +203,7 @@ export class WorktreeHookHandler {
 
                 if (!result.success || !result.worktreePath) {
                   this.logger.warn(
-                    '[WorktreeHookHandler] Failed to create worktree — subagent will run without isolation',
+                    '[WorktreeHookHandler] Failed to create worktree',
                     {
                       sessionId: input.session_id,
                       name: input.name,
@@ -170,7 +211,10 @@ export class WorktreeHookHandler {
                       error: result.error,
                     },
                   );
-                  return { continue: true };
+                  throw new Error(
+                    result.error ??
+                      `Git did not return a worktree path for ${input.name}`,
+                  );
                 }
 
                 this.logger.info('[WorktreeHookHandler] Worktree created', {
@@ -214,12 +258,14 @@ export class WorktreeHookHandler {
                   continue: true,
                 };
               } catch (error) {
+                const failure =
+                  error instanceof Error ? error : new Error(String(error));
                 this.logger.error(
                   '[WorktreeHookHandler] Error in WorktreeCreate hook',
-                  error instanceof Error ? error : new Error(String(error)),
+                  failure,
                 );
+                throw failure;
               }
-              return { continue: true };
             },
           ],
         },

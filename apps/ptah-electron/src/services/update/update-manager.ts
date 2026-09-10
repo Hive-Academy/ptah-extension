@@ -17,6 +17,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
+import { isLocalProductionBuild } from '../../config/build-identity';
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
@@ -126,6 +127,10 @@ export class UpdateManager implements IAppUpdater {
    * `PTAH_E2E_ALLOW_UPDATE_CHECK: '1'` through `launchPtah`'s `opts.env`.
    */
   async start(): Promise<void> {
+    if (isLocalProductionBuild()) {
+      this.logger.info('[UpdateManager] Skipped — local-production build');
+      return;
+    }
     if (process.env['NODE_ENV'] === 'development') {
       this.logger.info('[UpdateManager] Skipped — development mode');
       return;
@@ -156,6 +161,12 @@ export class UpdateManager implements IAppUpdater {
 
   /** On-demand check (called by the update:check-now RPC handler). */
   async triggerCheck(): Promise<void> {
+    if (isLocalProductionBuild()) {
+      this.logger.info(
+        '[UpdateManager] Manual check skipped — local-production build',
+      );
+      return;
+    }
     await this.checkViaGitHub();
   }
 

@@ -52,6 +52,7 @@ export {
   TasksRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
+  EditorRpcHandlers,
 } from './lib/handlers';
 export type {
   DbHealthResult,

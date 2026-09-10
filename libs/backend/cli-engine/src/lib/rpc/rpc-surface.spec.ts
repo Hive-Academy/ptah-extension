@@ -82,6 +82,21 @@ describe('CLI RPC surface', () => {
       expect(surface.excluded.some((m) => m.startsWith(ns))).toBe(false);
     }
   });
+
+  it('serves external-editor launch without enabling the host file opener', () => {
+    const profile = createCliRpcHostProfile('cli');
+
+    expect(profile.capabilities.editorLauncher).toBe(true);
+    expect(profile.capabilities.fileOpen).toBe(false);
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'editor:detectTargets',
+        'editor:openFile',
+        'editor:openWorkspace',
+      ]),
+    );
+    expect(surface.excluded).toContain('file:open');
+  });
 });
 
 describe('CLI / TUI host parity', () => {

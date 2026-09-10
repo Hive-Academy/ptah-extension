@@ -10,6 +10,9 @@ import type { GitWorktreeInfo } from '../types/rpc/rpc-git.types';
 /**
  * Parse `git worktree list --porcelain` output into GitWorktreeInfo[].
  *
+ * NUL-delimited (`-z`) output is preferred because Git emits paths verbatim in
+ * that mode. The line-delimited form remains supported for existing callers.
+ *
  * Format (blocks separated by blank lines):
  *   worktree <path>
  *   HEAD <sha>
@@ -22,12 +25,16 @@ import type { GitWorktreeInfo } from '../types/rpc/rpc-git.types';
  */
 export function parseWorktreeList(output: string): GitWorktreeInfo[] {
   const worktrees: GitWorktreeInfo[] = [];
-  const blocks = output.replace(/\r\n/g, '\n').trim().split('\n\n');
+  const nulDelimited = output.includes('\0');
+  const normalizedOutput = nulDelimited
+    ? output
+    : output.replace(/\r\n/g, '\n');
+  const blocks = normalizedOutput.split(nulDelimited ? '\0\0' : '\n\n');
 
   for (const block of blocks) {
-    if (!block.trim()) continue;
+    if (!block) continue;
 
-    const lines = block.trim().split('\n');
+    const lines = block.split(nulDelimited ? '\0' : '\n');
     let wtPath = '';
     let head = '';
     let branch = '';
@@ -43,9 +50,9 @@ export function parseWorktreeList(output: string): GitWorktreeInfo[] {
         branch = ref.startsWith('refs/heads/')
           ? ref.substring('refs/heads/'.length)
           : ref;
-      } else if (line.trim() === 'bare') {
+      } else if (line === 'bare') {
         isBare = true;
-      } else if (line.trim() === 'detached') {
+      } else if (line === 'detached') {
         branch = 'HEAD (detached)';
       }
     }

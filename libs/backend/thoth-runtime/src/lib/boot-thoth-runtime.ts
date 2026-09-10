@@ -16,7 +16,6 @@ import {
   type IndexingRunDeps,
   type MemoryCuratorService,
   type MemoryTriggerService,
-  type ObservationQueueStore,
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
@@ -41,6 +40,58 @@ import {
   type BootThothRuntimeOptions,
   type ThothRuntimeRefs,
 } from './types';
+
+interface PushBridgeDisposable {
+  dispose: () => void;
+}
+
+interface ActivePushBridge {
+  readonly owner: object;
+  readonly subscription: PushBridgeDisposable;
+}
+
+/**
+ * One live push bridge per singleton event source.
+ *
+ * Electron boots the shared Thoth container once for each newly-opened
+ * workspace. Re-subscribing to a singleton store on every boot multiplied
+ * broadcasts, while the earlier subscription was no longer reachable through
+ * the host's latest refs. Replacing by source makes repeated boots idempotent;
+ * the owner token keeps disposal of stale refs from tearing down the newest
+ * bridge.
+ */
+const activePushBridges = new WeakMap<object, ActivePushBridge>();
+
+function replacePushBridge(
+  source: object,
+  subscribe: () => PushBridgeDisposable,
+): PushBridgeDisposable {
+  const previous = activePushBridges.get(source);
+  const candidate = subscribe();
+  const subscription =
+    candidate && typeof candidate.dispose === 'function'
+      ? candidate
+      : { dispose: () => undefined };
+  const owner = {};
+  activePushBridges.set(source, { owner, subscription });
+  try {
+    previous?.subscription.dispose();
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Thoth] Previous push bridge disposal failed during replacement:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  return {
+    dispose: () => {
+      const active = activePushBridges.get(source);
+      if (active?.owner !== owner) return;
+      activePushBridges.delete(source);
+      subscription.dispose();
+    },
+  };
+}
 
 /**
  * Boot the Thoth channel: SQLite, memory curator + trigger, memory/status
@@ -83,6 +134,7 @@ export async function bootThothRuntime(
   const { workspaceRoot, signal } = options;
   const logPrefix = options.logPrefix ?? DEFAULT_THOTH_LOG_PREFIX;
   const refs = emptyThothRuntimeRefs();
+  const pushBridgeDisposables: PushBridgeDisposable[] = [];
 
   /**
    * Read the signal through a call, never inline.
@@ -244,50 +296,50 @@ export async function bootThothRuntime(
   }
   try {
     if (refs.memoryCurator !== null) {
+      const memoryCurator = refs.memoryCurator;
       const webviewManager = container.resolve<WebviewManager>(
         TOKENS.WEBVIEW_MANAGER,
       );
-      refs.memoryCurator.onEvent((ev) => {
-        if (
-          ev.kind === 'curator-run' &&
-          ev.stats &&
-          typeof ev.stats['created'] === 'number' &&
-          (ev.stats['created'] as number) > 0
-        ) {
-          const extracted = Number(ev.stats['extracted'] ?? 0);
-          const created = Number(ev.stats['created'] ?? 0);
-          const merged = Number(ev.stats['merged'] ?? 0);
-          void webviewManager.broadcastMessage(MESSAGE_TYPES.MEMORY_EXTRACTED, {
-            sessionId: ev.sessionId,
-            workspaceRoot: null,
-            extracted,
-            created,
-            merged,
-            timestamp: ev.timestamp,
-          });
-        }
-      });
-      if (container.isRegistered(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)) {
-        const queueStore = container.resolve<ObservationQueueStore>(
-          MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
-        );
-        queueStore.onCapture((evt) => {
-          void webviewManager.broadcastMessage(
-            MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED,
-            evt,
-          );
-        });
-      }
+      pushBridgeDisposables.push(
+        replacePushBridge(memoryCurator, () =>
+          memoryCurator.onEvent((ev) => {
+            const created = Number(ev.stats?.['created'] ?? 0);
+            const merged = Number(ev.stats?.['merged'] ?? 0);
+            if (
+              ev.kind === 'curator-run' &&
+              ev.stats &&
+              (created > 0 || merged > 0)
+            ) {
+              const extracted = Number(ev.stats['extracted'] ?? 0);
+              void webviewManager.broadcastMessage(
+                MESSAGE_TYPES.MEMORY_EXTRACTED,
+                {
+                  sessionId: ev.sessionId,
+                  workspaceRoot: ev.workspaceRoot ?? null,
+                  extracted,
+                  created,
+                  merged,
+                  timestamp: ev.timestamp,
+                },
+              );
+            }
+          }),
+        ),
+      );
       if (container.isRegistered(MEMORY_TOKENS.CORPUS_STORE)) {
         const corpusStore = container.resolve<CorpusStore>(
           MEMORY_TOKENS.CORPUS_STORE,
         );
-        corpusStore.onChange((evt) => {
-          void webviewManager.broadcastMessage(
-            MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
-            evt,
-          );
-        });
+        pushBridgeDisposables.push(
+          replacePushBridge(corpusStore, () =>
+            corpusStore.onChange((evt) => {
+              void webviewManager.broadcastMessage(
+                MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
+                evt,
+              );
+            }),
+          ),
+        );
       }
       console.log(`${logPrefix} Memory push-event bridges wired`);
     }
@@ -298,7 +350,6 @@ export async function bootThothRuntime(
     );
   }
   try {
-    const bridgeDisposables: { dispose: () => void }[] = [];
     const webviewManager = container.resolve<WebviewManager>(
       TOKENS.WEBVIEW_MANAGER,
     );
@@ -306,35 +357,40 @@ export async function bootThothRuntime(
       const vecStatus = container.resolve<VecStatusService>(
         PERSISTENCE_TOKENS.VEC_STATUS,
       );
-      bridgeDisposables.push(
-        vecStatus.on('change', (snapshot) => {
-          void webviewManager.broadcastMessage(
-            MESSAGE_TYPES.VEC_STATUS_CHANGED,
-            {
-              ok: snapshot.available,
-              diagnostic: serializeVecDiagnosticForBridge(snapshot.diagnostic),
-            },
-          );
-        }),
+      pushBridgeDisposables.push(
+        replacePushBridge(vecStatus, () =>
+          vecStatus.on('change', (snapshot) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.VEC_STATUS_CHANGED,
+              {
+                ok: snapshot.available,
+                diagnostic: serializeVecDiagnosticForBridge(
+                  snapshot.diagnostic,
+                ),
+              },
+            );
+          }),
+        ),
       );
     }
     if (container.isRegistered(MEMORY_TOKENS.EMBEDDER_STATUS)) {
       const embedderStatus = container.resolve<EmbedderStatusService>(
         MEMORY_TOKENS.EMBEDDER_STATUS,
       );
-      bridgeDisposables.push(
-        embedderStatus.on('change', (snapshot) => {
-          void webviewManager.broadcastMessage(
-            MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED,
-            { status: serializeEmbedderSnapshotForBridge(snapshot) },
-          );
-        }),
+      pushBridgeDisposables.push(
+        replacePushBridge(embedderStatus, () =>
+          embedderStatus.on('change', (snapshot) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED,
+              { status: serializeEmbedderSnapshotForBridge(snapshot) },
+            );
+          }),
+        ),
       );
     }
-    refs.statusBridgeDisposables = bridgeDisposables;
-    if (bridgeDisposables.length > 0) {
+    if (pushBridgeDisposables.length > 0) {
       console.log(
-        `${logPrefix} Vec/embedder status bridges wired (${bridgeDisposables.length} subscriber(s))`,
+        `${logPrefix} Thoth push bridges wired (${pushBridgeDisposables.length} subscriber(s))`,
       );
     }
   } catch (error) {
@@ -342,6 +398,9 @@ export async function bootThothRuntime(
       `${logPrefix} Vec/embedder status bridge wiring skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),
     );
+  }
+  if (pushBridgeDisposables.length > 0) {
+    refs.statusBridgeDisposables = pushBridgeDisposables;
   }
   /**
    * The skill trigger, which may only start once skill synthesis has. Kept as

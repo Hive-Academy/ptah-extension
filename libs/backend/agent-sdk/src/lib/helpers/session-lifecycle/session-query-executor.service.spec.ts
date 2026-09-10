@@ -25,15 +25,20 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   AISessionConfig,
+  SessionId,
   AuthEnv,
   ISdkPermissionHandler,
   PermissionLevel,
 } from '@ptah-extension/shared';
 
+import { SessionControl } from './session-control.service';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
+import type { IModelResolver } from '../../auth-env.port';
+import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 import { SessionQueryExecutor } from './session-query-executor.service';
 import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
-import type { SessionStreamPump } from './session-stream-pump.service';
+import { SessionStreamPump } from './session-stream-pump.service';
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from '../sdk-query-options-builder';
 import type { SdkMessageFactory } from '../sdk-message-factory';
@@ -94,14 +99,11 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
 
-  const streamPump = {
-    createUserMessageStream: jest
-      .fn()
-      .mockReturnValue(emptyAsyncIterable<SDKUserMessage>()),
-    createIdlePromptStream: jest
-      .fn()
-      .mockReturnValue(emptyAsyncIterable<SDKUserMessage>()),
-  } as unknown as SessionStreamPump;
+  const streamPump = new SessionStreamPump(
+    logger,
+    registry,
+    {} as SdkMessageFactory,
+  );
 
   const getPermissionLevelSpy = jest
     .fn()
@@ -136,7 +138,12 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
   } as unknown as SdkQueryOptionsBuilder;
 
   const messageFactory = {
-    createUserMessage: jest.fn(),
+    createUserMessage: jest.fn().mockResolvedValue({
+      type: 'user',
+      session_id: 's',
+      message: { role: 'user', content: 'hello' },
+      parent_tool_use_id: null,
+    }),
   } as unknown as SdkMessageFactory;
 
   const authEnv = {} as AuthEnv;
@@ -357,7 +364,7 @@ describe('SessionQueryExecutor — idle watchdog hold (TASK_2026_363)', () => {
 
     const rec = registry.find('tab-idle');
     expect(rec?.activityHold).toBe(result.activityWatchdog);
-    expect(result.activityWatchdog.isHeld).toBe(true);
+    expect(result.activityWatchdog.isHeld).toBe(false);
 
     // Turn cycle: the pump releases on yield, the result branch re-holds.
     startFirstTurn(registry, 'tab-idle');
@@ -389,4 +396,112 @@ describe('SessionQueryExecutor — idle watchdog hold (TASK_2026_363)', () => {
     );
     expect(result.activityWatchdog.isHeld).toBe(false);
   });
+});
+
+describe('real watchdog query ownership regressions', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('bounds initial startup even when SDK never consumes input', async () => {
+    const { executor } = makeHarness('ask');
+    const result = await executor.executeQuery(
+      makeConfig('startup', { initialPrompt: { content: 'hello' } }),
+    );
+    result.activityWatchdog.start();
+    jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS);
+    expect(result.abortController.signal.aborted).toBe(true);
+  });
+
+  it('real pump starts a turn, result protects idle, and pending approval protects long wait', async () => {
+    const { executor, registry } = makeHarness('ask');
+    const result = await executor.executeQuery(
+      makeConfig('pump', { initialPrompt: { content: 'hello' } }),
+    );
+    const pump = new SessionStreamPump(
+      makeLogger(),
+      registry,
+      {} as SdkMessageFactory,
+    );
+    result.activityWatchdog.start();
+    const stream = pump.createUserMessageStream(
+      'pump' as SessionId,
+      result.abortController,
+    );
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    expect(registry.find('pump')?.turnInFlight).toBe(true);
+    result.activityWatchdog.hold();
+    jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS * 5);
+    expect(result.abortController.signal.aborted).toBe(false);
+    result.activityWatchdog.release();
+    registry.markTurnEnded('pump');
+    jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS * 5);
+    expect(result.abortController.signal.aborted).toBe(false);
+    result.abortController.abort();
+    await iterator.return?.();
+  });
+
+  it.each(['reject', 'timeout'])(
+    'retires %s interrupt query; delayed A hooks cannot protect replacement B',
+    async (mode) => {
+      const { executor, registry, sdkQuery } = makeHarness('ask');
+      const a = await executor.executeQuery(
+        makeConfig('same', { initialPrompt: { content: 'A' } }),
+      );
+      a.activityWatchdog.start();
+      const oldHook =
+        a.activityWatchdog.lifecycleHooks().PreToolUse![0].hooks[0];
+      const input = {
+        hook_event_name: 'PreToolUse' as const,
+        session_id: 'same',
+        cwd: '/ws',
+        transcript_path: '/ws/a',
+        tool_name: 'Agent',
+        tool_use_id: 'old',
+        tool_input: {},
+      };
+      const opts = { signal: new AbortController().signal };
+      sdkQuery.interrupt =
+        mode === 'reject'
+          ? jest.fn().mockRejectedValue(new Error('transport failed'))
+          : jest.fn().mockReturnValue(new Promise(() => undefined));
+      const cleanup = jest.fn(() => {
+        if (mode === 'reject') throw new Error('cleanup failed');
+      });
+      const children = {
+        beginSessionTeardown: jest.fn(),
+        markAllInterrupted: jest.fn(),
+        endSessionTeardown: jest.fn(),
+      };
+      const control = new SessionControl(
+        makeLogger(),
+        registry,
+        {
+          cleanupPendingPermissions: cleanup,
+        } as unknown as ISdkPermissionHandler,
+        children as unknown as SubagentRegistryService,
+        {} as IModelResolver,
+        {} as SessionEndCallbackRegistry,
+      );
+      const interruption = control.interruptCurrentTurn('same' as SessionId);
+      if (mode === 'timeout') await jest.advanceTimersByTimeAsync(3000);
+      expect(await interruption).toBe(false);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(children.markAllInterrupted).toHaveBeenCalledTimes(1);
+      expect(children.endSessionTeardown).toHaveBeenCalledTimes(1);
+      expect(a.abortController.signal.aborted).toBe(true);
+      expect(registry.find('same')).toBeUndefined();
+      await oldHook(input, 'old', opts);
+      const b = await executor.executeQuery(
+        makeConfig('same', { initialPrompt: { content: 'B' } }),
+      );
+      b.activityWatchdog.start();
+      await oldHook(input, 'old', opts);
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS);
+      expect(b.abortController.signal.aborted).toBe(true);
+    },
+  );
 });

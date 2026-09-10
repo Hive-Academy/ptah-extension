@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: 'The follow-up box hides on continuation support when resume would serve'
 description: >-
@@ -28,15 +28,15 @@ capabilities and the box conflates them.
 
 ## Capability by adapter
 
-| CLI | `supportsContinuation` | source | resume mechanism |
-| --- | ---------------------- | ------ | ---------------- |
-| codex | `() => true` | `codex-cli.adapter.ts:737` | `codex.resumeThread` |
-| cursor | `() => true` | `cursor-cli.adapter.ts:386` | `sdk.Agent.resume` |
-| ptah-cli | `() => true` | `ptah-cli-registry.ts:821` | SDK `resume` option |
-| copilot | `() => capturedSessionId != null` | `copilot-sdk.adapter.ts:453` | `--resume=<id>` |
-| pi | `() => capturedSessionId != null` | `pi-cli.adapter.ts:505` | `--session <id>` |
-| **antigravity** | **never declared** | — | `--conversation <id>` (`antigravity-cli.adapter.ts:462`) |
-| **opencode** | **never declared** | — | `--session <id>` (`opencode-cli.adapter.ts:411`) |
+| CLI             | `supportsContinuation`            | source                       | resume mechanism                                         |
+| --------------- | --------------------------------- | ---------------------------- | -------------------------------------------------------- |
+| codex           | `() => true`                      | `codex-cli.adapter.ts:737`   | `codex.resumeThread`                                     |
+| cursor          | `() => true`                      | `cursor-cli.adapter.ts:386`  | `sdk.Agent.resume`                                       |
+| ptah-cli        | `() => true`                      | `ptah-cli-registry.ts:821`   | SDK `resume` option                                      |
+| copilot         | `() => capturedSessionId != null` | `copilot-sdk.adapter.ts:453` | `--resume=<id>`                                          |
+| pi              | `() => capturedSessionId != null` | `pi-cli.adapter.ts:505`      | `--session <id>`                                         |
+| **antigravity** | **never declared**                | —                            | `--conversation <id>` (`antigravity-cli.adapter.ts:462`) |
+| **opencode**    | **never declared**                | —                            | `--session <id>` (`opencode-cli.adapter.ts:411`)         |
 
 Every adapter accepts a resume id. Two of them can never show a follow-up box.
 Two more hide it whenever their session id was not captured.

@@ -41,12 +41,12 @@ import type { NoActivityWatchdog } from './no-activity-watchdog';
 
 interface FakeWatchdog {
   start: jest.Mock;
-  kick: jest.Mock;
+  observe: jest.Mock;
   stop: jest.Mock;
 }
 
 function makeFakeWatchdog(): FakeWatchdog {
-  return { start: jest.fn(), kick: jest.fn(), stop: jest.fn() };
+  return { start: jest.fn(), observe: jest.fn(), stop: jest.fn() };
 }
 
 // ---------------------------------------------------------------------------
@@ -631,11 +631,11 @@ describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', ()
     await drain(iter);
 
     expect(watchdog.start).toHaveBeenCalledTimes(1);
-    expect(watchdog.kick).toHaveBeenCalledTimes(messages.length);
+    expect(watchdog.observe).toHaveBeenCalledTimes(messages.length);
     expect(watchdog.stop).toHaveBeenCalledTimes(1);
     // start() must precede the first kick (armed before the first event).
     expect(watchdog.start.mock.invocationCallOrder[0]).toBeLessThan(
-      watchdog.kick.mock.invocationCallOrder[0],
+      watchdog.observe.mock.invocationCallOrder[0],
     );
   });
 
@@ -662,7 +662,7 @@ describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', ()
     await expect(drain(iter)).rejects.toBe(boom);
 
     expect(watchdog.start).toHaveBeenCalledTimes(1);
-    expect(watchdog.kick).toHaveBeenCalledTimes(1); // the one yielded message
+    expect(watchdog.observe).toHaveBeenCalledTimes(1); // the one yielded message
     expect(watchdog.stop).toHaveBeenCalledTimes(1); // finally cleanup on throw
   });
 

@@ -36,6 +36,7 @@
  */
 
 import 'reflect-metadata';
+import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // Mock cross-spawn so we control stdout/stderr/exitCode per test.
@@ -116,6 +117,80 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // getBranches
   // ==========================================================================
 
+  describe('worktree paths', () => {
+    it('requests NUL-delimited porcelain and preserves the returned path', async () => {
+      const repositoryPath = '/home/zoë/projects/研究\nrepository ';
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout: [
+            `worktree ${repositoryPath}`,
+            'HEAD abcdef1234567890',
+            'branch refs/heads/main',
+            '',
+            '',
+          ].join('\0'),
+          exitCode: 0,
+        }),
+      );
+
+      const [worktree] = await service.getWorktrees(WS);
+
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'worktree',
+        'list',
+        '--porcelain',
+        '-z',
+      ]);
+      expect(worktree.path).toBe(repositoryPath);
+      expect(worktree.isMain).toBe(true);
+    });
+
+    it('uses the shared nested default for UI/backend creation', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+      const branch = 'feature/ui-default';
+
+      const result = await service.addWorktree(WS, { branch });
+
+      expect(result.success).toBe(true);
+      expect(result.worktreePath).toContain(
+        `${path.sep}.claude-worktrees${path.sep}`,
+      );
+      expect((mockSpawn.mock.calls[0][1] as string[]).at(-1)).toBe(branch);
+    });
+
+    it('rejects an escaping relative custom path before spawning git', async () => {
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: '../workspace-evil',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Relative worktree path must stay/);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('retains an explicit absolute custom path', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
+      const explicit = path.resolve('/worktrees/ui-explicit');
+
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: explicit,
+      });
+
+      expect(result).toEqual({ success: true, worktreePath: explicit });
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'worktree',
+        'add',
+        explicit,
+        'feature/x',
+      ]);
+    });
+  });
   describe('getBranches()', () => {
     /**
      * One `for-each-ref` line, in the field order of
@@ -373,13 +448,13 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   describe('isMutatingGitCommand()', () => {
     it.each([
       // Every read this service actually performs.
-      [['status', '--porcelain=v2', '--branch']],
+      [['status', '--porcelain=v2', '--branch', '--untracked-files=all']],
       [['status', '--porcelain', '--', 'a.ts']],
       [['for-each-ref', '--format=x', 'refs/heads/']],
       [['symbolic-ref', '--short', 'HEAD']],
       [['stash', 'list', '--format=x']],
       [['stash', 'show']],
-      [['worktree', 'list', '--porcelain']],
+      [['worktree', 'list', '--porcelain', '-z']],
       [['tag', '--sort=-creatordate', '--format=x']],
       [['remote', '-v']],
       [['remote']],
@@ -1183,10 +1258,9 @@ describe('GitInfoService.diffFile()', () => {
     expect(reader.readFileBytes).not.toHaveBeenCalled();
   });
 
-  // An untracked *directory* row is clickable in Source Control, so this
-  // request really does reach the service. Its worktree side reads the
-  // directory itself: node answers `EISDIR`, the VS Code file-system port
-  // answers `FileIsADirectory`, and both used to land on `unknown`.
+  // The UI no longer routes folders here, but retain the boundary guard for
+  // stale clients and direct RPC callers. Node answers `EISDIR`, while the VS
+  // Code file-system port answers `FileIsADirectory`.
   it.each([['EISDIR'], ['FileIsADirectory']])(
     'classifies a directory read (%s) as error/is-a-directory',
     async (errnoCode) => {
@@ -1325,6 +1399,41 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
     const info = await service.getGitInfo(WS);
 
     expect(info.files[0].origPath).toBeUndefined();
+  });
+
+  it('requests and parses every untracked file instead of collapsed directories', async () => {
+    const status = [
+      '# branch.head main',
+      '? .github/workflows/ci.yml',
+      '? libs/new-lib/src/index.ts',
+      '',
+    ].join('\n');
+
+    queueSpawn([
+      { stdout: 'true\n', exitCode: 0 },
+      { stdout: status, exitCode: 0 },
+    ]);
+
+    const info = await service.getGitInfo(WS);
+
+    expect(mockSpawn.mock.calls[1][1]).toEqual([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all',
+    ]);
+    expect(info.files).toEqual([
+      {
+        path: '.github/workflows/ci.yml',
+        status: '??',
+        staged: false,
+      },
+      {
+        path: 'libs/new-lib/src/index.ts',
+        status: '??',
+        staged: false,
+      },
+    ]);
   });
 });
 

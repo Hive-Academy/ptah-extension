@@ -6,8 +6,8 @@
  *                plus GitInfoService.
  *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
  *                host service they depend on (UpdateManager behind
- *                PLATFORM_TOKENS.APP_UPDATER). `EditorRpcHandlers`, the last
- *                app-local handler class (TASK_2026_173), was deleted in
+ *                PLATFORM_TOKENS.APP_UPDATER). The former app-local editor
+ *                handler (TASK_2026_173) was deleted in
  *                TASK_2026_385 Batch 4.2 — its file explorer/Monaco methods
  *                had no caller left once `libs/frontend/editor` was deleted.
  */
@@ -57,6 +57,7 @@ import {
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
   ElectronFileOpenRpcHandlers,
+  EditorRpcHandlers,
   UpdateRpcHandlers,
   registerHarnessServices,
   registerChatServices,
@@ -127,6 +128,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(FilePickerRpcHandlers);
   container.registerSingleton(ImagePickerRpcHandlers);
   container.registerSingleton(ElectronFileOpenRpcHandlers);
+  container.registerSingleton(EditorRpcHandlers);
 
   logger.info('[Electron DI] Shared RPC handler classes registered', {
     handlers: [
@@ -167,6 +169,7 @@ export function registerPhase4Handlers(
       'FilePickerRpcHandlers',
       'ImagePickerRpcHandlers',
       'ElectronFileOpenRpcHandlers',
+      'EditorRpcHandlers',
     ],
   });
   container.registerSingleton(CommandRpcHandlers);
@@ -184,8 +187,8 @@ export function registerPhase4Handlers(
   logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
     // These live in @ptah-extension/rpc-handlers and are registered here
     // because their capabilities are Electron-only, not because they are
-    // Electron code. EditorRpcHandlers, the last app-local handler class
-    // (TASK_2026_173), was deleted in TASK_2026_385 Batch 4.2.
+    // Electron code. The former app-local editor handler was deleted in
+    // TASK_2026_385; the launcher-only EditorRpcHandlers above is lib-owned.
     handlers: [
       'CommandRpcHandlers',
       'AgentRpcHandlers',

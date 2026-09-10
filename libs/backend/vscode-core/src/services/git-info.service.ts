@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import { resolveWorktreePath } from '../utils/worktree-path';
 import { createHash } from 'crypto';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
@@ -363,7 +364,7 @@ export class GitInfoService {
 
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['status', '--porcelain=v2', '--branch'],
+        ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
         workspacePath,
       );
 
@@ -407,7 +408,7 @@ export class GitInfoService {
   async getWorktrees(workspacePath: string): Promise<GitWorktreeInfo[]> {
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['worktree', 'list', '--porcelain'],
+        ['worktree', 'list', '--porcelain', '-z'],
         workspacePath,
         { timeoutMs: WORKTREE_GIT_TIMEOUT_MS },
       );
@@ -431,8 +432,11 @@ export class GitInfoService {
     params: { branch: string; path?: string; createBranch?: boolean },
   ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
     try {
-      const worktreePath =
-        params.path || path.join(path.dirname(workspacePath), params.branch);
+      const worktreePath = resolveWorktreePath(
+        workspacePath,
+        params.branch,
+        params.path,
+      );
 
       const args = ['worktree', 'add'];
       if (params.createBranch) {

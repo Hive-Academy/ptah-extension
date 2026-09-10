@@ -24,6 +24,7 @@ export interface MemoryCuratorEvent {
   readonly kind: MemoryCuratorEventKind;
   readonly timestamp: number;
   readonly sessionId?: string;
+  readonly workspaceRoot?: string | null;
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
   readonly phase?: EmbedderDownloadPhase;

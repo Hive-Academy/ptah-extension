@@ -128,6 +128,6 @@ export class WorkspaceSidebarComponent {
 
   onRemoveFolder(event: Event, index: number): void {
     event.stopPropagation();
-    this.layout.removeFolder(index);
+    void this.layout.removeFolder(index);
   }
 }

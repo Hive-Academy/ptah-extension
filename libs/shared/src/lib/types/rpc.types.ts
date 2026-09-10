@@ -502,6 +502,13 @@ import type {
   PluginSkillEntry,
 } from './rpc/rpc-misc.types';
 import type {
+  EditorDetectTargetsParams,
+  EditorDetectTargetsResult,
+  EditorOpenFileParams,
+  EditorOpenWorkspaceParams,
+  EditorOpenResult,
+} from './rpc/rpc-editor.types';
+import type {
   DbHealthResult,
   DbResetResult,
   DbReloadVecResult,
@@ -676,6 +683,18 @@ export interface RpcMethodRegistry {
     result: AutocompleteCommandsResult;
   };
   'file:open': { params: FileOpenParams; result: FileOpenResult };
+  'editor:detectTargets': {
+    params: EditorDetectTargetsParams;
+    result: EditorDetectTargetsResult;
+  };
+  'editor:openFile': {
+    params: EditorOpenFileParams;
+    result: EditorOpenResult;
+  };
+  'editor:openWorkspace': {
+    params: EditorOpenWorkspaceParams;
+    result: EditorOpenResult;
+  };
   'file:pick': {
     params: { multiple?: boolean };
     result: { files: Array<{ path: string; size: number }> };
@@ -3315,6 +3334,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:agents': true,
   'autocomplete:commands': true,
   'file:open': true,
+  'editor:detectTargets': true,
+  'editor:openFile': true,
+  'editor:openWorkspace': true,
   'file:pick': true,
   'file:pick-images': true,
   'config:model-switch': true,

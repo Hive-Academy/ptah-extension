@@ -801,6 +801,8 @@ export class DiffViewComponent implements OnDestroy {
 
   /** D3: side-by-side (true) vs inline (false). Persisted per user. */
   protected readonly renderSideBySide = signal(true);
+  /** Prevent a late settings:get response from undoing a newer click. */
+  private layoutPreferenceChangedByUser = false;
 
   /** True once the Monaco diff editor exists; gates decoration rendering. */
   private readonly editorReady = signal(false);
@@ -1191,6 +1193,10 @@ export class DiffViewComponent implements OnDestroy {
         // built as decorations instead, so no accidental edit is possible.
         readOnly: true,
         renderSideBySide: this.renderSideBySide(),
+        // The dock is narrow enough that Monaco's default responsive fallback
+        // silently overrides renderSideBySide. The toolbar is an explicit user
+        // choice, so do not substitute inline mode behind it.
+        useInlineViewWhenSpaceIsLimited: false,
         scrollBeyondLastLine: false,
         renderIndicators: true,
         renderMarginRevertIcon: false,
@@ -1420,6 +1426,7 @@ export class DiffViewComponent implements OnDestroy {
 
   protected toggleRenderSideBySide(): void {
     const next = !this.renderSideBySide();
+    this.layoutPreferenceChangedByUser = true;
     this.renderSideBySide.set(next);
     void this.persistLayoutPreference(next);
   }
@@ -1429,7 +1436,10 @@ export class DiffViewComponent implements OnDestroy {
     const editor = this.editor;
     if (!editor) return;
     const state = editor.saveViewState();
-    editor.updateOptions({ renderSideBySide: sideBySide });
+    editor.updateOptions({
+      renderSideBySide: sideBySide,
+      useInlineViewWhenSpaceIsLimited: false,
+    });
     if (state) editor.restoreViewState(state);
     this.scheduleLayout();
   }
@@ -1442,7 +1452,11 @@ export class DiffViewComponent implements OnDestroy {
         { key: DIFF_LAYOUT_SETTING_KEY },
       );
       if (this.destroyed) return;
-      if (result.success && typeof result.data?.value === 'boolean') {
+      if (
+        !this.layoutPreferenceChangedByUser &&
+        result.success &&
+        typeof result.data?.value === 'boolean'
+      ) {
         this.renderSideBySide.set(result.data.value);
       }
     } catch {

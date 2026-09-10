@@ -22,7 +22,10 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  isPathWithinRoots,
+} from '@ptah-extension/platform-core';
 import type {
   ICallerWorkspaceResolver,
   IMcpServerStatus,
@@ -2099,28 +2102,22 @@ export class AgentProcessManager {
     if (!dir || dir.trim() === '') {
       throw new Error('Working directory is required but was empty.');
     }
-    let normalizedDir: string;
-    let normalizedRoot: string;
-    if (process.platform === 'win32') {
-      const asciiLower = (s: string): string =>
-        s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
-      normalizedDir = asciiLower(dir.replace(/\\/g, '/'));
-      normalizedRoot = asciiLower(workspaceRoot.replace(/\\/g, '/'));
-    } else {
-      let realDir = dir;
-      let realRoot = workspaceRoot;
-
-      realDir = await fsPromises.realpath(dir);
-
-      realRoot = await fsPromises.realpath(workspaceRoot);
-      normalizedDir = realDir;
-      normalizedRoot = realRoot;
+    let realDirectory: string;
+    let realWorkspaceRoot: string;
+    try {
+      [realDirectory, realWorkspaceRoot] = await Promise.all([
+        fsPromises.realpath(dir),
+        fsPromises.realpath(workspaceRoot),
+      ]);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Cannot resolve working directory scope: ${message}`);
     }
 
-    if (!normalizedDir.startsWith(normalizedRoot)) {
+    if (!isPathWithinRoots(realDirectory, [realWorkspaceRoot])) {
       throw new Error(
         `Working directory must be within workspace root. ` +
-          `Got: ${dir}, Expected prefix: ${workspaceRoot}`,
+          `Got: ${dir}, Expected root: ${workspaceRoot}`,
       );
     }
   }

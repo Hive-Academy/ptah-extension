@@ -4,6 +4,7 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import { showCanvas } from '../../support/show-canvas';
+import { sourceControlFileButton } from '../../support/source-control';
 
 /**
  * The hunk revert confirmation, answered by MOUSE — TASK_2026_227.
@@ -45,8 +46,6 @@ const SCREENSHOT_DIR = path.resolve(
   'ptah-electron-e2e',
   'hunk-revert-top-layer',
 );
-
-const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
 
 interface HitTest {
   readonly tag: string;
@@ -156,9 +155,7 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
     // goto('git') already opens it on the source-control panel, so the old
     // "click the Git tab" step is gone.
     await widenWindow(electronApp);
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: FILE_NAME,
-    });
+    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
     await expect(changedRow).toBeVisible({ timeout: 20_000 });
     await changedRow.click();
 

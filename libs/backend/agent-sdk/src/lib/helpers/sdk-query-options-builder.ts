@@ -1370,13 +1370,8 @@ export class SdkQueryOptionsBuilder {
     onWorktreeRemoved?: WorktreeRemovedCallback,
     activityHold?: ActivityHold,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // The subagent hooks hold the watchdog for every registered subagent
-    // (TASK_2026_363) — see `SubagentHookHandler.createHooks`.
-    const subagentHooks = this.subagentHookHandler.createHooks(
-      cwd,
-      sessionId,
-      activityHold,
-    );
+    // Root tool lifetime, not child registration, owns watchdog protection.
+    const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId,
       cwd,
@@ -1422,6 +1417,7 @@ export class SdkQueryOptionsBuilder {
       this.teammateLifecycleHookHandler.createHooks(sessionId, cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
+      activityHold?.lifecycleHooks?.() ?? {},
       subagentHooks,
       compactionHooks,
       worktreeHooks,

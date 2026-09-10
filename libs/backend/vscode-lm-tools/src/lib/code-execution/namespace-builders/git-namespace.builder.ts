@@ -9,9 +9,12 @@
  * Pattern: namespace-builders/agent-namespace.builder.ts
  */
 
-import * as path from 'path';
 import type { GitNamespace } from '../types';
-import { execGit, WORKTREE_GIT_TIMEOUT_MS } from '@ptah-extension/vscode-core';
+import {
+  execGit,
+  resolveWorktreePath,
+  WORKTREE_GIT_TIMEOUT_MS,
+} from '@ptah-extension/vscode-core';
 import {
   parseWorktreeList,
   type GitWorktreeInfo,
@@ -75,6 +78,7 @@ export function buildGitNamespace(
           'worktree',
           'list',
           '--porcelain',
+          '-z',
         ]);
 
         if (exitCode !== 0) {
@@ -96,9 +100,17 @@ export function buildGitNamespace(
       createBranch?: boolean;
     }): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
       try {
-        const worktreePath =
-          params.path ||
-          path.join(path.dirname(getWorkspaceRoot()), params.branch);
+        const workspaceRoot = getWorkspaceRoot();
+        if (!workspaceRoot) {
+          throw new Error(
+            'Cannot add worktree: workspace root is not resolved. Open a workspace folder first.',
+          );
+        }
+        const worktreePath = resolveWorktreePath(
+          workspaceRoot,
+          params.branch,
+          params.path,
+        );
 
         const args = ['worktree', 'add'];
         if (params.createBranch) {

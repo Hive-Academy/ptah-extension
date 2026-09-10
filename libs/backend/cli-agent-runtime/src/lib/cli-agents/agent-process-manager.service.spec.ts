@@ -70,13 +70,21 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   SentryService: class {},
 }));
 
-// Mock platform-core for the PLATFORM_TOKENS.WORKSPACE_PROVIDER injection.
-jest.mock('@ptah-extension/platform-core', () => ({
-  PLATFORM_TOKENS: {
-    WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
-    MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
-  },
-}));
+// Keep platform-core's real path guards while replacing DI tokens used by this
+// manually-constructed unit. A closed mock hides new runtime exports and makes
+// the suite fail before SDK-path assertions can run.
+jest.mock('@ptah-extension/platform-core', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/platform-core')
+  >('@ptah-extension/platform-core');
+  return {
+    ...actual,
+    PLATFORM_TOKENS: {
+      WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
+      MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
+    },
+  };
+});
 
 // We need uuid to generate valid AgentIds, but shared uses it internally.
 // Produce unique-but-valid v4-shaped ids so multiple agents can coexist in

@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: 'A ptah-cli resume discards the user typed follow-up message'
 description: >-
@@ -18,9 +18,7 @@ description: >-
 
 ```ts
 const isResume = !!options?.resumeSessionId;
-const effectivePrompt = isResume
-  ? 'Continue working on the previous task. Pick up where you left off.'
-  : task;
+const effectivePrompt = isResume ? 'Continue working on the previous task. Pick up where you left off.' : task;
 ```
 
 `effectivePrompt` reaches `createPromptMailbox` at line 688 and the SDK `query`
@@ -59,11 +57,11 @@ disagreement they caused is the useful part.
 There is no empty-task case. `task` is non-empty on every path that can reach
 `PtahCliRegistry.spawnAgent`:
 
-| Entry point | Guard |
-| ----------- | ----- |
-| `agent:resumeCliSession` RPC | `agent-rpc.schema.ts` — `task: z.string().min(1)` |
-| MCP `ptah_agent_spawn` | `mcp-stdio/agent-tool.dispatcher.ts:48` — `task: z.string().min(1).max(MAX_TASK_LENGTH)` |
-| The follow-up box itself | `agent-continue-input.component.ts:166` — `submit()` returns on `message.length === 0` |
+| Entry point                  | Guard                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `agent:resumeCliSession` RPC | `agent-rpc.schema.ts` — `task: z.string().min(1)`                                        |
+| MCP `ptah_agent_spawn`       | `mcp-stdio/agent-tool.dispatcher.ts:48` — `task: z.string().min(1).max(MAX_TASK_LENGTH)` |
+| The follow-up box itself     | `agent-continue-input.component.ts:166` — `submit()` returns on `message.length === 0`   |
 
 `spawnAgent` is an internal method behind two validated boundaries, so an
 empty-string fallback would be exactly the defensive branch the repo standard
