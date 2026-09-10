@@ -33,6 +33,8 @@ export const RPC_CAPABILITIES = [
   'workspaceLifecycle',
 
   // --- host UI surfaces ----------------------------------------------------
+  /** Host can detect and launch supported editors (`editor:*`). */
+  'editorLauncher',
   /** Host can reveal a path in its own editor/explorer (`file:open`). */
   'fileOpen',
   /** Host can ask the user to choose workspace files (`file:pick`). */

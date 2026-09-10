@@ -31,6 +31,7 @@ export function createCliRpcHostProfile(
       voice: true,
       persistence: true,
       workspaceLifecycle: true,
+      editorLauncher: true,
       filePicker: interactive,
     }),
     hostHandlers: {},

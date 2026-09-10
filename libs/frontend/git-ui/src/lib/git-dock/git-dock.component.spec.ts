@@ -7,24 +7,25 @@
  * constructor arms both `GitStatusService` and `GitBranchesService`, and that
  * `destroyRef.onDestroy` (fired by `fixture.destroy()`) disarms both.
  *
- * Child components (`GitDockHeaderComponent`, `SourceControlPanelComponent`,
- * `DiffViewComponent`) are never instantiated in this suite — Angular only
- * creates them on the first `detectChanges()`, and this suite intentionally
- * never calls it, so the arming behaviour is exercised in isolation from
- * their own dependencies (`SourceControlService`, `WorktreeService`,
- * `MonacoLoaderService`, etc).
+ * Rendered tab-strip specs replace the three child surfaces with inert stubs,
+ * keeping the dock tests isolated from `SourceControlService`,
+ * `WorktreeService`, `MonacoLoaderService`, and their rendering concerns.
  *
  * `rpcCall` is mocked at the module boundary, matching the pattern in
  * `git-status.service.spec.ts` / `git-branches.service.spec.ts`.
  */
 
-import { signal } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
-import { GitDockComponent } from './git-dock.component';
+import type { GitFileStatus } from '@ptah-extension/shared';
 import { GitStatusService } from '../services/git-status.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { DiffTabsService } from '../services/diff-tabs.service';
+import type {
+  EditorTab,
+  HunkApplyFn,
+  OpenDiffRequest,
+} from '../types/diff-tab.types';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -36,6 +37,10 @@ jest.mock('@ptah-extension/core', () => {
     rpcCall: (...args: unknown[]) => mockRpcCall(...args),
   };
 });
+const { VSCodeService } = jest.requireActual('@ptah-extension/core');
+const { GitDockComponent } = jest.requireActual(
+  './git-dock.component',
+) as typeof import('./git-dock.component');
 
 function makeVscodeStub() {
   const _config = signal({
@@ -79,16 +84,64 @@ function makeGitBranchesStub() {
 }
 
 function makeDiffTabsStub() {
+  const tabs = signal<EditorTab[]>([]);
+  const activeKey = signal<string | null>(null);
+  const activateDiff = jest.fn((key: string) => {
+    if (tabs().some((tab) => tab.filePath === key)) activeKey.set(key);
+  });
+  const closeDiff = jest.fn((key: string) => {
+    const remaining = tabs().filter((tab) => tab.filePath !== key);
+    if (remaining.length === tabs().length) return;
+    tabs.set(remaining);
+    if (activeKey() === key) activeKey.set(remaining.at(-1)?.filePath ?? null);
+  });
+
   return {
-    activeDiffTab: jest.fn(() => null),
-    openDiffKeys: jest.fn(() => []),
-    applyHunksFn: jest.fn(),
+    diffTabs: tabs.asReadonly(),
+    activeDiffKey: activeKey.asReadonly(),
+    activeDiffTab: computed(
+      () => tabs().find((tab) => tab.filePath === activeKey()) ?? null,
+    ),
+    openDiffKeys: computed(() => tabs().map((tab) => tab.filePath)),
+    applyHunksFn: jest.fn() as unknown as HunkApplyFn,
     openDiff: jest.fn(),
+    activateDiff,
+    closeDiff,
     refreshDiffTab: jest.fn(),
+    setTabs(nextTabs: EditorTab[], nextActiveKey: string | null): void {
+      tabs.set(nextTabs);
+      activeKey.set(nextActiveKey);
+    },
   };
 }
 
-describe('GitDockComponent — arm on construction, disarm on destroy', () => {
+function makeTab(filePath: string, fileName: string): EditorTab {
+  return { filePath, fileName, content: '', isDirty: false };
+}
+
+@Component({ selector: 'ptah-git-dock-header', standalone: true, template: '' })
+class GitDockHeaderStubComponent {}
+
+@Component({
+  selector: 'ptah-source-control-panel',
+  standalone: true,
+  template: '',
+})
+class SourceControlPanelStubComponent {
+  readonly files = input.required<GitFileStatus[]>();
+  readonly diffRequested = output<OpenDiffRequest>();
+  readonly fileClicked = output<string>();
+}
+
+@Component({ selector: 'ptah-diff-view', standalone: true, template: '' })
+class DiffViewStubComponent {
+  readonly diffTab = input.required<EditorTab>();
+  readonly openDiffKeys = input.required<readonly string[]>();
+  readonly applyHunks = input.required<HunkApplyFn>();
+  readonly retryRequested = output<string>();
+}
+
+describe('GitDockComponent', () => {
   let gitStatus: ReturnType<typeof makeGitStatusStub>;
   let gitBranches: ReturnType<typeof makeGitBranchesStub>;
   let diffTabs: ReturnType<typeof makeDiffTabsStub>;
@@ -111,6 +164,21 @@ describe('GitDockComponent — arm on construction, disarm on destroy', () => {
       ],
     });
   });
+
+  function createRenderedDock() {
+    TestBed.overrideComponent(GitDockComponent, {
+      set: {
+        imports: [
+          GitDockHeaderStubComponent,
+          SourceControlPanelStubComponent,
+          DiffViewStubComponent,
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(GitDockComponent);
+    fixture.detectChanges();
+    return fixture;
+  }
 
   it('arms GitStatusService.startListening() on construction', () => {
     TestBed.createComponent(GitDockComponent);
@@ -157,5 +225,134 @@ describe('GitDockComponent — arm on construction, disarm on destroy', () => {
     expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'file:open', {
       path: 'src/a.ts',
     });
+  });
+
+  it('renders one accessible tab per open diff, in open order', () => {
+    diffTabs.setTabs(
+      [makeTab('first-key', 'first.ts'), makeTab('second-key', 'second.ts')],
+      'second-key',
+    );
+    const fixture = createRenderedDock();
+
+    const tablist = fixture.nativeElement.querySelector('[role="tablist"]');
+    const tabs = [
+      ...tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ];
+    const panel = fixture.nativeElement.querySelector(
+      '[role="tabpanel"]',
+    ) as HTMLElement;
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+      'first.ts',
+      'second.ts',
+    ]);
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
+      'false',
+      'true',
+    ]);
+    expect(
+      tabs.every((tab) => tab.getAttribute('aria-controls') === panel.id),
+    ).toBe(true);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabs[1].id);
+  });
+
+  it('activates an inactive tab without opening or refreshing its diff', () => {
+    diffTabs.setTabs(
+      [makeTab('first-key', 'first.ts'), makeTab('second-key', 'second.ts')],
+      'second-key',
+    );
+    const fixture = createRenderedDock();
+
+    const firstTab = fixture.nativeElement.querySelector(
+      '[role="tab"]',
+    ) as HTMLButtonElement;
+    firstTab.click();
+    fixture.detectChanges();
+
+    expect(diffTabs.activateDiff).toHaveBeenCalledWith('first-key');
+    expect(diffTabs.openDiff).not.toHaveBeenCalled();
+    expect(diffTabs.refreshDiffTab).not.toHaveBeenCalled();
+    expect(firstTab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('closes the tab whose sibling close button was clicked', () => {
+    diffTabs.setTabs(
+      [makeTab('first-key', 'first.ts'), makeTab('second-key', 'second.ts')],
+      'second-key',
+    );
+    const fixture = createRenderedDock();
+
+    const closeFirst = fixture.nativeElement.querySelector(
+      'button[aria-label="Close diff for first.ts"]',
+    ) as HTMLButtonElement;
+    const activationControl = closeFirst.parentElement?.querySelector(
+      '[role="tab"]',
+    ) as HTMLButtonElement;
+    expect(activationControl.contains(closeFirst)).toBe(false);
+    closeFirst.click();
+    fixture.detectChanges();
+
+    expect(diffTabs.closeDiff).toHaveBeenCalledWith('first-key');
+    expect(
+      [...fixture.nativeElement.querySelectorAll('[role="tab"]')].map((tab) =>
+        (tab as HTMLElement).textContent?.trim(),
+      ),
+    ).toEqual(['second.ts']);
+  });
+
+  it('falls back to the last remaining tab after closing the active tab', () => {
+    diffTabs.setTabs(
+      [makeTab('first-key', 'first.ts'), makeTab('second-key', 'second.ts')],
+      'second-key',
+    );
+    const fixture = createRenderedDock();
+
+    (
+      fixture.nativeElement.querySelector(
+        'button[aria-label="Close diff for second.ts"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    const remaining = fixture.nativeElement.querySelector(
+      '[role="tab"]',
+    ) as HTMLButtonElement;
+    expect(diffTabs.activeDiffKey()).toBe('first-key');
+    expect(remaining.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('hides the tab strip and diff panel after closing the final tab', () => {
+    diffTabs.setTabs([makeTab('only-key', 'only.ts')], 'only-key');
+    const fixture = createRenderedDock();
+
+    (
+      fixture.nativeElement.querySelector(
+        'button[aria-label="Close diff for only.ts"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="tablist"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="tabpanel"]')).toBeNull();
+  });
+
+  it('moves between tabs with arrow keys and closes one with Delete', () => {
+    diffTabs.setTabs(
+      [makeTab('first-key', 'first.ts'), makeTab('second-key', 'second.ts')],
+      'second-key',
+    );
+    const fixture = createRenderedDock();
+    const tabs =
+      fixture.nativeElement.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+
+    tabs[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
+    );
+    expect(diffTabs.activateDiff).toHaveBeenCalledWith('first-key');
+    expect(document.activeElement).toBe(tabs[0]);
+
+    tabs[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+    );
+    expect(diffTabs.closeDiff).toHaveBeenCalledWith('first-key');
   });
 });

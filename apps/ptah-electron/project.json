@@ -323,6 +323,24 @@
         "parallel": false
       }
     },
+    "package-local-production": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["build", "copy-renderer", "rebuild-native"],
+      "outputs": ["{workspaceRoot}/dist/release/local-production"],
+      "options": {
+        "commands": [
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js",
+          "node apps/ptah-electron/scripts/prune-dist-deps.js",
+          "node apps/ptah-electron/scripts/package-local-production.js",
+          "node apps/ptah-electron/scripts/verify-packed-native.js",
+          "node apps/ptah-electron/scripts/verify-packed-wasm.js",
+          "node apps/ptah-electron/scripts/verify-packed-onnx.js"
+        ],
+        "parallel": false
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

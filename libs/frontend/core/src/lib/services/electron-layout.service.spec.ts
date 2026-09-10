@@ -1454,7 +1454,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
     rpc.call.mockClear();
-    await service.removeFolder(5);
+    await expect(service.removeFolder(5)).resolves.toBe(false);
     // No workspace:removeFolder call should occur for out-of-bounds
     const removeCalls = (rpc.call as jest.Mock).mock.calls.filter(
       (c: unknown[]) => c[0] === 'workspace:removeFolder',
@@ -1496,7 +1496,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(1);
+    await expect(service.removeFolder(1)).resolves.toBe(true);
     jest.advanceTimersByTime(150);
     await Promise.resolve();
     jest.useRealTimers();
@@ -1536,7 +1536,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(service.workspaceFolders()).toHaveLength(0);
     expect(service.activeWorkspaceIndex()).toBe(0);
@@ -1578,7 +1578,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await expect(service.removeFolder(0)).resolves.toBeUndefined();
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith('');
     expect(consoleError).toHaveBeenCalled();
@@ -1597,7 +1597,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(true);
 
     expect(coordinator.clearWorkspace).not.toHaveBeenCalled();
     expect(coordinator.switchWorkspace).toHaveBeenCalledWith('/b');
@@ -1627,11 +1627,34 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(false);
 
     expect(service.workspaceFolders()).toHaveLength(1);
   });
 
+  it('returns false when the user cancels closing a streaming workspace', async () => {
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['sess-1']);
+    coordinator.confirm = jest.fn().mockResolvedValue(false);
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+
+    await expect(service.removeFolder(0)).resolves.toBe(false);
+    expect(service.workspaceFolders()).toHaveLength(1);
+  });
   it('does not mutate state when backend removeFolder RPC fails', async () => {
     coordinator = buildCoordinator();
     coordinator.getStreamingSessionIds = jest.fn().mockReturnValue([]);
@@ -1660,7 +1683,7 @@ describe('ElectronLayoutService — removeFolder()', () => {
 
     (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
 
-    await service.removeFolder(0);
+    await expect(service.removeFolder(0)).resolves.toBe(false);
 
     expect(service.workspaceFolders()).toHaveLength(1);
   });

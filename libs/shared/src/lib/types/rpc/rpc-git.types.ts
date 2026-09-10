@@ -82,7 +82,7 @@ export interface GitWorktreesResult {
 export interface GitAddWorktreeParams {
   /** Branch name to checkout in the new worktree */
   branch: string;
-  /** Optional custom path for the worktree directory (defaults to ../<branch>) */
+  /** Optional custom path for the worktree directory. */
   path?: string;
   /** Whether to create a new branch (vs checkout existing) */
   createBranch?: boolean;

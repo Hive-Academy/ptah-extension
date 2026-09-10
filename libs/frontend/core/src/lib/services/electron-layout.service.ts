@@ -277,10 +277,11 @@ export class ElectronLayoutService implements MessageHandler {
    * WORKSPACE_COORDINATOR.
    *
    * Handles edge case: removing the only workspace resets to "no workspace" state.
+   * Returns false when index is invalid, user cancels, or backend rejects removal.
    */
-  async removeFolder(index: number): Promise<void> {
+  async removeFolder(index: number): Promise<boolean> {
     const folders = this._workspaceFolders();
-    if (index < 0 || index >= folders.length) return;
+    if (index < 0 || index >= folders.length) return false;
 
     const removedFolder = folders[index];
     if (this.coordinator) {
@@ -304,7 +305,7 @@ export class ElectronLayoutService implements MessageHandler {
         });
 
         if (!confirmed) {
-          return;
+          return false;
         }
         await Promise.allSettled(
           streamingSessionIds.map((sessionId) =>
@@ -327,14 +328,14 @@ export class ElectronLayoutService implements MessageHandler {
           '[ElectronLayout] Backend rejected folder removal:',
           result,
         );
-        return;
+        return false;
       }
     } catch (error) {
       console.error(
         '[ElectronLayout] Failed to remove folder from backend:',
         error,
       );
-      return;
+      return false;
     }
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
@@ -356,6 +357,7 @@ export class ElectronLayoutService implements MessageHandler {
     }
 
     this.persistLayout();
+    return true;
   }
 
   /**

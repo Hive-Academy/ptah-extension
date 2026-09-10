@@ -109,7 +109,7 @@ const NO_RECORD: SessionState = { registered: false, streaming: false };
 const LIVE: SessionState = { registered: true, streaming: true };
 const DEAD_RECORD: SessionState = { registered: true, streaming: false };
 
-function makeHarness(opts: SessionState): Harness {
+function makeHarness(opts: SessionState, autopilot = false): Harness {
   const noop = jest.fn();
   const logger = createMockLogger();
   const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
@@ -148,7 +148,7 @@ function makeHarness(opts: SessionState): Harness {
     { broadcastMessage: noop } as never,
     {
       get: noop,
-      getWithDefault: jest.fn().mockReturnValue(false),
+      getWithDefault: jest.fn().mockImplementation((key: string) => key === 'autopilot.permissionLevel' ? 'yolo' : autopilot),
     } as unknown as ConfigManager,
     sdkAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
@@ -459,4 +459,14 @@ describe('chat:continue — dead record (registered, not streaming)', () => {
 
     expect(teardownFinishedFirst).toBe(true);
   });
+});
+
+
+it('reports failed interruption as not delivered rather than sending to retired session', async () => {
+  const { service, interruptCurrentTurn, sendMessageToSession } = makeHarness(LIVE, true);
+  interruptCurrentTurn.mockResolvedValue(false);
+  const result = await service.continueSession({ sessionId: SESSION_ID, tabId: TAB_ID, prompt: 'stop', workspacePath: OPEN_FOLDER } as ChatContinueParams);
+  expect(interruptCurrentTurn).toHaveBeenCalledTimes(1);
+  expect(sendMessageToSession).not.toHaveBeenCalled();
+  expect(result).toEqual({ success: false, error: expect.stringContaining('Your follow-up was not sent') });
 });

@@ -41,6 +41,9 @@ export const PLATFORM_TOKENS = {
   /** IEditorProvider — active editor and document events */
   EDITOR_PROVIDER: Symbol.for('PlatformEditorProvider'),
 
+  /** IEditorLauncher - detected external-editor launch routes */
+  EDITOR_LAUNCHER: Symbol.for('PlatformEditorLauncher'),
+
   /** IPlatformInfo — platform type, extension path, storage paths */
   PLATFORM_INFO: Symbol.for('PlatformInfo'),
 

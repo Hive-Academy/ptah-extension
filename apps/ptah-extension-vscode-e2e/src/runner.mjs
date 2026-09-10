@@ -14,6 +14,9 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const vscodeCachePath = path.resolve(__dirname, '..', '.vscode-test');
+const vscodeVersion = process.env.VSCODE_E2E_VERSION ?? 'stable';
+const vscodeDownloadTimeoutMs = 120_000;
 
 async function main() {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -71,6 +74,11 @@ async function main() {
     await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
+      version: vscodeVersion,
+      cachePath: vscodeCachePath,
+      // Idle timeout, not total download time. GitHub-hosted runners can take
+      // longer than the package default (15s) to receive the first CDN byte.
+      timeout: vscodeDownloadTimeoutMs,
       // PTAH_E2E=1 does two things inside the extension host:
       //   1. bootstrap.ts seeds a previousUserContext into (in-memory)
       //      globalState so activation takes the community path instead of

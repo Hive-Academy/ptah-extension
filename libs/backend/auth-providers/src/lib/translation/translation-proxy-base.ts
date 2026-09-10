@@ -38,6 +38,7 @@ import {
   type OpenAIResponsesRequest,
 } from './responses-request-translator';
 import { ResponsesStreamTranslator } from './responses-stream-translator';
+import { collectResponsesStream, ResponsesStreamError } from './responses-stream-collector';
 import {
   readBody,
   sendJson,
@@ -404,6 +405,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     return false;
   }
 
+  protected requiresResponsesStream(_target: URL): boolean {
+    return false;
+  }
+
   /**
    * Forward the translated Chat Completions request to the upstream API.
    * Delegates to the shared `forwardToApi()` with completions-specific handlers.
@@ -450,9 +455,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     isRetry: boolean,
   ): Promise<void> {
     const responsesPath = this.config.responsesPath ?? '/responses';
+    const endpoint = await this.getApiEndpoint();
+    const forceStream = this.requiresResponsesStream(buildUpstreamUrl(endpoint, responsesPath));
 
     return this.forwardToApi({
-      requestBody: JSON.stringify(responsesRequest),
+      endpoint,
+      requestBody: JSON.stringify(forceStream ? { ...responsesRequest, stream: true } : responsesRequest),
       path: responsesPath,
       originalRequest,
       res,
@@ -466,13 +474,21 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           model,
           reqId,
         ),
-      onNonStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
-        this.handleResponsesNonStreamingResponse(
-          proxyRes,
-          clientRes,
-          model,
-          reqId,
-        ),
+      onNonStreamingSuccess: async (proxyRes, clientRes, model, reqId) => {
+        if (forceStream) {
+          try {
+            const response = await collectResponsesStream(proxyRes, clientRes, model, reqId);
+            if (!clientRes.destroyed) sendJson(clientRes, 200, response);
+          } catch (error: unknown) {
+            if (!(error instanceof ResponsesStreamError)) throw error;
+            if (!clientRes.destroyed) {
+              sendErrorResponse(clientRes, 502, 'api_error', `${error.code}: ${error.message}`);
+            }
+          }
+        } else {
+          await this.handleResponsesNonStreamingResponse(proxyRes, clientRes, model, reqId);
+        }
+      },
       retryFn: (retry) =>
         this.forwardToResponsesApi(
           responsesRequest,
@@ -491,6 +507,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    */
   private async forwardToApi(params: {
     requestBody: string;
+    endpoint?: string;
     path: string;
     originalRequest: AnthropicMessagesRequest;
     res: http.ServerResponse;
@@ -537,7 +554,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       );
       return;
     }
-    const apiEndpoint = await this.getApiEndpoint();
+    const apiEndpoint = params.endpoint ?? await this.getApiEndpoint();
     const targetUrl = buildUpstreamUrl(apiEndpoint, path);
 
     this.logger.info(
@@ -691,6 +708,17 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         reject(err);
       });
 
+      const cancel = () => {
+        if (!res.writableEnded) proxyReq.destroy();
+        resolve();
+      };
+      res.once('close', cancel);
+      proxyReq.once('close', () => res.off('close', cancel));
+      if (res.destroyed) {
+        proxyReq.destroy();
+        resolve();
+        return;
+      }
       proxyReq.write(requestBody);
       proxyReq.end();
     });

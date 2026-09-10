@@ -15,6 +15,7 @@
 
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { GitFileStatus } from '@ptah-extension/shared';
@@ -54,13 +55,17 @@ function makeSourceControlStub() {
 @Component({
   standalone: true,
   imports: [SourceControlPanelComponent],
-  template: `<ptah-source-control-panel [files]="files()" />`,
+  template: `<ptah-source-control-panel
+    [files]="files()"
+    (diffRequested)="diffRequested.push($event)"
+  />`,
 })
 class HostComponent {
   readonly files = signal<GitFileStatus[]>([
     { path: 'src/a.ts', status: 'M', staged: true } as GitFileStatus,
     { path: 'src/b.ts', status: 'A', staged: false } as GitFileStatus,
   ]);
+  readonly diffRequested: unknown[] = [];
 }
 
 describe('SourceControlPanelComponent — header controls are siblings, not nested (D1)', () => {
@@ -98,6 +103,7 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
       set: {
         imports: [
           FormsModule,
+          NgTemplateOutlet,
           LucideAngularModule,
           SourceControlFileComponent,
           StubWorktreeSectionComponent,
@@ -407,6 +413,78 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     expect(regions[0].children[0].getAttribute('role')).toBe('listitem');
     expect((regions[0].textContent ?? '').trim()).toBe('No staged changes');
     expect(unownedChildren(regions[1])).toEqual([]);
+  });
+
+  it('renders paths as collapsible nested lists and folders never request a diff', () => {
+    fixture.componentInstance.files.set([
+      {
+        path: '.github/workflows/ci.yml',
+        status: '??',
+        staged: false,
+      } as GitFileStatus,
+      {
+        path: '.github/ISSUE_TEMPLATE/bug.md',
+        status: '??',
+        staged: false,
+      } as GitFileStatus,
+    ]);
+    fixture.detectChanges();
+
+    const github = q<HTMLButtonElement>(
+      'button[aria-label="Toggle .github folder"]',
+    );
+    expect(github.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      fixture.nativeElement.querySelector('button[aria-label="Open diff for ci.yml"]'),
+    ).toBeNull();
+
+    clickReal(github);
+    fixture.detectChanges();
+
+    expect(github.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.componentInstance.diffRequested).toEqual([]);
+    const workflows = q<HTMLButtonElement>(
+      'button[aria-label="Toggle workflows folder"]',
+    );
+    expect(workflows.getAttribute('aria-expanded')).toBe('false');
+    expect(github.getAttribute('aria-controls')).toBe(
+      workflows.closest('[role="list"]')?.id,
+    );
+
+    clickReal(workflows);
+    fixture.detectChanges();
+    clickReal(
+      q<HTMLButtonElement>('button[aria-label="Open diff for ci.yml"]'),
+    );
+
+    expect(fixture.componentInstance.diffRequested).toEqual([
+      { path: '.github/workflows/ci.yml', comparison: 'worktree' },
+    ]);
+    for (const region of lists()) {
+      expect(unownedChildren(region)).toEqual([]);
+    }
+  });
+
+  it('turns a legacy directory status row into a folder control, never a file row', () => {
+    fixture.componentInstance.files.set([
+      {
+        path: '.github',
+        status: '??',
+        staged: false,
+        isDirectory: true,
+      } as GitFileStatus,
+    ]);
+    fixture.detectChanges();
+
+    clickReal(
+      q<HTMLButtonElement>('button[aria-label="Toggle .github folder"]'),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.diffRequested).toEqual([]);
+    expect(
+      fixture.nativeElement.querySelector('button[aria-label^="Open diff for"]'),
+    ).toBeNull();
   });
 
   it('hides each bulk action when its section is empty (AC6)', () => {
