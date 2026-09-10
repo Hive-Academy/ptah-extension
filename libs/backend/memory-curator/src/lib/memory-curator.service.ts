@@ -531,6 +531,7 @@ export class MemoryCuratorService {
         kind: 'curator-skipped-no-data',
         timestamp: this.lastRunAtMs,
         sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot ?? null,
       });
       return emptyStats;
     }
@@ -594,6 +595,7 @@ export class MemoryCuratorService {
         kind: 'curator-run',
         timestamp: this.lastRunAtMs,
         sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot ?? null,
         stats: { extracted: 0, merged: 0, created: 0, skipped: 0 },
       });
       return emptyStats;
@@ -731,6 +733,7 @@ export class MemoryCuratorService {
       kind: 'curator-run',
       timestamp: this.lastRunAtMs,
       sessionId: input.sessionId,
+      workspaceRoot: input.workspaceRoot ?? null,
       stats: {
         extracted: stats.extracted,
         merged: stats.merged,

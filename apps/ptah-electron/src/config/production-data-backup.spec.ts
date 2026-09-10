@@ -1,13 +1,20 @@
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const { resolveWindowsSystemExecutable } =
+  require('../../scripts/windows-system-executable.js') as {
+    resolveWindowsSystemExecutable: (relativePath: string) => string;
+  };
 
 const { assertPtahClosed, createBackup, findPotentialWriters } =
   require('../../scripts/backup-local-production-data.js') as {
@@ -43,6 +50,61 @@ const processRecord = (
 ) => ({ ProcessId, Name, ExecutablePath: null, CommandLine });
 
 describe('production data backup', () => {
+  const windowsIt = process.platform === 'win32' ? it : it.skip;
+
+  windowsIt.each([0, 1, 3])(
+    'opens %i database files individually with real Windows PowerShell 5.1',
+    (count) => {
+      const root = mkdtempSync(join(tmpdir(), 'ptah-backup-ps51-'));
+      try {
+        for (const name of ['ptah.db', 'ptah.db-wal', 'ptah.db-shm'].slice(
+          0,
+          count,
+        )) {
+          writeFileSync(join(root, name), 'fixture');
+        }
+        expect(() =>
+          assertPtahClosed(
+            [{ label: 'ptah-home', path: root }],
+            runWindowsInspection,
+            resolveWindowsSystemExecutable,
+            'win32',
+          ),
+        ).not.toThrow();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  windowsIt(
+    'detects a real exclusive file lock with Windows PowerShell 5.1',
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'ptah-backup-ps51-'));
+      const database = join(root, 'ptah.db');
+      const wal = join(root, 'ptah.db-wal');
+      writeFileSync(database, 'fixture');
+      writeFileSync(wal, 'fixture');
+      try {
+        expect(() =>
+          assertPtahClosed(
+            [{ label: 'ptah-home', path: root }],
+            (file, args, options) =>
+              runWindowsInspection(file, args, {
+                env: { ...options.env, PTAH_TEST_LOCK_PATH: wal },
+              }),
+            resolveWindowsSystemExecutable,
+            'win32',
+          ),
+        ).toThrow(
+          `Ptah database files are locked; close every process using Ptah data: ${wal}`,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('copies profile, settings, database and WAL together while excluding caches/backups', () => {
     const root = mkdtempSync(join(tmpdir(), 'ptah-backup-test-'));
     const profile = join(root, 'profile');
@@ -153,7 +215,10 @@ describe('production data backup', () => {
   });
 
   it.each([
-    ['Electron', processRecord('Ptah.exe', '"C:\\Program Files\\Ptah\\Ptah.exe"')],
+    [
+      'Electron',
+      processRecord('Ptah.exe', '"C:\\Program Files\\Ptah\\Ptah.exe"'),
+    ],
     [
       'installed CLI',
       processRecord(
@@ -163,22 +228,13 @@ describe('production data backup', () => {
     ],
     [
       'workspace TUI',
-      processRecord(
-        'node.exe',
-        'node D:\\repo\\dist\\apps\\ptah-tui\\tui.mjs',
-      ),
+      processRecord('node.exe', 'node D:\\repo\\dist\\apps\\ptah-tui\\tui.mjs'),
     ],
     [
       'workspace TUI source',
-      processRecord(
-        'node.exe',
-        'node D:\\repo\\apps\\ptah-tui\\src\\main.tsx',
-      ),
+      processRecord('node.exe', 'node D:\\repo\\apps\\ptah-tui\\src\\main.tsx'),
     ],
-    [
-      'VS Code host',
-      processRecord('Code.exe', 'Code.exe --type=utility'),
-    ],
+    ['VS Code host', processRecord('Code.exe', 'Code.exe --type=utility')],
   ])('identifies the %s host as a potential writer', (_label, record) => {
     expect(findPotentialWriters([record])).toEqual([record]);
   });
@@ -277,3 +333,26 @@ describe('production data backup', () => {
     ).toThrow('database files are locked');
   });
 });
+
+// Execute the production inspection script, substituting only the ambient
+// process inventory so developer applications cannot affect this fixture.
+function runWindowsInspection(
+  file: string,
+  args: string[],
+  options: { env: NodeJS.ProcessEnv },
+): string {
+  const prelude = [
+    "if($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1){throw 'Expected Windows PowerShell 5.1'}",
+    "function Get-CimInstance { [pscustomobject]@{ProcessId=42;Name='fixture.exe';ExecutablePath=$null;CommandLine='fixture'} }",
+    'if($env:PTAH_TEST_LOCK_PATH){$testHandle=[IO.File]::Open($env:PTAH_TEST_LOCK_PATH,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}',
+  ].join(';');
+  return execFileSync(
+    file,
+    [...args.slice(0, -1), `${prelude};${args[args.length - 1]}`],
+    {
+      ...options,
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+}

@@ -22,6 +22,6 @@ module.exports = {
   },
   forceCodeSigning: false,
   mac: { identity: null },
-  win: { sign: null },
+  win: { signtoolOptions: { sign: null } },
   publish: null,
 };
