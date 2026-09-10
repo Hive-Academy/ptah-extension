@@ -210,3 +210,19 @@ Strict git constraints were maintained:
 - Branch remained on `fix/codex-context-efficiency`.
 - No commits, pushes, worktrees, or branches created.
 - The 16 preexisting uncommitted files in `.claude/` and `.codex/` were completely untouched and preserved.
+
+---
+
+## 6. PR #491 Review Fixes
+
+- Hardened Canvas E2E overlap checks: close/send controls must be visible and measurable before unconditional separation assertions run.
+- Added singleton-transition cleanup to `CanvasLayoutControlsComponent`; an Angular effect closes an open popover when `tileCount` changes from 2 to 1. Added focused regression coverage.
+- Removed Sonar-reported Gridstack duplication by extracting `applyNodeInteractionState()` and using it from both interaction-state paths without changing behavior.
+
+Verification:
+
+- `npx nx run-many -t test -p @ptah-extension/canvas @ptah-extension/chat --skip-nx-cache`: PASS; 2 projects, Canvas 8/8 suites and 127/127 tests, Chat 69/69 suites and 1050 passed with 2 skipped.
+- `npx nx run-many -t typecheck -p @ptah-extension/canvas @ptah-extension/chat --skip-nx-cache`: PASS; 2/2 projects.
+- `npx nx typecheck ptah-electron-e2e --skip-nx-cache`: PASS.
+- `npx nx run ptah-electron-e2e:e2e --grep=Canvas`: PASS; 10/10 Playwright tests.
+- `git diff --check`: PASS.

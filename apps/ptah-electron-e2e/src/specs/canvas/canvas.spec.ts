@@ -336,18 +336,20 @@ test.describe('Canvas', () => {
     const firstCloseBtn = page
       .getByRole('button', { name: 'Close tile' })
       .first();
+    await expect(firstCloseBtn).toBeVisible();
     const closeBox = await firstCloseBtn.boundingBox();
-    if (closeBox) {
-      // Dock rail is reserved above the session viewport; bottom of dock <= top of tile close
-      expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(closeBox.y + 1);
-    }
+    expect(closeBox).not.toBeNull();
+    if (!closeBox) throw new Error('Tile close button is not measurable');
+    // Dock stays above tile close control.
+    expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(closeBox.y + 1);
 
     const sendBtn = page.locator('[data-testid="chat-send-btn"]').first();
+    await expect(sendBtn).toBeVisible();
     const sendBox = await sendBtn.boundingBox();
-    if (sendBox) {
-      // Dock rail does not overlap composer send button at the bottom of the tile
-      expect(dockBox.y + dockBox.height).toBeLessThan(sendBox.y);
-    }
+    expect(sendBox).not.toBeNull();
+    if (!sendBox) throw new Error('Composer send button is not measurable');
+    // Dock stays above composer send control.
+    expect(dockBox.y + dockBox.height).toBeLessThan(sendBox.y);
 
     const cancelHandle = items.nth(2).locator('.tile-header');
     const cancelBox = await cancelHandle.boundingBox();

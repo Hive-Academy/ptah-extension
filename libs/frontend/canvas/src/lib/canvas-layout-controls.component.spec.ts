@@ -211,6 +211,20 @@ describe('CanvasLayoutControlsComponent', () => {
     );
   });
 
+  it('closes open layout controls when tile count becomes singleton', () => {
+    const { fixture } = setup({ tileCount: 2 });
+    const trigger = fixture.debugElement.query(By.css('button[trigger]'));
+    trigger.nativeElement.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.isOpen()).toBe(true);
+
+    fixture.componentRef.setInput('tileCount', 1);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.isOpen()).toBe(false);
+    expect(fixture.debugElement.query(By.css('[role="group"]'))).toBeNull();
+  });
+
   it('dismisses layout controls when close() is called or Escape pressed', () => {
     const { fixture } = setup({ tileCount: 2 });
     const trigger = fixture.debugElement.query(By.css('button[trigger]'));

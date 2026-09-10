@@ -285,24 +285,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     effect(() => {
       const grid = this.gridComp()?.grid;
       if (!grid) return;
-      const isSingleton = this.isSingleton();
-      const locked = this.locked();
-      const canMove = !isSingleton && !locked;
-      const canResize = !isSingleton && !locked;
-      for (const node of grid.engine?.nodes ?? []) {
-        if (node.el) {
-          (
-            grid as unknown as {
-              movable?: (el: HTMLElement, val: boolean) => void;
-            }
-          ).movable?.(node.el, canMove);
-          (
-            grid as unknown as {
-              resizable?: (el: HTMLElement, val: boolean) => void;
-            }
-          ).resizable?.(node.el, canResize);
-        }
-      }
+      this.applyNodeInteractionState(grid);
     });
 
     effect(() => {
@@ -559,29 +542,25 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
-      const isSingleton = this.isSingleton();
-      const locked = this.locked();
-      const canMove = !isSingleton && !locked;
-      const canResize = !isSingleton && !locked;
-      for (const node of grid.engine?.nodes ?? []) {
-        if (node.el) {
-          (
-            grid as unknown as {
-              movable?: (el: HTMLElement, val: boolean) => void;
-            }
-          ).movable?.(node.el, canMove);
-          (
-            grid as unknown as {
-              resizable?: (el: HTMLElement, val: boolean) => void;
-            }
-          ).resizable?.(node.el, canResize);
-        }
-      }
+      this.applyNodeInteractionState(grid);
     } finally {
       this._applyingLayout = false;
       // Publishes layout-computation increments that intentionally avoided a
       // signal write from inside the computed callback.
       this.metrics.publish();
+    }
+  }
+
+  private applyNodeInteractionState(grid: {
+    engine?: { nodes?: readonly GridStackNode[] };
+    movable?: (el: HTMLElement, val: boolean) => void;
+    resizable?: (el: HTMLElement, val: boolean) => void;
+  }): void {
+    const enabled = !this.isSingleton() && !this.locked();
+    for (const node of grid.engine?.nodes ?? []) {
+      if (!node.el) continue;
+      grid.movable?.(node.el, enabled);
+      grid.resizable?.(node.el, enabled);
     }
   }
 

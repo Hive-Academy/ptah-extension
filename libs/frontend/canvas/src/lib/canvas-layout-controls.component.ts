@@ -2,10 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   model,
   output,
+  untracked,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -156,6 +158,14 @@ export class CanvasLayoutControlsComponent {
     const path = this.store.activeWorkspacePath();
     return path === null ? 'auto' : this.store.columnsPreferenceFor(path);
   });
+
+  constructor() {
+    effect(() => {
+      if (this.isSingleton()) {
+        untracked(() => this.isOpen.set(false));
+      }
+    });
+  }
 
   open(): void {
     if (!this.disabled()) {
