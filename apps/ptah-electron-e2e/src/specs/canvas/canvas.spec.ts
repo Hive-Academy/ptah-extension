@@ -63,6 +63,9 @@ test.describe('Canvas', () => {
     await tileShell.click();
     await expect(tileShell).toHaveAttribute('data-focused', 'true');
 
+    // Layout controls are disabled as inapplicable for singleton session
+    await expect(page.getByRole('button', { name: /Layout/ })).toBeDisabled();
+
     // Navigate away to a different view and back — the tile must persist.
     await ui.goto('dashboard');
     await ui.goto('canvas');
@@ -323,6 +326,29 @@ test.describe('Canvas', () => {
     const commitsBeforeCancellation = await metric(
       'data-canvas-gesture-commits',
     );
+
+    // Reserved dock assertions: dock is visible and does not overlap tile close or composer send
+    const dock = page.locator('[data-testid="canvas-dock"]');
+    await expect(dock).toBeVisible();
+    const dockBox = await dock.boundingBox();
+    if (!dockBox) throw new Error('Canvas dock is not measurable');
+
+    const firstCloseBtn = page
+      .getByRole('button', { name: 'Close tile' })
+      .first();
+    const closeBox = await firstCloseBtn.boundingBox();
+    if (closeBox) {
+      // Dock rail is reserved above the session viewport; bottom of dock <= top of tile close
+      expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(closeBox.y + 1);
+    }
+
+    const sendBtn = page.locator('[data-testid="chat-send-btn"]').first();
+    const sendBox = await sendBtn.boundingBox();
+    if (sendBox) {
+      // Dock rail does not overlap composer send button at the bottom of the tile
+      expect(dockBox.y + dockBox.height).toBeLessThan(sendBox.y);
+    }
+
     const cancelHandle = items.nth(2).locator('.tile-header');
     const cancelBox = await cancelHandle.boundingBox();
     if (!cancelBox)
@@ -333,27 +359,52 @@ test.describe('Canvas', () => {
     );
     await page.mouse.down();
     await page.mouse.move(cancelBox.x + 80, cancelBox.y - 80, { steps: 8 });
-    await page
-      .getByRole('button', { name: 'Lock tiles' })
-      .evaluate((button) => {
-        (button as HTMLButtonElement).click();
-      });
+
+    // Open expandable layout controls and lock layout while drag is active
+    const layoutTrigger = page.getByRole('button', { name: 'Layout options' });
+    await expect(layoutTrigger).toBeEnabled();
+    await layoutTrigger.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+
+    const lockBtn = page.getByRole('button', { name: /Lock (tiles|layout)/i });
+    await lockBtn.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
     await page.mouse.up();
-    const preferenceButtons = page
-      .getByRole('group', { name: 'Maximum tiles per row' })
-      .locator('button');
-    await expect(preferenceButtons).toHaveCount(4);
-    for (let index = 0; index < 4; index += 1) {
-      await expect(preferenceButtons.nth(index)).toBeDisabled();
-    }
+
+    // With layout locked, column preferences (1, 2, 3 columns) are disabled
+    const col1Btn = page.getByRole('button', { name: /1 column/i });
+    const col2Btn = page.getByRole('button', { name: /2 column/i });
+    const col3Btn = page.getByRole('button', { name: /3 column/i });
+    await expect(col1Btn).toBeDisabled();
+    await expect(col2Btn).toBeDisabled();
+    await expect(col3Btn).toBeDisabled();
+
     await expect.poll(readGeometry).toEqual(beforeCancellation);
     expect(await metric('data-canvas-gesture-commits')).toBe(
       commitsBeforeCancellation,
     );
-    await page.getByRole('button', { name: 'Unlock tiles' }).click();
-    for (let index = 0; index < 4; index += 1) {
-      await expect(preferenceButtons.nth(index)).toBeEnabled();
+
+    // Unlock layout
+    const unlockBtn = page.getByRole('button', {
+      name: /Unlock (tiles|layout)/i,
+    });
+    if (!(await unlockBtn.isVisible())) {
+      await layoutTrigger.click();
     }
+    await expect(unlockBtn).toBeEnabled();
+    await unlockBtn.click();
+
+    // After unlocking, column preferences become enabled again
+    if (!(await col1Btn.isVisible())) {
+      await layoutTrigger.click();
+    }
+    await expect(col1Btn).toBeEnabled();
+    await expect(col2Btn).toBeEnabled();
+    await expect(col3Btn).toBeEnabled();
+    await page.keyboard.press('Escape');
+
     await expect(grid.locator('gridstack')).not.toHaveClass(
       /grid-stack-static/,
     );
