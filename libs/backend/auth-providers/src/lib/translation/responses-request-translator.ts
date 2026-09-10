@@ -94,6 +94,12 @@ export interface ResponsesToolDefinition {
   name: string;
   description?: string;
   parameters?: Record<string, unknown>;
+  /**
+   * Anthropic tool schemas express optional properties by omitting them from
+   * `required`. Responses defaults this flag to true, which changes those
+   * semantics, so translated tools must opt out explicitly.
+   */
+  strict: false;
 }
 
 /** OpenAI Responses API request body */
@@ -246,6 +252,7 @@ export function translateToolsForResponses(
     name: tool.name,
     ...(tool.description != null ? { description: tool.description } : {}),
     ...(tool.input_schema != null ? { parameters: tool.input_schema } : {}),
+    strict: false as const,
   }));
 }
 

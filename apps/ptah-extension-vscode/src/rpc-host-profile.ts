@@ -38,7 +38,7 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
           const crossSpawn = await import('cross-spawn');
           const child = crossSpawn.default(
             'git',
-            ['worktree', 'list', '--porcelain'],
+            ['worktree', 'list', '--porcelain', '-z'],
             { cwd: data.cwd, stdio: ['pipe', 'pipe', 'pipe'] },
           );
           const chunks: Buffer[] = [];

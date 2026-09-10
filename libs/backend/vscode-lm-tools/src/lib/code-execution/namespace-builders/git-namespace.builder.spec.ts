@@ -175,7 +175,8 @@ describe('buildGitNamespace — worktreeList', () => {
         'HEAD abc123',
         'branch refs/heads/main',
         '',
-      ].join('\n'),
+        '',
+      ].join('\0'),
       exitCode: 0,
     });
 
@@ -183,6 +184,12 @@ describe('buildGitNamespace — worktreeList', () => {
     expect(out.error).toBeUndefined();
     expect(out.worktrees.length).toBeGreaterThanOrEqual(1);
     expect(out.worktrees[0].path).toBe('D:/ws');
+    expect(crossSpawnMock.mock.calls[0][1]).toEqual([
+      'worktree',
+      'list',
+      '--porcelain',
+      '-z',
+    ]);
   });
 
   it('returns error + [] when git exits non-zero', async () => {

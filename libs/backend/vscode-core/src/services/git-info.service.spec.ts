@@ -118,6 +118,33 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('worktree paths', () => {
+    it('requests NUL-delimited porcelain and preserves the returned path', async () => {
+      const repositoryPath = '/home/zoë/projects/研究\nrepository ';
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({
+          stdout: [
+            `worktree ${repositoryPath}`,
+            'HEAD abcdef1234567890',
+            'branch refs/heads/main',
+            '',
+            '',
+          ].join('\0'),
+          exitCode: 0,
+        }),
+      );
+
+      const [worktree] = await service.getWorktrees(WS);
+
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'worktree',
+        'list',
+        '--porcelain',
+        '-z',
+      ]);
+      expect(worktree.path).toBe(repositoryPath);
+      expect(worktree.isMain).toBe(true);
+    });
+
     it('uses the shared nested default for UI/backend creation', async () => {
       mockSpawn.mockImplementation(() =>
         makeSpawnResult({ stdout: '', exitCode: 0 }),
@@ -427,7 +454,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       [['symbolic-ref', '--short', 'HEAD']],
       [['stash', 'list', '--format=x']],
       [['stash', 'show']],
-      [['worktree', 'list', '--porcelain']],
+      [['worktree', 'list', '--porcelain', '-z']],
       [['tag', '--sort=-creatordate', '--format=x']],
       [['remote', '-v']],
       [['remote']],

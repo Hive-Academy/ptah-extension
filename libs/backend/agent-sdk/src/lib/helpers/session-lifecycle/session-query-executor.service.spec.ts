@@ -138,14 +138,12 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
   } as unknown as SdkQueryOptionsBuilder;
 
   const messageFactory = {
-    createUserMessage: jest
-      .fn()
-      .mockResolvedValue({
-        type: 'user',
-        session_id: 's',
-        message: { role: 'user', content: 'hello' },
-        parent_tool_use_id: null,
-      }),
+    createUserMessage: jest.fn().mockResolvedValue({
+      type: 'user',
+      session_id: 's',
+      message: { role: 'user', content: 'hello' },
+      parent_tool_use_id: null,
+    }),
   } as unknown as SdkMessageFactory;
 
   const authEnv = {} as AuthEnv;
@@ -428,9 +426,11 @@ describe('real watchdog query ownership regressions', () => {
       {} as SdkMessageFactory,
     );
     result.activityWatchdog.start();
-    const iterator = pump
-      .createUserMessageStream('pump' as SessionId, result.abortController)
-      [Symbol.asyncIterator]();
+    const stream = pump.createUserMessageStream(
+      'pump' as SessionId,
+      result.abortController,
+    );
+    const iterator = stream[Symbol.asyncIterator]();
     await iterator.next();
     expect(registry.find('pump')?.turnInFlight).toBe(true);
     result.activityWatchdog.hold();
@@ -468,12 +468,20 @@ describe('real watchdog query ownership regressions', () => {
         mode === 'reject'
           ? jest.fn().mockRejectedValue(new Error('transport failed'))
           : jest.fn().mockReturnValue(new Promise(() => undefined));
-      const cleanup = jest.fn(() => { if (mode === 'reject') throw new Error('cleanup failed'); });
-      const children = { beginSessionTeardown: jest.fn(), markAllInterrupted: jest.fn(), endSessionTeardown: jest.fn() };
+      const cleanup = jest.fn(() => {
+        if (mode === 'reject') throw new Error('cleanup failed');
+      });
+      const children = {
+        beginSessionTeardown: jest.fn(),
+        markAllInterrupted: jest.fn(),
+        endSessionTeardown: jest.fn(),
+      };
       const control = new SessionControl(
         makeLogger(),
         registry,
-        { cleanupPendingPermissions: cleanup } as unknown as ISdkPermissionHandler,
+        {
+          cleanupPendingPermissions: cleanup,
+        } as unknown as ISdkPermissionHandler,
         children as unknown as SubagentRegistryService,
         {} as IModelResolver,
         {} as SessionEndCallbackRegistry,
