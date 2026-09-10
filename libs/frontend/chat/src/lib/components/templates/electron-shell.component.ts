@@ -250,11 +250,11 @@ import {
         the rendered card opts back in with pointer-events-auto, which keeps
         the ticker's own button clickable.
 
-        top-11 clears the h-10 navbar row by 4px. Positioning lives here, not
+        top-6 clears the h-10 navbar row by 4px. Positioning lives here, not
         in ActivityTickerComponent, which stays presentational.
       -->
       <div
-        class="pointer-events-none fixed top-11 right-3 z-50 no-drag"
+        class="pointer-events-none fixed top-6 right-3 z-50 no-drag"
         data-testid="activity-toast-layer"
       >
         @if (!activity.isIdle()) {
