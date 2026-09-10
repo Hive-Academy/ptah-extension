@@ -136,6 +136,24 @@ describe('extractTaskIdFromPrompt', () => {
     ).toBe('TASK_2026_403_a1f2');
   });
 
+  it('stops a suffixed id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('task TASK_2026_403_a1f2_v2 was completed'),
+    ).toBe('TASK_2026_403_a1f2');
+  });
+
+  it('stops a legacy id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('legacy TASK_2026_146_ORCHESTRA_V2 shipped'),
+    ).toBe('TASK_2026_146_ORCHESTRA');
+  });
+
+  it('stops a specs-path id before an adjacent underscore segment', () => {
+    expect(
+      extractTaskIdFromPrompt('/repo/.ptah/specs/TASK_2026_403_a1f2_v2'),
+    ).toBe('TASK_2026_403_a1f2');
+  });
+
   it('returns null when multiple distinct bare ids are present', () => {
     expect(
       extractTaskIdFromPrompt('see TASK_2026_100 and TASK_2026_200'),

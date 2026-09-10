@@ -39,21 +39,23 @@ const NULL_METRICS: SubagentRunMetrics = {
 };
 
 /**
- * Specs-path-anchored task id: matches `.ptah/specs/TASK_YYYY_NNN`,
- * `/ptah/specs/TASK_...`, or `ptah\specs\TASK_...` (Windows). Immune to
- * incidental task-id mentions elsewhere in the prompt (e.g. `depends_on`).
+ * Specs-path-anchored task id: matches `.ptah/specs/TASK_YYYY_NNN_xxxx`,
+ * `/ptah/specs/TASK_...`, or `ptah\specs\TASK_...` (Windows). Legacy bare
+ * and named-suffix ids remain accepted. Immune to incidental task-id mentions
+ * elsewhere in the prompt (e.g. `depends_on`).
  */
 const SPECS_PATH_TASK_ID =
-  /[\\/.]?ptah[\\/]specs[\\/](TASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?)\b/i;
+  /[\\/.]?ptah[\\/]specs[\\/](TASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?)(?=$|[^A-Za-z0-9])/i;
 /** Bare task-id token, used only when the specs-path anchor is absent. */
-const BARE_TASK_ID = /\bTASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?\b/gi;
+const BARE_TASK_ID =
+  /\bTASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?(?=$|[^A-Za-z0-9])/gi;
 
 /**
  * Derive the exact task id a subagent was working on from its first user
  * prompt. Deterministic three-step rule (D3):
  *
  *  1. First specs-path-anchored `.../ptah/specs/TASK_X` match wins.
- *  2. Else, if exactly ONE distinct `TASK_YYYY_NNN` token appears, use it.
+ *  2. Else, if exactly ONE distinct task-id token appears, use it.
  *  3. Else null (ambiguous or absent → window fallback handles it later).
  *
  * Pure and side-effect free (exported for unit tests).
