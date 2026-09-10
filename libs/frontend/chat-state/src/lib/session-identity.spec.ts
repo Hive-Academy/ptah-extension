@@ -265,8 +265,11 @@ describe('session identity', () => {
   });
 
   it('removes paired underscore emphasis without changing identifiers', () => {
-    expect(deriveSessionTitle('Fix __parser__ today for user_id')).toBe(
-      'Fix parser today for user_id',
+    expect(deriveSessionTitle('_Plan release_ for user_id')).toBe(
+      'Plan release for user_id',
+    );
+    expect(deriveSessionTitle('Fix __parser__ today for file_reader')).toBe(
+      'Fix parser today for file_reader',
     );
   });
 

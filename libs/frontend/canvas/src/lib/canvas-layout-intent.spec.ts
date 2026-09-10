@@ -7,14 +7,16 @@ import {
 } from './canvas-layout-intent';
 
 const tiles = (...rows: readonly (readonly string[])[]): TileIntent[] =>
-  rows.flatMap((row, rowIndex) =>
-    row.map((tabId, index) => ({
-      tabId,
-      order: 0,
-      weight: 1,
-      rowBreakBefore: rowIndex > 0 && index === 0,
-    })),
-  ).map((tile, order) => ({ ...tile, order }));
+  rows
+    .flatMap((row, rowIndex) =>
+      row.map((tabId, index) => ({
+        tabId,
+        order: 0,
+        weight: 1,
+        rowBreakBefore: rowIndex > 0 && index === 0,
+      })),
+    )
+    .map((tile, order) => ({ ...tile, order }));
 
 const rowIds = (intent: readonly TileIntent[]): readonly string[][] =>
   logicalRows(intent).map((row) => row.map((tile) => tile.tabId));
@@ -24,7 +26,11 @@ describe('canvas layout intent', () => {
     const before = tiles(['A', 'B'], ['C', 'D']);
     const after = retainTilesInLogicalRows(before, new Set(['A', 'B', 'D']));
     expect(rowIds(after)).toEqual([['A', 'B'], ['D']]);
-    expect(after.map((tile) => tile.rowBreakBefore)).toEqual([false, false, true]);
+    expect(after.map((tile) => tile.rowBreakBefore)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 
   it('derives Auto/1/2/3 capacity without exceeding responsive capacity', () => {
@@ -47,6 +53,70 @@ describe('canvas layout intent', () => {
     expect(projected && rowIds(projected)).toEqual([['A', 'B'], ['C']]);
   });
 
+  it('preserves a later row boundary when its first tile fills the prior row', () => {
+    const projected = projectDragIntent(
+      tiles(['A', 'B'], ['C', 'D']),
+      [
+        { tabId: 'A', x: 0, y: 0 },
+        { tabId: 'B', x: 4, y: 0 },
+        { tabId: 'C', x: 8, y: 0 },
+        { tabId: 'D', x: 0, y: 6 },
+      ],
+      'C',
+      3,
+    );
+
+    expect(projected && rowIds(projected)).toEqual([['A', 'B', 'C'], ['D']]);
+  });
+
+  it('preserves that boundary when the later row tail is dragged instead', () => {
+    const projected = projectDragIntent(
+      tiles(['A', 'B'], ['C', 'D']),
+      [
+        { tabId: 'A', x: 0, y: 0 },
+        { tabId: 'B', x: 4, y: 0 },
+        { tabId: 'D', x: 8, y: 0 },
+        { tabId: 'C', x: 0, y: 6 },
+      ],
+      'D',
+      3,
+    );
+
+    expect(projected && rowIds(projected)).toEqual([['A', 'B', 'D'], ['C']]);
+  });
+
+  it('preserves an isolated dragged row after a full prior row', () => {
+    const projected = projectDragIntent(
+      tiles(['A', 'B', 'C'], ['D']),
+      [
+        { tabId: 'A', x: 0, y: 0 },
+        { tabId: 'B', x: 4, y: 0 },
+        { tabId: 'C', x: 8, y: 0 },
+        { tabId: 'D', x: 0, y: 6 },
+      ],
+      'D',
+      3,
+    );
+
+    expect(projected && rowIds(projected)).toEqual([['A', 'B', 'C'], ['D']]);
+  });
+
+  it('preserves a singleton source-row boundary when dragged after a later row', () => {
+    const projected = projectDragIntent(
+      tiles(['D'], ['A', 'B', 'C']),
+      [
+        { tabId: 'A', x: 0, y: 0 },
+        { tabId: 'B', x: 4, y: 0 },
+        { tabId: 'C', x: 8, y: 0 },
+        { tabId: 'D', x: 0, y: 6 },
+      ],
+      'D',
+      3,
+    );
+
+    expect(projected && rowIds(projected)).toEqual([['A', 'B', 'C'], ['D']]);
+  });
+
   it('allows capacity-one reorder only inside existing logical row blocks', () => {
     const before = tiles(['A', 'B'], ['C', 'D']);
     const valid = projectDragIntent(
@@ -55,7 +125,10 @@ describe('canvas layout intent', () => {
       'D',
       1,
     );
-    expect(valid && rowIds(valid)).toEqual([['A', 'B'], ['D', 'C']]);
+    expect(valid && rowIds(valid)).toEqual([
+      ['A', 'B'],
+      ['D', 'C'],
+    ]);
 
     const invalid = projectDragIntent(
       before,
@@ -68,32 +141,57 @@ describe('canvas layout intent', () => {
 
   it('rejects missing, duplicate, unknown and invalid observations', () => {
     const before = tiles(['A', 'B']);
-    expect(projectDragIntent(before, [{ tabId: 'A', x: 0, y: 0 }], 'A', 2)).toBeNull();
-    expect(projectDragIntent(before, [
-      { tabId: 'A', x: 0, y: 0 },
-      { tabId: 'A', x: 1, y: 0 },
-    ], 'A', 2)).toBeNull();
-    expect(projectDragIntent(before, [
-      { tabId: 'A', x: 0, y: 0 },
-      { tabId: 'ghost', x: 1, y: 0 },
-    ], 'A', 2)).toBeNull();
-    expect(projectDragIntent(before, [
-      { tabId: 'A', x: Number.NaN, y: 0 },
-      { tabId: 'B', x: 1, y: 0 },
-    ], 'A', 2)).toBeNull();
+    expect(
+      projectDragIntent(before, [{ tabId: 'A', x: 0, y: 0 }], 'A', 2),
+    ).toBeNull();
+    expect(
+      projectDragIntent(
+        before,
+        [
+          { tabId: 'A', x: 0, y: 0 },
+          { tabId: 'A', x: 1, y: 0 },
+        ],
+        'A',
+        2,
+      ),
+    ).toBeNull();
+    expect(
+      projectDragIntent(
+        before,
+        [
+          { tabId: 'A', x: 0, y: 0 },
+          { tabId: 'ghost', x: 1, y: 0 },
+        ],
+        'A',
+        2,
+      ),
+    ).toBeNull();
+    expect(
+      projectDragIntent(
+        before,
+        [
+          { tabId: 'A', x: Number.NaN, y: 0 },
+          { tabId: 'B', x: 1, y: 0 },
+        ],
+        'A',
+        2,
+      ),
+    ).toBeNull();
   });
 
   it('rejects a projection that interleaves non-dragged logical-row members', () => {
-    expect(projectDragIntent(
-      tiles(['A', 'B'], ['C', 'D']),
-      [
-        { tabId: 'A', x: 0, y: 0 },
-        { tabId: 'D', x: 6, y: 0 },
-        { tabId: 'C', x: 0, y: 6 },
-        { tabId: 'B', x: 6, y: 6 },
-      ],
-      'D',
-      2,
-    )).toBeNull();
+    expect(
+      projectDragIntent(
+        tiles(['A', 'B'], ['C', 'D']),
+        [
+          { tabId: 'A', x: 0, y: 0 },
+          { tabId: 'D', x: 6, y: 0 },
+          { tabId: 'C', x: 0, y: 6 },
+          { tabId: 'B', x: 6, y: 6 },
+        ],
+        'D',
+        2,
+      ),
+    ).toBeNull();
   });
 });

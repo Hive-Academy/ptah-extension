@@ -136,11 +136,15 @@ test.describe('Canvas', () => {
     await ui.goto('canvas');
 
     const createTile = async (): Promise<void> => {
-      const priorCount = await page.locator('[data-testid="canvas-tile"]').count();
+      const priorCount = await page
+        .locator('[data-testid="canvas-tile"]')
+        .count();
       if (priorCount === 0) {
         await page.getByRole('button', { name: 'Create new session' }).click();
       } else {
-        await page.getByRole('button', { name: 'Add new session tile' }).click();
+        await page
+          .getByRole('button', { name: 'Add new session tile' })
+          .click();
       }
       await page.getByRole('button', { name: 'Create', exact: true }).click();
       await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(
@@ -176,9 +180,7 @@ test.describe('Canvas', () => {
       expected: Geometry,
     ): Promise<void> => {
       const priorWidth = await metric('data-canvas-measured-width');
-      const priorComputations = await metric(
-        'data-canvas-layout-computations',
-      );
+      const priorComputations = await metric('data-canvas-layout-computations');
       await page.setViewportSize({ width, height });
       await expect
         .poll(() => metric('data-canvas-measured-width'))
@@ -199,7 +201,8 @@ test.describe('Canvas', () => {
     const firstBox = await items.nth(0).boundingBox();
     const thirdHandle = items.nth(2).locator('.tile-header');
     const thirdBox = await thirdHandle.boundingBox();
-    if (!firstBox || !thirdBox) throw new Error('Canvas tile handles are not measurable');
+    if (!firstBox || !thirdBox)
+      throw new Error('Canvas tile handles are not measurable');
     await page.mouse.move(
       thirdBox.x + thirdBox.width / 2,
       thirdBox.y + thirdBox.height / 2,
@@ -214,11 +217,9 @@ test.describe('Canvas', () => {
     );
     await page.mouse.up();
 
-    await expect.poll(async () => (await readGeometry()).map(({ y }) => y)).toEqual([
-      '0',
-      '0',
-      '6',
-    ]);
+    await expect
+      .poll(async () => (await readGeometry()).map(({ y }) => y))
+      .toEqual(['0', '0', '6']);
 
     // Real east-handle resize: shrink the first tile by roughly one grid unit.
     // The intent writer stores relative weights and the geometry owner
@@ -242,12 +243,17 @@ test.describe('Canvas', () => {
       { steps: 16 },
     );
     await page.mouse.up();
-    await expect.poll(async () => {
-      const widths = await items.evaluateAll((nodes) =>
-        nodes.slice(0, 2).map((node) => Number(node.getAttribute('gs-w'))),
-      );
-      return { unequal: widths[0] !== widths[1], total: widths[0] + widths[1] };
-    }).toEqual({ unequal: true, total: 12 });
+    await expect
+      .poll(async () => {
+        const widths = await items.evaluateAll((nodes) =>
+          nodes.slice(0, 2).map((node) => Number(node.getAttribute('gs-w'))),
+        );
+        return {
+          unequal: widths[0] !== widths[1],
+          total: widths[0] + widths[1],
+        };
+      })
+      .toEqual({ unequal: true, total: 12 });
     const wideGeometry = await readGeometry();
 
     const marker = `row-intent-${Date.now()}`;
@@ -273,14 +279,24 @@ test.describe('Canvas', () => {
     };
     await switchWorkspace(WS_B, 'row-b');
     await switchWorkspace(WS_A, 'row-a');
-    await expect(items.nth(2)).toHaveAttribute('data-row-intent-marker', marker);
-    await expect.poll(async () => items.evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute('gs-y')),
-    )).toEqual(['0', '0', '6']);
+    await expect(items.nth(2)).toHaveAttribute(
+      'data-row-intent-marker',
+      marker,
+    );
+    await expect
+      .poll(async () =>
+        items.evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('gs-y')),
+        ),
+      )
+      .toEqual(['0', '0', '6']);
 
     // Move a first-row tile into the explicit second row. C currently spans
     // that row, so this also exercises Gridstack collision/gravity projection.
-    const firstHeaderBox = await items.nth(0).locator('.tile-header').boundingBox();
+    const firstHeaderBox = await items
+      .nth(0)
+      .locator('.tile-header')
+      .boundingBox();
     const secondRowBox = await items.nth(2).boundingBox();
     if (!firstHeaderBox || !secondRowBox) {
       throw new Error('Gridstack rows are not measurable for the second drag');
@@ -296,7 +312,9 @@ test.describe('Canvas', () => {
       { steps: 24 },
     );
     await page.mouse.up();
-    await expect.poll(async () => items.nth(0).getAttribute('gs-y')).not.toBe('0');
+    await expect
+      .poll(async () => items.nth(0).getAttribute('gs-y'))
+      .not.toBe('0');
     await expect(grid).toHaveAttribute('data-canvas-gesture-commits', '3');
 
     // A real pointer gesture cancelled by locking must settle the engine back
@@ -307,16 +325,19 @@ test.describe('Canvas', () => {
     );
     const cancelHandle = items.nth(2).locator('.tile-header');
     const cancelBox = await cancelHandle.boundingBox();
-    if (!cancelBox) throw new Error('Cancellation drag handle is not measurable');
+    if (!cancelBox)
+      throw new Error('Cancellation drag handle is not measurable');
     await page.mouse.move(
       cancelBox.x + cancelBox.width / 2,
       cancelBox.y + cancelBox.height / 2,
     );
     await page.mouse.down();
     await page.mouse.move(cancelBox.x + 80, cancelBox.y - 80, { steps: 8 });
-    await page.getByRole('button', { name: 'Lock tiles' }).evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
+    await page
+      .getByRole('button', { name: 'Lock tiles' })
+      .evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
     await page.mouse.up();
     const preferenceButtons = page
       .getByRole('group', { name: 'Maximum tiles per row' })
@@ -333,7 +354,9 @@ test.describe('Canvas', () => {
     for (let index = 0; index < 4; index += 1) {
       await expect(preferenceButtons.nth(index)).toBeEnabled();
     }
-    await expect(page.locator('gridstack')).not.toHaveClass(/grid-stack-static/);
+    await expect(grid.locator('gridstack')).not.toHaveClass(
+      /grid-stack-static/,
+    );
 
     // Pointer down/up in place can produce either an accepted semantic no-op
     // or no Gridstack change event. Both paths must clear the latch, preserve

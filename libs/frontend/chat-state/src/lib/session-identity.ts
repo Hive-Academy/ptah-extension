@@ -36,6 +36,7 @@ export function deriveSessionTitle(message: string): string {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+[.)]\s+)/gm, '')
     .replace(/(^|[^\w])__([^_\n]+?)__(?=$|[^\w])/g, '$1$2')
+    .replace(/(^|[^\w])_([^_\n]+?)_(?=$|[^\w])/g, '$1$2')
     .replace(/[*~`]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

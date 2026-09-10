@@ -34,13 +34,15 @@ export function retainTilesInLogicalRows(
   const survivingRows = logicalRows(tiles)
     .map((row) => row.filter((tile) => retainedIds.has(tile.tabId)))
     .filter((row) => row.length > 0);
-  return survivingRows.flatMap((row, rowIndex) =>
-    row.map((tile, index) => ({
-      ...tile,
-      order: 0,
-      rowBreakBefore: rowIndex > 0 && index === 0,
-    })),
-  ).map((tile, order) => ({ ...tile, order }));
+  return survivingRows
+    .flatMap((row, rowIndex) =>
+      row.map((tile, index) => ({
+        ...tile,
+        order: 0,
+        rowBreakBefore: rowIndex > 0 && index === 0,
+      })),
+    )
+    .map((tile, order) => ({ ...tile, order }));
 }
 
 export function effectiveCapacity(
@@ -104,7 +106,6 @@ export function projectDragIntent(
   priorRows.forEach((row, rowIndex) =>
     row.forEach((tile) => priorRowById.set(tile.tabId, rowIndex)),
   );
-
   if (capacity === 1) {
     const rowSequence = observed.map((item) => priorRowById.get(item.tabId));
     const collapsed = rowSequence.filter(
@@ -134,13 +135,19 @@ export function projectDragIntent(
   const result: TileIntent[] = [];
   groups.forEach((group, groupIndex) => {
     const previous = groups[groupIndex - 1];
-    const first = group[0];
-    let breakBefore = groupIndex > 0 && (previous?.length ?? capacity) < capacity;
+    let breakBefore =
+      groupIndex > 0 && (previous?.length ?? capacity) < capacity;
     if (groupIndex > 0 && previous?.length === capacity) {
-      const previousId = previous[previous.length - 1].tabId;
-      const previousRow = priorRowById.get(previousId);
-      const currentRow = priorRowById.get(first.tabId);
-      breakBefore = previousRow !== currentRow;
+      const previousId = [...previous]
+        .reverse()
+        .find((item) => item.tabId !== draggedId)?.tabId;
+      const currentId = group.find((item) => item.tabId !== draggedId)?.tabId;
+      const previousRow = previousId ? priorRowById.get(previousId) : undefined;
+      const currentRow = priorRowById.get(currentId ?? draggedId);
+      breakBefore =
+        previousRow !== undefined &&
+        currentRow !== undefined &&
+        previousRow !== currentRow;
     }
     group.forEach((item, index) => {
       result.push({
