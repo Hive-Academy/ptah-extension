@@ -25,6 +25,8 @@
  *   `libs/backend/agent-sdk/src/lib/openai-translation/responses-stream-translator.ts`
  */
 
+import { translateResponsesUsage } from './translation-proxy-helpers';
+import { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream';
 import { ResponsesStreamTranslator } from './responses-stream-translator';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,114 @@ function parseAll(sseArray: readonly string[]): ParsedEvent[] {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe('ResponsesStreamTranslator — final usage', () => {
+  it.each([undefined, null, {}])('defaults missing usage %j without inventing cache', (usage) => {
+    expect(translateResponsesUsage(usage)).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+  it.each([
+    { input_tokens: -1 }, { output_tokens: -1 },
+    { input_tokens_details: { cached_tokens: -1 } },
+    { input_tokens: '42' }, { input_tokens: Infinity },
+  ])('rejects malformed usage %j at the boundary', (usage) => {
+    expect(() => translateResponsesUsage(usage)).toThrow();
+  });
+  it.each([-1, 'private-upstream-value', null])('terminates malformed completed usage %j safely', async (input) => {
+    const t = new ResponsesStreamTranslator('m', 'invalid');
+    const initial = t.getInitialEvents();
+    const output = t.processChunk(responsesSse('response.completed', {
+      response: { usage: { input_tokens: input, output_tokens: 9 } },
+    }));
+    expect(parseAll(output)).toEqual([{ event: 'error', data: {
+      type: 'error', error: { type: 'api_error', message: 'Invalid upstream Responses usage' },
+    } }]);
+    expect(t.processChunk('data: [DONE]\n\n' +
+      responsesSse('response.completed', { response: { usage: { input_tokens: 42 } } }) +
+      responsesSse('response.output_text.delta', { delta: 'must not appear' }) +
+      responsesSse('response.output_item.added', { output_index: 0,
+        item: { type: 'function_call', call_id: 'call', name: 'read_file' } }) +
+      responsesSse('response.function_call_arguments.delta', { output_index: 0, delta: '{}' }) +
+      responsesSse('response.output_item.done', { output_index: 0,
+        item: { type: 'function_call', call_id: 'call', name: 'read_file', arguments: '{}' } }),
+    )).toEqual([]);
+    const wire = [initial, ...output].map((event) =>
+      JSON.stringify(parseAnthropicSse(event).data)).join('\n') + '\n';
+    const readable = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(wire));
+      controller.close();
+    } });
+    // This SDK entry point ingests decoded events (not the HTTP SSE error
+    // parser). It must reject an errored stream, never return a final message.
+    await expect(MessageStream.fromReadableStream(readable).finalMessage())
+      .rejects.toThrow('stream ended without producing a Message');
+  });
+
+  it('installed Anthropic SDK accumulator consumes final input/cache updates', async () => {
+    const t = new ResponsesStreamTranslator('m', 'sdk-usage');
+    const events = [t.getInitialEvents(), ...t.processChunk(
+      responsesSse('response.output_text.delta', { delta: 'hello' }) +
+      responsesSse('response.completed', { response: { usage: {
+        input_tokens: 42, input_tokens_details: { cached_tokens: 12 }, output_tokens: 9,
+      } } }),
+    )];
+    // SDK fromReadableStream expects newline-delimited JSON events, not SSE.
+    // Use its real accumulator; no model, transport mock, or credentials involved.
+    const wire = events.map((event) => JSON.stringify(parseAnthropicSse(event).data)).join('\n') + '\n';
+    const readable = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(wire));
+      controller.close();
+    } });
+    const message = await MessageStream.fromReadableStream(readable).finalMessage();
+    expect(message.usage).toMatchObject({ input_tokens: 30, cache_read_input_tokens: 12, output_tokens: 9 });
+    expect(message.content).toEqual([{ type: 'text', text: 'hello' }]);
+  });
+  it.each([
+    [undefined, 42, undefined],
+    [{}, 42, undefined],
+    [{ cached_tokens: 0 }, 42, 0],
+    [{ cached_tokens: 12 }, 30, 12],
+    [{ cached_tokens: 99 }, 0, 42],
+  ])('separates input/cache for details %j', (details, input, cache) => {
+    const t = new ResponsesStreamTranslator('m', 'usage');
+    const events = parseAll(t.processChunk(responsesSse('response.completed', {
+      response: { usage: { input_tokens: 42, output_tokens: 9,
+        input_tokens_details: details, output_tokens_details: { reasoning_tokens: 7 } } },
+    })));
+    expect(events.find((event) => event.event === 'message_delta')?.data['usage']).toEqual({
+      input_tokens: input, output_tokens: 9,
+      ...(cache !== undefined ? { cache_read_input_tokens: cache } : {}),
+    });
+    expect(t.processChunk(responsesSse('response.completed', {
+      response: { usage: { input_tokens: 999, output_tokens: 999 } },
+    }))).toEqual([]);
+  });
+
+  it('keeps usage scoped to each tool turn', () => {
+    for (const cached of [12, 30]) {
+      const t = new ResponsesStreamTranslator('m', `turn-${cached}`);
+      t.processChunk(responsesSse('response.output_item.added', {
+        output_index: 0, item: { type: 'function_call', call_id: 'call', name: 'read_file' },
+      }));
+      const events = parseAll(t.processChunk(responsesSse('response.completed', {
+        response: { usage: { input_tokens: 42, output_tokens: 9,
+          input_tokens_details: { cached_tokens: cached } } },
+      })));
+      expect(events.find((event) => event.event === 'message_delta')?.data).toMatchObject({
+        delta: { stop_reason: 'tool_use' },
+        usage: { input_tokens: 42 - cached, cache_read_input_tokens: cached, output_tokens: 9 },
+      });
+    }
+  });
+
+  it.each(['response.failed', 'error', 'response.incomplete'])(
+    'does not publish successful usage from unsupported terminal %s', (type) => {
+      const t = new ResponsesStreamTranslator('m', 'terminal');
+      expect(t.processChunk(responsesSse(type, {
+        response: { usage: { input_tokens: 42, output_tokens: 9 } },
+      }))).toEqual([]);
+    },
+  );
+});
 
 describe('ResponsesStreamTranslator — initial framing', () => {
   it('getInitialEvents() emits a message_start with the model, request id and zero usage', () => {

@@ -21,6 +21,39 @@ function harness() {
 }
 
 describe('collectResponsesStream', () => {
+  it('contains malformed terminal usage and cleans up the stream', async () => {
+    const h = harness();
+    const assertion = expect(h.result).rejects.toThrow('Invalid Responses event stream');
+    h.upstream.end(frame('response.completed', { ...snapshot,
+      usage: { input_tokens: 'private-upstream-value', output_tokens: 9 } }));
+    await assertion;
+    expect(h.upstream.destroyed).toBe(true);
+    expect(h.downstream.listenerCount('close')).toBe(0);
+  });
+  it.each([
+    [undefined, 42, undefined],
+    [{}, 42, undefined],
+    [{ cached_tokens: 0 }, 42, 0],
+    [{ cached_tokens: 12 }, 30, 12],
+    [{ cached_tokens: 99 }, 0, 42],
+  ])('preserves bounded input/cache accounting %j', async (details, input, cache) => {
+    const h = harness();
+    h.upstream.end(frame('response.completed', { ...snapshot, usage: {
+      input_tokens: 42, output_tokens: 9, input_tokens_details: details,
+      output_tokens_details: { reasoning_tokens: 7 },
+    } }));
+    expect((await h.result)['usage']).toEqual({ input_tokens: input, output_tokens: 9,
+      ...(cache !== undefined ? { cache_read_input_tokens: cache } : {}) });
+  });
+
+  it('forwards usage on valid max-output incomplete responses', async () => {
+    const h = harness();
+    h.upstream.end(frame('response.incomplete', { ...snapshot, status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      usage: { input_tokens: 42, output_tokens: 9, input_tokens_details: { cached_tokens: 12 } } }));
+    expect(await h.result).toMatchObject({ stop_reason: 'max_tokens',
+      usage: { input_tokens: 30, cache_read_input_tokens: 12, output_tokens: 9 } });
+  });
   it.each(['\r', '\r\n', '\n'])('accepts complete byte-split delimiter %j at EOF', async (delimiter) => {
     const h = harness();
     for (const char of frame('response.completed').replace(/\r\n/g, delimiter)) h.upstream.write(char);

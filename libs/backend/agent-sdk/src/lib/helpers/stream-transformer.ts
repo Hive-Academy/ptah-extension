@@ -31,6 +31,7 @@ import {
   isSystemInit,
   isStreamEvent,
   isMessageStart,
+  isMessageDelta,
   isCompactBoundary,
   isLocalCommandOutput,
   isTaskStarted,
@@ -71,10 +72,15 @@ export interface ResultModelUsage {
   /** Cache read input tokens for this model (cumulative across all turns) */
   cacheReadInputTokens: number;
   /**
-   * Current context fill from the last API turn (input + cache_read tokens).
-   * Unlike the cumulative inputTokens/cacheReadInputTokens, this represents
-   * the actual prompt size sent on the most recent turn — i.e., the real
-   * context window fill level. Undefined if no message_start was captured.
+   * Current context fill from the last API turn (input + cache_read +
+   * cache_creation tokens). Unlike the cumulative
+   * inputTokens/cacheReadInputTokens, this represents the actual prompt size
+   * sent on the most recent turn — i.e., the real context window fill level.
+   * Written from `message_start` usage and replaced by the final
+   * `message_delta` usage when the delta carries input/cache numbers (proxied
+   * providers send only synthetic zeros in `message_start` and the real
+   * numbers in the delta). Excludes cumulative output. Undefined if no usage
+   * was captured for the model.
    */
   lastTurnContextTokens?: number;
 }
@@ -284,7 +290,19 @@ export class StreamTransformer {
         let sdkMessageCount = 0;
         let yieldedEventCount = 0;
         let effectiveSessionId = sessionId;
-        const lastTurnContextByModel = new Map<string, number>();
+        // Per-component last-turn context, keyed by model. message_start
+        // REPLACES all three components; the final message_delta REPLACES only
+        // the components it carries (`??` skips null/undefined only, so an
+        // explicit 0 is a real reading and an absent field keeps the last
+        // known value). Components are stored separately so an output-only
+        // delta — the direct Anthropic shape — cannot zero input/cache.
+        const lastTurnContextByModel = new Map<
+          string,
+          { input: number; cacheRead: number; cacheCreation: number }
+        >();
+        // message_delta carries no model, so the tracker remembers the model
+        // of the message_start it belongs to.
+        let currentStreamModel: string | null = null;
         let loggedEagerMcpTools = false;
 
         // Arm the no-activity watchdog before consuming the stream. It fires
@@ -304,13 +322,45 @@ export class StreamTransformer {
               if (isMessageStart(event)) {
                 const model = event.message.model;
                 const turnUsage = event.message.usage;
+                currentStreamModel = model ?? null;
                 if (model && turnUsage) {
-                  lastTurnContextByModel.set(
-                    model,
-                    (turnUsage.input_tokens ?? 0) +
-                      (turnUsage.cache_read_input_tokens ?? 0) +
-                      (turnUsage.cache_creation_input_tokens ?? 0),
-                  );
+                  lastTurnContextByModel.set(model, {
+                    input: turnUsage.input_tokens ?? 0,
+                    cacheRead: turnUsage.cache_read_input_tokens ?? 0,
+                    cacheCreation: turnUsage.cache_creation_input_tokens ?? 0,
+                  });
+                }
+              } else if (isMessageDelta(event)) {
+                // Proxied providers (Codex/OpenRouter via the responses
+                // translation proxy) emit message_start with synthetic zero
+                // usage and the real input/cache numbers ONLY in the final
+                // message_delta. Read them here so the context gauge tracks
+                // the real prompt size. `MessageDeltaEvent.usage` is typed
+                // output-only because direct Anthropic deltas normally are,
+                // so read the optional input/cache fields through the same
+                // widened structural cast as
+                // stream-event.transformer's onMessageDelta.
+                const model = currentStreamModel;
+                const previous = model
+                  ? lastTurnContextByModel.get(model)
+                  : undefined;
+                const usage = (
+                  event as {
+                    usage?: {
+                      input_tokens?: number;
+                      cache_read_input_tokens?: number;
+                      cache_creation_input_tokens?: number;
+                    };
+                  }
+                ).usage;
+                if (model && previous && usage) {
+                  lastTurnContextByModel.set(model, {
+                    input: usage.input_tokens ?? previous.input,
+                    cacheRead: usage.cache_read_input_tokens ?? previous.cacheRead,
+                    cacheCreation:
+                      usage.cache_creation_input_tokens ??
+                      previous.cacheCreation,
+                  });
                 }
               }
             }
@@ -401,6 +451,7 @@ export class StreamTransformer {
                     }
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
+                    const trackedContext = lastTurnContextByModel.get(model);
                     modelUsageList.push({
                       model: resolvedModel,
                       inputTokens: usage.inputTokens,
@@ -411,8 +462,11 @@ export class StreamTransformer {
                           : knownContextWindow,
                       costUSD,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-                      lastTurnContextTokens:
-                        lastTurnContextByModel.get(model) ?? undefined,
+                      lastTurnContextTokens: trackedContext
+                        ? trackedContext.input +
+                          trackedContext.cacheRead +
+                          trackedContext.cacheCreation
+                        : undefined,
                     });
                   }
                   if (modelUsageList.length > 1) {

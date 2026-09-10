@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_progress
 type: BUGFIX
 title: Fix Codex proxy cache accounting and verify context and skill invocation
 description: >-
