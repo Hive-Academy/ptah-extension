@@ -19,6 +19,14 @@ Across the conversation the intent sharpened:
   and supplied a screenshot. This is the highest-priority item to them.
 - The user wants **persistence to survive workspace switches** while many
   sessions are open.
+- The user explicitly wants a three-tile canvas to support a durable **2+1
+  arrangement**: dragging the third tile onto a second row must survive layout
+  re-application, container resize, workspace switches and restart. Responsive
+  wrapping may add temporary rows at narrower widths, but it must not erase the
+  user's explicit row break when the canvas widens again.
+- The canvas needs an **Auto / 1 / 2 / 3 tiles-per-row preference** in addition
+  to manual early row breaks. Geometry remains derived; neither feature permits
+  persisted Gridstack coordinates.
 - The user wants a **notification center**: a bell near the theme toggle that
   surfaces finished sessions, pending permission requests and pending
   `AskUserQuestion` prompts, with a short sound, and a click that focuses the
@@ -30,7 +38,10 @@ Across the conversation the intent sharpened:
 |---|---|---|
 | Host priority | **Electron first.** VS Code may hide a capability if it is a blocker. | The webview CSP stops being a hard constraint on the sound. Per-host gating follows the existing `@if (!isElectron)` convention. |
 | Session target | **Many running at once**, not merely many open. | The renderer plan alone is insufficient. A concurrency track is required. |
-| This task | **Write the specification only.** No production code yet. | This folder is the deliverable. Implementation is a follow-up. |
+| Step 0 | **Session identity is implemented and independently approved.** | The remaining canvas work still requires an implementation plan and user approval before source changes. |
+| Row-layout semantics | **One workspace-level Auto / 1 / 2 / 3 maximum plus manual early row breaks.** | Accepted as the sensible default. Narrow layouts preserve prior logical rows; users widen the canvas or change the control before making an otherwise ambiguous split/merge. No per-row configuration question remains. |
+| Immediate canvas batch | **R1-lite + R4a implemented; independent review is next, then R4b.** | The batch establishes one geometry writer and measurable update counts with in-memory row intent. Restoration/disposal and persistence remain deliberately separate. Compact redesign remains independent; LOD is not a prerequisite. |
+| Canvas disposal | **Ordinary view/panel disposal must not close sessions.** | Persist pending intent, destroy only the view, and reserve tab/session closure for an explicit close action. A real destroy/remount test is required. |
 
 ## How the analysis was produced
 

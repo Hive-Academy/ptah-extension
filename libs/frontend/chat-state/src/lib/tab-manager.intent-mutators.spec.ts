@@ -985,21 +985,23 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(service.getTabViewMode(id)).toBe('full');
     });
 
-    it('applyNewConversationDraft sets draft + clears claudeSessionId', () => {
+    it('applyNewConversationDraft preserves a user name, sets draft, and clears claudeSessionId', () => {
       const id = service.createTab('draft');
       service.attachSession(id, SESS_PRE);
       service.applyNewConversationDraft(id, 'Drafted');
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.status).toBe('draft');
-      expect(tab?.name).toBe('Drafted');
+      expect(tab?.name).toBe('draft');
+      expect(tab?.titleOrigin).toBe('user');
       expect(tab?.claudeSessionId).toBeNull();
     });
 
-    it('applyNewConversationStreaming applies name+title and forces streaming', () => {
+    it('applyNewConversationStreaming preserves a user title and forces streaming', () => {
       const id = service.createTab('go');
-      service.applyNewConversationStreaming(id, 'Auto Name');
+      service.applyNewConversationStreaming(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.name).toBe('Auto Name');
+      expect(tab?.name).toBe('go');
+      expect(tab?.titleOrigin).toBe('user');
       expect(tab?.status).toBe('streaming');
     });
   });

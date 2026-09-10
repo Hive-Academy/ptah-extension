@@ -27,6 +27,8 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
+import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -50,11 +52,12 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasStore, CanvasLayoutService],
+  providers: [CanvasStore, CanvasLayoutService, CanvasRenderMetricsService],
   imports: [
     FormsModule,
     CanvasWorkspaceGridComponent,
     CanvasEmptyStateComponent,
+    CanvasLayoutControlsComponent,
     LucideAngularModule,
     NativePopoverComponent,
   ],
@@ -85,6 +88,10 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
           (createSession)="openNewSessionPopover()"
         />
       } @else {
+        <ptah-canvas-layout-controls
+          class="absolute top-3 right-4 z-20"
+          [locked]="locked()"
+        />
         <!-- Lock toggle: freezes the layout and disables drag/resize -->
         <button
           class="absolute bottom-20 right-4 z-20 btn btn-circle shadow-lg"

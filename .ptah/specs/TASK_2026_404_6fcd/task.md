@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_404_6fcd
-status: backlog
+status: in_progress
 type: feature
 title: Scale the Orchestra Canvas beyond nine tiles
 description: >-

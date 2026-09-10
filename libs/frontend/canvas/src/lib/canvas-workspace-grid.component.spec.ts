@@ -52,7 +52,10 @@ jest.mock('gridstack/dist/angular', () => {
   class GridstackStub {
     @Input() options: unknown = null;
     @Output() changeCB = new EventEmitter<unknown>();
+    @Output() dragStartCB = new EventEmitter<unknown>();
+    @Output() dragCB = new EventEmitter<unknown>();
     @Output() dragStopCB = new EventEmitter<unknown>();
+    @Output() resizeStartCB = new EventEmitter<unknown>();
     @Output() resizeStopCB = new EventEmitter<unknown>();
     grid: unknown = null;
   }
@@ -80,8 +83,9 @@ import { By } from '@angular/platform-browser';
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasStore } from './canvas.store';
-import { CanvasLayoutService } from './canvas-layout.service';
+import { CanvasLayoutService, MIN_TILE_WIDTH } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
+import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 
 const WORKSPACE = '/ws/a';
 /** Container width that derives 3 columns (3 * (480 + 8) - 8). */
@@ -101,6 +105,7 @@ interface FakeNode {
 interface FakeGrid {
   readonly engine: { nodes: FakeNode[] };
   readonly cellHeight: jest.Mock;
+  readonly getCellHeight: jest.Mock;
   readonly setStatic: jest.Mock;
   readonly onResize: jest.Mock;
   readonly update: jest.Mock;
@@ -124,6 +129,7 @@ function createFakeGrid(): FakeGrid {
   const grid: FakeGrid = {
     engine,
     cellHeight: jest.fn(),
+    getCellHeight: jest.fn(() => 120),
     setStatic: jest.fn(),
     onResize: jest.fn(),
     update: jest.fn(
@@ -144,7 +150,10 @@ function createFakeGrid(): FakeGrid {
     seed(nodes) {
       engine.nodes.length = 0;
       for (const node of nodes) {
-        engine.nodes.push({ ...node, el: document.createElement('div') });
+        const complete = { ...node, el: document.createElement('div') };
+        (complete.el as HTMLElement & { gridstackNode?: FakeNode }).gridstackNode =
+          complete;
+        engine.nodes.push(complete);
       }
     },
   };
@@ -186,7 +195,10 @@ describe('CanvasWorkspaceGridComponent', () => {
     options: unknown;
     changeCB: EventEmitter<unknown>;
     dragStopCB: EventEmitter<unknown>;
+    dragStartCB: EventEmitter<unknown>;
+    dragCB: EventEmitter<unknown>;
     resizeStopCB: EventEmitter<unknown>;
+    resizeStartCB: EventEmitter<unknown>;
   } => fixture.debugElement.query(By.css('gridstack')).componentInstance;
 
   beforeEach(() => {
@@ -233,6 +245,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       providers: [
         CanvasStore,
         CanvasLayoutService,
+        CanvasRenderMetricsService,
         { provide: TabManagerService, useValue: tabManagerMock },
       ],
     });
@@ -244,8 +257,8 @@ describe('CanvasWorkspaceGridComponent', () => {
     store = TestBed.inject(CanvasStore);
     layoutService = TestBed.inject(CanvasLayoutService);
     layoutService.observe(document.createElement('div'));
-    reorderSpy = jest.spyOn(store, 'reorderTiles');
-    weightsSpy = jest.spyOn(store, 'setTileWeights');
+    reorderSpy = jest.spyOn(store, 'commitDragIntent');
+    weightsSpy = jest.spyOn(store, 'commitResizeWeights');
   });
 
   afterEach(() => {
@@ -289,11 +302,30 @@ describe('CanvasWorkspaceGridComponent', () => {
     }
   }
 
-  const fireDragStop = (): void =>
-    gridStub().dragStopCB.emit({ event: new Event('dragstop') });
+  const fireDragStop = (nodeIndex = 0): void => {
+    gridStub().dragStartCB.emit({
+      event: new Event('dragstart'),
+      el: grid.engine.nodes[nodeIndex].el,
+    });
+    gridStub().dragStopCB.emit({
+      event: new Event('dragstop'),
+      el: grid.engine.nodes[nodeIndex].el,
+    });
+  };
 
-  const fireResizeStop = (): void =>
-    gridStub().resizeStopCB.emit({ event: new Event('resizestop') });
+  const fireResizeStop = (): void => {
+    gridStub().resizeStartCB.emit({
+      event: new Event('resizestart'),
+      el: grid.engine.nodes[0].el,
+    });
+    gridStub().resizeStopCB.emit({
+      event: new Event('resizestop'),
+      el: grid.engine.nodes[0].el,
+    });
+  };
+
+  const engineGeometry = (): Array<[unknown, number | undefined, number | undefined, number | undefined, number | undefined]> =>
+    grid.engine.nodes.map((node) => [node.id, node.x, node.y, node.w, node.h]);
 
   describe('grid options', () => {
     it('runs with gravity on, horizontal-only resize and a header drag handle', () => {
@@ -343,6 +375,162 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('gesture translation', () => {
+    it('commits an explicit 2+1 break and restores it after narrow reflow', () => {
+      mount(['t1', 't2', 't3']);
+      grid.engine.nodes[0].x = 0;
+      grid.engine.nodes[1].x = 6;
+      grid.engine.nodes[2].x = 0;
+      grid.engine.nodes[2].y = 6;
+      fireDragStop(2);
+      grid.emitChange();
+      flush();
+
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        true,
+      ]);
+      measure(MIN_TILE_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((node) => node.y)).toEqual([0, 6, 12]);
+      measure(THREE_COLUMN_WIDTH);
+      flush();
+      expect(grid.engine.nodes.map((node) => node.y)).toEqual([0, 0, 6]);
+    });
+
+    it('rejects a gesture whose workspace revision changes before commit', () => {
+      mount(['t1', 't2']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 7, y: 6, w: 5 });
+      store.adoptTab('t3');
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.tabId)).toEqual(['t1', 't2', 't3']);
+      // Reconcile only nodes that still exist in the engine. The newly adopted
+      // t3 is not resurrected through Gridstack from an incomplete observation.
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 6],
+      ]);
+    });
+
+    it('cancels a gesture when the grid hides before its change event', () => {
+      mount(['t1', 't2']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+      fixture.componentRef.setInput('visible', false);
+      flush();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
+    it('cancels a gesture when responsive capacity changes', () => {
+      mount(['t1', 't2', 't3']);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 9, y: 12, w: 3 });
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+        ['t3', 0, 6, 12, 6],
+      ]);
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+      grid.emitChange();
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        false,
+      ]);
+    });
+
+    it('cancels and settles a gesture when the canvas locks', () => {
+      mount(['t1', 't2']);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+
+      fixture.componentRef.setInput('locked', true);
+      flush();
+
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+      expect(reorderSpy).not.toHaveBeenCalled();
+    });
+
+    it('an accepted no-op restores complete engine geometry without changing intent', () => {
+      mount(['t1', 't2']);
+      const revision = store.workspaceRevision(WORKSPACE);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      Object.assign(grid.engine.nodes[0], { x: 1, y: 0, w: 5 });
+      Object.assign(grid.engine.nodes[1], { x: 7, y: 0, w: 5 });
+      fireDragStop();
+      grid.emitChange();
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+    });
+
+    it('cancels a stopped gesture with no change and restores engine geometry', async () => {
+      mount(['t1', 't2']);
+      const intent = store.tiles().map((tile) => ({ ...tile }));
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: grid.engine.nodes[0].el,
+      });
+      Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: grid.engine.nodes[0].el,
+      });
+
+      await Promise.resolve();
+
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intent);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+    });
+
     it('a finished drag reorders by (y, x) and never touches weights', () => {
       mount(['t1', 't2', 't3']);
       reorderSpy.mockClear();
@@ -353,10 +541,18 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.engine.nodes[1].x = 8;
       grid.engine.nodes[2].x = 0;
 
-      fireDragStop();
+      fireDragStop(2);
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t3', 't1', 't2']);
+      expect(reorderSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        expect.arrayContaining([
+          expect.objectContaining({ tabId: 't3', order: 0 }),
+          expect.objectContaining({ tabId: 't1', order: 1 }),
+          expect.objectContaining({ tabId: 't2', order: 2 }),
+        ]),
+      );
       expect(weightsSpy).not.toHaveBeenCalled();
       expect(store.tiles().map((t) => t.tabId)).toEqual(['t3', 't1', 't2']);
     });
@@ -368,14 +564,22 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.engine.nodes[0].y = 6;
       grid.engine.nodes[0].x = 0;
       grid.engine.nodes[1].y = 0;
-      grid.engine.nodes[1].x = 6;
+      grid.engine.nodes[1].x = 0;
       grid.engine.nodes[2].y = 0;
-      grid.engine.nodes[2].x = 0;
+      grid.engine.nodes[2].x = 6;
 
       fireDragStop();
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t3', 't2', 't1']);
+      expect(reorderSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        expect.arrayContaining([
+          expect.objectContaining({ tabId: 't2', order: 0 }),
+          expect.objectContaining({ tabId: 't3', order: 1 }),
+          expect.objectContaining({ tabId: 't1', order: 2 }),
+        ]),
+      );
     });
 
     it('a finished resize writes widths as weights and never touches order', () => {
@@ -391,6 +595,8 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.emitChange();
 
       expect(weightsSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
         new Map([
           ['t1', 5],
           ['t2', 4],
@@ -440,9 +646,10 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(reorderSpy).not.toHaveBeenCalled();
     });
 
-    it('skips nodes with a non-string id', () => {
+    it('rejects the complete gesture when a node has a non-string id', () => {
       mount(['t1', 't2']);
       reorderSpy.mockClear();
+      Object.assign(grid.engine.nodes[0], { x: 4, y: 6, w: 5 });
       grid.engine.nodes.push({
         id: 42,
         x: 8,
@@ -455,7 +662,12 @@ describe('CanvasWorkspaceGridComponent', () => {
       fireDragStop();
       grid.emitChange();
 
-      expect(reorderSpy).toHaveBeenCalledWith(['t1', 't2']);
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 6, 6],
+        ['t2', 6, 0, 6, 6],
+        [42, 8, 0, 4, 6],
+      ]);
     });
   });
 
@@ -468,10 +680,10 @@ describe('CanvasWorkspaceGridComponent', () => {
       grid.engine.nodes[2].w = 2;
       fireResizeStop();
       grid.emitChange();
-      fireDragStop();
       grid.engine.nodes[2].x = 0;
       grid.engine.nodes[0].x = 2;
       grid.engine.nodes[1].x = 8;
+      fireDragStop(2);
       grid.emitChange();
       flush();
 
@@ -515,12 +727,50 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('feedback loop', () => {
-    it('drops the change its own apply pass provokes', () => {
+    it('counts actual layout recomputation separately from apply checks', () => {
       mount(['t1', 't2', 't3']);
-      // batchUpdate(false) fired changeCB during the apply above.
-      expect(grid.batchUpdate).toHaveBeenCalledWith(false);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      const before = metrics.snapshot();
+
+      flush();
+      flush();
+      expect(metrics.snapshot().layoutComputations).toBe(
+        before.layoutComputations,
+      );
+
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      expect(metrics.snapshot().layoutComputations).toBeGreaterThan(
+        before.layoutComputations,
+      );
+      expect(metrics.snapshot().applyChecks).toBeGreaterThan(
+        before.applyChecks,
+      );
+    });
+
+    it('repeating identical geometry issues zero updates and no feedback', () => {
+      mount(['t1', 't2', 't3']);
+      grid.update.mockClear();
+      grid.batchUpdate.mockClear();
+      flush();
+      expect(grid.update).not.toHaveBeenCalled();
+      expect(grid.batchUpdate).not.toHaveBeenCalled();
       expect(reorderSpy).not.toHaveBeenCalled();
       expect(weightsSpy).not.toHaveBeenCalled();
+    });
+
+    it('updates only changed nodes in one guarded batch', () => {
+      mount(['t1', 't2', 't3']);
+      grid.update.mockClear();
+      grid.batchUpdate.mockClear();
+      Object.assign(grid.engine.nodes[0], { x: 0, y: 0, w: 6 });
+      Object.assign(grid.engine.nodes[1], { x: 6, y: 0, w: 6 });
+      Object.assign(grid.engine.nodes[2], { x: 1, y: 6, w: 12 });
+      measure(TWO_COLUMN_WIDTH - 1);
+      flush();
+      expect(grid.update).toHaveBeenCalledTimes(1);
+      expect(grid.batchUpdate.mock.calls).toEqual([[true], [false]]);
+      expect(reorderSpy).not.toHaveBeenCalled();
     });
 
     it('settles a single gesture after exactly one apply pass', () => {
