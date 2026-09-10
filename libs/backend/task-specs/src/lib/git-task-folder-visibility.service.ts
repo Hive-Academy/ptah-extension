@@ -81,13 +81,13 @@ export const FETCH_TIMEOUT_MS = 5_000;
 export const SDK_PROCESS_SPAWNER_TOKEN = Symbol.for('SdkProcessSpawner');
 
 /**
- * Test seam for the git invocation.
+ * Injectable seam for the git invocation.
  *
- * Nothing registers this token in any host, so `{isOptional: true}` resolves
- * `null` and the constructor falls back to the imported {@link execGit}. It
- * exists as a token rather than a bare defaulted parameter because tsyringe
- * reads `design:paramtypes` for EVERY constructor parameter and would try to
- * resolve an undecorated function-typed one as a class.
+ * `registerTaskSpecsServices` binds this token to the imported {@link execGit};
+ * tests may replace it with a fake. It exists as a token rather than a bare
+ * defaulted parameter because tsyringe reads `design:paramtypes` for EVERY
+ * constructor parameter and would try to resolve an undecorated function-typed
+ * one as a class.
  */
 export const VISIBILITY_EXEC_GIT_TOKEN = Symbol.for(
   'TaskSpecsVisibilityExecGit',
@@ -173,10 +173,10 @@ export class GitTaskFolderVisibility implements ITaskFolderVisibility {
      */
     @inject(TOKENS.DEGRADATION_REPORTER, { isOptional: true })
     private readonly degradation: DegradationReporter | null = null,
-    @inject(VISIBILITY_EXEC_GIT_TOKEN, { isOptional: true })
-    exec: ExecGitFn | null = null,
+    @inject(VISIBILITY_EXEC_GIT_TOKEN)
+    exec: ExecGitFn = execGit,
   ) {
-    this.exec = exec ?? execGit;
+    this.exec = exec;
   }
 
   async listBeyondWorkspace(

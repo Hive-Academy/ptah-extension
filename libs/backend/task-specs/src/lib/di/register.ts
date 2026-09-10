@@ -14,6 +14,7 @@
  */
 import { instanceCachingFactory } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
+import { execGit } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { TaskScannerService } from '../task-scanner.service';
@@ -28,7 +29,11 @@ import {
 import { TaskIndexService } from '../task-index.service';
 import { TASK_INDEX_NOTIFIER_TOKEN } from '../task-index.port';
 import { TASK_FOLDER_VISIBILITY_TOKEN } from '../task-folder-visibility.port';
-import { GitTaskFolderVisibility } from '../git-task-folder-visibility.service';
+import {
+  GitTaskFolderVisibility,
+  VISIBILITY_EXEC_GIT_TOKEN,
+  type ExecGitFn,
+} from '../git-task-folder-visibility.service';
 import { TASK_SPECS_TOKENS } from './tokens';
 
 export function registerTaskSpecsServices(
@@ -91,6 +96,13 @@ export function registerTaskSpecsServices(
   // mutating `task.md` so the derived index reparses the changed folder.
   container.register(TASK_INDEX_NOTIFIER_TOKEN, {
     useToken: TaskIndexService,
+  });
+
+  // `execGit` is the production default for the injectable test seam. Register
+  // it explicitly so every constructor token has one composition-root binding;
+  // tests may still replace this child-container registration with a fake.
+  container.register<ExecGitFn>(VISIBILITY_EXEC_GIT_TOKEN, {
+    useValue: execGit,
   });
 
   // Cross-checkout visibility seam (TASK_2026_403): `TaskWriterService.create`

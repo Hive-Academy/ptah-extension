@@ -33,6 +33,7 @@ import {
   FETCH_TIMEOUT_MS,
   GitTaskFolderVisibility,
   SDK_PROCESS_SPAWNER_TOKEN,
+  VISIBILITY_EXEC_GIT_TOKEN,
   VISIBILITY_CACHE_TTL_MS,
   specDirsFromWorktreeList,
   specFolderNamesFromLsTree,
@@ -480,7 +481,12 @@ describe('GitTaskFolderVisibility — DI wiring', () => {
     registerTaskSpecsServices(container, makeLogger());
 
     // No spawner, no degradation reporter — both optional, and their absence
-    // is the VS Code and CLI configuration, not an error.
+    // is the VS Code and CLI configuration, not an error. The git execution
+    // seam itself is always registered by this composition root.
+    expect(container.isRegistered(VISIBILITY_EXEC_GIT_TOKEN)).toBe(true);
+    expect(container.resolve(VISIBILITY_EXEC_GIT_TOKEN)).toBeInstanceOf(
+      Function,
+    );
     const resolved = container.resolve(TASK_FOLDER_VISIBILITY_TOKEN);
     expect(resolved).toBeInstanceOf(GitTaskFolderVisibility);
     // Singleton: the writer and any future consumer share one cache.
