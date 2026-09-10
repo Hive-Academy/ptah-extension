@@ -49,6 +49,18 @@
  */
 
 import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
+import { DEFAULT_SESSION_NAME_PATTERN } from './session-identity';
+
+function legacyTitleOrigin(tab: TabState): 'default' | 'history' {
+  const isRecognizedDefaultName = (value: string): boolean =>
+    value === 'New Chat' || DEFAULT_SESSION_NAME_PATTERN.test(value);
+  return tab.claudeSessionId == null &&
+    tab.messages.length === 0 &&
+    isRecognizedDefaultName(tab.name) &&
+    isRecognizedDefaultName(tab.title)
+    ? 'default'
+    : 'history';
+}
 
 /**
  * Storage-format version. UNCHANGED at 2 across the projection: the projection
@@ -93,6 +105,11 @@ export interface PersistedTabState {
 export function projectTabForPersist(tab: TabState): TabState {
   return {
     ...tab,
+    // Persist the once-only marker with the title. Without it, a reload could
+    // mistake an auto-titled session for an untouched default and derive again.
+    // Only recognized placeholder/generated names on a pre-feature empty draft
+    // remain eligible. An unknown legacy name is conservatively user-owned.
+    titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),
     streamingState: null,
     attachedBinding: null,
     lastTurnStateRevision: undefined,
@@ -152,6 +169,9 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 export function sanitizeRestoredTab(tab: TabState): TabState {
   return {
     ...tab,
+    // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
+    // generated name on an empty draft is safe to treat as default.
+    titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),
     // The live flat-event model belongs to a process that no longer exists.
     streamingState: null,
     status: NON_RESTORABLE_STATUSES.has(tab.status) ? 'loaded' : tab.status,

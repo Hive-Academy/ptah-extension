@@ -61,3 +61,9 @@ export {
   MCP_STATUS_MAP_LIMIT,
   type SessionMcpStatus,
 } from './lib/session-mcp-status.registry';
+export {
+  AUTO_SESSION_TITLE_MAX_LENGTH,
+  DEFAULT_SESSION_NAME_PATTERN,
+  deriveSessionTitle,
+  workspaceLabelFromPath,
+} from './lib/session-identity';

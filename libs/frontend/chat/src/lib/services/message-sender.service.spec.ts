@@ -49,6 +49,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     streamingState: null,
     currentMessageId: null,
     claudeSessionId: null,
+    titleOrigin: 'default',
     ...overrides,
   } as TabState;
 }
@@ -148,12 +149,8 @@ describe('MessageSenderService', () => {
       // No existing controller tracked by default; individual tests override
       // this to simulate an in-flight (still-tracked) AbortController.
       getAbortSignal: jest.fn(() => undefined),
-      applyNewConversationStreaming: jest.fn((tabId: string, name: string) =>
-        applyPatch(tabId, {
-          name,
-          title: name,
-          status: 'streaming',
-        } as Partial<TabState>),
+      applyNewConversationStreaming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'streaming' }),
       ),
       appendUserMessageAndResetStreaming: jest.fn(
         (tabId: string, messages: ExecutionChatMessage[]) =>
@@ -417,14 +414,17 @@ describe('MessageSenderService', () => {
       );
     });
 
-    it('auto-names the tab from the first 50 chars when name is still "New Chat"', async () => {
+    it('sends the bounded first-message title to chat:start for a default tab', async () => {
       rpcCall.mockResolvedValue({ success: true });
       const prompt = 'Explain the new module boundaries in the monorepo';
       await service.send(prompt);
 
+      const [, payload] = rpcCall.mock.calls.find(
+        (call) => call[0] === 'chat:start',
+      ) as [string, { name: string }];
+      expect(payload.name).toBe('Explain the new module boundaries in…');
       expect(tabManager.applyNewConversationStreaming).toHaveBeenCalledWith(
         'tab-1',
-        prompt.substring(0, 50).trim(),
       );
     });
 

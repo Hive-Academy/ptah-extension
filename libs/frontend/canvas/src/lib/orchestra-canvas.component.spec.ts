@@ -135,9 +135,14 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     } as unknown as TabManagerService;
 
     canvasStoreMock = {
-      tiles: signal<Array<{ tabId: string; order: number; weight: number }>>(
-        [],
-      ),
+      tiles: signal<
+        Array<{
+          tabId: string;
+          order: number;
+          weight: number;
+          rowBreakBefore: boolean;
+        }>
+      >([]),
       focusedTabId: signal<string | null>(null),
       tileCount: signal(0),
       canAddTile: signal(true),

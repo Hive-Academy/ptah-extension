@@ -359,6 +359,14 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(service.activeTabId()).toBe(tabs[1]?.id);
     });
 
+    it('duplicateTab copies the source title origin', () => {
+      const sourceId = service.createTab();
+
+      service.duplicateTab(sourceId);
+
+      expect(service.tabs()[1]?.titleOrigin).toBe('default');
+    });
+
     it('duplicateTab is a no-op for unknown ids', () => {
       service.createTab('keep');
       service.duplicateTab('missing');

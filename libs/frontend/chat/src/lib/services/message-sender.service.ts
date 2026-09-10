@@ -35,6 +35,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   ConversationRegistry,
+  deriveSessionTitle,
   TabId,
   TabManagerService,
   TabSessionBinding,
@@ -369,11 +370,11 @@ export class MessageSenderService {
       // conversation (TASK_2026_154 Wave 2 revision).
       this.sessionManager.clearNodeMaps(sessionId);
       const currentName = activeTab?.name;
-      const hasUserName = currentName && currentName !== 'New Chat';
-      const autoName = hasUserName
-        ? currentName
-        : content.substring(0, 50).trim() || 'New Chat';
-      this.tabManager.applyNewConversationStreaming(activeTabId, autoName);
+      const autoName =
+        activeTab?.titleOrigin !== 'default' && currentName
+          ? currentName
+          : deriveSessionTitle(content) || currentName || 'New Chat';
+      this.tabManager.applyNewConversationStreaming(activeTabId);
       this.tabManager.markTabStreaming(activeTabId);
       this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
       this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
