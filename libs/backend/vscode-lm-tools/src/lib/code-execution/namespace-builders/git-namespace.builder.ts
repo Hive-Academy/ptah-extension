@@ -78,6 +78,7 @@ export function buildGitNamespace(
           'worktree',
           'list',
           '--porcelain',
+          '-z',
         ]);
 
         if (exitCode !== 0) {
