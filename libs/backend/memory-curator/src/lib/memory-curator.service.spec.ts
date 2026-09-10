@@ -119,6 +119,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     const svc = buildService();
     const stats = await svc.curate({
       sessionId: 'abc',
+      workspaceRoot: '/ws/a',
       transcript: 'real transcript content',
     });
     expect(stats.extracted).toBe(0);
@@ -132,7 +133,9 @@ describe('MemoryCuratorService — event ring buffer', () => {
       skipped: 0,
     });
     const events = svc.recentEvents(5);
-    expect(events.find((e) => e.kind === 'curator-run')).toBeDefined();
+    expect(events.find((e) => e.kind === 'curator-run')).toMatchObject({
+      workspaceRoot: '/ws/a',
+    });
   });
 
   it('recentEvents defaults to 10', () => {

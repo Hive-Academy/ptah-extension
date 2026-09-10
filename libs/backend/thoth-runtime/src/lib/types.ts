@@ -112,9 +112,8 @@ export interface ThothRuntimeRefs {
    */
   symbolWatcher: import('chokidar').FSWatcher | null;
   /**
-   * Disposables for the vec + embedder status push-event bridges. Null when
-   * SQLite/memory-curator failed to register so the bridge could not be
-   * wired. Must be disposed in the teardown LIFO chain.
+   * Disposables for singleton Thoth push-event bridges (memory, corpus, vec,
+   * and embedder status). Must be disposed in the teardown LIFO chain.
    */
   statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null;
 }

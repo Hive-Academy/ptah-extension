@@ -157,16 +157,14 @@ const PURGE_SQL = `DELETE FROM observation_queue WHERE captured_at < ? AND proce
 const COUNT_UNPROCESSED_SQL = `SELECT COUNT(*) AS n FROM observation_queue WHERE session_id = ? AND processed_at IS NULL`;
 
 /**
- * Capture event published when a new row reaches the table. Designed to be
- * broadcast as `MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED` without any further
- * mapping — matches `MemoryObservationCapturedPayload` from
- * `@ptah-extension/shared`.
+ * Internal capture event published when a new row reaches the table. Routine
+ * capture is deliberately not bridged to a renderer: it is persistence
+ * telemetry, not a curated-memory outcome.
  *
  * Published from {@link ObservationQueueStore.flush}, after the batch commits,
  * NOT from `enqueue`. Two reasons, both deliberate: the event's contract is
  * "this row is in the table", which is only true after the commit; and the one
- * consumer forwards it to every webview, so batching the write batches the
- * fan-out with it.
+ * listener can only observe committed rows.
  */
 export interface ObservationCaptureEvent {
   readonly sessionId: string;

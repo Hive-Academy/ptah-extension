@@ -174,7 +174,7 @@ describe('bootThothRuntime', () => {
     expect(memoryTrigger.start).toHaveBeenCalledTimes(1);
   });
 
-  it('broadcasts MEMORY_EXTRACTED only for curator runs that created memories', async () => {
+  it('broadcasts MEMORY_EXTRACTED only for curator runs that changed stored memories', async () => {
     const webviewManager = makeWebviewManager();
     let onEventCb: ((ev: Record<string, unknown>) => void) | null = null;
     const memoryCurator = {
@@ -194,9 +194,29 @@ describe('bootThothRuntime', () => {
     expect(onEventCb).not.toBeNull();
     const emit = onEventCb as unknown as (ev: Record<string, unknown>) => void;
 
-    emit({ kind: 'curator-run', stats: { created: 0 }, timestamp: 1 });
+    emit({
+      kind: 'curator-run',
+      stats: { created: 0, merged: 0 },
+      timestamp: 1,
+    });
     expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
 
+    emit({
+      kind: 'curator-run',
+      sessionId: 'merge-only',
+      stats: { created: 0, extracted: 2, merged: 2 },
+      timestamp: 2,
+    });
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.MEMORY_EXTRACTED,
+      expect.objectContaining({
+        sessionId: 'merge-only',
+        created: 0,
+        merged: 2,
+      }),
+    );
+
+    webviewManager.broadcastMessage.mockClear();
     emit({
       kind: 'curator-run',
       sessionId: 's1',
@@ -214,6 +234,119 @@ describe('bootThothRuntime', () => {
         timestamp: 42,
       },
     );
+  });
+
+  it.each([1, 6, 9])(
+    'keeps one owned memory bridge across %i workspace boots and emits once',
+    async (bootCount) => {
+      const webviewManager = makeWebviewManager();
+      const listeners = new Set<(ev: Record<string, unknown>) => void>();
+      const subscriptionDispose = jest.fn();
+      const memoryCurator = {
+        start: jest.fn(),
+        onEvent: jest.fn((cb: (ev: Record<string, unknown>) => void) => {
+          listeners.add(cb);
+          return {
+            dispose: () => {
+              listeners.delete(cb);
+              subscriptionDispose();
+            },
+          };
+        }),
+      };
+      const observationQueue = { onCapture: jest.fn() };
+      const container = makeContainer([
+        [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+        [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+        [MEMORY_TOKENS.OBSERVATION_QUEUE_STORE, observationQueue],
+        [TOKENS.WEBVIEW_MANAGER, webviewManager],
+      ]);
+      const refs = [];
+
+      for (let i = 0; i < bootCount; i++) {
+        refs.push(
+          await bootThothRuntime(container, { workspaceRoot: `/ws-${i}` }),
+        );
+      }
+
+      expect(listeners.size).toBe(1);
+      expect(subscriptionDispose).toHaveBeenCalledTimes(bootCount - 1);
+      expect(observationQueue.onCapture).not.toHaveBeenCalled();
+
+      webviewManager.broadcastMessage.mockClear();
+      for (const listener of listeners) {
+        listener({
+          kind: 'curator-run',
+          sessionId: 'session-a',
+          workspaceRoot: '/ws-origin',
+          stats: { created: 1, extracted: 2, merged: 0 },
+          timestamp: 42,
+        });
+      }
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        MESSAGE_TYPES.MEMORY_EXTRACTED,
+        expect.objectContaining({ workspaceRoot: '/ws-origin' }),
+      );
+
+      refs[0].statusBridgeDisposables?.forEach((d) => d.dispose());
+      expect(listeners.size).toBe(bootCount === 1 ? 0 : 1);
+      refs.at(-1)?.statusBridgeDisposables?.forEach((d) => d.dispose());
+      expect(listeners.size).toBe(0);
+    },
+  );
+
+  it('keeps the healthy memory bridge when replacement subscription fails', async () => {
+    const webviewManager = makeWebviewManager();
+    const listeners = new Set<(ev: Record<string, unknown>) => void>();
+    const firstDispose = jest.fn();
+    let subscriptionAttempt = 0;
+    const memoryCurator = {
+      start: jest.fn(),
+      onEvent: jest.fn((cb: (ev: Record<string, unknown>) => void) => {
+        subscriptionAttempt += 1;
+        if (subscriptionAttempt === 2) {
+          throw new Error('replacement failed');
+        }
+        listeners.add(cb);
+        return {
+          dispose: () => {
+            listeners.delete(cb);
+            firstDispose();
+          },
+        };
+      }),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [TOKENS.WEBVIEW_MANAGER, webviewManager],
+    ]);
+
+    const firstRefs = await bootThothRuntime(container, {
+      workspaceRoot: '/ws-a',
+    });
+    await bootThothRuntime(container, { workspaceRoot: '/ws-b' });
+
+    expect(memoryCurator.onEvent).toHaveBeenCalledTimes(2);
+    expect(firstDispose).not.toHaveBeenCalled();
+    expect(listeners.size).toBe(1);
+
+    for (const listener of listeners) {
+      listener({
+        kind: 'curator-run',
+        workspaceRoot: '/ws-a',
+        stats: { created: 1, extracted: 1, merged: 0 },
+        timestamp: 42,
+      });
+    }
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+
+    firstRefs.statusBridgeDisposables?.forEach((disposable) =>
+      disposable.dispose(),
+    );
+    expect(firstDispose).toHaveBeenCalledTimes(1);
+    expect(listeners.size).toBe(0);
   });
 
   // TASK_2026_296 item 1 — `CuratorEvent.sessionId` is optional at the source

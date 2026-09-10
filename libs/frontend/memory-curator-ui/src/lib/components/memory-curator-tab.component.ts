@@ -357,6 +357,9 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private symbolDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private tierEffectInitialized = false;
+  private scopeEffectInitialized = false;
+  private indexingEffectInitialized = false;
   protected readonly symbolInput = signal<string>('');
   protected readonly symbolPrevDisabled = computed(
     () => this.state.symbolOffset() === 0,
@@ -370,11 +373,19 @@ export class MemoryCuratorTabComponent implements OnInit {
   public constructor() {
     effect(() => {
       this.state.tierFilter();
+      if (!this.tierEffectInitialized) {
+        this.tierEffectInitialized = true;
+        return;
+      }
       if (!this.isElectron()) return;
       void this.state.refresh();
     });
     effect(() => {
       this.state.scopeFilter();
+      if (!this.scopeEffectInitialized) {
+        this.scopeEffectInitialized = true;
+        return;
+      }
       if (!this.isElectron()) return;
       void this.state.refresh();
       void this.state.loadStats();
@@ -386,6 +397,10 @@ export class MemoryCuratorTabComponent implements OnInit {
       // double-fetching alongside the dedicated switch effect below — so the
       // rest runs untracked.
       this.indexingService.completedAt();
+      if (!this.indexingEffectInitialized) {
+        this.indexingEffectInitialized = true;
+        return;
+      }
       untracked(() => {
         if (!this.isElectron()) return;
         void this.state.loadStats();
