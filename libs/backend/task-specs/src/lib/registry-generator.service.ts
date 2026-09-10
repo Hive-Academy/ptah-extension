@@ -98,7 +98,7 @@ export class RegistryGeneratorService {
       '<!-- NEVER ALLOCATE A TASK ID FROM THIS FILE. Its highest ID lags the folders on disk, so "highest + 1" lands on a live folder and silently overwrites another session\'s carrier. That is the TASK_2026_194 failure mode; it has really happened. -->',
     );
     lines.push(
-      '<!-- CORRECT ALLOCATION: call the tasks:create RPC (TaskWriterService.create) — it allocates atomically. With no host running: scan .ptah/specs/TASK_* for the highest NNN of the current year, then claim NNN+1 with an exclusive, fail-if-exists mkdir as the lock; on EEXIST, rescan and retry. -->',
+      '<!-- CORRECT ALLOCATION: call the tasks:create RPC (TaskWriterService.create) — it allocates atomically across every checkout. With no host running: scan .ptah/specs on origin/main (git fetch, then git ls-tree), every path from git worktree list, and the local folder; take the highest NNN of the current year, add one, zero-pad to at least three digits, and append an underscore plus four random lowercase hex characters (TASK_YYYY_NNN_xxxx). Claim it with an exclusive, fail-if-exists mkdir as the lock; on EEXIST, rescan, draw a FRESH suffix and retry. -->',
     );
     lines.push(`<!-- Last content change: ${lastChange} -->`);
     lines.push('');

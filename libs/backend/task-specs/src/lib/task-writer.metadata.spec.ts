@@ -46,6 +46,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile, updateFrontmatter } from './task-frontmatter';
 import { NoOpTaskIndexNotifier } from './task-index.port';
+import { NoOpTaskFolderVisibility } from './task-folder-visibility.port';
 import { TaskScannerService } from './task-scanner.service';
 import { TaskWriterService } from './task-writer.service';
 
@@ -125,6 +126,7 @@ async function seed(
       fs,
       silentLogger(),
       new NoOpTaskIndexNotifier(),
+      new NoOpTaskFolderVisibility(),
     ),
   };
 }
@@ -788,7 +790,12 @@ describe('updateMetadata — deferNotify', () => {
     const fs = createMockFileSystemProvider();
     await fs.writeFile(carrierPath(TASK_A), fullCarrier(TASK_A));
     const { notifier, calls } = countingNotifier();
-    const writer = new TaskWriterService(fs, silentLogger(), notifier);
+    const writer = new TaskWriterService(
+      fs,
+      silentLogger(),
+      notifier,
+      new NoOpTaskFolderVisibility(),
+    );
 
     await writer.updateMetadata(WORKSPACE, TASK_A, { estimate: 'S' });
 
@@ -799,7 +806,12 @@ describe('updateMetadata — deferNotify', () => {
     const fs = createMockFileSystemProvider();
     await fs.writeFile(carrierPath(TASK_A), fullCarrier(TASK_A));
     const { notifier, calls } = countingNotifier();
-    const writer = new TaskWriterService(fs, silentLogger(), notifier);
+    const writer = new TaskWriterService(
+      fs,
+      silentLogger(),
+      notifier,
+      new NoOpTaskFolderVisibility(),
+    );
 
     const result = await writer.updateMetadata(
       WORKSPACE,

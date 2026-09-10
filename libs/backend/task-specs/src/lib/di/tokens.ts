@@ -6,8 +6,9 @@
  *  - Each description globally unique.
  *  - Frozen `as const`.
  *
- * NOTE: the write-order seam token `TASK_INDEX_NOTIFIER_TOKEN` is declared in
- * `../task-index.port.ts` beside its interface (ISP), not here.
+ * NOTE: the two narrow seam tokens are declared beside their interfaces (ISP),
+ * not here — `TASK_INDEX_NOTIFIER_TOKEN` in `../task-index.port.ts` and
+ * `TASK_FOLDER_VISIBILITY_TOKEN` in `../task-folder-visibility.port.ts`.
  */
 export const TASK_SPECS_TOKENS = {
   /** TaskScannerService — folder scan → included tasks + typed exclusions. */
