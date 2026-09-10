@@ -45,6 +45,7 @@ import {
   sendErrorResponse,
   buildUpstreamUrl,
   safeJsonParse,
+  translateResponsesUsage,
 } from './translation-proxy-helpers';
 import { providerQuotaStore } from '../auth/provider-quota.store';
 
@@ -822,10 +823,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             model,
             stop_reason: stopReason,
             stop_sequence: null,
-            usage: {
-              input_tokens: responsesResponse.usage?.input_tokens ?? 0,
-              output_tokens: responsesResponse.usage?.output_tokens ?? 0,
-            },
+            usage: translateResponsesUsage(responsesResponse.usage),
           };
 
           sendJson(res, 200, anthropicResponse);

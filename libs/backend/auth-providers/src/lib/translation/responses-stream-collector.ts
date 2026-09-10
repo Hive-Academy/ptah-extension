@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { MAX_BODY_SIZE } from './translation-proxy-helpers';
+import { MAX_BODY_SIZE, translateResponsesUsage } from './translation-proxy-helpers';
 
 export class ResponsesStreamError extends Error {
   constructor(public readonly code: 'payload_too_large' | 'upstream_incomplete') {
@@ -188,13 +188,7 @@ export function collectResponsesStream(
           id: `msg_${requestId}`, type: 'message', role: 'assistant', model, content,
           stop_reason: responseStopReason(response, content),
           stop_sequence: null,
-          usage: {
-            input_tokens: Math.max(0, (response.usage?.input_tokens ?? 0) -
-              (response.usage?.input_tokens_details?.cached_tokens ?? 0)),
-            output_tokens: response.usage?.output_tokens ?? 0,
-            ...(response.usage?.input_tokens_details?.cached_tokens !== undefined
-              ? { cache_read_input_tokens: response.usage.input_tokens_details.cached_tokens } : {}),
-          },
+          usage: translateResponsesUsage(response.usage),
         });
       } catch (error: unknown) {
         fail(error instanceof ResponsesStreamError ? error : new Error('Incomplete or invalid Responses stream'));

@@ -22,6 +22,8 @@
  * Follows the same patterns as OpenAIResponseTranslator in response-translator.ts.
  */
 
+import { translateResponsesUsage } from './translation-proxy-helpers';
+
 /**
  * Format a single Anthropic SSE event string.
  * Format: `event: <type>\ndata: <json>\n\n`
@@ -70,6 +72,7 @@ interface ResponsesCompletedData {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number } | null;
   };
 }
 
@@ -120,11 +123,8 @@ export class ResponsesStreamTranslator {
   /** Whether any tool calls (function_call items) were emitted during this stream */
   private hadToolCalls = false;
 
-  /** Accumulated input token count */
-  private inputTokens = 0;
-
-  /** Accumulated output token count */
-  private outputTokens = 0;
+  /** Final cumulative usage; upstream reports input/cache only at completion. */
+  private usage = translateResponsesUsage(undefined);
 
   /** Buffer for incomplete SSE lines across chunks */
   private lineBuffer = '';
@@ -220,6 +220,7 @@ export class ResponsesStreamTranslator {
     eventType: string,
     event: ResponsesStreamEvent,
   ): string[] {
+    if (this.finalized) return [];
     switch (eventType) {
       case 'response.output_text.delta':
         return this.handleTextDelta(event);
@@ -451,9 +452,19 @@ export class ResponsesStreamTranslator {
 
     const response = event.response;
 
-    if (response?.usage) {
-      this.inputTokens = response.usage.input_tokens ?? this.inputTokens;
-      this.outputTokens = response.usage.output_tokens ?? this.outputTokens;
+    try {
+      this.usage = translateResponsesUsage(response?.usage);
+    } catch (error: unknown) {
+      // Completion runs inside an HTTP data listener: validation errors must not
+      // escape as uncaught exceptions or allow a later sentinel to claim success.
+      void error;
+      this.finalized = true;
+      this.activeToolCalls.clear();
+      this.inTextBlock = false;
+      return [sseEvent('error', {
+        type: 'error',
+        error: { type: 'api_error', message: 'Invalid upstream Responses usage' },
+      })];
     }
 
     return this.emitFinalEvents();
@@ -493,7 +504,7 @@ export class ResponsesStreamTranslator {
       sseEvent('message_delta', {
         type: 'message_delta',
         delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { output_tokens: this.outputTokens },
+        usage: this.usage,
       }),
     );
     events.push(sseEvent('message_stop', { type: 'message_stop' }));
