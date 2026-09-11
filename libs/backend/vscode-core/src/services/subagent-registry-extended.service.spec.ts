@@ -199,6 +199,35 @@ describe('SubagentRegistryService — extended methods', () => {
     });
   });
 
+  describe('restoreResumableBySession', () => {
+    it('restores only valid non-expired interrupted SDK records and deduplicates toolCallId', () => {
+      const now = Date.now();
+      const valid = {
+        toolCallId: 'tc-restored',
+        agentType: 'backend',
+        status: 'interrupted' as const,
+        startedAt: now,
+        interruptedAt: now,
+        parentSessionId: 'sess-a',
+        agentId: 'agent-restored',
+      };
+
+      const restored = service.restoreResumableBySession('sess-a', [
+        valid,
+        { ...valid, toolCallId: 'tc-running', status: 'running' },
+        { ...valid, toolCallId: 'tc-cli', isCliAgent: true },
+        { ...valid, toolCallId: 'tc-bg', isBackground: true },
+        { ...valid, toolCallId: 'tc-other', parentSessionId: 'sess-b' },
+        { ...valid, toolCallId: 'tc-expired', startedAt: 0 },
+      ]);
+      const duplicate = service.restoreResumableBySession('sess-a', [valid]);
+
+      expect(restored).toBe(1);
+      expect(duplicate).toBe(0);
+      expect(service.getResumableBySession('sess-a')).toEqual([valid]);
+    });
+  });
+
   describe('getRunningBySession', () => {
     it('returns running non-background agents for a session', () => {
       service.register(
