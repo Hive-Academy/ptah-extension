@@ -37,8 +37,8 @@ No `Task`-tool subagents take part. CLI lanes share no context and have no UI ch
 
 Persist the run exactly as orchestration does:
 
-1. Scan the `.ptah/specs/TASK_*` folders, take the highest `NNN` for the current year, increment, zero-pad. Never derive the ID from `registry.md` — it is generated and can be stale.
-2. `mkdir .ptah/specs/TASK_[ID]`.
+1. Scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`), every path from `git worktree list`, and the local folder. Take the highest `NNN` for the current year, add 1, zero-pad to at least three digits, and append `_` plus four random lowercase hex characters (`TASK_YYYY_NNN_xxxx`). Never derive the ID from `registry.md` — it is generated and can be stale. Never rename an existing folder.
+2. Claim `.ptah/specs/TASK_[ID]` with an exclusive, fail-if-exists `mkdir`; it is the lock.
 3. Write `context.md` with the user intent, the chosen lanes, and `mode: tribunal-relay`.
 4. Each phase writes its deliverable to the file named below.
 

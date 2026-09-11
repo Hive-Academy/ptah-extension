@@ -408,7 +408,7 @@ export class GitInfoService {
   async getWorktrees(workspacePath: string): Promise<GitWorktreeInfo[]> {
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['worktree', 'list', '--porcelain'],
+        ['worktree', 'list', '--porcelain', '-z'],
         workspacePath,
         { timeoutMs: WORKTREE_GIT_TIMEOUT_MS },
       );

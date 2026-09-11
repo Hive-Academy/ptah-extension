@@ -51,6 +51,10 @@ class FakeTranslationProxy extends TranslationProxyBase {
    * subclasses' shape (id known only at construction) is exercised here too.
    */
   public providerId = 'fake-provider';
+  public useResponsesApi = false;
+  protected override shouldUseResponsesApi(): boolean {
+    return this.useResponsesApi;
+  }
   public readonly getApiEndpointMock = jest.fn(
     async () => 'http://127.0.0.1:1', // intentionally-unreachable port for forwarding tests
   );
@@ -315,6 +319,72 @@ const MESSAGES_BODY = JSON.stringify({
   max_tokens: 16,
   stream: false,
   messages: [{ role: 'user', content: 'hi' }],
+});
+
+describe('TranslationProxyBase — Responses JSON usage', () => {
+  it.each([false, true])('contains malformed usage over HTTP (stream=%s)', async (stream) => {
+    const upstream = await startUpstream((_req, res) => {
+      const response = { status: 'completed', output: [],
+        usage: { input_tokens: 'private-upstream-value', output_tokens: 9 } };
+      res.writeHead(200, { 'Content-Type': stream ? 'text/event-stream' : 'application/json' });
+      res.end(stream
+        ? `data: ${JSON.stringify({ type: 'response.completed', response })}\n\ndata: [DONE]\n\n`
+        : JSON.stringify(response));
+    });
+    const h = await startProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, {
+        method: 'POST', body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream }),
+      });
+      expect(result.body).not.toContain('private-upstream-value');
+      if (stream) {
+        expect(result.status).toBe(200);
+        expect(result.body).toContain('Invalid upstream Responses usage');
+        expect(result.body).not.toContain('message_stop');
+        expect(result.body).not.toContain('message_delta');
+      } else {
+        expect(result.status).toBe(500);
+        expect(JSON.parse(result.body)).toEqual({ type: 'error', error: {
+          type: 'api_error', message: 'Failed to translate Fake response',
+        } });
+      }
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+  it.each([
+    [undefined, 42, undefined],
+    [{}, 42, undefined],
+    [{ cached_tokens: 0 }, 42, 0],
+    [{ cached_tokens: 12 }, 30, 12],
+    [{ cached_tokens: 99 }, 0, 42],
+  ])('forwards input/cache without double counting %j', async (details, input, cache) => {
+    const upstream = await startUpstream((req, res) => {
+      expect(req.url).toBe('/responses');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'completed', output: [
+        { type: 'function_call', call_id: 'call', name: 'read_file', arguments: '{"path":"a"}' },
+      ], usage: { input_tokens: 42, output_tokens: 9, input_tokens_details: details,
+        output_tokens_details: { reasoning_tokens: 7 } } }));
+    });
+    const h = await startProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const response = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', input: { path: 'a' } }] });
+      expect(JSON.parse(response.body).usage).toEqual({ input_tokens: input, output_tokens: 9,
+        ...(cache !== undefined ? { cache_read_input_tokens: cache } : {}) });
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
 });
 
 describe('TranslationProxyBase — 429 records a provider cooldown', () => {

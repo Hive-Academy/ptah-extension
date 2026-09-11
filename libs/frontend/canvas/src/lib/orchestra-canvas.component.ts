@@ -27,6 +27,8 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
+import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -50,119 +52,119 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasStore, CanvasLayoutService],
+  providers: [CanvasStore, CanvasLayoutService, CanvasRenderMetricsService],
   imports: [
     FormsModule,
     CanvasWorkspaceGridComponent,
     CanvasEmptyStateComponent,
+    CanvasLayoutControlsComponent,
     LucideAngularModule,
     NativePopoverComponent,
   ],
   template: `
     <div
-      #canvasContainer
       class="flex flex-col h-full bg-base-100 relative"
       data-testid="canvas-grid"
     >
-      <!-- One Gridstack container per retained workspace; only the active
-           workspace's grid is visible (the grid drives its own display from the
-           [visible] input), the rest stay mounted (keep-alive). Rendered
-           unconditionally so switching through an empty workspace never tears
-           down another workspace's tiles. -->
-      @for (path of canvasStore.workspacePaths(); track path) {
-        <ptah-canvas-workspace-grid
-          class="flex-1 overflow-auto w-full"
-          [workspacePath]="path"
-          [visible]="path === canvasStore.activeWorkspacePath()"
-          [locked]="locked()"
-        />
-      }
-
-      @if (canvasStore.tiles().length === 0) {
-        <!-- Empty state overlay: the active workspace has no tiles -->
-        <ptah-canvas-empty-state
-          class="absolute inset-0 z-10"
-          (createSession)="openNewSessionPopover()"
-        />
-      } @else {
-        <!-- Lock toggle: freezes the layout and disables drag/resize -->
-        <button
-          class="absolute bottom-20 right-4 z-20 btn btn-circle shadow-lg"
-          [title]="
-            locked()
-              ? 'Unlock tiles (enable drag & resize)'
-              : 'Lock tiles (freeze layout)'
-          "
-          [attr.aria-label]="locked() ? 'Unlock tiles' : 'Lock tiles'"
-          [attr.aria-pressed]="locked()"
-          (click)="toggleLock()"
+      @if (canvasStore.tiles().length > 0) {
+        <!-- Reserved canvas control dock outside measured session viewport -->
+        <div
+          class="canvas-dock flex items-center justify-end gap-2 px-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
+          data-testid="canvas-dock"
         >
-          <lucide-angular
-            [img]="locked() ? LockIcon : UnlockIcon"
-            class="w-5 h-5"
+          <ptah-canvas-layout-controls
+            [locked]="locked()"
+            [tileCount]="canvasStore.tiles().length"
+            (lockToggled)="toggleLock()"
           />
-        </button>
 
-        <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
-        @if (canvasStore.canAddTile()) {
-          <ptah-native-popover
-            class="absolute bottom-4 right-4 z-10"
-            [isOpen]="sessionPopoverOpen()"
-            [placement]="'top-end'"
-            [hasBackdrop]="true"
-            [backdropClass]="'transparent'"
-            (closed)="handleCancelSession()"
-          >
-            <button
-              trigger
-              class="btn btn-primary btn-circle shadow-lg"
-              title="Add new session tile"
-              aria-label="Add new session tile"
-              (click)="openNewSessionPopover()"
+          @if (canvasStore.canAddTile()) {
+            <ptah-native-popover
+              [isOpen]="sessionPopoverOpen()"
+              [placement]="'bottom-end'"
+              [hasBackdrop]="true"
+              [backdropClass]="'transparent'"
+              (closed)="handleCancelSession()"
             >
-              <lucide-angular [img]="PlusIcon" class="w-5 h-5" />
-            </button>
+              <button
+                trigger
+                type="button"
+                class="btn btn-xs btn-primary gap-1 shadow-sm"
+                title="Add new session tile"
+                aria-label="Add new session tile"
+                (click)="openNewSessionPopover()"
+              >
+                <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+                <span class="text-xs font-medium">New Session</span>
+              </button>
 
-            <div
-              content
-              class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
-            >
-              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
-                New Session
-              </h3>
-              <input
-                #sessionNameInputRef
-                type="text"
-                class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-                placeholder="Enter session name (optional)"
-                [(ngModel)]="sessionNameInput"
-                (keydown.enter)="
-                  handleCreateSession();
-                  $event.preventDefault();
-                  $event.stopPropagation()
-                "
-                (keydown.escape)="handleCancelSession()"
-              />
-              <div class="flex gap-2">
-                <button
-                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
-                  (click)="handleCancelSession()"
-                >
-                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                  Cancel
-                </button>
-                <button
-                  class="btn btn-sm btn-primary flex-1 gap-1.5"
-                  (click)="handleCreateSession()"
-                >
-                  <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
-                  Create
-                </button>
+              <div
+                content
+                class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+              >
+                <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
+                  New Session
+                </h3>
+                <input
+                  #sessionNameInputRef
+                  type="text"
+                  class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+                  placeholder="Enter session name (optional)"
+                  [(ngModel)]="sessionNameInput"
+                  (keydown.enter)="
+                    handleCreateSession();
+                    $event.preventDefault();
+                    $event.stopPropagation()
+                  "
+                  (keydown.escape)="handleCancelSession()"
+                />
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
+                    (click)="handleCancelSession()"
+                  >
+                    <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-primary flex-1 gap-1.5"
+                    (click)="handleCreateSession()"
+                  >
+                    <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                    Create
+                  </button>
+                </div>
               </div>
-            </div>
-          </ptah-native-popover>
-        }
+            </ptah-native-popover>
+          }
+        </div>
       }
+
+      <!-- Usable session viewport -->
+      <div
+        #sessionViewport
+        class="session-viewport flex-1 min-h-0 w-full relative overflow-hidden"
+        data-testid="session-viewport"
+      >
+        @for (path of canvasStore.workspacePaths(); track path) {
+          <ptah-canvas-workspace-grid
+            class="h-full overflow-auto w-full"
+            [workspacePath]="path"
+            [visible]="path === canvasStore.activeWorkspacePath()"
+            [locked]="locked()"
+          />
+        }
+
+        @if (canvasStore.tiles().length === 0) {
+          <!-- Empty state overlay: the active workspace has no tiles -->
+          <ptah-canvas-empty-state
+            class="absolute inset-0 z-10"
+            (createSession)="openNewSessionPopover()"
+          />
+        }
+      </div>
 
       <!-- Standalone popover for empty state (no FAB to anchor to) -->
       @if (canvasStore.tiles().length === 0 && sessionPopoverOpen()) {
@@ -190,6 +192,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
             />
             <div class="flex gap-2">
               <button
+                type="button"
                 class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                 (click)="handleCancelSession()"
               >
@@ -197,6 +200,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
                 Cancel
               </button>
               <button
+                type="button"
                 class="btn btn-sm btn-primary flex-1 gap-1.5"
                 (click)="handleCreateSession()"
               >
@@ -265,12 +269,12 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly emptyStateNameInputRef = viewChild<
     ElementRef<HTMLInputElement>
   >('emptyStateNameInputRef');
-  private readonly canvasContainer =
-    viewChild<ElementRef<HTMLElement>>('canvasContainer');
+  private readonly sessionViewport =
+    viewChild<ElementRef<HTMLElement>>('sessionViewport');
 
   constructor() {
     afterNextRender(() => {
-      const el = this.canvasContainer()?.nativeElement;
+      const el = this.sessionViewport()?.nativeElement;
       if (el) {
         this.layoutService.observe(el);
       }

@@ -1,4 +1,9 @@
 import { Injectable, DestroyRef, inject, signal } from '@angular/core';
+import {
+  effectiveCapacity,
+  logicalRows,
+  type ColumnsPreference,
+} from './canvas-layout-intent';
 
 const GRID_COLUMNS = 12;
 const MARGIN = 8;
@@ -35,6 +40,7 @@ export interface TileIntent {
   readonly tabId: string;
   readonly order: number;
   readonly weight: number;
+  readonly rowBreakBefore: boolean;
 }
 
 export interface TileLayout {
@@ -102,7 +108,10 @@ export class CanvasLayoutService {
    * container. Total function: no throws, no side effects, safe to call from a
    * `computed`.
    */
-  computeLayout(tiles: readonly TileIntent[]): CanvasLayout {
+  computeLayout(
+    tiles: readonly TileIntent[],
+    preference: ColumnsPreference = 'auto',
+  ): CanvasLayout {
     const width = this._containerWidth();
     const height = this._containerHeight();
 
@@ -110,15 +119,18 @@ export class CanvasLayoutService {
       return { cellHeight: 120, columns: 1, tiles: [] };
     }
 
-    const columns = this.columnsFor(width);
-    const ordered = [...tiles].sort(
-      (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
-    );
-    const rows = Math.ceil(ordered.length / columns);
+    const columns = effectiveCapacity(this.columnsFor(width), preference);
+    const rows = logicalRows(tiles).flatMap((row) => {
+      const chunks: TileIntent[][] = [];
+      for (let index = 0; index < row.length; index += columns) {
+        chunks.push(row.slice(index, index + columns));
+      }
+      return chunks;
+    });
 
     const positioned: PositionedTile[] = [];
-    for (let row = 0; row < rows; row++) {
-      const rowTiles = ordered.slice(row * columns, (row + 1) * columns);
+    for (let row = 0; row < rows.length; row++) {
+      const rowTiles = rows[row];
       const widths = apportionRow(
         rowTiles.map((t) => normalizeWeight(t.weight)),
       );
@@ -136,7 +148,7 @@ export class CanvasLayoutService {
     }
 
     return {
-      cellHeight: cellHeightFor(height, rows),
+      cellHeight: cellHeightFor(height, rows.length),
       columns,
       tiles: positioned,
     };

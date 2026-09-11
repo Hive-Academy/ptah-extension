@@ -11,6 +11,7 @@ import {
   TabViewMode,
   StreamingState,
   SendMessageOptions,
+  type TitleOrigin,
 } from '@ptah-extension/chat-types';
 import {
   ExecutionChatMessage,
@@ -37,13 +38,18 @@ import {
 } from './tab-state.types';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
-import { ClaudeSessionId, TabId } from './identity/ids';
+import { TabId } from './identity/ids';
 import {
   buildPersistedTabState,
   persistNeeded,
   sanitizeRestoredTabs,
   type PersistedSnapshot,
 } from './tab-persistence';
+import {
+  DEFAULT_SESSION_NAME_PATTERN,
+  deriveSessionTitle,
+  isGenuinelyNewFirstMessage,
+} from './session-identity';
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
@@ -738,6 +744,7 @@ export class TabManagerService {
       claudeSessionId,
       name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
+      titleOrigin: 'history',
       order: this._tabs().length,
       status: 'loaded',
       isDirty: false,
@@ -767,15 +774,29 @@ export class TabManagerService {
    * @param name - Optional session name
    * @returns Tab ID
    */
-  createTab(name?: string): string {
+  createTab(
+    name?: string,
+    titleOrigin?: Extract<TitleOrigin, 'default' | 'user'>,
+  ): string {
     const id = this.generateTabId();
     const sessionName = name || 'New Chat';
+    // Existing callers historically passed only a string, including the
+    // timestamp fallback produced by defaultSessionName(). Keep those callers
+    // compatible by recognizing its exact shape. A UI entry point that knows
+    // the user typed the value passes `user` explicitly, so even a deliberately
+    // typed timestamp-shaped name remains user-owned.
+    const initialTitleOrigin =
+      titleOrigin ??
+      (!name || name === 'New Chat' || DEFAULT_SESSION_NAME_PATTERN.test(name)
+        ? 'default'
+        : 'user');
 
     const newTab: TabState = {
       id,
       claudeSessionId: null, // Set by StreamingHandler on first streaming event
       name: sessionName,
       title: sessionName,
+      titleOrigin: initialTitleOrigin,
       order: this._tabs().length,
       status: 'fresh',
       isDirty: false,
@@ -951,6 +972,7 @@ export class TabManagerService {
       claudeSessionId: null,
       name: 'New Chat',
       title: 'New Chat',
+      titleOrigin: 'default',
       status: 'fresh',
       isDirty: false,
       messages: [],
@@ -1343,9 +1365,19 @@ export class TabManagerService {
    * claudeSessionId so the SDK can assign a real UUID.
    */
   applyNewConversationDraft(tabId: string, name: string): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const derivedTitle =
+      tab?.titleOrigin === 'default' ? deriveSessionTitle(name) : '';
+    const namingUpdates =
+      derivedTitle.length > 0
+        ? {
+            name: derivedTitle,
+            title: derivedTitle,
+            titleOrigin: 'auto' as const,
+          }
+        : {};
     this.updateTabInternal(tabId, {
-      name,
-      title: name,
+      ...namingUpdates,
       status: 'draft',
       isDirty: false,
       claudeSessionId: null,
@@ -1358,13 +1390,11 @@ export class TabManagerService {
   }
 
   /**
-   * Apply auto-derived name/title and switch to `streaming`, clearing dirty.
+   * Switch a new conversation to `streaming`, clearing dirty.
    * Used by the synchronous send path that skips the `draft` intermediate.
    */
-  applyNewConversationStreaming(tabId: string, name: string): void {
+  applyNewConversationStreaming(tabId: string): void {
     this.updateTabInternal(tabId, {
-      name,
-      title: name,
       status: 'streaming',
       isDirty: false,
       hasLiveSession: true,
@@ -1466,10 +1496,33 @@ export class TabManagerService {
     tabId: string,
     nextMessages: ExecutionChatMessage[],
   ): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const firstUserMessage = nextMessages.find(
+      (message) => message.role === 'user',
+    );
+    const shouldDeriveTitle =
+      tab != null &&
+      isGenuinelyNewFirstMessage(tab.titleOrigin, tab.messages, nextMessages);
+    const derivedTitle =
+      shouldDeriveTitle && firstUserMessage
+        ? deriveSessionTitle(firstUserMessage.rawContent ?? '')
+        : '';
+
+    // A persisted origin is deliberate: name/title alone cannot distinguish a
+    // timestamp fallback from a user typing the same text. We stamp `auto` only
+    // with a real title; if derivation is empty, the appended user message makes
+    // replay safe because the pure first-message predicate then stays false.
     this.updateTabInternal(tabId, {
       messages: nextMessages,
       currentMessageId: null,
       streamingState: null,
+      ...(derivedTitle
+        ? {
+            name: derivedTitle,
+            title: derivedTitle,
+            titleOrigin: 'auto' as const,
+          }
+        : {}),
     });
   }
 
@@ -1876,7 +1929,7 @@ export class TabManagerService {
    * success). Sets both name and title atomically.
    */
   setNameAndTitle(tabId: string, name: string, title: string): void {
-    this.updateTabInternal(tabId, { name, title });
+    this.updateTabInternal(tabId, { name, title, titleOrigin: 'user' });
   }
 
   /**
@@ -1905,6 +1958,7 @@ export class TabManagerService {
       claudeSessionId: newSessionId,
       name: title,
       title,
+      titleOrigin: 'history',
       status: 'loaded',
       isDirty: false,
       hasLiveSession: false,
@@ -2008,6 +2062,7 @@ export class TabManagerService {
       status: 'resuming',
       title: payload.title,
       name: payload.name,
+      titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
       // A resume installs a fresh SDK query. Its revisions do NOT restart —
       // the backend floor is per session id (TASK_2026_371) — but this tab may
@@ -2091,7 +2146,10 @@ export class TabManagerService {
     // Truncate to 100 chars max
     const sanitizedTitle = newTitle.trim().substring(0, 100);
 
-    this.updateTabInternal(tabId, { title: sanitizedTitle });
+    this.updateTabInternal(tabId, {
+      title: sanitizedTitle,
+      titleOrigin: 'user',
+    });
   }
 
   /**
@@ -2108,6 +2166,7 @@ export class TabManagerService {
       id: newTabId,
       name: `${tab.name} (Copy)`,
       title: `${tab.title} (Copy)`,
+      titleOrigin: tab.titleOrigin,
       order: this._tabs().length,
       status: 'loaded', // Duplicated tab is loaded (not streaming)
       isDirty: false,

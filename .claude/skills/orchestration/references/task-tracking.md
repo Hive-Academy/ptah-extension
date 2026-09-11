@@ -187,19 +187,23 @@ The next id is derived from a **folder scan**, then **reserved atomically**. A
 plain scan-then-write races two concurrent sessions onto the same id and the
 second write silently clobbers the first (this is what TASK_2026_194 fixes):
 
-1. Scan all `TASK_YYYY_*` folder names (including excluded/legacy folders).
-2. Find the highest `NNN` for the current year, increment by 1, zero-pad to
-   `TASK_YYYY_NNN`.
+1. Scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`), every
+   path from `git worktree list`, and the local folder.
+2. Find the highest `NNN` for the current year, increment by 1, zero-pad to at
+   least three digits, and append `_` plus four random lowercase hex characters,
+   producing `TASK_YYYY_NNN_xxxx`.
 3. **Reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)`
    without `recursive: true` — NOT `mkdir -p`). The atomic folder creation is the
    lock.
 4. On `EEXIST`, a concurrent session already claimed that id — re-scan from step
-   1, increment, and retry (bounded; give up with an error rather than overwrite).
+   1 and retry with a fresh suffix (bounded; give up with an error rather than
+   overwrite). Never rename an existing folder.
 5. Write `task.md` with an **exclusive create** so it fails loudly if the carrier
    already exists — never overwrite an occupied folder.
 
-**Example**: If the highest for the year is `TASK_2026_109`, the candidate is
-`TASK_2026_110`; if that `mkdir` throws `EEXIST`, retry `111`, and so on.
+**Example**: If the highest sequence for the year is `109`, the candidate is
+`TASK_2026_110_a1b2`; if that `mkdir` throws `EEXIST`, re-scan and retry with a
+fresh suffix.
 
 `registry.md` is generated, derived output — it is **never** an allocation input.
 The canonical implementation is `TaskWriterService.create` (behind the

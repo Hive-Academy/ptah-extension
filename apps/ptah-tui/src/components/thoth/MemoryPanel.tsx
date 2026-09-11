@@ -29,7 +29,6 @@ type MemoryMode = 'list' | 'search' | 'diagnostics';
 
 const MEMORY_EVENTS = [
   MESSAGE_TYPES.MEMORY_EXTRACTED,
-  MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED,
   MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
 ] as const;
 

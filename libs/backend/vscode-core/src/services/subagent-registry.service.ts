@@ -512,6 +512,46 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Restore a durable snapshot of interrupted SDK subagents.
+   *
+   * Existing toolCallIds win so this is additive and history replay can safely
+   * run afterward without producing duplicates.
+   */
+  restoreResumableBySession(
+    parentSessionId: string,
+    records: readonly SubagentRecord[],
+  ): number {
+    if (blankToUndefined(parentSessionId) === undefined) return 0;
+
+    this.store.lazyCleanup();
+    let restored = 0;
+    for (const record of records) {
+      if (
+        record.status !== 'interrupted' ||
+        record.parentSessionId !== parentSessionId ||
+        record.isBackground ||
+        record.isCliAgent ||
+        blankToUndefined(record.toolCallId) === undefined ||
+        blankToUndefined(record.agentId) === undefined ||
+        this.store.isExpired(record) ||
+        this.store.has(record.toolCallId)
+      ) {
+        continue;
+      }
+      this.store.set(record.toolCallId, { ...record });
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.logger.info(
+        '[SubagentRegistryService.restoreResumableBySession] Restored interrupted SDK subagents',
+        { parentSessionId, restored },
+      );
+    }
+    return restored;
+  }
+
+  /**
    * Get all running (non-background) subagents for a session.
    *
    * Used by the frontend to show confirmation before interrupting.

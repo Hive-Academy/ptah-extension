@@ -1,6 +1,8 @@
 # Task description — Scale the Orchestra Canvas beyond nine tiles
 
-Status: specification. No production code has been written for this task.
+Status: R1-lite + R4a implemented and awaiting independent logic/style review.
+Step 0 session identity remains independently approved. R4b persistence,
+hydration and disposal work has not started.
 
 ## Problem
 
@@ -48,17 +50,21 @@ tile. Do not raise `MAX_TILES` until Track C has a measured answer.
 notification and a compact status line both need to say *which* session they
 refer to, and today nothing can. See "Session identity" under Design decisions.
 
-1. **Instrumentation and contracts.** Counters for mounted Live surfaces, layout
-   passes, Gridstack `update()` calls, and streaming flushes per frame. The
-   level-of-detail admission table, the notification identity and read
-   semantics, and the canvas persistence schema, all written before any UI work.
+1. **Instrumentation and contracts.** Begin with R1-lite counters for canvas
+   layout passes, Angular option writes, explicit Gridstack `update()` calls and
+   gesture commits. Establish one post-mount geometry owner before row behavior
+   changes. Full Live-surface/streaming instrumentation and the LOD admission
+   table remain later renderer work; row layout does not depend on them.
 2. **Compact tile redesign.** Replace the scrolling activity feed with a bounded
    summary view model that has two adapters, one for live `StreamingState` events
    and one for finalized `ExecutionNode` messages.
 3. **Tile shell split and level-of-detail allocation.** Separate the tile shell
    from the heavy chat surface. Add a central allocator with a Live budget.
-4. **Versioned canvas intent persistence.** Per workspace and panel, validated at
-   the storage boundary.
+4. **Manual row layout and versioned canvas intent persistence.** Preserve
+   explicit early row breaks, expose an Auto / 1 / 2 / 3 tiles-per-row
+   preference, and persist both with order and bounded weight per workspace and
+   panel. Validate at the storage boundary. Never persist raw Gridstack
+   geometry. Defer `detailPin` and its schema version until LOD exists.
 5. **Zoom.** A continuous `zoomScale` for the transform and a stable `zoomStop`
    for fidelity.
 6. **Notification center.** A new `libs/frontend/notification-center` library.
@@ -97,6 +103,9 @@ Track C begins with an investigation, because nothing here has been measured.
 - Angular 21 signals, standalone components, `OnPush`, zoneless-safe.
 - Geometry stays derived. A durable user preference such as a fidelity pin is
   acceptable intent. Derived geometry is not.
+- Responsive wrapping is derived state. It may split an explicit row when the
+  viewport narrows, but it must not write those temporary wraps back as manual
+  row breaks or erase a stored break when the viewport widens.
 - Only `CanvasWorkspaceGridComponent` may call a Gridstack API.
   `CanvasLayoutService` must never import Gridstack.
 - Frontend libraries must not import backend libraries.
@@ -194,6 +203,209 @@ focus the outline.
 
 `SessionStatus` has no `error` member. Derive error meaning from
 `lastTerminalReason`, not from `status`.
+
+### Manual row layout and persistence
+
+The current 2+1 failure is deterministic, not a Gridstack mystery.
+`CanvasLayoutService.computeLayout()` sorts by `order` and chunks the sequence
+at the responsive column count. At a three-column width, three tiles therefore
+always derive as one row. After a drag, `CanvasWorkspaceGridComponent` reads the
+full `grid.engine.nodes` set but persists only that sorted order. The next
+computed layout consequently writes 4/4/4 geometry back into Gridstack and
+removes the short row.
+
+Gridstack 12.6.0's verified event order supports an intent projection:
+`dragstop` is emitted before the following `change`, and that change occurs
+after top-gravity packing. With `float: false`, a tile dropped at x=0 on the
+second row remains there when the tile above blocks upward movement; the engine
+node set therefore contains the observed 2+1 grouping. This is third-party
+behavior and needs an integration test, but it does not require storing engine
+coordinates.
+
+Store the smallest durable intent. Add `rowBreakBefore` to tile intent; it means
+"start a user row before this tile" and is always false for the first ordered
+tile. Store one workspace-level
+`columnsPreference: 'auto' | 1 | 2 | 3`. A numeric value caps the responsive
+capacity but never forces tiles below `MIN_TILE_WIDTH`. Build logical rows from
+the breaks, then responsively split each logical row at:
+
+```text
+responsiveCapacity = columnsFor(containerWidth)
+effectiveCapacity = preference === 'auto'
+  ? responsiveCapacity
+  : min(responsiveCapacity, preference)
+```
+
+Responsive splits are render-only. They disappear when the viewport widens and
+never become stored breaks. Do not add `x`, `y`, `w` or `h`, and do not change
+public `TileLayout`.
+
+#### Row-preserving deletion and reconciliation
+
+Never treat `rowBreakBefore` as an attribute that simply dies with its tile.
+For explicit close, external prune, and hydration reconciliation, use the same
+pure operation:
+
+1. Partition the pre-mutation ordered tiles into logical rows.
+2. Filter removed or non-authoritative ids inside each row.
+3. Drop empty rows.
+4. Flatten the surviving rows, assign dense order, and set a break only on the
+   first survivor of every row after the first.
+5. Append newly authoritative tab ids, with default weight and no break, to the
+   final surviving logical row (or create the first row when none survives).
+
+Thus `A B | C D`, after deleting `C`, becomes `A B | D`. The boundary transfers
+to the next survivor in `C`'s old logical row. The same rule handles deletion of
+several adjacent row starts without inventing empty rows.
+
+#### Gesture transaction
+
+`dragstop` is too late to discover what the gesture meant. On `dragStartCB` (and
+equivalently `resizeStartCB`) capture an immutable transaction:
+
+```text
+kind, workspacePath, draggedId, workspaceRevision,
+effectiveCapacity, expectedTabIds
+```
+
+The `draggedId` comes from the event element's Gridstack node, not from active
+focus. `workspaceRevision` is a monotonic per-workspace intent revision bumped
+by membership, order, weight, break, and preference mutations. The following
+stop/change may commit only when all of these remain true:
+
+- the component is still visible and unlocked;
+- its workspace and effective capacity equal the snapshot;
+- the target workspace still has the captured revision;
+- every expected tab id occurs exactly once in the full engine observation;
+- no unknown/duplicate id or non-finite coordinate is present;
+- for resize, the dragged node also has a finite positive width.
+
+Commit through a workspace-addressed store method, never whichever workspace is
+active when `change` happens. Cancel and discard the transaction on hide, lock,
+component destroy, workspace/capacity change, a new gesture start, or any failed
+validation. Equal workspace revision is sufficient to re-read the current
+logical rows during projection: every membership, order, weight, break, or
+preference mutation advances that partition's revision. Keeping duplicate row
+arrays in the snapshot adds allocation without adding a stronger invariant.
+
+A stale, incomplete, cancelled, or semantically unchanged observation writes no
+intent, but it is not a renderer no-op: Gridstack has already moved engine
+nodes. Every terminal gesture path therefore reprojects current authoritative
+intent into existing nodes before clearing the latch. Reconciliation skips
+unknown or missing nodes (never resurrecting a removed tile), never addresses a
+different workspace, and remains under the same synchronous feedback guard as
+normal geometry application.
+
+#### Drag projection and narrow-layout ambiguity
+
+Convert engine nodes to internal `{tabId, x, y}` observations, sort by `(y,x)`,
+and group equal integer `y` values. The pure projector removes the dragged tile
+from the revision-equivalent current logical rows first, using the
+row-preserving deletion rule.
+This is what prevents a moved row-start from carrying its old boundary blindly;
+the next survivor keeps that boundary unless the observed gesture explicitly
+merges or splits rows.
+
+For each adjacent pair in observed order:
+
+- equal observed `y` is unambiguous merge/join evidence: no logical break;
+- a change in `y` after an observed row shorter than `effectiveCapacity` is
+  unambiguous split evidence: add a logical break;
+- a change after a full observed row is ambiguous responsive wrapping: preserve
+  the snapshot logical-row relation rather than guessing.
+
+If those rules would interleave members of old logical rows or cannot assign the
+dragged tile to exactly one row, reject the entire commit. At capacity 1 there
+is no geometric split/merge evidence, so only reorders that preserve each prior
+logical row as a contiguous block are accepted. For example,
+`A B | C D -> A B | D C` is valid when `D` is moved before `C`; an interleaving
+such as `A D B C` is a no-op. To split or merge at that width, the user selects
+2 or 3 in the workspace control or widens the canvas, then drags where row
+membership is visible. This is an explicit product rule, not an inference
+heuristic.
+
+The projector returns the complete normalized intent once. Order and breaks are
+committed atomically under the captured revision. Resize-stop updates only the
+captured workspace's weights. Container resize, preference-driven reflow,
+programmatic Gridstack changes, and changes without a valid transaction write no
+gesture intent.
+
+#### One geometry-update owner
+
+There are two writers today. The Angular Gridstack item `options` setter calls
+`grid.update()` whenever its reactive object changes
+(`node_modules/gridstack/dist/angular/src/gridstack-item.component.ts:89-95`),
+and the canvas effect calls `grid.update()` again
+(`canvas-workspace-grid.component.ts:176-193`). `_applyingLayout` covers only the
+explicit effect, so it cannot make the dual ownership safe.
+
+Keep the explicit workspace-grid effect as the sole post-mount geometry owner.
+Give each `gridstack-item` one cached, stable creation-options object, seeded
+with its id and initial derived geometry; do not replace that object on later
+layout computations. The effect compares each engine node with its target and
+calls `grid.update()` only for changed geometry, inside one guarded batch. Drop
+cached creation options when a tile disappears. Repeat application of the same
+intent must perform zero updates. This preserves the rule that only
+`CanvasWorkspaceGridComponent` knows Gridstack while removing the unguarded
+Angular update path.
+
+Diagnostics distinguish actual layout computation (incremented inside the
+computed callback on a cache miss), apply checks, changed apply passes, and
+per-node updates. A separate publication clock refreshes diagnostic attributes
+without making the counters reactive dependencies of layout computation. The
+Auto/1/2/3 control is disabled while the canvas is locked, and its handler also
+rejects programmatic mutation in that state.
+
+#### Hydration, persistence, and disposal
+
+R4b replaces `OrchestraCanvasComponent.restoreCanvasTilesFromTabs()`. That loop
+currently calls `addTileFromSession()`, which in turn calls `openSessionTab()`
+for an already-restored session (`orchestra-canvas.component.ts:377-388`,
+`canvas.store.ts:130-144`). Hydration must instead pass the exact authoritative
+restored tab ids into one store transaction; it must never find or recreate
+tabs by session id.
+
+Use one localStorage record per workspace and panel, derived from
+`VSCodeService.config().panelId || 'primary'`, so a writer replaces only its own
+partition. A v1 record contains `version`, `columnsPreference`, and at most
+`MAX_TILES` entries of `{tabId, order, weight, rowBreakBefore}`. Zod validation
+requires non-empty unique tab ids, dense-normalizable integer order, boolean
+breaks, and finite weights in `(0, GRID_COLUMNS]`. It contains no rendered
+geometry, focus, transcript, session identity, or future `detailPin`.
+
+Hydration is a two-phase transaction: read/validate the target record, reconcile
+it with the authoritative restored tab-id snapshot using the row-preserving
+algorithm, publish the workspace state once, then enable persistence writes for
+that partition. Do not let an initial empty signal overwrite storage. Do not
+prune or create records for workspaces that have not been authoritatively opened.
+After hydration, membership changes come from explicit tab close/adopt events or
+an acknowledged workspace reconciliation, not an unqualified effect over a
+possibly transient empty `tabs()` signal.
+
+The implicit workspace is never persisted. If tiles are created before a real
+path exists, the first authoritative workspace transaction reconciles those ids
+with the target's restored tabs and persisted intent, appends valid implicit-only
+ids, deletes the sentinel partition, and only then enables the real partition's
+writes.
+
+Classify storage reads as missing, current, corrupt-current, or unknown-future.
+An unknown future version may render a safe default from authoritative tabs but
+must keep its original bytes and disable automatic writes, preventing an older
+client from downgrading it. Duplicate ids invalidate the current record rather
+than being silently last-write-wins. Debounced dirty writes flush synchronously
+on `pagehide`, `beforeunload`, visibility-hidden, and persistence-service
+destruction; only hydrated, writable partitions may flush.
+
+Ordinary `OrchestraCanvasComponent` disposal must flush intent and destroy the
+view only. Remove its unconditional `forceCloseTab()` loop
+(`orchestra-canvas.component.ts:430-445`). `CanvasStore.removeTile()` remains
+the explicit user close path that closes one tab; any future "close all
+sessions" action must be a separately named command. Destroy/remount must retain
+the same authoritative tab ids and recreate tiles without `openSessionTab`,
+`switchSession`, `closeTab`, `forceCloseTab`, or `session:load`.
+
+The workspace-wide Auto / 1 / 2 / 3 maximum plus manual breaks is the accepted
+default. No per-row configuration decision is pending.
 
 ### Level of detail
 
@@ -329,13 +541,20 @@ speaks a coalesced phrase rather than twelve insertions.
    full `ChatViewComponent` instances. A test asserts the count.
 2. A compact tile renders in a fixed height with no internal scrollbar, and it
    shows a blocking prompt summary within one frame of the prompt arriving.
-3. A layout pass issues at most one Gridstack `update()` call per changed node.
-   The current duplicate path through the Angular `[options]` setter is gone.
+3. A layout pass has one post-mount geometry owner, issues at most one Gridstack
+   `update()` per changed node, issues zero for unchanged nodes on repeat
+   application, and produces no intent feedback. The reactive Angular
+   `[options]` update path is gone.
 4. Switching to single-chat layout mode deregisters the canvas tiles. The main
    transcript and the canvas transcripts are never both live.
-5. Canvas order, weight and pin survive an application restart, restore against
-   valid tabs only, and reject a corrupt or older stored payload without
-   throwing.
+5. Canvas order, bounded weight, explicit row breaks and tiles-per-row
+   preference survive an application restart and restore against exact
+   authoritative tab ids only. Unknown future records are not overwritten.
+   With three tiles, a manually-created 2+1 arrangement survives workspace
+   A -> B -> A, a wide -> narrow -> wide resize, and an application restart.
+   `A B | C D` reconciled without `C` becomes `A B | D`. Ordinary canvas
+   destroy/remount preserves the same tabs and performs no session lifecycle
+   call; only an explicit tile close closes a tab.
 6. Drag and east-or-west resize behave correctly at every zoom stop, at non-unit
    browser zoom, and at a non-unit Electron device pixel ratio.
 7. Entering Overview does not change the user's manual lock state. Leaving it
@@ -361,28 +580,32 @@ speaks a coalesced phrase rather than twelve insertions.
 
 ## Sequence
 
-Track R runs in this order. Zoom follows the level-of-detail work, because a zoom
-stop otherwise has nothing deterministic to control.
+The immediate canvas lane runs in this order:
 
-0. Session identity — a prerequisite for steps 2 and 6
-1. Instrumentation and contracts
-2. Compact redesign
-3. Tile shell split and level-of-detail allocation
-4. Intent persistence
-5. Zoom
-6. Terminal pulse and notification store
-7. Cross-workspace focus routing
-8. Host integration
+0. Session identity — complete and independently approved.
+1. **R1-lite + R4a — implemented, pending review:** baseline/update counters, one post-mount geometry writer,
+   row semantics, workspace-scoped revisions, Auto / 1 / 2 / 3 control, and real
+   Gridstack interaction proof. No persistence and no tile/session calls.
+2. **R4b:** authoritative tab-id hydration, lifecycle correction, per-workspace
+   and per-panel persistence, teardown flush, and real destroy/remount proof.
+3. Zoom, after row projection and persistence are stable.
+
+Compact redesign (R2) is independent of row layout and remains the user's
+highest-priority visual work. It may be scheduled alongside this lane when file
+ownership is disjoint. Tile shell split/LOD and full Live/streaming
+instrumentation remain required renderer work, but neither is a prerequisite
+for R4a or R4b. `detailPin` is deliberately absent from the v1 canvas record and
+gets a schema version only when LOD implements it.
 
 Track C step 1, the measurement, should start in parallel with Track R step 1.
 Everything else in Track C depends on what that measurement finds.
 
-Step 3 is load-bearing. Until the child injector and the chat outlet in
-`CanvasTileComponent` are conditional, a folded tile still pays most of today's
-cost, and steps 4 through 8 deliver much less than they appear to. Step 4's
-"restore folded, hydrate focused" has no cheap rendering to restore into, and
-step 5's Overview would scale full chat views down to chips rather than
-replacing them.
+LOD remains load-bearing for the eventual high tile count: until the child
+injector and chat outlet are conditional, a folded tile still pays most of
+today's cost. That performance dependency does not apply to row ownership or
+canvas lifecycle. R4b must remove forced tab closure on ordinary disposal before
+LOD begins destroying and recreating view surfaces, otherwise view lifecycle and
+session lifecycle remain dangerously coupled.
 
 ## Risks
 
@@ -394,6 +617,9 @@ replacing them.
 | Notification queue drifts from the prompt source | A badge outlives the request | Pending prompts stay computed and are never pushed |
 | localStorage quota at 50 long transcripts | Silent persistence failure | Track C criterion 4 |
 | Gridstack behavior under transform | Third-party behavior, not a guarantee | Integration tests at several scales and device pixel ratios |
+| Dual geometry ownership | Angular input and explicit effect each write Gridstack, hiding feedback and doubling work | Stable creation-only options plus one diffing imperative owner, measured in a real browser |
+| Gesture commits after workspace/capacity change | A stale `change` mutates the wrong partition or destroys row intent | Gesture-start snapshot, workspace revision, exact-node validation, and cancel-on-context-change |
+| Older client overwrites future intent | Downgrade destroys data it cannot understand | Per-partition write gate; preserve unknown-version bytes |
 
 ## Open questions
 

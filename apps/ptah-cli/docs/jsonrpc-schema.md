@@ -608,7 +608,6 @@ The following push notifications stream on stdout from the Thoth subsystems (for
 | Notification                  | Source                        |
 | ----------------------------- | ----------------------------- |
 | `MEMORY_EXTRACTED`            | memory-curator `onEvent`      |
-| `MEMORY_OBSERVATION_CAPTURED` | observation queue `onCapture` |
 | `MEMORY_CORPUS_CHANGED`       | corpus store `onChange`       |
 | `VEC_STATUS_CHANGED`          | vec status service            |
 | `EMBEDDER_STATUS_CHANGED`     | embedder status service       |

@@ -429,6 +429,9 @@ function cascadeCleanForEvictedEvent(
  */
 export type TabViewMode = 'full' | 'compact';
 
+/** Ownership of a tab's current session title. */
+export type TitleOrigin = 'default' | 'auto' | 'user' | 'history';
+
 /**
  * Session lifecycle status values.
  * Tracks the current state of session operations.
@@ -509,6 +512,16 @@ export interface TabState {
 
   /** Display title shown in tab UI (typically derived from name) */
   title: string;
+
+  /**
+   * Ownership of the current title.
+   *
+   * Optional only for persisted tabs written before session-title derivation
+   * existed. Restore sanitization upgrades a recognized placeholder/generated
+   * empty draft to `default`; custom names, sessions, and transcripts become
+   * `history` conservatively.
+   */
+  titleOrigin?: TitleOrigin;
 
   /** Tab order position */
   order: number;

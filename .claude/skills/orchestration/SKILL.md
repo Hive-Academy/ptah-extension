@@ -127,7 +127,7 @@ See [strategies.md](references/strategies.md) for detailed selection guidance.
 ### Mode Detection
 
 ```
-if ($ARGUMENTS matches /^TASK_\d{4}_\d{3}$/)
+if ($ARGUMENTS matches /^TASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?$/)
     -> CONTINUATION mode (resume existing task)
 else
     -> NEW_TASK mode (create new task)
@@ -141,7 +141,7 @@ clobber a concurrent session. Hand-allocate only when no host is running, and
 then follow the **atomic reserve** in [task-tracking.md](references/task-tracking.md)
 §"Generating a New Task ID" exactly:
 
-1. **Reserve the ID atomically**: scan `.ptah/specs/TASK_*` folder names for the highest `NNN` this year, add 1, then claim the folder with an **exclusive, fail-if-exists** `mkdir` (NOT `mkdir -p`). On `EEXIST`, a concurrent session won that ID — re-scan, increment, and retry. The `mkdir` IS the lock. NEVER derive the ID from `registry.md` — it is generated output and can be stale.
+1. **Reserve the ID atomically**: scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`), every path from `git worktree list`, and the local folder. Take the highest `NNN` this year, add 1, zero-pad to at least three digits, and append `_` plus four random lowercase hex characters (`TASK_YYYY_NNN_xxxx`). Claim the folder with an **exclusive, fail-if-exists** `mkdir` (NOT `mkdir -p`); the `mkdir` IS the lock. On `EEXIST`, re-scan and retry with a fresh suffix. NEVER derive the ID from `registry.md` — it is generated output and can be stale. NEVER rename an existing folder.
 2. **Create Carrier FIRST, never overwriting**: `Write(.ptah/specs/TASK_[ID]/task.md)` into the folder you just reserved — the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). It is provably empty because the exclusive `mkdir` succeeded; if a `task.md` is somehow already there, STOP — do not overwrite it (`.ptah/**` is gitignored, an overwrite has no undo). A folder without `task.md` is invisible to the Tasks board and the registry.
 3. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
 4. **Announce**: Present task ID, type, complexity, planned agent sequence

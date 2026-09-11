@@ -105,7 +105,12 @@ describe('CanvasStore workspace partitioning', () => {
     store.switchWorkspaceTiles('/ws/a', []);
 
     const restored = store.tiles().find((t) => t.tabId === 'a-tab-1');
-    expect(restored).toEqual({ tabId: 'a-tab-1', order: 1, weight: 5 });
+    expect(restored).toEqual({
+      tabId: 'a-tab-1',
+      order: 1,
+      weight: 5,
+      rowBreakBefore: false,
+    });
     expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-2', 'a-tab-1']);
     expect(store.focusedTabId()).toBe('a-tab-2');
   });
@@ -118,9 +123,9 @@ describe('CanvasStore workspace partitioning', () => {
     ]);
 
     expect(store.tiles()).toEqual([
-      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT },
-      { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT },
-      { tabId: 't3', order: 2, weight: DEFAULT_TILE_WEIGHT },
+      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
+      { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
+      { tabId: 't3', order: 2, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
     ]);
   });
 
@@ -148,9 +153,9 @@ describe('CanvasStore workspace partitioning', () => {
       store.reorderTiles(['t3', 't1', 't2']);
 
       expect(store.tiles()).toEqual([
-        { tabId: 't3', order: 0, weight: DEFAULT_TILE_WEIGHT },
-        { tabId: 't1', order: 1, weight: DEFAULT_TILE_WEIGHT },
-        { tabId: 't2', order: 2, weight: DEFAULT_TILE_WEIGHT },
+        { tabId: 't3', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
+        { tabId: 't1', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
+        { tabId: 't2', order: 2, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
       ]);
     });
 
@@ -186,8 +191,8 @@ describe('CanvasStore workspace partitioning', () => {
       store.setTileWeights(new Map([['t1', 8]]));
 
       expect(store.tiles()).toEqual([
-        { tabId: 't1', order: 0, weight: 8 },
-        { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT },
+        { tabId: 't1', order: 0, weight: 8, rowBreakBefore: false },
+        { tabId: 't2', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
       ]);
     });
 
@@ -234,9 +239,57 @@ describe('CanvasStore workspace partitioning', () => {
     store.removeTileOnly('t2');
 
     expect(store.tiles()).toEqual([
-      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT },
-      { tabId: 't3', order: 1, weight: DEFAULT_TILE_WEIGHT },
+      { tabId: 't1', order: 0, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
+      { tabId: 't3', order: 1, weight: DEFAULT_TILE_WEIGHT, rowBreakBefore: false },
     ]);
+  });
+
+  it('transfers a row boundary when its first tile is removed', () => {
+    store.switchWorkspaceTiles('/ws/a', [
+      makeSeed('A'),
+      makeSeed('B'),
+      makeSeed('C'),
+      makeSeed('D'),
+    ]);
+    const revision = store.workspaceRevision('/ws/a');
+    expect(
+      store.commitDragIntent('/ws/a', revision, [
+        ...store.tiles().slice(0, 2),
+        { ...store.tiles()[2], rowBreakBefore: true },
+        store.tiles()[3],
+      ]),
+    ).toBe(true);
+
+    store.removeTileOnly('C');
+
+    expect(store.tiles().map((tile) => [tile.tabId, tile.rowBreakBefore])).toEqual([
+      ['A', false],
+      ['B', false],
+      ['D', true],
+    ]);
+  });
+
+  it('rejects a stale or cross-workspace gesture commit atomically', () => {
+    store.switchWorkspaceTiles('/ws/a', [makeSeed('A'), makeSeed('B')]);
+    const revision = store.workspaceRevision('/ws/a');
+    const projected = [store.tiles()[1], store.tiles()[0]];
+    store.adoptTab('C');
+    expect(store.commitDragIntent('/ws/a', revision, projected)).toBe(false);
+    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A', 'B', 'C']);
+
+    store.switchWorkspaceTiles('/ws/b', [makeSeed('X')]);
+    expect(store.commitDragIntent('/ws/a', revision, projected)).toBe(false);
+    expect(store.tiles().map((tile) => tile.tabId)).toEqual(['X']);
+  });
+
+  it('keeps the columns maximum scoped to each workspace', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.setColumnsPreference(2);
+    store.switchWorkspaceTiles('/ws/b', []);
+    expect(store.columnsPreferenceFor('/ws/b')).toBe('auto');
+    store.setColumnsPreference(1);
+    store.switchWorkspaceTiles('/ws/a', []);
+    expect(store.columnsPreferenceFor('/ws/a')).toBe(2);
   });
 
   it('removeWorkspaceTileState clears live signals when removing the active workspace', () => {
@@ -352,7 +405,9 @@ describe('CanvasStore workspace partitioning', () => {
     // returning re-mounts /ws/a with its saved tiles + intent intact
     store.switchWorkspaceTiles('/ws/a', []);
     expect(store.workspacePaths()).toContain('/ws/a');
-    expect(store.tiles()).toEqual([{ tabId: 'a-tab-1', order: 0, weight: 5 }]);
+    expect(store.tiles()).toEqual([
+      { tabId: 'a-tab-1', order: 0, weight: 5, rowBreakBefore: false },
+    ]);
   });
 
   it('allTabIds returns tabIds across every retained workspace', () => {

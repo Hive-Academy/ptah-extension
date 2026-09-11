@@ -36,6 +36,7 @@ const intent = (tabId: string, order: number, weight = 1): TileIntent => ({
   tabId,
   order,
   weight,
+  rowBreakBefore: false,
 });
 
 describe('CanvasLayoutService', () => {
@@ -119,6 +120,41 @@ describe('CanvasLayoutService', () => {
   });
 
   describe('rows fill the full width (fill-remainder)', () => {
+    it('preserves an explicit 2+1 row across narrow then wide measurement', () => {
+      const explicit = [
+        intent('a', 0),
+        intent('b', 1),
+        { ...intent('c', 2), rowBreakBefore: true },
+      ];
+      measure(minWidthForColumns(3), 900);
+      expect(service.computeLayout(explicit).tiles.map((tile) => tile.y)).toEqual([
+        0,
+        0,
+        TILE_HEIGHT_UNITS,
+      ]);
+      measure(minWidthForColumns(1), 900);
+      expect(service.computeLayout(explicit).tiles.map((tile) => tile.y)).toEqual([
+        0,
+        TILE_HEIGHT_UNITS,
+        2 * TILE_HEIGHT_UNITS,
+      ]);
+      measure(minWidthForColumns(3), 900);
+      expect(service.computeLayout(explicit).tiles.map((tile) => tile.y)).toEqual([
+        0,
+        0,
+        TILE_HEIGHT_UNITS,
+      ]);
+    });
+
+    it('honours a workspace maximum without changing row intent', () => {
+      measure(minWidthForColumns(3), 900);
+      const source = [intent('a', 0), intent('b', 1), intent('c', 2)];
+      expect(
+        service.computeLayout(source, 2).tiles.map((tile) => tile.y),
+      ).toEqual([0, 0, TILE_HEIGHT_UNITS]);
+      expect(source.every((tile) => !tile.rowBreakBefore)).toBe(true);
+    });
+
     it('gives 4/4/4 on a full row and a single full-width tile on the short row', () => {
       measure(minWidthForColumns(3), 900);
 

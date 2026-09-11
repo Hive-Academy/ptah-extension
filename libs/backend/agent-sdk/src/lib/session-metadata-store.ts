@@ -47,6 +47,7 @@ import type {
   FlatStreamEventUnion,
   SessionMetadataChangedNotification,
   SessionMetadataChangeKind,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
 
@@ -95,6 +96,18 @@ export interface SessionMetadata {
 
   /** CLI agent sessions linked to this parent session. Enables resume. */
   readonly cliSessions?: readonly CliSessionReference[];
+
+  /**
+   * Exact process working directory used by the SDK session. This can differ
+   * from workspaceId when the session runs in a git worktree.
+   */
+  readonly workingDirectory?: string;
+
+  /**
+   * Interrupted SDK subagents that can be resumed after host restart.
+   * Rival CLI/background/running/completed records never belong here.
+   */
+  readonly resumableSdkSubagents?: readonly SubagentRecord[];
 
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
@@ -454,6 +467,13 @@ export class SessionMetadataStore {
       ...(existing?.cliSessions && !metadata.cliSessions
         ? { cliSessions: existing.cliSessions }
         : {}),
+      ...(existing?.workingDirectory && !metadata.workingDirectory
+        ? { workingDirectory: existing.workingDirectory }
+        : {}),
+      ...(existing?.resumableSdkSubagents &&
+      metadata.resumableSdkSubagents === undefined
+        ? { resumableSdkSubagents: existing.resumableSdkSubagents }
+        : {}),
     });
 
     if (isAsyncStateStorage(this.storage)) {
@@ -657,6 +677,51 @@ export class SessionMetadataStore {
     }
     const all = await this.getAll();
     return all.find((m) => m.sessionId === sessionId) || null;
+  }
+
+  /**
+   * Persist the process-resume state owned by chat orchestration.
+   *
+   * The filter is deliberately repeated at the storage boundary: callers may
+   * pass a registry snapshot, but only interrupted foreground SDK subagents
+   * belonging to this canonical session are durable.
+   */
+  async saveResumeState(
+    sessionId: string,
+    state: {
+      workingDirectory?: string;
+      resumableSdkSubagents: readonly SubagentRecord[];
+    },
+  ): Promise<void> {
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot save resume state for missing session ${sessionId}`,
+        );
+        return;
+      }
+
+      const resumableSdkSubagents = state.resumableSdkSubagents
+        .filter(
+          (record) =>
+            record.status === 'interrupted' &&
+            record.parentSessionId === sessionId &&
+            !record.isBackground &&
+            !record.isCliAgent &&
+            blankToUndefined(record.toolCallId) !== undefined &&
+            blankToUndefined(record.agentId) !== undefined,
+        )
+        .map((record) => ({ ...record }));
+
+      await this._saveInternal({
+        ...metadata,
+        ...(blankToUndefined(state.workingDirectory)
+          ? { workingDirectory: state.workingDirectory }
+          : {}),
+        resumableSdkSubagents,
+      });
+    });
   }
 
   /**
@@ -1203,6 +1268,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
+      workingDirectory: workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,
@@ -1234,6 +1300,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
+      workingDirectory: workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,

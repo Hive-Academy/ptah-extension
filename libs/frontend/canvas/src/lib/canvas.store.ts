@@ -2,6 +2,10 @@ import { Injectable, Signal, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
 import { DEFAULT_TILE_WEIGHT, type TileIntent } from './canvas-layout.service';
+import {
+  retainTilesInLogicalRows,
+  type ColumnsPreference,
+} from './canvas-layout-intent';
 
 /**
  * A canvas tile is stored as intent only — where it sits in reading order and
@@ -75,6 +79,12 @@ export class CanvasStore {
     ReadonlyMap<string, string | null>
   >(new Map());
   private readonly _activeWorkspacePath = signal<string | null>(null);
+  private readonly _workspaceRevisions = signal<ReadonlyMap<string, number>>(
+    new Map(),
+  );
+  private readonly _workspaceColumnsPreferences = signal<
+    ReadonlyMap<string, ColumnsPreference>
+  >(new Map());
 
   /** Insertion-ordered mounted workspaces (stable for `@for` track path). */
   private readonly _workspacePaths = signal<readonly string[]>([]);
@@ -120,6 +130,23 @@ export class CanvasStore {
       this._tilesForCache.set(path, sig);
     }
     return sig;
+  }
+
+  workspaceRevision(path: string): number {
+    return this._workspaceRevisions().get(path) ?? 0;
+  }
+
+  columnsPreferenceFor(path: string): ColumnsPreference {
+    return this._workspaceColumnsPreferences().get(path) ?? 'auto';
+  }
+
+  setColumnsPreference(preference: ColumnsPreference): void {
+    const path = this.ensureActivePath();
+    if (this.columnsPreferenceFor(path) === preference) return;
+    this._workspaceColumnsPreferences.update((map) =>
+      new Map(map).set(path, preference),
+    );
+    this.bumpRevision(path);
   }
 
   /**
@@ -239,6 +266,25 @@ export class CanvasStore {
     });
   }
 
+  /** Atomically commit a complete drag projection to its captured workspace. */
+  commitDragIntent(
+    workspacePath: string,
+    expectedRevision: number,
+    projected: readonly CanvasTile[],
+  ): boolean {
+    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
+    const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
+    if (!sameIdsExactly(current, projected)) return false;
+    const normalized = projected.map((tile, order) => ({
+      ...tile,
+      order,
+      rowBreakBefore: order > 0 && tile.rowBreakBefore,
+    }));
+    if (sameIntent(current, normalized)) return true;
+    this.setWorkspaceTiles(workspacePath, normalized);
+    return true;
+  }
+
   /**
    * Rewrite relative width shares from a finished resize gesture. Tiles absent
    * from the map keep their weight; a non-finite or non-positive weight is
@@ -259,6 +305,32 @@ export class CanvasStore {
       });
       return changed ? next : tiles;
     });
+  }
+
+  /** Atomically commit resize weights to the workspace captured at start. */
+  commitResizeWeights(
+    workspacePath: string,
+    expectedRevision: number,
+    weights: ReadonlyMap<string, number>,
+  ): boolean {
+    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
+    const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
+    if (weights.size !== current.length) return false;
+    let valid = true;
+    let changed = false;
+    const next = current.map((tile) => {
+      const weight = weights.get(tile.tabId);
+      if (weight === undefined || !Number.isFinite(weight) || weight <= 0) {
+        valid = false;
+        return tile;
+      }
+      if (weight === tile.weight) return tile;
+      changed = true;
+      return { ...tile, weight };
+    });
+    if (!valid) return false;
+    if (changed) this.setWorkspaceTiles(workspacePath, next);
+    return true;
   }
 
   /**
@@ -310,6 +382,22 @@ export class CanvasStore {
         next.delete(IMPLICIT_WORKSPACE_PATH);
         return next;
       });
+      const implicitRevision = this.workspaceRevision(IMPLICIT_WORKSPACE_PATH);
+      this._workspaceRevisions.update((map) => {
+        const next = new Map(map);
+        next.set(newPath, implicitRevision);
+        next.delete(IMPLICIT_WORKSPACE_PATH);
+        return next;
+      });
+      const implicitPreference = this.columnsPreferenceFor(
+        IMPLICIT_WORKSPACE_PATH,
+      );
+      this._workspaceColumnsPreferences.update((map) => {
+        const next = new Map(map);
+        next.set(newPath, implicitPreference);
+        next.delete(IMPLICIT_WORKSPACE_PATH);
+        return next;
+      });
       this.unmount(IMPLICIT_WORKSPACE_PATH);
       return;
     }
@@ -321,12 +409,14 @@ export class CanvasStore {
         tabId: tab.id,
         order: seeded.length,
         weight: DEFAULT_TILE_WEIGHT,
+        rowBreakBefore: false,
       });
     }
     this._workspaceTiles.update((map) => new Map(map).set(newPath, seeded));
     this._workspaceFocusedTabId.update((map) =>
       new Map(map).set(newPath, null),
     );
+    this._workspaceRevisions.update((map) => new Map(map).set(newPath, 0));
   }
 
   /**
@@ -335,17 +425,20 @@ export class CanvasStore {
    * workspace (the active-workspace prune effect can't see those tiles).
    */
   removeTileFromAnyWorkspace(tabId: string): void {
+    const changedPaths: string[] = [];
     this._workspaceTiles.update((map) => {
       let changed = false;
       const next = new Map(map);
       for (const [path, tiles] of map) {
         if (tiles.some((t) => t.tabId === tabId)) {
           next.set(path, dropTile(tiles, tabId));
+          changedPaths.push(path);
           changed = true;
         }
       }
       return changed ? next : map;
     });
+    changedPaths.forEach((path) => this.bumpRevision(path));
     this._workspaceFocusedTabId.update((map) => {
       let changed = false;
       const next = new Map(map);
@@ -385,6 +478,18 @@ export class CanvasStore {
       next.delete(workspacePath);
       return next;
     });
+    this._workspaceRevisions.update((map) => {
+      if (!map.has(workspacePath)) return map;
+      const next = new Map(map);
+      next.delete(workspacePath);
+      return next;
+    });
+    this._workspaceColumnsPreferences.update((map) => {
+      if (!map.has(workspacePath)) return map;
+      const next = new Map(map);
+      next.delete(workspacePath);
+      return next;
+    });
     this._workspaceFocusedTabId.update((map) => {
       if (!map.has(workspacePath)) return map;
       const next = new Map(map);
@@ -405,7 +510,12 @@ export class CanvasStore {
   private appendTile(tabId: string): void {
     this.updateActiveTiles((tiles) => [
       ...tiles,
-      { tabId, order: tiles.length, weight: DEFAULT_TILE_WEIGHT },
+      {
+        tabId,
+        order: tiles.length,
+        weight: DEFAULT_TILE_WEIGHT,
+        rowBreakBefore: false,
+      },
     ]);
   }
 
@@ -423,8 +533,23 @@ export class CanvasStore {
       const current = map.get(path) ?? EMPTY_TILES;
       const updated = fn(current);
       if (updated === current) return map;
+      this.bumpRevision(path);
       return new Map(map).set(path, updated);
     });
+  }
+
+  private setWorkspaceTiles(
+    workspacePath: string,
+    tiles: readonly CanvasTile[],
+  ): void {
+    this._workspaceTiles.update((map) => new Map(map).set(workspacePath, tiles));
+    this.bumpRevision(workspacePath);
+  }
+
+  private bumpRevision(workspacePath: string): void {
+    this._workspaceRevisions.update((map) =>
+      new Map(map).set(workspacePath, (map.get(workspacePath) ?? 0) + 1),
+    );
   }
 
   private clearFocusIf(tabId: string): void {
@@ -510,7 +635,35 @@ function dropTile(
   tabId: string,
 ): readonly CanvasTile[] {
   if (!tiles.some((t) => t.tabId === tabId)) return tiles;
-  return sortByOrder(tiles.filter((t) => t.tabId !== tabId)).map((tile, i) =>
-    tile.order === i ? tile : { ...tile, order: i },
+  const retained = new Set(
+    tiles.filter((tile) => tile.tabId !== tabId).map((tile) => tile.tabId),
   );
+  return retainTilesInLogicalRows(tiles, retained);
+}
+
+function sameIdsExactly(
+  left: readonly CanvasTile[],
+  right: readonly CanvasTile[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const ids = new Set(left.map((tile) => tile.tabId));
+  return (
+    ids.size === left.length && right.every((tile) => ids.delete(tile.tabId))
+  );
+}
+
+function sameIntent(
+  left: readonly CanvasTile[],
+  right: readonly CanvasTile[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((tile, index) => {
+    const other = right[index];
+    return (
+      tile.tabId === other.tabId &&
+      tile.order === other.order &&
+      tile.weight === other.weight &&
+      tile.rowBreakBefore === other.rowBreakBefore
+    );
+  });
 }

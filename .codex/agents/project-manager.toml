@@ -27,7 +27,7 @@ empty when you do.
 
 ## Task specs (`.ptah/specs/`)
 
-- One folder per task, `TASK_YYYY_NNN`. **The folder name is the canonical id.**
+- One folder per task, `TASK_YYYY_NNN_xxxx`. **The folder name is the canonical id.**
   A frontmatter `id:` that disagrees is a warning — never rename the folder to
   match it.
 - `task.md` is the machine-owned carrier: frontmatter (`status`,

@@ -127,7 +127,7 @@ See [strategies.md](references/strategies.md) for detailed selection guidance.
 ### Mode Detection
 
 ```
-if ($ARGUMENTS matches /^TASK_\d{4}_\d{3}$/)
+if ($ARGUMENTS matches /^TASK_\d{4}_\d{3,}(?:_[A-Za-z0-9]+)?$/)
     -> CONTINUATION mode (resume existing task)
 else
     -> NEW_TASK mode (create new task)
@@ -135,7 +135,7 @@ else
 
 ### NEW_TASK: Initialization
 
-1. **Allocate ID by atomic reserve**: prefer the `tasks:create` RPC (`TaskWriterService.create`), which reserves atomically and never overwrites. If allocating by hand: `Glob(.ptah/specs/TASK_*)` - highest `NNN` for the year + 1, zero-pad - then **reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)` without `recursive`, NOT `mkdir -p`). On `EEXIST` a concurrent session took that id: re-scan, increment, retry. The folder creation IS the lock. NEVER derive the ID from `registry.md` - it is generated output and can be stale.
+1. **Allocate ID by atomic reserve**: prefer the `tasks:create` RPC (`TaskWriterService.create`), which reserves atomically and never overwrites. If allocating by hand, scan `.ptah/specs` on `origin/main` (`git fetch`, then `git ls-tree`), every path from `git worktree list`, and the local folder. Take the highest `NNN` for the year, add 1, zero-pad to at least three digits, and append `_` plus four random lowercase hex characters (`TASK_YYYY_NNN_xxxx`). Then **reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)` without `recursive`, NOT `mkdir -p`); folder creation IS the lock. On `EEXIST`, re-scan and retry with a fresh suffix. NEVER derive the ID from `registry.md` - it is generated output and can be stale. NEVER rename an existing folder.
 2. **Reserve Task Folder (exclusive)**: `mkdir .ptah/specs/TASK_[ID]` with fail-if-exists semantics - a succeeding `mkdir` is your reservation, a failing one is a retry.
 3. **Create Carrier FIRST, never overwriting**: `Write(.ptah/specs/TASK_[ID]/task.md)` - the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). The write MUST fail if `task.md` already exists (exclusive create), so a residual race surfaces as an error instead of silent loss. A folder without `task.md` is invisible to the Tasks board and the registry.
 4. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy

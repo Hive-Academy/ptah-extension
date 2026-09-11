@@ -63,6 +63,7 @@ import {
   NoOpTaskIndexNotifier,
   type ITaskIndexNotifier,
 } from './task-index.port';
+import { NoOpTaskFolderVisibility } from './task-folder-visibility.port';
 import { TaskWriterService } from './task-writer.service';
 
 const WORKSPACE = normalizeWorkspaceRoot('D:\\workspace');
@@ -159,6 +160,7 @@ async function buildHarness(externalStatus: TaskStatus): Promise<Harness> {
     fs,
     silentLogger(),
     new NoOpTaskIndexNotifier(),
+    new NoOpTaskFolderVisibility(),
   );
 
   return {
@@ -268,6 +270,7 @@ describe('TaskWriterService.updateStatus — the loss interleaving', () => {
       fs,
       silentLogger(),
       new NoOpTaskIndexNotifier(),
+      new NoOpTaskFolderVisibility(),
     );
 
     const result = await writer.updateStatus(WORKSPACE, TASK_ID, 'in_progress');
@@ -407,6 +410,7 @@ async function buildBulkHarness(interleave = true): Promise<BulkHarness> {
     fs,
     silentLogger(),
     notifier as unknown as ITaskIndexNotifier,
+    new NoOpTaskFolderVisibility(),
   );
 
   return {

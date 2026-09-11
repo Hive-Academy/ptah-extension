@@ -5,6 +5,10 @@ import { CARRIER_BANNER } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import * as idAllocator from './id-allocator';
 import { NoOpTaskIndexNotifier } from './task-index.port';
+import {
+  NoOpTaskFolderVisibility,
+  type ITaskFolderVisibility,
+} from './task-folder-visibility.port';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
 
@@ -24,12 +28,33 @@ function specsDir(): string {
   return path.join(normalizeWorkspaceRoot(ROOT), '.ptah', 'specs');
 }
 
-function makeWriter() {
+/**
+ * A fake {@link ITaskFolderVisibility} that answers with a fixed list and
+ * counts its calls.
+ *
+ * The count is the assertion, not a diagnostic: `listBeyondWorkspace` may spawn
+ * up to three git processes, so calling it once per retry ATTEMPT rather than
+ * once per `create` would put fifteen git round-trips on a user-initiated
+ * create — and no behavioural assertion could tell the two apart.
+ */
+function fakeVisibility(names: readonly string[]) {
+  const calls: string[] = [];
+  const port: ITaskFolderVisibility = {
+    async listBeyondWorkspace(workspaceRoot: string) {
+      calls.push(workspaceRoot);
+      return names;
+    },
+  };
+  return { port, calls: () => calls.length };
+}
+
+function makeWriter(visibility: ITaskFolderVisibility = new NoOpTaskFolderVisibility()) {
   const fs = createMockFileSystemProvider();
   const writer = new TaskWriterService(
     fs,
     makeLogger(),
     new NoOpTaskIndexNotifier(),
+    visibility,
   );
   return { fs, writer };
 }
@@ -45,7 +70,8 @@ describe('TaskWriterService.create', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.task.id).toBe(`TASK_${YEAR}_001`);
+    expect(result.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_001_`));
     expect(result.task.status).toBe('backlog');
     expect(result.task.type).toBe('FEATURE');
     expect(result.task.frontmatterValid).toBe(true);
@@ -91,7 +117,8 @@ describe('TaskWriterService.create', () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.task.id).toBe(`TASK_${YEAR}_004`);
+    expect(result.task.id).toMatch(/^TASK_\d{4}_\d{3,}_[0-9a-f]{4}$/);
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_004_`));
   });
 
   it('claims the folder with the exclusive-create CAS, never a recursive createDirectory', async () => {
@@ -143,6 +170,106 @@ describe('TaskWriterService.create', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('INVALID_PARAMS');
+  });
+});
+
+/**
+ * The cross-checkout union (TASK_2026_403).
+ *
+ * `create` used to allocate from ONE directory listing — this checkout's own
+ * `.ptah/specs`. A sibling worktree's folders and a branch already pushed to
+ * `origin/main` were both invisible, so two checkouts of the same repository
+ * minted the same `TASK_YYYY_NNN` and the second one to be committed silently
+ * won. These four cases pin the fix and its cost.
+ */
+describe('TaskWriterService.create — allocates against the cross-checkout union', () => {
+  it('walks past a number only the EXTERNAL half can see', async () => {
+    const visibility = fakeVisibility([`TASK_${YEAR}_402_ab12`]);
+    const { fs, writer } = makeWriter(visibility.port);
+    // The local half is far behind: on its own it would allocate `_002`.
+    await fs.createDirectory(path.join(specsDir(), `TASK_${YEAR}_001`));
+
+    const result = await writer.create(ROOT, { title: 'union', type: 'FEATURE' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_403_[0-9a-f]{4}$`));
+  });
+
+  it('an empty external half leaves allocation exactly as the local scan had it', async () => {
+    const visibility = fakeVisibility([]);
+    const { fs, writer } = makeWriter(visibility.port);
+    await fs.createDirectory(path.join(specsDir(), `TASK_${YEAR}_001`));
+
+    const result = await writer.create(ROOT, { title: 'local', type: 'FEATURE' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.task.id).toMatch(new RegExp(`^TASK_${YEAR}_002_[0-9a-f]{4}$`));
+    expect(visibility.calls()).toBe(1);
+  });
+
+  it('asks the visibility port ONCE across a 3-attempt retry while re-scanning locally each time', async () => {
+    const visibility = fakeVisibility([]);
+    const { fs, writer } = makeWriter(visibility.port);
+
+    // Two lost races, then a win. The local re-scan is what makes the retry
+    // converge; the external half cannot change inside the loop.
+    let claims = 0;
+    const realExclusive = fs.createDirectoryExclusive.getMockImplementation();
+    if (!realExclusive) throw new Error('mock createDirectoryExclusive missing');
+    fs.createDirectoryExclusive.mockImplementation(async (target: string) => {
+      if (++claims <= 2) {
+        const err = new Error(`EEXIST: file already exists, mkdir '${target}'`);
+        (err as NodeJS.ErrnoException).code = 'EEXIST';
+        throw err;
+      }
+      return realExclusive(target);
+    });
+
+    const result = await writer.create(ROOT, { title: 'retry', type: 'BUGFIX' });
+
+    expect(result.success).toBe(true);
+    expect(claims).toBe(3);
+    // Three local scans...
+    const localScans = fs.readDirectory.mock.calls.filter(
+      ([target]) => target === specsDir(),
+    );
+    expect(localScans).toHaveLength(3);
+    // ...and exactly one git-backed lookup.
+    expect(visibility.calls()).toBe(1);
+  });
+
+  it('draws a FRESH suffix on every attempt', async () => {
+    const { fs, writer } = makeWriter();
+
+    // One lost race, then a win. A reused suffix would re-propose the identical
+    // id and lose the same race again; a fresh draw resolves the EEXIST even
+    // when the numeric sequence is unchanged.
+    let claims = 0;
+    const attempted: string[] = [];
+    const realExclusive = fs.createDirectoryExclusive.getMockImplementation();
+    if (!realExclusive) throw new Error('mock createDirectoryExclusive missing');
+    fs.createDirectoryExclusive.mockImplementation(async (target: string) => {
+      attempted.push(path.basename(target));
+      if (++claims === 1) {
+        const err = new Error(`EEXIST: file already exists, mkdir '${target}'`);
+        (err as NodeJS.ErrnoException).code = 'EEXIST';
+        throw err;
+      }
+      return realExclusive(target);
+    });
+
+    const result = await writer.create(ROOT, { title: 'fresh', type: 'BUGFIX' });
+
+    expect(result.success).toBe(true);
+    expect(attempted).toHaveLength(2);
+    const suffixes = attempted.map((id) => id.slice(id.lastIndexOf('_') + 1));
+    // Two independent draws over 65 536 values collide once in 65 536 runs.
+    // That residual is the property itself, not a flaw in the assertion: any
+    // seam that made it deterministic would stop testing the real generator.
+    expect(suffixes[0]).not.toBe(suffixes[1]);
+    for (const suffix of suffixes) expect(suffix).toMatch(/^[0-9a-f]{4}$/);
   });
 });
 
@@ -339,7 +466,12 @@ describe('TaskWriterService.updateStatus', () => {
     const fs = createMockFileSystemProvider();
     const notifier = new NoOpTaskIndexNotifier();
     const spy = jest.spyOn(notifier, 'applyFolderChange');
-    const writer = new TaskWriterService(fs, makeLogger(), notifier);
+    const writer = new TaskWriterService(
+      fs,
+      makeLogger(),
+      notifier,
+      new NoOpTaskFolderVisibility(),
+    );
 
     const created = await writer.create(ROOT, {
       title: 't',

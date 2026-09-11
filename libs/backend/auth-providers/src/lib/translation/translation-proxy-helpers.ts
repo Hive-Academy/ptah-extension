@@ -9,6 +9,34 @@
  */
 
 import * as http from 'http';
+import { z } from 'zod';
+
+const responsesUsageSchema = z.object({
+  input_tokens: z.number().nonnegative().optional(),
+  output_tokens: z.number().nonnegative().optional(),
+  input_tokens_details: z.object({
+    cached_tokens: z.number().nonnegative().optional(),
+  }).nullish(),
+}).nullish();
+
+/** Responses input includes cache hits; Anthropic input excludes them.
+ * Output already includes reasoning tokens, so never add reasoning details.
+ */
+export function translateResponsesUsage(value: unknown): {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number;
+} {
+  const usage = responsesUsageSchema.parse(value);
+  const input = usage?.input_tokens ?? 0;
+  const cached = usage?.input_tokens_details?.cached_tokens;
+  const cacheRead = Math.min(input, cached ?? 0);
+  return {
+    input_tokens: input - cacheRead,
+    output_tokens: usage?.output_tokens ?? 0,
+    ...(cached !== undefined ? { cache_read_input_tokens: cacheRead } : {}),
+  };
+}
 
 /** Maximum request body size (50 MB) */
 export const MAX_BODY_SIZE = 50 * 1024 * 1024;

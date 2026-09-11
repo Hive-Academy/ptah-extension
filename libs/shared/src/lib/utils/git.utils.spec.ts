@@ -63,6 +63,51 @@ describe('parseWorktreeList', () => {
     expect(result[1].head).toBe('12345678');
   });
 
+  it('preserves a non-ASCII POSIX path containing a newline in NUL mode', () => {
+    const mainPath = '/home/zoë/projects/研究\nrepository ';
+    const output = [
+      `worktree ${mainPath}`,
+      'HEAD abcdef1234567890',
+      'branch refs/heads/main',
+      '',
+      '',
+    ].join('\0');
+
+    const [worktree] = parseWorktreeList(output);
+
+    expect(worktree.path).toBe(mainPath);
+    expect(worktree.isMain).toBe(true);
+  });
+
+  it('preserves a non-ASCII Windows path with backslashes and newline in NUL mode', () => {
+    const mainPath = 'D:\\Users\\Renée\\研究\nrepository ';
+    const output = [
+      `worktree ${mainPath}`,
+      'HEAD abcdef1234567890',
+      'branch refs/heads/main',
+      '',
+      '',
+    ].join('\0');
+
+    const [worktree] = parseWorktreeList(output);
+
+    expect(worktree.path).toBe(mainPath);
+    expect(worktree.isMain).toBe(true);
+  });
+
+  it('does not trim path characters in legacy line mode', () => {
+    const mainPath = '/home/user/repository ';
+    const output = [
+      `worktree ${mainPath}`,
+      'HEAD abcdef1234567890',
+      'branch refs/heads/main',
+    ].join('\n');
+
+    const [worktree] = parseWorktreeList(output);
+
+    expect(worktree.path).toBe(mainPath);
+  });
+
   it('marks detached HEAD with special branch label', () => {
     const output = [
       'worktree /home/user/project',
