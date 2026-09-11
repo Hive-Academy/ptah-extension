@@ -61,10 +61,46 @@ export interface TranslationProxyConfig {
   responsesPath?: string;
 }
 
+export interface ProxyPhaseTimingRecord {
+  requestId: string;
+  attemptId: string;
+  providerId: string;
+  modelId: string;
+  retryOrdinal: number;
+  stream: boolean;
+  requestCorrelation: 'exact';
+  compactionCorrelation: 'inexact';
+  requestReceivedAt: number;
+  requestParsedAt: number;
+  attemptStartedAt: number;
+  upstreamResponseAt?: number;
+  firstByteAt?: number;
+  finishedAt: number;
+  status: 'success' | 'retry' | 'authentication-error' | 'rate-limited' |
+    'upstream-error' | 'invalid-response' | 'timeout' | 'network-error' | 'cancelled';
+  requestBytes: number;
+  responseBytes: number;
+  terminalInputTokens?: number;
+  terminalCacheReadTokens?: number;
+  terminalOutputTokens?: number;
+  overlapCount: number;
+}
+
+export interface ProxyTimingOptions {
+  now: () => number;
+  record: (record: ProxyPhaseTimingRecord) => void;
+}
+
+interface RequestTimingContext {
+  requestReceivedAt: number;
+  requestParsedAt: number;
+}
+
 export abstract class TranslationProxyBase implements ITranslationProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
   private requestCounter = 0;
+  private inFlightAttempts = 0;
 
   /** Log prefix derived from config name, e.g. '[CopilotProxy]' */
   private readonly logPrefix: string;
@@ -72,6 +108,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   constructor(
     protected readonly logger: Logger,
     protected readonly config: TranslationProxyConfig,
+    private readonly timing: ProxyTimingOptions = {
+      now: () => performance.now(),
+      record: () => undefined,
+    },
   ) {
     this.logPrefix = `[${this.config.name}Proxy]`;
   }
@@ -100,6 +140,11 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * Used for the /v1/models endpoint response.
    */
   protected abstract getStaticModels(): Array<{ id: string }>;
+
+  /** Kept overridable only so timing tests do not wait ten minutes. */
+  protected getUpstreamTimeoutMs(): number {
+    return 600_000;
+  }
 
   /**
    * The REGISTRY provider id this proxy fronts (`'openai-codex'`, not the
@@ -299,6 +344,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
+    const requestReceivedAt = this.timing.now();
     const requestId = this.generateRequestId();
     let anthropicRequest: AnthropicMessagesRequest;
     try {
@@ -315,6 +361,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       return;
     }
     anthropicRequest.model = this.normalizeModelId(anthropicRequest.model);
+    const requestTiming: RequestTimingContext = {
+      requestReceivedAt,
+      requestParsedAt: this.timing.now(),
+    };
 
     const useResponsesApi = this.shouldUseResponsesApi(anthropicRequest.model);
 
@@ -337,6 +387,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           res,
           requestId,
           false,
+          requestTiming,
         );
       } catch (error) {
         if (!res.headersSent) {
@@ -367,6 +418,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           res,
           requestId,
           false,
+          requestTiming,
         );
       } catch (error) {
         if (!res.headersSent) {
@@ -420,6 +472,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
     requestId: string,
     isRetry: boolean,
+    timing: RequestTimingContext,
   ): Promise<void> {
     return this.forwardToApi({
       requestBody: JSON.stringify(openaiRequest),
@@ -428,6 +481,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       res,
       requestId,
       isRetry,
+      timing,
       apiLabel: 'API',
       onStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
         this.handleStreamingResponse(proxyRes, clientRes, model, reqId),
@@ -440,6 +494,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           res,
           requestId,
           retry,
+          timing,
         ),
     });
   }
@@ -454,6 +509,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
     requestId: string,
     isRetry: boolean,
+    timing: RequestTimingContext,
   ): Promise<void> {
     const responsesPath = this.config.responsesPath ?? '/responses';
     const endpoint = await this.getApiEndpoint();
@@ -467,27 +523,35 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       res,
       requestId,
       isRetry,
+      timing,
       apiLabel: 'Responses API',
-      onStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
+      onStreamingSuccess: (proxyRes, clientRes, model, reqId, onUsage, onTranslationError) =>
         this.handleResponsesStreamingResponse(
           proxyRes,
           clientRes,
           model,
           reqId,
+          onUsage,
+          onTranslationError,
         ),
-      onNonStreamingSuccess: async (proxyRes, clientRes, model, reqId) => {
+      onNonStreamingSuccess: async (proxyRes, clientRes, model, reqId, onUsage, onTranslationError) => {
         if (forceStream) {
           try {
-            const response = await collectResponsesStream(proxyRes, clientRes, model, reqId);
+            const response = await collectResponsesStream(
+              proxyRes, clientRes, model, reqId, onUsage,
+            );
             if (!clientRes.destroyed) sendJson(clientRes, 200, response);
           } catch (error: unknown) {
+            onTranslationError();
             if (!(error instanceof ResponsesStreamError)) throw error;
             if (!clientRes.destroyed) {
               sendErrorResponse(clientRes, 502, 'api_error', `${error.code}: ${error.message}`);
             }
           }
         } else {
-          await this.handleResponsesNonStreamingResponse(proxyRes, clientRes, model, reqId);
+          await this.handleResponsesNonStreamingResponse(
+            proxyRes, clientRes, model, reqId, onUsage, onTranslationError,
+          );
         }
       },
       retryFn: (retry) =>
@@ -497,6 +561,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           res,
           requestId,
           retry,
+          timing,
         ),
     });
   }
@@ -520,14 +585,19 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       res: http.ServerResponse,
       model: string,
       requestId: string,
+      onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
+      onTranslationError: () => void,
     ) => void;
     onNonStreamingSuccess: (
       proxyRes: http.IncomingMessage,
       res: http.ServerResponse,
       model: string,
       requestId: string,
+      onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
+      onTranslationError: () => void,
     ) => Promise<void>;
     retryFn: (isRetry: boolean) => Promise<void>;
+    timing: RequestTimingContext;
   }): Promise<void> {
     const {
       requestBody,
@@ -540,11 +610,47 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       onStreamingSuccess,
       onNonStreamingSuccess,
       retryFn,
+      timing,
     } = params;
+    const retryOrdinal = isRetry ? 1 : 0;
+    const timingRecord: Omit<ProxyPhaseTimingRecord, 'finishedAt' | 'status'> = {
+      requestId,
+      attemptId: `${requestId}:${retryOrdinal}`,
+      providerId: this.getProviderId(),
+      modelId: originalRequest.model,
+      retryOrdinal,
+      stream: !!originalRequest.stream,
+      requestCorrelation: 'exact',
+      compactionCorrelation: 'inexact',
+      requestReceivedAt: timing.requestReceivedAt,
+      requestParsedAt: timing.requestParsedAt,
+      attemptStartedAt: this.timing.now(),
+      requestBytes: Buffer.byteLength(requestBody),
+      responseBytes: 0,
+      overlapCount: this.inFlightAttempts,
+    };
+    this.inFlightAttempts++;
+    let timingFinished = false;
+    const finishTiming = (status: ProxyPhaseTimingRecord['status']) => {
+      if (timingFinished) return;
+      timingFinished = true;
+      this.inFlightAttempts--;
+      const record = { ...timingRecord, finishedAt: this.timing.now(), status };
+      this.timing.record(record);
+      this.logger.debug(`${this.logPrefix} proxy phase timing`, record);
+    };
+    const captureUsage = (usage: ReturnType<typeof translateResponsesUsage>) => {
+      timingRecord.terminalInputTokens = usage.input_tokens;
+      timingRecord.terminalOutputTokens = usage.output_tokens;
+      if (usage.cache_read_input_tokens !== undefined) {
+        timingRecord.terminalCacheReadTokens = usage.cache_read_input_tokens;
+      }
+    };
     let headers: Record<string, string>;
     try {
       headers = await this.getHeaders();
     } catch (error) {
+      finishTiming('authentication-error');
       sendErrorResponse(
         res,
         401,
@@ -555,7 +661,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       );
       return;
     }
-    const apiEndpoint = params.endpoint ?? await this.getApiEndpoint();
+    let apiEndpoint: string;
+    try {
+      apiEndpoint = params.endpoint ?? await this.getApiEndpoint();
+    } catch (error: unknown) {
+      finishTiming('network-error');
+      throw error;
+    }
     const targetUrl = buildUpstreamUrl(apiEndpoint, path);
 
     this.logger.info(
@@ -569,19 +681,27 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         targetUrl,
         {
           method: 'POST',
-          timeout: 600_000, // 10 minutes — large repos need time for LLM processing
+          timeout: this.getUpstreamTimeoutMs(), // production default remains 10 minutes
           headers: {
             ...headers,
             'Content-Length': Buffer.byteLength(requestBody).toString(),
           },
         },
         (proxyRes) => {
+          timingRecord.upstreamResponseAt = this.timing.now();
+          proxyRes.on('data', (chunk: Buffer | string) => {
+            timingRecord.firstByteAt ??= this.timing.now();
+            timingRecord.responseBytes += Buffer.isBuffer(chunk)
+              ? chunk.length
+              : Buffer.byteLength(chunk);
+          });
           const statusCode = proxyRes.statusCode ?? 500;
           if (statusCode === 401 && !isRetry) {
             this.logger.warn(
               `${this.logPrefix} [${requestId}] Got 401 from ${apiLabel}, attempting token refresh and retry...`,
             );
             proxyRes.resume();
+            finishTiming('retry');
             this.onAuthFailure()
               .then((success) => {
                 if (success) {
@@ -610,6 +730,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             return;
           }
           if (statusCode === 429) {
+            finishTiming('rate-limited');
             const retryAfter = proxyRes.headers['retry-after'];
             const retryMsg = retryAfter
               ? ` Retry after ${retryAfter} seconds.`
@@ -643,6 +764,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             const chunks: Buffer[] = [];
             proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
             proxyRes.on('end', () => {
+              finishTiming('upstream-error');
               const errorBody = Buffer.concat(chunks).toString('utf8');
               this.logger.error(
                 `${this.logPrefix} [${requestId}] ${
@@ -670,23 +792,43 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           // waiting out the full cooldown would gate a provider that works.
           this.noteUpstreamQuota(false);
           if (originalRequest.stream) {
-            onStreamingSuccess(proxyRes, res, originalRequest.model, requestId);
-            proxyRes.on('end', () => resolve());
-            proxyRes.on('error', (err) => reject(err));
+            let translationFailed = false;
+            onStreamingSuccess(
+              proxyRes, res, originalRequest.model, requestId, captureUsage,
+              () => { translationFailed = true; },
+            );
+            proxyRes.on('end', () => {
+              finishTiming(translationFailed ? 'invalid-response' : 'success');
+              resolve();
+            });
+            proxyRes.on('error', (err) => {
+              finishTiming('network-error');
+              reject(err);
+            });
           } else {
+            let translationFailed = false;
             onNonStreamingSuccess(
               proxyRes,
               res,
               originalRequest.model,
               requestId,
+              captureUsage,
+              () => { translationFailed = true; },
             )
-              .then(resolve)
-              .catch(reject);
+              .then(() => {
+                finishTiming(translationFailed ? 'invalid-response' : 'success');
+                resolve();
+              })
+              .catch((error: unknown) => {
+                finishTiming('invalid-response');
+                reject(error);
+              });
           }
         },
       );
 
       proxyReq.on('timeout', () => {
+        finishTiming('timeout');
         this.logger.error(
           `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 600s`,
         );
@@ -703,6 +845,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       });
 
       proxyReq.on('error', (err) => {
+        finishTiming('network-error');
         this.logger.error(
           `${this.logPrefix} [${requestId}] ${apiLabel} request error: ${err.message}`,
         );
@@ -710,12 +853,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       });
 
       const cancel = () => {
+        finishTiming('cancelled');
         if (!res.writableEnded) proxyReq.destroy();
         resolve();
       };
       res.once('close', cancel);
       proxyReq.once('close', () => res.off('close', cancel));
       if (res.destroyed) {
+        finishTiming('cancelled');
         proxyReq.destroy();
         resolve();
         return;
@@ -734,6 +879,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
     model: string,
     requestId: string,
+    onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
+    onTranslationError: () => void,
   ): void {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -742,7 +889,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       'Transfer-Encoding': 'chunked',
     });
 
-    const translator = new ResponsesStreamTranslator(model, requestId);
+    const translator = new ResponsesStreamTranslator(
+      model, requestId, onUsage, onTranslationError,
+    );
     res.write(translator.getInitialEvents());
 
     proxyRes.setEncoding('utf8');
@@ -755,6 +904,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     });
 
     proxyRes.on('end', () => {
+      if (!translator.isFinalized()) onTranslationError();
       res.end();
       this.logger.debug(
         `${this.logPrefix} [${requestId}] Responses API streaming response complete`,
@@ -778,6 +928,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
     model: string,
     requestId: string,
+    onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
+    onTranslationError: () => void,
   ): Promise<void> {
     const chunks: Buffer[] = [];
 
@@ -815,6 +967,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             }
           }
 
+          const usage = translateResponsesUsage(responsesResponse.usage);
+          onUsage(usage);
           const anthropicResponse = {
             id: `msg_${requestId}`,
             type: 'message',
@@ -823,7 +977,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             model,
             stop_reason: stopReason,
             stop_sequence: null,
-            usage: translateResponsesUsage(responsesResponse.usage),
+            usage,
           };
 
           sendJson(res, 200, anthropicResponse);
@@ -831,6 +985,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             `${this.logPrefix} [${requestId}] Responses API non-streaming response sent`,
           );
         } catch (error) {
+          onTranslationError();
           this.logger.error(
             `${this.logPrefix} [${requestId}] Failed to translate Responses API non-streaming response: ` +
               `${error instanceof Error ? error.message : String(error)}`,
