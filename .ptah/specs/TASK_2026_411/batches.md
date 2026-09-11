@@ -257,12 +257,16 @@ Gate:
 - No `compactionControl` production reference remains.
 - A delayed 216 s fake compaction reaches PostCompact and clears state; watchdog remains overdue-but-continuing at 180 s.
 
-## B9 — Cross-host and performance closure — BLOCKED (2026-09-12)
+## B9 — Cross-host and performance closure — COMPLETE (2026-09-12)
 
-Verification evidence: `b9-report.md`. Blocked on two pre-existing lint
-findings owned by B2 and B7 (not B9's to fix) and two `node_modules` install
-gaps in this worktree (`web-tree-sitter`, `prismjs`/`daisyui`) unrelated to
-this task's diff. B9's own deliverables — the deferred B3 fixture (256 MB
+Verification evidence: `b9-report.md`, plus `b9-lint-fixes-report.md` for the
+lint closure. The two lint errors B9 escalated (owned by B7 and B2) are now
+fixed — `@nx/dependency-checks` narrowed with `ignoredDependencies` for the
+dynamically resolved `@openai/codex`, and the two redundant `boolean`
+annotations removed from the worker host spec — and lint, test and typecheck
+are green for both projects. The two `node_modules` install gaps in this
+worktree (`web-tree-sitter`, `prismjs`/`daisyui`) remain: they are
+environmental and unrelated to this task's diff. B9's own deliverables — the deferred B3 fixture (256 MB
 migration, injected extraction failure, main-thread budget, write
 amplification) and the 200-session/20-id-page analytics fixture — both passed
 with real numbers against the real production worker artifact.
