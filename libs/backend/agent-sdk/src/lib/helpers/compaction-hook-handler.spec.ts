@@ -24,6 +24,7 @@ import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
 } from './no-activity-watchdog';
+import { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 import type {
   SdkAdapterEvents,
@@ -254,6 +255,161 @@ describe('CompactionHookHandler — PreCompact sessionId resolution (TASK_2026_2
  * compaction as overdue and keep waiting, and the late PostCompact must still
  * reach the completion bus and release the compaction from the watchdog.
  */
+describe('CompactionHookHandler — PreCompact → PostCompact correlation (TASK_2026_414 Gap 2)', () => {
+  const signal = new AbortController().signal;
+
+  function makeEventsStub(): {
+    stub: SdkAdapterEvents;
+    emitted: SdkAdapterCompactionCompleteEvent[];
+  } {
+    const emitted: SdkAdapterCompactionCompleteEvent[] = [];
+    const stub = {
+      emitCompactionComplete: jest.fn(
+        (event: SdkAdapterCompactionCompleteEvent) => {
+          emitted.push(event);
+        },
+      ),
+    } as unknown as SdkAdapterEvents;
+    return { stub, emitted };
+  }
+
+  function makeHandler(registry = new CompactionBoundaryGenerationRegistry()): {
+    handler: CompactionHookHandler;
+    emitted: SdkAdapterCompactionCompleteEvent[];
+    registry: CompactionBoundaryGenerationRegistry;
+  } {
+    const { stub, emitted } = makeEventsStub();
+    const handler = new CompactionHookHandler(
+      makeLogger(),
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+      registry,
+    );
+    return { handler, emitted, registry };
+  }
+
+  function pre(sessionIdOnPayload?: string): HookInput {
+    return {
+      hook_event_name: 'PreCompact',
+      trigger: 'auto',
+      cwd: '/repo',
+      custom_instructions: null,
+      ...(sessionIdOnPayload ? { session_id: sessionIdOnPayload } : {}),
+    } as unknown as HookInput;
+  }
+
+  function post(sessionIdOnPayload?: string): HookInput {
+    return {
+      hook_event_name: 'PostCompact',
+      trigger: 'auto',
+      cwd: '/repo',
+      compact_summary: 'summary',
+      ...(sessionIdOnPayload ? { session_id: sessionIdOnPayload } : {}),
+    } as unknown as HookInput;
+  }
+
+  it('PostCompact without session_id publishes the PreCompact-resolved id, not the captured closure id', async () => {
+    const { handler, emitted } = makeHandler();
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post(), undefined, { signal });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].sessionId).toBe('REAL-sdk-id');
+  });
+
+  it('PostCompact with its own session_id still wins over the PreCompact id', async () => {
+    const { handler, emitted } = makeHandler();
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(
+      post('POST-payload-id'),
+      undefined,
+      { signal },
+    );
+
+    expect(emitted[0].sessionId).toBe('POST-payload-id');
+  });
+
+  it('a later PostCompact without session_id and no PreCompact falls back to the closure id again', async () => {
+    const { handler, emitted } = makeHandler();
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post(), undefined, { signal });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post(), undefined, { signal });
+
+    expect(emitted.map((e) => e.sessionId)).toEqual([
+      'REAL-sdk-id',
+      'TAB-closure-id',
+    ]);
+  });
+
+  it('PreCompact records a boundary expectation only when an interactive callback is present', async () => {
+    const { handler, registry } = makeHandler();
+    registry.observeBoundaryCount('REAL-interactive', 1);
+    const hooks = handler.createHooks('TAB', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+      pre('REAL-interactive'),
+      undefined,
+      { signal },
+    );
+
+    expect(registry.capturePendingExpectation('REAL-interactive')).toEqual({
+      kind: 'verified',
+      expectedCount: 2,
+    });
+  });
+
+  it('PreCompact does not record an expectation for a callback-less child spawn', async () => {
+    const { handler, registry } = makeHandler();
+    registry.observeBoundaryCount('REAL-child', 1);
+    const hooks = handler.createHooks(undefined, '/repo');
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-child'), undefined, {
+      signal,
+    });
+
+    expect(registry.capturePendingExpectation('REAL-child')).toBeUndefined();
+  });
+
+  it('a retried PreCompact before PostCompact does not count a second compaction', async () => {
+    const { handler, registry } = makeHandler();
+    registry.observeBoundaryCount('REAL-retry', 1);
+    const hooks = handler.createHooks('TAB', '/repo', jest.fn());
+    const firePre = () =>
+      hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-retry'), undefined, {
+        signal,
+      });
+
+    await firePre();
+    await firePre();
+    expect(registry.capturePendingExpectation('REAL-retry')).toEqual({
+      kind: 'verified',
+      expectedCount: 2,
+    });
+
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post('REAL-retry'), undefined, {
+      signal,
+    });
+    await firePre();
+    expect(registry.capturePendingExpectation('REAL-retry')).toEqual({
+      kind: 'verified',
+      expectedCount: 3,
+    });
+  });
+});
+
 describe('CompactionHookHandler — attempt timing and the 180 s watchdog (TASK_2026_411 B8)', () => {
   const SECRET_SUMMARY = 'SECRET-SUMMARY-TEXT-must-not-be-logged';
   const SECRET_INSTRUCTIONS = 'SECRET-INSTRUCTIONS-must-not-be-logged';

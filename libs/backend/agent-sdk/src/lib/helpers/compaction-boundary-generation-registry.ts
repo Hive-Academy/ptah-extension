@@ -10,8 +10,12 @@
  * Design constraints (TASK_2026_414):
  * - No timestamps, TTLs, delay constants, or slack.
  * - Bounded number of sessions; never grows without limit.
- * - Expectation is recorded only after a compact_boundary message resolves to
- *   a real session id.
+ * - An expectation is recorded when a compact_boundary message resolves to a
+ *   real session id, OR when an interactive PreCompact hook resolves one
+ *   (`recordPreCompact`) — the boundary is the one signal that may be missing,
+ *   so a PostCompact-only reload still needs an expectation to verify against.
+ *   A later live boundary for the same compaction CLAIMS the PreCompact
+ *   expectation instead of counting a second generation.
  * - A baseline-absent expectation is explicitly unverified and stays stale
  *   regardless of any historical boundary count.
  * - The reader captures any pending expectation BEFORE it observes the count
@@ -30,6 +34,14 @@ export interface UnverifiedExpectation {
 }
 
 export type PendingExpectation = VerifiedExpectation | UnverifiedExpectation;
+
+/**
+ * What a history read concluded about the expectation it captured.
+ * - `satisfied`: the parse contained the expected boundary generation.
+ * - `stale`: the read could not verify it (unmet, missing file, error).
+ * - `none`: there was no expectation to verify.
+ */
+export type ExpectationOutcome = 'satisfied' | 'stale' | 'none';
 
 interface CompactionBoundaryEntry {
   /**
@@ -54,6 +66,12 @@ interface CompactionBoundaryEntry {
    * delivery of the same id must not (PR #493 review B).
    */
   pendingBoundaryIds: Set<string>;
+  /**
+   * Compactions announced by PreCompact whose live compact_boundary has not
+   * arrived yet. Each one already advanced the expected count, so the matching
+   * boundary claims it rather than advancing the count again.
+   */
+  preCompactUnclaimed: number;
 }
 
 @injectable()
@@ -76,13 +94,33 @@ export class CompactionBoundaryGenerationRegistry {
   constructor(private readonly maxEntries = 256) {}
 
   /**
+   * Record that an interactive PreCompact hook announced a compaction for
+   * `sessionId`. It advances the expectation exactly as a distinct boundary
+   * would, and leaves a claim for the live boundary of the same compaction.
+   *
+   * Callers must gate this to interactive sessions: a callback-less child
+   * compaction never reaches a UI reload, and pending entries are not evicted.
+   */
+  recordPreCompact(sessionId: string): void {
+    const entry = this.ensureEntry(sessionId);
+    if (!entry) {
+      this.recordOverflowUnverifiedExpectation(sessionId);
+      return;
+    }
+    entry.preCompactUnclaimed += 1;
+    this.advanceExpectation(entry);
+  }
+
+  /**
    * Record that a streamed compaction boundary completed for `sessionId`.
    *
    * A history read can observe the persisted boundary before this transformer
    * call. `observedUnclaimedBoundaryId` is an ordering fact, not a clock:
    * claim that observed generation instead of expecting a fictitious next one.
-   * Otherwise, a known baseline yields the next expected generation; without a
-   * baseline the expectation remains explicitly unverified.
+   * A boundary for a compaction PreCompact already announced claims that
+   * announcement. Otherwise, a known baseline yields the next expected
+   * generation; without a baseline the expectation remains explicitly
+   * unverified.
    *
    * Distinct boundaries stack: each one recorded before the next history
    * observation advances the expected count from max(observedCount, the
@@ -103,6 +141,7 @@ export class CompactionBoundaryGenerationRegistry {
         // belongs to other boundaries and must survive the claim.
         entry.observedUnclaimedBoundaryId = null;
         entry.pendingBoundaryIds.delete(boundaryId);
+        entry.preCompactUnclaimed = Math.max(0, entry.preCompactUnclaimed - 1);
         return;
       }
       if (entry.pendingBoundaryIds.has(boundaryId)) {
@@ -111,18 +150,12 @@ export class CompactionBoundaryGenerationRegistry {
       }
       entry.pendingBoundaryIds.add(boundaryId);
     }
-    if (entry.baselineObserved) {
-      const currentExpectedCount =
-        entry.pendingExpectation?.kind === 'verified'
-          ? entry.pendingExpectation.expectedCount
-          : entry.observedCount;
-      entry.pendingExpectation = {
-        kind: 'verified',
-        expectedCount: Math.max(entry.observedCount, currentExpectedCount) + 1,
-      };
-    } else {
-      entry.pendingExpectation = { kind: 'unverified' };
+    if (entry.preCompactUnclaimed > 0) {
+      // PreCompact already counted this compaction.
+      entry.preCompactUnclaimed -= 1;
+      return;
     }
+    this.advanceExpectation(entry);
   }
 
   /**
@@ -173,14 +206,66 @@ export class CompactionBoundaryGenerationRegistry {
 
   /**
    * Consume the pending expectation after the response is ready or exhausted.
+   *
+   * One exception keeps an expectation alive: a VERIFIED expectation backed by
+   * an unclaimed PreCompact that a read found `stale`. That compaction was
+   * announced and its boundary is merely not on disk yet, so the next read (the
+   * renderer's single retry) must still be verified rather than accept whatever
+   * is on disk. It resolves on the first satisfied read or when the live
+   * boundary's claim is followed by one. An unverified expectation can never be
+   * satisfied, so a stale read clears it and drops the PreCompact claim: the
+   * eventual live boundary then opens a fresh, verifiable expectation.
    */
-  consumeExpectation(sessionId: string): void {
+  consumeExpectation(sessionId: string, outcome: ExpectationOutcome): void {
     const entry = this.entries.get(sessionId);
     if (entry) {
-      entry.pendingExpectation = null;
-      entry.pendingBoundaryIds.clear();
+      const retainForRetry =
+        outcome === 'stale' &&
+        entry.preCompactUnclaimed > 0 &&
+        entry.pendingExpectation?.kind === 'verified';
+      if (!retainForRetry) {
+        entry.pendingExpectation = null;
+        entry.pendingBoundaryIds.clear();
+        if (outcome === 'stale') {
+          entry.preCompactUnclaimed = 0;
+        }
+      }
     }
     this.overflowUnverifiedSessions.delete(sessionId);
+  }
+
+  /**
+   * Move `fromId`'s state onto `toId` when a provisional id (a tab id) resolves
+   * to the real SDK session id. Real-id evidence is never overwritten: when
+   * both exist the real id keeps its baseline, the larger verified expected
+   * count wins, and PreCompact claims and pending boundary ids are combined.
+   * Blank or equal ids are ignored.
+   */
+  rekey(fromId: string, toId: string): void {
+    if (!fromId || !toId || fromId === toId) return;
+    if (this.overflowUnverifiedSessions.delete(fromId)) {
+      this.overflowUnverifiedSessions.set(toId, true);
+    }
+    const from = this.entries.get(fromId);
+    if (!from) return;
+    this.entries.delete(fromId);
+    const to = this.entries.get(toId);
+    if (!to) {
+      this.entries.set(toId, from);
+      return;
+    }
+    if (!to.baselineObserved && from.baselineObserved) {
+      to.baselineObserved = true;
+      to.observedCount = from.observedCount;
+    }
+    to.pendingExpectation = this.mergeExpectations(
+      to.pendingExpectation,
+      from.pendingExpectation,
+    );
+    to.observedUnclaimedBoundaryId =
+      to.observedUnclaimedBoundaryId ?? from.observedUnclaimedBoundaryId;
+    for (const id of from.pendingBoundaryIds) to.pendingBoundaryIds.add(id);
+    to.preCompactUnclaimed += from.preCompactUnclaimed;
   }
 
   /** Test-only inspection. */
@@ -188,16 +273,48 @@ export class CompactionBoundaryGenerationRegistry {
     sessionId: string,
   ): Omit<
     CompactionBoundaryEntry,
-    'observedUnclaimedBoundaryId' | 'pendingBoundaryIds'
+    'observedUnclaimedBoundaryId' | 'pendingBoundaryIds' | 'preCompactUnclaimed'
   > | undefined {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
     const {
       observedUnclaimedBoundaryId: _unclaimed,
       pendingBoundaryIds: _pendingIds,
+      preCompactUnclaimed: _preCompact,
       ...inspection
     } = entry;
     return inspection;
+  }
+
+  /** Advance the expectation by one generation, as one distinct compaction. */
+  private advanceExpectation(entry: CompactionBoundaryEntry): void {
+    if (entry.baselineObserved) {
+      const currentExpectedCount =
+        entry.pendingExpectation?.kind === 'verified'
+          ? entry.pendingExpectation.expectedCount
+          : entry.observedCount;
+      entry.pendingExpectation = {
+        kind: 'verified',
+        expectedCount: Math.max(entry.observedCount, currentExpectedCount) + 1,
+      };
+    } else {
+      entry.pendingExpectation = { kind: 'unverified' };
+    }
+  }
+
+  private mergeExpectations(
+    real: PendingExpectation | null,
+    provisional: PendingExpectation | null,
+  ): PendingExpectation | null {
+    if (!provisional) return real;
+    if (!real) return provisional;
+    if (real.kind === 'verified' && provisional.kind === 'verified') {
+      return {
+        kind: 'verified',
+        expectedCount: Math.max(real.expectedCount, provisional.expectedCount),
+      };
+    }
+    return real;
   }
 
   private ensureEntry(
@@ -215,6 +332,7 @@ export class CompactionBoundaryGenerationRegistry {
         pendingExpectation: null,
         observedUnclaimedBoundaryId: null,
         pendingBoundaryIds: new Set<string>(),
+        preCompactUnclaimed: 0,
       };
     } else {
       // Refresh LRU position.
@@ -227,7 +345,8 @@ export class CompactionBoundaryGenerationRegistry {
   private evictOldestNonPendingEntry(): void {
     while (this.entries.size >= this.maxEntries) {
       const evictable = [...this.entries.entries()].find(
-        ([, entry]) => entry.pendingExpectation === null,
+        ([, entry]) =>
+          entry.pendingExpectation === null && entry.preCompactUnclaimed === 0,
       );
       if (!evictable) {
         return;

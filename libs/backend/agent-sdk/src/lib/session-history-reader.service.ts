@@ -46,6 +46,7 @@ import type { IPricingProvider } from './pricing.port';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type {
   CompactionBoundaryGenerationRegistry,
+  ExpectationOutcome,
   PendingExpectation,
 } from './helpers/compaction-boundary-generation-registry';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
@@ -204,7 +205,11 @@ export class SessionHistoryReaderService {
         await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
-        this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+        this.consumeCompactionExpectation(
+          sessionId,
+          checkCompactionBoundary,
+          expectation ? 'stale' : 'none',
+        );
         return {
           events: [],
           messages: [],
@@ -231,7 +236,11 @@ export class SessionHistoryReaderService {
         this.logger.warn('[SessionHistoryReader] Session file not found', {
           sessionId,
         });
-        this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+        this.consumeCompactionExpectation(
+          sessionId,
+          checkCompactionBoundary,
+          expectation ? 'stale' : 'none',
+        );
         return {
           events: [],
           messages: [],
@@ -261,7 +270,11 @@ export class SessionHistoryReaderService {
         this.eventFactory.extractTextContent(content),
       );
 
-      this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+      this.consumeCompactionExpectation(
+        sessionId,
+        checkCompactionBoundary,
+        staleSnapshot ? 'stale' : expectation ? 'satisfied' : 'none',
+      );
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
         sessionId,
@@ -275,7 +288,11 @@ export class SessionHistoryReaderService {
 
       return { events, messages, stats, staleSnapshot };
     } catch (error) {
-      this.consumeCompactionExpectation(sessionId, checkCompactionBoundary);
+      this.consumeCompactionExpectation(
+        sessionId,
+        checkCompactionBoundary,
+        expectation ? 'stale' : 'none',
+      );
       this.logger.error(
         '[SessionHistoryReader] Failed to read session history',
         error instanceof Error ? error : new Error(String(error)),
@@ -373,9 +390,10 @@ export class SessionHistoryReaderService {
   private consumeCompactionExpectation(
     sessionId: string,
     checkCompactionBoundary: boolean,
+    outcome: ExpectationOutcome,
   ): void {
     if (checkCompactionBoundary) {
-      this.compactionBoundaryRegistry.consumeExpectation(sessionId);
+      this.compactionBoundaryRegistry.consumeExpectation(sessionId, outcome);
     }
   }
 

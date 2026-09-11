@@ -36,6 +36,7 @@ import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { LiveUsageTracker } from './live-usage-tracker';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
+import type { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 
 /**
  * Callback type for notifying when compaction starts
@@ -129,6 +130,12 @@ export class CompactionHookHandler {
     private readonly callbackRegistry?: CompactionCallbackRegistry,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
+    /**
+     * Receives the PreCompact expectation so a PostCompact-only reload is
+     * verified against the JSONL even when no live compact_boundary arrives.
+     */
+    @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
+    private readonly boundaryRegistry?: CompactionBoundaryGenerationRegistry,
   ) {}
 
   /**
@@ -159,6 +166,14 @@ export class CompactionHookHandler {
     });
 
     const sdkAdapterEvents = this.sdkAdapterEvents;
+
+    // PreCompact and PostCompact of ONE compaction share this closure. The id
+    // PreCompact resolved is a better fallback for a PostCompact payload that
+    // lacks `session_id` than the captured closure id, which for a new session
+    // is the tab id — no tab owns that as a session, so the renderer no-oped.
+    // Reset once PostCompact has been handled; a PreCompact that finds it still
+    // set is a retry of the same open compaction.
+    let preCompactSessionId: string | null = null;
 
     // Metadata-only attempt timing (TASK_2026_411 B8). One query compacts one
     // attempt at a time; a PreCompact that arrives while one is still open is
@@ -283,6 +298,28 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
+                const retryOfOpenCompaction =
+                  preCompactSessionId === resolvedSessionId;
+                preCompactSessionId = resolvedSessionId;
+                // Interactive sessions only: a callback-less child compaction
+                // never drives a UI reload, and a pending expectation is never
+                // evicted — recording those could saturate the registry. A retry
+                // of the still-open compaction must not count a second one.
+                if (capturedCallback && !retryOfOpenCompaction) {
+                  try {
+                    this.boundaryRegistry?.recordPreCompact(resolvedSessionId);
+                  } catch (registryError: unknown) {
+                    this.logger.warn(
+                      '[CompactionHookHandler] Failed to record PreCompact expectation',
+                      {
+                        error:
+                          registryError instanceof Error
+                            ? registryError.message
+                            : String(registryError),
+                      },
+                    );
+                  }
+                }
                 this.logger.info(
                   '[CompactionHookHandler] PreCompact hook triggered',
                   {
@@ -391,10 +428,14 @@ export class CompactionHookHandler {
                 }
                 endAttempt();
 
+                const postFallbackSessionId = preCompactSessionId ?? sessionId;
+                preCompactSessionId = null;
                 if (sdkAdapterEvents) {
+                  // Payload first (hook identity rule); the PreCompact-resolved
+                  // id of this same compaction before the captured closure id.
                   const resolvedSessionId = resolveHookSessionId(
                     input.session_id,
-                    sessionId,
+                    postFallbackSessionId,
                   );
                   const resolvedCwd = resolveHookCwd(input.cwd, cwd);
                   if (!resolvedSessionId || !resolvedCwd) {

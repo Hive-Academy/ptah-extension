@@ -867,6 +867,134 @@ describe('SessionHistoryReaderService', () => {
       ).toBeUndefined();
     });
 
+    it('Post-only reload: PreCompact expectation with the boundary not yet on disk returns staleSnapshot true and keeps it for the retry', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordPreCompact('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBe(true);
+      // Still verified for the renderer's single retry.
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toEqual({ kind: 'verified', expectedCount: 2 });
+    });
+
+    it('Post-only reload: the boundary persisted on a yield returns a verified snapshot, and the late live boundary adds nothing', async () => {
+      const stubs = makeStubs();
+      stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);
+      stubs.compactionBoundaryRegistry.recordPreCompact('valid');
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+      const before = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ];
+      const after = [
+        before[0],
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b2',
+        } as SessionHistoryMessage,
+      ];
+      stubs.jsonlReader.readJsonlMessages
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(after);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      stubs.replayService.replayToStreamEvents.mockReturnValue([]);
+
+      const service = makeService(stubs);
+      const result = await service.readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+
+      expect(result.staleSnapshot).toBeUndefined();
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+      stubs.compactionBoundaryRegistry.recordExpectedBoundary('valid', 'b2');
+      expect(
+        stubs.compactionBoundaryRegistry.capturePendingExpectation('valid'),
+      ).toBeUndefined();
+    });
+
+    it('consumes with outcome satisfied / stale / none per path', async () => {
+      const boundaryOnly = [
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: 'b1',
+        } as SessionHistoryMessage,
+      ];
+
+      // stale: sessions directory missing with an expectation pending
+      const staleStubs = makeStubs();
+      staleStubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 0);
+      staleStubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      const staleSpy = jest.spyOn(
+        staleStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      staleStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+      await makeService(staleStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(staleSpy).toHaveBeenCalledWith('valid', 'stale');
+
+      // satisfied: the transcript holds the expected boundary
+      const okStubs = makeStubs();
+      okStubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 0);
+      okStubs.compactionBoundaryRegistry.recordExpectedBoundary('valid');
+      const okSpy = jest.spyOn(
+        okStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      okStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      okStubs.jsonlReader.readJsonlMessages.mockResolvedValue(boundaryOnly);
+      okStubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      okStubs.replayService.replayToStreamEvents.mockReturnValue([]);
+      await makeService(okStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(okSpy).toHaveBeenCalledWith('valid', 'satisfied');
+
+      // none: nothing was expected
+      const noneStubs = makeStubs();
+      const noneSpy = jest.spyOn(
+        noneStubs.compactionBoundaryRegistry,
+        'consumeExpectation',
+      );
+      noneStubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      noneStubs.jsonlReader.readJsonlMessages.mockResolvedValue(boundaryOnly);
+      noneStubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      noneStubs.replayService.replayToStreamEvents.mockReturnValue([]);
+      await makeService(noneStubs).readSessionHistory('valid', '/workspace', {
+        checkCompactionBoundary: true,
+      });
+      expect(noneSpy).toHaveBeenCalledWith('valid', 'none');
+    });
+
     it('two distinct recorded boundaries: a transcript with both new boundaries verifies', async () => {
       const stubs = makeStubs();
       stubs.compactionBoundaryRegistry.observeBoundaryCount('valid', 1);

@@ -397,6 +397,12 @@ export function registerSdkServices(
   const turnStateRegistry = container.resolve<SessionTurnStateRegistry>(
     SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
   );
+  // A PreCompact whose payload lacked `session_id` recorded its expectation
+  // under the tab id; move it onto the real id so chat:resume verifies it.
+  const boundaryRegistry =
+    container.resolve<CompactionBoundaryGenerationRegistry>(
+      SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY,
+    );
   container
     .resolve<SessionIdResolvedCallbackRegistry>(
       SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
@@ -404,6 +410,7 @@ export function registerSdkServices(
     .register(({ tabId, realSessionId }) => {
       if (tabId) {
         turnStateRegistry.rekey(tabId, realSessionId);
+        boundaryRegistry.rekey(tabId, realSessionId);
       }
     });
 
