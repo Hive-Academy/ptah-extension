@@ -1352,6 +1352,60 @@ describe('CompactionLifecycleService', () => {
       expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(256);
     });
 
+    it('bounds the generation map: an evicted generation sends a late boundary down the full reload path', () => {
+      // `compactionGenerations` is capped at MAX_COMPACTION_GENERATION_SESSIONS
+      // (256) INDEPENDENTLY of the advisory map's own cap, so a host tracking
+      // many compacting sessions can evict a session's generation while its
+      // fallbackApplied advisory is still alive. `currentCompactionGeneration`
+      // then reads 0, the advisory's stamped generation no longer matches, and
+      // the boundary must take the full reload path instead of a metrics-only
+      // merge. That is the SAFE branch — an extra reload, never wrong data —
+      // and it is the only remaining way to reach the mismatch arm now that
+      // `clearCompactionStateForTab` keeps a shared generation (review C).
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+      service.handleCompactionStart(SESS_1); // generation 1, first entry in.
+      service.handleCompactionCompleteNotification(makePayload());
+      jest.advanceTimersByTime(250); // Fallback applies; the record is retained.
+      applyCompactionCompleteMock.mockClear();
+      switchSessionMock.mockClear();
+      seedPostCompactionContextMock.mockClear();
+
+      // One generation entry per unrelated session. 256 more starts take the
+      // map to 257, and the trim evicts SESS_1 as the oldest key.
+      const bulkSessions = Array.from({ length: 256 }, () => SessionId.create());
+      const bulkTabs = bulkSessions.map((sessionId, i) =>
+        makeTab({ id: `gen-${i}`, claudeSessionId: sessionId }),
+      );
+      for (let i = 0; i < bulkTabs.length; i++) {
+        tabToConv[bulkTabs[i].id as unknown as string] =
+          `gen-conv-${i}` as unknown as ConversationId;
+      }
+      tabs = [...tabs, ...bulkTabs];
+      for (const sessionId of bulkSessions) {
+        service.handleCompactionStart(sessionId);
+      }
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_1,
+        preTokens: 9000,
+        postTokens: 1600,
+      });
+
+      expect(seedPostCompactionContextMock).not.toHaveBeenCalled();
+      expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({
+          compactionCount: 1,
+          postCompactionContextTokens: 1600,
+        }),
+      );
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
+        reason: 'compaction',
+        targetTabId: 'tab-1',
+      });
+    });
+
     it('ignores a PostCompact advisory after chat-error cleanup because generations survive (review E)', () => {
       tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
       service.handleCompactionStart(SESS_1);
