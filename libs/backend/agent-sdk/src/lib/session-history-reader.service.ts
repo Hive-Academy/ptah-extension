@@ -39,6 +39,7 @@ import {
   type ModelUsageEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
+import { isHiddenTranscriptRecord } from './message-transform/message-transform-helpers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
@@ -432,11 +433,12 @@ export class SessionHistoryReaderService {
     }[] = [];
 
     for (const msg of effectiveMessages) {
-      // Synthetic records are an internal cue, not conversation. Replay already
-      // suppresses them (`session-replay.service.ts`), so projecting them here
-      // broke event/message parity: the one-read resume snapshot showed
-      // artifacts replay hides (PR #493 review C).
-      if (msg.isSynthetic === true) continue;
+      // Meta and synthetic records are an internal cue, not conversation.
+      // Replay suppresses both through the SAME predicate, so projecting either
+      // here broke event/message parity: the one-read resume snapshot showed
+      // artifacts replay hides (PR #493 review C; the `isMeta` half was left
+      // open by the first fix and is round-2 verification Moderate-2).
+      if (isHiddenTranscriptRecord(msg)) continue;
       if (!msg.message?.role) continue;
 
       const role = msg.message.role;

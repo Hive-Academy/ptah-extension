@@ -18,6 +18,26 @@ export function generateEventId(): string {
 }
 
 /**
+ * The ONE rule for "this transcript record is bookkeeping, not conversation":
+ * the SDK's own `isMeta` / `isSynthetic` flags.
+ *
+ * Both readers of a JSONL transcript must ask this same question — the replay
+ * that produces the live-shaped event stream (`session-replay.service.ts`) and
+ * the projection that produces the one-read resume snapshot
+ * (`SessionHistoryReaderService.projectHistoryMessages`). When they disagree,
+ * `chat:resume` shows a record the replayed event stream hides, which is the
+ * event/message parity break PR #493 review C set out to close and closed only
+ * for `isSynthetic`. Shared rather than duplicated so a third flag cannot be
+ * added to one side alone.
+ */
+export function isHiddenTranscriptRecord(record: {
+  readonly isMeta?: boolean;
+  readonly isSynthetic?: boolean;
+}): boolean {
+  return record.isMeta === true || record.isSynthetic === true;
+}
+
+/**
  * Detect SDK meta/skill content in a user message.
  *
  * The SDK wraps some internal messages (skill .md content, command metadata,

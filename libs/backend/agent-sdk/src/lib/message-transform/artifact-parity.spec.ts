@@ -13,7 +13,10 @@ import { AgentCorrelationService } from '../helpers/history/agent-correlation.se
 import { HistoryEventFactory } from '../helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from '../helpers/history/history.types';
 import { SessionReplayService } from '../helpers/history/session-replay.service';
+import type { JsonlReaderService } from '../helpers/history/jsonl-reader.service';
+import type { IPricingProvider } from '../pricing.port';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
+import { SessionHistoryReaderService } from '../session-history-reader.service';
 
 const SESSION_ID = 'artifact-parity-session';
 
@@ -67,6 +70,46 @@ function createReplayService(): SessionReplayService {
     {
       resolveForPricing: (model: string) => model || 'unknown',
     } as unknown as IModelResolver,
+  );
+}
+
+/**
+ * The reader over a fixed transcript, wired to the REAL replay service — the
+ * two outputs under comparison must come from one parse of one corpus.
+ */
+function createReader(
+  records: SessionHistoryMessage[],
+  replay: SessionReplayService,
+): SessionHistoryReaderService {
+  const jsonlReader = {
+    findSessionsDirectory: jest.fn().mockResolvedValue('/sessions'),
+    readJsonlMessages: jest.fn().mockResolvedValue(records),
+    loadAgentSessions: jest.fn().mockResolvedValue([]),
+  } as unknown as JsonlReaderService;
+  const modelResolver = {
+    resolveForPricing: (model: string) => model || 'unknown',
+    resolveForCost: (model: string) => ({
+      modelId: model || 'unknown',
+      pricing: findModelPricing(model || 'unknown'),
+      subscriptionCovered: false,
+    }),
+    isSubscriptionCovered: () => false,
+  } as unknown as IModelResolver;
+  const pricingProvider = {
+    getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
+  } as unknown as IPricingProvider;
+
+  return new SessionHistoryReaderService(
+    createLogger(),
+    jsonlReader,
+    replay,
+    new HistoryEventFactory(),
+    modelResolver,
+    {} as AuthEnv,
+    pricingProvider,
+    new LiveUsageTracker(),
+    new CompactionBoundaryGenerationRegistry(),
   );
 }
 
@@ -187,6 +230,40 @@ describe('artifact replay/live visible-text parity (TASK_2026_414)', () => {
     );
 
     expect(visibleText(replay)).toEqual(visibleText(live));
+  });
+
+  /**
+   * `readSessionHistory` returns events and messages from ONE parse, and
+   * `chat:resume` renders the messages. So the projection must hide exactly
+   * what replay hides: the first fix suppressed `isSynthetic` only, leaving an
+   * `isMeta` record visible in a resumed transcript that the event stream
+   * omits (round-2 verification, Moderate-2). Both sides now ask the one
+   * `isHiddenTranscriptRecord` predicate.
+   */
+  it('hides isMeta AND isSynthetic records from the projected messages and the replayed events alike', async () => {
+    const records: SessionHistoryMessage[] = [
+      replayUser('ordinary prompt', { uuid: 'u-ordinary' }),
+      replayUser('meta bookkeeping turn', { uuid: 'u-meta', isMeta: true }),
+      replayUser('synthetic cue', { uuid: 'u-synthetic', isSynthetic: true }),
+      replayAssistant([{ type: 'text', text: 'ordinary answer' }]),
+    ];
+
+    const snapshot = await createReader(
+      records,
+      createReplayService(),
+    ).readSessionHistory(SESSION_ID, '/workspace');
+    const events = createReplayService().replayToStreamEvents(
+      SESSION_ID,
+      records,
+      [],
+    );
+
+    const projected = snapshot.messages.map((message) => message.content);
+    expect(projected).toEqual(['ordinary prompt', 'ordinary answer']);
+    expect(visibleText(events)).toEqual(projected);
+    expect(snapshot.messages.map((message) => message.id)).not.toContain(
+      'u-meta',
+    );
   });
 
   it('keeps local-command output visible where replay has an assistant-text representation', () => {
