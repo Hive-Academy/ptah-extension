@@ -126,7 +126,9 @@ Gate:
 - Hot metadata write amplification is proportional to one session/index entry, not all sessions.
 - VS Code, Electron, and CLI metadata/resume contract tests pass.
 
-## B4 — Stats projection, cache, and RPC
+## B4 — Stats projection, cache, and RPC — COMPLETE (2026-09-11)
+
+Verification evidence: `b4-report.md`.
 
 Dependencies: B3 (metadata contracts stable; implementation may reuse lean index).
 
