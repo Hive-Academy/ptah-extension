@@ -614,7 +614,7 @@ const APPLY_FAILED_MESSAGE =
               class="w-3 h-3"
               aria-hidden="true"
             />
-            {{ hunkActionText(action) }}
+            <span class="hunk-action-text">{{ hunkActionText(action) }}</span>
           </button>
         }
       </div>
@@ -682,6 +682,20 @@ const APPLY_FAILED_MESSAGE =
       z-index: 10;
       white-space: nowrap;
       font-size: 11px;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    :host ::ng-deep .ptah-hunk-widget .hunk-action-text {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -776,6 +790,7 @@ export class DiffViewComponent implements OnDestroy {
     null;
   /** Glyph-margin mouse binding, disposed with the component. */
   private glyphClickBinding: monaco.IDisposable | null = null;
+  private layoutBinding: monaco.IDisposable | null = null;
   /** Angular view backing the in-editor action cluster (TASK_2026_221). */
   private hunkWidgetView: EmbeddedViewRef<unknown> | null = null;
   /** The node handed to Monaco; the embedded view's roots live inside it. */
@@ -836,7 +851,10 @@ export class DiffViewComponent implements OnDestroy {
 
   protected readonly comparisonLabel = computed(() => {
     const d = this.diff();
-    return d ? diffComparisonLabel(d.comparison) : '';
+    if (!d) return '';
+    return d.provenance?.kind === 'historical'
+      ? `${d.provenance.base.name} … ${d.provenance.head.name}`
+      : diffComparisonLabel(d.comparison);
   });
 
   protected readonly isRename = computed(() => {
@@ -966,6 +984,7 @@ export class DiffViewComponent implements OnDestroy {
     if (!this.applyHunks()) return false;
     const d = this.diff();
     if (!d) return false;
+    if (d.provenance?.kind === 'historical') return false;
     if (d.isBinary) return false;
     if (d.status === 'error') return false;
     if (d.snapshotToken === '') return false;
@@ -1157,6 +1176,8 @@ export class DiffViewComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.glyphClickBinding?.dispose();
+    this.layoutBinding?.dispose();
+    this.layoutBinding = null;
     this.glyphClickBinding = null;
     this.removeHunkWidget();
     this.hunkWidgetView?.destroy();
@@ -1212,6 +1233,10 @@ export class DiffViewComponent implements OnDestroy {
         },
       });
       this.editor = editor;
+      this.layoutBinding =
+        editor
+          .getModifiedEditor()
+          .onDidLayoutChange?.(() => this.syncHunkWidget()) ?? null;
       this.bindGlyphMargin(monacoApi, editor);
 
       this.resizeObserver = new ResizeObserver(() => {
@@ -1608,6 +1633,9 @@ export class DiffViewComponent implements OnDestroy {
     }
 
     const host = this.hunkWidgetHost();
+    const contentWidth = modified.getLayoutInfo?.().contentWidth;
+    if (contentWidth !== undefined)
+      host.style.maxWidth = `${Math.max(32, contentWidth - 8)}px`;
     this.hunkWidgetLine = startLine;
     const preference = api.editor.ContentWidgetPositionPreference;
     const widgetId = `ptah.hunkActions.${this.instanceId}`;

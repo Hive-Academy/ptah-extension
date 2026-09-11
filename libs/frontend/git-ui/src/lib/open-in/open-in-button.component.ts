@@ -38,7 +38,7 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
     <div class="join join-horizontal" data-testid="open-in-button">
       <button
         type="button"
-        class="btn btn-ghost btn-xs join-item gap-1"
+        class="btn btn-ghost btn-xs join-item gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
         data-testid="open-in-primary"
         [class.w-5]="mode() === 'icon-only'"
         [class.h-5]="mode() === 'icon-only'"
@@ -112,7 +112,7 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
   `,
 })
 export class OpenInButtonComponent implements OnInit {
-  private readonly vscodeService = inject(VSCodeService);
+  private readonly vscodeService = inject(VSCodeService, { optional: true });
 
   readonly targets = input.required<readonly EditorTarget[]>();
   readonly remembered = input<string | null>(null);
@@ -179,6 +179,7 @@ export class OpenInButtonComponent implements OnInit {
   }
 
   private async loadRememberedTarget(): Promise<void> {
+    if (!this.vscodeService) return;
     try {
       const result = await rpcCall<{ value?: unknown }>(
         this.vscodeService,
@@ -195,6 +196,7 @@ export class OpenInButtonComponent implements OnInit {
   }
 
   private async persistTarget(target: EditorTargetId): Promise<void> {
+    if (!this.vscodeService) return;
     try {
       await rpcCall(this.vscodeService, 'settings:set', {
         key: LAST_EDITOR_SETTING_KEY,

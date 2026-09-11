@@ -4,13 +4,17 @@ import {
   DestroyRef,
   inject,
 } from '@angular/core';
-import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { DiffViewComponent } from '../diff-view/diff-view.component';
 import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
 import { DiffTabsService } from '../services/diff-tabs.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
 import { GitDockHeaderComponent } from './git-dock-header.component';
+import { GitReviewToolbarComponent } from '../review/git-review-toolbar.component';
+import { GitReviewPanelComponent } from '../review/git-review-panel.component';
+import { GitReviewService } from '../services/git-review.service';
+import { EditorLauncherService } from '../services/editor-launcher.service';
+import type { OpenInRequest } from '../open-in/open-in-button.component';
 
 /**
  * GitDockComponent — live host for the git surface in the Electron shell's
@@ -31,107 +35,124 @@ import { GitDockHeaderComponent } from './git-dock-header.component';
  * A file-name click routes to the `file:open` RPC (TASK_2026_386's external
  * editor launch), matching the source-control panel's `fileClicked` output.
  *
- * The branch-picker dropdown and details popover are intentionally NOT
- * hosted here — those 7 RPCs and their UI stay in the contract for
- * TASK_2026_386.
+ * The header hosts the branch picker and details popover; this component owns
+ * their lifecycle through the header while keeping rendering isolated.
  */
 @Component({
   selector: 'ptah-git-dock',
   standalone: true,
+  host: { class: 'block h-full w-full' },
   imports: [
     GitDockHeaderComponent,
     SourceControlPanelComponent,
     DiffViewComponent,
+    GitReviewToolbarComponent,
+    GitReviewPanelComponent,
   ],
   template: `
     <div class="flex flex-col h-full" data-testid="git-dock">
       <ptah-git-dock-header />
+      <ptah-git-review-toolbar />
 
-      <div class="flex-1 min-h-0 flex overflow-hidden">
-        <div
-          class="w-64 flex-shrink-0 border-r border-base-content/10 overflow-hidden"
-        >
-          <ptah-source-control-panel
-            [files]="gitStatus.files()"
-            (diffRequested)="diffTabs.openDiff($event)"
-            (fileClicked)="onFileClicked($event)"
-          />
+      @if (gitStatus.isLoading()) {
+        <div class="p-4 text-sm">Loading repository…</div>
+      } @else if (!gitStatus.isGitRepo()) {
+        <div class="p-4 text-sm opacity-60">
+          The active workspace is not a Git repository.
         </div>
-
-        @if (diffTabs.activeDiffTab(); as activeDiffTab) {
-          <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-            <div
-              class="flex flex-shrink-0 overflow-x-auto border-b border-base-content/10 bg-base-200"
-              role="tablist"
-              aria-label="Open diffs"
-              aria-orientation="horizontal"
-            >
-              @for (
-                tab of diffTabs.diffTabs();
-                track tab.filePath;
-                let index = $index
-              ) {
-                <div
-                  class="flex items-center flex-shrink-0 border-r border-base-content/10"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    class="px-2 py-1 text-xs max-w-48 truncate cursor-pointer
-                           focus-visible:outline focus-visible:outline-2
-                           focus-visible:outline-offset-[-2px]
-                           focus-visible:outline-[oklch(var(--s))]"
-                    [class.bg-base-100]="
-                      tab.filePath === diffTabs.activeDiffKey()
-                    "
-                    [class.font-semibold]="
-                      tab.filePath === diffTabs.activeDiffKey()
-                    "
-                    [id]="diffTabId(index)"
-                    [attr.aria-selected]="
-                      tab.filePath === diffTabs.activeDiffKey()
-                    "
-                    [attr.aria-controls]="diffPanelId"
-                    [attr.tabindex]="
-                      tab.filePath === diffTabs.activeDiffKey() ? 0 : -1
-                    "
-                    [title]="tab.fileName"
-                    (click)="diffTabs.activateDiff(tab.filePath)"
-                    (keydown)="onDiffTabKeydown($event, tab.filePath)"
-                  >
-                    {{ tab.fileName }}
-                  </button>
-                  <button
-                    type="button"
-                    class="px-1.5 py-1 text-xs opacity-60 hover:opacity-100 cursor-pointer
-                           focus-visible:outline focus-visible:outline-2
-                           focus-visible:outline-offset-[-2px]
-                           focus-visible:outline-[oklch(var(--s))]"
-                    [attr.aria-label]="'Close diff for ' + tab.fileName"
-                    (click)="diffTabs.closeDiff(tab.filePath)"
-                  >
-                    <span aria-hidden="true">&times;</span>
-                  </button>
-                </div>
-              }
-            </div>
-
-            <div
-              class="flex-1 min-h-0 overflow-hidden"
-              role="tabpanel"
-              [id]="diffPanelId"
-              [attr.aria-labelledby]="activeDiffTabId()"
-            >
-              <ptah-diff-view
-                [diffTab]="activeDiffTab"
-                [openDiffKeys]="diffTabs.openDiffKeys()"
-                [applyHunks]="diffTabs.applyHunksFn"
-                (retryRequested)="diffTabs.refreshDiffTab($event)"
-              />
-            </div>
+      } @else if (review.mode() === 'branch-review') {
+        <ptah-git-review-panel
+          [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
+        />
+      } @else {
+        <div class="flex-1 min-h-0 flex overflow-hidden">
+          <div
+            class="w-64 flex-shrink-0 border-r border-base-content/10 overflow-hidden"
+          >
+            <ptah-source-control-panel
+              [files]="gitStatus.files()"
+              [editorTargets]="launchers.targets()"
+              [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
+              (diffRequested)="diffTabs.openDiff($event)"
+              (fileClicked)="onFileClicked($event)"
+            />
           </div>
-        }
-      </div>
+
+          @if (diffTabs.activeDiffTab(); as activeDiffTab) {
+            <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+              <div
+                class="flex flex-shrink-0 overflow-x-auto border-b border-base-content/10 bg-base-200"
+                role="tablist"
+                aria-label="Open diffs"
+                aria-orientation="horizontal"
+              >
+                @for (
+                  tab of diffTabs.diffTabs();
+                  track tab.filePath;
+                  let index = $index
+                ) {
+                  <div
+                    class="flex items-center flex-shrink-0 border-r border-base-content/10"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      class="px-2 py-1 text-xs max-w-48 truncate cursor-pointer
+                           focus-visible:outline focus-visible:outline-2
+                           focus-visible:outline-offset-[-2px]
+                           focus-visible:outline-[oklch(var(--s))]"
+                      [class.bg-base-100]="
+                        tab.filePath === diffTabs.activeDiffKey()
+                      "
+                      [class.font-semibold]="
+                        tab.filePath === diffTabs.activeDiffKey()
+                      "
+                      [id]="diffTabId(index)"
+                      [attr.aria-selected]="
+                        tab.filePath === diffTabs.activeDiffKey()
+                      "
+                      [attr.aria-controls]="diffPanelId"
+                      [attr.tabindex]="
+                        tab.filePath === diffTabs.activeDiffKey() ? 0 : -1
+                      "
+                      [title]="tab.fileName"
+                      (click)="diffTabs.activateDiff(tab.filePath)"
+                      (keydown)="onDiffTabKeydown($event, tab.filePath)"
+                    >
+                      {{ tab.fileName }}
+                    </button>
+                    <button
+                      type="button"
+                      class="px-1.5 py-1 text-xs opacity-60 hover:opacity-100 cursor-pointer
+                           focus-visible:outline focus-visible:outline-2
+                           focus-visible:outline-offset-[-2px]
+                           focus-visible:outline-[oklch(var(--s))]"
+                      [attr.aria-label]="'Close diff for ' + tab.fileName"
+                      (click)="diffTabs.closeDiff(tab.filePath)"
+                    >
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                }
+              </div>
+
+              <div
+                class="flex-1 min-h-0 overflow-hidden"
+                role="tabpanel"
+                [id]="diffPanelId"
+                [attr.aria-labelledby]="activeDiffTabId()"
+              >
+                <ptah-diff-view
+                  [diffTab]="activeDiffTab"
+                  [openDiffKeys]="diffTabs.openDiffKeys()"
+                  [applyHunks]="diffTabs.applyHunksFn"
+                  (retryRequested)="diffTabs.refreshDiffTab($event)"
+                />
+              </div>
+            </div>
+          }
+        </div>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -144,13 +165,15 @@ export class GitDockComponent {
   protected readonly gitStatus = inject(GitStatusService);
   private readonly gitBranches = inject(GitBranchesService);
   protected readonly diffTabs = inject(DiffTabsService);
-  private readonly vscodeService = inject(VSCodeService);
+  protected readonly review = inject(GitReviewService);
+  protected readonly launchers = inject(EditorLauncherService);
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     this.gitStatus.startListening();
     this.gitBranches.startListening();
     void this.gitBranches.refreshBranches();
+    void this.launchers.detect();
 
     this.destroyRef.onDestroy(() => {
       this.gitStatus.stopListening();
@@ -159,8 +182,15 @@ export class GitDockComponent {
   }
 
   /** Route a file-name click from the source-control panel to the external editor. */
-  protected onFileClicked(path: string): void {
-    void rpcCall(this.vscodeService, 'file:open', { path });
+  protected onFileClicked(request: OpenInRequest): void {
+    const root = this.gitStatus.activeWorkspacePath();
+    if (root && request.path)
+      void this.launchers.openFile(
+        request.target,
+        root,
+        request.path,
+        request.line,
+      );
   }
 
   protected diffTabId(index: number): string {

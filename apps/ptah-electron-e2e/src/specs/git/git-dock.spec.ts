@@ -22,6 +22,11 @@ test.describe('Git dock', () => {
     const workspacePath = 'C:\\ptah-e2e-ws';
     const worktreePath = `${workspacePath}\\.claude-worktrees\\agent-task`;
     await ui.mockRpc({
+      'git:info': {
+        isGitRepo: true,
+        branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+        files: [],
+      },
       'git:worktrees': {
         worktrees: [
           {

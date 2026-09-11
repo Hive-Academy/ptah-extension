@@ -17,10 +17,14 @@
 
 import { Component, computed, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import type { GitFileStatus } from '@ptah-extension/shared';
 import { GitStatusService } from '../services/git-status.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { DiffTabsService } from '../services/diff-tabs.service';
+import { GitReviewService } from '../services/git-review.service';
+import { EditorLauncherService } from '../services/editor-launcher.service';
+import type { OpenInRequest } from '../open-in/open-in-button.component';
 import type {
   EditorTab,
   HunkApplyFn,
@@ -72,6 +76,9 @@ function makeGitStatusStub() {
     startListening: jest.fn(),
     stopListening: jest.fn(),
     files: jest.fn(() => []),
+    activeWorkspacePath: jest.fn(() => '/ws/a'),
+    isLoading: jest.fn(() => false),
+    isGitRepo: jest.fn(() => true),
   };
 }
 
@@ -129,8 +136,25 @@ class GitDockHeaderStubComponent {}
 })
 class SourceControlPanelStubComponent {
   readonly files = input.required<GitFileStatus[]>();
+  readonly editorTargets = input<readonly never[]>([]);
+  readonly workspaceRoot = input('');
   readonly diffRequested = output<OpenDiffRequest>();
-  readonly fileClicked = output<string>();
+  readonly fileClicked = output<OpenInRequest>();
+}
+
+@Component({
+  selector: 'ptah-git-review-toolbar',
+  standalone: true,
+  template: '',
+})
+class GitReviewToolbarStubComponent {}
+@Component({
+  selector: 'ptah-git-review-panel',
+  standalone: true,
+  template: '',
+})
+class GitReviewPanelStubComponent {
+  readonly workspaceRoot = input.required<string>();
 }
 
 @Component({ selector: 'ptah-diff-view', standalone: true, template: '' })
@@ -161,6 +185,21 @@ describe('GitDockComponent', () => {
         { provide: GitBranchesService, useValue: gitBranches },
         { provide: DiffTabsService, useValue: diffTabs },
         { provide: VSCodeService, useValue: makeVscodeStub() },
+        {
+          provide: GitReviewService,
+          useValue: {
+            mode: jest.fn(() => 'working-tree'),
+            switchWorkspace: jest.fn(),
+          },
+        },
+        {
+          provide: EditorLauncherService,
+          useValue: {
+            targets: jest.fn(() => []),
+            detect: jest.fn(),
+            openFile: jest.fn(),
+          },
+        },
       ],
     });
   });
@@ -172,6 +211,8 @@ describe('GitDockComponent', () => {
           GitDockHeaderStubComponent,
           SourceControlPanelStubComponent,
           DiffViewStubComponent,
+          GitReviewToolbarStubComponent,
+          GitReviewPanelStubComponent,
         ],
       },
     });
@@ -214,17 +255,20 @@ describe('GitDockComponent', () => {
     expect(gitBranches.startListening).toHaveBeenCalledTimes(2);
   });
 
-  it('routes a file-name click to the file:open RPC', () => {
-    const fixture = TestBed.createComponent(GitDockComponent);
-    const component = fixture.componentInstance as unknown as {
-      onFileClicked: (path: string) => void;
-    };
+  it('routes a file Open In click through the workspace-safe launcher', () => {
+    const fixture = createRenderedDock();
+    const panel = fixture.debugElement.query(
+      By.directive(SourceControlPanelStubComponent),
+    ).componentInstance as SourceControlPanelStubComponent;
 
-    component.onFileClicked('src/a.ts');
+    panel.fileClicked.emit({ target: 'kiro', path: 'src/a.ts' });
 
-    expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'file:open', {
-      path: 'src/a.ts',
-    });
+    expect(TestBed.inject(EditorLauncherService).openFile).toHaveBeenCalledWith(
+      'kiro',
+      '/ws/a',
+      'src/a.ts',
+      undefined,
+    );
   });
 
   it('renders one accessible tab per open diff, in open order', () => {

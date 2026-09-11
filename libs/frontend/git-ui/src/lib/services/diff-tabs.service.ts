@@ -519,6 +519,7 @@ export class DiffTabsService implements MessageHandler {
     const validated = result.snapshotToken !== '';
 
     return {
+      provenance: { kind: 'mutable', comparison: result.comparison },
       comparison: result.comparison,
       path: result.path,
       originalPath: result.originalPath,
@@ -560,6 +561,7 @@ export class DiffTabsService implements MessageHandler {
     requestId: number,
   ): DiffTabState {
     return {
+      provenance: { kind: 'mutable', comparison },
       comparison,
       path,
       originalPath,

@@ -3,9 +3,15 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
+import type { EditorDetectTargetsResult } from '@ptah-extension/shared';
 import { launchPtah } from './electron-launcher';
 import { RpcBridge } from './rpc-bridge';
 import { UiDriver } from './ui-driver';
+
+const NO_EDITOR_TARGETS = {
+  success: true,
+  targets: [],
+} satisfies EditorDetectTargetsResult;
 
 /**
  * Playwright test fixtures for the Ptah Electron app.
@@ -98,6 +104,7 @@ export const test = base.extend<PtahFixtures>({
         anthropicProviderId: null,
       },
       'config:get': {},
+      'editor:detectTargets': NO_EDITOR_TARGETS,
       'cron:list': { jobs: [] },
       'gateway:listBindings': { bindings: [] },
       'skillSynthesis:listCandidates': { candidates: [] },

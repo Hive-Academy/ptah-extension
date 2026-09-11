@@ -16,7 +16,8 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-angular';
-import type { GitFileStatus } from '@ptah-extension/shared';
+import type { EditorTarget, GitFileStatus } from '@ptah-extension/shared';
+import type { OpenInRequest } from '../open-in/open-in-button.component';
 import type { OpenDiffRequest } from '../types/diff-tab.types';
 import { SourceControlService } from '../services/source-control.service';
 import { SourceControlFileComponent } from './source-control-file.component';
@@ -42,7 +43,6 @@ interface GitFileTreeFolderBuilder extends GitFileTreeFolderNode {
   readonly foldersByName: Map<string, GitFileTreeFolderBuilder>;
 }
 
-/** Build the presentation tree in one pass while preserving Git's row order. */
 function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
   const root: GitFileTreeNode[] = [];
   const rootFolders = new Map<string, GitFileTreeFolderBuilder>();
@@ -50,7 +50,6 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
   for (const file of files) {
     const parts = file.path.replace(/\\/g, '/').split('/').filter(Boolean);
     if (parts.length === 0) continue;
-
     const folderParts = file.isDirectory ? parts : parts.slice(0, -1);
     let children = root;
     let foldersByName = rootFolders;
@@ -80,7 +79,6 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
       children.push({ kind: 'file', key: `file:${file.path}`, file });
     }
   }
-
   return root;
 }
 
@@ -292,7 +290,7 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
         let-staged="staged"
         let-section="section"
       >
-        @for (node of nodes; track trackTreeNode($index, node)) {
+        @for (node of nodes; track node.key) {
           @if (node.kind === 'folder') {
             <div role="listitem">
               <button
@@ -341,6 +339,8 @@ function buildFileTree(files: readonly GitFileStatus[]): GitFileTreeNode[] {
               [file]="node.file"
               [staged]="staged"
               [showParentDir]="false"
+              [editorTargets]="editorTargets()"
+              [workspaceRoot]="workspaceRoot()"
               (stage)="onStageFile($event)"
               (unstage)="onUnstageFile($event)"
               (discard)="onDiscardFile($event)"
@@ -358,8 +358,10 @@ export class SourceControlPanelComponent {
   private readonly sourceControl = inject(SourceControlService);
 
   readonly files = input.required<GitFileStatus[]>();
+  readonly editorTargets = input<readonly EditorTarget[]>([]);
+  readonly workspaceRoot = input('');
 
-  readonly fileClicked = output<string>();
+  readonly fileClicked = output<OpenInRequest>();
   /** Structured diff request — carries which comparison the row represents. */
   readonly diffRequested = output<OpenDiffRequest>();
   protected commitMessage = '';
@@ -397,11 +399,6 @@ export class SourceControlPanelComponent {
     buildFileTree(this.unstagedFiles()),
   );
 
-  protected readonly trackTreeNode = (
-    _index: number,
-    node: GitFileTreeNode,
-  ): string => node.key;
-
   protected isFolderExpanded(section: string, path: string): boolean {
     return this.expandedFolders().has(`${section}:${path}`);
   }
@@ -415,7 +412,8 @@ export class SourceControlPanelComponent {
   }
 
   protected folderListId(section: string, path: string): string {
-    const listId = section === 'staged' ? this.stagedListId : this.unstagedListId;
+    const listId =
+      section === 'staged' ? this.stagedListId : this.unstagedListId;
     return `${listId}-folder-${encodeURIComponent(path)}`;
   }
 

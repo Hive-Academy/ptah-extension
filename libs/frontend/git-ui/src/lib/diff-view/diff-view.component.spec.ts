@@ -75,6 +75,7 @@ type AnyComponent = DiffViewComponent & Record<string, unknown>;
 
 function makeDiffTab(overrides: Partial<DiffTabState> = {}): EditorTab {
   const diff: DiffTabState = {
+    provenance: { kind: 'mutable', comparison: 'worktree' },
     comparison: 'worktree',
     path: 'src/index.ts',
     originalPath: 'src/index.ts',
@@ -990,31 +991,29 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
   });
 
   it('loads and persists the explicit layout choice through settings RPC', async () => {
-    const rpc = jest.spyOn(Core, 'rpcCall').mockImplementation(
-      async (_service, method) =>
+    const rpc = jest
+      .spyOn(Core, 'rpcCall')
+      .mockImplementation(async (_service, method) =>
         method === 'settings:get'
           ? { success: true, data: { value: false } }
           : { success: true },
-    );
+      );
 
     const { fixture, monaco } = await createLiveFixture();
     expect(monaco.diffEditors[0].options['renderSideBySide']).toBe(false);
-    expect(rpc).toHaveBeenCalledWith(
-      expect.anything(),
-      'settings:get',
-      { key: 'diff.renderSideBySide' },
-    );
+    expect(rpc).toHaveBeenCalledWith(expect.anything(), 'settings:get', {
+      key: 'diff.renderSideBySide',
+    });
 
     fixture.nativeElement
       .querySelector<HTMLButtonElement>('[data-testid="diff-layout-toggle"]')
       ?.click();
     fixture.detectChanges();
 
-    expect(rpc).toHaveBeenCalledWith(
-      expect.anything(),
-      'settings:set',
-      { key: 'diff.renderSideBySide', value: true },
-    );
+    expect(rpc).toHaveBeenCalledWith(expect.anything(), 'settings:set', {
+      key: 'diff.renderSideBySide',
+      value: true,
+    });
     rpc.mockRestore();
   });
 

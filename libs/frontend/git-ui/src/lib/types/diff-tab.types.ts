@@ -15,6 +15,13 @@ import type {
  * the `git:diffFile` wire contract can never drift apart.
  */
 export type DiffComparison = GitDiffComparison;
+export type DiffProvenance =
+  | { kind: 'mutable'; comparison: GitDiffComparison }
+  | {
+      kind: 'historical';
+      base: import('@ptah-extension/shared').GitResolvedReviewRef;
+      head: import('@ptah-extension/shared').GitResolvedReviewRef;
+    };
 
 export type { DiffSideRef };
 
@@ -41,6 +48,8 @@ export type DiffTabStatus = 'fresh' | 'refreshing' | 'stale' | 'error';
  * never has to be decoded.
  */
 export interface DiffTabState {
+  /** Presentation origin; historical provenance can never carry mutation state. */
+  provenance: DiffProvenance;
   comparison: DiffComparison;
   /** Workspace-relative path, modified side. */
   path: string;
