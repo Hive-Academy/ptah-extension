@@ -998,6 +998,11 @@ export class ProviderModelsService {
       Date.now() - cached.timestamp < this.CACHE_TTL_MS
     ) {
       this.feedPricingMap(cached.models);
+      // The prefetch is the FIRST model fetch on a cold start, and its models
+      // carry `contextLength`. Feeding only the pricing map discarded every
+      // provider-reported window until some other fetch path happened to run
+      // (PR #493 review C).
+      this.recordContextWindows(cached.models);
       return cached.models.filter((m) => m.inputCostPerToken !== undefined)
         .length;
     }
@@ -1031,6 +1036,7 @@ export class ProviderModelsService {
         });
 
         const pricedCount = this.feedPricingMap(models);
+        this.recordContextWindows(models);
 
         this.logger.info(
           '[ProviderModelsService] Pre-fetched pricing from OpenRouter',

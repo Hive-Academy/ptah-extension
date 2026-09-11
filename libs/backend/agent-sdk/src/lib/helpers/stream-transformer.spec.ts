@@ -397,6 +397,20 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
 
     expect(usage?.[0]?.contextWindow).toBe(200_000);
   });
+
+  it('a proxied model that only FUZZY-matches the bundled table keeps the SDK window', async () => {
+    // PR #493 review C: the override used getModelContextWindow(), whose
+    // pricing-table fallback matches partially — `gpt-4o-ultra-414` resolved
+    // to the bundled `gpt-4o` entry's 128000 and replaced the SDK value for a
+    // model provider discovery never registered. Only an EXACT discovered
+    // window may override the SDK.
+    const usage = await runResult(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      'gpt-4o-ultra-414',
+    );
+
+    expect(usage?.[0]?.contextWindow).toBe(200_000);
+  });
 });
 
 describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
