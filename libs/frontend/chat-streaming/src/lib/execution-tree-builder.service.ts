@@ -241,7 +241,8 @@ export class ExecutionTreeBuilderService {
    * 3. Return the previous tree untouched when nothing moved
    * 4. Rebuild ONLY the root messages whose digest moved; reuse the rest
    * 5. Merge consecutive assistant messages into a single root node
-   *    (SDK sends multiple assistant messages per turn)
+   *    (SDK sends multiple assistant messages per turn). A user root ends the
+   *    merge and is not emitted — the tree holds assistant output only
    * 6. Stabilise object identity inside rebuilt subtrees via cheap fingerprints
    *
    * @param streamingState - Flat event storage
@@ -335,6 +336,16 @@ export class ExecutionTreeBuilderService {
     let lastAssistantNode: ExecutionNode | null = null;
 
     for (const messageId of rootOrder) {
+      const role = startByRoot.get(messageId)?.role;
+      // A user root — a mid-turn prompt boundary, or the SDK's echo of a
+      // prompt — ends the assistant merge but is never a node. The prompt
+      // renders from `messages`, and every consumer of this tree turns a root
+      // into an ASSISTANT bubble.
+      if (role === 'user') {
+        lastAssistantNode = null;
+        continue;
+      }
+
       const reusable =
         cached && epochUnchanged
           ? this.reusableRootNode(cached, digestByRoot, messageId)
@@ -346,7 +357,7 @@ export class ExecutionTreeBuilderService {
       nodeByRoot.set(messageId, messageNode);
       if (reusable) reusedRoots.add(reusable);
 
-      const isAssistant = startByRoot.get(messageId)?.role === 'assistant';
+      const isAssistant = role === 'assistant';
 
       if (isAssistant && lastAssistantNode) {
         if (messageNode.children && messageNode.children.length > 0) {

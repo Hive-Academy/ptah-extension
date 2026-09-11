@@ -97,6 +97,72 @@ export class StreamingHandlerService {
   }
 
   /**
+   * Split the live bubble at a user prompt sent while a turn is streaming.
+   *
+   * `buildTree` merges consecutive root assistant messages into one bubble,
+   * and only a user `message_start` stops the merge. The optimistic user
+   * bubble lands in `messages` at once, but the SDK echoes its own user
+   * `message_start` only when it consumes the prompt at turn end — so every
+   * later assistant message of the running turn merged into the bubble ABOVE
+   * the prompt until the turn settled.
+   *
+   * A user root is never tree output, so the boundary renders nothing of its
+   * own. It carries the bubble's own id, which is how
+   * `finalizeCurrentMessage` places the settled turn around the prompt. A tab
+   * with no live tree needs no boundary: the next turn starts its own state.
+   *
+   * Known limit: a `compaction_complete` replacement state and the
+   * `STREAMING_EVENT_CAP` eviction can both drop the boundary. The turn then
+   * renders and finalizes as it did before the boundary existed.
+   */
+  recordUserPromptBoundary(tabId: string, message: ExecutionChatMessage): void {
+    const state = this.findTabStreamingState(tabId);
+    if (!state || state.currentMessageId == null) return;
+    this.accumulatorCore.recordUserPromptBoundary(state, {
+      id: message.id,
+      eventType: 'message_start',
+      timestamp: message.timestamp,
+      source: 'complete',
+      messageId: message.id,
+      role: 'user',
+    });
+    this.publishBoundaryChange(tabId, state);
+  }
+
+  /**
+   * Undo {@link recordUserPromptBoundary} for a prompt that never reached the
+   * backend (`chat:continue` rejected or threw). Left in place, the live turn
+   * stays split — and later settles — around a prompt the agent never saw.
+   */
+  removeUserPromptBoundary(tabId: string, messageId: string): void {
+    const state = this.findTabStreamingState(tabId);
+    if (!state) return;
+    if (!this.accumulatorCore.removeUserPromptBoundary(state, messageId)) {
+      return;
+    }
+    this.publishBoundaryChange(tabId, state);
+  }
+
+  /** Workspace-aware, like the send path that appended the bubble. */
+  private findTabStreamingState(tabId: string): StreamingState | null {
+    return (
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState ??
+      null
+    );
+  }
+
+  /** Active tab → the batched frame; background tab → its partition. */
+  private publishBoundaryChange(tabId: string, state: StreamingState): void {
+    if (this.tabManager.tabs().some((t) => t.id === tabId)) {
+      this.batchedUpdate.scheduleUpdate(tabId, state);
+    } else {
+      this.tabManager.updateBackgroundTab(tabId, {
+        streamingState: { ...state },
+      });
+    }
+  }
+
+  /**
    * Process flat streaming event from SDK
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.

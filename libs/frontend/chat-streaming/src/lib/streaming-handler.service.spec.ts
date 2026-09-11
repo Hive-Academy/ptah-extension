@@ -283,6 +283,10 @@ describe('StreamingHandlerService', () => {
       markTabStreaming: jest.fn(),
       isTabStreaming: jest.fn().mockReturnValue(false),
       findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const tab = tabsSignal().find((t) => t.id === tabId);
+        return tab ? { tab, workspacePath: 'D:/repo' } : null;
+      }),
       updateBackgroundTab: jest.fn(() => false),
     } as unknown as jest.Mocked<
       Pick<
@@ -523,6 +527,108 @@ describe('StreamingHandlerService', () => {
         tabId: TAB_ID,
         queuedContent: 'follow up question',
       });
+    });
+  });
+
+  describe('recordUserPromptBoundary', () => {
+    const prompt = {
+      id: 'msg_prompt',
+      role: 'user',
+      timestamp: 50,
+    } as ExecutionChatMessage;
+
+    it('adds a user root to the live tree of an active tab', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      const state = currentState();
+      expect(state.messageEventIds).toContain('msg_prompt');
+      expect(state.currentMessageId).toBe(MESSAGE_ID);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(TAB_ID, state);
+    });
+
+    it('writes a background-workspace tab through its partition', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const backgroundTab = tabsSignal()[0];
+      tabsSignal.set([]);
+      (
+        tabManager as unknown as { findTabByIdAcrossWorkspaces: jest.Mock }
+      ).findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: backgroundTab,
+        workspacePath: 'D:/other',
+      });
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      const update = (
+        tabManager as unknown as { updateBackgroundTab: jest.Mock }
+      ).updateBackgroundTab;
+      expect(update).toHaveBeenCalledWith(TAB_ID, {
+        streamingState: expect.objectContaining({
+          messageEventIds: expect.arrayContaining(['msg_prompt']),
+        }),
+      });
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the tab has no live tree', () => {
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+
+      // `makeTab` holds an empty state: no `message_start`, so no live turn.
+      expect(currentState().messageEventIds).toEqual([]);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('removes the boundary of a prompt that was never delivered', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      const state = currentState();
+      expect(state.messageEventIds).toEqual([MESSAGE_ID]);
+      expect(state.eventsByMessage.has('msg_prompt')).toBe(false);
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(TAB_ID, state);
+    });
+
+    it('removes a background-workspace boundary through its partition', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      service.recordUserPromptBoundary(TAB_ID, prompt);
+      const backgroundTab = tabsSignal()[0];
+      tabsSignal.set([]);
+      (
+        tabManager as unknown as { findTabByIdAcrossWorkspaces: jest.Mock }
+      ).findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: backgroundTab,
+        workspacePath: 'D:/other',
+      });
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      const update = (
+        tabManager as unknown as { updateBackgroundTab: jest.Mock }
+      ).updateBackgroundTab;
+      expect(update).toHaveBeenCalledWith(TAB_ID, {
+        streamingState: expect.objectContaining({
+          messageEventIds: [MESSAGE_ID],
+        }),
+      });
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('publishes nothing when there is no boundary to remove', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      batchedUpdate.scheduleUpdate.mockClear();
+
+      service.removeUserPromptBoundary(TAB_ID, 'msg_prompt');
+
+      expect(currentState().messageEventIds).toEqual([MESSAGE_ID]);
+      expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
     });
   });
 
