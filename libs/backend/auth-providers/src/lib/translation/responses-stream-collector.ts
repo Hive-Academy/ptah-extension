@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { MAX_BODY_SIZE, translateResponsesUsage } from './translation-proxy-helpers';
 
 export class ResponsesStreamError extends Error {
-  constructor(public readonly code: 'payload_too_large' | 'upstream_incomplete') {
+  constructor(public readonly code: 'payload_too_large' | 'upstream_incomplete' | 'invalid_response') {
     super(code === 'payload_too_large'
       ? 'Upstream Responses payload exceeds the proxy body limit'
-      : 'Upstream response ended with incomplete tool input');
+      : code === 'upstream_incomplete'
+        ? 'Upstream response ended with incomplete tool input'
+        : 'Invalid Responses event stream');
     this.name = 'ResponsesStreamError';
   }
 }
@@ -89,6 +91,7 @@ export function collectResponsesStream(
   downstream: ServerResponse,
   model: string,
   requestId: string,
+  onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void = () => undefined,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let buffer = '';
@@ -169,10 +172,12 @@ export function collectResponsesStream(
           buffer = buffer.slice(match.index + match[0].length);
         }
       } catch (error: unknown) {
-        fail(error instanceof ResponsesStreamError ? error : new Error('Invalid Responses event stream'));
+        fail(error instanceof ResponsesStreamError ? error : new ResponsesStreamError('invalid_response'));
       }
     };
     const onEnd = () => {
+      let content: Array<Record<string, unknown>>;
+      let usage: ReturnType<typeof translateResponsesUsage>;
       try {
         // At EOF a held CR is a complete delimiter, not the start of CRLF.
         if (buffer.endsWith('\r')) {
@@ -181,17 +186,27 @@ export function collectResponsesStream(
         }
         // SSE dispatch requires a blank line; never treat truncated JSON as success.
         if (buffer || data.length || !response) throw new Error('Incomplete Responses stream');
-        const content = collectOutputContent(response);
+        content = collectOutputContent(response);
+        usage = translateResponsesUsage(response.usage);
+      } catch (error: unknown) {
+        fail(error instanceof ResponsesStreamError ? error : new ResponsesStreamError('invalid_response'));
+        return;
+      }
+
+      try {
+        // Keep failures in the injected observer distinguishable from malformed
+        // upstream content: only parsing and translation errors map to 502.
+        onUsage(usage);
         settled = true;
         cleanup();
         resolve({
           id: `msg_${requestId}`, type: 'message', role: 'assistant', model, content,
           stop_reason: responseStopReason(response, content),
           stop_sequence: null,
-          usage: translateResponsesUsage(response.usage),
+          usage,
         });
       } catch (error: unknown) {
-        fail(error instanceof ResponsesStreamError ? error : new Error('Incomplete or invalid Responses stream'));
+        fail(error instanceof Error ? error : new Error('Responses usage observer failed'));
       }
     };
     const onError = () => fail(new Error('Responses stream read failed'));

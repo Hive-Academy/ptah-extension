@@ -148,6 +148,32 @@ export interface ProviderClearModelTierResult {
   success: boolean;
   error?: string;
 }
+
+export interface ProviderGetAccountUsageParams {
+  providerId: string;
+  refresh?: boolean;
+}
+
+export type ProviderAccountUsageStatus =
+  | 'available' | 'unsupported-auth' | 'unsupported-config'
+  | 'provider-unsupported' | 'cli-unavailable' | 'cli-version-unsupported'
+  | 'service-unavailable' | 'stale';
+
+export interface ProviderGetAccountUsageResult {
+  readonly status: ProviderAccountUsageStatus;
+  readonly providerId: string;
+  readonly fetchedAt?: number;
+  readonly staleSince?: number;
+  readonly account?: { readonly planType: string };
+  readonly quota?: {
+    readonly primary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+    readonly secondary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+  };
+  readonly activity?: {
+    readonly lifetimeTokens?: string | null;
+    readonly dailyUsage: ReadonlyArray<{ readonly startDate: string; readonly tokens: string }>;
+  };
+}
 // ---------------------------------------------------------------------------
 // User-defined provider entries — TASK_2026_236
 //

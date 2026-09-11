@@ -13,7 +13,12 @@
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CopilotAuthService, CopilotTranslationProxy } from './copilot';
-import { CodexAuthService, CodexTranslationProxy } from './codex';
+import {
+  CodexAccountUsageService,
+  CodexAuthService,
+  CodexHomeResolver,
+  CodexTranslationProxy,
+} from './codex';
 import {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
@@ -35,6 +40,11 @@ import {
  */
 export function registerProviders(container: DependencyContainer): void {
   container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
+    { useClass: CodexHomeResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: CopilotAuthService },
     { lifecycle: Lifecycle.Singleton },
@@ -55,6 +65,12 @@ export function registerProviders(container: DependencyContainer): void {
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY,
     { useClass: CodexTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE,
+    { useClass: CodexAccountUsageService },
     { lifecycle: Lifecycle.Singleton },
   );
 

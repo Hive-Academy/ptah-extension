@@ -154,6 +154,8 @@ import type {
   ProviderRemoveCustomEntryResult,
   ProviderTestCustomEntryParams,
   ProviderTestCustomEntryResult,
+  ProviderGetAccountUsageParams,
+  ProviderGetAccountUsageResult,
   LlmGetProviderStatusParams,
   LlmProviderStatusResponse,
   LlmSetApiKeyParams,
@@ -935,6 +937,10 @@ export interface RpcMethodRegistry {
   'provider:testCustomEntry': {
     params: ProviderTestCustomEntryParams;
     result: ProviderTestCustomEntryResult;
+  };
+  'provider:getAccountUsage': {
+    params: ProviderGetAccountUsageParams;
+    result: ProviderGetAccountUsageResult;
   };
   'chat:subagent-query': {
     params: SubagentQueryParams;
@@ -3402,6 +3408,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:updateCustomEntry': true,
   'provider:removeCustomEntry': true,
   'provider:testCustomEntry': true,
+  'provider:getAccountUsage': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

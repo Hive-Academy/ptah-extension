@@ -35,6 +35,8 @@ import {
 import {
   TranslationProxyBase,
   type TranslationProxyConfig,
+  type ProxyPhaseTimingRecord,
+  type ProxyTimingOptions,
 } from './translation-proxy-base';
 import {
   providerQuotaStore,
@@ -46,14 +48,22 @@ import {
 // ---------------------------------------------------------------------------
 
 class FakeTranslationProxy extends TranslationProxyBase {
+  constructor(logger: Logger, config: TranslationProxyConfig, timing?: ProxyTimingOptions) {
+    super(logger, config, timing);
+  }
   /**
    * The REGISTRY id the quota store is keyed on. Settable so the two dynamic
    * subclasses' shape (id known only at construction) is exercised here too.
    */
   public providerId = 'fake-provider';
   public useResponsesApi = false;
+  public forceResponsesStream = false;
+  public upstreamTimeoutMs = 600_000;
   protected override shouldUseResponsesApi(): boolean {
     return this.useResponsesApi;
+  }
+  protected override requiresResponsesStream(): boolean {
+    return this.forceResponsesStream;
   }
   public readonly getApiEndpointMock = jest.fn(
     async () => 'http://127.0.0.1:1', // intentionally-unreachable port for forwarding tests
@@ -79,6 +89,9 @@ class FakeTranslationProxy extends TranslationProxyBase {
   }
   protected override getStaticModels(): Array<{ id: string }> {
     return this.getStaticModelsMock();
+  }
+  protected override getUpstreamTimeoutMs(): number {
+    return this.upstreamTimeoutMs;
   }
   protected override getProviderId(): string {
     return this.providerId;
@@ -151,9 +164,10 @@ interface Harness {
 
 async function startProxy(
   config: TranslationProxyConfig = DEFAULT_CONFIG,
+  timing?: ProxyTimingOptions,
 ): Promise<Harness> {
   const logger = createMockLogger();
-  const proxy = new FakeTranslationProxy(logger as unknown as Logger, config);
+  const proxy = new FakeTranslationProxy(logger as unknown as Logger, config, timing);
   const { url } = await proxy.start();
   return {
     logger,
@@ -322,6 +336,50 @@ const MESSAGES_BODY = JSON.stringify({
 });
 
 describe('TranslationProxyBase — Responses JSON usage', () => {
+  it('records monotonic metadata-only phases with exact request and inexact compaction correlation', async () => {
+    const forbidden = ['authorization', 'header', 'prompt', 'messages', 'body', 'tool', 'secret'];
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'x-secret': 'never-record' });
+      res.end(JSON.stringify({ status: 'completed', output: [], usage: {
+        input_tokens: 42, output_tokens: 9, input_tokens_details: { cached_tokens: 12 },
+      } }));
+    });
+    let tick = 100;
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, {
+      now: () => tick++,
+      record: (record) => records.push(record),
+    });
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(result.status).toBe(200);
+      expect(records).toHaveLength(1);
+      const record = records[0];
+      expect(record).toMatchObject({
+        requestCorrelation: 'exact', compactionCorrelation: 'inexact', overlapCount: 0,
+        retryOrdinal: 0, stream: false, status: 'success',
+        terminalInputTokens: 30, terminalCacheReadTokens: 12, terminalOutputTokens: 9,
+      });
+      expect([
+        record.requestReceivedAt, record.requestParsedAt, record.attemptStartedAt,
+        record.upstreamResponseAt, record.firstByteAt, record.finishedAt,
+      ]).toEqual([100, 101, 102, 103, 104, 105]);
+      const keys = Object.keys(record).map((key) => key.toLowerCase());
+      for (const fragment of forbidden) {
+        expect(keys.some((key) => key.includes(fragment))).toBe(false);
+      }
+      expect(JSON.stringify(record)).not.toContain('never-record');
+      expect(JSON.stringify(record)).not.toContain('Bearer fake');
+      expect(record.requestBytes).toBeGreaterThan(0);
+      expect(record.responseBytes).toBeGreaterThan(0);
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
   it.each([false, true])('contains malformed usage over HTTP (stream=%s)', async (stream) => {
     const upstream = await startUpstream((_req, res) => {
       const response = { status: 'completed', output: [],
@@ -331,7 +389,11 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
         ? `data: ${JSON.stringify({ type: 'response.completed', response })}\n\ndata: [DONE]\n\n`
         : JSON.stringify(response));
     });
-    const h = await startProxy();
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, {
+      now: () => 1,
+      record: (record) => records.push(record),
+    });
     h.proxy.useResponsesApi = true;
     h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
     try {
@@ -339,6 +401,8 @@ describe('TranslationProxyBase — Responses JSON usage', () => {
         method: 'POST', body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream }),
       });
       expect(result.body).not.toContain('private-upstream-value');
+      expect(records).toHaveLength(1);
+      expect(records[0].status).toBe('invalid-response');
       if (stream) {
         expect(result.status).toBe(200);
         expect(result.body).toContain('Invalid upstream Responses usage');
@@ -512,5 +576,248 @@ describe('TranslationProxyBase — 429 records a provider cooldown', () => {
 
     expect(res.status).toBe(500);
     expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
+  });
+});
+
+describe('TranslationProxyBase phase timing terminal paths', () => {
+  const assertSafeTiming = (
+    records: ProxyPhaseTimingRecord[],
+    status: ProxyPhaseTimingRecord['status'],
+  ) => {
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe(status);
+    const serialized = JSON.stringify(records);
+    for (const secret of ['Bearer fake', 'private-upstream-value', 'Keep this prompt', 'read_file']) {
+      expect(serialized).not.toContain(secret);
+    }
+  };
+
+  async function timedProxy() {
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, {
+      now: Date.now,
+      record: (record) => records.push(record),
+    });
+    return { ...h, records };
+  }
+
+  it.each([
+    ['complete usage', { input_tokens: 3, output_tokens: 2 }],
+    ['missing usage', undefined],
+  ])('records stream success exactly once for %s', async (_name, usage) => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'x-private': 'private-upstream-value' });
+      res.end(`data: ${JSON.stringify({ type: 'response.completed', response: {
+        status: 'completed', output: [], usage,
+      } })}\n\ndata: [DONE]\n\n`);
+    });
+    const h = await timedProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      expect((await request(`${h.url}/v1/messages`, {
+        method: 'POST', body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true,
+          system: 'Keep this prompt' }),
+      })).status).toBe(200);
+      assertSafeTiming(h.records, 'success');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('records invalid-response exactly once for an early SSE EOF', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end('data: {"type":"response.output_text.delta","delta":"private-upstream-value"}\n\n');
+    });
+    const h = await timedProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      await request(`${h.url}/v1/messages`, {
+        method: 'POST', body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true }),
+      });
+      assertSafeTiming(h.records, 'invalid-response');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('uses the 502 path and records forced-stream invalid usage exactly once', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(`data: ${JSON.stringify({ type: 'response.completed', response: {
+        status: 'completed', output: [],
+        usage: { input_tokens: 'private-upstream-value', output_tokens: 2 },
+      } })}\n\n`);
+    });
+    const h = await timedProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.forceResponsesStream = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(result.status).toBe(502);
+      assertSafeTiming(h.records, 'invalid-response');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it.each([
+    ['malformed function arguments', `data: ${JSON.stringify({
+      type: 'response.completed', response: {
+        status: 'completed',
+        output: [{ type: 'function_call', call_id: 'call', name: 'read_file',
+          arguments: '{"private-upstream-value":' }],
+        usage: { input_tokens: 3, output_tokens: 2 },
+      },
+    })}\n\n`],
+    ['wrong content shape', `data: ${JSON.stringify({
+      type: 'response.completed', response: {
+        status: 'completed',
+        output: [{ type: 'message', content: 'private-upstream-value' }],
+        usage: { input_tokens: 3, output_tokens: 2 },
+      },
+    })}\n\n`],
+    ['invalid JSON frame', 'data: {"type":"response.completed","private-upstream-value":\n\n'],
+  ])('uses the 502 path and records forced-stream %s exactly once', async (_name, wire) => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(wire);
+    });
+    const h = await timedProxy();
+    h.proxy.useResponsesApi = true;
+    h.proxy.forceResponsesStream = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY });
+      expect(result.status).toBe(502);
+      expect(result.body).toContain('invalid_response');
+      assertSafeTiming(h.records, 'invalid-response');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('records rate-limited exactly once', async () => {
+    const upstream = await startUpstream((_req, res) => { res.writeHead(429); res.end(); });
+    const h = await timedProxy();
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      expect((await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY })).status).toBe(429);
+      assertSafeTiming(h.records, 'rate-limited');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('records timeout exactly once and retains the 600000 ms production default', async () => {
+    const upstream = await startUpstream(() => undefined);
+    const h = await timedProxy();
+    h.proxy.upstreamTimeoutMs = 10;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      expect((await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY })).status).toBe(504);
+      assertSafeTiming(h.records, 'timeout');
+      expect(new FakeTranslationProxy(h.logger as unknown as Logger, DEFAULT_CONFIG).upstreamTimeoutMs).toBe(600_000);
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('records network-error exactly once', async () => {
+    const upstream = await startUpstream((req) => req.socket.destroy());
+    const h = await timedProxy();
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      expect((await request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY })).status).toBe(500);
+      assertSafeTiming(h.records, 'network-error');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it('records pre-write cancellation exactly once', async () => {
+    let releaseHeaders!: (headers: { authorization: string; 'content-type': string }) => void;
+    let recorded!: () => void;
+    const recordedPromise = new Promise<void>((resolve) => { recorded = resolve; });
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, { now: Date.now, record: (record) => {
+      records.push(record);
+      recorded();
+    } });
+    h.proxy.getHeadersMock.mockImplementation(() => new Promise((resolve) => { releaseHeaders = resolve; }));
+    const client = http.request(`${h.url}/v1/messages`, { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(MESSAGES_BODY),
+    } });
+    client.on('error', () => undefined);
+    client.end(MESSAGES_BODY);
+    while (!h.proxy.getHeadersMock.mock.calls.length) await new Promise((resolve) => setImmediate(resolve));
+    client.destroy();
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseHeaders({ authorization: 'Bearer fake', 'content-type': 'application/json' });
+    await recordedPromise;
+    assertSafeTiming(records, 'cancelled');
+    await h.stop();
+  });
+
+  it('records mid-stream cancellation exactly once', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"type":"response.output_text.delta","delta":"partial"}\n\n');
+    });
+    let recorded!: () => void;
+    const recordedPromise = new Promise<void>((resolve) => { recorded = resolve; });
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, { now: Date.now, record: (record) => {
+      records.push(record);
+      recorded();
+    } });
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    const body = JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true });
+    const client = http.request(`${h.url}/v1/messages`, { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+    } }, (response) => response.once('data', () => response.destroy()));
+    client.on('error', () => undefined);
+    client.end(body);
+    await recordedPromise;
+    assertSafeTiming(records, 'cancelled');
+    await h.stop();
+    await upstream.close();
+  });
+
+  it('counts other in-flight attempts and decrements exactly once', async () => {
+    const responders: http.ServerResponse[] = [];
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
+    const upstream = await startUpstream((_req, res) => {
+      responders.push(res);
+      if (responders.length === 2) release();
+    });
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, { now: Date.now, record: (record) => records.push(record) });
+    h.proxy.useResponsesApi = true;
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    const calls = [1, 2].map(() => request(`${h.url}/v1/messages`, { method: 'POST', body: MESSAGES_BODY }));
+    await ready;
+    for (const res of responders) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'completed', output: [] }));
+    }
+    await Promise.all(calls);
+    expect(records).toHaveLength(2);
+    expect(records.map((record) => record.overlapCount).sort()).toEqual([0, 1]);
+    expect(records.every((record) => record.status === 'success')).toBe(true);
+    await h.stop();
+    await upstream.close();
   });
 });

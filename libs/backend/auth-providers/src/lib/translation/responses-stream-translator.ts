@@ -136,6 +136,9 @@ export class ResponsesStreamTranslator {
   constructor(
     private readonly model: string,
     private readonly requestId: string,
+    private readonly onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void =
+      () => undefined,
+    private readonly onTranslationError: () => void = () => undefined,
   ) {}
 
   /**
@@ -159,6 +162,11 @@ export class ResponsesStreamTranslator {
         },
       },
     });
+  }
+
+  /** Whether a terminal Responses event (valid or rejected) was observed. */
+  isFinalized(): boolean {
+    return this.finalized;
   }
 
   /**
@@ -454,10 +462,12 @@ export class ResponsesStreamTranslator {
 
     try {
       this.usage = translateResponsesUsage(response?.usage);
+      this.onUsage(this.usage);
     } catch (error: unknown) {
       // Completion runs inside an HTTP data listener: validation errors must not
       // escape as uncaught exceptions or allow a later sentinel to claim success.
       void error;
+      this.onTranslationError();
       this.finalized = true;
       this.activeToolCalls.clear();
       this.inTextBlock = false;
