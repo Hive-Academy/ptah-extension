@@ -136,6 +136,7 @@ export class WorkspaceContextManager {
       }
     }
 
+    await this.workspaceAwareStorage.whenWorkspaceReady(normalizedPath);
     this.workspaceAwareStorage.setActiveWorkspace(normalizedPath);
     return encodeWorkspacePath(normalizedPath);
   }
@@ -185,11 +186,13 @@ export class WorkspaceContextManager {
           .getAllWorkspacePaths()
           .includes(normalizedActive)
       ) {
+        await this.workspaceAwareStorage.whenWorkspaceReady(normalizedActive);
         this.workspaceAwareStorage.setActiveWorkspace(normalizedActive);
       }
     } else if (paths.length > 0) {
       const allPaths = this.workspaceAwareStorage.getAllWorkspacePaths();
       if (allPaths.length > 0) {
+        await this.workspaceAwareStorage.whenWorkspaceReady(allPaths[0]);
         this.workspaceAwareStorage.setActiveWorkspace(allPaths[0]);
       }
     }

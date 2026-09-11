@@ -5,6 +5,13 @@ export { FileSettingsStore } from './settings/file-settings-store';
 export { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
 export { ElectronFileDialog } from './implementations/electron-file-dialog';
 export { ElectronStateStorage } from './implementations/electron-state-storage';
+export type { ElectronStateStorageWorkerOptions } from './implementations/electron-state-storage';
+export { ElectronStateStorageWorkerHost } from './implementations/electron-state-storage-worker-host';
+export type {
+  ElectronStateWorkerFactory,
+  ElectronStateWorkerHostOptions,
+  ElectronStateWorkerLike,
+} from './implementations/electron-state-storage-worker-host';
 export { ElectronSecretStorage } from './implementations/electron-secret-storage';
 export type { SafeStorageApi } from './implementations/electron-secret-storage';
 export { ElectronWorkspaceProvider } from './implementations/electron-workspace-provider';

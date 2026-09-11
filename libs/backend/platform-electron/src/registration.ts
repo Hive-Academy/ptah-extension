@@ -66,6 +66,8 @@ export interface ElectronPlatformOptions {
   shell?: ElectronShellApi | null;
   /** Initial workspace folders (from command line or recent) */
   initialFolders?: string[];
+  /** Bundled worker_threads entry used by workspace state storage. */
+  stateStorageWorkerPath?: string;
 }
 
 /**
@@ -110,6 +112,9 @@ export function registerPlatformElectronServices(
     useValue: new ElectronStateStorage(
       workspaceStoragePath,
       'workspace-state.json',
+      options.stateStorageWorkerPath
+        ? { workerPath: options.stateStorageWorkerPath }
+        : undefined,
     ),
   });
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
