@@ -16,6 +16,47 @@
  */
 
 import { z } from 'zod';
+import {
+  SESSION_STATS_BATCH_MAX_IDS,
+  UUID_REGEX,
+} from '@ptah-extension/shared';
+
+const StatsSessionIds = z
+  .array(z.string().regex(UUID_REGEX))
+  .max(SESSION_STATS_BATCH_MAX_IDS);
+
+const EpochMs = z.number().int().nonnegative();
+
+/**
+ * `session:stats-batch` params (TASK_2026_411 B4).
+ *
+ * At most {@link SESSION_STATS_BATCH_MAX_IDS} UUID session ids per request.
+ * `scope` defaults to `'current-context'`, which takes no range; `'range'`
+ * requires `since <= until` (epoch ms, `[since, until)`). Unknown keys are
+ * rejected so a misspelled `untill` cannot silently widen a range.
+ */
+export const SessionStatsBatchParamsSchema = z.union([
+  z
+    .object({
+      sessionIds: StatsSessionIds,
+      workspacePath: z.string().min(1),
+      scope: z.literal('current-context').optional(),
+    })
+    .strict(),
+  z
+    .object({
+      sessionIds: StatsSessionIds,
+      workspacePath: z.string().min(1),
+      scope: z.literal('range'),
+      since: EpochMs,
+      until: EpochMs,
+    })
+    .strict()
+    .refine((params) => params.since <= params.until, {
+      message: 'since must not be after until',
+      path: ['until'],
+    }),
+]);
 
 export const SessionCliSessionsParamsSchema = z
   .object({ sessionId: z.string().min(1) })

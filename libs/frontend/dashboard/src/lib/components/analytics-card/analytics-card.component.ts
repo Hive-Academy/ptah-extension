@@ -1,9 +1,12 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  DestroyRef,
+  computed,
+  effect,
   inject,
-  OnInit,
   signal,
+  untracked,
 } from '@angular/core';
 import { LucideAngularModule, ChartColumn } from 'lucide-angular';
 import {
@@ -21,21 +24,18 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
  *
  * Card-sized analytics surface used inside `DashboardGridComponent`.
  *
- * History: this is the renamed/shrunk successor of the previous full-screen
- * analytics view component. Page-level chrome (header, padding,
- * "Back" navigation) was hoisted into `DashboardGridComponent`; this component
- * is now a self-contained card that presents the same analytics data.
- *
  * Composition:
+ * - Date-range filter (always visible, so it keeps focus across reloads)
  * - Aggregate `MetricsCardsComponent` (top summary row)
- * - Date-range filter (1 day / 2 days / 3 days / 1 week)
+ * - Load/coverage status line: page progress, the session cap, partial
+ *   coverage, failed sessions and unknown costs
  * - Per-session `SessionStatsCardComponent` grid
  *
  * Data flow:
- * - `ngOnInit` calls `analyticsState.loadDashboardData()` to fetch
- *   `session:list` + `session:stats-batch`.
- * - All display data comes from `SessionAnalyticsStateService` computed
- *   signals (no local state).
+ * - An effect loads on mount and again whenever the workspace changes;
+ *   destroying the card cancels the load in flight.
+ * - Stats arrive in pages and paint as they land. All display data comes from
+ *   `SessionAnalyticsStateService` signals.
  */
 @Component({
   selector: 'ptah-analytics-card',
@@ -49,32 +49,46 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './analytics-card.component.html',
 })
-export class AnalyticsCardComponent implements OnInit {
+export class AnalyticsCardComponent {
   private readonly analyticsState = inject(SessionAnalyticsStateService);
 
   readonly ChartColumnIcon = ChartColumn;
   readonly dateRangeOptions = SESSION_DATE_RANGE_OPTIONS;
+  readonly estimateLabel = 'Estimated from recorded usage and current rate card';
 
   readonly isLoading = this.analyticsState.isLoading;
+  readonly isLoadingStats = this.analyticsState.isLoadingStats;
+  readonly statsProgress = this.analyticsState.statsProgress;
   readonly loadError = this.analyticsState.loadError;
   readonly displayedSessions = this.analyticsState.displayedSessions;
   readonly aggregates = this.analyticsState.aggregates;
   readonly dateRange = this.analyticsState.dateRange;
   readonly totalSessionCount = this.analyticsState.totalSessionCount;
+  readonly hasMoreSessions = this.analyticsState.hasMoreSessions;
+  readonly sessionCap = this.analyticsState.sessionCap;
+
+  /** Failed sessions are worth a retry only once the load has settled. */
+  readonly canRetryFailed = computed(
+    () => !this.isLoadingStats() && this.aggregates().errorSessionCount > 0,
+  );
 
   /** The session shown in the detail modal, or null when closed. */
   readonly selectedSession = signal<DashboardSessionEntry | null>(null);
 
-  ngOnInit(): void {
-    this.analyticsState.loadDashboardData();
+  constructor() {
+    effect(() => {
+      this.analyticsState.workspacePath();
+      untracked(() => void this.analyticsState.loadDashboardData());
+    });
+    inject(DestroyRef).onDestroy(() => this.analyticsState.cancelLoad());
   }
 
   retry(): void {
-    this.analyticsState.loadDashboardData();
+    void this.analyticsState.loadDashboardData();
   }
 
   setDateRange(range: SessionDateRange): void {
-    this.analyticsState.setDateRange(range);
+    void this.analyticsState.setDateRange(range);
   }
 
   openSession(session: DashboardSessionEntry): void {

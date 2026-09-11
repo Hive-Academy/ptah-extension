@@ -126,7 +126,9 @@ Gate:
 - Hot metadata write amplification is proportional to one session/index entry, not all sessions.
 - VS Code, Electron, and CLI metadata/resume contract tests pass.
 
-## B4 — Stats projection, cache, and RPC
+## B4 — Stats projection, cache, and RPC — COMPLETE (2026-09-11)
+
+Verification evidence: `b4-report.md`.
 
 Dependencies: B3 (metadata contracts stable; implementation may reuse lean index).
 
@@ -151,7 +153,9 @@ Gate:
 - Source-level regression proves stats handler cannot call `readSessionHistory()`.
 - Synthetic 20-id page stays under 30 s on the reference host; concurrency/yield assertions are the CI-primary gate.
 
-## B5 — Progressive analytics UI
+## B5 — Progressive analytics UI — COMPLETE (2026-09-11)
+
+Verification evidence: `b5-report.md`.
 
 Dependencies: B4.
 
