@@ -73,6 +73,12 @@ interface TranscriptFile {
   readonly token: TranscriptFileToken;
 }
 
+/** Subagent files a session owns, plus member candidates that could not be read. */
+interface SubagentMembership {
+  readonly owned: readonly TranscriptFile[];
+  readonly unreadable: number;
+}
+
 /** Per-request state shared by every session in one page. */
 interface PageContext {
   readonly sessionsDir: string;
@@ -160,11 +166,11 @@ export class SessionStatsReaderService {
         { filePath: parentPath, token: parentToken },
         page.signal,
       );
-      const members = await this.subagentMembers(sessionId, page);
+      const membership = await this.subagentMembers(sessionId, page);
       const subagents: SessionUsageLedger[] = [];
-      let unreadableSubagents = 0;
+      let unreadableSubagents = membership.unreadable;
       await Promise.all(
-        members.map(async (file) => {
+        membership.owned.map(async (file) => {
           try {
             const ledger = await page.subagentSlots.run(
               () => this.ledgerFor(file, page.signal),
@@ -203,32 +209,50 @@ export class SessionStatsReaderService {
    * layout is consulted only when no nested file exists, and a flat file
    * belongs to the session whose id is on its first record — the same rule as
    * `JsonlReaderService.loadAgentSessions`.
+   *
+   * A flat file that cannot be read has no provable owner, so it may be this
+   * session's. It is reported in `unreadable` rather than dropped: dropping it
+   * would let a session missing a subagent's tokens claim complete coverage.
+   * Every legacy-layout session in the page therefore reports it — an honest
+   * `partial` beats a confident `complete` that may be wrong.
+   *
+   * Ownership reads run concurrently through the page-wide subagent slots, so
+   * the legacy scan is held to the same {@link SUBAGENT_FILE_CONCURRENCY} bound
+   * as nested reads instead of reading one file at a time.
    */
   private async subagentMembers(
     sessionId: string,
     page: PageContext,
-  ): Promise<readonly TranscriptFile[]> {
+  ): Promise<SubagentMembership> {
     const nestedDir = path.join(page.sessionsDir, sessionId, 'subagents');
     const nested = await listAgentFiles(nestedDir);
-    if (nested.length > 0) return nested;
+    if (nested.length > 0) return { owned: nested, unreadable: 0 };
 
     page.legacyAgentFiles ??= listAgentFiles(page.sessionsDir);
     const flat = await page.legacyAgentFiles;
-    const owned: TranscriptFile[] = [];
-    for (const file of flat) {
-      try {
-        const ledger = await page.subagentSlots.run(
-          () => this.ledgerFor(file, page.signal),
-          page.signal,
-        );
-        if (ledger.firstSessionId === sessionId) owned.push(file);
-      } catch (error: unknown) {
-        if (page.signal?.aborted) throw error;
-        // An unreadable flat file has no provable owner; it is not counted
-        // against any session.
-      }
-    }
-    return owned;
+    const owners = await Promise.all(
+      flat.map(async (file): Promise<string | null | undefined> => {
+        try {
+          const ledger = await page.subagentSlots.run(
+            () => this.ledgerFor(file, page.signal),
+            page.signal,
+          );
+          return ledger.firstSessionId;
+        } catch (error: unknown) {
+          if (page.signal?.aborted) throw error;
+          this.logger.debug('[SessionStatsReader] Unreadable legacy subagent file', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return undefined;
+        }
+      }),
+    );
+    // `Promise.all` keeps input order, so `owned` stays in sorted file order.
+    return {
+      owned: flat.filter((_, i) => owners[i] === sessionId),
+      unreadable: owners.filter((owner) => owner === undefined).length,
+    };
   }
 
   private ledgerFor(

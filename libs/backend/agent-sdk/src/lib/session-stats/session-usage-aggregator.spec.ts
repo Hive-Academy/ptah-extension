@@ -151,7 +151,7 @@ describe('SessionUsageLedgerBuilder', () => {
 });
 
 describe('aggregateSessionUsage — golden accounting', () => {
-  it('current-context: parent after the last boundary plus every subagent record', () => {
+  it('current-context: parent after its last boundary plus a never-compacted subagent in full', () => {
     const entry = aggregateSessionUsage(
       {
         sessionId: SESSION,
@@ -289,5 +289,71 @@ describe('aggregateSessionUsage — golden accounting', () => {
     expect(entry.tokens.input).toBe(14);
     expect(entry.pricingCoverage).toBe('partial');
     expect(entry.totalCost).toBeCloseTo(10 * 0.001, 6);
+  });
+});
+
+/**
+ * b4 code-logic review, failure mode 1: a subagent compacts its own context,
+ * so under `current-context` its pre-compaction usage is excluded exactly as
+ * the parent's is. `range` still counts every timestamped record.
+ */
+describe('aggregateSessionUsage — subagent compaction', () => {
+  const PARENT_ONLY = ledger([
+    assistant('p1', 'zz-priced-alpha', T(0), { input_tokens: 1, output_tokens: 1 }),
+  ]);
+  const COMPACTED_SUBAGENT = ledger([
+    { type: 'user', sessionId: SESSION, timestamp: iso(T(1)), message: { role: 'user', content: 'task' } },
+    assistant('c1', 'zz-priced-beta', T(1), { input_tokens: 400, output_tokens: 40 }),
+    { type: 'system', subtype: 'compact_boundary', timestamp: iso(T(2)) },
+    assistant('c2', 'zz-priced-beta', T(3), { input_tokens: 9, output_tokens: 1 }),
+  ]);
+  type Scope = Parameters<typeof aggregateSessionUsage>[0]['scope'];
+  const aggregate = (subagents: readonly SessionUsageLedger[], scope: Scope) =>
+    aggregateSessionUsage(
+      { sessionId: SESSION, parent: PARENT_ONLY, subagents, unreadableSubagents: 0, scope },
+      lookup,
+    );
+
+  it('records where the subagent compacted', () => {
+    expect(COMPACTED_SUBAGENT.records).toHaveLength(2);
+    expect(COMPACTED_SUBAGENT.currentContextStart).toBe(1);
+  });
+
+  it('current-context: counts a subagent only after its own last boundary', () => {
+    const entry = aggregate([COMPACTED_SUBAGENT], { kind: 'current-context' });
+
+    expect(entry.tokens).toEqual({ input: 1 + 9, output: 1 + 1, cacheRead: 0, cacheCreation: 0 });
+    expect(entry.agentSessionCount).toBe(1);
+    expect(entry.messageCount).toBe(1);
+    const beta = 9 * 0.01 + 1 * 0.02;
+    expect(entry.modelUsageList).toContainEqual({
+      model: 'zz-priced-beta',
+      inputTokens: 9,
+      outputTokens: 1,
+      costUSD: expect.closeTo(beta, 6),
+    });
+    expect(entry.totalCost).toBeCloseTo(1 * 0.001 + 1 * 0.002 + beta, 6);
+  });
+
+  it('current-context: counts every record of a subagent that never compacted', () => {
+    const entry = aggregate([SUBAGENT], { kind: 'current-context' });
+
+    expect(entry.tokens.input).toBe(1 + 50 + 1000);
+    expect(entry.tokens.output).toBe(1 + 5 + 1000);
+  });
+
+  it('current-context: applies each subagent its own boundary independently', () => {
+    const entry = aggregate([COMPACTED_SUBAGENT, SUBAGENT], { kind: 'current-context' });
+
+    expect(entry.tokens.input).toBe(1 + 9 + 50 + 1000);
+    expect(entry.agentSessionCount).toBe(2);
+  });
+
+  it('range: ignores a subagent boundary and counts every timestamped record', () => {
+    const entry = aggregate([COMPACTED_SUBAGENT], { kind: 'range', since: T(0), until: T(10) });
+
+    expect(entry.tokens.input).toBe(1 + 400 + 9);
+    expect(entry.tokens.output).toBe(1 + 40 + 1);
+    expect(entry.coverage).toBe('complete');
   });
 });

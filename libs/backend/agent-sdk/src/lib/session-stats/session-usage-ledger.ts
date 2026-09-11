@@ -39,7 +39,8 @@ export interface SessionUsageLedger {
   readonly records: readonly UsageRecord[];
   /**
    * Index of the first record after the LAST `compact_boundary`; `0` when the
-   * file has none. `current-context` counts parent records from here.
+   * file has none. `current-context` counts this ledger's records from here,
+   * for parent and subagent ledgers alike.
    */
   readonly currentContextStart: number;
   /** Model named by the first `system`/`init` record, if any. */

@@ -901,6 +901,22 @@ export class SessionRpcHandlers {
           scope,
           signal: budget.signal,
         });
+      } catch (error: unknown) {
+        // A deliberate refusal keeps its code and its (already safe) message.
+        if (error instanceof RpcUserError) throw error;
+        // `readStats` degrades per session and should never reject here. If it
+        // does, the detail stays in the log and Sentry: the transport returns a
+        // plain Error's message verbatim, so the client gets a fixed one.
+        const errorObj =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(
+          `RPC: session:stats-batch failed (sessions=${sessionIds.length}, scope=${scope.kind})`,
+          errorObj,
+        );
+        this.sentryService.captureException(errorObj, {
+          errorSource: 'SessionRpcHandlers.registerSessionStatsBatch',
+        });
+        throw new Error('Failed to read session stats');
       } finally {
         clearTimeout(timer);
       }

@@ -75,6 +75,7 @@ import type {
   RpcHandler,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
@@ -1485,6 +1486,53 @@ describe('SessionRpcHandlers', () => {
 
       expect(result.sessionStats[0].status).toBe('ok');
       expect(result.sessionStats[0].cliAgents).toEqual([]);
+    });
+
+    // b4 code-logic review, failure mode 3: the transport returns a plain
+    // Error's message verbatim, so an unexpected reader rejection must be
+    // replaced by a fixed message before it leaves the handler.
+    it('returns a fixed message when the reader rejects unexpectedly, keeping the detail internal', async () => {
+      const h = makeHarness();
+      const internal = new Error(
+        'EACCES: permission denied, open /home/someone/.claude/projects/x.jsonl',
+      );
+      h.statsReader.readStats.mockRejectedValue(internal);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toBe('Failed to read session stats');
+      expect(response.error).not.toContain('EACCES');
+      expect(response.errorCode).toBeUndefined();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('session:stats-batch failed'),
+        internal,
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(internal, {
+        errorSource: 'SessionRpcHandlers.registerSessionStatsBatch',
+      });
+    });
+
+    it('keeps the code and message of an RpcUserError the reader rejects with', async () => {
+      const h = makeHarness();
+      h.statsReader.readStats.mockRejectedValue(
+        new RpcUserError('Invalid session:stats-batch params (sessionIds)', 'INVALID_PARAMS'),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: WORKSPACE,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(response.error).toBe('Invalid session:stats-batch params (sessionIds)');
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
   });
 
