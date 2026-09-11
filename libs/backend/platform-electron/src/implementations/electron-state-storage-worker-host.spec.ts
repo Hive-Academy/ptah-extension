@@ -209,7 +209,7 @@ class CrashOnFirstScalarPageWorker implements ElectronStateWorkerLike {
 
   constructor(
     private readonly postedMessages: unknown[],
-    private readonly shouldCrash: boolean = true,
+    private readonly shouldCrash = true,
   ) {}
 
   postMessage(value: unknown): void {
@@ -270,7 +270,7 @@ class CrashOnSequenceSliceWorker implements ElectronStateWorkerLike {
 
   constructor(
     private readonly postedMessages: unknown[],
-    private readonly shouldCrash: boolean = true,
+    private readonly shouldCrash = true,
   ) {}
 
   postMessage(value: unknown): void {
