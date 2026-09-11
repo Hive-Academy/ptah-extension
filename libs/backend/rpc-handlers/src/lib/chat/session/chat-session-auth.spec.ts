@@ -99,6 +99,7 @@ function makeService(
     } as never,
     stub as never,
     workspaceProvider,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',
@@ -130,6 +131,7 @@ function makeService(
     // The constructor subscribes to the fan-out, so `register` must exist; a
     // real registry is cheap and keeps the stub honest.
     new SessionMcpStatusRegistry(),
+    { register: jest.fn().mockReturnValue(() => undefined) } as never,
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
   );
 }

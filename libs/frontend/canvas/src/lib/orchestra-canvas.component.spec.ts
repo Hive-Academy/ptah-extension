@@ -60,13 +60,37 @@ jest.mock('gridstack/dist/angular', () => {
 jest.mock('gridstack', () => ({ GridStack: class {} }));
 
 import { TestBed } from '@angular/core/testing';
-import { ApplicationRef, signal } from '@angular/core';
+import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
 import { By } from '@angular/platform-browser';
+import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
+import { TabId } from '@ptah-extension/shared';
+import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
+import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { AppStateManager, type CanvasTabRequest } from '@ptah-extension/core';
+
+function createMockTabState(
+  name: string,
+  id: TabId = TabId.create(),
+): TabState {
+  return {
+    id,
+    claudeSessionId: null,
+    name,
+    title: name,
+    order: 0,
+    status: 'loaded',
+    isDirty: false,
+    lastActivityAt: 0,
+    messages: [],
+    streamingState: null,
+  };
+}
 
 describe('OrchestraCanvasComponent workspace effects', () => {
   let activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
@@ -336,6 +360,14 @@ class WorkspaceGridStub {
   @Input() locked = false;
 }
 
+@Component({
+  selector: 'ptah-canvas-empty-state',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class EmptyStateStub {}
+
 /**
  * Keep-alive coverage: with the real CanvasStore driving per-workspace grids,
  * a workspace's grid section must survive a switch away-and-back as the SAME
@@ -516,5 +548,156 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
     expect(grids).toHaveLength(3);
     expect(grids.filter((g) => g.visible)).toHaveLength(1);
     expect(gridFor(fixture, '/ws/c')?.visible).toBe(true);
+  });
+});
+
+describe('OrchestraCanvasComponent dock and viewport allocation', () => {
+  let fixture: ReturnType<
+    typeof TestBed.createComponent<OrchestraCanvasComponent>
+  >;
+  let observeSpy: jest.Mock;
+  let tabManagerMock: Partial<TabManagerService>;
+  let tabsSignal: WritableSignal<TabState[]>;
+
+  beforeEach(() => {
+    const initialTab = createMockTabState('tab 1');
+    tabsSignal = signal<TabState[]>([initialTab]);
+    observeSpy = jest.fn();
+
+    tabManagerMock = {
+      tabs: tabsSignal,
+      activeTabId: signal<string | null>(initialTab.id),
+      activeWorkspacePath$: signal<string | null>('/ws/a'),
+      removedWorkspace$: signal<null>(null),
+      closedTab: signal<null>(null),
+      forceCloseTab: jest.fn(),
+      switchTab: jest.fn(),
+      openSessionTab: jest.fn(),
+      createTab: jest.fn(),
+      closeTab: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const layoutServiceMock = {
+      observe: observeSpy,
+      containerWidth: signal(1200),
+      containerHeight: signal(800),
+      columnsFor: jest.fn(() => 2),
+      computeLayout: jest.fn(() => ({
+        cellHeight: 120,
+        columns: 2,
+        tiles: [],
+      })),
+    };
+
+    const chatStoreMock = {
+      switchSession: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const appStateMock = {
+      canvasSessionRequest: signal(null),
+      newCanvasSessionRequest: signal(null),
+      canvasTabRequest: signal(null),
+      clearCanvasSessionRequest: jest.fn(),
+      clearNewCanvasSessionRequest: jest.fn(),
+      clearCanvasTabRequest: jest.fn(),
+    };
+
+    TestBed.configureTestingModule({
+      imports: [OrchestraCanvasComponent],
+      providers: [
+        { provide: TabManagerService, useValue: tabManagerMock },
+        { provide: ChatStore, useValue: chatStoreMock },
+        { provide: AppStateManager, useValue: appStateMock },
+      ],
+    });
+
+    TestBed.overrideComponent(OrchestraCanvasComponent, {
+      set: {
+        imports: [
+          FormsModule,
+          LucideAngularModule,
+          WorkspaceGridStub,
+          EmptyStateStub,
+          CanvasLayoutControlsComponent,
+          NativePopoverComponent,
+        ],
+        providers: [
+          CanvasStore,
+          { provide: CanvasLayoutService, useValue: layoutServiceMock },
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(OrchestraCanvasComponent);
+    fixture.detectChanges();
+  });
+
+  it('renders reserved dock outside the session viewport when tiles are present', () => {
+    const dock = fixture.debugElement.query(
+      By.css('[data-testid="canvas-dock"]'),
+    );
+    const viewport = fixture.debugElement.query(
+      By.css('[data-testid="session-viewport"]'),
+    );
+
+    expect(dock).toBeTruthy();
+    expect(viewport).toBeTruthy();
+
+    // Dock is not inside session-viewport; it is a sibling above it
+    expect(viewport.nativeElement.contains(dock.nativeElement)).toBe(false);
+    expect(dock.nativeElement.parentElement).toBe(
+      viewport.nativeElement.parentElement,
+    );
+  });
+
+  it('shares reserved dock between layout controls and new session button', () => {
+    const dock = fixture.debugElement.query(
+      By.css('[data-testid="canvas-dock"]'),
+    );
+    const layoutControls = dock.query(
+      By.directive(CanvasLayoutControlsComponent),
+    );
+    const newSessionBtn = dock.query(
+      By.css('button[title="Add new session tile"]'),
+    );
+
+    expect(layoutControls).toBeTruthy();
+    expect(newSessionBtn).toBeTruthy();
+  });
+
+  it('does not have permanent absolute overlay controls over the session viewport', () => {
+    const overlays = fixture.debugElement.queryAll(
+      By.css(
+        '.session-viewport > .absolute.top-3, .session-viewport > .absolute.bottom-4, .session-viewport > .absolute.bottom-20',
+      ),
+    );
+    expect(overlays).toHaveLength(0);
+  });
+
+  it('observes the sessionViewport element instead of outer container', () => {
+    const viewport = fixture.debugElement.query(
+      By.css('[data-testid="session-viewport"]'),
+    );
+    expect(observeSpy).toHaveBeenCalledWith(viewport.nativeElement);
+  });
+
+  it('toggles lock state when layout controls emit lockToggled', () => {
+    const layoutControls = fixture.debugElement.query(
+      By.directive(CanvasLayoutControlsComponent),
+    );
+    expect(
+      (
+        fixture.componentInstance as unknown as { locked: () => boolean }
+      ).locked(),
+    ).toBe(false);
+
+    layoutControls.componentInstance.lockToggled.emit();
+    fixture.detectChanges();
+
+    expect(
+      (
+        fixture.componentInstance as unknown as { locked: () => boolean }
+      ).locked(),
+    ).toBe(true);
   });
 });

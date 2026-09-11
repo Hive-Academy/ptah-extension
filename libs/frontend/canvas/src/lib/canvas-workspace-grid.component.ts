@@ -76,8 +76,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
     // its tiles/transcripts, so the keep-alive contract still holds.
     '[style.display]': "visible() ? 'block' : 'none'",
     '[attr.data-canvas-measured-width]': 'layoutService.containerWidth()',
-    '[attr.data-canvas-layout-computations]':
-      "metric('layoutComputations')",
+    '[attr.data-canvas-layout-computations]': "metric('layoutComputations')",
     '[attr.data-canvas-apply-checks]': "metric('applyChecks')",
     '[attr.data-canvas-apply-passes]': "metric('applyPasses')",
     '[attr.data-canvas-grid-updates]': "metric('gridUpdates')",
@@ -86,6 +85,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
   template: `
     <gridstack
       [options]="gsOptions"
+      [class.singleton]="isSingleton()"
       (changeCB)="onGridChange()"
       (dragStartCB)="onGestureStart('drag', $event)"
       (dragCB)="onGestureMove($event)"
@@ -115,6 +115,26 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
 
       gridstack {
         min-height: 200px;
+        height: 100%;
+      }
+
+      gridstack.singleton {
+        height: 100% !important;
+      }
+
+      gridstack.singleton > gridstack-item {
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      gridstack.singleton .ui-resizable-handle {
+        display: none !important;
+      }
+
+      gridstack.singleton .tile-header {
+        cursor: default !important;
       }
     `,
   ],
@@ -153,6 +173,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.canvasStore.tilesFor(this.workspacePath())(),
   );
 
+  readonly isSingleton = computed(() => this.tiles().length === 1);
+
   private readonly capacity = computed(() =>
     effectiveCapacity(
       this.layoutService.columnsFor(this.layoutService.containerWidth()),
@@ -181,6 +203,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     for (const tabId of this.creationOptions.keys()) {
       if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
     }
+    const isSingleton = this.isSingleton();
     return this.tiles().map((tile) => {
       const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
       let options = this.creationOptions.get(tile.tabId);
@@ -191,9 +214,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           w: position.w,
           h: position.h,
           id: tile.tabId,
+          noMove: isSingleton,
+          noResize: isSingleton,
         };
         this.creationOptions.set(tile.tabId, options);
         this.metrics.increment('creationOptionWrites', 1, false);
+      } else {
+        options.noMove = isSingleton;
+        options.noResize = isSingleton;
       }
       return {
         tabId: tile.tabId,
@@ -252,6 +280,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       grid?.setStatic(locked);
     });
 
+    // For singleton session, suppress drag and resize handles on engine nodes
+    // without forcing locked=true. For multi-session, restore handles unless locked.
+    effect(() => {
+      const grid = this.gridComp()?.grid;
+      if (!grid) return;
+      this.applyNodeInteractionState(grid);
+    });
+
     effect(() => {
       const visible = this.visible();
       const locked = this.locked();
@@ -274,7 +310,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   onGestureStart(kind: GestureKind, event: elementCB): void {
     this.cancelGesture();
-    if (!this.visible() || this.locked()) return;
+    if (!this.visible() || this.locked() || this.isSingleton()) return;
     const draggedId = event.el.gridstackNode?.id;
     if (typeof draggedId !== 'string') {
       this.metrics.increment('rejectedGestures');
@@ -385,7 +421,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
     const weights = new Map<string, number>();
     for (const node of nodes) {
-      const gridNode = grid.engine.nodes.find((candidate) => candidate.id === node.tabId);
+      const gridNode = grid.engine.nodes.find(
+        (candidate) => candidate.id === node.tabId,
+      );
       const width = gridNode?.w;
       if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
         this.metrics.increment('rejectedGestures');
@@ -504,6 +542,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
+      this.applyNodeInteractionState(grid);
     } finally {
       this._applyingLayout = false;
       // Publishes layout-computation increments that intentionally avoided a
@@ -512,7 +551,22 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     }
   }
 
-  protected metric(name: keyof ReturnType<CanvasRenderMetricsService['snapshot']>): number {
+  private applyNodeInteractionState(grid: {
+    engine?: { nodes?: readonly GridStackNode[] };
+    movable?: (el: HTMLElement, val: boolean) => void;
+    resizable?: (el: HTMLElement, val: boolean) => void;
+  }): void {
+    const enabled = !this.isSingleton() && !this.locked();
+    for (const node of grid.engine?.nodes ?? []) {
+      if (!node.el) continue;
+      grid.movable?.(node.el, enabled);
+      grid.resizable?.(node.el, enabled);
+    }
+  }
+
+  protected metric(
+    name: keyof ReturnType<CanvasRenderMetricsService['snapshot']>,
+  ): number {
     this.metrics.version();
     return this.metrics.snapshot()[name];
   }
