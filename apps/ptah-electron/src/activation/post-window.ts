@@ -96,7 +96,8 @@ export async function registerPostWindow(
   );
 
   console.log('[Ptah Electron] Startup config registered');
-  const mainWindow = createMainWindow(resolvedStateStorage);
+  const mainWindow =
+    options.getMainWindow() ?? createMainWindow(resolvedStateStorage);
   setMainWindow(mainWindow);
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');

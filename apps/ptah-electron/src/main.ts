@@ -12,7 +12,10 @@ import {
   type Logger,
   type SentryService,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  StateStorageRecoveryRequiredError,
+} from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import { bootstrapElectron } from './activation/bootstrap';
@@ -62,9 +65,44 @@ if (!gotLock) {
   // explicitly on AND the tray actually constructed. Nothing else may suppress
   // the quit (R10).
   let trayService: PtahTrayService | null = null;
+  let workspaceStorageReady = false;
+  let startupShellQuery: Record<string, string> = { state: 'preparing' };
 
   app.whenReady().then(async () => {
-    const boot = await bootstrapElectron(() => mainWindow, coordinator);
+    const preparingWindow = createMainWindow(
+      () => coordinator.refs.resolvedStateStorage ?? undefined,
+    );
+    mainWindow = preparingWindow;
+    const preparingShellPath = path.join(
+      __dirname,
+      'assets',
+      'preparing-workspace.html',
+    );
+    await preparingWindow.loadFile(preparingShellPath, {
+      query: startupShellQuery,
+    });
+
+    let boot: Awaited<ReturnType<typeof bootstrapElectron>>;
+    try {
+      boot = await bootstrapElectron(() => mainWindow, coordinator);
+      workspaceStorageReady = true;
+    } catch (error: unknown) {
+      startupShellQuery = {
+        state: 'recovery',
+        code:
+          error instanceof StateStorageRecoveryRequiredError
+            ? error.reason
+            : 'startup-failed',
+      };
+      console.error(
+        '[Ptah Electron] Workspace storage did not become ready:',
+        startupShellQuery['code'],
+      );
+      await preparingWindow.loadFile(preparingShellPath, {
+        query: startupShellQuery,
+      });
+      return;
+    }
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
 
     // The readiness push side, wired at the FIRST point a container exists —
@@ -207,10 +245,15 @@ if (!gotLock) {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow(
-        coordinator.refs.resolvedStateStorage ?? undefined,
+        () => coordinator.refs.resolvedStateStorage ?? undefined,
       );
-      const rendererPath = path.join(__dirname, 'renderer', 'index.html');
-      mainWindow.loadFile(rendererPath);
+      const targetPath = workspaceStorageReady
+        ? path.join(__dirname, 'renderer', 'index.html')
+        : path.join(__dirname, 'assets', 'preparing-workspace.html');
+      mainWindow.loadFile(
+        targetPath,
+        workspaceStorageReady ? undefined : { query: startupShellQuery },
+      );
     }
   });
   // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it

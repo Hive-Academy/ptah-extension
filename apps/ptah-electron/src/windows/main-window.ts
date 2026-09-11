@@ -110,7 +110,14 @@ function installNavigationGuard(window: BrowserWindow): void {
  *
  * @param stateStorage - Optional state storage for persisting/restoring window bounds.
  */
-export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
+export function createMainWindow(
+  stateStorageOrResolver?: IStateStorage | (() => IStateStorage | undefined),
+): BrowserWindow {
+  const resolveStateStorage = (): IStateStorage | undefined =>
+    typeof stateStorageOrResolver === 'function'
+      ? stateStorageOrResolver()
+      : stateStorageOrResolver;
+  const stateStorage = resolveStateStorage();
   const savedBounds = stateStorage?.get<WindowBounds>('window.bounds');
   const useSavedBounds =
     savedBounds &&
@@ -184,13 +191,16 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
     console.log(
       `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`,
     );
-    if (stateStorage) {
-      stateStorage.update('window.bounds', bounds).catch((err: unknown) => {
-        console.error(
-          '[Ptah Electron] Failed to persist window bounds:',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
+    const currentStateStorage = resolveStateStorage();
+    if (currentStateStorage) {
+      currentStateStorage
+        .update('window.bounds', bounds)
+        .catch((err: unknown) => {
+          console.error(
+            '[Ptah Electron] Failed to persist window bounds:',
+            err instanceof Error ? err.message : String(err),
+          );
+        });
     }
   });
 
