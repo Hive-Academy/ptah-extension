@@ -19,6 +19,7 @@ import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
+import { SessionStatsReaderService } from '../session-stats';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
@@ -141,6 +142,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_HISTORY_READER,
     { useClass: SessionHistoryReaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_STATS_READER,
+    { useClass: SessionStatsReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 

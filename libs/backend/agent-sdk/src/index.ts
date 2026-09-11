@@ -37,11 +37,24 @@ export {
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
 
+export {
+  SessionStatsReaderService,
+  PARENT_FILE_CONCURRENCY,
+  SUBAGENT_FILE_CONCURRENCY,
+} from './lib/session-stats';
+export type {
+  SessionStatsRequest,
+  SessionStatsReadEntry,
+  SessionStatsScopeSelection,
+} from './lib/session-stats';
+
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export type {
   JsonlReadOptions,
   JsonlTailOptions,
+  JsonlProjectionOptions,
+  JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
