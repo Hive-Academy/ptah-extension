@@ -93,8 +93,11 @@ export function failedSessionStats(sessionId: string): SessionStatsReadEntry {
 /**
  * Aggregate one session.
  *
- * - `current-context`: parent records after the last compact boundary, plus
- *   every subagent record. No timestamp filter.
+ * - `current-context`: parent records after the parent's last compact
+ *   boundary, plus each subagent's records after THAT subagent's own last
+ *   compact boundary (all of them when it has none). A subagent compacts its
+ *   own context exactly as the parent does, so its pre-compaction usage is no
+ *   more "current" than the parent's. No timestamp filter.
  * - `range`: every parent and subagent record with a timestamp in
  *   `[since, until)`. A usage record with no timestamp is omitted and counted
  *   in `untimestampedCount`, which makes coverage `partial`.
@@ -150,13 +153,17 @@ export function aggregateSessionUsage(
     perModel.set(model, bucket);
   };
 
-  const parentStart =
-    scope.kind === 'current-context' ? parent.currentContextStart : 0;
-  for (let i = parentStart; i < parent.records.length; i++) {
+  // Every ledger — parent and subagent alike — compacts independently, so
+  // `current-context` starts each one at its OWN last boundary.
+  const contextStart = (ledger: SessionUsageLedger): number =>
+    scope.kind === 'current-context' ? ledger.currentContextStart : 0;
+  for (let i = contextStart(parent); i < parent.records.length; i++) {
     count(parent.records[i], true);
   }
   for (const subagent of input.subagents) {
-    for (const record of subagent.records) count(record, false);
+    for (let i = contextStart(subagent); i < subagent.records.length; i++) {
+      count(subagent.records[i], false);
+    }
   }
 
   let pricedModels = 0;

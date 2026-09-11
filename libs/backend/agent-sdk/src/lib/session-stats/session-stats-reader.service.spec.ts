@@ -281,31 +281,71 @@ describe('SessionStatsReaderService', () => {
       expect(projectSpy).not.toHaveBeenCalled();
     });
 
-    it('stops mid-page and caches nothing the aborted projection started', async () => {
+    it('stops mid-page, fails every unfinished session, and caches nothing the aborted projection started', async () => {
       const ids = [uuid(30), uuid(31), uuid(32), uuid(33)];
       const paths = await Promise.all(
         ids.map((id) => writeParent(id, [userLine(id), usageLine(id, 'p', 3)])),
       );
       const controller = new AbortController();
       const real = JsonlReaderService.prototype.projectJsonlLines;
+      let abortedAt: string | undefined;
       projectSpy.mockImplementation(async (filePath: string, ...rest: unknown[]) => {
-        if (filePath === paths[0]) controller.abort();
+        // Abort on the page's FIRST projection, whichever of the two parent
+        // workers reaches it. No projection can have finished before it, so
+        // every entry — including ids[1], which starts alongside ids[0] — has
+        // a pinned outcome regardless of which stat returns first.
+        if (abortedAt === undefined) {
+          abortedAt = filePath;
+          controller.abort();
+        }
         return real.apply(jsonl, [filePath, ...rest] as never);
       });
 
       const entries = await read(ids, CURRENT as never, controller.signal);
-      expect(entries[0].status).toBe('error');
-      expect(entries[2].status).toBe('error');
-      expect(entries[3].status).toBe('error');
+      expect(entries.map((e) => e.status)).toEqual(['error', 'error', 'error', 'error']);
 
-      const [retried] = await read([ids[0]]);
+      const abortedPath = abortedAt as string;
+      const [retried] = await read([ids[paths.indexOf(abortedPath)]]);
       expect(retried.status).toBe('ok');
-      expect(projectionsOf(paths[0])).toBe(2);
+      expect(projectionsOf(abortedPath)).toBe(2);
+    });
+
+    it('never fails a live page when a concurrent page on the same session aborts', async () => {
+      const id = uuid(34);
+      const parent = await writeParent(id, [userLine(id), usageLine(id, 'p', 3)]);
+      const aborted = new AbortController();
+      const live = new AbortController();
+      const real = JsonlReaderService.prototype.projectJsonlLines;
+      projectSpy.mockImplementation(
+        async (filePath: string, visit: unknown, options?: { signal?: AbortSignal }) => {
+          // The aborted page cancels the moment a projection runs under ITS
+          // signal. Whichever page owns the shared projection, the live page
+          // must come back 'ok'.
+          if (options?.signal === aborted.signal) aborted.abort();
+          return real.call(jsonl, filePath, visit as never, options);
+        },
+      );
+
+      const [abortedEntries, liveEntries] = await Promise.all([
+        read([id], CURRENT as never, aborted.signal),
+        read([id], CURRENT as never, live.signal),
+      ]);
+
+      expect(liveEntries[0].status).toBe('ok');
+      expect(liveEntries[0].tokens.input).toBe(3);
+      expect(['ok', 'error']).toContain(abortedEntries[0].status);
+      expect(projectionsOf(parent)).toBeLessThanOrEqual(2);
     });
   });
 
   describe('work bounds for a synthetic 20-id page', () => {
-    function instrument(): {
+    const NESTED_MARKER = `${path.sep}subagents${path.sep}`;
+    const isNestedSubagent = (filePath: string): boolean =>
+      filePath.includes(NESTED_MARKER);
+    const isAgentFile = (filePath: string): boolean =>
+      path.basename(filePath).startsWith('agent-');
+
+    function instrument(isChild: (filePath: string) => boolean = isNestedSubagent): {
       maxParents: () => number;
       maxChildren: () => number;
       results: Array<{ filePath: string; result: JsonlProjectionResult }>;
@@ -316,9 +356,8 @@ describe('SessionStatsReaderService', () => {
       let peakChildren = 0;
       const results: Array<{ filePath: string; result: JsonlProjectionResult }> = [];
       const real = JsonlReaderService.prototype.projectJsonlLines;
-      const marker = `${path.sep}subagents${path.sep}`;
       projectSpy.mockImplementation(async (filePath: string, ...rest: unknown[]) => {
-        const child = filePath.includes(marker);
+        const child = isChild(filePath);
         if (child) peakChildren = Math.max(peakChildren, ++children);
         else peakParents = Math.max(peakParents, ++parents);
         try {
@@ -384,5 +423,46 @@ describe('SessionStatsReaderService', () => {
       expect(entry.agentSessionCount).toBe(6);
       expect(probe.maxChildren()).toBe(SUBAGENT_FILE_CONCURRENCY);
     });
+
+    // b4 code-logic review, minor: the legacy ownership scan awaited one flat
+    // file at a time, so legacy sessions never used the subagent slots.
+    it('scans legacy flat subagent files for ownership three at a time', async () => {
+      const id = uuid(201);
+      await writeParent(id, [userLine(id), usageLine(id, 'p', 1)]);
+      for (const agent of ['a', 'b', 'c', 'd', 'e', 'f']) {
+        const lines = [userLine(id)];
+        for (let n = 0; n < 450; n++) lines.push(usageLine(id, `${agent}${n}`, 1));
+        await fs.writeFile(path.join(dir, `agent-flat-${agent}.jsonl`), `${lines.join('\n')}\n`);
+      }
+      const probe = instrument(isAgentFile);
+
+      const [entry] = await read([id]);
+
+      expect(entry.agentSessionCount).toBe(6);
+      expect(entry.tokens.input).toBe(1 + 6 * 450);
+      expect(probe.maxChildren()).toBeLessThanOrEqual(SUBAGENT_FILE_CONCURRENCY);
+      expect(probe.maxChildren()).toBe(SUBAGENT_FILE_CONCURRENCY);
+    });
+  });
+
+  // b4 code-logic review, minor: an unreadable flat file has no provable owner,
+  // so it may be this session's — dropping it claimed complete coverage.
+  it('marks coverage partial when a legacy flat subagent file cannot be read', async () => {
+    const id = uuid(16);
+    await writeParent(id, [userLine(id), usageLine(id, 'p', 10)]);
+    const broken = path.join(dir, 'agent-flat-broken.jsonl');
+    await fs.writeFile(broken, `${userLine(id)}\n${usageLine(id, 'fb', 100)}\n`);
+    const real = JsonlReaderService.prototype.projectJsonlLines;
+    projectSpy.mockImplementation(async (filePath: string, ...rest: unknown[]) => {
+      if (filePath === broken) throw new Error('EACCES');
+      return real.apply(jsonl, [filePath, ...rest] as never);
+    });
+
+    const [entry] = await read([id]);
+
+    expect(entry.status).toBe('ok');
+    expect(entry.tokens.input).toBe(10);
+    expect(entry.coverage).toBe('partial');
+    expect(entry.agentSessionCount).toBe(1);
   });
 });
