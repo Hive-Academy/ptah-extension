@@ -108,8 +108,10 @@ for (const options of runs) {
   }
   results.push({ args: captured ? captured.args : null, stdinText });
 }
-process.stdout.write(JSON.stringify(results));
-process.exit(0);
+// Exit only once the payload has actually left the process. stdout is a PIPE
+// here, so process.stdout.write() buffers and an immediate process.exit(0)
+// truncates a large JSON result — the parent then fails at JSON.parse.
+process.stdout.write(JSON.stringify(results), () => process.exit(0));
 `;
 
 interface ProbeResult {
