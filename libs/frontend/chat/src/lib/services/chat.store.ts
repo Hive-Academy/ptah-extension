@@ -197,7 +197,7 @@ export class ChatStore {
     sessionId: SessionId,
     opts?: { reason?: 'compaction'; activate?: boolean },
   ): Promise<void> {
-    return this.sessionLoader.switchSession(sessionId, opts);
+    await this.sessionLoader.switchSession(sessionId, opts);
   }
 
   removeSessionFromList(sessionId: SessionId): void {

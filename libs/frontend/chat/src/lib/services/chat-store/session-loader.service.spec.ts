@@ -1392,7 +1392,7 @@ describe('SessionLoaderService', () => {
           reason: 'compaction',
           targetTabId: TAB_B,
         }),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ staleSnapshot: true });
 
       expect(harness.applyResumeFailure).toHaveBeenCalledWith(TAB_B);
       expect(harness.markTabIdle).toHaveBeenCalledWith(TAB_B);
@@ -1404,6 +1404,37 @@ describe('SessionLoaderService', () => {
       expect(harness.processStreamEvent).not.toHaveBeenCalled();
       expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
       expect(harness.setPreloadedStats).not.toHaveBeenCalled();
+    });
+
+    it('switchSession resolves { staleSnapshot: false } for a verified compaction reload and a normal resume', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                messages: [
+                  {
+                    id: 'm-verified',
+                    role: 'assistant',
+                    timestamp: 1,
+                    content: 'verified',
+                  },
+                ],
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      await expect(
+        harness.service.switchSession(SESSION, {
+          reason: 'compaction',
+          targetTabId: TAB_B,
+        }),
+      ).resolves.toEqual({ staleSnapshot: false });
+      await expect(harness.service.switchSession(SESSION)).resolves.toEqual({
+        staleSnapshot: false,
+      });
     });
 
     it('applies a staleSnapshot response on a normal resume', async () => {

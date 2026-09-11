@@ -548,11 +548,16 @@ export class SessionLoaderService {
    *
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
+   *
+   * Resolves `staleSnapshot: true` only when a targeted compaction reload was
+   * contained because the backend could not verify its boundary; the
+   * compaction lifecycle uses it to retry that reload once. Every other
+   * completed or skipped path (including a coalesced duplicate) resolves false.
    */
   async switchSession(
     sessionId: SessionId,
     opts?: SwitchSessionOptions,
-  ): Promise<void> {
+  ): Promise<{ staleSnapshot: boolean }> {
     const targetTabId = opts?.targetTabId;
     const loadKey = targetTabId ? `${sessionId}:${targetTabId}` : sessionId;
     const targetedTab = targetTabId
@@ -564,7 +569,7 @@ export class SessionLoaderService {
         '[SessionLoaderService] Skipping duplicate switchSession for:',
         sessionId,
       );
-      return;
+      return { staleSnapshot: false };
     }
 
     const existingTab =
@@ -575,7 +580,7 @@ export class SessionLoaderService {
         .some((t) => t.id === existingTab.id);
       if (inActiveWorkspace) {
         this.tabManager.switchTab(existingTab.id);
-        return;
+        return { staleSnapshot: false };
       }
     }
 
@@ -688,7 +693,7 @@ export class SessionLoaderService {
         this.tabManager.applyResumeFailure(resolvedTabId);
         this.tabManager.markTabIdle(resolvedTabId);
         this.sessionManager.setStatus('loaded');
-        return;
+        return { staleSnapshot: true };
       }
 
       if (opts?.reason === 'compaction' && targetTabId) {
@@ -767,6 +772,7 @@ export class SessionLoaderService {
           }`,
         );
       }
+      return { staleSnapshot: false };
     } catch (error: unknown) {
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
