@@ -34,7 +34,10 @@ import {
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '@ptah-extension/chat-streaming';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
@@ -100,6 +103,8 @@ describe('MessageSenderService', () => {
     Pick<MessageValidationService, 'validate' | 'sanitize'>
   >;
   let rpcCall: jest.Mock;
+  let recordBoundary: jest.Mock;
+  let removeBoundary: jest.Mock;
   let flagAuthRequired: jest.Mock;
   let vscodeConfig: jest.Mock;
   let consoleWarn: jest.SpyInstance;
@@ -205,6 +210,8 @@ describe('MessageSenderService', () => {
     >;
 
     rpcCall = jest.fn();
+    recordBoundary = jest.fn();
+    removeBoundary = jest.fn();
     flagAuthRequired = jest.fn();
     vscodeConfig = jest.fn(() => ({ workspaceRoot: 'D:/repo' }));
 
@@ -216,6 +223,13 @@ describe('MessageSenderService', () => {
         MessageSenderService,
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionManager, useValue: sessionManager },
+        {
+          provide: StreamingHandlerService,
+          useValue: {
+            recordUserPromptBoundary: recordBoundary,
+            removeUserPromptBoundary: removeBoundary,
+          },
+        },
         { provide: MessageValidationService, useValue: validator },
         { provide: ClaudeRpcService, useValue: { call: rpcCall } },
         {
@@ -298,6 +312,181 @@ describe('MessageSenderService', () => {
       );
       expect(startCalled).toBe(false);
       expect(continueCalled).toBe(true);
+    });
+
+    it('records the continued prompt as a boundary in the live tree', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation(
+        (method: string): Promise<{ success: boolean; data?: unknown }> =>
+          Promise.resolve(
+            method === 'session:validate'
+              ? { success: true, data: { exists: true } }
+              : { success: true },
+          ),
+      );
+
+      await service.send('sent mid-turn');
+
+      const userMessage = tabsSignal()[0].messages.at(-1);
+      expect(userMessage?.role).toBe('user');
+      expect(recordBoundary).toHaveBeenCalledWith('tab-1', userMessage);
+    });
+
+    describe('a continue whose prompt never reaches the backend', () => {
+      /** `chat:continue` resolves to `continueResult`, or rejects with it. */
+      const failContinue = (continueResult: unknown, reject = false): void => {
+        rpcCall.mockImplementation((method: string): Promise<unknown> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          if (method === 'chat:continue') {
+            return reject
+              ? Promise.reject(continueResult)
+              : Promise.resolve(continueResult);
+          }
+          return Promise.resolve({ success: true });
+        });
+      };
+
+      /** The bubble the send recorded as a boundary. */
+      const recordedBubbleId = (): string =>
+        (recordBoundary.mock.calls[0][1] as ExecutionChatMessage).id;
+
+      beforeEach(() => {
+        tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      });
+
+      it('removes the boundary but keeps the bubble when chat:continue is rejected', async () => {
+        failContinue({ success: false, error: 'turn rejected' });
+
+        const outcome = await service.send('follow up', { tabId: 'tab-1' });
+
+        expect(outcome).toEqual(expect.objectContaining({ success: false }));
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages.map((m) => m.id)).toEqual([
+          recordedBubbleId(),
+        ]);
+      });
+
+      it('removes the boundary but keeps the bubble when chat:continue throws', async () => {
+        failContinue(new Error('socket closed'), true);
+
+        await service.send('follow up', { tabId: 'tab-1' });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages.map((m) => m.id)).toEqual([
+          recordedBubbleId(),
+        ]);
+      });
+
+      it('also removes the bubble when a rejected queue flush re-queues the text', async () => {
+        failContinue({ success: true, data: { success: false, error: 'no' } });
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages).toEqual([]);
+      });
+
+      it('also removes the bubble when a queue flush throws', async () => {
+        failContinue(new Error('socket closed'), true);
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).toHaveBeenCalledWith(
+          'tab-1',
+          recordedBubbleId(),
+        );
+        expect(tabsSignal()[0].messages).toEqual([]);
+      });
+
+      it('rolls nothing back when the continue is delivered', async () => {
+        failContinue({ success: true });
+
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+          tabId: 'tab-1',
+        });
+
+        expect(removeBoundary).not.toHaveBeenCalled();
+        expect(tabsSignal()[0].messages).toHaveLength(1);
+      });
+
+      it('drops the undelivered prompt from a turn that finalized before the flush failed', async () => {
+        // Accepted behaviour (TASK_2026_420 round 4, S3): the prompt never
+        // reached the backend, so it must not sit between reply parts the
+        // model produced without it. The text goes back to the queue.
+        let reachContinue!: () => void;
+        const continueReached = new Promise<void>((resolve) => {
+          reachContinue = resolve;
+        });
+        let rejectContinue!: (reason: unknown) => void;
+        rpcCall.mockImplementation((method: string): Promise<unknown> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          if (method === 'chat:continue') {
+            reachContinue();
+            return new Promise((_resolve, reject) => {
+              rejectContinue = reject;
+            });
+          }
+          return Promise.resolve({ success: true });
+        });
+
+        const pending = service.continueExistingSessionForQueueFlush(
+          'queued',
+          'sess-X',
+          { tabId: 'tab-1' },
+        );
+        await continueReached;
+
+        // The interrupted turn finalizes while `chat:continue` is in flight.
+        const bubble = tabsSignal()[0].messages[0];
+        expect(bubble.id).toBe(recordedBubbleId());
+        const before = {
+          id: 'before',
+          role: 'assistant',
+        } as ExecutionChatMessage;
+        const after = {
+          id: 'after',
+          role: 'assistant',
+        } as ExecutionChatMessage;
+        tabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === 'tab-1'
+              ? ({
+                  ...t,
+                  messages: [before, bubble, after],
+                  streamingState: null,
+                } as TabState)
+              : t,
+          ),
+        );
+
+        rejectContinue(new Error('socket closed'));
+
+        await expect(pending).resolves.toEqual(
+          expect.objectContaining({ success: false }),
+        );
+        expect(removeBoundary).toHaveBeenCalledWith('tab-1', bubble.id);
+        const messages = tabsSignal()[0].messages;
+        expect(messages.map((m) => m.id)).toEqual(['before', 'after']);
+        expect(messages[0]).toBe(before);
+        expect(messages[1]).toBe(after);
+      });
     });
 
     it('uses the options.tabId to target a non-active tab (canvas tile isolation)', async () => {

@@ -76,6 +76,48 @@ function makeNode(overrides: Partial<ExecutionNode> = {}): ExecutionNode {
   } as ExecutionNode;
 }
 
+/** A root `message_start`; `id` is the tree node id a root message builds. */
+type RootStart = { id: string; messageId: string; role: 'user' | 'assistant' };
+
+/** An SDK assistant message; its tree node id is `start-${messageId}`. */
+const assistantRoot = (messageId: string): RootStart => ({
+  id: `start-${messageId}`,
+  messageId,
+  role: 'assistant',
+});
+
+/** `recordUserPromptBoundary`'s shape: event id = messageId = bubble id. */
+const promptBoundary = (bubbleId: string): RootStart => ({
+  id: bubbleId,
+  messageId: bubbleId,
+  role: 'user',
+});
+
+/** The SDK's replay of the prompt, under the SDK's own uuid. */
+const sdkUserEcho = (uuid: string): RootStart => ({
+  id: `start-${uuid}`,
+  messageId: uuid,
+  role: 'user',
+});
+
+/** A state whose root messages are `roots`, in order. */
+function makeRootsState(
+  roots: readonly RootStart[],
+  overrides: Partial<StreamingState> = {},
+): StreamingState {
+  const eventsByMessage = new Map(
+    roots.map((root, index) => [
+      root.messageId,
+      [{ ...root, eventType: 'message_start', timestamp: index } as never],
+    ]),
+  );
+  return makeStreamingState({
+    eventsByMessage,
+    messageEventIds: roots.map((root) => root.messageId),
+    ...overrides,
+  });
+}
+
 describe('MessageFinalizationService', () => {
   let service: MessageFinalizationService;
   let tabsSignal: ReturnType<typeof signal<TabState[]>>;
@@ -282,6 +324,363 @@ describe('MessageFinalizationService', () => {
       expect(msgs[0].cost).toBe(0.12);
 
       expect(sessionManager.setStatus).toHaveBeenCalledWith('loaded');
+    });
+
+    /**
+     * Finalized ids for the turn — the anchors only exist in the state's root
+     * messages, since user roots are not tree output.
+     */
+    const finalizedIds = (): string[] => {
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      return msgs.map((m) => m.id);
+    };
+
+    it('keeps the part of a turn that ran before a mid-turn prompt above it', () => {
+      const prompt = {
+        id: 'user-mid-turn',
+        role: 'user',
+        rawContent: 'follow-up',
+      } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-before', type: 'message' }),
+        makeNode({ id: 'start-msg-after', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [prompt],
+          streamingState: makeRootsState(
+            [
+              assistantRoot('msg-before'),
+              promptBoundary('user-mid-turn'),
+              assistantRoot('msg-after'),
+            ],
+            {
+              currentMessageId: 'msg-after',
+              pendingStats: {
+                tokens: { input: 1, output: 2 },
+                cost: 0.01,
+                duration: 10,
+              },
+            },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs.map((m) => m.id)).toEqual([
+        'start-msg-before',
+        'user-mid-turn',
+        'start-msg-after',
+      ]);
+      expect(msgs[1]).toBe(prompt);
+      expect(msgs[0].tokens).toBeUndefined();
+      expect(msgs[2].tokens).toEqual({ input: 1, output: 2 });
+    });
+
+    it('places the turn once around a prompt the boundary AND the SDK echo both mark', () => {
+      // The boundary anchors by the bubble's id. The echo root carries the
+      // SDK's own uuid — stamped onto the bubble as `nativeUuid` — and is
+      // skipped: it is neither an anchor nor a second copy of the prompt.
+      const prompt = {
+        id: 'user-bubble',
+        role: 'user',
+        nativeUuid: 'sdk-user-uuid',
+      } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-before', type: 'message' }),
+        makeNode({ id: 'start-msg-after', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [prompt],
+          streamingState: makeRootsState(
+            [
+              assistantRoot('msg-before'),
+              promptBoundary('user-bubble'),
+              sdkUserEcho('sdk-user-uuid'),
+              assistantRoot('msg-after'),
+            ],
+            { currentMessageId: 'msg-after' },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(finalizedIds()).toEqual([
+        'start-msg-before',
+        'user-bubble',
+        'start-msg-after',
+      ]);
+    });
+
+    it('never anchors on the SDK echo through a stamped nativeUuid', () => {
+      // No boundary: the echo root matches the bubble only by `nativeUuid`,
+      // which is not an anchor, so the turn is the plain append.
+      const earlier = {
+        id: 'earlier',
+        role: 'assistant',
+      } as ExecutionChatMessage;
+      const prompt = {
+        id: 'user-bubble',
+        role: 'user',
+        nativeUuid: 'sdk-user-uuid',
+      } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-before', type: 'message' }),
+        makeNode({ id: 'start-msg-after', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [earlier, prompt],
+          streamingState: makeRootsState(
+            [
+              assistantRoot('msg-before'),
+              sdkUserEcho('sdk-user-uuid'),
+              assistantRoot('msg-after'),
+            ],
+            { currentMessageId: 'msg-after' },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(finalizedIds()).toEqual([
+        'earlier',
+        'user-bubble',
+        'start-msg-before',
+        'start-msg-after',
+      ]);
+    });
+
+    it('appends the reply after its own prompt when the echo uuid was stamped on an older failed bubble (R1)', () => {
+      // A failed direct send keeps its bubble and appends a failure notice.
+      // The retry's SDK echo is then stamped onto the OLDEST unstamped bubble —
+      // the failed one — by `reconcileUserMessageNativeUuid`.
+      const earlier = {
+        id: 'earlier',
+        role: 'assistant',
+      } as ExecutionChatMessage;
+      const failedPrompt = {
+        id: 'msg_1_failed',
+        role: 'user',
+        nativeUuid: 'sdk-user-uuid',
+      } as ExecutionChatMessage;
+      const failureNotice = {
+        id: 'notice',
+        role: 'assistant',
+      } as ExecutionChatMessage;
+      const retryPrompt = {
+        id: 'msg_2_retry',
+        role: 'user',
+      } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-reply', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [earlier, failedPrompt, failureNotice, retryPrompt],
+          streamingState: makeRootsState(
+            [sdkUserEcho('sdk-user-uuid'), assistantRoot('msg-reply')],
+            {
+              currentMessageId: 'msg-reply',
+              pendingStats: {
+                tokens: { input: 5, output: 8 },
+                cost: 0.04,
+                duration: 40,
+              },
+            },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs.map((m) => m.id)).toEqual([
+        'earlier',
+        'msg_1_failed',
+        'notice',
+        'msg_2_retry',
+        'start-msg-reply',
+      ]);
+      expect(msgs[4].tokens).toEqual({ input: 5, output: 8 });
+    });
+
+    it('splits one turn around two prompts sent mid-turn, in root order', () => {
+      const msg0 = { id: 'msg0', role: 'assistant' } as ExecutionChatMessage;
+      const promptA = { id: 'prompt-a', role: 'user' } as ExecutionChatMessage;
+      const promptB = { id: 'prompt-b', role: 'user' } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-before', type: 'message' }),
+        makeNode({ id: 'start-msg-mid', type: 'message' }),
+        makeNode({ id: 'start-msg-after', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [msg0, promptA, promptB],
+          streamingState: makeRootsState(
+            [
+              assistantRoot('msg-before'),
+              promptBoundary('prompt-a'),
+              assistantRoot('msg-mid'),
+              promptBoundary('prompt-b'),
+              assistantRoot('msg-after'),
+            ],
+            {
+              currentMessageId: 'msg-after',
+              pendingStats: {
+                tokens: { input: 6, output: 9 },
+                cost: 0.05,
+                duration: 50,
+              },
+            },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs.map((m) => m.id)).toEqual([
+        'msg0',
+        'start-msg-before',
+        'prompt-a',
+        'start-msg-mid',
+        'prompt-b',
+        'start-msg-after',
+      ]);
+      expect(msgs[1].tokens).toBeUndefined();
+      expect(msgs[3].tokens).toBeUndefined();
+      expect(msgs[5].tokens).toEqual({ input: 6, output: 9 });
+    });
+
+    it('gives a message merged into an earlier node no slot of its own', () => {
+      const prompt = {
+        id: 'user-bubble',
+        role: 'user',
+      } as ExecutionChatMessage;
+      // `msg-a2` merged into `msg-a1`'s node, so the tree has no node for it.
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-a1', type: 'message' }),
+        makeNode({ id: 'start-msg-a3', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [prompt],
+          streamingState: makeRootsState(
+            [
+              assistantRoot('msg-a1'),
+              assistantRoot('msg-a2'),
+              promptBoundary('user-bubble'),
+              assistantRoot('msg-a3'),
+            ],
+            { currentMessageId: 'msg-a3' },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(finalizedIds()).toEqual([
+        'start-msg-a1',
+        'user-bubble',
+        'start-msg-a3',
+      ]);
+    });
+
+    it('puts the stats on the last new message when the turn ends on the prompt', () => {
+      const prompt = { id: 'user-last', role: 'user' } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-msg-answer', type: 'message' }),
+      ]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [prompt],
+          streamingState: makeRootsState(
+            [assistantRoot('msg-answer'), promptBoundary('user-last')],
+            {
+              currentMessageId: 'msg-answer',
+              pendingStats: {
+                tokens: { input: 4, output: 6 },
+                cost: 0.02,
+                duration: 20,
+              },
+            },
+          ),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs.map((m) => m.id)).toEqual(['start-msg-answer', 'user-last']);
+      expect(msgs[0].tokens).toEqual({ input: 4, output: 6 });
+    });
+
+    it('settles a tree holding only a prompt boundary like an empty tree', () => {
+      // The prompt is the last message, so the empty-tree stats fold (last
+      // message must be an assistant) never applied here either: no message
+      // is minted and the streaming state is cleared.
+      const answer = {
+        id: 'answer',
+        role: 'assistant',
+      } as ExecutionChatMessage;
+      const prompt = { id: 'user-bg', role: 'user' } as ExecutionChatMessage;
+      // A user root is not tree output, so a boundary-only state builds [].
+      treeBuilder.buildTree.mockReturnValue([]);
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          messages: [answer, prompt],
+          streamingState: makeRootsState([promptBoundary('user-bg')], {
+            currentMessageId: 'msg-subagent',
+            pendingStats: {
+              tokens: { input: 7, output: 9 },
+              cost: 0.03,
+              duration: 30,
+            },
+          }),
+        }),
+      ]);
+      activeTabIdSignal.set('tab-1');
+
+      service.finalizeCurrentMessage();
+
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
+      expect(tabManager.clearStreamingForLoaded).toHaveBeenCalledWith('tab-1');
     });
 
     it('does not mint an empty assistant message when the tree has no root', () => {
