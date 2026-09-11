@@ -1,10 +1,10 @@
-import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   isPathWithinRoots,
   type EditorTarget,
   type IEditorLauncher,
+  type IFileSystemProvider,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
@@ -22,6 +22,7 @@ import {
   EditorOpenFileParamsSchema,
   EditorOpenWorkspaceParamsSchema,
 } from './editor-rpc.schema';
+import { resolveWorkspaceFilePath } from './workspace-file-path';
 
 @injectable()
 export class EditorRpcHandlers {
@@ -38,6 +39,8 @@ export class EditorRpcHandlers {
     private readonly launcher: IEditorLauncher,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystem: IFileSystemProvider,
   ) {}
 
   register(): void {
@@ -77,12 +80,14 @@ export class EditorRpcHandlers {
         error:
           parsed.error.issues[0]?.message ?? 'Invalid editor:openFile params',
       };
-    const filePath = path.resolve(parsed.data.path);
-    if (!isPathWithinRoots(filePath, this.workspace.getWorkspaceFolders())) {
-      return { success: false, error: 'Path is outside the workspace' };
-    }
+    const resolved = await resolveWorkspaceFilePath(
+      parsed.data,
+      this.workspace.getWorkspaceFolders(),
+      this.fileSystem,
+    );
+    if (!resolved.success) return resolved;
     return this.openDetected(parsed.data.target, (target) =>
-      this.launcher.openFile(target, filePath, parsed.data.line),
+      this.launcher.openFile(target, resolved.path, parsed.data.line),
     );
   }
 
@@ -95,7 +100,7 @@ export class EditorRpcHandlers {
           parsed.error.issues[0]?.message ??
           'Invalid editor:openWorkspace params',
       };
-    const root = path.resolve(parsed.data.root);
+    const root = parsed.data.root;
     if (!isPathWithinRoots(root, this.workspace.getWorkspaceFolders())) {
       return {
         success: false,

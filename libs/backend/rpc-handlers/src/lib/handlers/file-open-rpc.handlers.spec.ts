@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
+import { FileType } from '@ptah-extension/platform-core';
 
 type RpcMethod = (params?: unknown) => unknown;
 
@@ -42,6 +43,14 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
       } as never,
       { notifyFileOpened },
       launcher as never,
+      {
+        stat: async () => ({
+          type: FileType.File,
+          ctime: 0,
+          mtime: 0,
+          size: 1,
+        }),
+      } as never,
     ).register();
     const method = methods.get('file:open');
     if (!method) throw new Error('file:open was not registered');
@@ -62,11 +71,27 @@ describe('ElectronFileOpenRpcHandlers - file:open through IEditorLauncher', () =
     await expect(method({ path: 'C:\\ws\\a.ts' })).resolves.toEqual({
       success: true,
     });
+    expect(openFile).toHaveBeenCalledWith(vscode, 'C:\\ws\\a.ts', undefined);
+  });
+
+  it('resolves a relative path from a registered workspace, independent of cwd', async () => {
+    const { method, openFile } = build();
+    await expect(
+      method({ path: 'src/a.ts', workspaceRoot: 'C:/ws' }),
+    ).resolves.toEqual({ success: true });
     expect(openFile).toHaveBeenCalledWith(
       vscode,
-      'C:\\ws\\a.ts',
+      expect.stringMatching(/C:[\\/]ws[\\/]src[\\/]a\.ts$/i),
       undefined,
     );
+  });
+
+  it('rejects relative paths without a registered root', async () => {
+    const { method, openFile } = build();
+    await expect(method({ path: 'src/a.ts' })).resolves.toMatchObject({
+      success: false,
+    });
+    expect(openFile).not.toHaveBeenCalled();
   });
 
   it('uses a detected remembered target', async () => {

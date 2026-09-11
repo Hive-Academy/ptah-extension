@@ -21,9 +21,7 @@ describe('CliEditorLauncher', () => {
           id: 'vscode',
           displayName: 'VS Code',
           command: 'code',
-          installCandidates: [
-            { kind: 'executable', path: '/editors/code' },
-          ],
+          installCandidates: [{ kind: 'executable', path: '/editors/code' }],
         },
       ],
       stat: jest.fn(async () => ({
@@ -45,6 +43,18 @@ describe('CliEditorLauncher', () => {
         command: executable,
         args: ['-g', `${filePath}:8`],
       }),
+    );
+  });
+
+  it('launches a verified Kiro target with argv', async () => {
+    const launcher = new CliEditorLauncher({ spawnProcess } as never);
+    const filePath = path.resolve('workspace/file.ts');
+    await launcher.openFile(
+      { id: 'kiro', displayName: 'Kiro', executablePath: executable },
+      filePath,
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({ command: executable, args: ['-g', filePath] }),
     );
   });
 

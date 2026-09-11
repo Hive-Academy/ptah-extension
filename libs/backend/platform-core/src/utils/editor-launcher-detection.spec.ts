@@ -172,7 +172,32 @@ describe('editor process launch', () => {
         command: 'antigravity',
       },
       { id: 'zed', displayName: 'Zed', command: 'zed' },
+      { id: 'kiro', displayName: 'Kiro', command: 'kiro' },
     ]);
+  });
+
+  it('detects Kiro from PATH and has no inferred install candidates', async () => {
+    const definitions = createExecutableEditorDefinitions(
+      'linux',
+      {},
+      '/home/ptah',
+    );
+    const kiro = definitions.find(({ id }) => id === 'kiro');
+    expect(kiro?.installCandidates).toEqual([]);
+    await expect(
+      detectEditorTargets(definitions, {
+        env: { PATH: '/tools' },
+        platform: 'linux',
+        stat: jest.fn(async (candidate: string) => {
+          if (candidate !== '/tools/kiro') throw new Error('ENOENT');
+          return { isFile: () => true, mode: 0o755 };
+        }),
+      }),
+    ).resolves.toContainEqual({
+      id: 'kiro',
+      displayName: 'Kiro',
+      executablePath: '/tools/kiro',
+    });
   });
 
   it('builds conventional Windows candidates from environment and defaults', () => {

@@ -126,6 +126,8 @@ export interface FileOpenParams {
   path: string;
   /** Optional line number to navigate to */
   line?: number;
+  /** Registered workspace used to resolve a relative path. */
+  workspaceRoot?: string;
 }
 
 /** Response from file:open RPC method */

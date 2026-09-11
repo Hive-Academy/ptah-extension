@@ -42,7 +42,12 @@ export interface SessionMetadataChangedNotification {
   workspaceId: string;
 }
 
-export type EditorTargetId = 'vscode' | 'cursor' | 'antigravity' | 'zed';
+export type EditorTargetId =
+  | 'vscode'
+  | 'cursor'
+  | 'antigravity'
+  | 'zed'
+  | 'kiro';
 
 /** Wire-safe projection of a detected editor target. */
 export interface EditorTarget {
@@ -62,6 +67,7 @@ export interface EditorOpenFileParams {
   target: EditorTargetId;
   path: string;
   line?: number;
+  workspaceRoot?: string;
 }
 
 export interface EditorOpenWorkspaceParams {

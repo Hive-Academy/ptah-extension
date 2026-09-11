@@ -18,6 +18,60 @@ export interface GitFileStatus {
    * against this path at HEAD, not against `path`.
    */
   origPath?: string;
+  /** Text line additions, or null when Git cannot calculate them. */
+  additions?: number | null;
+  /** Text line deletions, or null when Git cannot calculate them. */
+  deletions?: number | null;
+  /** True when Git reports binary numstat markers for this change. */
+  binary?: boolean;
+}
+
+/** Parameters for a read-only merge-base-to-head branch review. */
+export interface GitReviewChangesParams extends GitWorkspaceScopedParams {
+  base: string;
+  head: string;
+}
+
+export interface GitResolvedReviewRef {
+  name: string;
+  sha: string;
+}
+
+export interface GitReviewFile {
+  path: string;
+  originalPath?: string;
+  status: 'M' | 'A' | 'D' | 'R' | 'C';
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+}
+
+export interface GitReviewChangesResult {
+  success: boolean;
+  base?: GitResolvedReviewRef;
+  head?: GitResolvedReviewRef;
+  mergeBaseSha?: string;
+  files: GitReviewFile[];
+  totals: { additions: number; deletions: number; binaryFiles: number };
+  error?: string;
+}
+
+export interface GitReviewFileParams extends GitWorkspaceScopedParams {
+  baseSha: string;
+  headSha: string;
+  path: string;
+  originalPath?: string;
+}
+
+export interface GitReviewFileResult {
+  success: boolean;
+  path: string;
+  originalPath: string;
+  baseSha: string;
+  headSha: string;
+  original: GitBlobRead;
+  modified: GitBlobRead;
+  error?: string;
 }
 
 /** Branch ahead/behind information */

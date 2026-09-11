@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { EditorRpcHandlers } from './editor-rpc.handlers';
+import { FileType } from '@ptah-extension/platform-core';
 
 describe('EditorRpcHandlers', () => {
   const target = {
@@ -23,6 +24,14 @@ describe('EditorRpcHandlers', () => {
       } as never,
       { detect, openFile, openWorkspace },
       { getWorkspaceFolders: () => ['/workspace'] } as never,
+      {
+        stat: async () => ({
+          type: FileType.File,
+          ctime: 0,
+          mtime: 0,
+          size: 1,
+        }),
+      } as never,
     ).register();
   });
 
@@ -45,6 +54,19 @@ describe('EditorRpcHandlers', () => {
       target,
       expect.stringContaining('workspace'),
       3,
+    );
+  });
+
+  it('resolves a relative file against its explicit registered root', async () => {
+    await methods.get('editor:openFile')?.({
+      target: 'cursor',
+      workspaceRoot: '/workspace',
+      path: 'src/a.ts',
+    });
+    expect(openFile).toHaveBeenCalledWith(
+      target,
+      expect.stringMatching(/workspace[\\/]src[\\/]a\.ts$/),
+      undefined,
     );
   });
 

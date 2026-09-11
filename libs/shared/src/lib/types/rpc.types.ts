@@ -284,6 +284,10 @@ import type {
 import type {
   GitInfoParams,
   GitInfoResult,
+  GitReviewChangesParams,
+  GitReviewChangesResult,
+  GitReviewFileParams,
+  GitReviewFileResult,
   GitWorktreesParams,
   GitWorktreesResult,
   GitAddWorktreeParams,
@@ -1417,6 +1421,14 @@ export interface RpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:reviewChanges': {
+    params: GitReviewChangesParams;
+    result: GitReviewChangesResult;
+  };
+  'git:reviewFile': {
+    params: GitReviewFileParams;
+    result: GitReviewFileResult;
+  };
   'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
   'git:addWorktree': {
     params: GitAddWorktreeParams;
@@ -3487,6 +3499,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:reviewChanges': true,
+  'git:reviewFile': true,
   'git:worktrees': true,
   'git:addWorktree': true,
   'git:removeWorktree': true,

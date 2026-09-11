@@ -1,5 +1,10 @@
 /** Stable identifiers understood by every editor-launcher adapter. */
-export type EditorTargetId = 'vscode' | 'cursor' | 'antigravity' | 'zed';
+export type EditorTargetId =
+  | 'vscode'
+  | 'cursor'
+  | 'antigravity'
+  | 'zed'
+  | 'kiro';
 
 /**
  * A detected editor and the concrete executable path that proved it exists.

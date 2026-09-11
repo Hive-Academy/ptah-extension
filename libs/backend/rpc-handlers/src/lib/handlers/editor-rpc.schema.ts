@@ -5,6 +5,7 @@ export const EditorTargetIdSchema = z.enum([
   'cursor',
   'antigravity',
   'zed',
+  'kiro',
 ]);
 
 export const EditorDetectTargetsParamsSchema = z.object({}).strict();
@@ -14,6 +15,7 @@ export const EditorOpenFileParamsSchema = z
     target: EditorTargetIdSchema,
     path: z.string().min(1),
     line: z.number().int().positive().optional(),
+    workspaceRoot: z.string().min(1).max(4096).optional(),
   })
   .strict();
 

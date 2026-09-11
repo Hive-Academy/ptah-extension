@@ -33,6 +33,7 @@ export const EDITOR_DESCRIPTORS = [
     command: 'antigravity',
   },
   { id: 'zed', displayName: 'Zed', command: 'zed' },
+  { id: 'kiro', displayName: 'Kiro', command: 'kiro' },
 ] as const satisfies readonly EditorDescriptor[];
 
 export interface EditorDetectionOptions {
@@ -61,6 +62,7 @@ const EDITOR_APP_NAMES: Readonly<Record<EditorTargetId, string>> = {
   cursor: 'Cursor',
   antigravity: 'Antigravity',
   zed: 'Zed',
+  kiro: 'Kiro',
 };
 
 /** Return conventional executable locations for an editor on the host OS. */
@@ -70,6 +72,9 @@ export function editorExecutableCandidates(
   env: Readonly<Record<string, string | undefined>>,
   homeDir: string,
 ): readonly string[] {
+  // Kiro documents the `kiro` shell command. Installer locations are not
+  // treated as stable public API, so detection is PATH-only.
+  if (id === 'kiro') return [];
   const command = id === 'vscode' ? 'code' : id;
   const appName =
     id === 'vscode' && platform === 'win32'

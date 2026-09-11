@@ -73,4 +73,23 @@ describe('VscodeEditorLauncher', () => {
       }),
     );
   });
+
+  it('uses the argv spawner for Kiro', async () => {
+    const launcher = new VscodeEditorLauncher(
+      { spawnProcess } as never,
+      vscodeApi,
+    );
+    const filePath = path.resolve('workspace/a.ts');
+    await launcher.openFile(
+      {
+        id: 'kiro',
+        displayName: 'Kiro',
+        executablePath: path.resolve('editors/kiro'),
+      },
+      filePath,
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['-g', filePath] }),
+    );
+  });
 });
