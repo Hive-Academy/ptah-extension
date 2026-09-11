@@ -23,10 +23,13 @@ export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
   SessionMetadataStore,
   flushSessionMetadataStores,
+  SESSION_METADATA_MIGRATION,
+  SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
+  TaggedAgentOutputItem,
 } from './lib/session-metadata-store';
 export { SessionImporterService } from './lib/session-importer.service';
 export {

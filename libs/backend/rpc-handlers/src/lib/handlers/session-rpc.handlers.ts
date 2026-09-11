@@ -41,6 +41,8 @@ import {
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionStatsEntry,
+  SessionCliOutputPageParams,
+  SessionCliOutputPageResult,
   SessionForkParams,
   SessionForkResult,
   SessionRewindParams,
@@ -62,6 +64,10 @@ import type {
   SessionStatusParams,
   SessionStatusResponse,
 } from '@ptah-extension/shared';
+import {
+  SessionCliOutputPageParamsSchema,
+  SessionCliSessionsParamsSchema,
+} from './session-rpc.schema';
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -98,6 +104,7 @@ export class SessionRpcHandlers {
     'session:rename',
     'session:validate',
     'session:cli-sessions',
+    'session:cli-output-page',
     'session:stats-batch',
     'session:forkSession',
     'session:rewindFiles',
@@ -264,6 +271,7 @@ export class SessionRpcHandlers {
     this.registerSessionRename();
     this.registerSessionValidate();
     this.registerSessionCliSessions();
+    this.registerSessionCliOutputPage();
     this.registerSessionStatsBatch();
     this.registerForkSession();
     this.registerRewindFiles();
@@ -277,6 +285,7 @@ export class SessionRpcHandlers {
         'session:rename',
         'session:validate',
         'session:cli-sessions',
+        'session:cli-output-page',
         'session:stats-batch',
         'session:forkSession',
         'session:rewindFiles',
@@ -742,7 +751,8 @@ export class SessionRpcHandlers {
       { cliSessions: CliSessionReference[] }
     >('session:cli-sessions', async (params: { sessionId: string }) => {
       try {
-        const sessionId = this.validateSessionId(params.sessionId);
+        const parsed = SessionCliSessionsParamsSchema.parse(params);
+        const sessionId = this.validateSessionId(parsed.sessionId);
         await this.authorizeSessionAccess(sessionId);
         // Returned unfiltered — this must agree with the `cliSessions` payload
         // of `chat:resume`, which is the other restore path. An earlier filter
@@ -751,9 +761,10 @@ export class SessionRpcHandlers {
         // hid legitimate MCP-spawned ptah-cli agents (the tribunal's panelists),
         // so their cards never came back on reopen.
         //
-        // `getCliSessionsForRestore` rehydrates each ref's full segments and
-        // stream events from its per-agent key (TASK_2026_323 B5) — the
-        // session blob itself carries only a 200-segment tail.
+        // `getCliSessionsForRestore` returns lean references with no segments
+        // or stream events (TASK_2026_411). Historical output stays in each
+        // agent's per-agent key and is fetched in bounded pages through
+        // `session:cli-output-page`.
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
@@ -771,6 +782,29 @@ export class SessionRpcHandlers {
         );
         return { cliSessions: [] };
       }
+    });
+  }
+
+  private registerSessionCliOutputPage(): void {
+    this.rpcHandler.registerMethod<
+      SessionCliOutputPageParams,
+      SessionCliOutputPageResult
+    >('session:cli-output-page', async (params) => {
+      const parsed = SessionCliOutputPageParamsSchema.parse(params);
+      const sessionId = this.validateSessionId(parsed.sessionId);
+      await this.authorizeSessionAccess(sessionId);
+      const metadata = await this.metadataStore.get(sessionId);
+      if (!metadata?.cliSessions?.some((ref) => ref.agentId === parsed.agentId)) {
+        throw new RpcUserError(
+          'Agent output is not referenced by this session',
+          'INVALID_PARAMS',
+        );
+      }
+      return await this.metadataStore.getAgentOutputPage(
+        parsed.agentId,
+        parsed.cursor,
+        parsed.maxBytes,
+      );
     });
   }
 

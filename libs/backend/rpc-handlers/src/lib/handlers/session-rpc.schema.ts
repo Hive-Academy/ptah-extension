@@ -15,4 +15,17 @@
  * handler and tests), those schemas belong here.
  */
 
-export {};
+import { z } from 'zod';
+
+export const SessionCliSessionsParamsSchema = z
+  .object({ sessionId: z.string().min(1) })
+  .strict();
+
+export const SessionCliOutputPageParamsSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    agentId: z.string().trim().min(1).max(4096),
+    cursor: z.string().min(1).max(4096).optional(),
+    maxBytes: z.number().int().min(1024).max(256 * 1024).optional(),
+  })
+  .strict();

@@ -110,7 +110,12 @@ import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.
 type MockMetadataStore = jest.Mocked<
   Pick<
     SessionMetadataStore,
-    'get' | 'getForWorkspace' | 'delete' | 'rename' | 'getCliSessionsForRestore'
+    | 'get'
+    | 'getForWorkspace'
+    | 'delete'
+    | 'rename'
+    | 'getCliSessionsForRestore'
+    | 'getAgentOutputPage'
   >
 >;
 
@@ -118,6 +123,9 @@ function createMockMetadataStore(): MockMetadataStore {
   return {
     get: jest.fn(),
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+    getAgentOutputPage: jest
+      .fn()
+      .mockResolvedValue({ items: [], nextCursor: null, done: true }),
     getForWorkspace: jest.fn().mockResolvedValue([]),
     delete: jest.fn().mockResolvedValue(undefined),
     rename: jest.fn().mockResolvedValue(undefined),
@@ -348,6 +356,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
+          'session:cli-output-page',
           'session:cli-sessions',
           'session:delete',
           'session:forkSession',
@@ -1170,8 +1179,8 @@ describe('SessionRpcHandlers', () => {
       const codex = { cli: 'codex' } as CliSessionReference;
 
       // `get` still backs the authorization check; the refs themselves come
-      // through `getCliSessionsForRestore`, which rehydrates per-agent output
-      // onto them (TASK_2026_323 B5).
+      // through `getCliSessionsForRestore`, which returns them lean; output is
+      // paged separately through `session:cli-output-page` (TASK_2026_411).
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
           sessionId: VALID_SESSION_ID,
@@ -1213,6 +1222,115 @@ describe('SessionRpcHandlers', () => {
 
       expect(result.cliSessions).toEqual([]);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:cli-output-page
+  // -------------------------------------------------------------------------
+
+  describe('session:cli-output-page', () => {
+    const AGENT_ID = 'agent-output-1';
+    const authorizedMetadata = makeMetadata({
+      sessionId: VALID_SESSION_ID,
+      workspaceId: WORKSPACE,
+      cliSessions: [
+        { agentId: AGENT_ID, cli: 'codex' } as CliSessionReference,
+      ],
+    });
+
+    it('authorizes the session and forwards cursor and maxBytes exactly', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockResolvedValue({
+        items: [],
+        nextCursor: 'next-2',
+        done: false,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        items: readonly unknown[];
+        nextCursor: string | null;
+        done: boolean;
+      }>(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        cursor: 'cursor-1',
+        maxBytes: 32 * 1024,
+      });
+
+      expect(h.metadataStore.getAgentOutputPage).toHaveBeenCalledWith(
+        AGENT_ID,
+        'cursor-1',
+        32 * 1024,
+      );
+      expect(result).toEqual({ items: [], nextCursor: 'next-2', done: false });
+    });
+
+    it('rejects a session outside the active workspace before reading output', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/not/authorized',
+          cliSessions: authorizedMetadata.cliSessions,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: AGENT_ID,
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('rejects output not referenced by the authorized session', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:cli-output-page', {
+        sessionId: VALID_SESSION_ID,
+        agentId: 'agent-not-in-session',
+        maxBytes: 4096,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.metadataStore.getAgentOutputPage).not.toHaveBeenCalled();
+    });
+
+    it('keeps the actual serialized RpcHandler success envelope bounded', async () => {
+      const h = makeHarness();
+      const content = '界'.repeat(80_000);
+      h.metadataStore.get.mockResolvedValue(authorizedMetadata as never);
+      h.metadataStore.getAgentOutputPage.mockResolvedValue({
+        items: [{ tag: 'segment', value: { type: 'text', content } }],
+        nextCursor: '1',
+        done: false,
+      });
+      h.handlers.register();
+
+      const correlationId = '0'.repeat(64);
+      const response = await h.rpcHandler.handleMessage({
+        method: 'session:cli-output-page',
+        params: {
+          sessionId: VALID_SESSION_ID,
+          agentId: AGENT_ID,
+          maxBytes: 256 * 1024,
+        },
+        correlationId,
+      });
+
+      expect(response.success).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(response), 'utf8')).toBeLessThanOrEqual(
+        256 * 1024,
+      );
     });
   });
 

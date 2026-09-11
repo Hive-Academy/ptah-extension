@@ -88,6 +88,8 @@ import type {
   SessionValidateResult,
   SessionCliSessionsParams,
   SessionCliSessionsResult,
+  SessionCliOutputPageParams,
+  SessionCliOutputPageResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionForkParams,
@@ -649,6 +651,10 @@ export interface RpcMethodRegistry {
   'session:cli-sessions': {
     params: SessionCliSessionsParams;
     result: SessionCliSessionsResult;
+  };
+  'session:cli-output-page': {
+    params: SessionCliOutputPageParams;
+    result: SessionCliOutputPageResult;
   };
   'session:stats-batch': {
     params: SessionStatsBatchParams;
@@ -3325,6 +3331,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:rename': true,
   'session:validate': true,
   'session:cli-sessions': true,
+  'session:cli-output-page': true,
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,

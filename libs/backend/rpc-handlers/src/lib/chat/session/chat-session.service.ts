@@ -819,8 +819,10 @@ export class ChatSessionService {
         this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
-        // Rehydrates full agent output from the per-agent keys (TASK_2026_323
-        // B5); must agree with `session:cli-sessions`, the other restore path.
+        // Lean references only (TASK_2026_411): no segments or stream events.
+        // The webview fetches each agent's output in bounded pages through
+        // `session:cli-output-page`. Must agree with `session:cli-sessions`,
+        // the other restore path.
         const restored =
           await this.sessionMetadataStore.getCliSessionsForRestore(sessionId);
         if (restored.length > 0) {

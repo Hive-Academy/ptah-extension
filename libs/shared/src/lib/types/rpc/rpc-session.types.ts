@@ -7,6 +7,8 @@
 
 import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary, SessionTurnState } from '../execution';
+import type { CliOutputSegment } from '../agent-process.types';
+import type { FlatStreamEventUnion } from '../execution';
 import type {
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
@@ -151,8 +153,25 @@ export interface SessionCliSessionsParams {
 
 /** Response from session:cli-sessions RPC method */
 export interface SessionCliSessionsResult {
-  /** CLI session references from session metadata */
+  /** Lean references only. Historical output is fetched page-by-page. */
   cliSessions: import('../agent-process.types').CliSessionReference[];
+}
+
+export interface SessionCliOutputPageParams {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly cursor?: string;
+  readonly maxBytes?: number;
+}
+
+export type SessionCliOutputPageItem =
+  | { readonly tag: 'segment'; readonly value: CliOutputSegment }
+  | { readonly tag: 'streamEvent'; readonly value: FlatStreamEventUnion };
+
+export interface SessionCliOutputPageResult {
+  readonly items: readonly SessionCliOutputPageItem[];
+  readonly nextCursor: string | null;
+  readonly done: boolean;
 }
 
 /** Per-session stats returned from JSONL reading */
